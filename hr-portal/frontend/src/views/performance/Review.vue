@@ -4,8 +4,11 @@
       <h1>我的绩效结果</h1>
       <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
       <div v-else-if="resultError" role="alert">{{ resultError }}</div>
-      <div v-else-if="!myResults.length">暂无可查看的绩效结果</div>
-      <ul v-else><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
+      <template v-else>
+        <div v-if="!myResults.length && !myResultContents.length">暂无可查看的绩效结果</div>
+        <ul v-if="myResults.length"><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
+        <PerformanceTemplateRenderer v-for="content in myResultContents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
+      </template>
     </section>
     <template v-else>
     <PerformanceReviewCategorySidebar
@@ -52,7 +55,9 @@ import {
   type PerformanceReviewMemberContext,
   type PerformanceReviewNode,
   type PerformanceReviewOverview,
+  type SelfSummarySection,
 } from '@/api/performance'
+import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
@@ -70,16 +75,20 @@ const selectedNodeId = ref(String(route.query.node || projectContext.selectedRev
 const loading = ref(true)
 const error = ref('')
 const myResults = ref<Array<{ task_id: number; field_id: string; option_id: string; label: string }>>([])
+const myResultContents = ref<Array<{ task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }>>([])
 const resultLoading = ref(false)
 const resultError = ref('')
 async function loadMyResults() {
-  if (!activeProjectId.value) { myResults.value = []; return }
+  if (!activeProjectId.value) { myResults.value = []; myResultContents.value = []; return }
   resultLoading.value = true
   resultError.value = ''
   try {
-    myResults.value = (await projectManagementApi.myResults(activeProjectId.value)).results
+    const response = await projectManagementApi.myResults(activeProjectId.value)
+    myResults.value = response.results
+    myResultContents.value = response.contents || []
   } catch {
     myResults.value = []
+    myResultContents.value = []
     resultError.value = '当前结果尚未开通或不可查看'
   } finally {
     resultLoading.value = false

@@ -10,7 +10,7 @@ import PerformanceDragHandle from './PerformanceDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
-import { getItemSettingsVariant, getRootSettingsCapabilities } from './performanceContentSettingsRules'
+import { getItemSettingsVariant, getRootSettingsCapabilities, supportsEvaluationView } from './performanceContentSettingsRules'
 
 const props = defineProps<{
   content: AssessmentContentDraft & { id: string }
@@ -39,16 +39,37 @@ const emit = defineEmits<{
   edit: []
   delete: []
   'hover-change': [hovered: boolean]
+  'settings-visibility': [visible: boolean]
 }>()
 
 const previewContent = computed(() => ({ ...props.content, settings: { ...props.content.settings, ...(props.rootSettingsEnabled ? props.rootSettings : {}) } }))
 const rootCapabilities = computed(() => getRootSettingsCapabilities(props.content))
 const owner = ref<'root' | 'item'>('root')
 const selectedItemId = ref<string | null>(null)
-const itemSettingsVariant = computed(() => getItemSettingsVariant(props.content, props.content.items.find((item) => item.id === selectedItemId.value)))
+const itemSettingsVariant = computed(() => {
+  if (props.itemSettingsVariant === 'evaluation-item') {
+    const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
+    const questionType = item?.questionType || props.content.questionType || 'text'
+    return props.content.type === 'work_summary' ? 'evaluation-work-summary' : questionType === 'tag' && supportsEvaluationView(props.content, item) ? 'evaluation-custom-tag' : getItemSettingsVariant(props.content, item)
+  }
+  if (props.itemSettingsVariant === 'result-view-item') {
+    const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
+    return getItemSettingsVariant(props.content, item) === 'custom-tag' ? 'result-view-tag' : 'result-view-item'
+  }
+  return getItemSettingsVariant(props.content, props.content.items.find((item) => item.id === selectedItemId.value))
+})
 const selectedItemKey = computed(() => props.active && owner.value === 'item' && selectedItemId.value ? `${props.content.id}:${selectedItemId.value}` : null)
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
-const rendererItemSettings = computed(() => props.itemSettingsEnabled ? Object.fromEntries(props.content.items.map((item) => [item.id, props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }])) : {})
+const itemSettingsAvailable = (item?: { questionType?: 'text' | 'tag' }) => Boolean(props.itemSettingsEnabled)
+  && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationView(props.content, item))
+  && (props.itemSettingsVariant !== 'result-view-item' || getItemSettingsVariant(props.content, item) === 'custom-tag')
+const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value)))
+const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => itemSettingsAvailable(item)).map((item) => {
+  const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
+  return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: settings.allowView === false ? 'hidden' : 'fill', required: false } : settings]
+})))
+
+watch(() => props.active && (owner.value === 'root' ? Boolean(props.rootSettingsEnabled) : selectedItemSettingsEnabled.value), visible => emit('settings-visibility', visible), { immediate: true })
 
 watch(() => props.active, (active) => {
   if (!active) selectedItemId.value = null
@@ -114,7 +135,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     <PerformanceAddAnotherButton v-if="rootSettingsEnabled && rootSettings.allowMultiple" class="configured-content-card__add-item" />
   </PerformanceContentSelectionFrame>
 
-  <div v-if="active && (owner === 'root' ? rootSettingsEnabled : itemSettingsEnabled)" class="configured-content-settings">
+  <div v-if="active && (owner === 'root' ? rootSettingsEnabled : selectedItemSettingsEnabled)" class="configured-content-settings">
     <div v-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
       <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" @update:model-value="emit('update:root-settings', $event)" />
     </div>

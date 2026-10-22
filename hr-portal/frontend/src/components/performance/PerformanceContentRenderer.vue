@@ -5,7 +5,7 @@
         <PerformanceContentSelectionFrame
           variant="item"
           class="content-renderer-rating content-renderer-item--interactive"
-          :class="{ 'content-renderer-item--selected': selectionKey(item.id) === selectedItemId, 'content-renderer-item--configured': hasItemSettings(item.id), 'content-renderer-item--hidden': hasItemSettings(item.id) && itemState(item.id).mode === 'hidden', 'content-renderer-rating--name-hidden': itemState(item.id).hideName }"
+          :class="{ 'content-renderer-item--selected': selectionKey(item.id) === selectedItemId, 'content-renderer-item--configured': hasItemSettings(item.id), 'content-renderer-item--hidden': hasItemSettings(item.id) && itemState(item.id).mode === 'hidden', 'content-renderer-item--view': hasItemSettings(item.id) && itemState(item.id).mode === 'view', 'content-renderer-rating--name-hidden': itemState(item.id).hideName }"
           :selected="selectionKey(item.id) === selectedItemId"
           :data-content-item-id="item.id"
           :aria-disabled="hasItemSettings(item.id) && itemState(item.id).mode === 'hidden'"
@@ -27,14 +27,15 @@
         :key="item.id"
         variant="item"
         class="content-renderer-item content-renderer-item--interactive"
-        :class="{ 'content-renderer-item--selected': selectionKey(item.id) === selectedItemId, 'content-renderer-item--configured': hasItemSettings(item.id), 'content-renderer-item--hidden': itemState(item.id).mode === 'hidden', 'content-renderer-item--name-hidden': isCustomTextItem(item) && itemState(item.id).hideName === true }"
+        :class="{ 'content-renderer-item--selected': selectionKey(item.id) === selectedItemId, 'content-renderer-item--configured': hasItemSettings(item.id), 'content-renderer-item--hidden': itemState(item.id).mode === 'hidden', 'content-renderer-item--view': itemState(item.id).mode === 'view', 'content-renderer-item--name-hidden': isCustomTextItem(item) && itemState(item.id).hideName === true }"
         :selected="selectionKey(item.id) === selectedItemId"
         :data-content-item-id="item.id"
         :aria-disabled="itemState(item.id).mode === 'hidden'"
         @click.stop="interactive && $emit('select-item', item.id)"
       >
         <button v-if="itemState(item.id).mode === 'hidden'" class="content-renderer-hidden-icon" type="button" aria-label="在此环节隐藏" tabindex="-1"><PerformanceVisibleLockIcon /></button>
-        <PerformanceTemplateFieldRenderer v-if="isCustomTagItem(item)" mode="edit" :editable="false" :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
+        <PerformanceTemplateFieldRenderer v-if="itemState(item.id).mode === 'view'" class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" />
+        <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
         <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
           <PerformanceRichTextBox readonly>
             <div v-if="item.richText" class="content-renderer-editor__body" v-html="item.richText" />
@@ -56,7 +57,7 @@ import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer
 import type { PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
 type ContentItem = { id: string; label: string; hint?: string; richText?: string; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; defaultAll?: boolean }
 type Content = { type: 'work_summary' | 'rating' | 'custom'; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
-type ItemSettings = { mode: 'fill' | 'hidden'; required: boolean; hideName?: boolean; hideDescription?: boolean }
+type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean }
 const props = withDefaults(defineProps<{
   content: Content
   variant?: 'configured-card' | 'editor-preview' | 'drawer-summary'
@@ -74,6 +75,8 @@ const itemState = (itemId: string): ItemSettings => props.itemSettings[itemId] |
 const isCustomTextItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'text'
 const isCustomTagItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'tag'
 const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, placeholder: item.hint, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
+const viewField = (item: ContentItem): PerformanceTemplateField => isCustomTagItem(item) ? { ...tagField(item), required: false } : { id: item.id, type: 'rich_text', label: item.label, required: false, hide_name: itemState(item.id).hideName === true }
+const viewPreviewValue = (item: ContentItem) => isCustomTagItem(item) ? { tags: [], notes: {} } : ''
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
 </script>
 <style scoped>
@@ -82,6 +85,11 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-rating{position:relative;margin:16px 0 0}
 .content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>strong{font-size:16px;font-weight:600;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
+.content-renderer-item--view :deep(.readonly-answer),.content-renderer-item--view :deep(.readonly-tag-panel){background:#f8f9fa}
+.content-renderer-view-preview{pointer-events:none}
+.content-renderer-view-preview :deep(.readonly-answer),.content-renderer-view-preview :deep(.readonly-tag-panel){min-height:54px}
+.content-renderer-item--configured.content-renderer-item--view{min-height:132px}
+.content-renderer-item--configured.content-renderer-item--view:has(:deep(.readonly-tag-panel)){min-height:186px}
 .content-renderer-item--interactive{padding:8px;border:2px solid transparent;border-radius:6px;box-sizing:border-box;cursor:pointer}
 .content-renderer-item--configured{width:100%;min-height:185.333px;margin:0;padding:16px 22px 10.333px;border-radius:4px}
 .content-renderer-item--configured.content-renderer-rating{min-height:92px;margin:0;padding:16px 22px 10.333px}
@@ -93,6 +101,7 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--configured :deep(.performance-assessment-rich-text-field__label){margin-bottom:3px;font-size:14px;line-height:22px}
 .content-renderer-hidden-icon{position:absolute;top:4px;right:8px;z-index:2;display:grid;place-items:center;width:24px;height:24px;padding:4px;border:0;background:transparent;color:#8f959e;pointer-events:none}
 .content-renderer-hidden-icon svg{display:block;width:16px;height:16px;overflow:hidden}
+.content-renderer-item--hidden :deep(.performance-template-field){opacity:.5;pointer-events:none}
 .content-renderer-item--hidden :deep(.performance-assessment-rich-text-field__label),.content-renderer-item--hidden :deep(.performance-rich-text-box),.content-renderer-item--hidden .content-renderer-editor__body{color:#8f959e}
 .content-renderer-item--name-hidden :deep(.performance-assessment-rich-text-field__label){display:none}
 .content-renderer-item--hidden :deep(.performance-rich-text-box){border-color:#dee0e3;background:#fff;pointer-events:none}

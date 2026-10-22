@@ -11,6 +11,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -547,6 +548,9 @@ class WarehouseLineageEdge(Base):
 
 class WarehouseConversionRun(Base):
     __tablename__ = "warehouse_conversion_runs"
+    __table_args__ = (
+        UniqueConstraint("lineage_id", name="uq_warehouse_conversion_run_lineage"),
+    )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     source_table = Column(String(64), nullable=False)
@@ -558,6 +562,12 @@ class WarehouseConversionRun(Base):
 
 class WarehouseConversionApproval(Base):
     __tablename__ = "warehouse_conversion_approvals"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "contract_id", "run_id", "dataset_version", "model_fingerprint",
+                         name="uq_conversion_approval_identity"),
+        CheckConstraint("dataset_version > 0", name="ck_conversion_approval_dataset_version"),
+        CheckConstraint("length(trim(reason)) > 0", name="ck_conversion_approval_reason"),
+    )
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     dataset_id = Column(BigInteger, ForeignKey("datasets.id", ondelete="RESTRICT"), nullable=False, index=True)

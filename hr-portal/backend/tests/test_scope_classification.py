@@ -383,7 +383,7 @@ async def postgres_classification_schema():
     from app.core.config import settings
     from app.system.models import SystemLog
 
-    assert settings.DB_HOST == "127.0.0.1" and settings.DB_PORT == 55432
+    assert settings.DB_HOST == "127.0.0.1" and settings.DB_PORT in {55432, 15432}
     assert settings.DB_NAME.startswith("hr021_") and settings.DB_USER == "hr021_test"
     url = make_url(settings.db_url_async).set(database="hr021_migration")
     schema = "hr021_scope_" + uuid.uuid4().hex

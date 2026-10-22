@@ -121,6 +121,7 @@ async def write_lineage_edge(db, source_asset: str, target_asset: str, operation
         edge_metadata=metadata,
     )
     db.add(edge)
+    return edge
 
 
 # ── 向后兼容：从各子模块 re-export ──

@@ -189,6 +189,175 @@ def build_self_summary_schema(template: dict) -> list[dict]:
     return sections
 
 
+def _content_identity(content: dict) -> str:
+    return str(content.get("content_id") or content.get("id") or "")
+
+
+def _task_attribute(task: object, name: str, default: object = None) -> object:
+    if isinstance(task, dict):
+        return task.get(name, default)
+    return getattr(task, name, default)
+
+
+def _view_override_item(content: dict, field_id: str) -> dict | None:
+    return next(
+        (item for item in content.get("items") or [] if str(item.get("id") or "") == field_id),
+        None,
+    )
+
+
+def _view_bool_setting(view_item: dict | None, source_item: dict | None, key: str, default: bool = False) -> bool:
+    for item in (view_item, source_item):
+        settings = item.get("settings") if isinstance(item, dict) else None
+        if isinstance(settings, dict) and key in settings:
+            return bool(settings[key])
+    return default
+
+
+def _project_result_view_schema(final_template: dict, view_contents: list[dict]) -> list[dict]:
+    source_contents = [
+        content for content in final_template.get("content") or []
+        if isinstance(content, dict) and (content.get("content_slot") or "fill") == "fill"
+        and _content_identity(content) in {_content_identity(item) for item in view_contents}
+    ]
+    source_by_id = {_content_identity(content): content for content in source_contents}
+    view_by_id = {_content_identity(content): content for content in view_contents}
+    source_schema = build_self_summary_schema({"content": source_contents})
+    projected: list[dict] = []
+    for section in source_schema:
+        content_id = str(section.get("id") or "")
+        source = source_by_id.get(content_id)
+        view = view_by_id.get(content_id)
+        if source is None:
+            continue
+        source_settings = source.get("settings") or {}
+        view_settings = (view or {}).get("settings") or {}
+        hide_name = bool(view_settings.get("hideName", source_settings.get("hideName", False)))
+        hide_description = bool(view_settings.get("hideDescription", source_settings.get("hideDescription", False)))
+        section["hide_name"] = hide_name
+        section["hide_description"] = hide_description
+        if hide_name:
+            section["name"] = ""
+        if hide_description:
+            section["description"] = ""
+        source_items = {
+            str(item.get("id") or ""): item
+            for item in source.get("items") or []
+            if isinstance(item, dict)
+        }
+        fields = []
+        for field in section.get("fields") or []:
+            if field.get("type") != "tag_with_followup":
+                continue
+            source_item = source_items.get(field["id"])
+            view_item = _view_override_item(view or {}, field["id"]) if view else None
+            if not _view_bool_setting(view_item, source_item, "allowView", True):
+                continue
+            field = deepcopy(field)
+            field_hide_name = _view_bool_setting(view_item, source_item, "hideName", field.get("hide_name", False))
+            field_hide_description = _view_bool_setting(view_item, source_item, "hideDescription", field.get("hide_description", False))
+            field["hide_name"] = field_hide_name
+            if field.get("type") == "tag_with_followup":
+                field["hide_description"] = field_hide_description
+            if field_hide_name:
+                field["label"] = ""
+            if field_hide_description:
+                field["placeholder"] = ""
+                if "description" in field:
+                    field["description"] = ""
+            fields.append(field)
+        section["fields"] = fields
+        if fields:
+            projected.append(section)
+    return projected
+
+
+def _project_result_view_answer(field: dict, value: object) -> object:
+    if field.get("type") == "rich_text":
+        if isinstance(value, list):
+            return [sanitize_rich_text(item) for item in value]
+        return sanitize_rich_text(value) if value is not None else value
+    option_ids = {str(option.get("id")) for option in field.get("options") or []}
+    if field.get("type") == "rating":
+        candidate = value
+        if isinstance(candidate, dict):
+            candidate = candidate.get("id") or candidate.get("value") or candidate.get("option_id")
+        if candidate is None or str(candidate) not in option_ids:
+            return None
+        return str(candidate)
+    if field.get("type") == "tag_with_followup":
+        if not isinstance(value, dict):
+            if isinstance(value, list):
+                return {"tags": [str(item) for item in value if str(item) in option_ids]}
+            return None
+        tags = [str(item) for item in value.get("tags") or [] if str(item) in option_ids]
+        projected = {"tags": tags}
+        if isinstance(value.get("notes"), dict):
+            projected["notes"] = {
+                option_id: sanitize_rich_text(value["notes"].get(option_id))
+                for option_id in tags
+                if value["notes"].get(option_id) is not None
+            }
+        elif "note" in value:
+            projected["note"] = sanitize_rich_text(value.get("note"))
+        return projected
+    return None
+
+
+def project_result_view_contents(
+    view_template: dict,
+    final_template: dict,
+    completed_tasks: list[object],
+    *,
+    employee_no: str | None = None,
+) -> list[dict]:
+    """Project published result content from immutable final-node snapshot data."""
+    source_ids = {
+        _content_identity(content)
+        for content in final_template.get("content") or []
+        if isinstance(content, dict) and (content.get("content_slot") or "fill") == "fill"
+    }
+    view_contents: list[dict] = []
+    seen_ids: set[str] = set()
+    for content in view_template.get("content") or []:
+        if not isinstance(content, dict) or content.get("content_slot") != "view":
+            continue
+        content_id = _content_identity(content)
+        if content_id in source_ids and content_id not in seen_ids:
+            view_contents.append(deepcopy(content))
+            seen_ids.add(content_id)
+    for content_id in (view_template.get("content_bindings") or {}).get("view") or []:
+        content_id = str(content_id)
+        if content_id not in source_ids or content_id in seen_ids:
+            continue
+        source = next(
+            content for content in final_template.get("content") or []
+            if isinstance(content, dict) and _content_identity(content) == content_id
+            and (content.get("content_slot") or "fill") == "fill"
+        )
+        view_contents.append(deepcopy(source))
+        seen_ids.add(content_id)
+    schema = _project_result_view_schema(final_template, view_contents)
+    if not schema:
+        return []
+    field_ids = {field["id"]: field for section in schema for field in section.get("fields") or []}
+    contents = []
+    for task in completed_tasks:
+        if employee_no is not None and str(_task_attribute(task, "target_employee_no")) != str(employee_no):
+            continue
+        if _task_attribute(task, "status") != "completed" or _task_attribute(task, "submitted_at") is None:
+            continue
+        raw_answers = _task_attribute(task, "answers") or {}
+        answers = {
+            field_id: projected
+            for field_id, field in field_ids.items()
+            for projected in [_project_result_view_answer(field, raw_answers.get(field_id))]
+            if projected is not None
+        }
+        contents.append({"task_id": _task_attribute(task, "id"), "form_schema": deepcopy(schema), "answers": answers})
+    return contents
+
+
 def iter_self_summary_fields(schema: list[dict]):
     for section in schema:
         yield from section.get("fields") or []

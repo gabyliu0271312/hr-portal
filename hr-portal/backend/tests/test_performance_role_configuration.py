@@ -9,9 +9,11 @@ from app.performance.auth_context import PerformanceAccessContext
 from app.performance.role_configuration_router import (
     PerformanceRoleCreateIn,
     PerformanceRoleStatusIn,
+    PerformanceRoleUpdateIn,
     _context as role_permission_context,
     create_performance_role,
     delete_performance_role,
+    update_performance_role,
     update_performance_role_status,
 )
 
@@ -114,6 +116,43 @@ def _role(*, active=False, system=False, role_type="MANAGEMENT"):
         member_source=None, function_permission_keys=[], is_system=system, is_active=active,
         updated_at=datetime.now(UTC),
     )
+
+
+@pytest.mark.asyncio
+async def test_update_custom_role_persists_changes_and_audits():
+    db = _FakeRoleDb()
+    db.role = _role()
+    result = await update_performance_role(
+        8,
+        PerformanceRoleUpdateIn(
+            name="项目管理员",
+            description="管理项目",
+            function_permission_keys=["performance.backend.cycles-projects"],
+        ),
+        _context(),
+        db,
+    )
+    assert result.name == "项目管理员"
+    assert result.description == "管理项目"
+    assert result.function_permission_keys == ["performance.backend.cycles-projects"]
+    assert db.commits == 1
+    assert db.items[-1].event_type == "PERFORMANCE_ROLE_UPDATED"
+
+
+@pytest.mark.asyncio
+async def test_update_system_role_rejects_changes():
+    db = _FakeRoleDb()
+    db.role = _role(system=True)
+    with pytest.raises(HTTPException) as error:
+        await update_performance_role(
+            8,
+            PerformanceRoleUpdateIn(function_permission_keys=["performance.backend.system"]),
+            _context(),
+            db,
+        )
+    assert error.value.status_code == 400
+    assert error.value.detail == "系统角色名称和权限不可编辑"
+    assert db.commits == 0
 
 
 @pytest.mark.asyncio

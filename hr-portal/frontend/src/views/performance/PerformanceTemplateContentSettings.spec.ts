@@ -1,5 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import PerformanceTemplateOperateBar from '@/components/performance/PerformanceTemplateOperateBar.vue'
+import PerformanceExpandButton from '@/components/performance/PerformanceExpandButton.vue'
 import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue'
 import PerformanceAssessmentContentLayers from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceRatingControl from '@/components/performance/PerformanceRatingControl.vue'
@@ -43,6 +45,49 @@ describe('PerformanceTemplateContentSettings', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     vi.restoreAllMocks()
+  })
+
+  it('persists result tag allow-view and display flags independently and reopens them', async () => {
+    const tags = { content_id: 'tags', type: 'custom', name: '终评标签', description: '模块说明', items: [{ id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', options: [{ id: 'a', label: '协作' }] }] }
+    const nodes = [
+      { ...mockNodes[6], include_final_result: true, content: [{ ...tags, content_slot: 'fill' }] },
+      { ...mockNodes[7], content: [{ ...tags, content_slot: 'view' }] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const save = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ nodes: payload.nodes, content_library: payload.content_library } as any))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    await wrapper.get('[data-content-item-id="tag"]').trigger('click')
+    const panel = () => wrapper.get('.content-settings-detail--item')
+    expect(panel().text()).toContain('允许查看')
+    await panel().findAll('input')[1].setValue(true)
+    await panel().findAll('input')[2].setValue(true)
+    await panel().findAll('input')[0].setValue(false)
+    await (wrapper.vm as any).save()
+    const saved = save.mock.calls.at(-1)![1].nodes
+    expect(saved[1].content![0].items[0].settings).toMatchObject({ allowView: false, hideName: true, hideDescription: true })
+    expect(saved[0].content![0].items[0].settings?.allowView).toBeUndefined()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: saved } as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await reopened.findAll('.stage-card')[1].trigger('click')
+    await reopened.get('[data-content-item-id="tag"]').trigger('click')
+    expect(reopened.find('.work-summary-view-options').exists()).toBe(false)
+    await reopened.get('.content-settings-detail--item input').setValue(true)
+    expect((reopened.findAll('.work-summary-view-options input')[0].element as HTMLInputElement).checked).toBe(true)
+    expect((reopened.findAll('.work-summary-view-options input')[1].element as HTMLInputElement).checked).toBe(true)
+    expect(reopened.find('.template-field-label').exists()).toBe(false)
+    expect(reopened.find('.template-field-description').exists()).toBe(false)
+    await (reopened.vm as any).save()
+    expect(save.mock.calls.at(-1)![1].nodes[1].content![0].items[0].settings?.allowView).toBe(true)
+    const drawer = reopened.getComponent(PerformanceAssessmentContentLayers)
+    drawer.vm.$emit('confirm', [{ ...tags, id: 'tags' }])
+    await reopened.vm.$nextTick()
+    await (reopened.vm as any).save()
+    expect(save.mock.calls.at(-1)![1].nodes[1].content![0].items[0].settings).toMatchObject({ allowView: true, hideName: true, hideDescription: true })
+    wrapper.unmount()
+    reopened.unmount()
   })
 
   it('shares dashed hover and solid selection tokens between headings and content blocks', async () => {
@@ -261,6 +306,33 @@ describe('PerformanceTemplateContentSettings', () => {
     reopened.unmount()
   })
 
+  it('renders the result reconsideration fixed preview with shared collapse, title line, and action bar', async () => {
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[8].trigger('click')
+
+    expect(wrapper.get('.result-reconsideration-section').text()).toContain('复议理由')
+    expect(wrapper.get('.template-section__title').text()).toBe('结果复议处理')
+    expect(wrapper.get('.result-reconsideration-section__preview').text()).toBe('这里展示被评估人发起复议时填写的内容')
+    expect(wrapper.get('.result-reconsideration-section').findComponent(PerformanceExpandButton).exists()).toBe(true)
+    expect(wrapper.get('.result-reconsideration-section').findComponent(PerformanceTemplateOperateBar).exists()).toBe(true)
+    expect(wrapper.get('.result-reconsideration-section').find('.performance-assessment-preview-header').exists()).toBe(true)
+
+    const collapse = wrapper.get('.result-reconsideration-section .performance-expand-button')
+    expect(collapse.classes()).toContain('is-hover-only')
+    expect(collapse.attributes('aria-label')).toBe('收起复议理由')
+    await collapse.trigger('click')
+    expect(wrapper.find('.result-reconsideration-section__preview').exists()).toBe(false)
+    expect(wrapper.get('.text-normal__body').text()).toBe('暂未选择内容')
+
+    await wrapper.get('.result-reconsideration-section__frame').trigger('click')
+    expect(wrapper.get('.text-normal__body').text()).toBe('暂无可配置内容')
+    expect(wrapper.get('.result-reconsideration-section__frame').classes()).toContain('is-selected')
+
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    expect(wrapper.find('.result-reconsideration-section').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
@@ -1016,7 +1088,49 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
     await wrapper.get('.configured-content-card__row').trigger('click')
     expect(wrapper.find('.content-settings-detail--root').exists()).toBe(false)
-    expect(wrapper.get('.text-normal__body').text()).toBe('暂未选择内容')
+    expect(wrapper.find('.text-normal__body').exists()).toBe(false)
+  })
+
+  it.each(['work_summary', 'custom'] as const)('saves and reopens evaluation %s view mode without enabling other slots or item types', async type => {
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{
+      content_id: 'evaluation-view', type, name: '查看内容', description: '', items: [
+        { id: 'view', label: '查看题', hint: '', questionType: 'tag' },
+        { id: 'fill', label: '填写题', hint: '', questionType: 'tag' },
+      ],
+    }])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-content-item-id="view"]').trigger('click')
+    expect(wrapper.get('.content-settings-detail--item').text()).toContain('在此环节查看被评估人的填写结果')
+    await wrapper.get('.content-settings-detail--item input[value="view"]').setValue()
+    expect(wrapper.get('[data-content-item-id="view"]').find('.content-renderer-view-preview').exists()).toBe(true)
+    expect(wrapper.find('.work-summary-required-setting').exists()).toBe(false)
+    await wrapper.findAll('.stage-card')[6].trigger('click')
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    await wrapper.get('[data-content-item-id="view"]').trigger('click')
+    expect((wrapper.get('.content-settings-detail--item input[value="view"]').element as HTMLInputElement).checked).toBe(true)
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ content_id: 'reference-view', type, name: '参考', description: '', items: [{ id: 'reference', label: '参考题', hint: '', questionType: 'tag' }] }])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('[data-content-item-id="reference"]').trigger('click')
+    expect(wrapper.find('.content-settings-detail--item').exists()).toBe(false)
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls[0][1]
+    const saved = payload.nodes.find(node => node.node_id === 'n4')!.content!.find(content => content.content_slot === 'fill')!
+    expect(saved.items.map(item => item.settings?.mode)).toEqual(['view', 'fill'])
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await reopened.findAll('.stage-card')[3].trigger('click')
+    await reopened.get('[data-content-item-id="view"]').trigger('click')
+    expect((reopened.get('.content-settings-detail--item input[value="view"]').element as HTMLInputElement).checked).toBe(true)
+    expect(reopened.get('[data-content-item-id="view"]').find('.performance-rich-text-box').exists()).toBe(false)
+    expect(reopened.get('[data-content-item-id="fill"]').find('.performance-rich-text-box').exists()).toBe(type === 'work_summary')
+    reopened.unmount()
   })
 
   it('normalizes legacy duplicate rating items to the explicitly selected question', async () => {

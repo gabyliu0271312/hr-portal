@@ -2,12 +2,20 @@ const itemSettingsCapabilities = {
   "work-summary": { hideName: false, mode: true, required: true },
   "custom-text": { hideName: true, mode: true, required: true },
   "custom-tag": { hideName: true, hideDescription: true, mode: true, required: true },
-  rating: { hideName: true, mode: false, required: true, levelRules: true }
+  rating: { hideName: true, mode: false, required: true, levelRules: true },
+  "evaluation-work-summary": { hideName: false, mode: true, required: true, viewResults: true },
+  "evaluation-custom-tag": { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
+  "result-view-item": { hideName: false, mode: false, required: false },
+  "result-view-tag": { hideName: true, hideDescription: true, mode: false, required: false, allowView: true }
 };
 function getItemSettingsVariant(content, item) {
   if (content.type === "rating") return "rating";
   if (content.type === "custom") return (item?.questionType || content.questionType || "text") === "tag" ? "custom-tag" : "custom-text";
   return "work-summary";
+}
+function supportsEvaluationView(content, item) {
+  const variant = getItemSettingsVariant(content, item);
+  return variant === "work-summary" || variant === "custom-tag";
 }
 function getRootSettingsCapabilities(content) {
   return { allowMultiple: content.type === "work_summary", allowUnknown: content.type === "rating" };
@@ -33,7 +41,11 @@ const stageContentRules = {
   },
   reviewer_360_invite: genericRule,
   reviewer_360_confirm: genericRule,
-  evaluation: genericRule,
+  evaluation: {
+    ...genericRule,
+    itemSettingsEnabled: true,
+    itemSettingsVariant: "evaluation-item"
+  },
   calibration: {
     ...genericRule,
     visibleSlots: ["adjustment", "reference"],
@@ -44,6 +56,8 @@ const stageContentRules = {
     ...genericRule,
     visibleSlots: ["view"],
     forbiddenSlots: ["fill", "reference", "adjustment"],
+    itemSettingsEnabled: true,
+    itemSettingsVariant: "result-view-item",
     allowedContentTypes: ["work_summary", "rating", "custom"]
   },
   result_reconsideration: {
@@ -70,5 +84,6 @@ export {
   getStageContentRule,
   getStageContentTabs,
   itemSettingsCapabilities,
+  supportsEvaluationView,
   stageContentRules
 };

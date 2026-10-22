@@ -16,7 +16,7 @@ withDefaults(defineProps<{
   content: AssessmentContentDraft & { id: string }
   interactive?: boolean
   selectedItemId?: string | null
-  itemSettings?: Record<string, { mode: 'fill' | 'hidden'; required: boolean }>
+  itemSettings?: Record<string, { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean }>
 }>(), { interactive: false, selectedItemId: null, itemSettings: () => ({}) })
 defineEmits<{ 'select-item': [itemId: string] }>()
 </script>

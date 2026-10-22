@@ -10,6 +10,7 @@
         :node="node"
         :expanded-keys="expandedKeys"
         :selected-keys="selectedKeys"
+        :disabled-keys="disabledKeys"
         @toggle-expand="toggleExpand"
         @toggle-select="toggleSelect"
       />
@@ -28,9 +29,12 @@ export interface FunctionPermissionTreeNode {
   children?: FunctionPermissionTreeNode[]
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string[]
-}>()
+  disabledKeys?: string[]
+}>(), {
+  disabledKeys: () => [],
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
@@ -80,6 +84,7 @@ const expandedKeys = ref(new Set<string>([
   'performance.frontend',
 ]))
 const selectedKeys = computed(() => new Set(props.modelValue))
+const disabledKeys = computed(() => new Set(props.disabledKeys))
 
 function leafKeys(node: FunctionPermissionTreeNode): string[] {
   if (!node.children?.length) return [node.key]
@@ -93,7 +98,7 @@ function toggleExpand(key: string) {
 
 function toggleSelect(node: FunctionPermissionTreeNode) {
   const next = new Set(props.modelValue)
-  const keys = leafKeys(node)
+  const keys = leafKeys(node).filter(key => !disabledKeys.value.has(key))
   const checked = keys.every(key => next.has(key))
   keys.forEach(key => checked ? next.delete(key) : next.add(key))
   emit('update:modelValue', [...next])

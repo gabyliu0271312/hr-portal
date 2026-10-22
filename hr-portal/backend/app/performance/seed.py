@@ -24,7 +24,32 @@ logger = logging.getLogger("hr-portal")
 
 PERFORMANCE_SUPER_ADMIN_ROLE_CODE = "performance.super_admin"
 PERFORMANCE_ADMIN_ROLE_CODE = "performance.admin"
+PERFORMANCE_PROJECT_ADMIN_ROLE_CODE = "performance.project_admin"
+PERFORMANCE_HRBP_ROLE_CODE = "performance.hrbp"
 PERMISSION_MANAGE_ADMIN_ACCOUNTS = "performance.admin_accounts.manage"
+
+BACKEND_FUNCTION_PERMISSION_KEYS = (
+    "performance.backend.cycles-projects",
+    "performance.backend.people-groups.cycle",
+    "performance.backend.people-groups.project",
+    "performance.backend.metrics",
+    "performance.backend.metric-templates",
+    "performance.backend.templates",
+    "performance.backend.evaluation-questions",
+    "performance.backend.permissions",
+    "performance.backend.subject-visibility",
+    "performance.backend.system",
+)
+FRONTEND_FUNCTION_PERMISSION_KEYS = (
+    "performance.frontend.progress",
+    "performance.frontend.result-open",
+    "performance.frontend.data-view",
+    "performance.frontend.export-members",
+    "performance.frontend.export-details",
+    "performance.frontend.manage-evaluatees",
+    "performance.frontend.manage-reviewers-360",
+)
+ALL_FUNCTION_PERMISSION_KEYS = BACKEND_FUNCTION_PERMISSION_KEYS + FRONTEND_FUNCTION_PERMISSION_KEYS
 _LEGACY_PERFORMANCE_SUPER_ADMIN_PASSWORD = "Performance@2026"
 
 
@@ -42,7 +67,8 @@ ROLE_DEFAULTS = (
     {
         "code": PERFORMANCE_ADMIN_ROLE_CODE,
         "name": "绩效管理员",
-        "description": "管理绩效配置、授权和后续周期流程",
+        "description": "拥有管理后台的全部权限",
+        "function_permission_keys": BACKEND_FUNCTION_PERMISSION_KEYS,
         "permissions": (
             "performance.authorization.manage",
             "performance.configuration.manage",
@@ -50,6 +76,28 @@ ROLE_DEFAULTS = (
             "performance.projects.manage",
             "performance.audit.view",
         ),
+        "role_type": "MANAGEMENT",
+    },
+    {
+        "code": PERFORMANCE_PROJECT_ADMIN_ROLE_CODE,
+        "name": "项目管理员",
+        "description": "项目管理员可以协助创建者管理项目，如修改基本信息、环节、时间等",
+        "function_permission_keys": (
+            "performance.backend.cycles-projects",
+            "performance.backend.people-groups.project",
+            *FRONTEND_FUNCTION_PERMISSION_KEYS[:-1],
+        ),
+        "permissions": (
+            "performance.projects.manage",
+        ),
+        "role_type": "MANAGEMENT",
+    },
+    {
+        "code": PERFORMANCE_HRBP_ROLE_CODE,
+        "name": "HRBP",
+        "description": "可以查看部门以及部门下的员工信息",
+        "function_permission_keys": FRONTEND_FUNCTION_PERMISSION_KEYS[:-1],
+        "permissions": (),
         "role_type": "MANAGEMENT",
     },
     {
@@ -146,6 +194,7 @@ async def _ensure_roles(db: AsyncSession) -> dict[str, PerformanceRole]:
                 description=definition["description"],
                 role_type=definition.get("role_type", "MANAGEMENT"),
                 member_source=definition.get("member_source"),
+                function_permission_keys=list(definition.get("function_permission_keys", ())),
                 is_system=True,
                 is_active=True,
             )
@@ -153,6 +202,14 @@ async def _ensure_roles(db: AsyncSession) -> dict[str, PerformanceRole]:
             await db.flush()
             existing[role.code] = role
             logger.info("[seed] performance role created: %s", role.code)
+        elif role.is_system and definition["code"] in {
+            PERFORMANCE_ADMIN_ROLE_CODE,
+            PERFORMANCE_PROJECT_ADMIN_ROLE_CODE,
+            PERFORMANCE_HRBP_ROLE_CODE,
+        }:
+            role.name = definition["name"]
+            role.description = definition["description"]
+            role.function_permission_keys = list(definition.get("function_permission_keys", ()))
     return existing
 
 

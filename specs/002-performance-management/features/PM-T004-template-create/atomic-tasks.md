@@ -316,6 +316,35 @@
   - Evidence: `npm.cmd --prefix hr-portal/frontend test -- src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts` 4文件113/113通过；`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，存在既有VueUse PURE注释提示；`git diff --check`通过。覆盖360邀请/确认共用组件、选择root后的“暂无可配置内容”、未选择时“暂未选择内容”、标题/root/item互斥、单提示入口、Tab切换和存量内容。未执行真实登录态浏览器截图、真实API/数据库验收或部署。
   - Definition of done: 最小组件提炼、两处使用、组件DOM回归、类型检查/构建与证据已完成；真实浏览器、真实API数据库与部署不在本次范围。
 
+- [ ] PM-T004-T05-F14 结果复议填写内容区复用公共组件（2026-10-22 用户采集）
+  - Goal/UI: `result_reconsideration` 的 fill Tab 保留与普通模块一致的最上方页面标题；下方增加采集到的“复议理由”固定展示区，复用 `PerformanceAssessmentPreviewHeader` 蓝色竖线、`PerformanceExpandButton` 的现有 `hoverOnly`/regular icon 样式、`PerformanceTemplateOperateBar` 底部操作，以及 `PerformanceContentSelectionFrame` 虚线悬浮/实线选中。不得为收起按钮复制底色或 hover CSS。说明文案为“这里展示被评估人发起复议时填写的内容”；外层参考 800×174、标题区56、正文区102、浅灰预览284×54；响应宽度仍按现有中栏自适应。底部按钮项沿用已有 `summaryActions`，不从截断采集猜测新操作。
+  - Prerequisites/reading: T05 已确认三栏蓝图、本功能交互说明、用户两段 DOM 采集（第二段截断）、Spec 002 基线、Spec 012 A01/A02/A05/N0001/N0002/N0004/N0005/N1102-N1104。UI 示意参照 T05 蓝图的中栏内容卡片与本项采集，Spec 012 U00 仅用于合规检查，不改变其业务线框。
+  - Allowed modifications: `PerformanceTemplateContentSettings.vue`、既有同名 `.spec.ts`、本功能 `atomic-tasks.md` 和 `ui-interaction.md`。保留其他会话已有未提交修改。
+  - Non-scope: 复议理由录入/真实申诉数据、复议处理流程、页面名称协议、现有内容/提示保存行为、后端/API/权限/迁移/周期快照/UCP/其他环节；不把示例预览文案当真实人员数据。
+  - Tests/acceptance: Given 结果复议 fill 空/已有内容与其他环节、reference Tab；When 切换节点/Tab、收起/展开、选中预览、点击既有操作按钮；Then 固定区与现有内容/操作无重复、复用组件与 hover 样式、选中状态互斥，其他节点行为不变。执行已有页面 Vitest、前端 build（含 vue-tsc）、diff 检查；无后端/API测试（纯展示），浏览器真实截图若缺失需明确 not-run。
+  - Evidence: 页面专项 Vitest 1/1 通过（结果复议页面标题、固定预览、共享 `PerformanceExpandButton` 的 `hoverOnly`/regular icon、收起态、选中态及节点切换）；`npm.cmd --prefix hr-portal/frontend run build` 已通过（vue-tsc + vite，存在既有 VueUse PURE 注释提示）；`git diff --check` 通过。完整页面回归当前 41/46 通过，5 项失败来自工作区并行的 `PerformanceWorkSummaryItemSettings.vue` / rules 改动，与本 F14 结果复议区无关；浏览器真实截图未执行，第二段用户采集已截断，保持未勾选。
+
+- [ ] PM-T004-T05-F13 结果查看自定义标签题允许查看与显示配置（2026-10-22 用户确认）
+  - Goal/UI: 结果查看的自定义标签 item 使用公共 checkbox“允许查看”；开启后在272×84灰框内显示隐藏名称/隐藏描述，16px内边距、8px间距、6px圆角。复用既有 item 设置组件和字段 renderer，集中能力矩阵增加可复用 result-view-tag 变体。沿用T05蓝图，局部调整无需新全页蓝图。
+  - Reading/prerequisites: Spec002基线、T05/F01/F07/F09、执行契约/验收要求、Spec012 A01/A02/A05/N0001/N0002/N0004/N0005/N1102-N1104及用户SnapSpec；已检查git根目录/main和工作区。
+  - Allowed modifications: performance item设置/能力矩阵TS及JS镜像、ConfiguredContentBlock/ContentRenderer/TemplateContentSettings、AssessmentContentLayers及performance API字段类型、Review.vue、backend self_summary_service.py/projects_router.py、以上已有测试、本功能现有任务/交互记录。允许新增业务组件仅在无法复用时；禁止新增脚本/测试文档、修改无关dirty、既有migration、历史快照、结果开通策略、权限或UCP。
+  - Frozen contract: view slot的标签题item.settings.allowView?:boolean缺省true，hideName/hideDescription默认false，关闭保留隐藏设置；所有配置局限当前环节。workflow GET/PATCH及JSONB不变。员工results接口兼容保留results评级字段，追加contents:[{task_id,form_schema,answers}]，仅返回终评已完成任务中view选定且allowView不为false的标签题；按源schema白名单裁剪题目/答案，不返回其他题或未开通结果；名称/描述隐藏字段从响应裁剪。只使用已有项目节点快照，不改快照或开通策略。
+  - Tests/acceptance: 既有block/page/renderer/Review Vitest验证公共checkbox、两项独立、关闭/恢复、题目/环节隔离和payload/mock重开；既有workflow/projects pytest验证配置保留、员工API开通/身份保护、允许/拒绝/未完成/非法来源/答案裁剪；执行前端build含vue-tsc、diff检查。真实数据库重开和浏览器PNG未执行必须说明，不以mock冒充；独立PNG目标../../ui-blueprints/PM-T004-T05-F13-implemented-result-tag-view.png。
+  - Impact/non-scope: 无迁移、新权限、外部系统、部署、评分计算或其他环节能力扩展；保留并行evaluation配置改动。API失败/空态沿用原反馈。
+  - Evidence: 前端4文件定向Vitest 104/104通过（ConfiguredContentBlock18、ContentRenderer17、TemplateContentSettings49、Review20）；后端workflow/projects回归320/320通过，1个既有python_multipart弃用提示。前端命令：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/views/performance/Review.spec.ts`；后端命令：`PYTHONPATH=hr-portal/backend python -m pytest hr-portal/backend/tests/test_performance_template_workflow.py hr-portal/backend/tests/test_performance_projects.py -q`。覆盖allowView缺省/true/false、两个隐藏项四组合、重新选择/保存/mock重开、关闭后恢复、真实路由函数权限拒绝、任务/来源/答案白名单及富文本清洗；隐藏描述不清空标签option.placeholder。git diff --check通过（仅LF/CRLF提示）。最终 `npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）exit0，构建耗时1m19s，存在既有VueUse PURE注释提示；中途本次派生mode和测试隐式any类型问题已修正，后续并行角色测试VueNode.value类型阻塞也已由所属会话修复，最终整合构建通过。
+  - UI compliance/blockers: 已阅读Spec012交互/实施守则，N0001/N0002/N0004/N0005/N1102-N1104已按组件DOM核对，无新设计体系或禁止项。未执行登录态浏览器走查、独立实现PNG、真实数据库/API保存重开及全仓回归；保留未勾选。无本次数据库迁移、容器替换、commit、push或生产部署。
+  - Definition of done: 实现、测试、build、真实UI及持久化验收证据齐备后勾选；否则保留未勾选并列阻塞。
+
+- [ ] PM-T004-T05-F15 评估型环节填写项三态配置与非填写预览（2026-10-22 用户确认）
+  - Goal/UI: 仅 evaluation 的 fill Tab、工作总结内容及自定义标签 item 开放填写/隐藏/查看被评估人的填写结果三项单选；填写时显示必填项设置，隐藏/查看时仅保留填写设置。查看态复用公共只读字段组件，不渲染富文本工具栏、可填写标签控件或必填星号，保留配置时的点击选中。工作总结/标签参考外框分别为132/186px高，宽随现有内容区，不从仅含空外框的SnapSpec猜测真实答案。
+  - Prerequisites/reading: Spec002基线、T05已确认三栏蓝图、F03/F07/F09、用户两段SnapSpec、execution-contract/acceptance-evidence；Spec012 A01/A02/A05、UI交互与实施守则、N0001/N0002/N0004/N0005/N1102-N1104。现有页面局部增补，无新页面或信息架构。
+  - Allowed modifications: performanceContentSettingsRules.ts及现有JS镜像、WorkSummaryItemSettings/ConfiguredContentBlock/ContentRenderer/AssessmentConfiguredPreview、TemplateContentSettings及已有spec、api/performance.ts仅mode类型、既有backend workflow测试、本任务与ui-interaction记录。共享文件串行整合并保留F13结果查看/F14复议和其他会话变更；不修改生成的.vue.js，不新增脚本或测试文档。
+  - Frozen contract: items[].settings.mode='fill'|'hidden'|'view'，默认fill；沿用workflow GET/PATCH JSONB与节点局部设置，required及未知字段保留，切回fill恢复原必填值。只有evaluation/fill/工作总结或custom-tag启用view；rating、自定义文本、reference和其他节点不增加本次入口，不向其序列化新默认配置。题型item优先、块级兼容、缺省text。view不等于result_view的allowView复选框，二者独立。
+  - Tests/acceptance: Given两种支持内容、多item、其他题型/slot/节点和旧配置；When切换fill/hidden/view、选中、切换节点/Tab、保存与mock重开；Then面板分组与非填写预览联动、必填保留、不同item/节点不串值、来源题型回退正确。既有block/page/renderer/layers Vitest、workflow service保存/读取/审计字段保留pytest、前端build含vue-tsc及diff检查。独立实现PNG目标../../ui-blueprints/PM-T004-T05-F15-implemented-evaluation-item-view.png，真实浏览器和数据库验收未执行须明确标注。
+  - Non-scope: 不实现员工端读取、来源选择、新API、查看权限、提交状态判定或新增查看审计；后续运行时读取契约固定为当前项目/周期被评估人在唯一work_summary环节提交的同一模板内容，仅已提交结果，草稿不可查看；不得将当前预览宣称为该读取功能。无迁移、历史快照/生效时机/锁定策略/权限/UCP/部署变更。
+  - Evidence: 整合后前端四文件120/120通过（block18/page49/renderer17/layers36）；后端evaluation_item_modes专项6/6通过、完整workflow回归137/137通过，1个既有python_multipart弃用提示；覆盖fill/hidden/view、required/未知字段及既有保存审计的保留。前端最终build（vue-tsc+vite）通过；整合后补充显式 `WorkSummaryItemSettings` 类型以收窄派生 `mode`，行为不变；既有VueUse PURE注释提示保留。git diff --check通过（仅LF/CRLF提示）。真实浏览器PNG和真实数据库/API保存重开未执行；完整验收前保持未勾选。
+  - UI compliance/DoD: N0001/N0002/N0004/N0005/N1102-N1104适用检查已执行；复用公共radio/checkbox/只读renderer/选择框和token，无新设计体系或禁止项。实现、测试、build及真实UI/持久化证据齐全才勾选。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

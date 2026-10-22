@@ -64,6 +64,9 @@ from app.warehouse.schemas import (
     DatasetReleaseIn,
     DatasetReleaseReadinessOut,
     DatasetReleaseHealthOut,
+    ConversionReadinessOut,
+    ConversionApprovalIn,
+    ConversionApprovalOut,
     TreeHealthOut,
     ExecutionPlanIn,
     ExecutionPlanOut,
@@ -1996,6 +1999,29 @@ async def authorization_execution_readiness(model_id: int, user: User = Depends(
 async def retire_authorization_contract(model_id: int, contract_id: int, payload: ProductAuthorizationActionIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
     from app.datasets.authorization_contract import retire_contract
     return await retire_contract(db, model_id, contract_id, payload, user)
+
+
+@router.get("/models/{model_id}/conversion-readiness", response_model=ConversionReadinessOut,
+            dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def conversion_readiness_route(
+    model_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.warehouse.service.conversion import conversion_readiness
+    return await conversion_readiness(db, model_id, user)
+
+
+@router.post("/models/{model_id}/conversion-readiness/approve", response_model=ConversionApprovalOut,
+             dependencies=[Depends(require_op("warehouse.assets", "U"))])
+async def approve_conversion_route(
+    model_id: int,
+    payload: ConversionApprovalIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.warehouse.service.conversion import approve_conversion
+    return await approve_conversion(db, model_id, payload, user)
 
 
 # ==================== 标准字段输出发布准入 (X2126 local) ====================

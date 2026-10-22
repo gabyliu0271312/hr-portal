@@ -126,7 +126,7 @@ watch(() => route.name, (name) => {
     activeSection.value = 'evaluation-questions'
     evaluationExpanded.value = true
   }
-  if (name === 'PerformancePermissionRoleCreate' || PERFORMANCE_ADMIN_SUBMENU_ITEMS.permissions.some((item) => item.key === name)) {
+  if (name === 'PerformancePermissionRoleCreate' || name === 'PerformancePermissionRoleEdit' || PERFORMANCE_ADMIN_SUBMENU_ITEMS.permissions.some((item) => item.key === name)) {
     activeSection.value = 'permissions'
     permissionsExpanded.value = true
   }

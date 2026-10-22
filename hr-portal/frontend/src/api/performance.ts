@@ -351,6 +351,12 @@ export interface PerformanceRoleCreatePayload {
   function_permission_keys?: string[]
 }
 
+export interface PerformanceRoleUpdatePayload {
+  name?: string
+  description?: string | null
+  function_permission_keys?: string[]
+}
+
 export const performanceRoleApi = {
   async list(keyword = '', page = 1, pageSize = 10, roleType: PerformanceRoleListItem['role_type'] = 'MANAGEMENT'): Promise<PerformanceRoleListPage> {
     const { data } = await api.get<PerformanceRoleListPage>('/performance/permission-settings/roles', {
@@ -358,8 +364,16 @@ export const performanceRoleApi = {
     })
     return data
   },
+  async get(id: number): Promise<PerformanceRoleListItem> {
+    const { data } = await api.get<PerformanceRoleListItem>(`/performance/permission-settings/roles/${id}`)
+    return data
+  },
   async create(payload: PerformanceRoleCreatePayload): Promise<PerformanceRoleListItem> {
     const { data } = await api.post<PerformanceRoleListItem>('/performance/permission-settings/roles', payload)
+    return data
+  },
+  async update(id: number, payload: PerformanceRoleUpdatePayload): Promise<PerformanceRoleListItem> {
+    const { data } = await api.patch<PerformanceRoleListItem>(`/performance/permission-settings/roles/${id}`, payload)
     return data
   },
   async updateStatus(id: number, isActive: boolean): Promise<PerformanceRoleListItem> {
@@ -671,7 +685,7 @@ export const projectManagementApi = {
     const { data } = await api.post<PerformanceResultOpeningResponse>(`/performance/cycles/${cycleId}/result-opening/open`, { employee_nos: employeeNos })
     return data
   },
-  async myResults(projectId: number): Promise<{ project_id: number; employee_no: string; results: Array<{ task_id: number; field_id: string; option_id: string; label: string }> }> {
+  async myResults(projectId: number): Promise<{ project_id: number; employee_no: string; results: Array<{ task_id: number; field_id: string; option_id: string; label: string }>; contents?: Array<{ task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }> }> {
     const { data } = await api.get(`/performance/workbench/projects/${projectId}/results`)
     return data
   },
@@ -1080,10 +1094,11 @@ export interface PerformanceTemplateContentItem {
   tagOptionId?: string
   defaultAll?: boolean
   settings?: {
-    mode?: 'fill' | 'hidden'
+    mode?: 'fill' | 'hidden' | 'view'
     required?: boolean
     hideName?: boolean
     hideDescription?: boolean
+    allowView?: boolean
     levelRulesEnabled?: boolean
     allowMultiple?: boolean
   }

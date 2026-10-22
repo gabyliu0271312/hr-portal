@@ -511,6 +511,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '角色配置' },
       },
       {
+        path: 'permissions/roles/:roleId/edit',
+        name: 'PerformancePermissionRoleEdit',
+        component: () => import('@/views/performance/PerformanceRoleCreate.vue'),
+        meta: { label: '编辑角色', hideAside: true },
+      },
+      {
         path: 'permissions/roles/create',
         name: 'PerformancePermissionRoleCreate',
         component: () => import('@/views/performance/PerformanceRoleCreate.vue'),

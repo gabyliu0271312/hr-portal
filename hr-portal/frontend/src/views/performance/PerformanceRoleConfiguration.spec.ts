@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import pageSource from './PerformanceRoleConfiguration.vue?raw'
 import PerformanceRoleConfiguration from './PerformanceRoleConfiguration.vue'
 
-const performanceRoleApi = vi.hoisted(() => ({ list: vi.fn(), updateStatus: vi.fn(), remove: vi.fn() }))
+const performanceRoleApi = vi.hoisted(() => ({ list: vi.fn(), update: vi.fn(), updateStatus: vi.fn(), remove: vi.fn() }))
 vi.mock('@/api/performance', () => ({ performanceRoleApi }))
 
 vi.mock('vue-router', () => ({

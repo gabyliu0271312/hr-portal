@@ -81,12 +81,13 @@
                 <PerformanceButton variant="text" aria-label="停用角色" disabled>停用</PerformanceButton>
               </template>
               <template v-else>
-                <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="notifyUnavailable(`编辑${row.name}`)">编辑</PerformancePermissionButton>
+                <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="goEdit(row)">编辑</PerformancePermissionButton>
                 <PerformancePermissionButton
                   allowed
                   op="U"
                   :aria-label="row.isActive ? '停用角色' : '启用角色'"
                   :disabled="row.isSystem || updatingRoleId === row.id"
+                  :title="row.isSystem ? '系统创建的角色不支持停用' : undefined"
                   @click="toggleRoleStatus(row)"
                 >{{ row.isActive ? '停用' : '启用' }}</PerformancePermissionButton>
                 <div class="role-more-wrap">
@@ -94,9 +95,9 @@
                     <button class="role-more-button" type="button" aria-label="更多操作" :disabled="updatingRoleId === row.id">···</button>
                     <template #dropdown>
                       <el-dropdown-menu>
-                        <el-tooltip :content="row.isActive ? '需要先停用角色，再进行删除' : '系统角色不可删除'" :disabled="!row.isActive && !row.isSystem" placement="left">
-                          <div :title="row.isActive ? '需要先停用角色，再进行删除' : row.isSystem ? '系统角色不可删除' : undefined">
-                            <el-dropdown-item :disabled="row.isActive || row.isSystem || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
+                        <el-tooltip :content="row.isSystem ? '系统创建的角色不支持删除' : '需要先停用角色，再进行删除'" :disabled="!row.isSystem && !row.isActive" placement="left">
+                          <div :title="row.isSystem ? '系统创建的角色不支持删除' : row.isActive ? '需要先停用角色，再进行删除' : undefined">
+                            <el-dropdown-item :disabled="row.isSystem || row.isActive || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
                           </div>
                         </el-tooltip>
                       </el-dropdown-menu>
@@ -214,6 +215,10 @@ function goCreate() {
   void router.push({ name: 'PerformancePermissionRoleCreate' })
 }
 
+function goEdit(row: RoleRow) {
+  void router.push({ name: 'PerformancePermissionRoleEdit', params: { roleId: row.id } })
+}
+
 async function toggleRoleStatus(row: RoleRow) {
   if (row.isSystem || updatingRoleId.value !== null) return
   updatingRoleId.value = row.id
@@ -282,6 +287,7 @@ function notifyUnavailable(action: string) {
 .role-updater { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .role-actions { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 .role-actions :deep(.performance-button--text:disabled) { color: var(--performance-button-link-disabled-color); opacity: 1; }
+.role-actions :deep(.performance-button--text[title]) { cursor: not-allowed; }
 .role-more-wrap { position: relative; }
 .role-more-button { width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--performance-button-radius); background: transparent; color: #646a73; cursor: pointer; font-size: 16px; line-height: 18px; }
 .role-more-button:hover:not(:disabled), .role-more-button:focus-visible { background: var(--performance-button-text-hover-background); outline: 0; }

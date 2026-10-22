@@ -2656,3 +2656,163 @@ async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflo
 
     with pytest.raises(ProjectValidationError, match="项目未配置流程节点"):
         await PerformanceProjectService(Db()).start_project(project, actor_type="PORTAL_USER", actor_id=1)
+
+
+def test_result_view_projection_uses_final_snapshot_whitelist_and_sanitizes_answers():
+    from datetime import datetime, timezone
+    from app.performance.self_summary_service import project_result_view_contents
+
+    source = {
+        "content_id": "final-content", "type": "custom", "questionType": "tag",
+        "name": "内部内容名称", "description": "内部描述", "content_slot": "fill",
+        "items": [
+            {"id": "visible", "label": "可见标签", "hint": "填写说明", "questionType": "tag",
+             "settings": {"mode": "fill", "allowView": True},
+             "options": [{"id": "good", "label": "做得好", "placeholder": "亮点"}, {"id": "bad", "label": "待改进", "placeholder": "改进"}]},
+            {"id": "hidden", "label": "不应返回", "settings": {"mode": "fill", "allowView": False}},
+        ],
+    }
+    view = {"content": [{
+        **source, "content_slot": "view", "name": "结果名称",
+        "settings": {"hideName": True, "hideDescription": True},
+        "items": [{**source["items"][0], "settings": {"mode": "fill", "allowView": True, "hideName": True, "hideDescription": True}}, source["items"][1]],
+    }]}
+    task = SimpleNamespace(
+        id=11, target_employee_no="E001", status="completed",
+        submitted_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        answers={"visible": {"tags": ["good", "unknown"], "notes": {"good": "<b>安全</b>", "unknown": "不应泄漏"}}, "hidden": {"tags": ["bad"]}, "other": "不在源 schema"},
+    )
+
+    contents = project_result_view_contents(view, {"content": [source]}, [task], employee_no="E001")
+
+    assert len(contents) == 1
+    assert contents[0]["task_id"] == 11
+    schema = contents[0]["form_schema"]
+    assert schema[0]["name"] == ""
+    assert schema[0]["description"] == ""
+    assert schema[0]["hide_name"] is True
+    assert schema[0]["hide_description"] is True
+    fields = schema[0]["fields"]
+    assert [field["id"] for field in fields] == ["visible"]
+    assert fields[0]["label"] == ""
+    assert fields[0]["description"] == ""
+    assert fields[0]["hide_name"] is True
+    assert fields[0]["hide_description"] is True
+    assert fields[0]["options"][0]["placeholder"] == "亮点"
+    assert contents[0]["answers"] == {"visible": {"tags": ["good"], "notes": {"good": "<b>安全</b>"}}}
+
+
+@pytest.mark.asyncio
+async def test_project_results_route_keeps_rating_results_and_adds_projected_contents(monkeypatch):
+    from datetime import datetime, timezone
+    from app.performance import projects_router
+
+    project = SimpleNamespace(id=7, cycle_ref="cycle:7")
+    tags = {"content_id": "tags", "type": "custom", "name": "标签", "items": [{"id": "tag", "label": "标签题", "questionType": "tag", "options": [{"id": "a", "label": "协作"}]}]}
+    view = SimpleNamespace(config={"template": {"content": [{**tags, "content_slot": "view"}]}})
+    final = SimpleNamespace(id=31, config={"template": {"content": [
+        {**tags, "content_slot": "fill"},
+        {"content_id": "rating", "type": "rating", "content_slot": "fill", "name": "评级", "items": [{"id": "rating", "label": "评级"}], "options": [{"id": "A", "label": "优秀"}]},
+    ]}})
+    task = SimpleNamespace(id=101, target_employee_no="E001", node_snapshot_id=31, status="completed", submitted_at=datetime(2026, 10, 1, tzinfo=timezone.utc), answers={"rating": "A", "tag": {"tags": ["a"], "notes": {"a": "<script>x</script><p>完成</p>"}}, "work": "不应返回"})
+    member = SimpleNamespace(employee_no="E001")
+
+    async def actor(*_args, **_kwargs):
+        return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E001")
+
+    async def opening_state(*_args, **_kwargs):
+        return view, final, None, [member], [task], projects_router.build_self_summary_schema(final.config["template"])
+
+    monkeypatch.setattr(projects_router, "_get_project", lambda *_args: _resolved(project))
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(projects_router, "_opening_state", opening_state)
+
+    class Db:
+        async def scalar(self, _statement):
+            return SimpleNamespace(id=1)
+
+    result = await projects_router.read_my_project_results(7, context(), Db())
+
+    assert result["results"] == [{"task_id": 101, "field_id": "rating", "option_id": "A", "label": "优秀"}]
+    assert result["contents"][0]["task_id"] == 101
+    assert result["contents"][0]["answers"] == {"tag": {"tags": ["a"], "notes": {"a": "<p>完成</p>"}}}
+
+
+@pytest.mark.parametrize("allow_view", [None, True, False])
+@pytest.mark.parametrize("hide_name,hide_description", [(False, False), (True, False), (False, True), (True, True)])
+def test_result_tag_projection_defaults_visibility_and_keeps_display_flags_independent(allow_view, hide_name, hide_description):
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    from app.performance.self_summary_service import project_result_view_contents
+
+    tag = {"id": "tag", "label": "标签题", "hint": "题目描述", "questionType": "tag", "options": [{"id": "a", "label": "协作", "placeholder": "标签提示"}]}
+    source = {"content_id": "tags", "content_slot": "fill", "type": "custom", "questionType": "text", "name": "模块", "description": "模块描述", "items": [tag, {"id": "text", "label": "内部文本", "questionType": "text"}]}
+    settings = {"hideName": hide_name, "hideDescription": hide_description}
+    if allow_view is not None:
+        settings["allowView"] = allow_view
+    view = {"content": [{**source, "content_slot": "view", "items": [{**tag, "settings": settings}]}]}
+    original = deepcopy((source, view))
+    task = SimpleNamespace(id=1, status="completed", submitted_at=datetime.now(UTC), target_employee_no="E001", answers={"tag": {"tags": ["a", "forged"], "notes": {"a": "<script>secret</script><p>反馈</p>", "forged": "秘密"}, "unknown": "秘密"}, "text": "内部答案", "unknown": "秘密"})
+    result = project_result_view_contents(view, {"content": [source]}, [task], employee_no="E001")
+    if allow_view is False:
+        assert result == []
+    else:
+        section = result[0]["form_schema"][0]
+        assert section["name"] == "模块"
+        assert section["description"] == "模块描述"
+        assert len(section["fields"]) == 1
+        field = section["fields"][0]
+        assert field["hide_name"] is hide_name
+        assert field["hide_description"] is hide_description
+        assert field["label"] == ("" if hide_name else "标签题")
+        assert field["description"] == ("" if hide_description else "题目描述")
+        assert field["options"][0]["placeholder"] == "标签提示"
+        assert result[0]["answers"] == {"tag": {"tags": ["a"], "notes": {"a": "<p>反馈</p>"}}}
+    assert (source, view) == original
+
+
+def test_result_tag_projection_rejects_unbound_sources_and_unsubmitted_or_other_person_tasks():
+    from datetime import UTC, datetime
+    from app.performance.self_summary_service import project_result_view_contents
+
+    source = {"content_id": "tags", "type": "custom", "questionType": "tag", "content_slot": "fill", "name": "标签", "items": [{"id": "tag", "label": "旧标签题", "options": [{"id": "a", "label": "协作"}]}]}
+    final = {"content": [source]}
+    task = {"id": 1, "status": "completed", "submitted_at": datetime.now(UTC), "target_employee_no": "E001", "answers": {"tag": ["a"]}}
+    assert project_result_view_contents({"content_bindings": {"view": ["tags"]}}, final, [task], employee_no="E001")[0]["answers"] == {"tag": {"tags": ["a"]}}
+    for view in ({}, {"content_bindings": {"view": ["other"]}}, {"content": [{**source, "content_slot": "reference"}]}):
+        assert project_result_view_contents(view, final, [task], employee_no="E001") == []
+    invalid_tasks = [{**task, "status": "pending"}, {**task, "submitted_at": None}, {**task, "target_employee_no": "E002"}]
+    assert project_result_view_contents({"content_bindings": {"view": ["tags"]}}, final, invalid_tasks, employee_no="E001") == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("denied", ["identity", "actor", "opening", "member"])
+async def test_result_tag_route_preserves_result_access_denials(monkeypatch, denied):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    from app.performance.auth_context import PerformanceIdentityMappingNotFound
+
+    async def actor(*_args, **_kwargs):
+        if denied == "identity":
+            raise PerformanceIdentityMappingNotFound()
+        return SimpleNamespace(actor_type="PORTAL_USER" if denied == "actor" else "EMPLOYEE", actor_ref="E001")
+
+    async def opening_state(*_args, **_kwargs):
+        return SimpleNamespace(config={}), SimpleNamespace(id=31, config={}), None, [], [], []
+
+    monkeypatch.setattr(projects_router, "_get_project", lambda *_args: _resolved(SimpleNamespace(id=7, cycle_ref="cycle:7")))
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(projects_router, "_opening_state", opening_state)
+
+    class Db:
+        async def scalar(self, _statement):
+            return None if denied == "opening" else SimpleNamespace(id=1)
+
+    with pytest.raises(HTTPException) as error:
+        await projects_router.read_my_project_results(7, context(), Db())
+    assert error.value.status_code == 404
+    assert error.value.detail == "RESULT_NOT_FOUND"
+
+
+async def _resolved(value):
+    return value

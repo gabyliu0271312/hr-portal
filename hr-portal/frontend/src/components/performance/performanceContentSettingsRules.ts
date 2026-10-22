@@ -2,24 +2,35 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating'
+export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'evaluation-work-summary' | 'evaluation-custom-tag' | 'result-view-item' | 'result-view-tag'
 export interface ItemSettingsCapabilities {
   hideName: boolean
   hideDescription?: boolean
+  allowView?: boolean
   mode: boolean
   required: boolean
   levelRules?: boolean
+  viewResults?: boolean
 }
 export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsCapabilities> = {
   'work-summary': { hideName: false, mode: true, required: true },
   'custom-text': { hideName: true, mode: true, required: true },
   'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
   rating: { hideName: true, mode: false, required: true, levelRules: true },
+  'evaluation-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
+  'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
+  'result-view-item': { hideName: false, mode: false, required: false },
+  'result-view-tag': { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
 }
 export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' }, item?: { questionType?: 'text' | 'tag' }): ItemSettingsVariant {
   if (content.type === 'rating') return 'rating'
   if (content.type === 'custom') return (item?.questionType || content.questionType || 'text') === 'tag' ? 'custom-tag' : 'custom-text'
   return 'work-summary'
+}
+
+export function supportsEvaluationView(content: { type: string; questionType?: 'text' | 'tag' }, item?: { questionType?: 'text' | 'tag' }) {
+  const variant = getItemSettingsVariant(content, item)
+  return variant === 'work-summary' || variant === 'custom-tag'
 }
 
 export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { questionType?: 'text' | 'tag' }[] }) {
@@ -58,7 +69,11 @@ export const stageContentRules: Record<string, StageContentRule> = {
   },
   reviewer_360_invite: genericRule,
   reviewer_360_confirm: genericRule,
-  evaluation: genericRule,
+  evaluation: {
+    ...genericRule,
+    itemSettingsEnabled: true,
+    itemSettingsVariant: 'evaluation-item',
+  },
   calibration: {
     ...genericRule,
     visibleSlots: ['adjustment', 'reference'],
@@ -69,6 +84,8 @@ export const stageContentRules: Record<string, StageContentRule> = {
     ...genericRule,
     visibleSlots: ['view'],
     forbiddenSlots: ['fill', 'reference', 'adjustment'],
+    itemSettingsEnabled: true,
+    itemSettingsVariant: 'result-view-item',
     allowedContentTypes: ['work_summary', 'rating', 'custom'],
   },
   result_reconsideration: {

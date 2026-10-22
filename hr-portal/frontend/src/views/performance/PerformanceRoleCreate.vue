@@ -1,13 +1,13 @@
 <template>
   <div class="role-create-workspace">
-    <PageHeader title="新建角色" @back="goBack">
+    <PageHeader :title="isEdit ? '编辑角色' : '新建角色'" @back="goBack">
       <template #actions>
         <PermissionButton
           menu="performance.admin"
-          op="C"
+          :op="isEdit ? 'U' : 'C'"
           type="primary"
           aria-label="保存角色"
-          :disabled="saving"
+          :disabled="saving || loading"
           @click="save"
         >
           保存
@@ -19,7 +19,7 @@
       <section class="role-form-card" aria-labelledby="role-create-title">
         <div class="role-form-item" :class="{ 'is-invalid': nameError }">
           <div class="role-form-label">
-            <span>角色名称</span><span class="required-mark">*</span>
+            <span>角色名称</span><span v-if="!isEdit" class="required-mark">*</span>
           </div>
           <div class="role-form-control">
             <div class="role-control-line">
@@ -29,11 +29,12 @@
                 input-id="performance-role-name"
                 :invalid="Boolean(nameError)"
                 aria-label="角色名称"
+                :disabled="isSystemRole"
                 width="100%"
               >
                 <template #suffix><span class="language-tag">中文</span></template>
               </PerformanceTextField>
-              <PerformanceTextButton aria-label="添加角色名称语言" @click="notifyLanguageUnavailable">
+              <PerformanceTextButton v-if="!isSystemRole" aria-label="添加角色名称语言" @click="notifyLanguageUnavailable">
                 <template #icon><AddOutlinedIcon /></template>
               </PerformanceTextButton>
             </div>
@@ -65,16 +66,16 @@
         </div>
       </section>
 
-      <PerformanceFunctionPermissionTree v-model="functionPermissionKeys" />
+      <PerformanceFunctionPermissionTree v-model="functionPermissionKeys" :disabled-keys="disabledPermissionKeys" />
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
-import { performanceRoleApi } from '@/api/performance'
+import { useRoute, useRouter } from 'vue-router'
+import { performanceRoleApi, type PerformanceRoleListItem } from '@/api/performance'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
 import PageHeader from '@/components/performance/PageHeader.vue'
 import PerformanceFunctionPermissionTree from '@/components/performance/PerformanceFunctionPermissionTree.vue'
@@ -83,11 +84,71 @@ import PerformanceTextField from '@/components/performance/PerformanceTextField.
 import PermissionButton from '@/components/PermissionButton.vue'
 
 const router = useRouter()
+const route = useRoute()
+const roleId = computed(() => Number(route.params.roleId))
+const isEdit = computed(() => Number.isInteger(roleId.value) && roleId.value > 0)
 const roleName = ref('')
 const description = ref('')
 const functionPermissionKeys = ref<string[]>([])
+const disabledPermissionKeys = ref<string[]>([])
+const isSystemRole = ref(false)
 const nameError = ref('')
 const saving = ref(false)
+const loading = ref(false)
+
+const BACKEND_KEYS = [
+  'performance.backend.cycles-projects',
+  'performance.backend.people-groups.cycle',
+  'performance.backend.people-groups.project',
+  'performance.backend.metrics',
+  'performance.backend.metric-templates',
+  'performance.backend.templates',
+  'performance.backend.evaluation-questions',
+  'performance.backend.permissions',
+  'performance.backend.subject-visibility',
+  'performance.backend.system',
+]
+const FRONTEND_KEYS = [
+  'performance.frontend.progress',
+  'performance.frontend.result-open',
+  'performance.frontend.data-view',
+  'performance.frontend.export-members',
+  'performance.frontend.export-details',
+  'performance.frontend.manage-evaluatees',
+  'performance.frontend.manage-reviewers-360',
+]
+const ALL_KEYS = [...BACKEND_KEYS, ...FRONTEND_KEYS]
+const reviewer360Key = 'performance.frontend.manage-reviewers-360'
+
+function rolePermissionPolicy(role: PerformanceRoleListItem) {
+  if (!role.is_system) return { selected: role.function_permission_keys || [], disabled: [] }
+  if (role.code === 'performance.hrbp') return { selected: FRONTEND_KEYS.filter(key => key !== reviewer360Key), disabled: BACKEND_KEYS }
+  if (role.code === 'performance.project_admin') return {
+    selected: ['performance.backend.cycles-projects', ...FRONTEND_KEYS.filter(key => key !== reviewer360Key)],
+    disabled: BACKEND_KEYS.filter(key => key !== 'performance.backend.people-groups.project'),
+  }
+  return { selected: role.code === 'performance.admin' ? ALL_KEYS : (role.function_permission_keys || []), disabled: ALL_KEYS }
+}
+
+async function loadRole() {
+  if (!isEdit.value) return
+  loading.value = true
+  try {
+    const role = await performanceRoleApi.get(roleId.value)
+    roleName.value = role.name
+    description.value = role.description || ''
+    isSystemRole.value = role.is_system
+    const policy = rolePermissionPolicy(role)
+    functionPermissionKeys.value = policy.selected
+    disabledPermissionKeys.value = policy.disabled
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '角色加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => { void loadRole() })
 
 function goBack() {
   void router.push({ name: 'PerformancePermissionRoles' })
@@ -107,15 +168,21 @@ async function save() {
   nameError.value = ''
   saving.value = true
   try {
-    await performanceRoleApi.create({
+    const payload = {
       name,
       description: description.value.trim() || null,
       function_permission_keys: functionPermissionKeys.value,
-    })
-    ElMessage.success('角色创建成功')
+    }
+    if (isEdit.value) {
+      await performanceRoleApi.update(roleId.value, payload)
+      ElMessage.success('角色更新成功')
+    } else {
+      await performanceRoleApi.create(payload)
+      ElMessage.success('角色创建成功')
+    }
     await router.push({ name: 'PerformancePermissionRoles' })
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.detail || '角色创建失败')
+    ElMessage.error(error?.response?.data?.detail || (isEdit.value ? '角色更新失败' : '角色创建失败'))
   } finally {
     saving.value = false
   }

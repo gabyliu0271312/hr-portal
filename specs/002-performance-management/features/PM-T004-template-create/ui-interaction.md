@@ -251,12 +251,40 @@
 - 验证：页面45、ConfiguredContentBlock15、ContentRenderer17、AssessmentContentLayers36，共113/113通过；前端build（vue-tsc+vite）通过，既有VueUse PURE注释提示；git diff --check通过。组件DOM验证覆盖共享组件接入、空态文案、标题/root/item互斥、空/已有内容单提示入口、切Tab及非360节点回归。未执行真实浏览器截图、真实API数据库验收或容器替换，不宣称生产已更新。
 - UI自检：已阅读Spec012交互与实施守则，N0001/N0002/N0004/N0005/N1102-N1104适用检查完成；沿用T05蓝图及公共控件，无新设计体系、信息架构或禁止项。
 
+## 评估型环节填写项三态配置（PM-T004-T05-F15，2026-10-22）
+
+- 本次按用户最后澄清仅实现配置项、配置区格式联动与保存回显，不实现员工端真实结果读取。后续读取使用当前周期/项目被评估人在唯一工作总结环节提交的同一模板内容，且只允许已提交结果，不读取草稿。
+- 集中能力表仅为 evaluation/fill 中的工作总结和自定义标签 item 开放三项：在此环节填写、在此环节隐藏、在此环节查看被评估人的填写结果。默认fill；fill面板为填写设置/必填项设置，hidden/view只保留填写设置。保留required与其他字段，切回fill恢复；不同item和环节独立。
+- 自定义标签按item.questionType优先、content.questionType兼容、缺省text；评分评级、自定义文本、参考Tab及其他节点不新增该入口。结果查看的allowView复选框属于F13，不能替代这里的view单选，也不改写保存mode。
+- view预览复用PerformanceTemplateFieldRenderer的readonly分支，移除填写工具栏、输入控件和星号，仍可点击外层选择题目；无真实员工答案，不以模板提示或默认全选标签冒充已提交内容。外框沿用4px圆角与2px蓝色选中，工作总结/标签参考最小高132/186px，宽度跟随原内容区；仅捕获外框，不宣称内部像素级还原。
+- items[].settings.mode新增view，通过原workflow GET/PATCH JSONB保存；normalize/serialize及预览透传均按环节/slot/题型门控，其他配置和未知字段保留。无迁移、新API、权限、快照或生效时机变更。
+- 验证：整合后前端block/page/renderer/layers四文件120/120通过，核心block/page复测65/65通过；后端evaluation_item_modes专项6/6、完整workflow回归137/137通过（既有python_multipart弃用提示）；前端最终vue-tsc+vite build通过，整合后补充显式 `WorkSummaryItemSettings` 类型收窄派生mode，行为不变；git diff --check通过。真实登录态页面PNG与真实数据库/API重开尚未执行，F15保持未勾选；不部署、不提交。UI合规N0001/N0002/N0004/N0005/N1102-N1104；沿用T05已确认蓝图、公共组件与token，无禁止项。
+
+## 结果复议处理填写内容展示（PM-T004-T05-F14，2026-10-22）
+
+- 用户采集的 `ReviewContent` 展开态为 800×174，白底圆角 4px；标题区高 56px，左侧“复议理由”为 16px/600/24px，2×14px `#3370FF` 竖线；右侧按钮 24×24px。正文区高 102px，内边距 12px 24px，左侧浅灰说明块 284×54px（内边距 16px），文案“这里展示被评估人发起复议时填写的内容”。仅为模板预览，不读取员工实际申诉记录。
+- 在 `result_reconsideration` 的 fill Tab 顶部保留与普通内容模块一致的页面标题区（复用 `PerformanceTemplateSectionCard`）；下方固定复议理由展示区复用 `PerformanceAssessmentPreviewHeader`、`PerformanceExpandButton`、`PerformanceContentSelectionFrame` 和底部 `PerformanceTemplateOperateBar`。收起按钮必须使用 `PerformanceExpandButton` 的既有 `hoverOnly`/regular icon 样式，不为复议区复制底色或 hover CSS。收起仅隐藏固定说明区，不删除已配置内容，选中与页面标题/内容块互斥。配置内容为空或已有内容时只保留一处底部操作栏。底部按钮种类沿用当前 `summaryActions`，第二段采集被截断，不能据此发明复议特定操作或认定像素级验收已完成。
+- 页面标题、已有内容及参考 Tab 不变；无 API/持久化/权限/迁移/周期快照/UCP 更改。悬浮与选中沿用公共 1px 蓝色虚线/2px 实线 token，采集中的 `hidden` 边界层不可直接复制为常显遮罩。Spec 012 合规检查关联 N0001/N0002/N0004/N0005、N1102-N1104。
+
 ## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
 
-- 用户确认沿用统一“选择评估内容”侧边弹窗，不新增终评专用弹窗。候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。
+候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。
 - 其他内容复选框置灰，复用 `PerformanceCheckbox`、`PerformanceInfoPopover` 的 disabled-action 及全局 token。显示提示“仅可选择终评环节执行人「直属上级」填写的内容”；实线上级从现有 manager-level options 动态生成具体级别，多级用顿号连接。受限模式不允许在结果查看节点新建或修改来源内容，普通节点保留原编辑/新建行为。
 - 选中 result_view 后显示唯一“配置查看内容”Tab；区域标题为“绩效结果”，不是流程节点自定义名称。按采集还原18/600/26标题、16px/24px内边距、4px圆角、1px分隔、40px空态上下内边距、14/22灰色说明及54px双操作栏；区域悬浮显示蓝色虚线边框，顶部保留原始16px横向拖拽图标。该固定区域当前不新增拖拽排序协议。
 - “添加其他参考内容”在同一查看Tab下复用参考内容抽屉，保存到独立 reference slot；不得覆盖 view 内容，也不增加参考Tab。已有内容支持回显与移除。
 - API继续使用原 workflow GET/PATCH、content/content_bindings/content_library。支持仅 bindings 的内容回显；后端在修改记录与审计前拒绝非法 view 来源，返回422 `TEMPLATE_WORKFLOW_INVALID`、动态 message 与 result_view node_id。无view配置的旧数据兼容，不更改其他节点slot行为。
 - 范围不包括提示内容存储模型、员工结果读取接口、结果开放策略、项目历史快照或数据库迁移。“添加提示”继续复用既有弹窗，不声称已补齐既有提示保存链路。
+
+## 结果查看标签题允许查看（PM-T004-T05-F13，2026-10-22）
+
+- 仅结果查看view slot的自定义标签item显示公共“允许查看”复选框；缺省兼容为允许，关闭后灰框收起，但保留该题隐藏名称/描述设置，重新开启恢复。非标签题不新增配置能力。
+- 开启后在272px宽、84px自然高的灰框展示公共“隐藏名称”“隐藏描述”，#F5F6F7、16px内边距、8px行距、6px圆角、14px/22px系统字体。复用WorkSummaryItemSettings及集中result-view-tag能力，不新建同功能组件。配置区仍显示已关闭题的灰态和锁图标，允许重新选中恢复，不能把关闭的题从配置DOM删除。
+- hideName仅控制题目名/星号，hideDescription仅控制题目hint描述，不影响模块描述、标签选项及答案。两个选项独立、局限当前环节与当前item，沿用workflow JSONB/settings保存，重新选择内容也应保留局部设置。
+- 员工results接口兼容评级列表，并追加只读contents（task_id/form_schema/answers）；以项目result_view和终评节点快照为准，只有已完成终评、来源合法且allowView不为false的标签题可返回；后端白名单裁剪答案，隐藏名称/描述不以仅前端CSS作为边界。未开通、身份/成员不匹配沿用404 RESULT_NOT_FOUND；不修改结果开通、历史快照或生效策略。
+- 员工结果页复用PerformanceTemplateRenderer的readonly模式展示标签和说明，旧接口无contents时仍正常显示评级；空态/失败态沿用现有文案。实际浏览器/数据库重开证据未获得前，F13保持未勾选，不声称部署完成。
+
+- F13验证：前端四文件104/104、后端workflow/projects320/320通过；前端build（vue-tsc+vite）最终exit0、git diff --check通过。覆盖共享checkbox、隐藏双项独立/重选保留/保存mock重开、员工只读结果、拒绝访问、合法来源/任务/题目/答案裁剪及富文本清洗。既有VueUse PURE注释与python_multipart弃用提示未修改；实际浏览器/PNG、真实数据库/API持久化验收未执行，F13保持未勾选，无部署。
+
+### F01 历史验收记录
+
 - 验证：最终前端八组定向Vitest 131/131，后端workflow pytest 108/108，前端类型检查和生产构建通过。补齐view旧副本覆盖来源和普通节点同ID干扰binding-only来源的回归。前端向导测试输出既有jsdom XHR AggregateError日志（用例仍通过），构建有VueUse PURE注释警告，后端有Starlette弃用警告。本地Docker前后端镜像构建与容器替换通过，数据库和Gotenberg容器未替换；Alembic当前版本与head均0266。容器路由HTTP200、未登录API401，后端启动期间短暂502后恢复。浏览器跳转登录，未取得F01实际页面PNG，也未完成真实API保存重开验收；不得将登录页或目标图作为实现截图。F01保留未勾选。

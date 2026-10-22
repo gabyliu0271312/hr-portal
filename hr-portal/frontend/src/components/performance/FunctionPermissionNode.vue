@@ -19,6 +19,7 @@
         type="checkbox"
         :checked="checked"
         :aria-checked="partial ? 'mixed' : checked"
+        :disabled="disabled"
         @change="emit('toggle-select', node)"
       />
       <span class="tree-checkbox-wallpaper" :class="{ checked, partial }" aria-hidden="true">
@@ -37,6 +38,7 @@
       :level="level + 1"
       :expanded-keys="expandedKeys"
       :selected-keys="selectedKeys"
+      :disabled-keys="disabledKeys"
       @toggle-expand="emit('toggle-expand', $event)"
       @toggle-select="emit('toggle-select', $event)"
     />
@@ -53,6 +55,7 @@ const props = withDefaults(defineProps<{
   level?: number
   expandedKeys: Set<string>
   selectedKeys: Set<string>
+  disabledKeys: Set<string>
 }>(), { level: 1 })
 
 const emit = defineEmits<{
@@ -66,6 +69,7 @@ function leafKeys(node: FunctionPermissionTreeNode): string[] {
   return node.children.flatMap(leafKeys)
 }
 const nodeLeafKeys = computed(() => leafKeys(props.node))
+const disabled = computed(() => nodeLeafKeys.value.every(key => props.disabledKeys.has(key)))
 const selectedLeafCount = computed(() => nodeLeafKeys.value.filter(key => props.selectedKeys.has(key)).length)
 const checked = computed(() => selectedLeafCount.value === nodeLeafKeys.value.length)
 const partial = computed(() => selectedLeafCount.value > 0 && !checked.value)
@@ -82,6 +86,8 @@ const partial = computed(() => selectedLeafCount.value > 0 && !checked.value)
 .tree-expand-button:hover, .tree-expand-button:focus-visible { background: rgba(31, 35, 41, .08); outline: 0; }
 .tree-checkbox-label { display: inline-flex; min-width: 0; align-items: center; gap: 8px; cursor: pointer; }
 .tree-checkbox-input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.tree-checkbox-input:disabled + .tree-checkbox-wallpaper { border-color: var(--performance-checkbox-disabled); background: var(--color-surface-disabled); cursor: not-allowed; }
+.tree-checkbox-input:disabled ~ .tree-label { color: var(--color-text-disabled); }
 .tree-checkbox-input:focus-visible + .tree-checkbox-wallpaper { outline: 2px solid #3370ff; outline-offset: 2px; }
 .tree-checkbox-wallpaper { display: grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; border: 1px solid #bbbfc4; border-radius: 3px; color: #fff; background: #fff; }
 .tree-checkbox-wallpaper.checked, .tree-checkbox-wallpaper.partial { border-color: #3370ff; background: #3370ff; }

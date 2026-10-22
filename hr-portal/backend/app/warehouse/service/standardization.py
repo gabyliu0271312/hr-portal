@@ -991,6 +991,13 @@ class StandardizationRuleService:
             return {"error": "invalid_rule_binding", "detail": "绑定规则不存在、未启用或不属于当前 ODS 表"}
         if not rules and asset_code != "cost_center_monthly":
             return {"error": "no_rules", "detail": f"表 {asset_code} 没有启用的标准化规则"}
+        conversion_snapshot = None
+        if (source_layer == "ODS" and dwd_write_strategy == "full_refresh" and rules and rule_ids is None
+                and all(rule.asset_type == "table" and rule.rule_type == "rename"
+                        and rule.source_field == rule.target_field for rule in rules)):
+            from app.warehouse.service.conversion import schema_fingerprint, _rules_fingerprint
+            await self.session.execute(sa_text(f'LOCK TABLE {_quote_ident(asset_code)} IN SHARE MODE'))
+            conversion_snapshot = (await schema_fingerprint(self.session, asset_code), _rules_fingerprint(rules))
         try:
             query = f'SELECT * FROM {_quote_ident(asset_code)}'
             params = {}
@@ -1200,9 +1207,24 @@ class StandardizationRuleService:
             # Z02: 血缘写入与主流程同一事务
             from app.warehouse.service import write_lineage_edge
             rule_ids = [r.id for r in rules]
-            await write_lineage_edge(self.session, asset_code, target, "standardize", metadata={
+            lineage = await write_lineage_edge(self.session, asset_code, target, "standardize", metadata={
                 "definition_id": None, "rule_ids": rule_ids, "version": 1,
             })
+            if conversion_snapshot is not None:
+                from app.warehouse.service.conversion import record_conversion_run
+                await record_conversion_run(
+                    self.session,
+                    source_table=asset_code,
+                    target_table=target,
+                    lineage=lineage,
+                    rules=rules,
+                    input_rows=total,
+                    output_rows=success,
+                    output_columns=bcols,
+                    source_rows=rows,
+                    source_schema_fingerprint=conversion_snapshot[0],
+                    rules_fingerprint=conversion_snapshot[1],
+                )
             # P2/P3 收口：执行成功后同步 DWD 单表数据集输出字段，避免额外“发布 DWD 视图”动作。
             sync_result = await self._sync_dwd_dataset_fields(asset_code=asset_code, target_table=target, output_columns=(bcols if transformed else cols), commit=False)
             if sync_result and sync_result.get("error") and not (

@@ -1876,6 +1876,47 @@ class DatasetReleaseHealthOut(BaseModel):
     unchecked_areas: list[str]
 
 
+class ConversionReadinessOut(BaseModel):
+    dataset_id: int
+    dataset_version: int
+    eligible: bool
+    conversion_verified: bool
+    run_id: int | None = None
+    contract_id: int | None = None
+    model_fingerprint: str | None = None
+    approval_id: int | None = None
+    issues: list[dict[str, str]] = []
+    checked_areas: list[str] = []
+
+
+class ConversionApprovalIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_run_id: int = Field(ge=1, strict=True)
+    expected_contract_id: int = Field(ge=1, strict=True)
+    expected_dataset_version: int = Field(ge=1, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("批准原因不能为空")
+        return value
+
+
+class ConversionApprovalOut(BaseModel):
+    id: int
+    dataset_id: int
+    contract_id: int
+    run_id: int
+    dataset_version: int
+    model_fingerprint: str
+    approved_by: int
+    reason: str
+    created_at: datetime
+
+
 class TreeHealthIssueOut(BaseModel):
     code: str
     node_id: int | None = None

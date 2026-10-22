@@ -28,7 +28,7 @@
         <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
       </div>
-      <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ isReviewer360Fill && reviewer360PreviewSelected ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
+      <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
     </aside>
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
@@ -42,6 +42,21 @@
           <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
         </section>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
+        <template v-else-if="isResultReconsiderationFill">
+          <PerformanceTemplateSectionCard :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="[]" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" />
+          <section class="result-reconsideration-section" aria-label="复议理由">
+            <PerformanceContentSelectionFrame variant="root" :selected="resultReconsiderationPreviewSelected" class="result-reconsideration-section__frame" role="button" tabindex="0" :aria-pressed="resultReconsiderationPreviewSelected" aria-label="选择复议理由预览" @click="selectResultReconsiderationPreview" @keydown.enter.prevent="selectResultReconsiderationPreview" @keydown.space.prevent="selectResultReconsiderationPreview">
+              <div class="result-reconsideration-section__header">
+                <PerformanceAssessmentPreviewHeader name="复议理由" />
+                <PerformanceExpandButton class="result-reconsideration-section__collapse" :expanded="resultReconsiderationExpanded" :hover-only="true" icon-variant="regular" :label="`${resultReconsiderationExpanded ? '收起' : '展开'}复议理由`" @toggle="resultReconsiderationExpanded = !resultReconsiderationExpanded" @click.stop />
+              </div>
+              <div v-if="resultReconsiderationExpanded" class="result-reconsideration-section__body">
+                <div class="result-reconsideration-section__preview">这里展示被评估人发起复议时填写的内容</div>
+              </div>
+            </PerformanceContentSelectionFrame>
+            <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
+          </section>
+        </template>
         <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" class="configured-content-sortable-list" @reorder="reorderConfigured">
@@ -62,6 +77,7 @@
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
+                @settings-visibility="visible => { if (selectedConfiguredId === content.id) configuredSettingsVisible = visible }"
                 @update:expanded="setConfiguredExpanded(content.id, $event)"
                 @update:root-settings="rootSettings[content.id] = $event"
                 @update:item-settings="setItemSettingsForContent(content.id, $event)"
@@ -102,6 +118,9 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
 import PerformanceTemplateSectionCard from '@/components/performance/PerformanceTemplateSectionCard.vue'
+import PerformanceAssessmentPreviewHeader from '@/components/performance/PerformanceAssessmentPreviewHeader.vue'
+import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
+import PerformanceExpandButton from '@/components/performance/PerformanceExpandButton.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type AssessmentContentType, type AssessmentOption, type AssessmentTagOption } from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
@@ -114,7 +133,7 @@ import type { WorkSummaryItemSettings } from '@/components/performance/Performan
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { getStageContentRule, getStageContentTabs } from '@/components/performance/performanceContentSettingsRules'
+import { getStageContentRule, getStageContentTabs, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -193,6 +212,7 @@ const contentPageName = computed({
   },
 })
 const isResultView = computed(() => selectedStageData.value?.nodeType === 'result_view')
+const isResultReconsiderationFill = computed(() => selectedStageData.value?.nodeType === 'result_reconsideration' && activeTab.value === 'fill')
 const isReviewer360Fill = computed(() => ['reviewer_360_invite', 'reviewer_360_confirm'].includes(selectedStageData.value?.nodeType || '') && activeTab.value === 'fill')
 const finalNode = computed(() => {
   const nodes = workflowNodes.value.filter(node => node.include_final_result)
@@ -248,10 +268,13 @@ const configuredExpandedIds = ref<Set<string>>(new Set())
 const selectedConfiguredId = ref<string | null>(null)
 const configuredHoverKey = ref<string | null>(null)
 const reviewer360PreviewSelected = ref(false)
+const resultReconsiderationPreviewSelected = ref(false)
+const resultReconsiderationExpanded = ref(true)
 const pageHeadingSelected = ref(false)
 function clearContentSelection() {
   selectedConfiguredId.value = null
   reviewer360PreviewSelected.value = false
+  resultReconsiderationPreviewSelected.value = false
   pageHeadingSelected.value = false
 }
 function selectPageHeading() {
@@ -265,6 +288,10 @@ function selectConfiguredContent(contentId: string) {
 function selectReviewer360Preview() {
   clearContentSelection()
   reviewer360PreviewSelected.value = true
+}
+function selectResultReconsiderationPreview() {
+  clearContentSelection()
+  resultReconsiderationPreviewSelected.value = true
 }
 watch([selectedStage, activeTab], () => { clearContentSelection(); pageNameError.value = '' })
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
@@ -309,8 +336,12 @@ const assessmentInitialContents = computed(() => configuredContents.value.filter
   const source = isResultView.value ? finalContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
 }) as Array<AssessmentContentDraft & { id: string }>)
-const activeStageContentRule = computed(() => getStageContentRule(selectedStageData.value?.nodeType))
-const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && (activeStageContentRule.value.rootSettingsEnabled || activeStageContentRule.value.itemSettingsEnabled))
+const activeStageContentRule = computed(() => {
+  const rule = getStageContentRule(selectedStageData.value?.nodeType)
+  return selectedStageData.value?.nodeType === 'evaluation' && activeTab.value !== 'fill' ? { ...rule, itemSettingsEnabled: false } : rule
+})
+const configuredSettingsVisible = ref(false)
+const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && configuredSettingsVisible.value)
 const allowedContentTypes = computed(() => activeStageContentRule.value.allowedContentTypes)
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
 const availableContentCandidates = computed(() => {
@@ -327,9 +358,10 @@ function normalizeRootSettings(value: unknown): WorkSummaryRootSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return { ...settings, hideDescription: settings.hideDescription === true, allowMultiple: settings.allowMultiple === true }
 }
-function normalizeItemSettings(value: unknown): WorkSummaryItemSettings {
+function normalizeItemSettings(value: unknown, allowView = false): WorkSummaryItemSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return { ...settings, mode: settings.mode === 'hidden' ? 'hidden' : 'fill', required: settings.required !== false, hideName: settings.hideName === true }
+  const mode = settings.mode === 'hidden' ? 'hidden' : allowView && settings.mode === 'view' ? 'view' : 'fill'
+  return { ...settings, mode, required: settings.required !== false, hideName: settings.hideName === true }
 }
 function rootSettingFor(contentId: string): WorkSummaryRootSettings {
   return rootSettings.value[contentId] || defaultRootSettings()
@@ -396,7 +428,7 @@ function setConfiguredContents(contents: PerformanceTemplateContent[]) {
   configuredContents.value = [...unique.values()] as Array<AssessmentContentDraft & { id: string }>
   configuredExpandedIds.value = new Set(configuredContents.value.map((item) => item.id))
   rootSettings.value = Object.fromEntries(configuredContents.value.map((content) => [content.id, normalizeRootSettings(content.settings)]))
-  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings)])))
+  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, selectedStageData.value?.nodeType === 'evaluation' && activeTab.value === 'fill' && supportsEvaluationView(content, item))])))
 }
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
   const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
@@ -417,8 +449,9 @@ function serializeConfiguredContents(slot = activeTab.value): PerformanceTemplat
     settings: activeStageContentRule.value.rootSettingsEnabled ? rootSettingFor(id) : content.settings,
     items: content.items.map(({ settings, ...item }) => ({
       ...item,
-      settings: activeStageContentRule.value.itemSettingsEnabled
-        ? itemSettings.value[`${id}:${item.id}`] || normalizeItemSettings(settings)
+      settings: activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationView(content, item))
+        && (!isResultView.value || (content.type === 'custom' && (item.questionType || content.questionType || 'text') === 'tag'))
+        ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, selectedStageData.value?.nodeType === 'evaluation' && slot === 'fill' && supportsEvaluationView(content, item))
         : settings,
     })),
   })))
@@ -444,7 +477,15 @@ function selectStage(id: string) {
 }
 function handleContentConfirm(contents: AssessmentContentDraft[]) {
   if (isResultView.value && contents.some(content => !finalContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
-  setConfiguredContents(isResultView.value ? contents.map(content => finalContents.value.find(item => contentIdentity(item) === contentIdentity(content))!) : contents as PerformanceTemplateContent[])
+  const localContents = serializeConfiguredContents()
+  setConfiguredContents(isResultView.value ? contents.map(content => {
+    const source = finalContents.value.find(item => contentIdentity(item) === contentIdentity(content))!
+    const local = localContents.find(item => contentIdentity(item) === contentIdentity(content))
+    return { ...source, settings: local?.settings ?? source.settings, items: source.items.map(item => {
+      const localItem = local?.items.find(candidate => candidate.id === item.id)
+      return { ...item, settings: localItem?.settings ?? item.settings }
+    }) }
+  }) : contents as PerformanceTemplateContent[])
   mergeContentLibrary(configuredContents.value)
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
@@ -739,6 +780,15 @@ onMounted(async () => {
 .content-card__actions button { border: 0; background: transparent; color: #3370ff; font-size: 18px; cursor: pointer; }
 .content-card__actions i { width: 1px; height: 24px; background: #bbbfc4; }
 
+.result-reconsideration-section{width:var(--performance-content-width);max-width:100%;border-radius:4px;background:var(--color-bg-card);overflow:hidden}
+.result-reconsideration-section__frame{display:block;min-height:120px;padding:8px 0 0;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card);cursor:pointer}
+.result-reconsideration-section__header{position:relative;display:flex;align-items:flex-start;min-height:56px;padding:16px 24px;box-sizing:border-box}
+.result-reconsideration-section__header :deep(.performance-assessment-preview-header){flex:1;min-width:0;margin:0;padding-left:10px}
+.result-reconsideration-section__header :deep(.performance-assessment-preview-header::before){top:5px;width:2px;height:14px}
+.result-reconsideration-section__collapse{flex:0 0 24px;margin-left:auto}
+.result-reconsideration-section__body{height:102px;padding:12px 24px;box-sizing:border-box}
+.result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
+.result-reconsideration-section>.template-operate{border-top:1px solid rgba(187,191,196,.5)}
 .result-view-section{position:relative;width:var(--performance-content-width);max-width:100%;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
 .result-view-section__content{position:relative}
 .result-view-section__content::after{position:absolute;inset:0;border:2px solid var(--performance-content-hover-border);border-radius:var(--radius-sm);box-sizing:border-box;opacity:0;pointer-events:none;content:''}

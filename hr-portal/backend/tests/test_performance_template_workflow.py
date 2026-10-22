@@ -446,6 +446,26 @@ async def test_service_preserves_rating_level_rule_toggle(workflow_save_setup, e
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("content_type", ["work_summary", "custom"])
+@pytest.mark.parametrize("mode", ["fill", "hidden", "view"])
+async def test_service_preserves_evaluation_item_modes(workflow_save_setup, content_type, mode):
+    service, db = workflow_save_setup
+    settings = {"mode": mode, "required": False, "hideName": True, "hideDescription": True, "allowView": False, "futureSetting": {"keep": True}}
+    content = _view_source_content(content_type=content_type, items=[
+        {"id": "first", "questionType": "tag", "settings": settings},
+        {"id": "second", "questionType": "tag", "settings": {"mode": "fill", "required": True}},
+    ])
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [content]}
+    record = await service.save_nodes(77, [final], actor_type="PORTAL_USER", actor_ref="9")
+    db.workflow = record
+    reopened, _, _ = await service.get_nodes(77)
+    assert reopened[0]["content"][0]["items"][0]["settings"] == settings
+    assert reopened[0]["content"][0]["items"][1]["settings"] == {"mode": "fill", "required": True}
+    assert db.commits == 1
+    assert db.added[1].after_state["nodes"] == record.nodes
+
+
+@pytest.mark.asyncio
 async def test_service_keeps_node_content_independent_from_library_and_other_nodes(workflow_save_setup):
     from copy import deepcopy
 

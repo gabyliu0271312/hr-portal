@@ -25,6 +25,16 @@ def test_binding_identity_targets_are_unique_and_version_pinned():
             "uq_standard_binding_table_column", "uq_standard_binding_output_field"} <= names
 
 
+def _migration_0268():
+    from importlib.util import module_from_spec, spec_from_file_location
+    from pathlib import Path
+    path = Path(__file__).parents[1] / "alembic/versions/0268_warehouse_conversion_evidence.py"
+    spec = spec_from_file_location("conversion_evidence_migration", path)
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _migration_0255():
     from importlib.util import module_from_spec, spec_from_file_location
     from pathlib import Path
@@ -86,11 +96,11 @@ async def postgres_standard_catalog(postgres_classification_schema):
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     from sqlalchemy import BigInteger, Boolean, Column, MetaData, Table, text
-    from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable, DatasetOutputField, DataProductAuthorizationContract, WarehouseMetric
+    from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable, DatasetCalculatedField, DatasetOutputField, DataProductAuthorizationContract, WarehouseMetric
     from app.field_category.models import FieldCategory
     from app.push.models import PushTarget
     from app.reports.models import Report
-    from app.warehouse.models import StandardizationRule
+    from app.warehouse.models import StandardizationRule, WarehouseLineageEdge
     from app.users.models import Menu, Role, RoleMenu, UserRole
 
     engine, factory = postgres_classification_schema
@@ -106,17 +116,20 @@ async def postgres_standard_catalog(postgres_classification_schema):
     acls = DataSetAcl.__table__.to_metadata(metadata)
     outputs = DatasetOutputField.__table__.to_metadata(metadata)
     Report.__table__.to_metadata(metadata)
-    for model in (PushTarget, WarehouseMetric, models.OrgNode, models.CostCenterNode):
+    for model in (PushTarget, WarehouseMetric, models.OrgNode, models.CostCenterNode, DatasetCalculatedField, WarehouseLineageEdge):
         model.__table__.to_metadata(metadata)
     rules = StandardizationRule.__table__.to_metadata(metadata)
     categories = FieldCategory.__table__.to_metadata(metadata)
     migration = _migration()
     contract_migration = _migration_0255()
+    conversion_migration = _migration_0268()
     def install(connection):
         migration.op = Operations(MigrationContext.configure(connection))
         migration.upgrade()
         contract_migration.op = Operations(MigrationContext.configure(connection))
         contract_migration.upgrade()
+        conversion_migration.op = Operations(MigrationContext.configure(connection))
+        conversion_migration.upgrade()
     async with engine.begin() as conn:
         await conn.execute(text("ALTER TABLE users ADD COLUMN is_active boolean NOT NULL DEFAULT true"))
         await conn.run_sync(metadata.create_all)
@@ -1737,3 +1750,306 @@ def test_authorization_readiness_snapshot_detects_relation_output_and_alias_drif
     assert _snapshot_drift(snapshot, tables, [relation], [SimpleNamespace(**{**vars(outputs[0]), "is_sensitive": True})])
     assert _snapshot_drift({"tables": snapshot["tables"]}, tables, [relation], outputs)
     assert {issue["code"] for issue in _validate_relation_metadata([relation], {"person"})} == {"authorization_relation_alias_invalid"}
+
+
+@pytest_asyncio.fixture
+async def conversion_acceptance_api(postgres_dwd_refresh):
+    import httpx
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from app.core.db import get_session
+    from app.core.deps import current_user
+    from app.warehouse.router import router
+
+    engine, factory, _ = postgres_dwd_refresh
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+
+    async def session():
+        async with factory() as db:
+            yield db
+
+    async def user():
+        return SimpleNamespace(id=7)
+
+    app.dependency_overrides[get_session] = session
+    app.dependency_overrides[current_user] = user
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        yield client, engine, factory, app
+
+
+async def _run_conversion(factory, **kwargs):
+    from app.warehouse.service.standardization import StandardizationRuleService
+
+    async with factory() as db:
+        return await StandardizationRuleService(db).execute_full(
+            asset_code="source_probe", target_table="dwd_probe", **kwargs,
+        )
+
+
+async def _create_and_approve_person_contract(client):
+    base = "/api/v1/warehouse/models/4/authorization-contracts"
+    created = await client.post(base, json={
+        "expected_version": 0,
+        "facts": [{"alias": "current", "table_name": "dwd_probe", "fact_key": "employee_no",
+                   "employee_key": "employee_no", "role": "person_fact"}],
+        "output_fields": ["employee_no"], "dimensions": [], "measures": [], "internal_fields": [],
+    })
+    assert created.status_code == 201, created.text
+    contract = created.json()
+    approved = await client.post(f"{base}/{contract['id']}/approve", json={
+        "expected_revision": 0, "reason": "conversion acceptance contract",
+    })
+    assert approved.status_code == 200, approved.text
+    return contract["id"]
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_conversion_evidence_run_append_only_and_real_release_gate(conversion_acceptance_api):
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    client, engine, factory, _ = conversion_acceptance_api
+    first = await _run_conversion(factory)
+    assert "error" not in first, first
+    async with engine.connect() as conn:
+        run_row = (await conn.execute(text(
+            "SELECT id,lineage_id,source_table,target_table,evidence->>'status' "
+            "FROM warehouse_conversion_runs"
+        ))).one()
+        assert tuple(run_row[2:]) == ("source_probe", "dwd_probe", "success")
+        assert (await conn.execute(text(
+            "SELECT source_asset,target_asset,operation,run_id FROM warehouse_lineage_edges WHERE id=:id"
+        ), {"id": run_row.lineage_id})).one() == ("source_probe", "dwd_probe", "standardize", run_row.id)
+        assert await conn.scalar(text("SELECT count(*) FROM dataset_output_fields WHERE dataset_id=4")) == 1
+
+    for _ in range(2):
+        appended = await _run_conversion(factory, dwd_write_strategy="append",
+                                          business_key_fields=["employee_no"],
+                                          ods_sync_semantics="incremental_append")
+        assert "error" not in appended, appended
+    second = await _run_conversion(factory)
+    assert "error" not in second, second
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_runs")) == 2
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_runs WHERE id=:id AND lineage_id=:lineage_id"),
+                                 {"id": run_row.id, "lineage_id": run_row.lineage_id}) == 1
+        assert await conn.scalar(text("SELECT count(*) FROM dataset_output_fields WHERE dataset_id=4")) == 1
+
+    contract_id = await _create_and_approve_person_contract(client)
+    readiness = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert readiness.status_code == 200
+    assert readiness.json()["eligible"] is False
+    assert "conversion_approval_missing" in {issue["code"] for issue in readiness.json()["issues"]}
+    run_id = readiness.json()["run_id"]
+    approval_payload = {
+        "expected_run_id": run_id, "expected_contract_id": contract_id,
+        "expected_dataset_version": 3, "reason": "verified conversion output",
+    }
+    extra = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve",
+                              json={**approval_payload, "unexpected": True})
+    assert extra.status_code == 422
+    wrong_version = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve",
+                                      json={**approval_payload, "expected_dataset_version": 2})
+    assert wrong_version.status_code == 409
+    approved = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=approval_payload)
+    assert approved.status_code == 200, approved.text
+    duplicate = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=approval_payload)
+    assert duplicate.status_code == 409
+    verified = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert verified.status_code == 200 and verified.json()["conversion_verified"] is True
+    release = await client.get("/api/v1/warehouse/models/4/release-readiness")
+    assert release.status_code == 200, release.text
+    assert release.json()["eligible"] is True
+    assert release.json()["fields_eligible"] is True
+
+    with pytest.raises(IntegrityError) as update_error:
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE warehouse_conversion_runs SET target_table='other' WHERE id=:id"), {"id": run_id})
+    assert update_error.value.orig.sqlstate == "23514"
+    with pytest.raises(IntegrityError) as delete_error:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM warehouse_conversion_runs WHERE id=:id"), {"id": run_id})
+    assert delete_error.value.orig.sqlstate == "23514"
+    for statement in (
+        "UPDATE warehouse_conversion_approvals SET reason='changed'",
+        "DELETE FROM warehouse_conversion_approvals",
+        "UPDATE warehouse_lineage_edges SET operation='changed' WHERE run_id IS NOT NULL",
+        "DELETE FROM warehouse_lineage_edges WHERE run_id IS NOT NULL",
+    ):
+        with pytest.raises(IntegrityError) as immutable:
+            async with engine.begin() as conn:
+                await conn.execute(text(statement))
+        assert immutable.value.orig.sqlstate == "23514"
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_runs")) == 2
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_approvals")) == 1
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs WHERE action='conversion_approval_created'")) == 1
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift_sql,expected", [
+    ("UPDATE source_probe SET department='drifted'", "conversion_source_data_drift"),
+    ("UPDATE dwd_probe SET department='drifted'", "conversion_target_data_drift"),
+    ("UPDATE standardization_rules SET rule_config=json_build_object('output_label','renamed') WHERE id=101", "conversion_rules_drift"),
+    ("ALTER TABLE source_probe ADD COLUMN drift_column text", "conversion_source_schema_drift"),
+    ("ALTER TABLE dwd_probe ADD COLUMN drift_column text", "conversion_target_schema_drift"),
+    ("UPDATE table_columns SET source_field_id='changed-source' WHERE id=17", "conversion_source_schema_drift"),
+    ("UPDATE table_columns SET source_field_id='changed-identity' WHERE id=18", "conversion_target_schema_drift"),
+])
+async def test_postgres_conversion_readiness_rejects_real_five_class_drift(conversion_acceptance_api, drift_sql, expected):
+    from sqlalchemy import text
+
+    client, engine, factory, _ = conversion_acceptance_api
+    result = await _run_conversion(factory)
+    assert "error" not in result, result
+    contract_id = await _create_and_approve_person_contract(client)
+    readiness = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    payload = {
+        "expected_run_id": readiness.json()["run_id"], "expected_contract_id": contract_id,
+        "expected_dataset_version": 3, "reason": "initial evidence",
+    }
+    approved = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=payload)
+    assert approved.status_code == 200, approved.text
+    async with engine.begin() as conn:
+        await conn.execute(text(drift_sql))
+    checked = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert checked.status_code == 200
+    assert checked.json()["eligible"] is False
+    assert expected in {issue["code"] for issue in checked.json()["issues"]}
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_conversion_rerun_invalidates_old_approval_and_old_run_is_rejected(conversion_acceptance_api):
+    client, _, factory, _ = conversion_acceptance_api
+    first = await _run_conversion(factory)
+    assert "error" not in first, first
+    contract_id = await _create_and_approve_person_contract(client)
+    before = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    old_run_id = before.json()["run_id"]
+    payload = {"expected_run_id": old_run_id, "expected_contract_id": contract_id,
+               "expected_dataset_version": 3, "reason": "first approval"}
+    assert (await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=payload)).status_code == 200
+    rerun = await _run_conversion(factory)
+    assert "error" not in rerun, rerun
+    after = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert after.status_code == 200 and after.json()["run_id"] != old_run_id
+    assert after.json()["conversion_verified"] is False
+    assert "conversion_approval_missing" in {issue["code"] for issue in after.json()["issues"]}
+    rejected = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=payload)
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "conversion_approval_blocked"
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_conversion_acl_and_audit_failures_do_not_leak_or_create_evidence(conversion_acceptance_api):
+    from types import SimpleNamespace
+    from sqlalchemy import text
+    from app.core.deps import current_user
+
+    client, engine, factory, app = conversion_acceptance_api
+    result = await _run_conversion(factory)
+    assert "error" not in result, result
+    contract_id = await _create_and_approve_person_contract(client)
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO users(id,is_active) VALUES(99,true)"))
+        await conn.execute(text("INSERT INTO user_roles(user_id,role_id) VALUES(99,1)"))
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=99)
+    denied = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    assert denied.status_code == 403
+    assert "fingerprint" not in denied.text and "source_data" not in denied.text and "evidence" not in denied.text
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=7)
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE system_logs ADD CONSTRAINT conversion_audit_fail CHECK (action <> 'conversion_approval_created') NOT VALID"))
+    readiness = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    payload = {"expected_run_id": readiness.json()["run_id"], "expected_contract_id": contract_id,
+               "expected_dataset_version": 3, "reason": "audit rollback"}
+    failed = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json=payload)
+    assert failed.status_code == 409
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_approvals")) == 0
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_conversion_failed_transaction_has_no_run_and_downgrade_requires_empty_evidence(conversion_acceptance_api):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    client, engine, factory, _ = conversion_acceptance_api
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE warehouse_lineage_edges ADD CONSTRAINT conversion_lineage_fail CHECK (operation <> 'standardize') NOT VALID"))
+    failed = await _run_conversion(factory)
+    assert failed["error"] == "write_failed"
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_runs")) == 0
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_lineage_edges")) == 0
+        assert (await conn.execute(text("SELECT employee_no,department FROM dwd_probe"))).one() == ("OLD", "OldOrg")
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE warehouse_lineage_edges DROP CONSTRAINT conversion_lineage_fail"))
+    succeeded = await _run_conversion(factory)
+    assert "error" not in succeeded, succeeded
+    migration = _migration_0268()
+    def downgrade(connection):
+        migration.op = Operations(MigrationContext.configure(connection))
+        migration.downgrade()
+    with pytest.raises(IntegrityError):
+        async with engine.begin() as conn:
+            await conn.run_sync(downgrade)
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM datasets WHERE id=4")) == 1
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_conversion_release_request_does_not_scan_fingerprints_under_dataset_lock(conversion_acceptance_api, monkeypatch):
+    from sqlalchemy import text
+    from app.warehouse.service import conversion
+
+    client, engine, factory, _ = conversion_acceptance_api
+    result = await _run_conversion(factory)
+    assert "error" not in result, result
+    contract_id = await _create_and_approve_person_contract(client)
+    ready = await client.get("/api/v1/warehouse/models/4/conversion-readiness")
+    approved = await client.post("/api/v1/warehouse/models/4/conversion-readiness/approve", json={
+        "expected_run_id": ready.json()["run_id"], "expected_contract_id": contract_id,
+        "expected_dataset_version": 3, "reason": "release lock ordering regression",
+    })
+    assert approved.status_code == 200, approved.text
+
+    async def refuse_fingerprint(*args, **kwargs):
+        raise AssertionError("release request must not scan conversion data under dataset lock")
+
+    monkeypatch.setattr(conversion, "_data_fingerprint", refuse_fingerprint)
+    blocked = await client.post("/api/v1/warehouse/models/4/release", json={"expected_version": 3})
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"]["code"] == "dataset_release_blocked"
+    async with engine.connect() as conn:
+        assert (await conn.execute(text("SELECT status,version,published_by FROM datasets WHERE id=4"))).one() == ("published", 3, None)
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_conversion_approvals")) == 1
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_empty_conversion_migration_round_trip_preserves_catalog(postgres_standard_catalog):
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+
+    engine, _, _ = postgres_standard_catalog
+    migration = _migration_0268()
+    def apply(connection, operation):
+        migration.op = Operations(MigrationContext.configure(connection))
+        getattr(migration, operation)()
+    async with engine.begin() as conn:
+        await conn.run_sync(apply, "downgrade")
+        assert await conn.scalar(text("SELECT count(*) FROM datasets WHERE id=4")) == 1
+        await conn.run_sync(apply, "upgrade")
+        assert await conn.scalar(text("SELECT count(*) FROM dataset_calculated_fields")) == 0
+        assert await conn.scalar(text("SELECT count(*) FROM warehouse_lineage_edges")) == 0

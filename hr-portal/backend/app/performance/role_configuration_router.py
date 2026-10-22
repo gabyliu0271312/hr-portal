@@ -51,6 +51,32 @@ class PerformanceRoleCreateIn(BaseModel):
         return value or None
 
 
+class PerformanceRoleUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=2000)
+    function_permission_keys: list[str] | None = Field(default=None, max_length=256)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("角色名称不能为空白")
+        return value
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
 class PerformanceRoleStatusIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -145,6 +171,18 @@ async def list_performance_roles(
     )
 
 
+@router.get("/{role_id:int}", response_model=PerformanceRoleOut)
+async def get_performance_role(
+    role_id: int,
+    _: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> PerformanceRoleOut:
+    role = await db.get(PerformanceRole, role_id)
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
+    return _role_out(role)
+
+
 @router.post("", response_model=PerformanceRoleOut, status_code=status.HTTP_201_CREATED)
 async def create_performance_role(
     payload: PerformanceRoleCreateIn,
@@ -185,6 +223,62 @@ async def create_performance_role(
                 "is_system": role.is_system,
                 "is_active": role.is_active,
             },
+        )
+    )
+    await db.commit()
+    await db.refresh(role)
+    return _role_out(role)
+
+
+@router.patch("/{role_id:int}", response_model=PerformanceRoleOut)
+async def update_performance_role(
+    role_id: int,
+    payload: PerformanceRoleUpdateIn,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> PerformanceRoleOut:
+    role = await db.get(PerformanceRole, role_id)
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="角色不存在")
+    if role.role_type != "MANAGEMENT":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="评估角色不可编辑")
+    changes = payload.model_dump(exclude_unset=True)
+    if role.is_system:
+        if any(key in changes for key in ("name", "function_permission_keys")):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统角色名称和权限不可编辑")
+        changes = {"description": changes["description"]} if "description" in changes else {}
+    if not changes:
+        return _role_out(role)
+    if "name" in changes:
+        duplicate = (
+            await db.execute(
+                select(PerformanceRole).where(
+                    PerformanceRole.name == changes["name"],
+                    PerformanceRole.id != role_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if duplicate is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="角色名称已存在")
+    if "function_permission_keys" in changes:
+        changes["function_permission_keys"] = list(dict.fromkeys(changes["function_permission_keys"] or []))
+    before_state = {
+        "name": role.name,
+        "description": role.description,
+        "function_permission_keys": role.function_permission_keys,
+    }
+    for key, value in changes.items():
+        setattr(role, key, value)
+    actor = await resolve_trusted_performance_actor(db, context)
+    PerformanceAuditService(db).append_event(
+        AuditEventInput(
+            event_type="PERFORMANCE_ROLE_UPDATED",
+            actor_type=actor.actor_type,
+            actor_ref=actor.actor_ref,
+            subject_type="PERFORMANCE_ROLE",
+            subject_ref=str(role.id),
+            before_state=before_state,
+            after_state={key: getattr(role, key) for key in before_state},
         )
     )
     await db.commit()

@@ -16,7 +16,7 @@ from app.performance.auth_context import PerformanceAccessContext, PerformanceId
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
-from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
+from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_result_view_contents, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
@@ -1010,19 +1010,27 @@ async def read_my_project_results(
     state = await _opening_state(project, db)
     if state is None:
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
-    _view, final, _previous, members, tasks, schema = state
+    view, final, _previous, members, tasks, schema = state
     if not any(member.employee_no == actor.actor_ref for member in members):
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
     fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
+    final_tasks = [
+        task for task in tasks
+        if task.target_employee_no == actor.actor_ref and task.node_snapshot_id == final.id
+    ]
     results = []
-    for task in tasks:
-        if task.target_employee_no != actor.actor_ref or task.node_snapshot_id != final.id:
-            continue
+    for task in final_tasks:
         for field in fields:
             option = _matrix_rating_value((task.answers or {}).get(field["id"]), field.get("options") or [])
             if option is not None:
                 results.append({"task_id": task.id, "field_id": field["id"], "option_id": str(option["id"]), "label": str(option.get("label") or "")})
-    return {"project_id": project.id, "employee_no": actor.actor_ref, "results": results}
+    contents = project_result_view_contents(
+        (view.config or {}).get("template") or {},
+        (final.config or {}).get("template") or {},
+        final_tasks,
+        employee_no=actor.actor_ref,
+    )
+    return {"project_id": project.id, "employee_no": actor.actor_ref, "results": results, "contents": contents}
 
 
 def _latest_member_snapshot_statement(project_id: int):

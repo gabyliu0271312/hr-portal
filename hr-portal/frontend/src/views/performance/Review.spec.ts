@@ -1,13 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceReviewApi, performanceWorkbenchApi, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
 const replace = vi.fn()
+const routeQuery = vi.hoisted(() => ({} as Record<string, string>))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
+  useRoute: () => ({ query: routeQuery }),
   useRouter: () => ({ push, replace }),
 }))
 
@@ -64,11 +65,49 @@ describe('PerformanceReview', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     localStorage.clear()
+    Object.keys(routeQuery).forEach(key => delete routeQuery[key])
     push.mockReset()
     replace.mockReset()
     vi.restoreAllMocks()
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
+  })
+
+  it('renders allowed result tags through the shared readonly renderer and honors display flags', async () => {
+    Object.assign(routeQuery, { entry: 'results', project_id: '1' })
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [{ task_id: 11, form_schema: [{ id: 'tags', name: '终评内容', fields: [
+      { id: 'tag', type: 'tag_with_followup', label: '', hide_name: true, description: '', hide_description: true, options: [{ id: 'a', label: '协作' }] },
+    ] }], answers: { tag: { tags: ['a'], notes: { a: '<p>终评反馈</p>' } } } }] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(projectManagementApi.myResults).toHaveBeenCalledWith(1)
+    expect(wrapper.get('.review-results').text()).toContain('协作')
+    expect(wrapper.get('.review-results').text()).toContain('终评反馈')
+    expect(wrapper.find('.template-field-label').exists()).toBe(false)
+    expect(wrapper.find('.template-field-description').exists()).toBe(false)
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('暂无可查看的绩效结果')
+    wrapper.unmount()
+  })
+
+  it('keeps legacy rating results and shows denied or empty result states without content', async () => {
+    Object.assign(routeQuery, { entry: 'results', project_id: '1' })
+    const api = vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [{ task_id: 11, field_id: 'rating', option_id: 'a', label: '优秀' }] })
+    const legacy = mountView()
+    await flushPromises()
+    expect(legacy.get('.review-results').text()).toContain('优秀')
+    legacy.unmount()
+    api.mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
+    const empty = mountView()
+    await flushPromises()
+    expect(empty.text()).toContain('暂无可查看的绩效结果')
+    empty.unmount()
+    api.mockRejectedValue(new Error('RESULT_NOT_FOUND'))
+    const denied = mountView()
+    await flushPromises()
+    expect(denied.get('[role="alert"]').text()).toBe('当前结果尚未开通或不可查看')
+    expect(denied.find('.performance-template-renderer').exists()).toBe(false)
+    denied.unmount()
   })
 
   it('renders the template name and all four template-driven categories', async () => {

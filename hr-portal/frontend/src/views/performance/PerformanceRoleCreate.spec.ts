@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PerformanceRoleCreate from './PerformanceRoleCreate.vue'
 import roleCreateSource from './PerformanceRoleCreate.vue?raw'
 
-const performanceRoleApi = vi.hoisted(() => ({ create: vi.fn() }))
+const performanceRoleApi = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), update: vi.fn() }))
 vi.mock('@/api/performance', () => ({ performanceRoleApi }))
 
 const routerPush = vi.hoisted(() => vi.fn())
+const routeParams = vi.hoisted(() => ({ value: {} as Record<string, string> }))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: routerPush }),
+  useRoute: () => ({ params: routeParams.value }),
 }))
 
 const stubs = {
@@ -27,6 +29,8 @@ describe('PerformanceRoleCreate', () => {
   beforeEach(() => {
     routerPush.mockReset()
     performanceRoleApi.create.mockReset()
+    performanceRoleApi.get.mockReset()
+    performanceRoleApi.update.mockReset()
   })
 
   it('renders the public header and empty configuration shell', () => {
@@ -63,16 +67,28 @@ describe('PerformanceRoleCreate', () => {
     expect(payload.function_permission_keys).toContain('performance.backend.cycles-projects')
   })
 
-  it('saves the first role form container through the real API client', async () => {
-    performanceRoleApi.create.mockResolvedValue({ id: 10, name: '校准人', description: '负责校准', is_system: false, is_active: true, updated_at: '2026-09-23T00:00:00Z' })
+  it('loads a system role into the edit form and locks its name and permissions', async () => {
+    routeParams.value = { roleId: '11' }
+    performanceRoleApi.get.mockResolvedValue({
+      id: 11,
+      code: 'performance.hrbp',
+      name: 'HRBP',
+      description: '可以查看部门以及部门下的员工信息',
+      role_type: 'MANAGEMENT',
+      member_source: null,
+      is_system: true,
+      is_active: true,
+      updated_at: '2026-09-23T00:00:00Z',
+      function_permission_keys: [],
+    })
     const wrapper = mount(PerformanceRoleCreate, { global: { stubs } })
-
-    await wrapper.get('#performance-role-name').setValue('校准人')
-    await wrapper.get('#performance-role-description').setValue('负责校准')
-    await wrapper.get('.save').trigger('click')
     await flushPromises()
 
-    expect(performanceRoleApi.create).toHaveBeenCalledWith({ name: '校准人', description: '负责校准', function_permission_keys: [] })
-    expect(routerPush).toHaveBeenCalledWith({ name: 'PerformancePermissionRoles' })
+    expect(wrapper.find('.page-header').text()).toContain('编辑角色')
+    expect(wrapper.get('#performance-role-name').attributes('disabled')).toBeDefined()
+    expect((wrapper.get('#performance-role-name').element as HTMLInputElement).value).toBe('HRBP')
+    expect((wrapper.get('#performance-role-description').element as HTMLTextAreaElement).value).toBe('可以查看部门以及部门下的员工信息')
+    expect(wrapper.findAll('input[type="checkbox"][disabled]').length).toBeGreaterThan(0)
+    routeParams.value = {}
   })
 })
