@@ -69,6 +69,15 @@ export function getOutputFields(id) {
 export function saveOutputFields(id, fields) {
     return api.put(`/warehouse/models/${id}/output-fields`, fields).then(r => r.data);
 }
+export function getReleaseReadiness(id) { return api.get(`/warehouse/models/${id}/release-readiness`).then(r => r.data); }
+export function getConversionReadiness(id) { return api.get(`/warehouse/models/${id}/conversion-readiness`).then(r => r.data); }
+export function getAuthorizationExecutionReadiness(id) { return api.get(`/warehouse/models/${id}/authorization-execution-readiness`).then(r => r.data); }
+export function releaseModel(id, expectedVersion) { return api.post(`/warehouse/models/${id}/release`, { expected_version: expectedVersion }).then(r => r.data); }
+export function listAuthorizationContracts(id) { return api.get(`/warehouse/models/${id}/authorization-contracts`).then(r => r.data); }
+export function createAuthorizationContract(id, payload) { return api.post(`/warehouse/models/${id}/authorization-contracts`, payload).then(r => r.data); }
+export function approveAuthorizationContract(id, contractId, payload) { return api.post(`/warehouse/models/${id}/authorization-contracts/${contractId}/approve`, payload).then(r => r.data); }
+export function approveConversion(id, payload) { return api.post(`/warehouse/models/${id}/conversion-readiness/approve`, payload).then(r => r.data); }
+
 // ==================== 指标 API ====================
 /** 指标列表（分页 + 筛选） */
 export function listMetrics(params) {

@@ -97,7 +97,13 @@ async def postgres_standard_catalog(postgres_classification_schema):
     from alembic.operations import Operations
     from sqlalchemy import BigInteger, Boolean, Column, MetaData, Table, text
     from app.datasets.models import DataSet, DataSetAcl, DataSetRelation, DataSetTable, DatasetCalculatedField, DatasetOutputField, DataProductAuthorizationContract, WarehouseMetric
-    from app.field_category.models import FieldCategory
+    from app.field_category.models import (
+        FieldCategory,
+        FieldCategoryAssignment,
+        FieldCategoryToolWhitelist,
+        RoleVisibleCategory,
+        UserVisibleCategory,
+    )
     from app.push.models import PushTarget
     from app.reports.models import Report
     from app.warehouse.models import StandardizationRule, WarehouseLineageEdge
@@ -120,6 +126,8 @@ async def postgres_standard_catalog(postgres_classification_schema):
         model.__table__.to_metadata(metadata)
     rules = StandardizationRule.__table__.to_metadata(metadata)
     categories = FieldCategory.__table__.to_metadata(metadata)
+    for model in (FieldCategoryAssignment, FieldCategoryToolWhitelist, UserVisibleCategory, RoleVisibleCategory):
+        model.__table__.to_metadata(metadata)
     migration = _migration()
     contract_migration = _migration_0255()
     conversion_migration = _migration_0268()
@@ -159,6 +167,7 @@ async def postgres_standard_catalog(postgres_classification_schema):
         await conn.execute(outputs.insert().values(id=41, dataset_id=4, source_alias="current", source_column="employee_no", output_code="employee_no", output_label="Approved employee label", is_sensitive=True, display_order=91))
         await conn.execute(rules.insert().values(id=101, asset_type="table", asset_code="source_probe", rule_type="rename", source_field="employee_no", target_field="employee_no", rule_config={}, enabled=True, display_order=1))
         await conn.execute(categories.insert().values(id=9, name="existing_sensitive", is_sensitive=True))
+        await conn.execute(RoleVisibleCategory.__table__.insert().values(role_id=1, category_id=9))
         await conn.run_sync(install)
         await conn.execute(models.StandardField.__table__.insert().values(id=1, field_code="employee_no", created_by=7))
         await conn.execute(models.StandardFieldVersion.__table__.insert().values(
@@ -1029,6 +1038,39 @@ async def test_binding_candidates_suggest_confirm_invalidate_and_duplicate_targe
 
 @pytest.mark.postgres_acceptance
 @pytest.mark.asyncio
+@pytest.mark.parametrize("target_kind,target_id", [("table_column", 19), ("dataset_output_field", 42)])
+async def test_postgres_dwd_binding_formal_suggest_confirm_source_snapshot(standard_catalog_api, target_kind, target_id):
+    from sqlalchemy import text
+    from app.data.models import RegisteredTable
+    from app.datasets.models import DatasetOutputField
+    client, engine, _, _ = standard_catalog_api
+    base = "/api/v1/warehouse/standard-fields/1"
+    async with engine.begin() as conn:
+        await conn.execute(RegisteredTable.__table__.insert().values(
+            id=32, table_name="dwd_probe", table_label="DWD", warehouse_layer="DWD", asset_status="draft"))
+        await conn.execute(DatasetOutputField.__table__.insert().values(id=42, dataset_id=4,
+            source_alias="current", source_column="department", output_code="department", output_label="Department"))
+        await conn.execute(text("UPDATE datasets SET status='draft' WHERE id=4"))
+    assert (await client.post(base + "/versions/11/approve", json={"expected_revision": 0, "reason": "review"})).status_code == 200
+    suggested = await client.post(base + "/bindings", json={
+        "target_kind": target_kind, "target_id": target_id, "standard_field_version_id": 11})
+    assert suggested.status_code == 201, suggested.text
+    binding = suggested.json()
+    assert binding["observed_source_field_id"] == "dwd-department"
+    confirmed = await client.post(base + f"/bindings/{binding['id']}/confirm", json={
+        "expected_revision": 0, "reason": "source meaning verified"})
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "confirmed" and confirmed.json()["revision"] == 1
+    duplicate = await client.post(base + f"/bindings/{binding['id']}/confirm", json={
+        "expected_revision": 0, "reason": "stale confirmation"})
+    assert duplicate.status_code == 409
+    async with engine.connect() as conn:
+        assert (await conn.execute(text("SELECT status,version FROM datasets WHERE id=4"))).one() == ("draft", 3)
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs WHERE action LIKE 'standard_field_binding_%'")) == 2
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
 async def test_binding_rejects_type_version_target_and_source_drift(standard_catalog_api):
     from sqlalchemy import text
     client, engine, _, _ = standard_catalog_api
@@ -1103,7 +1145,7 @@ async def test_binding_concurrent_confirmation_has_one_winner_and_audit_failure_
 
 @pytest.mark.postgres_acceptance
 @pytest.mark.asyncio
-async def test_binding_endpoints_enforce_permissions_schema_and_derived_release_gate(standard_catalog_api):
+async def test_binding_endpoints_enforce_permissions_schema_and_unregistered_source_gate(standard_catalog_api):
     from sqlalchemy import text
     from app.core.deps import current_user
     client, engine, _, app = standard_catalog_api
@@ -2064,6 +2106,55 @@ async def test_postgres_conversion_release_request_does_not_scan_fingerprints_un
 
 @pytest.mark.postgres_acceptance
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change", [None, "version", "status", "is_active"])
+async def test_postgres_release_candidate_is_not_flushed_and_lock_reloads_current_state(standard_catalog_api, monkeypatch, change):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from sqlalchemy import text
+    from app.datasets.models import DataSet
+    from app.warehouse.schemas import DatasetReleaseReadinessOut
+    from app.warehouse.service import release_gate
+
+    client, engine, factory, _ = standard_catalog_api
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE datasets SET status='draft' WHERE id=4"))
+
+    async def execution(db, dataset_id, user):
+        assert (await db.get(DataSet, dataset_id)).status == "published"
+        async with db.begin_nested():
+            assert await db.scalar(text("SELECT status FROM datasets WHERE id=4")) == "draft"
+        if change:
+            statements = {
+                "version": "UPDATE datasets SET version=4 WHERE id=4",
+                "status": "UPDATE datasets SET status='archived' WHERE id=4",
+                "is_active": "UPDATE datasets SET is_active=false WHERE id=4",
+            }
+            async with engine.begin() as conn:
+                await conn.execute(text(statements[change]))
+        return SimpleNamespace(eligible=True, runtime_enabled=True, contract_id=12, contract_version=1)
+
+    gate = DatasetReleaseReadinessOut(dataset_id=4, dataset_status="draft", eligible=True,
+        fields_eligible=True, authorization_verified=True, conversion_verified=True,
+        checked_output_count=1, confirmed_output_count=1, issues=[])
+    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", execution)
+    monkeypatch.setattr(release_gate, "check_dataset_release", AsyncMock(return_value=gate))
+    response = await client.post("/api/v1/warehouse/models/4/release", json={"expected_version": 3})
+    assert response.status_code == (409 if change else 200), response.text
+    async with engine.connect() as conn:
+        row = (await conn.execute(text("SELECT version,status,is_active FROM datasets WHERE id=4"))).one()
+        if change == "version":
+            assert tuple(row) == (4, "draft", True)
+        elif change == "status":
+            assert tuple(row) == (3, "archived", True)
+        elif change == "is_active":
+            assert tuple(row) == (3, "draft", False)
+        else:
+            assert tuple(row) == (3, "published", True)
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs WHERE action='dataset_release'")) == (0 if change else 1)
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
 @pytest.mark.parametrize("sql_type,value", [("BIGINT", 100), ("REAL", 0.1)])
 async def test_postgres_conversion_numeric_projection_preserves_hidden_amount(postgres_dwd_refresh, sql_type, value):
     from decimal import Decimal
@@ -2241,3 +2332,107 @@ async def test_postgres_empty_conversion_migration_round_trip_preserves_catalog(
         await conn.run_sync(apply, "upgrade")
         assert await conn.scalar(text("SELECT count(*) FROM dataset_calculated_fields")) == 0
         assert await conn.scalar(text("SELECT count(*) FROM warehouse_lineage_edges")) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_status", ["draft", "published"])
+async def test_release_checks_conversion_and_execution_without_changing_semantic_version(monkeypatch, initial_status):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from contextlib import nullcontext
+    from app.warehouse.service import release_gate
+    from app.warehouse.schemas import DatasetReleaseReadinessOut
+    from app.datasets.models import DataSet
+    dataset = DataSet(id=4, version=3, status=initial_status, is_active=True, warehouse_layer="DWD",
+                      published_by=None, published_at=None)
+    result = Mock()
+    result.scalar_one_or_none.return_value = dataset
+    result2 = Mock()
+    result2.scalar_one_or_none.return_value = dataset
+    db = SimpleNamespace(execute=AsyncMock(side_effect=[result, result2]), scalar=AsyncMock(return_value=3),
+                         no_autoflush=nullcontext(), add=Mock(), commit=AsyncMock(), rollback=AsyncMock())
+    gate = DatasetReleaseReadinessOut(dataset_id=4, dataset_status=initial_status, eligible=True,
+        fields_eligible=True, authorization_verified=True, conversion_verified=True,
+        checked_output_count=2, confirmed_output_count=2, issues=[])
+    check = AsyncMock(return_value=gate)
+    async def execution(*args):
+        assert dataset.status == "published"
+        assert dataset.version == 3
+        return SimpleNamespace(eligible=True, runtime_enabled=True, contract_id=12, contract_version=1)
+    monkeypatch.setattr(release_gate, "check_dataset_release", check)
+    monkeypatch.setattr("app.datasets.router._can_access", AsyncMock(return_value=True))
+    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", execution)
+    released = await release_gate.request_dataset_release(db, 4, 3, SimpleNamespace(id=7))
+    assert released.dataset_status == "published" and released.eligible
+    check.assert_awaited_once_with(db, 4)
+    assert dataset.version == 3
+    assert dataset.published_by == (7 if initial_status == "draft" else None)
+    db.commit.assert_awaited_once()
+    db.rollback.assert_not_awaited()
+    assert db.add.call_args.args[0].action == "dataset_release"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["acl", "version", "release", "execution", "audit"])
+async def test_release_failures_rollback_without_commit(monkeypatch, failure):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from contextlib import nullcontext
+    from fastapi import HTTPException
+    from app.warehouse.service import release_gate
+    from app.warehouse.schemas import DatasetReleaseReadinessOut
+    from app.datasets.models import DataSet
+    dataset = DataSet(id=4, version=3, status="draft", is_active=True, warehouse_layer="DWD",
+                      published_by=None, published_at=None)
+    result = Mock()
+    result.scalar_one_or_none.return_value = dataset
+    result2 = Mock()
+    result2.scalar_one_or_none.return_value = dataset
+    db = SimpleNamespace(execute=AsyncMock(side_effect=[result, result2]), scalar=AsyncMock(return_value=3),
+                         no_autoflush=nullcontext(), add=Mock(), commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr("app.datasets.router._can_access", AsyncMock(return_value=failure != "acl"))
+    gate = DatasetReleaseReadinessOut(dataset_id=4, dataset_status="draft", eligible=failure != "release",
+        fields_eligible=True, authorization_verified=True, conversion_verified=failure != "release",
+        checked_output_count=2, confirmed_output_count=2, issues=[])
+    monkeypatch.setattr(release_gate, "check_dataset_release", AsyncMock(return_value=gate))
+    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", AsyncMock(return_value=SimpleNamespace(
+        eligible=failure != "execution", runtime_enabled=failure != "execution", issues=[], contract_id=12, contract_version=1)))
+    if failure == "audit":
+        db.add.side_effect = RuntimeError("audit unavailable")
+    with pytest.raises((HTTPException, RuntimeError)):
+        await release_gate.request_dataset_release(db, 4, 2 if failure == "version" else 3, SimpleNamespace(id=7))
+    db.rollback.assert_awaited_once()
+    db.commit.assert_not_awaited()
+    assert dataset.version == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation,expected", [(None, None), ("acl", "dataset_acl_denied"),
+    ("join", "standard_binding_scope_unsupported"), ("hidden", "standard_binding_field_denied"),
+    ("type", "standard_binding_physical_drift"), ("technical", "standard_binding_source_invalid")])
+async def test_dwd_output_binding_uses_real_source_acl_and_current_fields(monkeypatch, mutation, expected):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from fastapi import HTTPException
+    from app.warehouse.service import standard_fields
+    column = SimpleNamespace(table_name="dwd_probe", column_code="amount", source_field_id="source-amount",
+        data_type="number", is_visible=True, is_sensitive=False, is_computed=False)
+    target = {"table_name": "dwd_probe", "dataset_id": 4, "target_kind": "dataset_output_field",
+        "column_code": "total", "source_column": "id" if mutation == "technical" else "amount",
+        "data_type": "number", "is_visible": True, "is_sensitive": False}
+    datasets = Mock()
+    datasets.scalars.return_value.all.return_value = [SimpleNamespace(id=4, warehouse_layer="DWD", is_active=True, status="draft")]
+    tables = Mock()
+    tables.scalars.return_value.all.return_value = [SimpleNamespace(alias="a")]
+    db = SimpleNamespace(execute=AsyncMock(side_effect=[datasets, tables]), scalar=AsyncMock(side_effect=[
+        SimpleNamespace(table_name="dwd_probe", warehouse_layer="DWD"), column,
+        1 if mutation == "join" else None, None, "text" if mutation == "type" else "numeric"]))
+    monkeypatch.setattr("app.datasets.router._can_access", AsyncMock(return_value=mutation != "acl"))
+    monkeypatch.setattr("app.permissions.masker.get_hidden_columns", AsyncMock(return_value={"amount"} if mutation == "hidden" else set()))
+    if expected:
+        with pytest.raises(HTTPException) as error:
+            await standard_fields._require_binding_target(db, target, SimpleNamespace(id=7))
+        assert error.value.detail["code"] == expected
+    else:
+        await standard_fields._require_binding_target(db, target, SimpleNamespace(id=7))
+        assert target["source_field_id"] == "source-amount"

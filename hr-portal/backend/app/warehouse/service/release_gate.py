@@ -201,18 +201,59 @@ async def get_dataset_release_health(db, dataset_id):
     )
 
 
-async def request_dataset_release(db, dataset_id, expected_version):
-    dataset = (await db.execute(select(DataSet).where(DataSet.id == dataset_id)
-                               .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
-    if dataset is None:
-        raise HTTPException(404, detail={"code": "dataset_not_found", "message": "数据集不存在"})
-    if dataset.version != expected_version:
+async def request_dataset_release(db, dataset_id, expected_version, user):
+    from datetime import UTC, datetime
+    from app.datasets.router import _can_access
+    from app.datasets.authorization_contract import execution_readiness
+    from app.system.models import SystemLog
+    from sqlalchemy.orm.attributes import set_committed_value
+
+    try:
+        dataset = (await db.execute(select(DataSet).where(DataSet.id == dataset_id)
+                                   .execution_options(populate_existing=True))).scalar_one_or_none()
+        if dataset is None:
+            raise HTTPException(404, detail={"code": "dataset_not_found", "message": "数据集不存在"})
+        if not await _can_access(user, dataset, db):
+            raise HTTPException(403, detail={"code": "dataset_acl_denied", "message": "当前用户不具备数据集资源访问权"})
+        if dataset.version != expected_version:
+            raise HTTPException(409, detail={"code": "dataset_release_version_conflict", "message": "数据集版本已变化，请重新检查"})
+        previous_status = dataset.status
+        observed_state = (dataset.version, dataset.status, dataset.is_active, dataset.warehouse_layer)
+        with db.no_autoflush:
+            set_committed_value(dataset, "status", "published")
+            try:
+                execution = await execution_readiness(db, dataset_id, user)
+                if not execution.eligible or not execution.runtime_enabled:
+                    raise HTTPException(409, detail={
+                        "code": "dataset_release_blocked", "message": "当前数据集不满足限定汇总执行资格",
+                        "issues": execution.issues,
+                    })
+                readiness = await check_dataset_release(db, dataset_id)
+                if not readiness.eligible:
+                    raise HTTPException(409, detail={
+                        "code": "dataset_release_blocked", "message": "完整发布准入尚未通过",
+                        "issues": [issue.model_dump() for issue in readiness.issues],
+                    })
+            finally:
+                set_committed_value(dataset, "status", previous_status)
+            dataset = (await db.execute(select(DataSet).where(DataSet.id == dataset_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+        if dataset is None or dataset.version != expected_version:
+            raise HTTPException(409, detail={"code": "dataset_release_version_conflict", "message": "数据集版本已变化，请重新检查"})
+        if (dataset.version, dataset.status, dataset.is_active, dataset.warehouse_layer) != observed_state:
+            raise HTTPException(409, detail={"code": "dataset_release_state_conflict", "message": "数据集状态已变化，请重新检查"})
+        dataset.status = "published"
+        if previous_status != "published":
+            dataset.published_by = user.id
+            dataset.published_at = datetime.now(UTC)
+        db.add(SystemLog(
+            category="scope_governance", action="dataset_release", status="success", user_id=user.id,
+            metadata_json={"dataset_id": dataset_id, "version": dataset.version,
+                           "previous_status": previous_status, "status": "published",
+                           "contract_id": execution.contract_id, "contract_version": execution.contract_version},
+        ))
+        await db.commit()
+        return readiness.model_copy(update={"dataset_status": "published"})
+    except Exception:
         await db.rollback()
-        raise HTTPException(409, detail={"code": "dataset_release_version_conflict", "message": "数据集版本已变化，请重新检查"})
-    readiness = await check_dataset_release(db, dataset_id, verify_conversion=False)
-    await db.rollback()
-    raise HTTPException(409, detail={
-        "code": "dataset_release_blocked",
-        "message": "完整发布准入尚未通过，字段资格不能替代授权与转换合同",
-        "issues": [issue.model_dump() for issue in readiness.issues],
-    })
+        raise

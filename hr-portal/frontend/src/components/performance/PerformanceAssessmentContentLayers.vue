@@ -99,7 +99,8 @@
                 <div v-if="item.questionType==='tag' && tagOptionFor(item)" class="tag-preview">
                   <strong>{{ tagOptionFor(item)?.label }}</strong><p>{{ tagOptionFor(item)?.description }}</p>
                   <div class="tag-checks"><PerformanceCheckbox v-for="field in tagOptionFor(item)?.defaultFields || []" :key="field.label" :model-value="tagSelectionFor(item).includes(field.label)" :label="field.label" @update:model-value="togglePreviewTag(item, field.label, $event)" /></div>
-                  <div class="tag-preview__editor" aria-label="标签填写区域">
+                  <div class="tag-preview__editor" :class="{ 'has-selection': selectedTagFields(item).length > 0 }" aria-label="标签填写区域">
+                    <PerformanceRichTextToolbar v-if="selectedTagFields(item).length" :active="activeTagEditor(item)?.active" @before-command="activeTagEditor(item)?.rememberSelection()" @command="activeTagEditor(item)?.command($event)" />
                     <div class="tag-preview__selected-groups" aria-label="已选择标签及填写提示">
                       <div v-for="field in selectedTagFields(item)" :key="field.label" class="tag-preview__selected-group">
                         <div class="tag-preview__selected">
@@ -108,7 +109,7 @@
                             <button type="button" :aria-label="`删除${field.label}`" @click="removePreviewTag(item, field.label)">×</button>
                           </span>
                         </div>
-                        <RichTextBox v-model="tagPreviewNotes[`${item.id}:${field.label}`]" :placeholder="field.content || '请输入补充说明'" />
+                        <RichTextBox :ref="element => setTagPreviewEditor(item.id, field.label, element)" v-model="tagPreviewNotes[`${item.id}:${field.label}`]" :placeholder="field.content || '请输入补充说明'" hide-toolbar @activate="activeTagLabels[item.id] = field.label" />
                       </div>
                     </div>
                     <div v-if="!selectedTagFields(item).length" class="tag-preview__hint">勾选标签后填写</div>
@@ -132,6 +133,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, Teleport, watch, type Ref } from 'vue'
 import PerformanceRichTextBox from './PerformanceRichTextBox.vue'
+import PerformanceRichTextToolbar from './PerformanceRichTextToolbar.vue'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import PerformanceAssessmentRichTextField from './PerformanceAssessmentRichTextField.vue'
 import { ArrowDown, ArrowUp, CircleCheckFilled, Close, Delete, Edit, Plus } from '@element-plus/icons-vue'
@@ -163,6 +165,19 @@ const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), 
 const items=ref<FillItem[]>([]), created=ref<Array<AssessmentContentDraft&{id:string}>>([])
 const tagSelections=ref<Record<string,string[]>>({})
 const tagPreviewNotes=ref<Record<string,string>>({})
+const activeTagLabels=ref<Record<string,string>>({})
+type TagPreviewEditor = { active: Partial<Record<EditorCommand['command'], boolean>>; rememberSelection: () => void; command: (command: EditorCommand['command']) => void }
+const tagPreviewEditors:Record<string,TagPreviewEditor>={}
+function setTagPreviewEditor(itemId:string,label:string,element:unknown){
+  const key=`${itemId}:${label}`
+  if(element)tagPreviewEditors[key]=element as TagPreviewEditor
+  else delete tagPreviewEditors[key]
+}
+function activeTagEditor(item:FillItem){
+  const fields=selectedTagFields(item)
+  const label=fields.find(field=>field.label===activeTagLabels.value[item.id])?.label || fields[0]?.label
+  return label ? tagPreviewEditors[`${item.id}:${label}`] : undefined
+}
 const previousDefaultAll=ref<Record<string,boolean>>({})
 const previousTagOption=ref<Record<string,string>>({})
 const drawerContents=computed(()=>{
@@ -228,7 +243,7 @@ const allExpanded=computed(()=>created.value.length>0&&expandedIds.value.size===
 watch(()=>props.open,open=>{if(open){created.value=props.initialContents.map(content=>{const id=content.content_id||content.id||nextId();return JSON.parse(JSON.stringify({...content,id,content_id:id}))});void nextTick(()=>drawerRef.value?.focus())}else activeType.value=null},{ immediate:true })
 watch(()=>draft.questionType,()=>{ itemSubmitted.value=false })
 watch([items,()=>props.tagOptions],syncTagSelections,{deep:true,immediate:true})
-function resetDraft(){Object.assign(draft,{name:'',description:'',itemName:'',hint:'',richText:'',ratingOptionId:'',questionType:'text',tagOptionId:'',defaultAll:false});items.value=[];tagSelections.value={};tagPreviewNotes.value={};previousDefaultAll.value={};previousTagOption.value={};workSummaryItems.value=[];submitted.value=false;itemSubmitted.value=false;draggedIndex.value=null;dragAnnouncement.value=''}
+function resetDraft(){Object.assign(draft,{name:'',description:'',itemName:'',hint:'',richText:'',ratingOptionId:'',questionType:'text',tagOptionId:'',defaultAll:false});items.value=[];tagSelections.value={};tagPreviewNotes.value={};activeTagLabels.value={};previousDefaultAll.value={};previousTagOption.value={};workSummaryItems.value=[];submitted.value=false;itemSubmitted.value=false;draggedIndex.value=null;dragAnnouncement.value=''}
 function closeDrawer(){activeType.value=null;emit('update:open',false)}
 function contentKey(content:AssessmentContentDraft&{id:string}){return content.content_id||content.id}
 function isContentSelected(id:string){return created.value.some(content=>contentKey(content)===id)}
@@ -336,7 +351,7 @@ const editorIcons:Record<string,string>={
 const editorIconNames:Record<string,string>={bold:'BoldOutlined',italic:'ItalicOutlined',underline:'UnderlineOutlined',ordered:'OrderListOutlined',unordered:'DisorderListOutlined',link:'GlobalLinkOutlined'}
 const EditorIcon=defineComponent({props:{name:{type:String,required:true}},setup(p){return()=>h('svg',{width:'1em',height:'1em',viewBox:'0 0 24 24',fill:'none','aria-hidden':'true','data-icon':editorIconNames[p.name]||`${p.name[0].toUpperCase()}${p.name.slice(1)}Outlined`},[h('path',{d:editorIcons[p.name],fill:'currentColor'})])}})
 type EditorCommand={command:'bold'|'italic'|'underline'|'insertOrderedList'|'insertUnorderedList'|'link';label:string;tooltip:string;markdown?:string}
-const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},placeholder:{type:String,default:'请输入内容'},readonly:Boolean,fields:{type:Array as ()=>AssessmentTagField[],default:()=>[]}},emits:['update:modelValue'],setup(p,{emit:e}){
+const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},placeholder:{type:String,default:'请输入内容'},readonly:Boolean,hideToolbar:Boolean,fields:{type:Array as ()=>AssessmentTagField[],default:()=>[]}},emits:['update:modelValue','activate'],setup(p,{emit:e,expose}){
   const editor=ref<HTMLElement|null>(null),linkOpen=ref(false),url=ref(''),selection=ref<Range|null>(null)
   const active=reactive({bold:false,italic:false,underline:false,insertOrderedList:false,insertUnorderedList:false})
   const pendingMarks=reactive({bold:false,italic:false,underline:false})
@@ -401,7 +416,7 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
     active.insertOrderedList=blocks.length>0&&blocks.every(block=>directList(block)?.tagName==='OL')
     active.insertUnorderedList=blocks.length>0&&blocks.every(block=>directList(block)?.tagName==='UL')
   }
-  const rememberSelection=()=>{const current=document.getSelection();if(!current?.rangeCount||!editor.value?.contains(current.anchorNode))return;selection.value=current.getRangeAt(0).cloneRange();styleState(selection.value)}
+  const rememberSelection=()=>{const current=document.getSelection();if(!current?.rangeCount||!editor.value?.contains(current.anchorNode))return;selection.value=current.getRangeAt(0).cloneRange();styleState(selection.value);e('activate')}
   const restoreSelection=()=>{if(!selection.value)return;const current=document.getSelection();current?.removeAllRanges();current?.addRange(selection.value)}
   const emitHtml=()=>{if(editor.value)e('update:modelValue',editor.value.innerHTML)}
   const isBlank=()=>!String(p.modelValue||'').replace(/<[^>]*>|​/g,'').trim()
@@ -520,24 +535,32 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
     active.insertOrderedList=blocks.length>0&&blocks.every(block=>directList(block)?.tagName==='OL')
     active.insertUnorderedList=blocks.length>0&&blocks.every(block=>directList(block)?.tagName==='UL')
   }
+  const command=(cmd:EditorCommand['command'])=>{
+    if(p.readonly||!editor.value)return
+    rememberSelection()
+    if(!selection.value||!editor.value.contains(selection.value.startContainer)||!editor.value.contains(selection.value.endContainer)){
+      const range=document.createRange();range.selectNodeContents(editor.value);range.collapse(false);selection.value=range
+    }
+    if(cmd==='link'){restoreSelection();linkOpen.value=!linkOpen.value}
+    else if(cmd==='insertOrderedList')toggleList('OL')
+    else if(cmd==='insertUnorderedList')toggleList('UL')
+    else toggleMark(cmd==='bold'?'strong':cmd==='italic'?'em':'u')
+  }
+  expose({ rememberSelection, command, active })
   onMounted(()=>{if(editor.value){editor.value.innerHTML=p.modelValue||emptyHtml;syncStateFromContent();document.addEventListener('selectionchange',rememberSelection)}})
   onBeforeUnmount(()=>document.removeEventListener('selectionchange',rememberSelection))
   watch(()=>[p.modelValue,p.placeholder],value=>{if(editor.value&&!editor.value.matches(':focus')&&value[0]!==editor.value.innerHTML)editor.value.innerHTML=value[0]||emptyHtml})
   /*
-  return()=>h('div',{class:['rich-editor',{'rich-editor--readonly':p.readonly}]},[h('div',{class:'rich-toolbar',role:p.readonly?undefined:'toolbar','aria-label':p.readonly?undefined:'富文本格式'},commands.map(([cmd,label])=>{const isActive=cmd==='link'?linkOpen.value:active[cmd as keyof typeof active];return p.readonly?h('span',{class:'rich-toolbar-icon'},[h(EditorIcon,{name:cmd==='insertOrderedList'?'ordered':cmd==='insertUnorderedList'?'unordered':cmd})]):h('button',{type:'button',class:{active:isActive},title:label,'aria-label':label,'aria-pressed':cmd==='link'?undefined:String(!!isActive),onMousedown:(event:MouseEvent)=>{event.preventDefault();rememberSelection()},onClick:()=>cmd==='link'?(restoreSelection(),linkOpen.value=!linkOpen.value):cmd==='insertOrderedList'?toggleList('OL'):cmd==='insertUnorderedList'?toggleList('UL'):toggleMark(cmd==='bold'?'strong':cmd==='italic'?'em':'u')},[h(EditorIcon,{name:cmd==='insertOrderedList'?'ordered':cmd==='insertUnorderedList'?'unordered':cmd})])}),linkOpen.value?h('div',{class:'link-popover'},[h('input',{value:url.value,placeholder:'请输入链接地址',onInput:(event:Event)=>url.value=(event.target as HTMLInputElement).value}),h('button',{type:'button',onClick:applyLink},'应用')]):null]),p.readonly?h('div',{class:'default-content'},p.fields.map(field=>h('div',[h('span',field.label),h('p',field.content)])):h('div',{ref:editor,class:'rich-input ace-editor',contenteditable:'true','data-slate-editor':'true','data-zone-container':'*','data-placeholder':p.placeholder,spellcheck:'false',onInput:emitHtml,onKeyup:rememberSelection,onMouseup:rememberSelection,onFocus:rememberSelection}))])
+  return()=>h('div',{class:['rich-editor',{'rich-editor--readonly':p.readonly}]},[h('div',{class:'rich-toolbar',role:p.readonly?undefined:'toolbar','aria-label':p.readonly?undefined:'富文本格式'},commands.map(([cmd,label])=>{const isActive=cmd==='link'?linkOpen.value:active[cmd as keyof typeof active];return p.readonly?h('span',{class:'rich-toolbar-icon'},[h(EditorIcon,{name:cmd==='insertOrderedList'?'ordered':cmd==='insertUnorderedList'?'unordered':cmd})]):h('button',{type:'button',class:{active:isActive},title:label,'aria-label':label,'aria-pressed':cmd==='link'?undefined:String(!!isActive),onMousedown:(event:MouseEvent)=>{event.preventDefault();rememberSelection()},onClick:()=>cmd==='link'?(restoreSelection(),linkOpen.value=!linkOpen.value):cmd==='insertOrderedList'?toggleList('OL'):cmd==='insertUnorderedList'?toggleList('UL'):toggleMark(cmd==='bold'?'strong':cmd==='italic'?'em':'u')},[h(EditorIcon,{name:cmd==='insertOrderedList'?'ordered':cmd==='insertUnorderedList'?'unordered':cmd})])}),linkOpen.value?h('div',{class:'link-popover'},[h('input',{value:url.value,placeholder:'请输入链接地址',onInput:(event:Event)=>url.value=(event.target as HTMLInputElement).value}),h('button',{type:'button',onClick:applyLink},'应用')]):null]),p.readonly?h('div',{class:'default-content'},p.fields.map(field=>h('div',[h('span',field.label),h('p',field.content)])):h('div',{ref:editor,class:'rich-input ace-editor',contenteditable:'true','data-slate-editor':'true','data-zone-container':'*','data-placeholder':p.placeholder,spellcheck:'false',onInput:emitHtml,onKeyup:rememberSelection,onMouseup:rememberSelection,onFocus:()=>e('activate')}))])
   */
   return()=>h('div',{class:['rich-editor-host',{'rich-editor-host--readonly':p.readonly}]},[
     h(PerformanceRichTextBox,{
       class:'next-remix-rich-text-editor',
       readonly:p.readonly,
+      hideToolbar:p.hideToolbar,
       active,
       onBeforeCommand:rememberSelection,
-      onCommand:(cmd:EditorCommand['command'])=>{
-        if(cmd==='link'){restoreSelection();linkOpen.value=!linkOpen.value}
-        else if(cmd==='insertOrderedList')toggleList('OL')
-        else if(cmd==='insertUnorderedList')toggleList('UL')
-        else toggleMark(cmd==='bold'?'strong':cmd==='italic'?'em':'u')
-      },
+      onCommand:command,
     },{ default:()=>[
     /*
     h('div',{class:['rich-toolbar','next-remix-rich-text-editor-toolbar'],role:p.readonly?undefined:'toolbar','aria-label':p.readonly?undefined:'富文本格式'},commands.map((command)=>{
@@ -550,7 +573,7 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
     })),
     */
     linkOpen.value?h('div',{class:'link-popover'},[h('input',{value:url.value,placeholder:'请输入链接地址',onInput:(event:Event)=>url.value=(event.target as HTMLInputElement).value}),h('button',{type:'button',onClick:applyLink},'应用')]):null,
-    p.readonly?h('div',{class:'default-content'},p.fields.map(field=>h('div',[h('span',field.label),h('p',field.content)]))):h('div',{class:'next-remix-rich-text-editor-content'},[isBlank()?h('span',{class:'rich-placeholder'},p.placeholder):null,h('div',{ref:editor,class:'rich-input ace-editor zone-container editor-kit-container next-remix-rich-text-editor-textarea notranslate chrome window chrome88',contenteditable:'true','data-zone-id':'0','data-zone-container':'*','data-slate-editor':'true','data-placeholder':p.placeholder,spellcheck:'false',onBeforeinput:insertPendingText,onInput:emitHtml,onKeydown:keyHandler,onKeyup:rememberSelection,onMouseup:rememberSelection,onFocus:rememberSelection})]),
+    p.readonly?h('div',{class:'default-content'},p.fields.map(field=>h('div',[h('span',field.label),h('p',field.content)]))):h('div',{class:'next-remix-rich-text-editor-content'},[isBlank()?h('span',{class:'rich-placeholder'},p.placeholder):null,h('div',{ref:editor,class:'rich-input ace-editor zone-container editor-kit-container next-remix-rich-text-editor-textarea notranslate chrome window chrome88',contenteditable:'true','data-zone-id':'0','data-zone-container':'*','data-slate-editor':'true','data-placeholder':p.placeholder,spellcheck:'false',onBeforeinput:insertPendingText,onInput:emitHtml,onKeydown:keyHandler,onKeyup:rememberSelection,onMouseup:rememberSelection,onFocus:()=>e('activate')})]),
     ]}),
   ])
 }})
@@ -876,7 +899,7 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
   display: flex;
   flex: 0 0 100%;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .tag-preview__selected-group {
   display: flex;
@@ -893,8 +916,39 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
   width: 100%;
   min-width: 0;
 }
-.modal-layer .tag-preview__selected-group .performance-rich-toolbar {
+.modal-layer .tag-preview__editor > .performance-rich-toolbar {
+  flex: none;
   height: 32px;
+  gap: 0;
+  padding: 0 2px 8px 0;
+}
+.modal-layer .tag-preview__editor > .performance-rich-toolbar button {
+  margin: 0 4px;
+  border-radius: 6px;
+}
+.modal-layer .tag-preview__selected-group .next-remix-rich-text-editor {
+  min-height: 34px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.modal-layer .tag-preview__selected-group .performance-rich-text-box__content,
+.modal-layer .tag-preview__selected-group .next-remix-rich-text-editor-content {
+  min-height: 34px;
+}
+.modal-layer .tag-preview__selected-group .next-remix-rich-text-editor .zone-container {
+  min-height: 34px;
+  padding: 6px 8px 0 0;
+}
+.modal-layer .tag-preview__selected-group .rich-placeholder {
+  margin: 6px 8px 0 0;
+}
+.modal-layer .tag-preview__selected-group .ace-line {
+  line-height: 24px;
+}
+.modal-layer .tag-preview__selected-group:nth-child(even) .tag-preview__selected-tag {
+  background: rgba(62,195,247,.2);
+  color: #072b3d;
 }
 .tag-preview__selected-tag {
   display: inline-flex;
@@ -927,14 +981,26 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
 }
 .tag-preview__editor {
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  min-height: 180px;
-  padding: 12px 16px;
+  flex-direction: column;
+  min-height: 78px;
+  padding: 6px 8px 0;
   box-sizing: border-box;
   border: 1px solid #dee0e3;
   border-radius: 6px;
   background: #fff;
+}
+.tag-preview__editor:hover,
+.tag-preview__editor:focus-within {
+  border-color: #3370ff;
+}
+.tag-preview__editor.has-selection {
+  min-height: 0;
+}
+.tag-preview__editor .tag-preview__selected-groups {
+  flex: none;
+}
+.tag-preview__selected-group {
+  margin-bottom: 8px;
 }
 .tag-preview__hint {
   width: 100%;

@@ -85,6 +85,7 @@ async function loadDatasets() {
 }
 
 function openDesigner(row?: ReportItem) {
+  if (row?.execution_version === 'authorized_v1') { openRun(row); return }
   router.push({
     path: row ? `/report/designer/${row.id}` : '/report/designer/new',
     query: { returnTo: route.fullPath },
@@ -96,7 +97,7 @@ function openRun(row: ReportItem) {
 }
 
 async function handlePush(row: ReportItem) {
-  if (!row.can_edit || !row.active_push_target_count) return
+  if (row.execution_version === 'authorized_v1' || !row.can_edit || !row.active_push_target_count) return
   pushing.value = row.id
   try {
     const results = await reportsApi.push(row.id)
@@ -171,7 +172,7 @@ function canCopy() {
 }
 
 function canPush(row: ReportItem) {
-  return row.can_edit && Boolean(row.active_push_target_count) && userStore.hasOp('report.list', 'C')
+  return row.execution_version !== 'authorized_v1' && row.can_edit && Boolean(row.active_push_target_count) && userStore.hasOp('report.list', 'C')
 }
 
 function canDelete(row: ReportItem) {
@@ -269,7 +270,7 @@ onBeforeUnmount(() => window.clearTimeout(searchTimer))
             <template #default="{ row }">
               <div class="row-actions">
                 <PermissionButton
-                  v-if="row.can_edit"
+                  v-if="row.can_edit && row.execution_version !== 'authorized_v1'"
                   menu="report.list"
                   op="U"
                   size="small"
@@ -278,7 +279,7 @@ onBeforeUnmount(() => window.clearTimeout(searchTimer))
                 >
                   <el-icon><Edit /></el-icon><span>编辑</span>
                 </PermissionButton>
-                <PermissionButton v-else menu="report.list" op="C" size="small" link @click="openDesigner(row)">
+                <PermissionButton v-else-if="row.execution_version !== 'authorized_v1'" menu="report.list" op="C" size="small" link @click="openDesigner(row)">
                   <el-icon><Edit /></el-icon><span>另存编辑</span>
                 </PermissionButton>
                 <el-dropdown

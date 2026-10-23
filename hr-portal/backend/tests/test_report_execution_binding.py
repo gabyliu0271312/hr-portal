@@ -220,6 +220,7 @@ async def test_postgres_binding_transition_is_atomic_under_synthetic_readiness(s
     app.include_router(router, prefix="/api/v1")
     monkeypatch.setattr(report_service, "require_authorized_report_readiness",
         AsyncMock(return_value=SimpleNamespace(contract_id=11, contract_version=1)))
+    monkeypatch.setattr(report_service, "validate_authorized_report_plan", AsyncMock())
     async with engine.begin() as conn:
         await conn.execute(Menu.__table__.insert().values(id=8, code="report.list", label="Reports"))
         await conn.execute(RoleMenu.__table__.insert().values(id=8, role_id=1, menu_id=8, can_view=True, can_update=True))
@@ -355,7 +356,7 @@ async def test_postgres_real_conversion_contract_binding_run_count_csv_xlsx(post
     from app.core.db import get_session
     from app.core.deps import current_user
     from app.data import dynamic_loader, models
-    from app.datasets.models import DataSetAcl, DatasetCalculatedField
+    from app.datasets.models import DataSet, DataSetAcl, DatasetCalculatedField
     from app.reports.models import Report
     from app.reports.router import router
     from app.scopes.models import UserScopeTag
@@ -401,6 +402,8 @@ async def test_postgres_real_conversion_contract_binding_run_count_csv_xlsx(post
         refreshed = await StandardizationRuleService(db).execute_full(
             asset_code="allocation_source", target_table="allocation_fact")
         assert "error" not in refreshed, refreshed
+        await db.execute(DataSet.__table__.update().where(DataSet.id == 7).values(status="draft"))
+        await db.commit()
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.include_router(warehouse_router, prefix="/api/v1")
@@ -440,6 +443,15 @@ async def test_postgres_real_conversion_contract_binding_run_count_csv_xlsx(post
             "expected_run_id": conversion.json()["run_id"], "expected_contract_id": contract_id,
             "expected_dataset_version": 1, "reason": "real conversion review"})
         assert approved.status_code == 200, approved.text
+        still_draft = await client.get(model_base + "/authorization-execution-readiness")
+        assert still_draft.status_code == 200 and still_draft.json()["runtime_enabled"] is False
+        released = await client.post(model_base + "/release", json={"expected_version": 1})
+        assert released.status_code == 200, released.text
+        assert released.json()["dataset_status"] == "published" and released.json()["eligible"] is True
+        repeated = await client.post(model_base + "/release", json={"expected_version": 1})
+        assert repeated.status_code == 200, repeated.text
+        async with engine.connect() as conn:
+            assert await conn.scalar(text("SELECT version FROM datasets WHERE id=7")) == 1
         ready = await client.get(model_base + "/authorization-execution-readiness")
         assert ready.status_code == 200 and ready.json()["runtime_enabled"] is True, ready.text
         assert ready.json()["paths"][0]["detail_mode"] == "not_allowed"
@@ -502,6 +514,82 @@ async def test_postgres_real_conversion_contract_binding_run_count_csv_xlsx(post
             assert denied.status_code in {403, 409, 422}, denied.text
             assert "items" not in denied.json()
         legacy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [
+    {"aggregate": False}, {"filters": [{"column": "r.amount", "op": "eq", "value": 1}]},
+    {"sorts": [{"column": "r.amount", "order": "asc"}]},
+    {"column_settings": {"r.amount": {"formula": "r.amount"}}},
+])
+async def test_binding_validation_rejects_unsupported_config_before_sql(change):
+    report = _report()
+    report.config = {**report.config, **change}
+    db = SimpleNamespace(execute=AsyncMock(), get=AsyncMock(), scalar=AsyncMock())
+    with pytest.raises(HTTPException) as error:
+        await report_service.validate_authorized_report_plan(report=report,
+            readiness=SimpleNamespace(contract_id=11, contract_version=1), user=SimpleNamespace(id=7), db=db)
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "authorized_config_unsupported"
+    db.execute.assert_not_awaited()
+    db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("issues", [[], [{"code": "s_execution_scope_denied"}], [{"code": "invalid_grouping"}]])
+async def test_binding_validation_compiles_actual_plan_without_reading_results(monkeypatch, issues):
+    from unittest.mock import Mock
+    output = SimpleNamespace(id=1, output_code="amount", source_alias="r", source_column="amount", data_type="number")
+    result = Mock()
+    result.scalars.return_value.all.return_value = [output]
+    contract = SimpleNamespace(id=11, dataset_id=2, contract_version=1, status="active", contract_json={}, model_snapshot={})
+    db = SimpleNamespace(execute=AsyncMock(return_value=result), get=AsyncMock(return_value=contract), scalar=AsyncMock())
+    compile_plan = AsyncMock(return_value=({"count": object(), "preview": object(), "export": object()}, issues))
+    monkeypatch.setattr("app.datasets.d_execution.compile_allocation_fact_s_result_statements_for_user", compile_plan)
+    if issues:
+        with pytest.raises(HTTPException) as error:
+            await report_service.validate_authorized_report_plan(report=_report(),
+                readiness=SimpleNamespace(contract_id=11, contract_version=1), user=SimpleNamespace(id=7), db=db)
+        assert error.value.status_code == (403 if issues[0]["code"] == "s_execution_scope_denied" else 409)
+    else:
+        await report_service.validate_authorized_report_plan(report=_report(),
+            readiness=SimpleNamespace(contract_id=11, contract_version=1), user=SimpleNamespace(id=7), db=db)
+    plan = compile_plan.await_args.kwargs["request"].plan
+    assert plan.output_fields == ["amount"] and plan.aggregations == {"amount": "sum"}
+    assert plan.group_by == []
+    assert db.execute.await_count == 1
+    db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_binding_approval_invalid_config_never_switches_execution_version(monkeypatch):
+    from unittest.mock import Mock
+    from app.reports import router
+    report = _report()
+    report.execution_version = "legacy_v1"
+    report.execution_binding = None
+    report.config["aggregate"] = False
+    result = Mock()
+    result.scalar_one_or_none.return_value = report
+    db = SimpleNamespace(execute=AsyncMock(return_value=result), add=Mock(), commit=AsyncMock())
+    monkeypatch.setattr(router, "_can_edit", AsyncMock(return_value=True))
+    monkeypatch.setattr(report_service, "require_authorized_report_readiness",
+        AsyncMock(return_value=SimpleNamespace(contract_id=11, contract_version=1)))
+    payload = router.ReportExecutionBindingIn(expected_fingerprint=report_service.execution_fingerprint(report),
+        contract_id=11, contract_version=1, reason="trial review")
+    with pytest.raises(HTTPException) as error:
+        await router.approve_report_execution_binding(1, payload, SimpleNamespace(id=7), db)
+    assert error.value.status_code == 422
+    assert report.execution_version == "legacy_v1" and report.execution_binding is None
+    db.commit.assert_not_awaited()
+    db.add.assert_not_called()
+
+
+def test_report_output_exposes_version_but_never_binding_metadata():
+    from app.reports.router import ReportOut
+    fields = ReportOut.model_fields
+    assert "execution_version" in fields
+    assert "execution_binding" not in fields and "fingerprint" not in fields
 
 
 from tests.test_d_execution import postgres_d_fact

@@ -345,6 +345,14 @@
   - Evidence: 整合后前端四文件120/120通过（block18/page49/renderer17/layers36）；后端evaluation_item_modes专项6/6通过、完整workflow回归137/137通过，1个既有python_multipart弃用提示；覆盖fill/hidden/view、required/未知字段及既有保存审计的保留。前端最终build（vue-tsc+vite）通过；整合后补充显式 `WorkSummaryItemSettings` 类型以收窄派生 `mode`，行为不变；既有VueUse PURE注释提示保留。git diff --check通过（仅LF/CRLF提示）。真实浏览器PNG和真实数据库/API保存重开未执行；完整验收前保持未勾选。
   - UI compliance/DoD: N0001/N0002/N0004/N0005/N1102-N1104适用检查已执行；复用公共radio/checkbox/只读renderer/选择框和token，无新设计体系或禁止项。实现、测试、build及真实UI/持久化证据齐全才勾选。
 
+- [ ] PM-T004-T05-F16 标签题预览共享工具栏与紧凑外框（2026-10-23 用户确认）
+  - Goal/UI: 以用户截图 `screenshot-20261023-114829.png` 与 SnapSpec 为准，每道标签题在原始外框顶部仅显示一组富文本工具栏，内部标签和独立答案区无重复工具栏/边框；无选项时无工具栏且空框约78px，双标签短提示基础态约180px，宽度跟随原预览栏，长内容自然增高。沿用T05已确认蓝图，局部修复不新建页面或全页蓝图。
+  - Reading/scope: 已读Spec002基线、T05、现有交互与Spec012 UI守则；仅允许修改 `PerformanceAssessmentContentLayers.vue`、`PerformanceRichTextBox.vue` 及既有组件测试、本功能交互与任务记录；直接复用工作总结 RichTextBox 的选区/格式/列表/链接功能和 `PerformanceRichTextToolbar`，不另写编辑引擎。保护报告/数仓并行改动。
+  - Contract: 工具栏跟随当前题内最近聚焦/选区的已选标签，未激活时回退首个已选标签；删除当前标签后不得操作已移除编辑器。试填按 item 和标签隔离，取消勾选保留当前弹窗草稿，重开清空；不进入配置 confirm 载荷。公共富文本框隐藏工具栏能力默认关闭，不影响工作总结和员工端。
+  - Tests/acceptance: 既有 layers 测试验证每题仅一工具栏、工具栏先于标签、无选择零工具栏、命令切换/取消选择安全、格式与链接、草稿隔离与不入库；回归 renderer/block/page 及前端 build、diff 检查。Spec012 N0001/N0002/N0004/N0005/N1102-N1104适用，无新设计体系/禁止项。独立实现 PNG 目标 `../../ui-blueprints/PM-T004-T05-F16-implemented-tag-shared-toolbar.png`；未取得不宣称浏览器视觉验收。
+  - Non-scope: 员工端、API/DTO、数据库、权限、历史快照、生效策略、UCP、部署、commit和push均不变；后端测试不适用。
+  - Evidence/DoD: 前端定向回归已通过；生产构建受工作区并行报告文件 `ReportExecutionAuthorization.vue` 的既有类型错误阻塞；浏览器截图和独立PNG未运行，保持未勾选。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

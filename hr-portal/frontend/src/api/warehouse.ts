@@ -505,6 +505,95 @@ export function saveOutputFields(id: number, fields: OutputFieldPayload[]): Prom
   return api.put(`/warehouse/models/${id}/output-fields`, fields).then(r => r.data)
 }
 
+export interface DatasetReadinessIssue {
+  code: string
+  severity?: 'error' | 'warning'
+  target_kind?: string | null
+  target_id?: number | null
+  message: string
+}
+
+export interface DatasetReleaseReadiness {
+  dataset_id: number
+  dataset_status: string
+  eligible: boolean
+  fields_eligible: boolean
+  authorization_verified: boolean
+  conversion_verified: boolean
+  checked_output_count: number
+  confirmed_output_count: number
+  issues: DatasetReadinessIssue[]
+}
+
+export interface ConversionReadiness {
+  dataset_id: number
+  dataset_version: number
+  eligible: boolean
+  conversion_verified: boolean
+  run_id: number | null
+  contract_id: number | null
+  model_fingerprint: string | null
+  approval_id: number | null
+  issues: Array<{ code: string; message: string }>
+  checked_areas: string[]
+}
+
+export interface AuthorizationExecutionReadiness {
+  dataset_id: number
+  contract_id: number | null
+  contract_version: number | null
+  runtime_enabled: boolean
+  eligible: boolean
+  paths: Array<{ alias: string; role: string; detail_mode: string; summary_mode: string; employee_key: string | null; cost_center_key: string | null }>
+  issues: Array<{ code: string; message: string }>
+  checked_areas: string[]
+  unchecked_areas: string[]
+}
+
+export interface ProductAuthorizationContract {
+  id: number
+  dataset_id: number
+  contract_version: number
+  revision: number
+  status: 'draft' | 'active' | 'retired'
+  approved_by: number | null
+  approved_at: string | null
+  approval_reason: string | null
+  created_by: number
+  runtime_enabled: false
+  facts: Array<{ alias: string; table_name: string; fact_key: string; employee_key: string | null; cost_center_key: string | null; allow_cost_center_summary: boolean; role: string }>
+  output_fields: string[]
+  dimensions: string[]
+  measures: string[]
+  internal_fields: string[]
+}
+
+export function getReleaseReadiness(id: number): Promise<DatasetReleaseReadiness> {
+  return api.get(`/warehouse/models/${id}/release-readiness`).then(r => r.data)
+}
+export function getConversionReadiness(id: number): Promise<ConversionReadiness> {
+  return api.get(`/warehouse/models/${id}/conversion-readiness`).then(r => r.data)
+}
+export function getAuthorizationExecutionReadiness(id: number): Promise<AuthorizationExecutionReadiness> {
+  return api.get(`/warehouse/models/${id}/authorization-execution-readiness`).then(r => r.data)
+}
+export function approveConversion(id: number, payload: { expected_run_id: number; expected_contract_id: number; expected_dataset_version: number; reason: string }): Promise<{ id: number }> {
+  return api.post(`/warehouse/models/${id}/conversion-readiness/approve`, payload).then(r => r.data)
+}
+
+export function releaseModel(id: number, expectedVersion: number): Promise<DatasetReleaseReadiness> {
+  return api.post(`/warehouse/models/${id}/release`, { expected_version: expectedVersion }).then(r => r.data)
+}
+export function listAuthorizationContracts(id: number): Promise<ProductAuthorizationContract[]> {
+  return api.get(`/warehouse/models/${id}/authorization-contracts`).then(r => r.data)
+}
+export function createAuthorizationContract(id: number, payload: Record<string, unknown>): Promise<ProductAuthorizationContract> {
+  return api.post(`/warehouse/models/${id}/authorization-contracts`, payload).then(r => r.data)
+}
+export function approveAuthorizationContract(id: number, contractId: number, payload: { expected_revision: number; reason: string }): Promise<ProductAuthorizationContract> {
+  return api.post(`/warehouse/models/${id}/authorization-contracts/${contractId}/approve`, payload).then(r => r.data)
+}
+
 // ==================== 指标 API ====================
 
 /** 指标列表（分页 + 筛选） */

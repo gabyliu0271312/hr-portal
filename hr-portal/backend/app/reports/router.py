@@ -1229,7 +1229,7 @@ async def get_report_execution_binding(report_id: int, user: User = Depends(curr
              dependencies=[Depends(require_op("report.list", "U")), Depends(require_op("warehouse.assets", "U"))])
 async def approve_report_execution_binding(report_id: int, payload: ReportExecutionBindingIn,
         user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
-    from app.reports.report_service import execution_fingerprint, require_authorized_report_readiness
+    from app.reports.report_service import execution_fingerprint, require_authorized_report_readiness, validate_authorized_report_plan
     from app.system.models import SystemLog
     report = (await db.execute(select(Report).where(Report.id == report_id).with_for_update()
         .execution_options(populate_existing=True))).scalar_one_or_none()
@@ -1243,6 +1243,7 @@ async def approve_report_execution_binding(report_id: int, payload: ReportExecut
     readiness = await require_authorized_report_readiness(report, user, db)
     if readiness.contract_id != payload.contract_id or readiness.contract_version != payload.contract_version:
         raise HTTPException(409, detail={"code": "execution_contract_mismatch", "message": "授权合同版本不匹配"})
+    await validate_authorized_report_plan(report=report, readiness=readiness, user=user, db=db)
     from datetime import UTC
     try:
         report.execution_version = "authorized_v1"

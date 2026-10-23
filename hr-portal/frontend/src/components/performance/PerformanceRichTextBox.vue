@@ -1,13 +1,13 @@
 <template>
   <div class="performance-rich-text-box" :class="{ 'is-readonly': readonly, 'performance-rich-text-box--task-entry': variant === 'task-entry' }">
-    <PerformanceRichTextToolbar :readonly="readonly" :active="active" @before-command="$emit('before-command', $event)" @command="$emit('command', $event)" />
+    <PerformanceRichTextToolbar v-if="!hideToolbar" :readonly="readonly" :active="active" @before-command="$emit('before-command', $event)" @command="$emit('command', $event)" />
     <div class="performance-rich-text-box__content"><slot /></div>
   </div>
 </template>
 <script setup lang="ts">
 import PerformanceRichTextToolbar from './PerformanceRichTextToolbar.vue'
 type CommandKey = 'bold' | 'italic' | 'underline' | 'insertOrderedList' | 'insertUnorderedList' | 'link'
-withDefaults(defineProps<{ readonly?: boolean; active?: Partial<Record<CommandKey, boolean>>; variant?: 'default' | 'task-entry' }>(), { readonly: false, active: () => ({}), variant: 'default' })
+withDefaults(defineProps<{ readonly?: boolean; hideToolbar?: boolean; active?: Partial<Record<CommandKey, boolean>>; variant?: 'default' | 'task-entry' }>(), { readonly: false, active: () => ({}), variant: 'default' })
 defineEmits<{ command: [CommandKey]; 'before-command': [CommandKey] }>()
 </script>
 <style scoped>

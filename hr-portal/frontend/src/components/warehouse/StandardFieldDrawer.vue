@@ -5,6 +5,7 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { standardFieldsApi, type StandardFieldDefinitionPayload, type StandardFieldDetail, type StandardFieldVersion } from '@/api/standardFields'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
 import { useUserStore } from '@/stores/user'
+import StandardFieldBindingPanel from './StandardFieldBindingPanel.vue'
 
 const props = defineProps<{ modelValue: boolean; fieldId: number | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
@@ -174,11 +175,7 @@ watch(() => [props.modelValue, props.fieldId], () => { if (props.modelValue) voi
               </div>
             </div>
           </div>
-          <div class="standard-field-drawer__section">
-            <strong>绑定引用</strong>
-            <el-empty v-if="!detail.bindings.length" description="暂无字段绑定；草稿不会自动绑定来源" :image-size="60" />
-            <p v-for="binding in detail.bindings" :key="binding.id">绑定 #{{ binding.id }} · {{ binding.status }} · 版本 #{{ binding.standard_field_version_id }}</p>
-          </div>
+          <StandardFieldBindingPanel :field-id="detail.id" :active-version-id="detail.current_active_version_id" :bindings="detail.bindings" @changed="load(); emit('changed')" />
         </template>
       </template>
     </div>

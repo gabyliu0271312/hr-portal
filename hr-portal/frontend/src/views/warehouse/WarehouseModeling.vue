@@ -11,6 +11,8 @@ import ScheduleConfigDialog from '@/components/common/ScheduleConfigDialog.vue'
 import { useUserStore } from '@/stores/user'
 import WarehouseDimension from './WarehouseDimension.vue'
 import WarehouseDwsAggregate from './WarehouseDwsAggregate.vue'
+import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelReadinessPanel.vue'
+import PermissionButton from '@/components/PermissionButton.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -72,6 +74,8 @@ const scheduleKind = ref('dataset_build')
 const scheduleBizId = ref(0)
 const scheduleBizName = ref('')
 const schedulePayload = ref<Record<string, any>>({})
+const readinessVisible = ref(false)
+const readinessModel = ref<ModelListItem | null>(null)
 
 function openSchedule(model: ModelListItem) {
   scheduleKind.value = 'dataset_build'
@@ -138,6 +142,7 @@ async function load() {
 
 function goCreate() { router.push('/warehouse/modeling/visual') }
 function goEdit(id: number) { router.push(`/warehouse/modeling/visual/${id}`) }
+function openReadiness(model: ModelListItem) { readinessModel.value = model; readinessVisible.value = true }
 
 async function openAcl(model: ModelListItem) {
   aclModel.value = model
@@ -219,7 +224,8 @@ onMounted(loadWithStrategies)
       </el-card>
 
       <el-card shadow="never">
-        <el-table v-loading="loading" :data="models" border stripe size="small" empty-text="暂无数据模型">
+        <div style="overflow-x: auto">
+        <el-table v-loading="loading" :data="models" border stripe size="small" style="width: 100%" max-height="600" empty-text="暂无数据模型">
           <el-table-column label="模型名称" min-width="160">
             <template #default="{ row }">{{ row.label || row.name }}</template>
           </el-table-column>
@@ -258,6 +264,7 @@ onMounted(loadWithStrategies)
           <el-table-column label="操作" width="340" fixed="right">
             <template #default="{ row }">
               <el-button text size="small" :icon="View" @click="goEdit(row.id)">编辑</el-button>
+              <PermissionButton menu="warehouse.assets" op="V" text size="small" @click="openReadiness(row)">准入</PermissionButton>
               <el-button v-if="userStore.hasOp('warehouse.assets','U')" text size="small" :icon="Lock" @click="openAcl(row)">授权</el-button>
               <el-button text size="small" :icon="Clock" @click="openSchedule(row)">定时</el-button>
               <el-tooltip
@@ -280,6 +287,7 @@ onMounted(loadWithStrategies)
         </el-table>
         <div style="display: flex; justify-content: flex-end; margin-top: 12px">
           <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20,50,100]" layout="total,sizes,prev,pager,next" />
+        </div>
         </div>
       </el-card>
 
@@ -304,6 +312,14 @@ onMounted(loadWithStrategies)
     <div v-show="activeTab === 'dws'" class="tab-content">
       <WarehouseDwsAggregate />
     </div>
+
+    <WarehouseModelReadinessPanel
+      v-if="readinessModel"
+      v-model="readinessVisible"
+      :model-id="readinessModel.id"
+      :model-version="readinessModel.version"
+      :model-name="readinessModel.label || readinessModel.name"
+    />
 
     <!-- 定时配置弹窗 -->
     <ScheduleConfigDialog

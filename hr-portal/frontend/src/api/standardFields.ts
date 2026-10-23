@@ -34,16 +34,53 @@ export interface StandardFieldSummary {
   latest_version: StandardFieldVersion
 }
 
+export type StandardFieldBindingStatus = 'unmapped' | 'suggested' | 'confirmed' | 'invalid'
+
+export interface StandardFieldBindingRef {
+  id: number
+  standard_field_version_id: number | null
+  table_column_id: number | null
+  dataset_output_field_id: number | null
+  status: StandardFieldBindingStatus
+  binding_version: number
+}
+
 export interface StandardFieldDetail extends StandardFieldSummary {
   versions: StandardFieldVersion[]
-  bindings: Array<{
-    id: number
-    standard_field_version_id: number | null
-    table_column_id: number | null
-    dataset_output_field_id: number | null
-    status: 'unmapped' | 'suggested' | 'confirmed' | 'invalid'
-    binding_version: number
-  }>
+  bindings: StandardFieldBindingRef[]
+}
+
+export interface StandardFieldBindingCandidate {
+  target_kind: 'table_column' | 'dataset_output_field'
+  target_id: number
+  table_name: string | null
+  dataset_id: number | null
+  dataset_name: string | null
+  alias: string | null
+  column_code: string
+  display_name: string
+  source_field_id: string
+  data_type: string
+  is_visible: boolean
+  is_sensitive: boolean
+  existing_binding_id: number | null
+  existing_binding_status: StandardFieldBindingStatus | null
+}
+
+export interface StandardFieldBinding extends StandardFieldBindingRef {
+  standard_field_id: number
+  standard_field_version_status: StandardFieldStatus | null
+  observed_source_field_id: string | null
+  observed_data_type: string | null
+  revision: number
+  confirmed_by: number | null
+  confirmed_at: string | null
+}
+
+export interface StandardFieldBindingCreatePayload {
+  target_kind: StandardFieldBindingCandidate['target_kind']
+  target_id: number
+  standard_field_version_id: number
 }
 
 export interface StandardFieldListResponse {
@@ -72,6 +109,18 @@ export const standardFieldsApi = {
   },
   get(id: number) {
     return api.get<StandardFieldDetail>(`/warehouse/standard-fields/${id}`).then(r => r.data)
+  },
+  bindingCandidates(fieldId: number, params: { keyword?: string; table_name?: string; dataset_id?: number } = {}) {
+    return api.get<StandardFieldBindingCandidate[]>(`/warehouse/standard-fields/${fieldId}/binding-candidates`, { params }).then(r => r.data)
+  },
+  createBinding(fieldId: number, payload: StandardFieldBindingCreatePayload) {
+    return api.post<StandardFieldBinding>(`/warehouse/standard-fields/${fieldId}/bindings`, payload).then(r => r.data)
+  },
+  confirmBinding(fieldId: number, bindingId: number, payload: { expected_revision: number; reason: string }) {
+    return api.post<StandardFieldBinding>(`/warehouse/standard-fields/${fieldId}/bindings/${bindingId}/confirm`, payload).then(r => r.data)
+  },
+  invalidateBinding(fieldId: number, bindingId: number, payload: { expected_revision: number; reason: string }) {
+    return api.post<StandardFieldBinding>(`/warehouse/standard-fields/${fieldId}/bindings/${bindingId}/invalidate`, payload).then(r => r.data)
   },
   create(payload: StandardFieldDefinitionPayload) {
     return api.post<StandardFieldDetail>('/warehouse/standard-fields', payload).then(r => r.data)

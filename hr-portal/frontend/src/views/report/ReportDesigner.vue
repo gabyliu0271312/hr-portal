@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import PermissionButton from '@/components/PermissionButton.vue'
 import { View, Check, MagicStick, Position } from '@element-plus/icons-vue'
 import FullscreenWorkspaceShell from '@/components/layout/FullscreenWorkspaceShell.vue'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
@@ -38,6 +39,10 @@ const reportId = computed(() => {
   return id === 'new' ? null : Number(id)
 })
 const isNew = computed(() => reportId.value === null)
+const executionBlocked = ref(!isNew.value)
+const reportLoadError = ref('')
+const loadingReport = ref(false)
+watch(() => route.params.id, () => { executionBlocked.value = !isNew.value; reportLoadError.value = '' }, { flush: 'sync' })
 const copySourceId = ref<number | null>(null)
 const isCopyMode = computed(() => copySourceId.value !== null)
 const saveCreatesReport = computed(() => isNew.value || isCopyMode.value)
@@ -255,8 +260,19 @@ async function loadDatasets() {
 
 async function loadReport() {
   if (isNew.value) return
+  executionBlocked.value = true
+  reportLoadError.value = ''
+  loadingReport.value = true
+  const id = reportId.value
   try {
-    const r = await reportsApi.get(reportId.value!)
+    const r = await reportsApi.get(id!)
+    if (id !== reportId.value) return
+    if (r.execution_version === 'authorized_v1') {
+      ElMessage.info('该报表仅开放授权汇总运行与导出，设计器、AI解释和推送等渠道未开放')
+      await router.replace({ path: `/report/run/${r.id}`, query: { returnTo: reportListTarget.value } })
+      return
+    }
+    executionBlocked.value = false
     copySourceId.value = r.can_edit ? null : r.id
     form.name = r.can_edit ? r.name : `${r.name} - 副本`
     form.description = r.description ?? ''
@@ -355,7 +371,12 @@ async function loadReport() {
       ElMessage.info('正在编辑副本，保存后会生成你的新报表')
     }
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载报表失败')
+    if (id === reportId.value) {
+      executionBlocked.value = true
+      reportLoadError.value = reportErrorMessage(e, '加载报表失败，请重新加载')
+    }
+  } finally {
+    if (id === reportId.value) loadingReport.value = false
   }
 }
 
@@ -634,6 +655,7 @@ function reportErrorMessage(error: any, fallback: string) {
 }
 
 async function save() {
+  if (executionBlocked.value) return
   if (!form.name.trim()) { ElMessage.warning('请填写报表名'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
   if (!form.dataset_id) { ElMessage.warning('请选择数据集'); return }
@@ -670,6 +692,7 @@ async function save() {
 }
 
 async function preview() {
+  if (executionBlocked.value) return
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段才能预览'); return }
   if (saveCreatesReport.value) { ElMessage.info('请先保存为你的报表后再预览'); return }
   previewing.value = true
@@ -724,6 +747,7 @@ function buildExplainPayload(question: string) {
 }
 
 async function sendExplainQuestion(question: string, options: { showUserMessage?: boolean } = {}) {
+  if (executionBlocked.value) return
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段才能解释'); return }
   const text = question.trim()
   if (!text) {
@@ -855,20 +879,23 @@ watch(
     :busy="saving"
     @back="router.push(reportListTarget)"
   >
-    <template #actions>
-      <el-button plain @click="basicSettingsOpen = true">基础设置</el-button>
-      <el-button :loading="explaining" @click="explainConfig">
+    <template v-if="!executionBlocked" #actions>
+      <PermissionButton menu="report.list" op="U" plain @click="basicSettingsOpen = true">基础设置</PermissionButton>
+      <PermissionButton menu="report.list" op="V" :loading="explaining" @click="explainConfig">
         <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
-      </el-button>
-      <el-button :loading="previewing" :disabled="saveCreatesReport" @click="preview">
+      </PermissionButton>
+      <PermissionButton menu="report.list" op="U" :loading="previewing" :disabled="saveCreatesReport" @click="preview">
         <el-icon style="margin-right: 4px"><View /></el-icon>预览
-      </el-button>
-      <el-button type="primary" :loading="saving" @click="save">
+      </PermissionButton>
+      <PermissionButton menu="report.list" :op="isNew ? 'C' : 'U'" type="primary" :loading="saving" @click="save">
         <el-icon style="margin-right: 4px"><Check /></el-icon>保存
-      </el-button>
+      </PermissionButton>
     </template>
 
-    <el-form label-position="top" class="designer-form">
+    <el-alert v-if="executionBlocked" type="warning" :closable="false" show-icon :title="reportLoadError || '正在核对报表执行版本；若已授权为限缩汇总，请返回查看报表运行当前授权范围。'">
+      <PermissionButton v-if="reportLoadError" menu="report.list" op="V" type="primary" @click="loadReport">重新加载</PermissionButton>
+    </el-alert>
+    <el-form v-if="!executionBlocked" label-position="top" class="designer-form">
         <div class="section-title compact-section-title">
           字段编排（{{ form.selected_codes.length }} 个字段）
         </div>

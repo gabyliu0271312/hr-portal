@@ -298,6 +298,7 @@ export interface ReportItem {
   updated_at: string
   acl: ReportAclItem[]
   can_edit: boolean
+  execution_version?: 'legacy_v1' | 'authorized_v1'
   push_target_count?: number
   active_push_target_count?: number
 }
@@ -364,6 +365,36 @@ export interface ReportConfigExplainResult {
   trace_id?: string | null
 }
 
+export interface ReportExecutionBinding {
+  execution_version: string
+  fingerprint: string
+}
+
+export interface ReportExecutionReadiness {
+  dataset_id: number
+  eligible: boolean
+  runtime_enabled: boolean
+  contract_id: number | null
+  contract_version: number | null
+  issues: { code: string; message: string }[]
+  paths?: { role: string; detail_mode: string; summary_mode: string }[]
+  checked_areas?: string[]
+  unchecked_areas?: string[]
+}
+
+export function reportErrorMessage(error: any, fallback: string): string {
+  const detail = error?.response?.data?.detail ?? error?.detail
+  if (typeof detail === 'string') {
+    try {
+      const parsed = JSON.parse(detail)
+      return typeof parsed?.message === 'string' ? parsed.message : typeof parsed?.code === 'string' ? parsed.code : detail
+    } catch {
+      return detail
+    }
+  }
+  return typeof detail?.message === 'string' ? detail.message : typeof detail?.code === 'string' ? detail.code : fallback
+}
+
 const REPORT_SAVE_TIMEOUT_MS = 60_000
 
 export const reportsApi = {
@@ -376,6 +407,19 @@ export const reportsApi = {
       .then((r) => r.data),
 
   get: (id: number) => api.get<ReportItem>(`/reports/${id}`).then((r) => r.data),
+
+  executionBinding: (id: number) =>
+    api.get<ReportExecutionBinding>(`/reports/${id}/execution-binding`).then((r) => r.data),
+
+  bindExecution: (id: number, body: {
+    expected_fingerprint: string
+    contract_id: number
+    contract_version: number
+    reason: string
+  }) => api.post<ReportExecutionBinding>(`/reports/${id}/execution-binding`, body).then((r) => r.data),
+
+  executionReadiness: (datasetId: number) =>
+    api.get<ReportExecutionReadiness>(`/warehouse/models/${datasetId}/authorization-execution-readiness`).then((r) => r.data),
 
   searchDimensionCombinations: (body: DimensionCombinationSearchPayload) =>
     api.post<DimensionCombinationPage>('/reports/_dimension-merge/combinations/search', body).then((r) => r.data),

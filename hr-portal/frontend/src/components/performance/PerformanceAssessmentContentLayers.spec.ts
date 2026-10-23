@@ -274,7 +274,7 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(wrapper.get('.tag-preview__selected-tag').text()).toContain('做得好的')
     expect(wrapper.get('.tag-preview__selected-group').text()).toContain('做得好的')
     expect(wrapper.find('.tag-preview__selected-group .tag-preview__prompt').exists()).toBe(false)
-    expect(wrapper.get('.tag-preview__selected-group [role="toolbar"] button').attributes('aria-label')).toBe('粗体')
+    expect(wrapper.get('.tag-preview__editor > [role="toolbar"] button').attributes('aria-label')).toBe('粗体')
     const tagEditor = wrapper.get('.tag-preview__selected-group [contenteditable="true"]')
     tagEditor.element.innerHTML = '配置时补充说明'
     await tagEditor.trigger('input')
@@ -306,7 +306,7 @@ describe('PerformanceAssessmentContentLayers', () => {
     await wrapper.vm.$nextTick()
     const editors = wrapper.findAll('.tag-preview [contenteditable="true"]')
     expect(editors).toHaveLength(4)
-    expect(wrapper.findAll('.tag-preview [role="toolbar"]')).toHaveLength(4)
+    expect(wrapper.findAll('.tag-preview [role="toolbar"]')).toHaveLength(2)
     editors[0].element.innerHTML = '<div class="ace-line"><span>仅第一题亮点试填</span></div>'
     await editors[0].trigger('input')
     const secondEditor = wrapper.findAll('.tag-preview [contenteditable="true"]')[1]
@@ -341,19 +341,19 @@ describe('PerformanceAssessmentContentLayers', () => {
     editor().innerHTML = '<div class="ace-line"><span>标签试填内容</span></div>'
     editor().dispatchEvent(new InputEvent('input', { bubbles: true }))
     await wrapper.vm.$nextTick()
-    expect(group().findAll('[role="toolbar"] button').map(button => button.attributes('aria-label'))).toEqual(['粗体', '斜体', '下划线', '有序列表', '无序列表', '超链接'])
+    expect(wrapper.findAll('.tag-preview')[0].findAll('[role="toolbar"] button').map(button => button.attributes('aria-label'))).toEqual(['粗体', '斜体', '下划线', '有序列表', '无序列表', '超链接'])
     for (const [label, tag] of [['粗体', 'strong'], ['斜体', 'em'], ['下划线', 'u']]) {
       selectEditorContents(editor())
-      await group().get(`[aria-label="${label}"]`).trigger('click')
+      await wrapper.get('.tag-preview__editor > [role="toolbar"]').get(`[aria-label="${label}"]`).trigger('click')
       expect(editor().querySelector(tag)?.textContent).toBe('标签试填内容')
     }
     for (const [label, tag] of [['有序列表', 'ol'], ['无序列表', 'ul']]) {
       selectEditorContents(editor())
-      await group().get(`[aria-label="${label}"]`).trigger('click')
+      await wrapper.get('.tag-preview__editor > [role="toolbar"]').get(`[aria-label="${label}"]`).trigger('click')
       expect(editor().querySelector(`${tag} li`)?.textContent).toContain('标签试填内容')
     }
     selectEditorContents(editor())
-    await group().get('[aria-label="超链接"]').trigger('click')
+    await wrapper.get('.tag-preview__editor > [role="toolbar"]').get('[aria-label="超链接"]').trigger('click')
     await group().get('.link-popover input').setValue('https://example.com')
     await group().get('.link-popover button').trigger('click')
     expect(editor().querySelector('a')?.getAttribute('href')).toBe('https://example.com')

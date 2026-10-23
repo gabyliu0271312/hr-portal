@@ -46,12 +46,28 @@ export const REPORT_VISIBILITY_LABELS = {
     public: '公开',
 };
 const REPORT_SAVE_TIMEOUT_MS = 60_000;
+export function reportErrorMessage(error, fallback) {
+    const detail = error?.response?.data?.detail ?? error?.detail;
+    if (typeof detail === 'string') {
+        try {
+            const parsed = JSON.parse(detail);
+            return typeof parsed?.message === 'string' ? parsed.message : typeof parsed?.code === 'string' ? parsed.code : detail;
+        }
+        catch {
+            return detail;
+        }
+    }
+    return typeof detail?.message === 'string' ? detail.message : typeof detail?.code === 'string' ? detail.code : fallback;
+}
 export const reportsApi = {
     list: (params = {}) => api.get('/reports', { params }).then((r) => r.data),
     aclOptions: (dataset_id) => api
         .get('/reports/_acl-options', { params: { dataset_id } })
         .then((r) => r.data),
     get: (id) => api.get(`/reports/${id}`).then((r) => r.data),
+    executionBinding: (id) => api.get(`/reports/${id}/execution-binding`).then((r) => r.data),
+    bindExecution: (id, body) => api.post(`/reports/${id}/execution-binding`, body).then((r) => r.data),
+    executionReadiness: (datasetId) => api.get(`/warehouse/models/${datasetId}/authorization-execution-readiness`).then((r) => r.data),
     searchDimensionCombinations: (body) => api.post('/reports/_dimension-merge/combinations/search', body).then((r) => r.data),
     previewDimensionMerge: (body) => api.post('/reports/_dimension-merge/preview', body).then((r) => r.data),
     create: (body) => api.post('/reports', body, { timeout: REPORT_SAVE_TIMEOUT_MS }).then((r) => r.data),

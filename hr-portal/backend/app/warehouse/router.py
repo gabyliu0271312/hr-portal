@@ -2065,9 +2065,10 @@ async def dataset_release_health(model_id: int, db: AsyncSession = Depends(get_s
 @router.post("/models/{model_id}/release", response_model=DatasetReleaseReadinessOut,
              dependencies=[Depends(require_op("warehouse.assets", "U"))])
 async def release_dataset(model_id: int, payload: DatasetReleaseIn,
+                         user: User = Depends(current_user),
                          db: AsyncSession = Depends(get_session)):
     from app.warehouse.service.release_gate import request_dataset_release
-    return await request_dataset_release(db, model_id, payload.expected_version)
+    return await request_dataset_release(db, model_id, payload.expected_version, user)
 
 
 # ==================== 建模 V2 (Q05) ====================

@@ -301,7 +301,7 @@ async def delete_standard_field(db, field_id, expected_version, expected_revisio
 
 
 async def _binding_target(db, target_kind, target_id, lock=False):
-    from app.datasets.models import DataSet, DatasetOutputField
+    from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
     from app.data.models import TableColumn
     if target_kind == "table_column":
         stmt = select(TableColumn).where(TableColumn.id == target_id)
@@ -327,11 +327,21 @@ async def _binding_target(db, target_kind, target_id, lock=False):
     if row is None:
         _error(404, "standard_binding_target_not_found", "数据集输出字段不存在")
     target, dataset = row
-    source_id = f"dataset:{dataset.id}:{target.source_alias}:{target.source_column}"
+    table_name = await db.scalar(select(DataSetTable.table_name).where(
+        DataSetTable.dataset_id == dataset.id,
+        DataSetTable.alias == target.source_alias,
+    ))
+    if table_name is None:
+        _error(409, "standard_binding_source_missing", "数据集输出字段来源表不存在")
+    source_column = await db.scalar(select(TableColumn).where(
+        TableColumn.table_name == table_name, TableColumn.column_code == target.source_column,
+    ))
+    source_id = (source_column.source_field_id if source_column else None) or _physical_source_identity(table_name, target.source_column)
     return {
         "target": target, "target_kind": target_kind, "target_id": target.id,
-        "table_name": None, "dataset_id": dataset.id, "dataset_name": dataset.name,
+        "table_name": table_name, "dataset_id": dataset.id, "dataset_name": dataset.name,
         "alias": target.source_alias, "column_code": target.output_code,
+        "source_column": target.source_column,
         "display_name": target.output_label, "source_field_id": source_id,
         "data_type": target.data_type, "is_visible": bool(target.is_visible),
         "is_sensitive": bool(target.is_sensitive),
@@ -385,15 +395,19 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
             existing_binding_id=binding.id if binding else None,
             existing_binding_status=binding.status if binding else None,
         ))
-    output_stmt = select(DatasetOutputField, DataSet, DataSetTable.alias).join(
+    output_stmt = select(DatasetOutputField, DataSet, TableColumn).join(
         DataSet, DataSet.id == DatasetOutputField.dataset_id,
     ).outerjoin(DataSetTable, (DataSetTable.dataset_id == DataSet.id) &
-                (DataSetTable.alias == DatasetOutputField.source_alias))
+                (DataSetTable.alias == DatasetOutputField.source_alias)).outerjoin(
+        TableColumn, (TableColumn.table_name == DataSetTable.table_name) &
+        (TableColumn.column_code == DatasetOutputField.source_column))
     if dataset_id:
         output_stmt = output_stmt.where(DataSet.id == dataset_id)
     if table_name:
         output_stmt = output_stmt.where(DataSetTable.table_name == table_name)
-    for output, dataset, alias in (await db.execute(output_stmt.order_by(DataSet.id, DatasetOutputField.display_order))).all():
+    for output, dataset, source in (await db.execute(output_stmt.order_by(DataSet.id, DatasetOutputField.display_order))).all():
+        if source is None:
+            continue
         if keyword and keyword.lower() not in " ".join((output.output_code, output.output_label, output.source_column)).lower():
             continue
         binding = output_bindings.get(output.id)
@@ -401,7 +415,7 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
             target_kind="dataset_output_field", target_id=output.id, dataset_id=dataset.id,
             dataset_name=dataset.name, alias=output.source_alias, column_code=output.output_code,
             display_name=output.output_label,
-            source_field_id=f"dataset:{dataset.id}:{output.source_alias}:{output.source_column}",
+            source_field_id=source.source_field_id or _physical_source_identity(source.table_name, source.column_code),
             data_type=output.data_type, is_visible=bool(output.is_visible), is_sensitive=bool(output.is_sensitive),
             existing_binding_id=binding.id if binding else None,
             existing_binding_status=binding.status if binding else None,
@@ -422,7 +436,7 @@ async def create_suggested_binding(db, field_id, payload, user):
         if version.status == "archived":
             _error(409, "standard_binding_version_archived", "归档语义版本不可创建绑定")
         target = await _binding_target(db, payload.target_kind, payload.target_id, lock=True)
-        await _require_ods_binding_target(db, target)
+        await _require_binding_target(db, target, user)
         if not _binding_type_compatible(version.data_type, target["data_type"]):
             _error(400, "standard_binding_type_incompatible", "标准字段类型与来源字段类型不兼容")
         target_clause = (StandardFieldBinding.table_column_id == payload.target_id
@@ -459,11 +473,12 @@ async def transition_binding(db, field_id, binding_id, payload, user, target_sta
             _error(409, "standard_binding_revision_conflict", "绑定已更新，请重新加载")
         version = await db.get(StandardFieldVersion, binding.standard_field_version_id)
         if target_status == "confirmed":
-            if binding.status != "suggested" or version.status != "active":
-                _error(409, "standard_binding_confirm_invalid", "仅suggested绑定和active语义版本可确认")
+            if (binding.status != "suggested" or version.status != "active" or version.approved_by is None
+                    or version.approved_at is None or not (version.approval_reason or "").strip()):
+                _error(409, "standard_binding_confirm_invalid", "仅suggested绑定和完整批准的active语义版本可确认")
             kind = "table_column" if binding.table_column_id is not None else "dataset_output_field"
             target = await _binding_target(db, kind, binding.table_column_id or binding.dataset_output_field_id, lock=True)
-            await _require_ods_binding_target(db, target)
+            await _require_binding_target(db, target, user)
             if not _binding_type_compatible(version.data_type, target["data_type"]):
                 _error(409, "standard_binding_type_drift", "来源字段类型已变化，请重新建立建议绑定")
             if target["source_field_id"] != binding.observed_source_field_id or target["data_type"] != binding.observed_data_type:
@@ -481,23 +496,55 @@ async def transition_binding(db, field_id, binding_id, payload, user, target_sta
         return await _binding_out(db, field_id, binding)
 
 
-async def _require_ods_binding_target(db, target):
-    from app.data.models import RegisteredTable
-    if target["target_kind"] != "table_column":
-        _error(409, "standard_binding_release_required", "DWD及输出绑定须先通过完整刷新和发布准入门禁")
-    table = (await db.execute(select(RegisteredTable).where(
-        RegisteredTable.table_name == target["table_name"],
-    ))).scalar_one_or_none()
-    if table is None or table.warehouse_layer != "ODS":
-        _error(409, "standard_binding_release_required", "本地来源确认仅开放已登记ODS字段；派生字段需发布准入")
+async def _require_binding_target(db, target, user):
+    from app.data.models import RegisteredTable, TableColumn
+    from app.datasets.models import DataSet, DataSetTable, DataSetRelation, DatasetCalculatedField
+    from app.datasets.router import _can_access
+    from app.permissions.masker import get_hidden_columns, _is_super_admin
     from sqlalchemy import text
     from app.warehouse.service.standardization import _physical_metadata_type
+
+    table = await db.scalar(select(RegisteredTable).where(
+        RegisteredTable.table_name == target["table_name"],
+    ).with_for_update().execution_options(populate_existing=True))
+    if table is None or table.warehouse_layer not in {"ODS", "DWD"}:
+        _error(409, "standard_binding_release_required", "仅支持已登记ODS或单表DWD来源字段")
+    code = target.get("source_column", target["column_code"])
+    column = await db.scalar(select(TableColumn).where(
+        TableColumn.table_name == target["table_name"], TableColumn.column_code == code,
+    ).with_for_update().execution_options(populate_existing=True))
+    if column is None or code in {"id", "pk_hash", "synced_at"} or column.is_computed:
+        _error(409, "standard_binding_source_invalid", "技术字段、计算字段或缺失来源不能建立业务绑定")
+    if table.warehouse_layer == "DWD" or target["dataset_id"] is not None:
+        datasets = (await db.execute(select(DataSet).join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
+            .where(DataSetTable.table_name == table.table_name).with_for_update(of=DataSet)
+            .execution_options(populate_existing=True))).scalars().all()
+        if target["dataset_id"] is not None:
+            datasets = [dataset for dataset in datasets if dataset.id == target["dataset_id"]]
+        if not datasets:
+            _error(409, "standard_binding_scope_unsupported", "DWD绑定要求已登记的单表数据集")
+        for dataset in datasets:
+            if not await _can_access(user, dataset, db):
+                _error(403, "dataset_acl_denied", "当前用户不具备数据集资源访问权")
+            tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset.id))).scalars().all()
+            relation = await db.scalar(select(DataSetRelation.id).where(DataSetRelation.dataset_id == dataset.id).limit(1))
+            calculated = await db.scalar(select(DatasetCalculatedField.id).where(DatasetCalculatedField.dataset_id == dataset.id).limit(1))
+            if (dataset.warehouse_layer != "DWD" or not dataset.is_active or dataset.status not in {"draft", "published"}
+                    or len(tables) != 1 or relation is not None or calculated is not None):
+                _error(409, "standard_binding_scope_unsupported", "绑定仅支持有效、无关联或计算字段的单表DWD数据集")
+    if (not column.is_visible or not target["is_visible"]
+            or ((column.is_sensitive or target["is_sensitive"]) and not await _is_super_admin(user, db))
+            or code in await get_hidden_columns(user, table.table_name, db)):
+        _error(403, "standard_binding_field_denied", "当前字段不可用于标准绑定")
     physical_type = await db.scalar(text(
         "SELECT data_type FROM information_schema.columns "
         "WHERE table_schema=current_schema() AND table_name=:table_name AND column_name=:column_name"
-    ), {"table_name": target["table_name"], "column_name": target["column_code"]})
-    if physical_type is None or not _binding_type_compatible(target["data_type"], _physical_metadata_type(physical_type)):
+    ), {"table_name": target["table_name"], "column_name": code})
+    if (physical_type is None
+            or not _binding_type_compatible(column.data_type, _physical_metadata_type(physical_type))
+            or not _binding_type_compatible(target["data_type"], column.data_type)):
         _error(409, "standard_binding_physical_drift", "来源物理字段缺失或类型与发现元数据不一致")
+    target["source_field_id"] = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
 
 
 def _physical_source_identity(table_name, column_code):
