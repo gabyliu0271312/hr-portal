@@ -79,6 +79,36 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
+  it('renders server-projected readonly tags without defaults or required validation', async () => {
+    const loaded = structuredClone(task)
+    loaded.form_schema = [{ id: 'tags', name: '已提交填写结果', fields: [{ id: 'value', type: 'tag_with_followup', label: '查看题', readonly: true, required: true, default_all: true, options: [{ id: 'good', label: '亮点', required: true }] }] }]
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue(loaded)
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.find('.tag-options').exists()).toBe(false)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.find('.template-field-label em').exists()).toBe(false)
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalled()
+    expect(vi.mocked(performanceReviewApi.submitSelfSummary).mock.calls[0][1]).toEqual({})
+    wrapper.unmount()
+  })
+
+  it('keeps server-supplied readonly answers visible without submitting them back', async () => {
+    const loaded = structuredClone(task)
+    loaded.form_schema = [{ id: 'source', name: '已提交结果', fields: [{ id: 'value', type: 'tag_with_followup', label: '查看题', readonly: true, options: [{ id: 'good', label: '亮点' }] }] }]
+    loaded.answers = { value: { tags: ['good'], notes: { good: '<p>来源只读答案</p>' } }, hidden: '不应提交的旧字段' }
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue(loaded)
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.get('.readonly-tag-panel').text()).toContain('来源只读答案')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(performanceReviewApi.submitSelfSummary).mock.calls[0][1]).toEqual({})
+    wrapper.unmount()
+  })
+
   it('does not invent default tag answers for a noneditable task', async () => {
     const loaded = structuredClone(task)
     loaded.editable = false

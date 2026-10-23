@@ -22,7 +22,7 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
-import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown } from '@/components/performance/performanceTemplateAnswers'
+import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
 const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' }>(), { taskKind: 'work_summary' })
 const route = useRoute()
@@ -75,7 +75,7 @@ function queueSave() {
   saveTimer = window.setTimeout(() => { void saveDraft() }, 350)
 }
 function saveDraft() {
-  const snapshot = JSON.parse(JSON.stringify(answers)) as Record<string, unknown>
+  const snapshot = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers))) as Record<string, unknown>
   saveChain = saveChain.catch(() => undefined).then(async () => {
     if (!canEdit.value) return
     saving.value = true
@@ -110,6 +110,7 @@ function validate() {
       if (performanceTemplateInstanceUnknown(section, index, answers)) continue
       for (const field of section.fields) {
         const value = performanceTemplateFieldValue(section, field, index, answers)
+        if (field.readonly) continue
         if (field.type === 'tag_with_followup') {
           const tags = selectedTags(value)
           if (field.required && !tags.length) errors[performanceTemplateFieldErrorKey(section, field, index)] = '请选择至少一个标签'
@@ -133,7 +134,7 @@ async function submit() {
   submitting.value = true
   try {
     await saveChain.catch(() => undefined)
-    const payload = JSON.parse(JSON.stringify(answers))
+    const payload = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers)))
     const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
     const result = props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)

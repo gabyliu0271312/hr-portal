@@ -160,7 +160,7 @@ def build_self_summary_schema(template: dict) -> list[dict]:
             field = {
                 "id": field_id,
                 "type": field_type,
-                "label": item.get("label") or content.get("name") or "填写题",
+                "label": item.get("label") or ("" if (content.get("settings") or {}).get("hideName") else content.get("name")) or "填写题",
                 "required": bool(item_settings.get("required", (content.get("settings") or {}).get("required", False))),
                 "placeholder": item.get("hint") or "提示",
                 "options": options,
@@ -174,14 +174,26 @@ def build_self_summary_schema(template: dict) -> list[dict]:
             elif content_type == "custom" and question_type == "tag":
                 field["hide_name"] = bool(item_settings.get("hideName", False))
                 field["description"] = item.get("hint") or ""
+                field["placeholder"] = "请输入补充说明"
                 field["hide_description"] = bool(item_settings.get("hideDescription", False))
                 field["default_all"] = bool(item.get("defaultAll", content.get("defaultAll", False)))
+            if item_settings.get("hideName"):
+                field["hide_name"] = True
+                field["label"] = ""
+            if item_settings.get("hideDescription"):
+                field["hide_description"] = True
+                field["placeholder"] = ""
+                if "description" in field:
+                    field["description"] = ""
+            if item_settings.get("mode") == "view":
+                field["readonly"] = True
+                field["required"] = False
             fields.append(field)
         if fields:
             settings = content.get("settings") or {}
             sections.append({
                 "id": section_id,
-                "name": content.get("name") or "填写内容",
+                "name": "" if settings.get("hideName") else content.get("name") or "填写内容",
                 "description": "" if settings.get("hideDescription") else content.get("description") or "",
                 "allow_multiple": bool(settings.get("allowMultiple", False)),
                 "fields": fields,
@@ -220,8 +232,22 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
         if isinstance(content, dict) and (content.get("content_slot") or "fill") == "fill"
         and _content_identity(content) in {_content_identity(item) for item in view_contents}
     ]
-    source_by_id = {_content_identity(content): content for content in source_contents}
+    source_contents = deepcopy(source_contents)
     view_by_id = {_content_identity(content): content for content in view_contents}
+    for content in source_contents:
+        view = view_by_id[_content_identity(content)]
+        content["settings"] = {**(content.get("settings") or {}), **(view.get("settings") or {})}
+        for item in content.get("items") or []:
+            override = _view_override_item(view, str(item.get("id") or ""))
+            source_settings = item.get("settings") or {}
+            override_settings = (override or {}).get("settings") or {}
+            item["settings"] = {
+                **source_settings,
+                **{key: override_settings[key] for key in ("allowView", "hideName", "hideDescription") if key in override_settings},
+            }
+            if override_settings.get("mode") == "hidden":
+                item["settings"]["mode"] = "hidden"
+    source_by_id = {_content_identity(content): content for content in source_contents}
     source_schema = build_self_summary_schema({"content": source_contents})
     projected: list[dict] = []
     for section in source_schema:
@@ -282,6 +308,8 @@ def _project_result_view_answer(field: dict, value: object) -> object:
         candidate = value
         if isinstance(candidate, dict):
             candidate = candidate.get("id") or candidate.get("value") or candidate.get("option_id")
+        if candidate == "__unknown__" and field.get("allow_unknown"):
+            return candidate
         if candidate is None or str(candidate) not in option_ids:
             return None
         return str(candidate)
@@ -340,7 +368,6 @@ def project_result_view_contents(
     schema = _project_result_view_schema(final_template, view_contents)
     if not schema:
         return []
-    field_ids = {field["id"]: field for section in schema for field in section.get("fields") or []}
     contents = []
     for task in completed_tasks:
         if employee_no is not None and str(_task_attribute(task, "target_employee_no")) != str(employee_no):
@@ -348,12 +375,11 @@ def project_result_view_contents(
         if _task_attribute(task, "status") != "completed" or _task_attribute(task, "submitted_at") is None:
             continue
         raw_answers = _task_attribute(task, "answers") or {}
-        answers = {
-            field_id: projected
-            for field_id, field in field_ids.items()
-            for projected in [_project_result_view_answer(field, raw_answers.get(field_id))]
-            if projected is not None
-        }
+        answers = project_self_summary_answers(schema, raw_answers)
+        for section in schema:
+            for field in section.get("fields") or []:
+                if not section.get("allow_multiple") and field.get("type") == "tag_with_followup" and isinstance(answers.get(field["id"]), list):
+                    answers[field["id"]] = {"tags": answers[field["id"]]}
         contents.append({"task_id": _task_attribute(task, "id"), "form_schema": deepcopy(schema), "answers": answers})
     return contents
 
@@ -442,26 +468,63 @@ def _sanitize_field_value(field: dict, value: object) -> object:
         raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
     if field.get("type") == "rich_text" and value is not None:
         return sanitize_rich_text(value)
-    if field.get("type") == "tag_with_followup" and isinstance(value, dict):
-        if "notes" in value:
-            notes = value.get("notes") if isinstance(value.get("notes"), dict) else {}
-            return {**value, "notes": {str(option_id): sanitize_rich_text(note) for option_id, note in notes.items()}}
-        return {**value, "note": sanitize_rich_text(value.get("note"))}
+    if field.get("type") == "tag_with_followup":
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            option_ids = {str(option.get("id")) for option in field.get("options") or []}
+            return [item for item in value if item in option_ids]
+        return _project_result_view_answer(field, value)
     return value
 
 
 def sanitize_self_summary_answers(schema: list[dict], answers: dict) -> dict:
-    sanitized = deepcopy(answers)
+    sanitized: dict = {}
     for section in schema:
         for field in section.get("fields") or []:
             field_id = field["id"]
-            value = sanitized.get(field_id)
+            if field.get("readonly"):
+                continue
+            if field_id not in answers:
+                continue
+            value = answers[field_id]
             values = _repeatable_values(section, field, value)
             if section.get("allow_multiple") and (not (field.get("type") == "tag_with_followup" and isinstance(value, list) and all(isinstance(item, str) for item in value))):
                 sanitized[field_id] = [_sanitize_field_value(field, item) for item in values]
             else:
                 sanitized[field_id] = _sanitize_field_value(field, value)
     return sanitized
+
+
+def project_self_summary_answers(schema: list[dict], answers: dict, *, include_readonly: bool = False) -> dict:
+    projected = {}
+    for section in schema:
+        for field in section.get("fields") or []:
+            field_id = field["id"]
+            if field_id not in answers or (field.get("readonly") and not include_readonly):
+                continue
+            value = answers[field_id]
+            if field.get("type") == "tag_with_followup" and isinstance(value, list) and all(isinstance(item, str) for item in value):
+                option_ids = {str(option.get("id")) for option in field.get("options") or []}
+                projected[field_id] = [item for item in value if item in option_ids]
+            elif section.get("allow_multiple") and isinstance(value, list):
+                projected[field_id] = [_project_result_view_answer(field, item) for item in value]
+            else:
+                result = _project_result_view_answer(field, value)
+                if result is not None:
+                    projected[field_id] = result
+    return projected
+
+
+def build_content_preview_schema(template: dict) -> list[dict]:
+    if template.get("node_type") != "result_view":
+        return build_self_summary_schema(template)
+    views = [content for content in template.get("content") or [] if content.get("content_slot") == "view"]
+    sources = [{**deepcopy(content), "content_slot": "fill"} for content in views]
+    schema = _project_result_view_schema({"content": sources}, views)
+    for section in schema:
+        for field in section["fields"]:
+            field["readonly"] = True
+            field["required"] = False
+    return schema
 
 
 def self_summary_value_empty(field: dict, value: object) -> bool:
@@ -488,6 +551,8 @@ def self_summary_value_empty(field: dict, value: object) -> bool:
 
 
 def self_summary_field_requires_value(field: dict, value: object) -> bool:
+    if field.get("readonly"):
+        return False
     return bool(field.get("required")) or (
         field.get("type") == "tag_with_followup"
         and isinstance(value, dict)

@@ -5,6 +5,9 @@ import layersSource from './PerformanceAssessmentContentLayers.vue?raw'
 import editorSource from './PerformanceRichTextEditor.vue?raw'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
+import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
+import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
+import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import optionCardSource from './PerformanceContentOptionCard.vue?raw'
 
 const ratingOptions: AssessmentOption[] = [
@@ -124,6 +127,8 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(wrapper.get('.modal-body').findAll(':scope > div')).toHaveLength(2)
     expect(wrapper.get('.content-modal').classes()).toContain(`content-modal--${label === '工作总结' ? 'work_summary' : label === '评分评级' ? 'rating' : 'custom'}`)
     expect(wrapper.get('.content-modal').attributes('role')).toBe('dialog')
+    expect(wrapper.getComponent(PerformanceAssessmentPreviewHeader).props()).toMatchObject({ name: '未命名名称', description: '', headingTag: 'h3' })
+    expect(wrapper.get('.preview-root-header h3').text()).toBe('未命名名称')
     expect(height).toMatch(/px$/)
   })
 
@@ -267,11 +272,13 @@ describe('PerformanceAssessmentContentLayers', () => {
     await tagItem.get('.select-shell > button').trigger('click')
     await tagItem.get('.option-menu [role="option"]').trigger('click')
     expect(wrapper.get('.tag-preview').text()).toContain('基于角色职责预期，评估实际产出和贡献')
-    expect(layersSource).toContain('.modal-layer .tag-preview > .tag-preview__description')
-    expect(layersSource).toContain('margin: 4px 0 8px;')
+    const fieldRenderer = wrapper.getComponent(PerformanceTemplateFieldRenderer)
+    expect(fieldRenderer.props()).toMatchObject({ mode: 'edit', editable: true, field: { id: expect.any(String), type: 'tag_with_followup', label: '价值贡献', description: tagOptions[0].description, required: false } })
+    expect(wrapper.get('.tag-preview').findComponent(PerformanceTemplateFieldRenderer).exists()).toBe(true)
+    expect(layersSource).not.toContain('PerformanceTagRichTextInput')
+    expect(layersSource).not.toContain('.tag-checks')
+    expect(layersSource).not.toContain('.tag-preview > strong')
     expect(wrapper.findAll('.tag-checks input:checked')).toHaveLength(0)
-    expect(layersSource).toContain('width: max-content !important')
-    expect(layersSource).toContain('min-width: max-content')
     expect(wrapper.get('.tag-preview__hint').element.parentElement?.classList.contains('tag-preview__editor')).toBe(true)
     expect(wrapper.find('.tag-preview .performance-rich-text-box.is-readonly').exists()).toBe(false)
     const tagCheckboxes = wrapper.findAll('.tag-checks input')
@@ -322,15 +329,15 @@ describe('PerformanceAssessmentContentLayers', () => {
     await wrapper.setProps({ tagOptions: [] })
     wrapper.vm.openEditor(saved)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.tag-preview > strong').text()).toBe('价值贡献')
+    expect(wrapper.get('.tag-preview .template-field-label strong').text()).toBe('价值贡献')
     expect(wrapper.get('.tag-preview__description').text()).toBe(tagOptions[0].description)
     expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['请填写做得好的内容', '请填写待改进的内容'])
     wrapper.unmount()
   })
 
-  it('fills only missing legacy tag prompts from the matching catalog labels', async () => {
+  it.each([undefined, null])('fills missing legacy tag data and catalog prompts when hint is %s', async hint => {
     const content = { id: 'legacy', type: 'custom' as const, name: '旧标签内容', description: '', items: [
-      { id: 'tags', label: '', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true, options: [
+      { id: 'tags', label: '', hint: hint as any, questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true, settings: { required: true, localRule: 'keep' }, options: [
         { id: 'improve', label: '待改进的' }, { id: 'good', label: '做得好的', placeholder: '当前环节提示' }, { id: 'empty', label: '无提示', placeholder: '' },
       ] },
     ] }
@@ -344,6 +351,40 @@ describe('PerformanceAssessmentContentLayers', () => {
     await editor.trigger('input')
     expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['当前环节提示', '请输入补充说明'])
     expect(wrapper.get('.tag-preview [contenteditable="true"]').text()).toContain('真实试填')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved.items[0]).toMatchObject({ label: '价值贡献', hint: tagOptions[0].description, settings: { required: true, localRule: 'keep' }, options: [
+      { id: 'improve', label: '待改进的', placeholder: '请填写待改进的内容' },
+      { id: 'good', label: '做得好的', placeholder: '当前环节提示' },
+      { id: 'empty', label: '无提示', placeholder: '' },
+    ] })
+    expect(content.items[0].label).toBe('')
+    expect(content.items[0].hint).toBe(hint)
+    expect(content.items[0].options[0]).not.toHaveProperty('placeholder')
+    const preview = mount(PerformanceContentRenderer, { props: { content: saved } })
+    expect(preview.findComponent(PerformanceTemplateFieldRenderer).exists()).toBe(true)
+    expect(preview.get('.template-field-label strong').text()).toBe('价值贡献')
+    expect(preview.get('.template-field-description').text()).toBe(tagOptions[0].description)
+    expect(preview.findAll('[data-placeholder]').map(node => node.attributes('data-placeholder'))).toEqual(['请填写待改进的内容', '当前环节提示', '请输入补充说明'])
+    preview.unmount()
+    wrapper.unmount()
+  })
+
+  it('preserves explicit empty tag hints and prompts, local option ids and unknown settings', async () => {
+    const content = { id: 'local-empty', content_id: 'local-empty', type: 'custom' as const, name: '局部标签', description: '', settings: { hideDescription: true, localSetting: 'retain' }, items: [
+      { id: 'tags', label: '局部题名', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true, settings: { required: false, localRule: 'retain' }, options: [{ id: 'local-good', label: '做得好的', placeholder: '' }, { id: 'local-only', label: '局部选项', placeholder: '局部提示', color: '#ffffff' }] },
+    ] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, initialContents: [content], tagOptions }, global: { stubs: { Teleport: true, Transition: false } }, attachTo: document.body })
+    wrapper.vm.openEditor(content)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.tag-preview .template-field-label strong').text()).toBe('局部题名')
+    expect(wrapper.find('.tag-preview__description').exists()).toBe(false)
+    expect(wrapper.findAll('.tag-preview [data-placeholder]').map(node => node.attributes('data-placeholder'))).toEqual(['请输入补充说明', '局部提示'])
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved).toMatchObject({ content_id: content.content_id, settings: content.settings, items: [content.items[0]] })
     wrapper.unmount()
   })
 
@@ -729,6 +770,37 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(checkbox.attributes('disabled')).toBeUndefined()
     expect(wrapper.get('.created-item').text()).toContain('共享工作总结')
   })
+  it('edits available-only content into a local selection without changing the shared library', async () => {
+    const shared = { id: 'library-row', content_id: 'shared-tag', type: 'custom' as const, name: '共享标签', description: '共享说明', settings: { hideDescription: false, localSetting: 'keep' }, items: [
+      { id: 'shared-item', label: '', hint: undefined as any, questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true, settings: { required: true, localRule: 'keep' } },
+    ] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, availableContents: [shared], tagOptions }, global: { stubs: { Teleport: true, Transition: false } }, attachTo: document.body })
+    expect((wrapper.get('.created-item input').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('.created-item__edit').trigger('click')
+    await modalInputs(wrapper)[0].setValue('当前节点标签')
+    expect(wrapper.get('.tag-preview .template-field-label strong').text()).toBe('价值贡献')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    expect(wrapper.findAll('.created-item')).toHaveLength(1)
+    expect(wrapper.get('.created-item').text()).toContain('当前节点标签')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved).toMatchObject({ id: 'shared-tag', content_id: 'shared-tag', name: '当前节点标签', settings: shared.settings, items: [
+      { id: 'shared-item', label: '价值贡献', hint: tagOptions[0].description, settings: shared.items[0].settings, options: [
+        { id: 'contribution-0', label: '做得好的', placeholder: '请填写做得好的内容' }, { id: 'contribution-1', label: '待改进的', placeholder: '请填写待改进的内容' },
+      ] },
+    ] })
+    expect(shared.name).toBe('共享标签')
+    expect(shared.items[0].label).toBe('')
+    expect(shared.items[0]).not.toHaveProperty('options')
+    await wrapper.setProps({ tagOptions: [] })
+    wrapper.vm.openEditor(saved)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.tag-preview .template-field-label strong').text()).toBe('价值贡献')
+    expect(wrapper.get('.tag-preview__description').text()).toBe(tagOptions[0].description)
+    expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['请填写做得好的内容', '请填写待改进的内容'])
+    wrapper.unmount()
+  })
+
   it('deduplicates shared content by content id and allows selecting an unbound item', async () => {
     const shared = { id: 'content-1', content_id: 'content-1', type: 'work_summary' as const, name: '共享工作总结', description: '', items: [{ id: 'item-1', label: '填写项', hint: '' }] }
     const wrapper = mount(PerformanceAssessmentContentLayers, {

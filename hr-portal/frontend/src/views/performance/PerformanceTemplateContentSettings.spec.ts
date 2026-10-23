@@ -10,6 +10,7 @@ import PerformanceConfiguredContentBlock from '@/components/performance/Performa
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
+import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import reviewer360ContentSource from '@/components/performance/PerformanceReviewer360Content.vue?raw'
 import selectionFrameSource from '@/components/performance/PerformanceContentSelectionFrame.vue?raw'
 import contentSettingsSource from './PerformanceTemplateContentSettings.vue?raw'
@@ -45,6 +46,169 @@ describe('PerformanceTemplateContentSettings', () => {
   afterEach(() => {
     document.body.innerHTML = ''
     vi.restoreAllMocks()
+  })
+
+  it('previews the current unsaved node through the employee renderer and excludes hidden fields', async () => {
+    const preview = vi.spyOn(performanceTemplateApi, 'previewContent').mockResolvedValue({
+      form_schema: [{ id: 'preview', name: '员工可见内容', fields: [{ id: 'visible', type: 'rich_text', label: '可见题' }] }],
+      answers: { visible: '已填写' },
+    } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow')
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    expect(wrapper.find('.employee-preview-entry').exists()).toBe(false)
+    await wrapper.find('.stage-card').trigger('click')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ content_id: 'draft', type: 'work_summary', name: '未保存内容', description: '', settings: { draftFlag: true }, items: [{ id: 'visible', label: '可见题', hint: '' }, { id: 'hidden', label: '隐藏题', hint: '', settings: { mode: 'hidden' } }] }])
+    await wrapper.vm.$nextTick()
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    await wrapper.findAll('.content-settings-detail--root input')[0].setValue(true)
+    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    block.props('content').name = '刚编辑的块名'
+    await wrapper.get('[data-content-item-id="visible"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(false)
+    await wrapper.get('.template-section__heading').trigger('click')
+    await wrapper.get('#content-page-name').setValue('未保存页面标题')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await flushPromises()
+    expect(preview).toHaveBeenCalledWith(1, expect.objectContaining({
+      node_id: 'n1', content_page_name: '未保存页面标题', content_bindings: { fill: ['draft'] },
+      content: [expect.objectContaining({ name: '刚编辑的块名', settings: expect.objectContaining({ draftFlag: true, hideDescription: true }), items: [expect.objectContaining({ id: 'visible', settings: expect.objectContaining({ required: false }) }), expect.objectContaining({ id: 'hidden', settings: expect.objectContaining({ mode: 'hidden' }) })] })],
+    }))
+    expect(update).not.toHaveBeenCalled()
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    expect(renderer.props('mode')).toBe('edit')
+    expect(renderer.props('editable')).toBe(false)
+    expect(renderer.props('sections')[0].fields.map(field => field.id)).toEqual(['visible'])
+    expect(wrapper.get('.employee-preview').text()).toContain('可见题')
+    expect(wrapper.get('.employee-preview').text()).not.toContain('隐藏题')
+    expect(wrapper.get('.employee-preview').find('.captured-actions, .content-settings-detail, .performance-content-selection-frame, [contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.findComponent(PerformanceConfiguredContentBlock).exists()).toBe(false)
+    expect(wrapper.find('.text-normal').exists()).toBe(false)
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    expect(wrapper.find('.text-normal').exists()).toBe(true)
+    expect(wrapper.get('#content-page-name').element).toHaveProperty('value', '未保存页面标题')
+    expect(wrapper.get('[data-content-item-id="hidden"]').classes()).toContain('content-renderer-item--hidden')
+    await wrapper.get('[data-content-item-id="hidden"]').trigger('click')
+    expect(wrapper.find('.content-settings-detail--item').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('initializes default-all tags only in editable employee preview', async () => {
+    const preview = vi.spyOn(performanceTemplateApi, 'previewContent').mockResolvedValue({
+      form_schema: [{ id: 'tags', name: '标签内容', fields: [
+        { id: 'tag', type: 'tag_with_followup', label: '标签题', default_all: true, options: [{ id: 'a', label: '默认标签' }] },
+        { id: 'empty', type: 'tag_with_followup', label: '已清空题', default_all: true, options: [{ id: 'a', label: '保留空选择' }] },
+        { id: 'view', type: 'tag_with_followup', label: '查看题', default_all: true, readonly: true, options: [{ id: 'a', label: '不可伪造答案' }] },
+      ] }],
+      answers: { empty: { tags: [], notes: {} } },
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.find('.stage-card').trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await flushPromises()
+    expect(preview).toHaveBeenCalled()
+    expect(wrapper.get('.employee-preview .tag-options input').element).toHaveProperty('checked', true)
+    expect(wrapper.get('.employee-preview').text()).toContain('默认标签')
+    expect(wrapper.get('[data-field-id="empty"] .tag-options input').element).toHaveProperty('checked', false)
+    expect(wrapper.get('[data-field-id="view"] .readonly-tag-panel').text()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('does not initialize default-all tags in readonly result preview', async () => {
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [mockNodes[7]] } as any)
+    vi.spyOn(performanceTemplateApi, 'previewContent').mockResolvedValue({
+      form_schema: [{ id: 'tags', name: '结果标签', fields: [{ id: 'tag', type: 'tag_with_followup', label: '只读标签题', default_all: true, options: [{ id: 'a', label: '不应默认选择' }] }] }],
+      answers: {},
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('readonly')
+    expect(wrapper.get('.employee-preview .readonly-tag-panel').text()).toBe('')
+    expect(wrapper.get('.employee-preview').text()).not.toContain('不应默认选择')
+    wrapper.unmount()
+  })
+
+
+  it('keeps configuration visible and shows an inline notice when employee preview fails', async () => {
+    vi.spyOn(performanceTemplateApi, 'previewContent').mockRejectedValue(new Error('preview failed'))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.find('.stage-card').trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.employee-preview-error').text()).toContain('员工视角预览加载失败')
+    expect(wrapper.find('.text-normal').exists()).toBe(true)
+    expect(wrapper.find('.employee-preview').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+
+  it('uses result-view readonly rendering without recreating forbidden tag controls', async () => {
+    const tags = { content_id: 'tags', content_slot: 'view', type: 'custom', name: '终评标签', items: [{ id: 'allowed', label: '允许题', questionType: 'tag', options: [{ id: 'a', label: '协作' }] }, { id: 'denied', label: '不允许查看题', questionType: 'tag', settings: { allowView: false } }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[7], content: [tags] }] } as any)
+    vi.spyOn(performanceTemplateApi, 'previewContent').mockResolvedValue({ form_schema: [{ id: 'tags', name: '终评标签', fields: [{ id: 'allowed', type: 'tag_with_followup', label: '允许题', options: [{ id: 'a', label: '协作' }] }] }], answers: { allowed: { tags: ['a'], notes: { a: '预览答案' } } } })
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('readonly')
+    expect(wrapper.get('.employee-preview').text()).toContain('预览答案')
+    expect(wrapper.get('.employee-preview').text()).not.toContain('不允许查看题')
+    expect(wrapper.find('.employee-preview input, .employee-preview [contenteditable], .employee-preview [role="toolbar"], .content-settings-detail, .configured-content-footer').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['node', 'tab', 'cancel', 'unmount'] as const)('discards late preview responses after %s changes', async action => {
+    let resolve!: (value: { form_schema: []; answers: {} }) => void
+    vi.spyOn(performanceTemplateApi, 'previewContent').mockReturnValue(new Promise(done => { resolve = done }))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    expect(wrapper.get('[role="status"]').text()).toContain('加载员工视角预览中')
+    expect(wrapper.find('.template-section').exists()).toBe(true)
+    if (action === 'node') await wrapper.findAll('.stage-card')[0].trigger('click')
+    if (action === 'tab') await wrapper.findAll('.content-tab')[1].trigger('click')
+    if (action === 'cancel') await wrapper.get('.employee-preview-entry__button').trigger('click')
+    if (action === 'unmount') wrapper.unmount()
+    resolve({ form_schema: [], answers: {} })
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceTemplateRenderer).exists()).toBe(false)
+    if (action !== 'unmount') {
+      expect(wrapper.find('.employee-preview-error').exists()).toBe(false)
+      expect(wrapper.find('.text-normal').exists()).toBe(true)
+      wrapper.unmount()
+    }
+  })
+
+  it('ignores a canceled failure while a newer preview request succeeds and resets on tab changes', async () => {
+    let rejectOld!: (error: Error) => void
+    const preview = vi.spyOn(performanceTemplateApi, 'previewContent').mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+      .mockResolvedValueOnce({ form_schema: [{ id: 'latest', name: '最新预览', fields: [{ id: 'view', type: 'rich_text', label: '只读题', readonly: true }] }], answers: { view: '只读答案' } })
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await wrapper.get('.employee-preview-entry__button').trigger('click')
+    await flushPromises()
+    rejectOld(new Error('expired failure'))
+    await flushPromises()
+    expect(preview).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.employee-preview').text()).toContain('最新预览')
+    expect(wrapper.get('.employee-preview').text()).toContain('只读答案')
+    expect(wrapper.find('.employee-preview [contenteditable], .employee-preview [role="toolbar"]').exists()).toBe(false)
+    expect(wrapper.find('.employee-preview-error').exists()).toBe(false)
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    expect(wrapper.findComponent(PerformanceTemplateRenderer).exists()).toBe(false)
+    expect(wrapper.find('.employee-preview-entry').exists()).toBe(false)
+    expect(wrapper.find('.text-normal').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('persists result tag allow-view and display flags independently and reopens them', async () => {

@@ -833,10 +833,31 @@ def test_self_summary_tag_display_flags_preserve_description_options_and_source(
     assert [field["id"] for field in fields] == ["tag", "text"]
     assert fields[0]["hide_name"] is hide_name
     assert fields[0]["hide_description"] is hide_description
-    assert fields[0]["description"] == "标签题描述"
+    assert fields[0]["label"] == ("" if hide_name else "标签题")
+    assert fields[0]["description"] == ("" if hide_description else "标签题描述")
+    assert fields[0]["placeholder"] == ("" if hide_description else "请输入补充说明")
     assert fields[0]["options"][0]["placeholder"] == "补充提示"
     assert "hide_description" not in fields[1]
     assert template == original
+
+
+def test_tag_schema_keeps_description_separate_from_empty_option_prompt():
+    from copy import deepcopy
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    template = {"content": [{"content_id": "tags", "type": "custom", "questionType": "tag", "items": [
+        {"id": "tag", "label": "标签题", "hint": "可见题目描述", "options": [
+            {"id": "missing", "label": "缺少提示"},
+            {"id": "empty", "label": "显式空提示", "placeholder": ""},
+            {"id": "prompt", "label": "独立提示", "placeholder": "专属标签提示"},
+        ]},
+    ]}]}
+    before = deepcopy(template)
+    field = build_self_summary_schema(template)[0]["fields"][0]
+    assert field["description"] == "可见题目描述"
+    assert field["placeholder"] == "请输入补充说明"
+    assert [option["placeholder"] for option in field["options"]] == ["", "", "专属标签提示"]
+    assert template == before
 
 
 def test_self_summary_schema_defaults_display_and_tag_selection_flags():
@@ -1259,7 +1280,7 @@ def test_rating_unknown_is_template_driven_and_not_a_real_grade(enabled):
     assert [option["id"] for option in field["options"]] == ["a"]
     answers = {"grade": ["__unknown__", "a"], "unrelated": "保留"}
     if enabled:
-        assert sanitize_self_summary_answers(schema, answers) == answers
+        assert sanitize_self_summary_answers(schema, answers) == {"grade": answers["grade"]}
         assert self_summary_instance_unknown(schema[0], answers, 0)
         assert not self_summary_instance_unknown(schema[0], answers, 1)
     else:
@@ -2656,6 +2677,278 @@ async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflo
 
     with pytest.raises(ProjectValidationError, match="项目未配置流程节点"):
         await PerformanceProjectService(Db()).start_project(project, actor_type="PORTAL_USER", actor_id=1)
+
+
+def _employee_secret_template():
+    return {"content": [{
+        "content_id": "content", "type": "custom", "name": "Visible section", "description": "secret-root-description",
+        "settings": {"hideDescription": True}, "items": [
+            {"id": "visible", "label": "secret-name", "hint": "secret-description", "questionType": "tag",
+             "settings": {"hideName": True, "hideDescription": True}, "options": [{"id": "a", "label": "Allowed option"}]},
+            {"id": "hidden", "label": "secret-question", "questionType": "tag", "settings": {"mode": "hidden", "required": True},
+             "options": [{"id": "secret-option", "label": "secret-option"}]},
+            {"id": "readonly", "label": "Readonly", "settings": {"mode": "view", "required": True}},
+        ],
+    }, {"content_id": "hidden-section", "type": "custom", "name": "secret-section", "items": [
+        {"id": "whole-hidden", "label": "secret-whole", "settings": {"mode": "hidden"}},
+    ]}]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("submit", [False, True])
+async def test_employee_hidden_and_readonly_forgery_is_not_written_or_echoed(monkeypatch, submit):
+    from copy import deepcopy
+    from app.performance import projects_router
+
+    template = _employee_secret_template()
+    original_template = deepcopy(template)
+    original_hidden = {"tags": ["secret-legacy"], "notes": {"secret-legacy": "secret-historical-answer"}}
+    task = SimpleNamespace(id=9, project_id=3, available_at=None, due_at=None, submitted_at=None, answer_version=1,
+                           answers={"hidden": deepcopy(original_hidden), "readonly": "secret-old-readonly", "visible": {"tags": ["a"], "notes": {"a": "Previous"}}}, status="pending", completed_at=None)
+    node = SimpleNamespace(node_id="summary", config={"template": template})
+    async def fake_task(*_args):
+        return task, node
+    async def allow_overdue(*_args):
+        return True
+    class Db:
+        async def get(self, *_args):
+            return None
+        async def commit(self):
+            return None
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
+    payload = projects_router.SelfSummaryAnswersPayload(answers={
+        "visible": {"tags": ["a"], "notes": {"a": "Allowed answer"}}, "hidden": "forged", "readonly": "forged", "unknown": "forged",
+    }, version=1)
+    result = await projects_router._save_self_summary(9, payload, submit, context(), Db())
+    assert result["answers"] == {"visible": payload.answers["visible"]}
+    assert task.answers["hidden"] == original_hidden
+    assert task.answers["readonly"] == "secret-old-readonly"
+    assert "unknown" not in task.answers
+    assert template == original_template
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("submitted,ambiguous", [(True, False), (False, False), (True, True)])
+@pytest.mark.parametrize("repeatable", [False, True])
+async def test_evaluation_view_reads_only_unique_submitted_same_snapshot_source(submitted, ambiguous, repeatable):
+    from copy import deepcopy
+    from datetime import datetime, timezone
+    from app.performance import projects_router
+
+    content = {"content_id": "shared", "type": "custom", "name": "Work", "settings": {"allowMultiple": repeatable}, "items": [{"id": "text", "label": "Text"}]}
+    source_node = SimpleNamespace(id=11, node_type="work_summary", config={"template": {"content": [deepcopy(content)]}})
+    current = deepcopy(content)
+    current["items"][0]["settings"] = {"mode": "view", "required": True}
+    node = SimpleNamespace(node_type="evaluation", config={"template": {"content": [current]}})
+    task = SimpleNamespace(id=19, project_id=3, cycle_ref="cycle:one", member_snapshot_id=7, target_employee_no="E001", answers={"text": "secret-forged"})
+    expected_value = ["Submitted answer", "Second answer"] if repeatable else "Submitted answer"
+    source_task = SimpleNamespace(answers={"text": expected_value}, status="completed" if submitted else "pending",
+                                  submitted_at=datetime.now(timezone.utc) if submitted else None)
+    before = deepcopy(task.answers)
+    class Db:
+        def __init__(self):
+            self.calls = []
+        async def execute(self, query):
+            self.calls.append(query)
+            values = [source_node] if len(self.calls) == 1 else [source_task] * (2 if ambiguous else 1)
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+    db = Db()
+    schema, answers = await projects_router._task_visible_content(task, node, db)
+    assert schema[0]["fields"][0]["readonly"] is True
+    assert schema[0]["fields"][0]["required"] is False
+    assert answers == ({"text": expected_value} if submitted and not ambiguous else {})
+    query = str(db.calls[1].compile(compile_kwargs={"literal_binds": True}))
+    assert "project_id = 3" in query and "cycle_ref = 'cycle:one'" in query
+    assert "member_snapshot_id = 7" in query and "target_employee_no = 'E001'" in query
+    assert task.answers == before
+
+
+def test_employee_projection_omits_hidden_schema_answers_and_preserves_repeatable_shapes():
+    from copy import deepcopy
+    import json
+    from app.performance.self_summary_service import build_self_summary_schema, project_self_summary_answers, sanitize_self_summary_answers
+    template = _employee_secret_template()
+    template["content"][0]["settings"]["allowMultiple"] = True
+    before = deepcopy(template)
+    schema = build_self_summary_schema(template)
+    raw = {"visible": [{"tags": ["a"], "notes": {"a": "Allowed", "secret-option": "secret-note"}, "secret-extra": "secret-extra"}], "hidden": "secret-answer", "readonly": "secret-forged", "unknown": "secret-unknown"}
+    answers = project_self_summary_answers(schema, raw)
+    assert "secret" not in json.dumps({"form_schema": schema, "answers": answers})
+    assert answers == {"visible": [{"tags": ["a"], "notes": {"a": "Allowed"}}]}
+    assert [section["id"] for section in schema] == ["content"]
+    assert sanitize_self_summary_answers(schema, {"hidden": "forged", "readonly": "forged"}) == {}
+    assert template == before
+
+
+@pytest.mark.parametrize("endpoint", ["detail", "reference", "overview"])
+def test_employee_http_responses_do_not_serialize_hidden_secrets(monkeypatch, endpoint):
+    from copy import deepcopy
+    from datetime import datetime, timezone
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.core.db import get_session
+    from app.performance.auth_context import get_performance_access_context
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProject
+
+    template = _employee_secret_template()
+    original = deepcopy(template)
+    submitted = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    task = SimpleNamespace(id=9, project_id=3, task_kind="work_summary", member_snapshot_id=7, node_snapshot_id=11,
+        target_employee_no="E001", handler_ref="E001", available_at=None, due_at=None, submitted_at=submitted,
+        answer_version=1, status="completed", answers={"visible": {"tags": ["a", "secret-option"], "notes": {"a": "Allowed", "secret-option": "secret-note"}, "extra": "secret-extra"}, "hidden": "secret-answer", "readonly": "secret-forged"})
+    node = SimpleNamespace(id=11, project_id=3, node_id="summary", node_type="work_summary", node_order=1,
+                           name="Summary", config={"template": template})
+    target_project = SimpleNamespace(id=3, name="Project", settings={})
+    cycle = SimpleNamespace(name="Cycle", start_at=None, end_at=None)
+    current_task = SimpleNamespace(**{**vars(task), "id": 10, "task_kind": "evaluation"})
+    current_node = SimpleNamespace(id=12, node_id="review", node_type="evaluation", name="Review", config={"template": {"content": [
+        {"content_slot": "reference", "reference_kind": "node", "reference_value": "summary"},
+    ]}})
+    async def fake_task(*_args):
+        return (current_task, current_node) if endpoint == "reference" else (task, node)
+    async def actor(*_args, **_kwargs):
+        return SimpleNamespace(actor_ref="E001", actor_type="EMPLOYEE")
+    async def fields(*_args):
+        return {"other": set()}
+    async def role(*_args):
+        return "other"
+    async def allow(*_args):
+        return True
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(projects_router, "resolve_subject_visibility_role", role)
+    monkeypatch.setattr(projects_router, "load_subject_visibility_rules", fields)
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow)
+    class Db:
+        def __init__(self):
+            self.calls = 0
+        async def get(self, model, _identity):
+            return target_project if model is PerformanceProject else None
+        async def scalar(self, _query):
+            return None
+        async def execute(self, _query):
+            self.calls += 1
+            values = [[(target_project, cycle)], [node], [], [task]] if endpoint == "overview" else [[node], [task]]
+            rows = values[self.calls - 1]
+            return SimpleNamespace(all=lambda: rows, scalars=lambda: SimpleNamespace(all=lambda: rows))
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[get_session] = lambda: Db()
+    app.dependency_overrides[get_performance_access_context] = lambda: context()
+    path = "/api/v1/performance/review/overview?project_id=3" if endpoint == "overview" else f"/api/v1/performance/tasks/{10 if endpoint == 'reference' else 9}/self-summary"
+    response = TestClient(app).get(path)
+    assert response.status_code == 200, response.text
+    assert "secret" not in response.text
+    assert "Allowed" in response.text
+    assert template == original
+    assert task.answers["hidden"] == "secret-answer"
+
+
+@pytest.mark.parametrize("endpoint", ["detail", "reference", "overview"])
+@pytest.mark.parametrize("source_submitted", [False, True])
+def test_readonly_source_is_projected_through_employee_http_routes(monkeypatch, endpoint, source_submitted):
+    from datetime import datetime, timezone
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.core.db import get_session
+    from app.performance.auth_context import get_performance_access_context
+    from app.performance import projects_router
+    from app.performance.models import PerformanceNodeTask, PerformanceProject, PerformanceProjectMember, PerformanceProjectNodeSnapshot
+
+    now = datetime.now(timezone.utc)
+    content = {"content_id": "shared", "type": "custom", "name": "Work", "questionType": "tag", "settings": {"allowMultiple": True}, "items": [
+        {"id": "tag", "label": "Tag", "settings": {"mode": "fill"}, "options": [{"id": "a", "label": "Allowed"}]},
+    ]}
+    from copy import deepcopy
+    view_content = deepcopy(content)
+    view_content["items"][0]["settings"] = {"mode": "view", "required": True}
+    view_node = SimpleNamespace(id=12, project_id=3, node_id="evaluation", node_type="evaluation", node_order=2, name="Evaluation", config={"template": {"executor_types": ["SUBJECT"], "content": [view_content]}})
+    source_node = SimpleNamespace(id=11, project_id=3, node_id="summary", node_type="work_summary", config={"template": {"content": [content]}})
+    source_task = SimpleNamespace(id=8, status="completed" if source_submitted else "pending", submitted_at=now if source_submitted else None,
+        answers={"tag": [{"tags": ["a", "secret-option"], "notes": {"a": "Actual submitted source", "secret-option": "secret-note"}}, {"tags": ["a"], "notes": {"a": "Second source instance"}}]})
+    task = SimpleNamespace(id=9, project_id=3, cycle_ref="cycle:one", task_kind="evaluation", member_snapshot_id=7, node_snapshot_id=12,
+        target_employee_no="E001", handler_ref="E001", available_at=None, due_at=None, submitted_at=now,
+        answer_version=1, status="completed", answers={"tag": {"tags": ["a"], "notes": {"a": "secret-forged-view-answer"}}})
+    outer_node = SimpleNamespace(id=13, node_id="outer", node_type="evaluation", name="Outer", config={"template": {"content": [
+        {"content_slot": "reference", "reference_kind": "node", "reference_value": "evaluation"},
+    ]}})
+    outer_task = SimpleNamespace(**{**vars(task), "id": 10, "node_snapshot_id": 13, "answers": {}})
+    target = SimpleNamespace(id=3, name="Project", settings={})
+    cycle = SimpleNamespace(name="Cycle", start_at=None, end_at=None)
+    async def fake_task(*_args):
+        return (outer_task, outer_node) if endpoint == "reference" else (task, view_node)
+    async def actor(*_args, **_kwargs):
+        return SimpleNamespace(actor_ref="E001", actor_type="EMPLOYEE")
+    async def role(*_args):
+        return "other"
+    async def fields(*_args):
+        return {"other": set()}
+    async def allow(*_args):
+        return True
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(projects_router, "resolve_subject_visibility_role", role)
+    monkeypatch.setattr(projects_router, "load_subject_visibility_rules", fields)
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow)
+    class Db:
+        async def get(self, model, _identity):
+            return target if model is PerformanceProject else None
+        async def scalar(self, _query):
+            return None
+        async def execute(self, query):
+            model = query.column_descriptions[0]["entity"]
+            params = query.compile().params
+            if model is PerformanceProject:
+                rows = [(target, cycle)]
+            elif model is PerformanceProjectMember:
+                rows = []
+            elif model is PerformanceProjectNodeSnapshot:
+                if "work_summary" in params.values():
+                    rows = [source_node]
+                else:
+                    rows = [view_node]
+            elif model is PerformanceNodeTask:
+                rows = [source_task] if "work_summary" in params.values() else [task]
+            else:
+                raise AssertionError(model)
+            return SimpleNamespace(all=lambda: rows, scalars=lambda: SimpleNamespace(all=lambda: rows))
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[get_session] = lambda: Db()
+    app.dependency_overrides[get_performance_access_context] = lambda: context()
+    path = "/api/v1/performance/review/overview?project_id=3" if endpoint == "overview" else "/api/v1/performance/tasks/9/template-task"
+    response = TestClient(app).get(path)
+    assert response.status_code == 200, response.text
+    assert "secret" not in response.text
+    assert ('"readonly":true' in response.text)
+    assert ("Actual submitted source" in response.text) is source_submitted
+    assert ("Second source instance" in response.text) is source_submitted
+    assert source_task.answers["tag"][0]["notes"]["secret-option"] == "secret-note"
+
+
+def test_result_view_flags_override_source_before_sensitive_projection():
+    from copy import deepcopy
+    from app.performance.self_summary_service import _project_result_view_schema
+
+    source = {"content_id": "shared", "type": "custom", "questionType": "tag", "name": "Source title", "description": "Source description",
+        "settings": {"hideName": True, "hideDescription": True}, "items": [
+            {"id": "allowed", "label": "Source question", "hint": "Source hint", "settings": {"hideName": True, "hideDescription": True}, "options": [{"id": "a", "label": "Allowed"}]},
+            {"id": "denied", "label": "secret-hidden", "settings": {"allowView": True}},
+        ]}
+    view = {"content_id": "shared", "content_slot": "view", "settings": {"hideName": False, "hideDescription": False}, "items": [
+        {"id": "allowed", "settings": {"hideName": False, "hideDescription": False}},
+        {"id": "denied", "settings": {"mode": "hidden", "allowView": True}},
+    ]}
+    before = deepcopy(source)
+    schema = _project_result_view_schema({"content": [source]}, [view])
+    assert schema[0]["name"] == "Source title"
+    assert schema[0]["description"] == "Source description"
+    assert [field["id"] for field in schema[0]["fields"]] == ["allowed"]
+    assert schema[0]["fields"][0]["label"] == "Source question"
+    assert schema[0]["fields"][0]["description"] == "Source hint"
+    assert source == before
 
 
 def test_result_view_projection_uses_final_snapshot_whitelist_and_sanitizes_answers():

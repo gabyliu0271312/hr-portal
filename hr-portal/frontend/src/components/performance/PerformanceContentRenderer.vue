@@ -74,7 +74,7 @@ const hasItemSettings = (itemId: string) => Object.prototype.hasOwnProperty.call
 const itemState = (itemId: string): ItemSettings => props.itemSettings[itemId] || { mode: 'fill', required: false }
 const isCustomTextItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'text'
 const isCustomTagItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'tag'
-const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, placeholder: item.hint, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
+const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
 const viewField = (item: ContentItem): PerformanceTemplateField => isCustomTagItem(item) ? { ...tagField(item), required: false } : { id: item.id, type: 'rich_text', label: item.label, required: false, hide_name: itemState(item.id).hideName === true }
 const viewPreviewValue = (item: ContentItem) => isCustomTagItem(item) ? { tags: [], notes: {} } : ''
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
@@ -88,12 +88,6 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--view :deep(.readonly-answer),.content-renderer-item--view :deep(.readonly-tag-panel){background:#f8f9fa}
 .content-renderer-view-preview{pointer-events:none}
 .content-renderer-view-preview :deep(.readonly-answer),.content-renderer-view-preview :deep(.readonly-tag-panel){min-height:54px}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view){min-height:216px;padding:12px 24px;box-sizing:border-box}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.template-field-label){margin:0 0 8px}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.template-field-description){margin:0 0 8px}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-followup){padding:0;margin:0;border:0;border-radius:0;background:transparent}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-options){gap:0 24px;margin:0 0 24px;padding:8px 24px 24px;box-sizing:border-box;border-radius:8px;background:#f8f9fa}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-options .performance-checkbox){margin-top:16px}
 
 .content-renderer-item--configured.content-renderer-item--view:has(:deep(.readonly-tag-panel)){min-height:186px}
 .content-renderer-item--interactive{padding:8px;border:2px solid transparent;border-radius:6px;box-sizing:border-box;cursor:pointer}

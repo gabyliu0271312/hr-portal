@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import contentRendererSource from './PerformanceContentRenderer.vue?raw'
 import PerformanceRichTextToolbar from './PerformanceRichTextToolbar.vue'
+import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 
 const content = {
   type: 'work_summary' as const,
@@ -86,6 +87,7 @@ describe('performance content shared primitives', () => {
       items: [{ id: 'tag', label: '标签题', questionType: 'tag', defaultAll: true, options: [{ id: 'local', label: '本地标签', placeholder: '本地提示' }] }],
     } } })
     expect(wrapper.findAll('.tag-options .performance-checkbox__label').map(item => item.text())).toEqual(['本地标签'])
+    expect(wrapper.getComponent(PerformanceTemplateFieldRenderer).props('field').placeholder).toBeUndefined()
     expect(wrapper.get('.tag-options input').attributes('disabled')).toBeDefined()
     expect((wrapper.get('.tag-options input').element as HTMLInputElement).checked).toBe(true)
     expect(wrapper.get('.tag-preview__selected-tag').text()).toBe('本地标签')
@@ -96,6 +98,52 @@ describe('performance content shared primitives', () => {
     expect((wrapper.get('.tag-options input').element as HTMLInputElement).checked).toBe(false)
     await wrapper.setProps({ content: { type: 'custom', questionType: 'tag', defaultAll: true, options: [{ id: 'fallback', label: '块级兼容' }], items: [{ id: 'tag', label: '标签题', options: [] }] } })
     expect(wrapper.get('.empty-options').text()).toBe('暂无可用标签选项')
+    await wrapper.setProps({ content: { type: 'custom', questionType: 'tag', defaultAll: true, items: [{ id: 'tag', label: '标签题', hint: '只展示为题目描述', options: [{ id: 'a', label: '选项A', placeholder: '' }, { id: 'b', label: '选项B' }] }] } })
+    expect(wrapper.get('.template-field-description').text()).toBe('只展示为题目描述')
+    expect(wrapper.findAll('.tag-rich-input').map(node => node.attributes('data-placeholder'))).toEqual(['请输入补充说明', '请输入补充说明'])
+    wrapper.unmount()
+  })
+
+  it('keeps tag configuration previews in the shared field structure without creating answers', async () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type: 'custom', items: [{ id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', defaultAll: true, options: [{ id: 'a', label: '选项A', placeholder: '补充提示' }] }] },
+      interactive: true, itemSettings: { tag: { mode: 'fill', required: true } },
+    } })
+    const renderer = wrapper.getComponent(PerformanceTemplateFieldRenderer)
+    expect(renderer.props('mode')).toBe('edit')
+    expect(renderer.props('editable')).toBe(false)
+    expect(wrapper.get('.template-field-label strong').text()).toBe('标签题')
+    expect(wrapper.get('.template-field-description.tag-preview__description').text()).toBe('题目描述')
+    expect(wrapper.find('.tag-followup > .tag-options.tag-checks + .tag-rich-text-input').exists()).toBe(true)
+    expect(wrapper.get('.tag-rich-input').attributes('contenteditable')).toBe('false')
+    expect(wrapper.get('.tag-rich-input').attributes('data-placeholder')).toBe('补充提示')
+    await wrapper.get('.tag-options input').trigger('change')
+    expect(renderer.emitted('update:value')).toBeUndefined()
+    expect(wrapper.emitted('update-answer')).toBeUndefined()
+    expect(contentRendererSource).not.toMatch(/:deep\(\.(?:tag-options|tag-followup|template-field-description|template-field-label)\)/)
+    wrapper.unmount()
+  })
+
+  it('retains selectable hidden tag management and uses readonly fields only for view previews', async () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type: 'custom', defaultAll: true, items: [{ id: 'tag', label: '隐藏题', hint: '说明', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] }] },
+      interactive: true, itemSettings: { tag: { mode: 'hidden', required: true } },
+    } })
+    const item = wrapper.get('[data-content-item-id="tag"]')
+    expect(item.classes()).toContain('content-renderer-item--hidden')
+    expect(item.attributes('aria-disabled')).toBe('true')
+    expect(wrapper.find('.content-renderer-hidden-icon svg').exists()).toBe(true)
+    expect(wrapper.find('.tag-followup').exists()).toBe(true)
+    expect(wrapper.find('.template-field-label em').exists()).toBe(false)
+    await item.trigger('click')
+    expect(wrapper.emitted('select-item')).toEqual([['tag']])
+    await wrapper.setProps({ itemSettings: { tag: { mode: 'view', required: true } } })
+    expect(wrapper.getComponent(PerformanceTemplateFieldRenderer).props('mode')).toBe('readonly')
+    expect(wrapper.find('.content-renderer-hidden-icon').exists()).toBe(false)
+    expect(wrapper.find('.readonly-tag-panel').exists()).toBe(true)
+    expect(wrapper.find('.tag-rich-text-input').exists()).toBe(false)
+    expect(wrapper.find('.readonly-tag-note').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('adds a single unknown preview option without changing source levels', async () => {

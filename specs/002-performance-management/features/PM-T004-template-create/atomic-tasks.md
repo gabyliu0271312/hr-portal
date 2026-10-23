@@ -368,6 +368,19 @@
   - Reading/compliance: 已读Spec002基线/T05/F16-F17、Spec012交互/守则及N0001/N0002/N0004/N0005/N1102-N1104；遵循现有领域组件/token，不新建全页蓝图或设计体系。
   - Evidence/DoD: 最终7文件Vitest170/170通过（layers40/TemplateRenderer10/SelfSummaryTask16/ContentRenderer17/block18/page49/Review20）；新增共享组件引用、单toolbar、当前标签格式隔离、移除回退、答案保留与真实Teleport输入DOM稳定断言。Chromium隔离fixture55/55检查通过，覆盖320/491/860容器与实际配置弹窗492px外框，中文/英文/数字/链接/列表自然断行、无横向越界、提示消失与节点identity稳定；实际组件PNG已保存至上述路径，不冒充登录态或DB验收。最终 `npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，既有VueUse PURE注释提示保留；中间一次运行曾被并行数仓 StandardFieldDrawer.vue:169 类型错误阻塞，最终工作区重跑已通过，本次未修改该数仓文件。git diff --check通过（LF/CRLF提示）。未执行真实登录态业务页/DB、部署、commit/push，保持未勾选。
 
+- [ ] PM-T004-T05-F19 标签题完整共享渲染与服务端员工可见性（2026-10-23 用户确认）
+  - Goal/type: 标签题编辑预览、配置管理、员工填写/查看共享完整业务渲染和root题头；配置态保留灰态隐藏题管理入口，员工视角完全移除，安全边界在服务端。
+  - Prerequisites/reading: Spec002基线、T05已确认三栏蓝图、F07/F09/F13/F15/F18、Spec012 UI守则/N0001/N0002/N0004/N0005/N1102-N1104、execution-contract/task-card-template/acceptance-evidence；用户确认本轮视角差异。既有页面局部调整，不新增全页蓝图。
+  - Allowed modifications: 现有PerformanceAssessmentContentLayers/AssessmentPreviewHeader/ConfiguredContentBlock/ContentRenderer/TemplateFieldRenderer/TemplateSection/TemplateRenderer、performanceTemplateAnswers、TemplateContentSettings/SelfSummaryTask、performance.ts及对应既有测试；backend self_summary_service.py/projects_router.py/templates_router.py及既有workflow/projects测试；本功能现有交互/任务文件。不同实施者分别拥有弹窗、公共字段、页面、后端文件，禁止并行覆盖共享文件。
+  - Forbidden/non-scope: 不改现有migration、历史周期/项目快照、模板锁定、角色权限体系、UCP、部署、commit/push；不创建脚本或测试文档，不建设新表单引擎或全页模板预览。
+  - Input/output contract: 保留node.content局部权威与现有JSONB/settings，目录仅补缺，显式空提示和局部值不覆盖。公共标签题消费既有field/answer；新增可选readonly:boolean默认false。布局宽度由容器控制，业务显隐不由variant决定。后台的灰态/选择/拖拽仅在管理包装层。
+  - API/security contract: 新增POST /api/v1/performance/templates/{template_id}/content-preview，沿用workflow配置管理权限，body=ContentPreviewRequest{node:WorkflowNode}（外层/node均extra=forbid），只读返回ContentPreviewResponse{form_schema,answers:{}}；服务端使用员工可见性投影，不持久化。员工任务/参考/概览/结果响应不返回hidden题或对应答案，隐藏名称/描述从响应裁剪，伪造隐藏字段及只读字段不能写入；沿用既有身份校验与错误处理，不新增权限旁路。
+  - UI: content路由增加员工视角预览入口，调用服务端后使用员工TemplateRenderer；失败保留配置，加载不显示旧节点结果，返回管理态恢复设置入口；沿用已确认T05蓝图，独立实现PNG目标../../ui-blueprints/PM-T004-T05-F19-implemented-shared-tag-preview.png，未取得需明确not-run。
+  - Test contract: Given局部/旧数据/显式空字段、多个标签与混合题、隐藏/显示/只读、不同容器；When编辑确认/设置/员工预览/保存重开/伪造读取提交；Then三处共享题头和标签结构、预览试填不入库、隐藏题管理可选但员工响应不泄露、readonly不初始化默认或写入、无跨环节/历史快照覆盖。执行既有focused Vitest、workflow/projects pytest、前端build与diff检查，真实浏览器/API数据库证据单列，不以mock替代。
+  - Evidence/status: 共享标签完整字段/root已收敛；修复缺字段预览/确定不一致与available-only编辑丢失；结果查看配置管理使用公共readonly呈现，禁看仍灰态可选。前端初次整合8文件190/190通过（页面57项），员工readonly专项31/31通过；追加默认标签预览用例后，最终9文件241/241通过（ContentRenderer19/TemplateRenderer13/ConfiguredBlock18/Layers43/TemplateContentSettings59/SelfSummaryTask18/Review20/RepeatableAnswers2/WorkflowSettings49），`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）exit0，vite 45.45s。首次build命中页面并行编辑中间态TS错误，完成后整合build（vue-tsc+vite）exit0，既有VueUse PURE提示保留。扩大绩效全目录回归171文件为155 passed/16 failed，1101 passed/42 failed，含历史.spec.js副本及未改组件，不宣称全量通过；未删除或隐藏失败测试。git diff --check通过。服务端最终workflow/projects完整pytest由主线程复验350/350通过（9.55s，1个既有python_multipart弃用警告）；TestClient真实路由序列化覆盖详情/参考/概览隐藏题、隐藏名称/描述、未知标签notes/extra不泄露，已提交/草稿只读来源差异与repeatable结构、隐藏/只读伪造提交不写入、预览管理员允许/员工403/模板节点404/非法body与引用422。标签field.placeholder统一“请输入补充说明”，描述仍独立保留，非空option提示优先。无历史快照/既有隐藏答案改写。
+  - Not-run/blockers: 当前未检出chromium-cli/浏览器自动化依赖，可用工具无浏览器会话，真实登录态UI走查、独立PNG和真实数据库/API保存重开未执行；现有本地容器路由HTTP200只证明旧部署入口可响应，不是本轮实现验收。无容器替换、迁移、commit/push或生产部署。
+  - Definition of done: 开发、共享组件验证、服务端允许/拒绝与泄露测试、回归/build及UI证据齐备后才勾选；缺项明确阻塞。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

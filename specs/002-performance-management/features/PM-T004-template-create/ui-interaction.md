@@ -39,6 +39,7 @@
 ## 未确认项
 
 流程节点 `StageCard` 的 280×38 参数究竟用于画布节点还是加号菜单项、流程 SVG path、连接线/加号几何、加号菜单布局，以及保存接口最终合同仍未确认；在确认前不得猜测或进入正式 UI 编码。
+
 ## Component reuse decision (PM-T004-T02-F15)
 
 - The workflow node name and description fields are shared across node types and are implemented by `WorkflowNodeBasicFields.vue` within the performance domain.
@@ -269,6 +270,7 @@
 ## Result-view content correction (PM-T004-T05-F01, 2026-10-21)
 
 候选保留工作总结、评分评级、自定义三种内容；以唯一 `include_final_result=true` 节点的 fill 内容归属判断可选性，而非按内容类型过滤。无终评或无填写内容时所有候选不可选；全部 item 隐藏的内容不可选。
+
 - 其他内容复选框置灰，复用 `PerformanceCheckbox`、`PerformanceInfoPopover` 的 disabled-action 及全局 token。显示提示“仅可选择终评环节执行人「直属上级」填写的内容”；实线上级从现有 manager-level options 动态生成具体级别，多级用顿号连接。受限模式不允许在结果查看节点新建或修改来源内容，普通节点保留原编辑/新建行为。
 - 选中 result_view 后显示唯一“配置查看内容”Tab；区域标题为“绩效结果”，不是流程节点自定义名称。按采集还原18/600/26标题、16px/24px内边距、4px圆角、1px分隔、40px空态上下内边距、14/22灰色说明及54px双操作栏；区域悬浮显示蓝色虚线边框，顶部保留原始16px横向拖拽图标。该固定区域当前不新增拖拽排序协议。
 - “添加其他参考内容”在同一查看Tab下复用参考内容抽屉，保存到独立 reference slot；不得覆盖 view 内容，也不增加参考Tab。已有内容支持回显与移除。
@@ -300,6 +302,15 @@
 - 单一标签工具栏作用于当前焦点/选区的标签，移除后回退有效标签；答案仍按原tags/notes独立存储，兼容旧note，不串题；预览试填仍不进入配置confirm。readonly保留禁写DOM；结果只读展示链路保持原白名单清洗。
 - 浏览器证据：真实Chromium挂载实际组件与现有样式的隔离fixture，55/55检查通过，包含320/491/860宽度与配置弹窗约492px外框，五类长文本、scrollWidth不超过clientWidth、文字不越界、输入节点identity不变、提示不重叠。独立截图 `../../ui-blueprints/PM-T004-T05-F18-implemented-rich-wrap.png` 为实际组件隔离验证，不是登录态业务页面或真实数据库验收。早先fixture选择器误选背景框的失败已修正，仅最终通过结果作为证据。
 - 测试采用真实Teleport验证配置编辑节点稳定；旧Teleport测试替身会导致节点重建，不据此修改业务弹窗。定向回归与最终build结果见F18任务。无API、迁移、权限、历史快照、部署或提交推送。
+
+## 标签题共享业务渲染与员工视角（PM-T004-T05-F19，2026-10-23）
+
+- 用户确认配置态保留hidden/不允许查看题的灰态管理入口，员工视角完全隐藏；差异只在后台选择/拖拽/工具栏包装，题目业务渲染共用。布局宽度随容器，合理紧凑布局不改变名称、描述、提示、必填、答案和查看权限含义。
+- 编辑弹窗与配置区/员工端共用PerformanceTemplateFieldRenderer，root统一PerformanceAssessmentPreviewHeader；移除弹窗手写标签复选区和配置区对公共标签底框的深度重写。目录补缺的预览与确定使用同一规范化结果，显式空提示、局部设置及未知字段保留，available-only条目编辑结果不能静默丢失。
+- 配置页员工视角入口提交当前节点草稿至只读管理API POST /performance/templates/{template_id}/content-preview，返回服务端裁剪后的form_schema/answers，再使用员工TemplateRenderer；试填答案仅临时存在，不进入模板配置或员工答案接口。加载/失败不显示旧节点结果；返回配置恢复灰态管理，右侧设置不被员工视角误操作。
+- 员工身份接口必须在服务端移除hidden题定义、选项和对应答案；名称/描述隐藏时原文不返回，也不得通过placeholder绕回。后台配置管理员有权读取完整定义不等于员工有权访问管理接口；沿用现有权限拒绝。
+- mode=view属于只读业务状态，不是布局变体；只读题不生成默认答案、不校验必填、不接受客户端改写。真实来源仅当前项目/周期被评估人唯一work_summary中已提交的同内容；未提交/不合法来源不能用草稿或伪造预览答案替代。历史快照与已有锁定策略不改变。
+- 沿用T05蓝图、Spec012 N0001/N0002/N0004/N0005/N1102-N1104，局部调整不新增全页蓝图；独立PNG目标见F19任务。实现与验证状态以F19实跑记录为准，未执行浏览器/真实数据库检查不得记为通过。
 
 ### F01 历史验收记录
 

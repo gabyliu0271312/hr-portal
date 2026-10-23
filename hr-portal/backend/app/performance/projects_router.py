@@ -16,7 +16,7 @@ from app.performance.auth_context import PerformanceAccessContext, PerformanceId
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
-from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_result_view_contents, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
+from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
@@ -241,6 +241,10 @@ async def _reference_tabs(
         source = next((item for item in source_task if _task_completed(item)), None) or (source_task[0] if source_task else None)
         status = _reference_status(source, reference_node, project)
         completed = status == "completed"
+        if completed and source is not None:
+            schema, visible_answers = await _task_visible_content(source, reference_node, db)
+        else:
+            schema, visible_answers = [], {}
         result.append({
             "key": f"reference-{reference_node.node_id}",
             "node_id": reference_node.node_id,
@@ -249,8 +253,8 @@ async def _reference_tabs(
             "employee_no": task.target_employee_no,
             "status": status,
             "submitted_at": source.submitted_at if completed and source is not None else None,
-            "form_schema": build_self_summary_schema(await _reference_template(source, reference_node, project, db)) if completed else [],
-            "answers": (source.answers or {}) if completed and source is not None else {},
+            "form_schema": schema,
+            "answers": visible_answers,
             "can_remind": bool(
                 source is not None
                 and not completed
@@ -262,12 +266,57 @@ async def _reference_tabs(
     return result
 
 
+async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> tuple[list[dict], dict]:
+    template = await _self_summary_template(task, node, db)
+    schema = build_self_summary_schema(template)
+    answers = project_self_summary_answers(schema, task.answers or {})
+    readonly_sections = [section for section in schema if any(field.get("readonly") for field in section["fields"])]
+    if not readonly_sections or node.node_type != "evaluation":
+        return schema, answers
+    sources = (await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == task.project_id,
+        PerformanceProjectNodeSnapshot.node_type == "work_summary",
+    ))).scalars().all()
+    if len(sources) != 1:
+        return schema, answers
+    source_node = sources[0]
+    candidates = (await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == task.project_id,
+        PerformanceNodeTask.cycle_ref == task.cycle_ref,
+        PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+        PerformanceNodeTask.node_snapshot_id == source_node.id,
+        PerformanceNodeTask.target_employee_no == task.target_employee_no,
+        PerformanceNodeTask.task_kind == "work_summary",
+    ))).scalars().all()
+    if len(candidates) != 1 or candidates[0].status != "completed" or candidates[0].submitted_at is None:
+        return schema, answers
+    source_task = candidates[0]
+    source_schema = build_self_summary_schema(await _self_summary_template(source_task, source_node, db))
+    source_by_id = {section["id"]: section for section in source_schema}
+    for section in readonly_sections:
+        source_section = source_by_id.get(section["id"])
+        if source_section is None:
+            continue
+        source_fields = {field["id"]: field for field in source_section["fields"] if not field.get("readonly")}
+        for field in section["fields"]:
+            source_field = source_fields.get(field["id"])
+            if not field.get("readonly") or source_field is None or source_field["type"] != field["type"]:
+                continue
+            if bool(section.get("allow_multiple")) != bool(source_section.get("allow_multiple")):
+                continue
+            if {str(option["id"]) for option in field.get("options") or []} != {str(option["id"]) for option in source_field.get("options") or []}:
+                continue
+            source_answers = project_self_summary_answers([{**section, "fields": [field]}], source_task.answers or {}, include_readonly=True)
+            answers.update(source_answers)
+    return schema, answers
+
+
 async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    template = await _self_summary_template(task, node, db)
+    schema, answers = await _task_visible_content(task, node, db)
     member = await db.scalar(select(PerformanceProjectMember).where(
         PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
         PerformanceProjectMember.employee_no == task.target_employee_no,
@@ -308,8 +357,8 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
                 direct_supervisor_name=direct_supervisor_name,
             ),
         },
-        "form_schema": build_self_summary_schema(template),
-        "answers": task.answers or {},
+        "form_schema": schema,
+        "answers": answers,
         "reference_tabs": await _reference_tabs(task, node, project, actor_ref, db),
     }
 
@@ -352,7 +401,8 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
                 continue
             if self_summary_field_requires_value(field, value) and self_summary_value_empty(field, value):
                 raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
-    task.answers = answers
+    writable_ids = {field["id"] for section in schema for field in section["fields"] if not field.get("readonly")}
+    task.answers = {**{key: value for key, value in (task.answers or {}).items() if key not in writable_ids}, **answers}
     task.answer_version += 1
     if submit:
         task.submitted_at = datetime.now(UTC)
@@ -362,7 +412,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
             await _sync_automatic_openings(db, project)
     await db.commit()
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    return {"answers": task.answers, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
+    return {"answers": project_self_summary_answers(schema, task.answers), "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
 
 
 @router.patch("/tasks/{task_id}/self-summary/draft")
@@ -1888,8 +1938,7 @@ async def review_overview(
             node_payload["editable"] = editable
             node_payload["submitted_at"] = selected_task.submitted_at
             if selected_task.submitted_at is not None:
-                node_payload["form_schema"] = build_self_summary_schema(await _self_summary_template(selected_task, node, db))
-                node_payload["answers"] = selected_task.answers or {}
+                node_payload["form_schema"], node_payload["answers"] = await _task_visible_content(selected_task, node, db)
         categories[category]["nodes"].append(node_payload)
 
     return {

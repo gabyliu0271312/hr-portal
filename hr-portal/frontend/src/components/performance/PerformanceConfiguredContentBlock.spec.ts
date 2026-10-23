@@ -313,6 +313,9 @@ describe('PerformanceConfiguredContentBlock', () => {
       rootSettingsEnabled: false, itemSettingsEnabled: true, rootSettingsVariant: 'generic-root', itemSettingsVariant: 'result-view-item',
     } })
     await wrapper.get('[data-content-item-id="tag"]').trigger('click')
+    expect(wrapper.find('[data-content-item-id="tag"] .readonly-tag-panel').exists()).toBe(true)
+    expect(wrapper.find('[data-content-item-id="tag"] .tag-options').exists()).toBe(false)
+    expect(wrapper.find('[data-content-item-id="tag"] .tag-rich-text-input').exists()).toBe(false)
     const panel = () => wrapper.get('.content-settings-detail--item')
     expect(panel().findAllComponents(PerformanceCheckbox).map((checkbox: { props: (name: string) => unknown }) => checkbox.props('label'))).toEqual(['允许查看', '隐藏名称', '隐藏描述'])
     expect(panel().findAll('input[type="radio"]')).toHaveLength(0)

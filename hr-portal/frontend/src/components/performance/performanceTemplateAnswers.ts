@@ -8,11 +8,16 @@ function defaultValue(field: PerformanceTemplateField) {
   return field.type === 'tag_with_followup' ? { tags: field.default_all ? (field.options || []).map(option => option.id) : [], notes: {} } : ''
 }
 
+export function performanceTemplateWritableAnswers(sections: PerformanceTemplateSection[], answers: Record<string, unknown>) {
+  const ids = new Set(sections.flatMap(section => section.fields.filter(field => !field.readonly).map(field => field.id)))
+  return Object.fromEntries(Object.entries(answers).filter(([id]) => ids.has(id)))
+}
+
 export function performanceTemplateInitialAnswers(sections: PerformanceTemplateSection[], answers: Record<string, unknown>) {
   const initialized = { ...answers }
   for (const section of sections) {
     for (const field of section.fields) {
-      if (field.type === 'tag_with_followup' && field.default_all && !Object.prototype.hasOwnProperty.call(initialized, field.id)) {
+      if (field.type === 'tag_with_followup' && !field.readonly && field.default_all && !Object.prototype.hasOwnProperty.call(initialized, field.id)) {
         const count = performanceTemplateInstanceCount(section, answers)
         initialized[field.id] = section.allow_multiple ? Array.from({ length: count }, () => defaultValue(field)) : defaultValue(field)
       }
@@ -52,7 +57,7 @@ export function performanceTemplateUpdatedFieldValue(section: PerformanceTemplat
 
 export function performanceTemplateAddedInstance(section: PerformanceTemplateSection, answers: Record<string, unknown>) {
   const count = performanceTemplateInstanceCount(section, answers)
-  return Object.fromEntries(section.fields.map((field) => {
+  return Object.fromEntries(section.fields.filter(field => !field.readonly).map((field) => {
     const values = performanceTemplateFieldValues(section, field, answers).slice()
     while (values.length < count) values.push(defaultValue(field))
     for (let index = 0; index < count; index += 1) if (values[index] == null) values[index] = defaultValue(field)
@@ -62,7 +67,7 @@ export function performanceTemplateAddedInstance(section: PerformanceTemplateSec
 }
 
 export function performanceTemplateRemovedInstance(section: PerformanceTemplateSection, index: number, answers: Record<string, unknown>) {
-  return Object.fromEntries(section.fields.map((field) => {
+  return Object.fromEntries(section.fields.filter(field => !field.readonly).map((field) => {
     const values = performanceTemplateFieldValues(section, field, answers).slice()
     while (values.length < performanceTemplateInstanceCount(section, answers)) values.push(defaultValue(field))
     for (let itemIndex = 0; itemIndex < values.length; itemIndex += 1) if (values[itemIndex] == null) values[itemIndex] = defaultValue(field)
