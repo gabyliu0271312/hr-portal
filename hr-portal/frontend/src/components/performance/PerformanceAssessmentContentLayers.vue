@@ -108,7 +108,7 @@
                             <button type="button" :aria-label="`删除${field.label}`" @click="removePreviewTag(item, field.label)">×</button>
                           </span>
                         </div>
-                        <div class="tag-preview__prompt">{{ field.content }}</div>
+                        <RichTextBox v-model="tagPreviewNotes[`${item.id}:${field.label}`]" :placeholder="field.content || '请输入补充说明'" />
                       </div>
                     </div>
                     <div v-if="!selectedTagFields(item).length" class="tag-preview__hint">勾选标签后填写</div>
@@ -162,6 +162,7 @@ const drawerRef=ref<HTMLElement|null>(null), modalRef=ref<HTMLElement|null>(null
 const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), submitted=ref(false), itemSubmitted=ref(false), success=ref(false), draggedIndex=ref<number|null>(null), dragAnnouncement=ref(''), editingCreatedId=ref<string|null>(null), expandedIds=ref<Set<string>>(new Set())
 const items=ref<FillItem[]>([]), created=ref<Array<AssessmentContentDraft&{id:string}>>([])
 const tagSelections=ref<Record<string,string[]>>({})
+const tagPreviewNotes=ref<Record<string,string>>({})
 const previousDefaultAll=ref<Record<string,boolean>>({})
 const previousTagOption=ref<Record<string,string>>({})
 const drawerContents=computed(()=>{
@@ -227,7 +228,7 @@ const allExpanded=computed(()=>created.value.length>0&&expandedIds.value.size===
 watch(()=>props.open,open=>{if(open){created.value=props.initialContents.map(content=>{const id=content.content_id||content.id||nextId();return JSON.parse(JSON.stringify({...content,id,content_id:id}))});void nextTick(()=>drawerRef.value?.focus())}else activeType.value=null},{ immediate:true })
 watch(()=>draft.questionType,()=>{ itemSubmitted.value=false })
 watch([items,()=>props.tagOptions],syncTagSelections,{deep:true,immediate:true})
-function resetDraft(){Object.assign(draft,{name:'',description:'',itemName:'',hint:'',richText:'',ratingOptionId:'',questionType:'text',tagOptionId:'',defaultAll:false});items.value=[];tagSelections.value={};previousDefaultAll.value={};previousTagOption.value={};workSummaryItems.value=[];submitted.value=false;itemSubmitted.value=false;draggedIndex.value=null;dragAnnouncement.value=''}
+function resetDraft(){Object.assign(draft,{name:'',description:'',itemName:'',hint:'',richText:'',ratingOptionId:'',questionType:'text',tagOptionId:'',defaultAll:false});items.value=[];tagSelections.value={};tagPreviewNotes.value={};previousDefaultAll.value={};previousTagOption.value={};workSummaryItems.value=[];submitted.value=false;itemSubmitted.value=false;draggedIndex.value=null;dragAnnouncement.value=''}
 function closeDrawer(){activeType.value=null;emit('update:open',false)}
 function contentKey(content:AssessmentContentDraft&{id:string}){return content.content_id||content.id}
 function isContentSelected(id:string){return created.value.some(content=>contentKey(content)===id)}
@@ -888,14 +889,12 @@ const RichTextBox=defineComponent({props:{modelValue:{type:String,default:''},pl
   min-height: 22px;
   margin: 0 0 4px;
 }
-.tag-preview__prompt {
-  overflow: hidden;
-  min-height: 22px;
-  color: #8f959e;
-  font-size: 14px;
-  line-height: 22px;
-  white-space: pre-wrap;
-  word-break: break-word;
+.modal-layer .tag-preview__selected-group > .rich-editor-host {
+  width: 100%;
+  min-width: 0;
+}
+.modal-layer .tag-preview__selected-group .performance-rich-toolbar {
+  height: 32px;
 }
 .tag-preview__selected-tag {
   display: inline-flex;

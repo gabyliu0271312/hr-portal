@@ -273,7 +273,12 @@ describe('PerformanceAssessmentContentLayers', () => {
     await tagCheckboxes[0].setValue(true)
     expect(wrapper.get('.tag-preview__selected-tag').text()).toContain('做得好的')
     expect(wrapper.get('.tag-preview__selected-group').text()).toContain('做得好的')
-    expect(wrapper.get('.tag-preview__selected-group .tag-preview__prompt').text()).toBe('请填写做得好的内容')
+    expect(wrapper.find('.tag-preview__selected-group .tag-preview__prompt').exists()).toBe(false)
+    expect(wrapper.get('.tag-preview__selected-group [role="toolbar"] button').attributes('aria-label')).toBe('粗体')
+    const tagEditor = wrapper.get('.tag-preview__selected-group [contenteditable="true"]')
+    tagEditor.element.innerHTML = '配置时补充说明'
+    await tagEditor.trigger('input')
+    expect(tagEditor.text()).toContain('配置时补充说明')
     await wrapper.get('.tag-preview__selected-tag button').trigger('click')
     expect(wrapper.find('.tag-preview__selected-tag').exists()).toBe(false)
     expect((wrapper.find('.tag-checks input').element as HTMLInputElement).checked).toBe(false)
@@ -289,6 +294,71 @@ describe('PerformanceAssessmentContentLayers', () => {
       { id: 'contribution-0', label: '做得好的', placeholder: '请填写做得好的内容' },
       { id: 'contribution-1', label: '待改进的', placeholder: '请填写待改进的内容' },
     ])
+  })
+
+  it('keeps tag preview editors independent and excludes their trial answers from saved content', async () => {
+    const content = { id: 'tags', type: 'custom' as const, name: '标签内容', description: '', items: [
+      { id: 'first', label: '标签题一', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true },
+      { id: 'second', label: '标签题二', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true },
+    ] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, initialContents: [content], tagOptions }, global: { stubs: { Teleport: true, Transition: false } }, attachTo: document.body })
+    wrapper.vm.openEditor(content)
+    await wrapper.vm.$nextTick()
+    const editors = wrapper.findAll('.tag-preview [contenteditable="true"]')
+    expect(editors).toHaveLength(4)
+    expect(wrapper.findAll('.tag-preview [role="toolbar"]')).toHaveLength(4)
+    editors[0].element.innerHTML = '<div class="ace-line"><span>仅第一题亮点试填</span></div>'
+    await editors[0].trigger('input')
+    const secondEditor = wrapper.findAll('.tag-preview [contenteditable="true"]')[1]
+    secondEditor.element.innerHTML = '<div class="ace-line"><span>仅第一题改进试填</span></div>'
+    await secondEditor.trigger('input')
+    expect(wrapper.findAll('.tag-preview [contenteditable="true"]')[2].text()).not.toContain('试填')
+    expect(wrapper.findAll('.tag-preview [contenteditable="true"]')[3].text()).not.toContain('试填')
+    const firstPreview = () => wrapper.findAll('.tag-preview')[0]
+    await firstPreview().findAll('.tag-checks input')[0].setValue(false)
+    expect(firstPreview().findAll('[contenteditable="true"]')).toHaveLength(1)
+    await firstPreview().findAll('.tag-checks input')[0].setValue(true)
+    expect(firstPreview().findAll('[contenteditable="true"]')[0].text()).toContain('仅第一题亮点试填')
+    expect(firstPreview().findAll('[contenteditable="true"]')[1].text()).toContain('仅第一题改进试填')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    expect(JSON.stringify(wrapper.emitted('confirm'))).not.toContain('试填')
+    wrapper.vm.openEditor(content)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.tag-preview [contenteditable="true"]').every(editor => !editor.text().includes('试填'))).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('uses the work-summary formatting commands in a selected tag preview', async () => {
+    const content = { id: 'tags', type: 'custom' as const, name: '标签内容', description: '', items: [
+      { id: 'tag', label: '标签题', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true },
+    ] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, initialContents: [content], tagOptions }, global: { stubs: { Teleport: true, Transition: false } }, attachTo: document.body })
+    wrapper.vm.openEditor(content)
+    await wrapper.vm.$nextTick()
+    const group = () => wrapper.findAll('.tag-preview__selected-group')[0]
+    const editor = () => group().get('[contenteditable="true"]').element as HTMLElement
+    editor().innerHTML = '<div class="ace-line"><span>标签试填内容</span></div>'
+    editor().dispatchEvent(new InputEvent('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(group().findAll('[role="toolbar"] button').map(button => button.attributes('aria-label'))).toEqual(['粗体', '斜体', '下划线', '有序列表', '无序列表', '超链接'])
+    for (const [label, tag] of [['粗体', 'strong'], ['斜体', 'em'], ['下划线', 'u']]) {
+      selectEditorContents(editor())
+      await group().get(`[aria-label="${label}"]`).trigger('click')
+      expect(editor().querySelector(tag)?.textContent).toBe('标签试填内容')
+    }
+    for (const [label, tag] of [['有序列表', 'ol'], ['无序列表', 'ul']]) {
+      selectEditorContents(editor())
+      await group().get(`[aria-label="${label}"]`).trigger('click')
+      expect(editor().querySelector(`${tag} li`)?.textContent).toContain('标签试填内容')
+    }
+    selectEditorContents(editor())
+    await group().get('[aria-label="超链接"]').trigger('click')
+    await group().get('.link-popover input').setValue('https://example.com')
+    await group().get('.link-popover button').trigger('click')
+    expect(editor().querySelector('a')?.getAttribute('href')).toBe('https://example.com')
+    expect(wrapper.findAll('.tag-preview__selected-group')[1].get('[contenteditable="true"]').text()).not.toContain('标签试填内容')
+    wrapper.unmount()
   })
 
   it('uses the shared repeatable fill-item component for custom text items', async () => {
