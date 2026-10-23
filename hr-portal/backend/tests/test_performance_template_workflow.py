@@ -813,13 +813,14 @@ def test_content_preview_result_view_uses_request_flags_and_no_task_answers():
         "content_id": "view", "content_slot": "view", "type": "custom", "name": "View", "items": [
             {"id": "allowed", "label": "Question", "questionType": "tag", "settings": {"allowView": True, "required": True}},
             {"id": "denied", "label": "secret", "settings": {"allowView": False}},
-            {"id": "text", "label": "secret-text", "questionType": "text", "settings": {"allowView": True}},
+            {"id": "text", "label": "Text question", "hint": "secret-item-description", "questionType": "text", "settings": {"allowView": True}},
         ],
     }]}
     client, _ = _content_preview_client(node)
     response = client.post("/api/v1/performance/templates/901/content-preview", json={"node": node})
-    assert response.status_code == 200
     assert "secret" not in response.text
+    assert "Text question" in response.text
+    assert "secret-item-description" not in response.text
     assert response.json()["answers"] == {}
     assert response.json()["form_schema"][0]["fields"][0]["readonly"] is True
     assert response.json()["form_schema"][0]["fields"][0]["required"] is False

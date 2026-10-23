@@ -772,13 +772,32 @@ def test_self_summary_schema_preserves_content_sections_and_item_rules():
     assert sanitized["contribution"]["notes"] == {"good": "<p>亮点</p>", "improve": "<p>改进</p>"}
 
 
+def test_readonly_schema_omits_item_description_for_text_tag_and_rating():
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    schema = build_self_summary_schema({"content": [
+        {"content_id": "text", "type": "work_summary", "name": "文本", "items": [
+            {"id": "text-item", "label": "文本", "hint": "不可返回的题目描述", "settings": {"mode": "view"}},
+        ]},
+        {"content_id": "tag", "type": "custom", "questionType": "tag", "name": "标签", "items": [
+            {"id": "tag-item", "label": "标签", "hint": "标签说明", "settings": {"mode": "view"}, "options": [{"id": "a", "label": "A"}]},
+        ]},
+        {"content_id": "rating", "type": "rating", "name": "评级", "items": [
+            {"id": "rating-item", "label": "评级", "hint": "评级说明", "settings": {"mode": "view"}},
+        ], "options": [{"id": "a", "code": "A", "label": "优秀", "color": "#3370ff"}]},
+    ]})
+
+    fields = [field for section in schema for field in section["fields"]]
+    assert [field["type"] for field in fields] == ["rich_text", "tag_with_followup", "rating"]
+    assert all(field["readonly"] is True and field["required"] is False for field in fields)
+    assert all("description" not in field for field in fields)
+
+
 @pytest.mark.parametrize("legacy_question_type", [None, "text", "tag"])
 def test_self_summary_schema_maps_each_custom_item_independently(legacy_question_type):
     from copy import deepcopy
     from app.performance.self_summary_service import build_self_summary_schema
-
     content = {
-        "content_id": "mixed",
         "type": "custom",
         "defaultAll": True,
         "options": [{"id": "legacy-option", "label": "旧选项"}],
@@ -839,6 +858,40 @@ def test_self_summary_tag_display_flags_preserve_description_options_and_source(
     assert fields[0]["options"][0]["placeholder"] == "补充提示"
     assert "hide_description" not in fields[1]
     assert template == original
+
+
+def test_readonly_schema_crops_tag_description_and_preserves_existing_field_types():
+    from copy import deepcopy
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    template = {"content": [
+        {"content_id": "summary", "type": "work_summary", "items": [
+            {"id": "summary-text", "hint": "只读文本提示", "settings": {"mode": "view", "required": True}},
+        ]},
+        {"content_id": "custom", "type": "custom", "items": [
+            {"id": "tag", "questionType": "tag", "hint": "不应返回的标签题描述", "settings": {"mode": "view", "required": True},
+             "options": [{"id": "a", "label": "标签A", "placeholder": "选项补充提示"}]},
+            {"id": "text", "questionType": "text", "hint": "只读自定义文本提示", "settings": {"mode": "view"}},
+        ]},
+        {"content_id": "rating", "type": "rating", "items": [
+            {"id": "rating-item", "hint": "只读评级提示", "settings": {"mode": "view", "required": True}},
+        ], "options": [{"id": "excellent", "label": "优秀"}]},
+    ]}
+    before = deepcopy(template)
+
+    fields = {field["id"]: field for section in build_self_summary_schema(template) for field in section["fields"]}
+
+    assert {key: field["type"] for key, field in fields.items()} == {
+        "summary-text": "rich_text", "tag": "tag_with_followup", "text": "rich_text", "rating-item": "rating",
+    }
+    assert all(field["readonly"] is True and field["required"] is False for field in fields.values())
+    assert "description" not in fields["tag"]
+    assert "不应返回的标签题描述" not in str(fields)
+    assert fields["tag"]["options"][0]["placeholder"] == "选项补充提示"
+    assert fields["summary-text"]["placeholder"] == ""
+    assert fields["text"]["placeholder"] == ""
+    assert fields["rating-item"]["placeholder"] == ""
+    assert template == before
 
 
 def test_tag_schema_keeps_description_separate_from_empty_option_prompt():
@@ -2859,7 +2912,7 @@ def test_readonly_source_is_projected_through_employee_http_routes(monkeypatch, 
 
     now = datetime.now(timezone.utc)
     content = {"content_id": "shared", "type": "custom", "name": "Work", "questionType": "tag", "settings": {"allowMultiple": True}, "items": [
-        {"id": "tag", "label": "Tag", "settings": {"mode": "fill"}, "options": [{"id": "a", "label": "Allowed"}]},
+        {"id": "tag", "label": "Tag", "hint": "readonly-tag-description", "settings": {"mode": "fill"}, "options": [{"id": "a", "label": "Allowed", "placeholder": "选项提示"}]},
     ]}
     from copy import deepcopy
     view_content = deepcopy(content)
@@ -2947,7 +3000,8 @@ def test_result_view_flags_override_source_before_sensitive_projection():
     assert schema[0]["description"] == "Source description"
     assert [field["id"] for field in schema[0]["fields"]] == ["allowed"]
     assert schema[0]["fields"][0]["label"] == "Source question"
-    assert schema[0]["fields"][0]["description"] == "Source hint"
+    assert "description" not in schema[0]["fields"][0]
+    assert schema[0]["fields"][0]["placeholder"] == "请输入补充说明"
     assert source == before
 
 
@@ -2988,11 +3042,96 @@ def test_result_view_projection_uses_final_snapshot_whitelist_and_sanitizes_answ
     fields = schema[0]["fields"]
     assert [field["id"] for field in fields] == ["visible"]
     assert fields[0]["label"] == ""
-    assert fields[0]["description"] == ""
+    assert "description" not in fields[0]
     assert fields[0]["hide_name"] is True
     assert fields[0]["hide_description"] is True
     assert fields[0]["options"][0]["placeholder"] == "亮点"
     assert contents[0]["answers"] == {"visible": {"tags": ["good"], "notes": {"good": "<b>安全</b>"}}}
+
+
+def test_result_view_projection_supports_rich_text_tag_and_rating_metadata():
+    from datetime import UTC, datetime
+    from app.performance.self_summary_service import project_result_view_contents
+
+    sources = [
+        {
+            "content_id": "summary", "type": "work_summary", "content_slot": "fill",
+            "name": "工作总结", "description": "总结根描述",
+            "items": [{"id": "summary-text", "label": "总结", "hint": "总结提示", "settings": {"allowView": True}}],
+        },
+        {
+            "content_id": "custom-text", "type": "custom", "content_slot": "fill",
+            "name": "自定义文本", "description": "文本根描述",
+            "items": [{"id": "custom-text-item", "label": "文本题", "questionType": "text", "hint": "文本提示", "settings": {"allowView": True}}],
+        },
+        {
+            "content_id": "tags", "type": "custom", "questionType": "tag", "content_slot": "fill",
+            "name": "标签", "description": "标签根描述",
+            "items": [{"id": "tag", "label": "标签题", "questionType": "tag", "settings": {"allowView": True},
+                       "options": [{"id": "good", "label": "做得好", "placeholder": "亮点"}]}],
+        },
+        {
+            "content_id": "rating", "type": "rating", "content_slot": "fill",
+            "name": "评级", "description": "评级根描述",
+            "items": [{"id": "rating-item", "label": "评级题", "settings": {"allowView": True}}],
+            "options": [{"id": "a", "code": "A", "label": "优秀", "color": "#3370ff"}],
+        },
+    ]
+    view = {"content": [{**source, "content_slot": "view"} for source in sources]}
+    task = SimpleNamespace(
+        id=12, target_employee_no="E001", status="completed",
+        submitted_at=datetime(2026, 10, 1, tzinfo=UTC),
+        answers={
+            "summary-text": "<p>总结内容</p>",
+            "custom-text-item": "<b>自定义内容</b>",
+            "tag": {"tags": ["good", "unknown"], "notes": {"good": "<p>标签说明</p>", "unknown": "不应泄漏"}},
+            "rating-item": "a",
+        },
+    )
+
+    contents = project_result_view_contents(view, {"content": sources}, [task], employee_no="E001")
+
+    assert [section["id"] for section in contents[0]["form_schema"]] == ["summary", "custom-text", "tags", "rating"]
+    schema_by_id = {section["id"]: section for section in contents[0]["form_schema"]}
+    assert schema_by_id["summary"]["description"] == "总结根描述"
+    assert schema_by_id["custom-text"]["description"] == "文本根描述"
+    assert schema_by_id["tags"]["description"] == "标签根描述"
+    assert schema_by_id["rating"]["description"] == "评级根描述"
+    assert all("description" not in field for section in contents[0]["form_schema"] for field in section["fields"])
+    assert schema_by_id["rating"]["fields"][0]["options"] == [
+        {"id": "a", "code": "A", "label": "优秀", "color": "#3370ff", "placeholder": "", "required": False},
+    ]
+    assert contents[0]["answers"] == {
+        "summary-text": "<p>总结内容</p>",
+        "custom-text-item": "<b>自定义内容</b>",
+        "tag": {"tags": ["good"], "notes": {"good": "<p>标签说明</p>"}},
+        "rating-item": "a",
+    }
+
+
+def test_result_view_projection_keeps_view_hidden_and_allow_view_rules_for_all_types():
+    from datetime import UTC, datetime
+    from app.performance.self_summary_service import project_result_view_contents
+
+    source = {"content_id": "content", "type": "work_summary", "content_slot": "fill", "name": "根", "items": [
+        {"id": "visible", "settings": {"allowView": True}},
+        {"id": "denied", "settings": {"allowView": False}},
+        {"id": "hidden", "settings": {"mode": "hidden", "allowView": True}},
+    ]}
+    view = {"content": [{**source, "content_slot": "view", "items": [
+        {"id": "visible", "settings": {"allowView": True, "hideName": True}},
+        {"id": "denied", "settings": {"allowView": False}},
+        {"id": "hidden", "settings": {"mode": "hidden", "allowView": True}},
+    ]}]}
+    task = SimpleNamespace(id=1, status="completed", submitted_at=datetime.now(UTC), target_employee_no="E001", answers={
+        "visible": "可见", "denied": "不应返回", "hidden": "不应返回",
+    })
+
+    result = project_result_view_contents(view, {"content": [source]}, [task], employee_no="E001")
+
+    assert [field["id"] for field in result[0]["form_schema"][0]["fields"]] == ["visible"]
+    assert result[0]["form_schema"][0]["fields"][0]["hide_name"] is True
+    assert result[0]["answers"] == {"visible": "可见"}
 
 
 @pytest.mark.asyncio
@@ -3039,7 +3178,7 @@ def test_result_tag_projection_defaults_visibility_and_keeps_display_flags_indep
     from app.performance.self_summary_service import project_result_view_contents
 
     tag = {"id": "tag", "label": "标签题", "hint": "题目描述", "questionType": "tag", "options": [{"id": "a", "label": "协作", "placeholder": "标签提示"}]}
-    source = {"content_id": "tags", "content_slot": "fill", "type": "custom", "questionType": "text", "name": "模块", "description": "模块描述", "items": [tag, {"id": "text", "label": "内部文本", "questionType": "text"}]}
+    source = {"content_id": "tags", "content_slot": "fill", "type": "custom", "questionType": "text", "name": "模块", "description": "模块描述", "items": [tag, {"id": "text", "label": "内部文本", "questionType": "text", "settings": {"mode": "hidden"}}]}
     settings = {"hideName": hide_name, "hideDescription": hide_description}
     if allow_view is not None:
         settings["allowView"] = allow_view
@@ -3058,7 +3197,7 @@ def test_result_tag_projection_defaults_visibility_and_keeps_display_flags_indep
         assert field["hide_name"] is hide_name
         assert field["hide_description"] is hide_description
         assert field["label"] == ("" if hide_name else "标签题")
-        assert field["description"] == ("" if hide_description else "题目描述")
+        assert "description" not in field
         assert field["options"][0]["placeholder"] == "标签提示"
         assert result[0]["answers"] == {"tag": {"tags": ["a"], "notes": {"a": "<p>反馈</p>"}}}
     assert (source, view) == original

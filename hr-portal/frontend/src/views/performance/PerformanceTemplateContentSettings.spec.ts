@@ -850,7 +850,7 @@ describe('PerformanceTemplateContentSettings', () => {
 
   it('loads only active rating questions and maps their rule name as the option description', async () => {
     vi.mocked(performanceReviewQuestionApi.list).mockResolvedValue([
-      { id: 101, name: '绩效评级', display_mode: '下拉样式', rule: { name: '7档绩效等级', review_type: '评级', status: 'active', config: { display_mode: '标签样式', levels: [{ id: 'excellent', name: '优秀', color: '#3370ff' }] } } },
+      { id: 101, name: '绩效评级', display_mode: '下拉样式', rule: { name: '7档绩效等级', review_type: '评级', status: 'active', config: { display_mode: '标签样式', levels: [{ id: 'excellent', code: 'A', name: '优秀', color: '#3370ff' }] } } },
       { id: 102, name: '评分项', rule: { name: '百分制评分', review_type: '评分', status: 'active', config: {} } },
       { id: 103, name: '停用评级', rule: { name: '停用规则', review_type: '评级', status: 'inactive', config: {} } },
     ] as any)
@@ -858,7 +858,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     expect(performanceReviewQuestionApi.list).toHaveBeenCalledWith('评级')
     expect(wrapper.findComponent(PerformanceAssessmentContentLayers).props('ratingOptions')).toEqual([
-      expect.objectContaining({ id: '101', label: '绩效评级', description: '7档绩效等级', displayMode: '下拉样式', levels: ['优秀'], levelOptions: [{ id: 'excellent', label: '优秀', color: '#3370ff' }] }),
+      expect.objectContaining({ id: '101', label: '绩效评级', description: '7档绩效等级', displayMode: '下拉样式', levels: ['优秀'], levelOptions: [{ id: 'excellent', code: 'A', label: '优秀', color: '#3370ff' }] }),
     ])
     await wrapper.findAll('.stage-card')[3].trigger('click')
     await wrapper.find('.template-operate__button').trigger('click')

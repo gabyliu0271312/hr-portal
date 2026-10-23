@@ -28,8 +28,20 @@ describe('PerformanceTemplateRenderer', () => {
     expect(wrapper.get('.performance-assessment-preview-header h2').text()).toBe('工作总结')
     expect(wrapper.get('.rich-answer ol li').text()).toBe('保留格式')
     expect(wrapper.get('.readonly-rating-badge').text()).toBe('5星')
-    expect(wrapper.get('.readonly-tags').text()).toContain('做得好的')
+    expect(wrapper.get('.readonly-tag-panel .tag-preview__selected-tag').text()).toContain('做得好的')
     expect(wrapper.text()).toContain('补充说明')
+  })
+
+  it('shows rating code, label and configured background together in readonly mode', () => {
+    const wrapper = mount(PerformanceTemplateRenderer, { props: {
+      mode: 'readonly', sections: [{ id: 'grades', name: '评级内容', fields: [
+        { id: 'grade', type: 'rating', label: '年度评级', options: [{ id: 'level-a', code: 'A', label: '优秀', color: '#3370ff' }] },
+      ] }], answers: { grade: 'level-a' },
+    } })
+    expect(wrapper.get('.readonly-field-rating .template-field-label').text()).toBe('年度评级')
+    expect(wrapper.get('.readonly-rating-badge').text()).toBe('A')
+    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('--rating-background: #3370ff')
+    expect(wrapper.get('.readonly-rating-label').text()).toBe('优秀')
   })
 
   it('uses the same answer accessor for edit updates and repeated sections', async () => {
@@ -65,7 +77,8 @@ describe('PerformanceTemplateRenderer', () => {
     const field = { id: 'tag', type: 'tag_with_followup' as const, label: '标签题', description: '标签题描述', hide_name: true, hide_description: false, options: [{ id: 'a', label: '选项A', placeholder: '补充提示' }] }
     const wrapper = mount(PerformanceTemplateRenderer, { props: { mode, editable: true, sections: [{ id: 'tags', name: '标签内容', fields: [field] }], answers: { tag: { tags: ['a'], notes: { a: '已填写答案' } } } } })
     expect(wrapper.find('.template-field-label').exists()).toBe(false)
-    expect(wrapper.get('.template-field-description').text()).toBe('标签题描述')
+    expect(wrapper.find('.template-field-description').exists()).toBe(mode === 'edit')
+    if (mode === 'edit') expect(wrapper.get('.template-field-description').text()).toBe('标签题描述')
     await wrapper.setProps({ sections: [{ id: 'tags', name: '标签内容', fields: [{ ...field, hide_name: false, hide_description: true }] }] })
     expect(wrapper.get('.template-field-label').text()).toBe('标签题')
     expect(wrapper.find('.template-field-description').exists()).toBe(false)
@@ -88,8 +101,8 @@ describe('PerformanceTemplateRenderer', () => {
     expect(wrapper.emitted('update-answer')?.at(-1)).toEqual(['tag', { tags: [], notes: { a: '<p>原有答案</p>' } }])
     await wrapper.setProps({ mode: 'readonly' })
     expect(wrapper.get('.template-field-label strong').text()).toBe('贡献')
-    expect(wrapper.get('.template-field-description').text()).toBe('题目描述')
-    expect(wrapper.get('.readonly-tag-note .rich-answer p').text()).toBe('原有答案')
+    expect(wrapper.find('.template-field-description').exists()).toBe(false)
+    expect(wrapper.get('.readonly-tag-panel .tag-preview__selected-group .rich-answer p').text()).toBe('原有答案')
     expect(wrapper.find('.template-field-label em').exists()).toBe(false)
     expect(wrapper.find('input').exists()).toBe(false)
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)

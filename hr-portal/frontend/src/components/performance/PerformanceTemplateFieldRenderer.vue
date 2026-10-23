@@ -1,17 +1,10 @@
 <template>
   <div class="performance-template-field summary-field" :class="{ invalid, 'performance-template-field--tag': field.type === 'tag_with_followup', 'readonly-field-rating': mode === 'readonly' && field.type === 'rating' }">
     <div v-if="!field.hide_name" class="template-field-label field-label" :class="{ 'readonly-label': mode === 'readonly' }"><strong><span>{{ label }}</span></strong><em v-if="mode === 'edit' && field.required" aria-label="必填">*</em></div>
-    <p v-if="field.type === 'tag_with_followup' && field.description && !field.hide_description" class="template-field-description tag-preview__description">{{ field.description }}</p>
+    <p v-if="field.type === 'tag_with_followup' && mode === 'edit' && field.description && !field.hide_description && !props.hideItemDescription" class="template-field-description tag-preview__description">{{ field.description }}</p>
     <p v-if="!registered" class="unsupported-template-field" role="alert">不支持的填写类型</p>
     <template v-else>
-    <template v-if="mode === 'readonly'">
-      <template v-if="field.type === 'tag_with_followup'">
-        <div class="readonly-tag-panel"><template v-if="isLegacyTagAnswer"><div class="readonly-tags"><span v-for="(tag, tagIndex) in selectedTagOptions" :key="tag.id" :class="`tag-tone-${tagIndex}`">{{ tag.label }}</span></div><div class="readonly-answer rich-answer" v-html="safeHtml(legacyTagNote)" /></template><template v-else><div v-for="(tag, tagIndex) in selectedTagOptions" :key="tag.id" class="readonly-tag-note"><span :class="`tag-tone-${tagIndex}`">{{ tag.label }}</span><div class="readonly-answer rich-answer" v-html="safeHtml(tagNotes[tag.id])" /></div></template></div>
-      </template>
-      <div v-else-if="field.type === 'rating'" class="readonly-rating"><span class="readonly-rating-badge" :style="ratingStyle">{{ value === '__unknown__' ? '不了解' : selectedOption?.label || String(value || '—') }}</span><span v-if="selectedOption?.description" class="readonly-rating-description">{{ selectedOption.description }}</span></div>
-      <div v-else-if="field.type === 'rich_text'" class="readonly-answer rich-answer" v-html="safeHtml(value)" />
-      <p v-else class="unsupported-template-field" role="alert">不支持的填写类型</p>
-    </template>
+    <PerformanceReadonlyAnswer v-if="mode === 'readonly'" :field="field" :value="value" :empty-answer-text="props.emptyAnswerText" />
     <template v-else-if="field.type === 'rich_text'">
       <PerformanceRichTextEditor variant="task-entry" :class="{ invalid }" :readonly="!editable" :model-value="String(value || '')" :placeholder="field.placeholder || '提示'" @update:model-value="$emit('update:value', $event)" @queue-save="$emit('queue-save')" />
     </template>
@@ -31,23 +24,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PerformanceTemplateField } from '@/api/performance'
+import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import { isRegisteredPerformanceTemplateField } from './performanceTemplateFieldRegistry'
 
-const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; invalid?: boolean; error?: string }>(), { editable: false, invalid: false, error: '' })
+const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; invalid?: boolean; error?: string; emptyAnswerText?: string; hideItemDescription?: boolean }>(), { editable: false, invalid: false, error: '', emptyAnswerText: '', hideItemDescription: false })
 const emit = defineEmits<{ 'update:value': [value: unknown]; 'queue-save': [] }>()
 const registered = computed(() => isRegisteredPerformanceTemplateField(props.field, props.mode))
 const selectedTags = computed(() => Array.isArray(props.value) ? props.value as string[] : (props.value as { tags?: string[] } | undefined)?.tags || [])
 const tagNotes = computed(() => (props.value as { notes?: Record<string, string> } | undefined)?.notes || {})
 const legacyTagNote = computed(() => (props.value as { note?: string } | undefined)?.note || '')
 const isLegacyTagAnswer = computed(() => { const value = props.value as { note?: string; notes?: Record<string, string> } | undefined; return Boolean(value && !Array.isArray(value) && 'note' in value && !('notes' in value)) })
-const selectedTagOptions = computed(() => { const selected = new Set(selectedTags.value); return (props.field.options || []).filter(option => selected.has(option.id)) })
-const selectedOption = computed(() => props.field.options?.find(option => option.id === String(props.value || '')))
-const ratingStyle = computed(() => selectedOption.value?.color ? { '--rating-background': selectedOption.value.color } : undefined)
-function safeHtml(value: unknown) { const template = document.createElement('template'); template.innerHTML = String(value || ''); template.content.querySelectorAll('script,style,iframe,object,embed').forEach(node => node.remove()); const allowed = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'OL', 'UL', 'LI', 'A', 'P', 'DIV', 'BR', 'SPAN']); Array.from(template.content.querySelectorAll('*')).forEach(element => { if (!allowed.has(element.tagName)) { element.replaceWith(...Array.from(element.childNodes)); return }; Array.from(element.attributes).forEach(attribute => { if (element.tagName !== 'A' || attribute.name !== 'href') element.removeAttribute(attribute.name) }); if (element.tagName === 'A') { const href = element.getAttribute('href') || ''; if (!/^(https?:|mailto:)/i.test(href)) element.removeAttribute('href'); else element.setAttribute('rel', 'noopener noreferrer') } }); return template.innerHTML }
 function toggleTag(tag: string, checked: boolean) { if (!props.editable) return; const tags = selectedTags.value.filter(item => item !== tag); if (checked) tags.push(tag); emit('update:value', isLegacyTagAnswer.value ? { tags, note: legacyTagNote.value } : { tags, notes: tagNotes.value }) }
 </script>
 <style scoped>

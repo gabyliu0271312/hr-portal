@@ -695,7 +695,7 @@ export const projectManagementApi = {
   },
 }
 
-export type PerformanceTemplateOption = { id: string; label: string; color?: string; placeholder?: string; description?: string; required?: boolean }
+export type PerformanceTemplateOption = { id: string; code?: string; label: string; color?: string; placeholder?: string; description?: string; required?: boolean }
 export type PerformanceTemplateField = {
   id: string
   type: 'rich_text' | 'rating' | 'tag_with_followup'

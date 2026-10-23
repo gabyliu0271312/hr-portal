@@ -12,12 +12,17 @@
           @click.stop="interactive && $emit('select-item', item.id)"
         >
           <button v-if="hasItemSettings(item.id) && itemState(item.id).mode === 'hidden'" class="content-renderer-hidden-icon" type="button" aria-label="在此环节隐藏" tabindex="-1"><PerformanceVisibleLockIcon /></button>
-          <div class="content-renderer-rating__header">
-            <strong v-if="!itemState(item.id).hideName">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
+          <div v-if="itemState(item.id).mode === 'view'" class="content-renderer-rating__readonly">
+            <PerformanceTemplateFieldRenderer class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" :empty-answer-text="readonlyEmptyAnswerText" :hide-item-description="true" />
           </div>
-          <div class="content-renderer-rating__body">
-            <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="content.options || []" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="content.ratingDisplayMode" :interactive="false" />
-          </div>
+          <template v-else>
+            <div class="content-renderer-rating__header">
+              <strong v-if="!itemState(item.id).hideName">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
+            </div>
+            <div class="content-renderer-rating__body">
+              <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="content.options || []" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="content.ratingDisplayMode" :interactive="false" />
+            </div>
+          </template>
         </PerformanceContentSelectionFrame>
       </template>
     </template>
@@ -34,7 +39,7 @@
         @click.stop="interactive && $emit('select-item', item.id)"
       >
         <button v-if="itemState(item.id).mode === 'hidden'" class="content-renderer-hidden-icon" type="button" aria-label="在此环节隐藏" tabindex="-1"><PerformanceVisibleLockIcon /></button>
-        <PerformanceTemplateFieldRenderer v-if="itemState(item.id).mode === 'view'" class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" />
+        <PerformanceTemplateFieldRenderer v-if="itemState(item.id).mode === 'view'" class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" :empty-answer-text="readonlyEmptyAnswerText" :hide-item-description="true" />
         <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
         <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
           <PerformanceRichTextBox readonly>
@@ -62,11 +67,12 @@ const props = withDefaults(defineProps<{
   content: Content
   variant?: 'configured-card' | 'editor-preview' | 'drawer-summary'
   emptyText?: string
+  readonlyEmptyAnswerText?: string
   interactive?: boolean
   selectedItemId?: string | null
   selectionPrefix?: string
   itemSettings?: Record<string, ItemSettings>
-}>(), { variant: 'configured-card', emptyText: '请输入内容', interactive: false, selectedItemId: null, selectionPrefix: '', itemSettings: () => ({}) })
+}>(), { variant: 'configured-card', emptyText: '请输入内容', readonlyEmptyAnswerText: '', interactive: false, selectedItemId: null, selectionPrefix: '', itemSettings: () => ({}) })
 const { content, variant, emptyText, interactive, selectedItemId } = toRefs(props)
 defineEmits<{ 'select-item': [itemId: string] }>()
 const selectionKey = (itemId: string) => props.selectionPrefix ? `${props.selectionPrefix}:${itemId}` : itemId
@@ -75,19 +81,30 @@ const itemState = (itemId: string): ItemSettings => props.itemSettings[itemId] |
 const isCustomTextItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'text'
 const isCustomTagItem = (item: ContentItem) => content.value.type === 'custom' && (item.questionType || content.value.questionType || 'text') === 'tag'
 const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
-const viewField = (item: ContentItem): PerformanceTemplateField => isCustomTagItem(item) ? { ...tagField(item), required: false } : { id: item.id, type: 'rich_text', label: item.label, required: false, hide_name: itemState(item.id).hideName === true }
-const viewPreviewValue = (item: ContentItem) => isCustomTagItem(item) ? { tags: [], notes: {} } : ''
+const viewField = (item: ContentItem): PerformanceTemplateField => {
+  if (content.value.type === 'rating') return { id: item.id, type: 'rating', label: item.label, required: false, hide_name: itemState(item.id).hideName === true, options: content.value.options || [], display_mode: content.value.ratingDisplayMode }
+  if (isCustomTagItem(item)) return { ...tagField(item), required: false }
+  return { id: item.id, type: 'rich_text', label: item.label, required: false, hide_name: itemState(item.id).hideName === true }
+}
+const viewPreviewValue = (item: ContentItem) => {
+  if (content.value.type === 'rating') return content.value.options?.[0]?.id || ''
+  if (isCustomTagItem(item)) {
+    const options = tagField(item).options || []
+    return { tags: options.map(option => option.id), notes: Object.fromEntries(options.map(option => [option.id, ''])) }
+  }
+  return ''
+}
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
 </script>
 <style scoped>
 .performance-content-renderer{min-width:0;color:#1f2329}
 .performance-content-renderer--editor-preview{padding:0 34px 16px}
 .content-renderer-rating{position:relative;margin:16px 0 0}
+.content-renderer-rating__readonly :deep(.performance-template-field){display:flex;align-items:center;gap:8px}.content-renderer-rating__readonly :deep(.template-field-label){margin:0}.content-renderer-rating__readonly :deep(.readonly-rating){min-width:0}
 .content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>strong{font-size:16px;font-weight:600;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
-.content-renderer-item--view :deep(.readonly-answer),.content-renderer-item--view :deep(.readonly-tag-panel){background:#f8f9fa}
-.content-renderer-view-preview{pointer-events:none}
-.content-renderer-view-preview :deep(.readonly-answer),.content-renderer-view-preview :deep(.readonly-tag-panel){min-height:54px}
+.content-renderer-item--view :deep(.readonly-tag-panel){background:#f8f9fa}.content-renderer-view-preview{pointer-events:none}
+.content-renderer-view-preview :deep(.readonly-answer){min-height:54px}
 
 .content-renderer-item--configured.content-renderer-item--view:has(:deep(.readonly-tag-panel)){min-height:186px}
 .content-renderer-item--interactive{padding:8px;border:2px solid transparent;border-radius:6px;box-sizing:border-box;cursor:pointer}

@@ -188,6 +188,9 @@ def build_self_summary_schema(template: dict) -> list[dict]:
             if item_settings.get("mode") == "view":
                 field["readonly"] = True
                 field["required"] = False
+                field.pop("description", None)
+                if field_type in {"rich_text", "rating"}:
+                    field["placeholder"] = ""
             fields.append(field)
         if fields:
             settings = content.get("settings") or {}
@@ -273,7 +276,7 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
         }
         fields = []
         for field in section.get("fields") or []:
-            if field.get("type") != "tag_with_followup":
+            if field.get("type") not in {"rich_text", "tag_with_followup", "rating"}:
                 continue
             source_item = source_items.get(field["id"])
             view_item = _view_override_item(view or {}, field["id"]) if view else None
@@ -283,14 +286,15 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
             field_hide_name = _view_bool_setting(view_item, source_item, "hideName", field.get("hide_name", False))
             field_hide_description = _view_bool_setting(view_item, source_item, "hideDescription", field.get("hide_description", False))
             field["hide_name"] = field_hide_name
+            field.pop("description", None)
+            if field.get("type") in {"rich_text", "rating"}:
+                field["placeholder"] = ""
             if field.get("type") == "tag_with_followup":
                 field["hide_description"] = field_hide_description
             if field_hide_name:
                 field["label"] = ""
             if field_hide_description:
                 field["placeholder"] = ""
-                if "description" in field:
-                    field["description"] = ""
             fields.append(field)
         section["fields"] = fields
         if fields:

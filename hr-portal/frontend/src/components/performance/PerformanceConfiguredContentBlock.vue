@@ -62,8 +62,8 @@ const selectedItemKey = computed(() => props.active && owner.value === 'item' &&
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
 const itemSettingsAvailable = (item?: { questionType?: 'text' | 'tag' }) => Boolean(props.itemSettingsEnabled)
   && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationView(props.content, item))
-  && (props.itemSettingsVariant !== 'result-view-item' || getItemSettingsVariant(props.content, item) === 'custom-tag')
-const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value)))
+const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value))
+  && (props.itemSettingsVariant !== 'result-view-item' || getItemSettingsVariant(props.content, props.content.items.find(item => item.id === selectedItemId.value)) === 'custom-tag'))
 const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => itemSettingsAvailable(item)).map((item) => {
   const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
   return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: settings.allowView === false ? 'hidden' : 'view', required: false } : settings]
@@ -128,6 +128,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       :interactive="true"
       :selected-item-id="selectedItemKey"
       :item-settings="rendererItemSettings"
+      :readonly-empty-answer-text="props.itemSettingsVariant === 'result-view-item' || props.itemSettingsVariant === 'evaluation-item' ? '这里展示用户填写内容' : ''"
       class="configured-content-card__details"
       @select-item="selectItem"
     />

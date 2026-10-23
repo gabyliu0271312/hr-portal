@@ -6,6 +6,7 @@
     :selected-item-id="selectedItemId"
     :selection-prefix="content.id"
     :item-settings="itemSettings"
+    :readonly-empty-answer-text="readonlyEmptyAnswerText"
     @select-item="$emit('select-item', $event)"
   />
 </template>
@@ -16,8 +17,9 @@ withDefaults(defineProps<{
   content: AssessmentContentDraft & { id: string }
   interactive?: boolean
   selectedItemId?: string | null
+  readonlyEmptyAnswerText?: string
   itemSettings?: Record<string, { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean }>
-}>(), { interactive: false, selectedItemId: null, itemSettings: () => ({}) })
+}>(), { interactive: false, selectedItemId: null, readonlyEmptyAnswerText: '', itemSettings: () => ({}) })
 defineEmits<{ 'select-item': [itemId: string] }>()
 </script>
 <style scoped>

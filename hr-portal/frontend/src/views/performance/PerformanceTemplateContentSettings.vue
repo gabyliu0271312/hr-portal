@@ -169,13 +169,13 @@ function ratingLevelOptions(config: Record<string, unknown>) {
   const levels = config.levels
   if (!Array.isArray(levels)) return []
   return levels.map((level, index) => {
-    if (typeof level === 'string') return { id: `level-${index}`, label: level }
+    if (typeof level === 'string') return { id: `level-${index}`, code: undefined, label: level, color: undefined }
     if (!level || typeof level !== 'object') return null
     const record = level as Record<string, unknown>
     const label = String(record.name || record.label || record.code || '')
     if (!label) return null
-    return { id: String(record.id || record.code || `level-${index}`), label, color: record.color ? String(record.color) : undefined }
-  }).filter((level): level is { id: string; label: string; color: string | undefined } => Boolean(level))
+    return { id: String(record.id || record.code || `level-${index}`), code: record.code ? String(record.code) : undefined, label, color: record.color ? String(record.color) : undefined }
+  }).filter((level): level is { id: string; code: string | undefined; label: string; color: string | undefined } => Boolean(level))
 }
 
 function toRatingOption(question: PerformanceReviewQuestion): AssessmentOption {

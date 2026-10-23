@@ -120,14 +120,14 @@ describe('performance content shared primitives', () => {
     await wrapper.get('.tag-options input').trigger('change')
     expect(renderer.emitted('update:value')).toBeUndefined()
     expect(wrapper.emitted('update-answer')).toBeUndefined()
-    expect(contentRendererSource).not.toMatch(/:deep\(\.(?:tag-options|tag-followup|template-field-description|template-field-label)\)/)
+    expect(contentRendererSource).not.toMatch(/:deep\(\.(?:tag-options|tag-followup|template-field-description)\)/)
     wrapper.unmount()
   })
 
   it('retains selectable hidden tag management and uses readonly fields only for view previews', async () => {
     const wrapper = mount(PerformanceContentRenderer, { props: {
       content: { type: 'custom', defaultAll: true, items: [{ id: 'tag', label: '隐藏题', hint: '说明', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] }] },
-      interactive: true, itemSettings: { tag: { mode: 'hidden', required: true } },
+      interactive: true, itemSettings: { tag: { mode: 'hidden', required: true } }, readonlyEmptyAnswerText: '这里展示用户填写内容',
     } })
     const item = wrapper.get('[data-content-item-id="tag"]')
     expect(item.classes()).toContain('content-renderer-item--hidden')
@@ -141,9 +141,42 @@ describe('performance content shared primitives', () => {
     expect(wrapper.getComponent(PerformanceTemplateFieldRenderer).props('mode')).toBe('readonly')
     expect(wrapper.find('.content-renderer-hidden-icon').exists()).toBe(false)
     expect(wrapper.find('.readonly-tag-panel').exists()).toBe(true)
-    expect(wrapper.find('.tag-rich-text-input').exists()).toBe(false)
-    expect(wrapper.find('.readonly-tag-note').exists()).toBe(false)
+    expect(wrapper.find('.tag-rich-text-input.is-display-only').exists()).toBe(true)
+    expect(wrapper.find('.tag-preview__selected-group').exists()).toBe(true)
+    expect(wrapper.get('.tag-preview__selected-group .rich-answer').text()).toBe('这里展示用户填写内容')
+    expect(wrapper.find('.template-field-description').exists()).toBe(false)
     wrapper.unmount()
+  })
+
+  it('uses one configurable preview phrase for rich text and tag view items', async () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type: 'custom', items: [
+        { id: 'text', label: '文本题', questionType: 'text', hint: '不应展示的描述' },
+        { id: 'tag', label: '标签题', questionType: 'tag', hint: '不应展示的标签描述', options: [{ id: 'a', label: '标签A' }, { id: 'b', label: '标签B' }] },
+      ] },
+      itemSettings: { text: { mode: 'view', required: true }, tag: { mode: 'view', required: true } },
+      readonlyEmptyAnswerText: '自定义预览文案',
+    } })
+    expect(wrapper.get('[data-content-item-id="text"] .rich-answer').text()).toBe('自定义预览文案')
+    expect(wrapper.find('[data-content-item-id="text"] [role="toolbar"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-content-item-id="tag"] .tag-preview__selected-group')).toHaveLength(2)
+    expect(wrapper.findAll('[data-content-item-id="tag"] .rich-answer').map(answer => answer.text())).toEqual(['自定义预览文案', '自定义预览文案'])
+    expect(wrapper.find('[data-content-item-id="tag"] .performance-rich-toolbar, [data-content-item-id="tag"] button, [data-content-item-id="tag"] input').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('不应展示的标签描述')
+    await wrapper.setProps({ readonlyEmptyAnswerText: '更新后的预览' })
+    expect(wrapper.findAll('.rich-answer').map(answer => answer.text())).toEqual(['更新后的预览', '更新后的预览', '更新后的预览'])
+  })
+
+  it('uses the shared readonly presentation for rating view previews', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type: 'rating', items: [{ id: 'rating', label: '年度评级', hint: '不显示的描述' }], options: [{ id: 'level-a', code: 'A', label: '优秀', color: '#3370ff' }] },
+      itemSettings: { rating: { mode: 'view', required: false } },
+    } })
+    expect(wrapper.get('.readonly-field-rating .template-field-label').text()).toBe('年度评级')
+    expect(wrapper.get('.readonly-rating-badge').text()).toBe('A')
+    expect(wrapper.get('.readonly-rating-label').text()).toBe('优秀')
+    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('--rating-background: #3370ff')
+    expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
   })
 
   it('adds a single unknown preview option without changing source levels', async () => {
