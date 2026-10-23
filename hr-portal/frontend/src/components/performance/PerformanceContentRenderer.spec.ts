@@ -175,7 +175,7 @@ describe('performance content shared primitives', () => {
     expect(wrapper.get('.readonly-field-rating .template-field-label').text()).toBe('年度评级')
     expect(wrapper.get('.readonly-rating-badge').text()).toBe('A')
     expect(wrapper.get('.readonly-rating-label').text()).toBe('优秀')
-    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('--rating-background: #3370ff')
+    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('background-color: rgb(51, 112, 255)')
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
   })
 

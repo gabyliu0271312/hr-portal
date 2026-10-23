@@ -41,7 +41,10 @@ function remove(id: string) { if (props.editable && !props.displayOnly) { const 
 .tag-rich-text-input{display:flex;flex-direction:column;width:100%;min-width:0;max-width:100%;min-height:78px;padding:6px 8px 0;box-sizing:border-box;border:1px solid #dee0e3;border-radius:6px;background:#fff}
 .tag-rich-text-input:hover,.tag-rich-text-input:focus-within{border-color:#3370ff}
 .tag-rich-text-input.invalid,.tag-rich-text-input.invalid:hover,.tag-rich-text-input.invalid:focus-within{border-color:#f54a45}
-.has-selection{min-height:0}.tag-rich-text-input.is-display-only{min-height:0;padding:16px;border:0;background:var(--performance-review-readonly-surface);pointer-events:none}
+.has-selection{min-height:0}.tag-rich-text-input.is-display-only{min-height:0;padding:var(--performance-readonly-answer-padding);border:0;background:var(--performance-review-readonly-surface);pointer-events:none}
+.tag-rich-text-input.is-display-only .tag-preview__selected-groups{gap:var(--performance-readonly-tag-gap)}
+.tag-rich-text-input.is-display-only .tag-preview__selected-group{margin-bottom:0}
+.tag-rich-text-input.is-display-only .tag-preview__selected{min-height:0;margin-bottom:var(--spacing-1)}
 .tag-rich-text-input> :deep(.performance-rich-toolbar){flex:none;height:32px;gap:0;padding:0 2px 8px 0}
 .tag-rich-text-input> :deep(.performance-rich-toolbar button),.tag-rich-text-input> :deep(.performance-rich-toolbar .rich-toolbar-icon){margin:0 4px;border-radius:6px}
 .tag-preview__selected-groups{display:flex;flex:none;flex-direction:column;min-width:0;gap:4px}
