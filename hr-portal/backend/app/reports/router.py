@@ -1018,6 +1018,10 @@ async def create_report(
             detail=f"数据集 {dataset.name} 的层级为 {dataset.warehouse_layer}，报表只能引用 DWD/DWS 数据集",
         )
 
+    from app.datasets.router import _can_access as dataset_can_access
+    if not await dataset_can_access(user, dataset, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该数据集")
+
     try:
         scope_strategy = ensure_scope_strategy(payload.scope_strategy)
     except ValueError as exc:
@@ -1121,6 +1125,10 @@ async def update_report(
             status.HTTP_400_BAD_REQUEST,
             detail=f"数据集 {dataset.name} 的层级为 {dataset.warehouse_layer}，报表只能引用 DWD/DWS 数据集",
         )
+
+    from app.datasets.router import _can_access as dataset_can_access
+    if not await dataset_can_access(user, dataset, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该数据集")
 
     visibility = payload.visibility or "private"
     if visibility not in VISIBILITY_VALUES:

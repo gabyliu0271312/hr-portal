@@ -5,6 +5,7 @@ import { reportErrorMessage } from '@/api/reports'
 import { reactive } from 'vue'
 import ReportExecutionAuthorization from '@/components/report/ReportExecutionAuthorization.vue'
 import ReportViewerPanel from '@/components/report/ReportViewerPanel.vue'
+import ReportBasicInfo from '@/components/report/ReportBasicInfo.vue'
 import { ElMessage } from 'element-plus'
 
 const mocks = vi.hoisted(() => ({
@@ -52,6 +53,9 @@ const stubs = {
   ElSelect: { props: ['modelValue'], emits: ['update:modelValue'], template: '<select class="dataset-select" :value="modelValue ?? \'\'" @change="$emit(\'update:modelValue\', $event.target.value ? Number($event.target.value) : null)"><slot /></select>' },
   ElOption: { props: ['value', 'label'], template: '<option :value="value">{{ label }}</option>' },
   ElInput: { props: ['modelValue'], emits: ['update:modelValue'], template: '<label><input class="name-input" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /><slot name="prefix" /></label>' },
+  ElFormItem: { template: '<label><slot /></label>' },
+  ElRadioGroup: { template: '<div><slot /></div>' },
+  ElRadioButton: { props: ['value'], template: '<span><slot /></span>' },
   ElButton: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
   ElTooltip: { template: '<span><slot /></span>' },
   ElTable: { template: '<div><slot /><slot name="empty" /></div>' },
@@ -206,6 +210,23 @@ describe('021 report execution authorization', () => {
     pending.resolve({ columns: [], items: [{ amount: 999 }], total: 1 }); await flushPromises()
     expect(wrapper.text()).not.toContain('999')
     expect(wrapper.text()).toContain('权限已变更')
+    wrapper.unmount()
+  })
+})
+
+describe('report dataset selection', () => {
+  it('shows only allowed datasets and flags a revoked current dataset without exposing its metadata', () => {
+    const wrapper = mount(ReportBasicInfo, {
+      props: {
+        name: '已有报表', description: '', datasetId: 99, visibility: 'private', scopeStrategy: null,
+        acl: [], datasets: [{ id: 8, name: '有权数据集', is_active: true }] as any,
+        currentDataset: null, datasetUnavailable: true,
+      },
+      global: { stubs },
+    })
+    expect(wrapper.text()).toContain('当前绑定的数据集已无权访问')
+    expect(wrapper.text()).not.toContain('无权来源表')
+    expect(wrapper.findAllComponents({ name: 'ElOption' }).map(item => item.props('value'))).not.toContain(99)
     wrapper.unmount()
   })
 })

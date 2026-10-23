@@ -142,6 +142,8 @@ async function removeSelectedColumn(instanceId: string) {
 
 const allColumns = ref<ColumnInfo[]>([])
 const datasets = ref<DatasetItem[]>([])
+const datasetsLoaded = ref(false)
+const datasetsLoadError = ref(false)
 const currentDataset = ref<DatasetItem | null>(null)
 const saving = ref(false)
 const previewing = ref(false)
@@ -173,6 +175,7 @@ const reportPushTargets = ref<PushTargetOut[]>([])
 const reportPushEnabled = computed(() => reportPushTargets.value.length > 0)
 const basicSettingsOpen = ref(false)
 const currentDatasetName = computed(() => currentDataset.value?.name || datasets.value.find((d) => d.id === form.dataset_id)?.name || '未选择数据集')
+const datasetUnavailable = computed(() => Boolean(datasetsLoaded.value && form.dataset_id && !datasets.value.some((d) => d.id === form.dataset_id)))
 const publishStatusLabel = computed(() => REPORT_VISIBILITY_LABELS[form.visibility])
 const scopeStrategyLabel = computed(() => SCOPE_STRATEGY_OPTIONS.find((item) => item.value === form.scope_strategy)?.label || '继承默认')
 const filterSummary = computed(() => form.filters.length ? `${form.filters.length} 条筛选` : '未设置筛选')
@@ -250,11 +253,15 @@ async function loadDatasets() {
     const all = await datasetsApi.list()
     // P3-01: 报表只能引用 DWD/DWS 数据集
     datasets.value = all.filter((d) => d.warehouse_layer === 'DWD' || d.warehouse_layer === 'DWS')
+    datasetsLoaded.value = true
+    datasetsLoadError.value = false
     if (isNew.value && !form.dataset_id) {
       form.dataset_id = datasets.value.find((d) => d.is_active)?.id ?? datasets.value[0]?.id ?? null
     }
   } catch {
     datasets.value = []
+    datasetsLoaded.value = true
+    datasetsLoadError.value = true
   }
 }
 
@@ -656,6 +663,8 @@ function reportErrorMessage(error: any, fallback: string) {
 
 async function save() {
   if (executionBlocked.value) return
+  if (datasetsLoadError.value) { ElMessage.warning('数据集列表加载失败，请重新进入页面后再保存'); return }
+  if (datasetUnavailable.value) { ElMessage.warning('当前绑定的数据集已无权访问，请重新选择后再保存'); return }
   if (!form.name.trim()) { ElMessage.warning('请填写报表名'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段'); return }
   if (!form.dataset_id) { ElMessage.warning('请选择数据集'); return }
@@ -693,6 +702,7 @@ async function save() {
 
 async function preview() {
   if (executionBlocked.value) return
+  if (datasetsLoadError.value || datasetUnavailable.value) { ElMessage.warning('当前数据集不可用，请重新选择有权数据集后再预览'); return }
   if (!form.selected_codes.length) { ElMessage.warning('至少选择一个字段才能预览'); return }
   if (saveCreatesReport.value) { ElMessage.info('请先保存为你的报表后再预览'); return }
   previewing.value = true
@@ -884,10 +894,10 @@ watch(
       <PermissionButton menu="report.list" op="V" :loading="explaining" @click="explainConfig">
         <el-icon style="margin-right: 4px"><MagicStick /></el-icon>AI 解释
       </PermissionButton>
-      <PermissionButton menu="report.list" op="U" :loading="previewing" :disabled="saveCreatesReport" @click="preview">
+      <PermissionButton menu="report.list" op="U" :loading="previewing" :disabled="saveCreatesReport || datasetUnavailable || datasetsLoadError" @click="preview">
         <el-icon style="margin-right: 4px"><View /></el-icon>预览
       </PermissionButton>
-      <PermissionButton menu="report.list" :op="isNew ? 'C' : 'U'" type="primary" :loading="saving" @click="save">
+      <PermissionButton menu="report.list" :op="isNew ? 'C' : 'U'" type="primary" :loading="saving" :disabled="datasetUnavailable || datasetsLoadError" @click="save">
         <el-icon style="margin-right: 4px"><Check /></el-icon>保存
       </PermissionButton>
     </template>
@@ -895,12 +905,14 @@ watch(
     <el-alert v-if="executionBlocked" type="warning" :closable="false" show-icon :title="reportLoadError || '正在核对报表执行版本；若已授权为限缩汇总，请返回查看报表运行当前授权范围。'">
       <PermissionButton v-if="reportLoadError" menu="report.list" op="V" type="primary" @click="loadReport">重新加载</PermissionButton>
     </el-alert>
+    <el-alert v-if="!executionBlocked && datasetsLoadError" type="error" :closable="false" show-icon title="数据集列表加载失败，无法确认当前权限；请重新进入页面后再保存或预览。" />
+    <el-alert v-else-if="!executionBlocked && datasetUnavailable" type="warning" :closable="false" show-icon title="当前绑定的数据集已无权访问；请选择有权数据集后再保存或预览。" />
     <el-form v-if="!executionBlocked" label-position="top" class="designer-form">
         <div class="section-title compact-section-title">
           字段编排（{{ form.selected_codes.length }} 个字段）
         </div>
         <CalculatedFieldBridge
-          :dataset-id="form.dataset_id"
+          :dataset-id="datasetsLoaded && !datasetsLoadError && !datasetUnavailable ? form.dataset_id : null"
           :datasets="datasets"
           :tables="TABLES"
           @columns-change="allColumns = $event"
@@ -1033,6 +1045,7 @@ watch(
           v-model:acl="form.acl"
           :datasets="datasets"
           :current-dataset="currentDataset"
+          :dataset-unavailable="datasetUnavailable"
           @dataset-change="onDatasetChange"
         />
         <el-form-item label="质量检查期间字段">

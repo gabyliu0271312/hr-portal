@@ -182,6 +182,9 @@ async def test_field_reference_validator_accepts_existing_visible_column(monkeyp
 async def test_create_report_blocks_missing_output_field_before_persisting(monkeypatch):
     from app.reports.router import ReportIn, create_report
 
+    from app.datasets import router as datasets_router
+    monkeypatch.setattr(datasets_router, "_can_access", AsyncMock(return_value=True))
+
     class _SaveDb(_MetadataDb):
         async def get(self, *_args, **_kwargs):
             return SimpleNamespace(name="报表数据集", warehouse_layer="DWD")
@@ -338,7 +341,10 @@ async def test_source_reference_validator_rejects_invalid_runtime_filter(monkeyp
 async def test_create_report_blocks_missing_filter_field_before_persisting(monkeypatch):
     from app.reports.router import ReportIn, create_report
     from app.datasets import calculated_fields
+    from app.datasets import router as datasets_router
     from app.permissions import masker
+
+    monkeypatch.setattr(datasets_router, "_can_access", AsyncMock(return_value=True))
 
     class _SaveDb(_MetadataDb):
         async def get(self, *_args, **_kwargs):
@@ -367,6 +373,77 @@ async def test_create_report_blocks_missing_filter_field_before_persisting(monke
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     assert "filters[0].column" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "update"])
+@pytest.mark.parametrize("access", ["denied", "owner", "user_acl", "role_acl", "super_admin"])
+@pytest.mark.parametrize("visibility", ["private", "scoped", "public"])
+async def test_report_save_requires_dataset_access(monkeypatch, operation, access, visibility):
+    authorized = access != "denied"
+    dataset = DataSet(id=15, name="报表数据集", warehouse_layer="DWD", created_by=7 if access == "owner" else 9)
+    report = SimpleNamespace(id=23, name="原报表", dataset_id=11, owner_id=7, config={})
+    user = SimpleNamespace(id=7)
+    acl_rows = {
+        "user_acl": [SimpleNamespace(user_id=7, role_id=None)],
+        "role_acl": [SimpleNamespace(user_id=None, role_id=3)],
+    }
+
+    class _SaveDb(_MetadataDb):
+        def __init__(self):
+            super().__init__([
+                [("超级管理员",)] if access == "super_admin" else [],
+                acl_rows.get(access, []),
+                [(3,)],
+            ])
+            self.added = []
+            self.commit = AsyncMock()
+
+        async def get(self, model, _id):
+            return dataset if model is DataSet else report
+
+        def add(self, row):
+            self.added.append(row)
+            row.id = 23
+
+        async def flush(self):
+            pass
+
+        async def refresh(self, _row):
+            pass
+
+    db = _SaveDb()
+    field_validator = AsyncMock()
+    acl_writer = AsyncMock()
+    monkeypatch.setattr(report_router, "_ensure_valid_report_field_references", field_validator)
+    monkeypatch.setattr(report_router, "_replace_report_acl", acl_writer)
+    monkeypatch.setattr(report_router, "_to_out", AsyncMock(return_value=report))
+    monkeypatch.setattr(report_router, "record_report_audit", AsyncMock())
+    payload = report_router.ReportIn(name="新报表", dataset_id=15, visibility=visibility)
+
+    if not authorized:
+        with pytest.raises(HTTPException) as error:
+            if operation == "create":
+                await report_router.create_report(payload, user, db)
+            else:
+                await report_router.update_report(23, payload, user, db)
+        assert error.value.status_code == status.HTTP_403_FORBIDDEN
+        assert report.name == "原报表" and report.dataset_id == 11
+        assert db.added == []
+        db.commit.assert_not_awaited()
+        field_validator.assert_not_awaited()
+        acl_writer.assert_not_awaited()
+    else:
+        result = (await report_router.create_report(payload, user, db) if operation == "create"
+                  else await report_router.update_report(23, payload, user, db))
+        assert result is report
+        assert db.commit.await_count == 1
+        field_validator.assert_awaited_once()
+        acl_writer.assert_awaited_once()
+        if operation == "update":
+            assert report.dataset_id == 15 and report.name == "新报表"
+
+
 @pytest.mark.asyncio
 async def test_invalid_filter_returns_422_in_run_export_and_push_paths(monkeypatch):
     from app.datasets import calculated_fields

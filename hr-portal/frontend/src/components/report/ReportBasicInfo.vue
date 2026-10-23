@@ -14,6 +14,7 @@ const props = defineProps<{
   acl: ReportAclItem[]
   datasets: DatasetItem[]
   currentDataset: DatasetItem | null
+  datasetUnavailable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -94,7 +95,8 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
             :disabled="!d.is_active"
           />
         </el-select>
-        <div v-if="datasetId && currentDataset" class="dataset-meta">
+        <div v-if="datasetUnavailable" class="dataset-warning">当前绑定的数据集已无权访问，请重新选择后才能保存。</div>
+        <div v-else-if="datasetId && currentDataset" class="dataset-meta">
           包含表：{{ currentDataset.tables.map(datasetTableName).join(', ') }} ·
           关联：{{ currentDataset.relations.length }} 个
         </div>
@@ -176,7 +178,8 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
   margin-bottom: 4px;
   line-height: 18px;
 }
-.dataset-meta {
+.dataset-meta,
+.dataset-warning {
   max-width: 100%;
   margin-top: 4px;
   overflow: hidden;
@@ -186,6 +189,7 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.dataset-warning { color: var(--color-warning); }
 .status-row {
   display: flex;
   align-items: center;
