@@ -40,7 +40,7 @@
         </div>
         <div v-if="employeePreviewError" class="employee-preview-error" role="alert">{{ employeePreviewError }}</div>
         <div v-if="employeePreviewOpen" class="employee-preview" aria-label="员工视角预览">
-          <PerformanceTemplateRenderer :mode="employeePreviewMode" :title="contentPageName" :sections="employeePreviewSections" :answers="employeePreviewAnswers" :editable="false" />
+          <PerformanceTemplateRenderer mode="edit" :title="contentPageName" :sections="employeePreviewSections" :answers="employeePreviewAnswers" :editable="false" />
           <p v-if="!employeePreviewSections.length" class="employee-preview__empty">暂无员工可见内容</p>
         </div>
         <template v-else>
@@ -361,8 +361,7 @@ const employeePreviewLoading = ref(false)
 const employeePreviewError = ref('')
 const employeePreviewSections = ref<PerformanceTemplateSection[]>([])
 const employeePreviewAnswers = ref<Record<string, unknown>>({})
-const employeePreviewMode = computed(() => isResultView.value ? 'readonly' : 'edit')
-const employeePreviewAvailable = computed(() => Boolean(props.templateId && selectedWorkflowNode.value && ['fill', 'view'].includes(activeTab.value)))
+const employeePreviewAvailable = computed(() => Boolean(!isResultView.value && props.templateId && selectedWorkflowNode.value && activeTab.value === 'fill'))
 let employeePreviewRequest = 0
 const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && configuredSettingsVisible.value)
 const allowedContentTypes = computed(() => activeStageContentRule.value.allowedContentTypes)
@@ -510,9 +509,7 @@ async function openEmployeePreview() {
     const preview = await performanceTemplateApi.previewContent(props.templateId, node)
     if (request !== employeePreviewRequest) return
     employeePreviewSections.value = preview.form_schema
-    employeePreviewAnswers.value = employeePreviewMode.value === 'edit'
-      ? performanceTemplateInitialAnswers(preview.form_schema, preview.answers)
-      : preview.answers
+    employeePreviewAnswers.value = performanceTemplateInitialAnswers(preview.form_schema, preview.answers)
     employeePreviewOpen.value = true
   } catch {
     if (request !== employeePreviewRequest) return
