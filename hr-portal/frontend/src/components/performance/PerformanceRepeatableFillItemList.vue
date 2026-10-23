@@ -100,7 +100,7 @@ function selectedTag(item: FillItem) {
 function updateTag(id: string, tagOptionId: string) {
   const tag = props.tagOptions.find(option => option.id === tagOptionId)
   const options = tag?.defaultFields?.map((field, index) => ({ id: `${tag.id}-${index}`, label: field.label, placeholder: field.content }))
-  emit('update:items', props.items.map(item => item.id === id ? { ...item, tagOptionId, defaultAll: false, options } : item))
+  emit('update:items', props.items.map(item => item.id === id ? { ...item, label: tag?.label || '', hint: tag?.description || '', tagOptionId, defaultAll: false, options } : item))
 }
 </script>
 

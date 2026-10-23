@@ -94,9 +94,6 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
   .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-followup){padding:0;margin:0;border:0;border-radius:0;background:transparent}
   .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-options){gap:0 24px;margin:0 0 24px;padding:8px 24px 24px;box-sizing:border-box;border-radius:8px;background:#f8f9fa}
   .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-options .performance-checkbox){margin-top:16px}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-answers){gap:8px}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-answer){padding:12px 16px 0;border:1px solid #d0d3d6;border-radius:6px;background:#fff}
-  .content-renderer-item--custom-tag.content-renderer-item--configured:not(.content-renderer-item--view) :deep(.tag-editor-placeholder){min-height:102px;padding:10px 8px;border:0;color:#8f959e;background:transparent}
 
 .content-renderer-item--configured.content-renderer-item--view:has(:deep(.readonly-tag-panel)){min-height:186px}
 .content-renderer-item--interactive{padding:8px;border:2px solid transparent;border-radius:6px;box-sizing:border-box;cursor:pointer}

@@ -1,6 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
+import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
+import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import { performanceTemplateAddedInstance, performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
 
 const sections = [
@@ -98,6 +100,29 @@ describe('PerformanceTemplateRenderer', () => {
     const repeat = { ...defaultSections[0], allow_multiple: true }
     const added = performanceTemplateAddedInstance(repeat, { tag: [{ tags: [], notes: {} }] })
     expect(added.tag).toEqual([{ tags: [], notes: {} }, { tags: ['a', 'b'], notes: {} }])
+  })
+
+  it('routes the shared tag toolbar only to its active note and falls back after removal', async () => {
+    const component = { id: 'tag', type: 'tag_with_followup' as const, label: '标签题', options: [{ id: 'a', label: '亮点' }, { id: 'b', label: '改进' }] }
+    const wrapper = mount(PerformanceTemplateRenderer, { props: { mode: 'edit', editable: true, sections: [{ id: 'tags', name: '标签', fields: [component] }], answers: { tag: { tags: ['a', 'b'], notes: { a: '<p>Alpha</p>', b: '<p>Beta</p>' } } } }, attachTo: document.body })
+    const editors = () => wrapper.findAll('.tag-rich-input')
+    const beta = editors()[1].element
+    const range = document.createRange()
+    range.selectNodeContents(beta)
+    document.getSelection()?.removeAllRanges()
+    document.getSelection()?.addRange(range)
+    await editors()[1].trigger('mouseup')
+    await wrapper.get('.tag-rich-text-input [aria-label="粗体"]').trigger('mousedown')
+    await wrapper.get('.tag-rich-text-input [aria-label="粗体"]').trigger('click')
+    expect(editors()[1].find('strong').text()).toBe('Beta')
+    expect(editors()[0].find('strong').exists()).toBe(false)
+    expect(wrapper.emitted('update-answer')?.at(-1)).toEqual(['tag', expect.objectContaining({ tags: ['a', 'b'], notes: expect.objectContaining({ a: '<p>Alpha</p>', b: expect.stringContaining('<strong>Beta</strong>') }) })])
+    await wrapper.setProps({ answers: { tag: { tags: ['a'], notes: { a: '<p>Alpha</p>', b: '<strong>Beta</strong>' } } } })
+    await wrapper.get('.tag-rich-text-input [aria-label="斜体"]').trigger('click')
+    expect(wrapper.findAllComponents(PerformanceTagRichTextInput)).toHaveLength(1)
+    expect(wrapper.findAllComponents(PerformanceRichTextEditor)).toHaveLength(1)
+    expect(wrapper.findAll('.tag-rich-text-input [role="toolbar"]')).toHaveLength(1)
+    wrapper.unmount()
   })
 
   it('shows a controlled error for an unregistered field type', () => {

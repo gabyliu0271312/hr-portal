@@ -353,6 +353,21 @@
   - Non-scope: 员工端、API/DTO、数据库、权限、历史快照、生效策略、UCP、部署、commit和push均不变；后端测试不适用。
   - Evidence/DoD: 前端定向回归已通过；生产构建受工作区并行报告文件 `ReportExecutionAuthorization.vue` 的既有类型错误阻塞；浏览器截图和独立PNG未运行，保持未勾选。
 
+- [ ] PM-T004-T05-F17 标签题描述与标签提示带入（2026-10-23 用户确认）
+  - Goal/UI: 按本轮SnapSpec恢复标签题名称下4px的描述（14/22、#646A73），各标签下方空富文本编辑区显示各自prompt（14/24），标签行24px、间距4px；保持F16单工具栏及无嵌套边框结构，自然换行增长，不固定文本高度。
+  - Scope/contract: 仅改既有 PerformanceRepeatableFillItemList.vue 的 updateTag、PerformanceAssessmentContentLayers.vue 及其测试、本功能交互记录；选择时把目录label/description复制到item.label/hint，prompt沿用options.placeholder；旧数据仅补缺失placeholder，同名匹配不按索引误配，已有局部提示和显式空值不覆盖。使用原模板JSONB，不新增协议字段；不改员工端/API/数据库/权限/快照/UCP、容器或发布。
+  - Reading/UI: 沿用T05已确认蓝图和F16，本轮采集为局部视觉依据；已读Spec002/012及既有字段映射/编辑链路，关联N0001/N0002/N0004/N0005/N1102-N1104，无新设计体系/禁止项。独立PNG目标 `../../ui-blueprints/PM-T004-T05-F17-implemented-tag-description-prompts.png`，未取得不得作为已验收。
+  - Tests/evidence: `npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceConfiguredContentBlock.spec.ts` 124/124通过（40+49+17+18）。新增Given目录题目描述和不同标签提示；When选择/勾选/confirm/无目录mock重开；Then描述与提示正确且输入后占位消失；覆盖旧提示缺失、局部自定义与显式空值。`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，既有VueUse PURE提示；diff检查通过（LF/CRLF提示）。
+  - DoD/blockers: 代码/组件DOM与build已验证；实际登录态浏览器、独立PNG和真实API/数据库回读not-run，未部署/commit/push，保持未勾选。不将mock回读称为真实持久化验收。
+
+- [ ] PM-T004-T05-F18 富文本编辑内核与标签输入统一复用及自动换行（2026-10-23 用户确认）
+  - Goal/UI: 后台配置预览和实际填写共用 PerformanceRichTextEditor；标签题进一步共用 PerformanceTagRichTextInput，均为单外框/顶部共享工具栏/独立标签内容。不能把原代码差异默认视为变体；用户已确认两端标签样式一致。普通工作总结的default/task-entry仅保留已有尺寸场景，宽度跟随父容器，不写死采集491/473/457px，也不将页面100vw宽带入编辑器。
+  - Allowed scope: 新增上述两个业务组件；修改既有AssessmentContentLayers、TemplateFieldRenderer、相关既有layers/TemplateRenderer/SelfSummaryTask测试、设计体系和本功能记录；删除局部重复引擎及样式。保留F17描述提示修复与无关dirty，不创建脚本/测试文档，不改API、答案schema、权限、迁移、历史快照、保存生效时机、容器和发布。
+  - Shared contract: modelValue/placeholder/readonly/hideToolbar/variant/inputClass；update:modelValue/activate/queue-save；active/rememberSelection/command供共享工具栏调用。输入格式、选区、链接、HTML清洗、回显、换行统一在编辑器内，标签容器维护当前编辑对象；实际输入仍用notes[tag_id]，旧note兼容，预览试填不进入配置payload；默认内容不重置显式空答案。
+  - Tests: 保留既有格式状态/列表续号/链接/选区回归；新增两处组件引用验证、单工具栏、切标签命令隔离、取消重选保持答案、readonly禁写和净化；真实Chromium隔离组件fixture验证320/491/860容器的中文/连续英文/数字/长链接/列表文本，不得scrollWidth>clientWidth或文本越界，输入区随内容向下增长。截图目标 `../../ui-blueprints/PM-T004-T05-F18-implemented-rich-wrap.png`，隔离组件截图不称真实登录态页面或DB验收。
+  - Reading/compliance: 已读Spec002基线/T05/F16-F17、Spec012交互/守则及N0001/N0002/N0004/N0005/N1102-N1104；遵循现有领域组件/token，不新建全页蓝图或设计体系。
+  - Evidence/DoD: 最终7文件Vitest170/170通过（layers40/TemplateRenderer10/SelfSummaryTask16/ContentRenderer17/block18/page49/Review20）；新增共享组件引用、单toolbar、当前标签格式隔离、移除回退、答案保留与真实Teleport输入DOM稳定断言。Chromium隔离fixture55/55检查通过，覆盖320/491/860容器与实际配置弹窗492px外框，中文/英文/数字/链接/列表自然断行、无横向越界、提示消失与节点identity稳定；实际组件PNG已保存至上述路径，不冒充登录态或DB验收。最终 `npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）通过，既有VueUse PURE注释提示保留；中间一次运行曾被并行数仓 StandardFieldDrawer.vue:169 类型错误阻塞，最终工作区重跑已通过，本次未修改该数仓文件。git diff --check通过（LF/CRLF提示）。未执行真实登录态业务页/DB、部署、commit/push，保持未勾选。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

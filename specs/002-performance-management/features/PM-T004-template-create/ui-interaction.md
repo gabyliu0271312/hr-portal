@@ -285,6 +285,22 @@
 
 - F13验证：前端四文件104/104、后端workflow/projects320/320通过；前端build（vue-tsc+vite）最终exit0、git diff --check通过。覆盖共享checkbox、隐藏双项独立/重选保留/保存mock重开、员工只读结果、拒绝访问、合法来源/任务/题目/答案裁剪及富文本清洗。既有VueUse PURE注释与python_multipart弃用提示未修改；实际浏览器/PNG、真实数据库/API持久化验收未执行，F13保持未勾选，无部署。
 
+## 标签题维护描述与提示带入（PM-T004-T05-F17，2026-10-23）
+
+- 选择标签题时，将目录的名称与题目描述复制到当前 item.label/item.hint，各标签 prompt 继续保存为 options[].placeholder；题目描述不是标签说明，也不是答案。环节已保存的局部内容仍独立，不随目录更新覆写。
+- 新建/编辑预览的题目描述位于题目名称下、标签复选框上，14px/400/22px、#646A73、上间距4px，自然换行，不固定44px高度；无描述不渲染空段落。
+- 勾选标签后，各标签下方空富文本区显示其独立提示，14px、24px行高；标签行最小高24px，与编辑区间隔4px。宽度跟随原预览区域，不写死491/473/457px；单一顶部工具栏和自然增高逻辑不变。提示不写入试填答案，输入后隐藏占位提示。
+- 旧 options 缺少 placeholder 时仅按同名标签补目录提示；已有局部提示和显式空字符串不被目录覆盖。取消勾选/重开及多标签内容隔离沿用现有逻辑。
+- 验证：layers40/page49/renderer17/block18共124项通过，包含选择→配置confirm→无目录mock重开，缺失旧提示/局部覆盖/输入后提示消失；前端vue-tsc+vite构建通过（既有VueUse PURE注释提示），diff检查通过。没有登录态浏览器尺寸实测、独立PNG、真实数据库/API重开或部署证据，不声称像素级验收；无API、权限、迁移、员工端或快照改动。
+
+## 统一富文本内核与标签输入（PM-T004-T05-F18，2026-10-23）
+
+- 用户确认配置预览与实际填写的标签样式一致：单外框/顶部共享工具栏/各标签独立紧凑输入区；不是把既有实现差异一律当变体保留。两处统一调用 `PerformanceTagRichTextInput`，工作总结、文本与标签编辑均调用 `PerformanceRichTextEditor`；移除旧局部引擎与员工端execCommand实现。普通文本default/task-entry维持现有尺寸场景，宽度由调用容器决定，不固定采集宽度、不改变实际填写页面宽度。
+- 统一 `pre-wrap/overflow-wrap:anywhere/min-width:0/grid minmax`，中文、英文、数字、链接及列表在容器内自然换行与增高，不用overflow:hidden裁切。提示在空编辑器显示、输入后消失；HTML白名单清洗和语义格式回显共用，旧纯文本/段落/列表兼容。链接使用弹层且限制http/https/mailto。
+- 单一标签工具栏作用于当前焦点/选区的标签，移除后回退有效标签；答案仍按原tags/notes独立存储，兼容旧note，不串题；预览试填仍不进入配置confirm。readonly保留禁写DOM；结果只读展示链路保持原白名单清洗。
+- 浏览器证据：真实Chromium挂载实际组件与现有样式的隔离fixture，55/55检查通过，包含320/491/860宽度与配置弹窗约492px外框，五类长文本、scrollWidth不超过clientWidth、文字不越界、输入节点identity不变、提示不重叠。独立截图 `../../ui-blueprints/PM-T004-T05-F18-implemented-rich-wrap.png` 为实际组件隔离验证，不是登录态业务页面或真实数据库验收。早先fixture选择器误选背景框的失败已修正，仅最终通过结果作为证据。
+- 测试采用真实Teleport验证配置编辑节点稳定；旧Teleport测试替身会导致节点重建，不据此修改业务弹窗。定向回归与最终build结果见F18任务。无API、迁移、权限、历史快照、部署或提交推送。
+
 ### F01 历史验收记录
 
 - 验证：最终前端八组定向Vitest 131/131，后端workflow pytest 108/108，前端类型检查和生产构建通过。补齐view旧副本覆盖来源和普通节点同ID干扰binding-only来源的回归。前端向导测试输出既有jsdom XHR AggregateError日志（用例仍通过），构建有VueUse PURE注释警告，后端有Starlette弃用警告。本地Docker前后端镜像构建与容器替换通过，数据库和Gotenberg容器未替换；Alembic当前版本与head均0266。容器路由HTTP200、未登录API401，后端启动期间短暂502后恢复。浏览器跳转登录，未取得F01实际页面PNG，也未完成真实API保存重开验收；不得将登录页或目标图作为实现截图。F01保留未勾选。

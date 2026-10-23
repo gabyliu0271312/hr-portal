@@ -2,6 +2,9 @@ import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PerformanceAssessmentContentLayers, { type AssessmentOption, type AssessmentTagOption } from './PerformanceAssessmentContentLayers.vue'
 import layersSource from './PerformanceAssessmentContentLayers.vue?raw'
+import editorSource from './PerformanceRichTextEditor.vue?raw'
+import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
+import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import optionCardSource from './PerformanceContentOptionCard.vue?raw'
 
 const ratingOptions: AssessmentOption[] = [
@@ -263,7 +266,9 @@ describe('PerformanceAssessmentContentLayers', () => {
     const tagItem = wrapper.get('.repeatable-fill-item-list .saved-item')
     await tagItem.get('.select-shell > button').trigger('click')
     await tagItem.get('.option-menu [role="option"]').trigger('click')
-    expect(wrapper.get('.tag-preview').text()).toContain('价值贡献')
+    expect(wrapper.get('.tag-preview').text()).toContain('基于角色职责预期，评估实际产出和贡献')
+    expect(layersSource).toContain('.modal-layer .tag-preview > .tag-preview__description')
+    expect(layersSource).toContain('margin: 4px 0 8px;')
     expect(wrapper.findAll('.tag-checks input:checked')).toHaveLength(0)
     expect(layersSource).toContain('width: max-content !important')
     expect(layersSource).toContain('min-width: max-content')
@@ -273,6 +278,7 @@ describe('PerformanceAssessmentContentLayers', () => {
     await tagCheckboxes[0].setValue(true)
     expect(wrapper.get('.tag-preview__selected-tag').text()).toContain('做得好的')
     expect(wrapper.get('.tag-preview__selected-group').text()).toContain('做得好的')
+    expect(wrapper.get('.tag-preview__selected-group .rich-placeholder').text()).toBe('请填写做得好的内容')
     expect(wrapper.find('.tag-preview__selected-group .tag-preview__prompt').exists()).toBe(false)
     expect(wrapper.get('.tag-preview__editor > [role="toolbar"] button').attributes('aria-label')).toBe('粗体')
     const tagEditor = wrapper.get('.tag-preview__selected-group [contenteditable="true"]')
@@ -296,6 +302,51 @@ describe('PerformanceAssessmentContentLayers', () => {
     ])
   })
 
+  it('copies the maintained tag description and prompts into the local item and reopens without the catalog', async () => {
+    const wrapper = mountLayers()
+    await openType(wrapper, '自定义')
+    await modalInputs(wrapper)[0].setValue('自定义内容')
+    await wrapper.get('.saved-item input[value="tag"]').setValue()
+    await wrapper.get('.saved-item .select-shell > button').trigger('click')
+    await wrapper.get('.saved-item .option-menu [role="option"]').trigger('click')
+    expect(wrapper.get('.tag-preview__description').text()).toBe(tagOptions[0].description)
+    await wrapper.get('[aria-label="默认全部填写"]').trigger('click')
+    expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['请填写做得好的内容', '请填写待改进的内容'])
+    expect(wrapper.findAll('.tag-preview [contenteditable="true"]').map(node => node.attributes('data-placeholder'))).toEqual(['请填写做得好的内容', '请填写待改进的内容'])
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved.items[0]).toMatchObject({ label: '价值贡献', hint: tagOptions[0].description, options: [
+      { label: '做得好的', placeholder: '请填写做得好的内容' }, { label: '待改进的', placeholder: '请填写待改进的内容' },
+    ] })
+    await wrapper.setProps({ tagOptions: [] })
+    wrapper.vm.openEditor(saved)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.tag-preview > strong').text()).toBe('价值贡献')
+    expect(wrapper.get('.tag-preview__description').text()).toBe(tagOptions[0].description)
+    expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['请填写做得好的内容', '请填写待改进的内容'])
+    wrapper.unmount()
+  })
+
+  it('fills only missing legacy tag prompts from the matching catalog labels', async () => {
+    const content = { id: 'legacy', type: 'custom' as const, name: '旧标签内容', description: '', items: [
+      { id: 'tags', label: '', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true, options: [
+        { id: 'improve', label: '待改进的' }, { id: 'good', label: '做得好的', placeholder: '当前环节提示' }, { id: 'empty', label: '无提示', placeholder: '' },
+      ] },
+    ] }
+    const wrapper = mountLayers()
+    wrapper.vm.openEditor(content)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.tag-preview__description').text()).toBe(tagOptions[0].description)
+    expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['请填写待改进的内容', '当前环节提示', '请输入补充说明'])
+    const editor = wrapper.get('.tag-preview [contenteditable="true"]')
+    editor.element.innerHTML = '<div class="ace-line"><span>真实试填</span></div>'
+    await editor.trigger('input')
+    expect(wrapper.findAll('.tag-preview .rich-placeholder').map(node => node.text())).toEqual(['当前环节提示', '请输入补充说明'])
+    expect(wrapper.get('.tag-preview [contenteditable="true"]').text()).toContain('真实试填')
+    wrapper.unmount()
+  })
+
   it('keeps tag preview editors independent and excludes their trial answers from saved content', async () => {
     const content = { id: 'tags', type: 'custom' as const, name: '标签内容', description: '', items: [
       { id: 'first', label: '标签题一', hint: '', questionType: 'tag' as const, tagOptionId: 'contribution', defaultAll: true },
@@ -306,6 +357,8 @@ describe('PerformanceAssessmentContentLayers', () => {
     await wrapper.vm.$nextTick()
     const editors = wrapper.findAll('.tag-preview [contenteditable="true"]')
     expect(editors).toHaveLength(4)
+    expect(wrapper.findAllComponents(PerformanceTagRichTextInput)).toHaveLength(2)
+    expect(wrapper.findAllComponents(PerformanceRichTextEditor)).toHaveLength(4)
     expect(wrapper.findAll('.tag-preview [role="toolbar"]')).toHaveLength(2)
     editors[0].element.innerHTML = '<div class="ace-line"><span>仅第一题亮点试填</span></div>'
     await editors[0].trigger('input')
@@ -405,21 +458,32 @@ describe('PerformanceAssessmentContentLayers', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.get('.preview-pane .rich-placeholder').text()).toContain('第一行提示')
-    expect(layersSource).toContain('display: grid')
-    expect(layersSource).toContain('grid-area: 1 / 1')
+    expect(editorSource).toContain('display:grid')
+    expect(editorSource).toContain('grid-area:1 / 1')
   })
 
   it('removes the long hint from the sizing grid after rich-text input begins', async () => {
-    const wrapper = mountLayers()
-    await openType(wrapper, '自定义')
-    await wrapper.get('.repeatable-fill-item-list textarea[placeholder="请输入填写提示"]').setValue('这是一段很长的提示，用于验证预览高度不会在实际输入后保留提示文本占用的空白区域。')
-    const editor = wrapper.get('.preview-pane [contenteditable="true"]').element as HTMLElement
-    expect(wrapper.find('.preview-pane .rich-placeholder').exists()).toBe(true)
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, ratingOptions, tagOptions }, global: { stubs: { Teleport: false, Transition: false } }, attachTo: document.body })
+    const create = document.querySelector<HTMLButtonElement>('.create-button')!
+    create.click()
+    await wrapper.vm.$nextTick()
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.create-menu button')).find(button => button.textContent === '自定义')!.click()
+    await wrapper.vm.$nextTick()
+    const hint = document.querySelector<HTMLTextAreaElement>('.repeatable-fill-item-list textarea[placeholder="请输入填写提示"]')!
+    hint.value = '这是一段很长的提示，用于验证预览高度不会在实际输入后保留提示文本占用的空白区域。'
+    hint.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    const editor = document.querySelector<HTMLElement>('.preview-pane [contenteditable="true"]')!
+    const previousNodes = ['.assessment-drawer', '.performance-editor-modal-layer', '.content-modal', '.preview-pane', '.text-preview', '.rich-editor-host', '.performance-rich-text-box', '.next-remix-rich-text-editor-content'].map(selector => [selector, document.querySelector(selector)] as const)
+    expect(document.querySelector('.preview-pane .rich-placeholder')).not.toBeNull()
     editor.innerHTML = '<div class="ace-line" data-node="true"><span data-string="true" data-leaf="true">实际填写内容</span></div>'
     editor.dispatchEvent(new InputEvent('input', { bubbles: true }))
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.find('.preview-pane .rich-placeholder').exists()).toBe(false)
+    expect(document.querySelector('.preview-pane .rich-placeholder')).toBeNull()
+    for (const [selector, node] of previousNodes) expect(document.querySelector(selector), selector).toBe(node)
+    expect(document.querySelector('.preview-pane [contenteditable="true"]')).toBe(editor)
+    wrapper.unmount()
   })
 
   it('keeps the question type inside each custom fill item', async () => {

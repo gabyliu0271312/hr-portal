@@ -74,6 +74,13 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 页面标题、内容块与题目统一复用 `PerformanceContentSelectionFrame.vue`：hover 使用 `--performance-content-hover-outline`（1px dashed）及 `--performance-content-hover-outline-offset`（-1px）；选中使用 `--performance-content-selected-shadow`（内嵌2px实线）。hover 不改变选中目标；点击时由页面协调标题与内容块互斥选中。
 
+### 绩效富文本输入
+
+- `PerformanceRichTextEditor.vue` 是配置预览和实际填写共用的编辑内核，统一选区、格式命令、列表、链接、清洗、输入回显和断行；禁止在业务调用方另写 `execCommand` 编辑引擎。
+- `modelValue` 为 HTML 字符串；`update:modelValue` 更新内容，`queue-save` 在 blur 通知调用方，`activate` 报告当前编辑器。外部工具栏通过 expose 的 `active/rememberSelection/command` 控制。`readonly` 禁止输入但保留 DOM；正式结果只读展示仍由字段 renderer 净化渲染。
+- `default`（130/90px）、`task-entry`（124/88px）、`tag`（34px）只控制已存在的外观尺寸，宽度始终跟随父容器。默认值不得写死采集491/473/457px或100vw。使用 `grid-template-columns:minmax(0,1fr)`、`min-width:0`、`white-space:pre-wrap` 和 `overflow-wrap:anywhere` 实现自然增长，不裁切长文本。
+- `PerformanceTagRichTextInput.vue` 在配置预览和实际填写中共用单外框、顶部单一工具栏和各标签独立输入区域；内部使用 `tag/hideToolbar` 编辑器。接收 `options` 和 `{tags,notes}`，兼容旧 `{tags,note}`。当前编辑对象由焦点/选区决定，移除后回退首个已选项。标签复选框及保存策略属于调用方：配置试填不写模板，实际填写沿既有答案保存。
+
 ### 字体
 
 系统默认 sans-serif，不引入外部字体包。数字、编码、SQL、技术字段可用 `--font-mono`。

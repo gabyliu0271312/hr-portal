@@ -88,7 +88,7 @@ describe('performance content shared primitives', () => {
     expect(wrapper.findAll('.tag-options .performance-checkbox__label').map(item => item.text())).toEqual(['本地标签'])
     expect(wrapper.get('.tag-options input').attributes('disabled')).toBeDefined()
     expect((wrapper.get('.tag-options input').element as HTMLInputElement).checked).toBe(true)
-    expect(wrapper.get('.tag-answer-label').text()).toBe('本地标签')
+    expect(wrapper.get('.tag-preview__selected-tag').text()).toBe('本地标签')
     expect(wrapper.get('.tag-rich-input').attributes('data-placeholder')).toBe('本地提示')
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
     await wrapper.setProps({ content: { type: 'custom', questionType: 'tag', defaultAll: true, options: [{ id: 'fallback', label: '块级兼容' }], items: [{ id: 'tag', label: '标签题', defaultAll: false }] } })

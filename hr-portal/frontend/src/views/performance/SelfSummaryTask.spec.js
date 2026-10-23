@@ -3,6 +3,8 @@ import { resolve } from 'node:path'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SelfSummaryTask from './SelfSummaryTask.vue'
+import PerformanceRichTextEditor from '@/components/performance/PerformanceRichTextEditor.vue'
+import PerformanceTagRichTextInput from '@/components/performance/PerformanceTagRichTextInput.vue'
 import { performanceReviewApi } from '@/api/performance'
 
 const back = vi.fn()
@@ -155,6 +157,27 @@ describe('SelfSummaryTask', () => {
 
     expect(wrapper.text()).not.toContain('请填写做得好的的补充说明')
     expect(performanceReviewApi.submitSelfSummary).not.toHaveBeenCalled()
+  })
+
+  it('shares the tag input and editor while preserving separate tag notes and one toolbar', async () => {
+    const wrapper = mount(SelfSummaryTask, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.tag-options input')[0].setValue(true)
+    await wrapper.findAll('.tag-options input')[1].setValue(true)
+    expect(wrapper.findAllComponents(PerformanceTagRichTextInput)).toHaveLength(1)
+    expect(wrapper.findAllComponents(PerformanceRichTextEditor)).toHaveLength(4)
+    expect(wrapper.findAll('.tag-rich-text-input [role="toolbar"]')).toHaveLength(1)
+    expect(wrapper.findAll('.tag-answer [role="toolbar"]')).toHaveLength(0)
+    const input = wrapper.findAll('.tag-rich-input')[1]
+    input.element.innerHTML = 'LongToken'.repeat(100)
+    await input.trigger('input')
+    expect(wrapper.findAll('.tag-rich-input')[1].text()).toBe('LongToken'.repeat(100))
+    expect(wrapper.findAll('.tag-rich-input')[0].text().replace(/​/g, '')).toBe('')
+    await wrapper.get('.tag-preview__selected-tag button[aria-label="删除待改进的"]').trigger('click')
+    expect(wrapper.findAll('.tag-rich-input')).toHaveLength(1)
+    await wrapper.findAll('.tag-options input')[1].setValue(true)
+    expect(wrapper.findAll('.tag-rich-input')[1].text().replace(/​/g, '')).toBe('LongToken'.repeat(100))
+    wrapper.unmount()
   })
 
   it('uses a text cursor only for editable rich-text content', async () => {
