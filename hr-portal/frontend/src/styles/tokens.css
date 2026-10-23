@@ -165,6 +165,26 @@
   --performance-popover-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.04), 0 6px 12px 0 rgba(31, 35, 41, 0.04), 0 4px 8px -8px rgba(31, 35, 41, 0.06);
   --performance-popover-z-index: calc(var(--performance-confirm-z-index) + 1);
 
+  /* Shared performance prompt menu and display tokens. */
+  --performance-menu-width: 65px;
+  --performance-menu-height: 69px;
+  --performance-menu-padding: 2px 3px;
+  --performance-menu-gap: 4px;
+  --performance-menu-radius: var(--radius-md);
+  --performance-menu-item-height: 30px;
+  --performance-menu-item-gap: 2px;
+  --performance-menu-item-padding-inline: 8px;
+  --performance-menu-item-radius: var(--radius-sm);
+  --performance-menu-item-line-height: 22px;
+  --performance-menu-trigger-padding-inline: 6px;
+  --performance-menu-trigger-radius: var(--radius-sm);
+  --performance-menu-item-hover-background: rgba(31, 35, 41, .08);
+  --performance-prompt-display-padding-block: var(--spacing-3);
+  --performance-prompt-display-padding-inline: var(--spacing-4);
+  --performance-prompt-display-accent-width: 3px;
+  --performance-prompt-display-title-gap: var(--spacing-1);
+  --performance-prompt-display-background: var(--color-bg-subtle);
+
   /* Shared button tokens: every page-level action should use a button family or Element Plus alias. */
   --performance-button-height: 32px;
   --performance-button-height-small: 28px;

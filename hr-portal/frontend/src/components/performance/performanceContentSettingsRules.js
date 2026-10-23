@@ -3,14 +3,16 @@ const itemSettingsCapabilities = {
   "custom-text": { hideName: true, mode: true, required: true },
   "custom-tag": { hideName: true, hideDescription: true, mode: true, required: true },
   rating: { hideName: true, mode: false, required: true, levelRules: true },
+  prompt: { hideName: false, mode: false, required: false },
   "evaluation-work-summary": { hideName: false, mode: true, required: true, viewResults: true },
   "evaluation-custom-tag": { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
   "result-view-item": { hideName: false, mode: false, required: false },
   "result-view-tag": { hideName: true, hideDescription: true, mode: false, required: false, allowView: true }
 };
 function getItemSettingsVariant(content, item) {
-  if (content.type === "rating") return "rating";
-  if (content.type === "custom") return (item?.questionType || content.questionType || "text") === "tag" ? "custom-tag" : "custom-text";
+  if (content.type === "prompt" || item?.kind === "prompt") return "prompt";
+  if (item?.kind === "rating" || content.type === "rating" && item?.kind === undefined) return "rating";
+  if (content.type === "custom" || content.type === "rating" && item?.kind === "fill") return (item?.questionType || content.questionType || "text") === "tag" ? "custom-tag" : "custom-text";
   return "work-summary";
 }
 function supportsEvaluationView(content, item) {
@@ -18,7 +20,8 @@ function supportsEvaluationView(content, item) {
   return variant === "work-summary" || variant === "custom-tag";
 }
 function getRootSettingsCapabilities(content) {
-  return { allowMultiple: content.type === "work_summary", allowUnknown: content.type === "rating" };
+  if (content.type === "prompt") return { allowMultiple: false, allowUnknown: false };
+  return { allowMultiple: content.type === "work_summary", allowUnknown: content.type === "rating" && content.items.some((item) => item.kind !== "fill" && item.kind !== "prompt") };
 }
 const genericRule = {
   visibleSlots: ["fill", "reference"],

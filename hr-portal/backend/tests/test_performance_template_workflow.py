@@ -428,6 +428,98 @@ async def test_service_saves_result_view_only_from_final_fill_and_reopens(
     assert db.added[1].after_state["nodes"] == record.nodes
 
 
+def _prompt_content(content_id="notice", **overrides):
+    return {"content_id": content_id, "type": "prompt", "items": [], "name": "提示", "description": "", "prompt": {"title": "", "content": "请如实填写", "color": "#3B82F6", "scope": "all"}, **overrides}
+
+
+@pytest.mark.asyncio
+async def test_mixed_content_and_prompts_patch_get_preserve_order_and_unknown_fields(workflow_save_setup, monkeypatch):
+    from copy import deepcopy
+
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    prompt = _prompt_content()
+    mixed = _view_source_content(items=[
+        {"id": "text", "kind": "fill", "questionType": "text", "future": {"keep": True}},
+        {"id": "notice-item", "kind": "prompt", "label": "原标签", "hint": "原提示", "prompt": {**prompt["prompt"], "scope": "cycle", "extra": "保留"}},
+        {"id": "101", "kind": "rating", "ratingOptionId": "101"},
+        {"id": "tag", "kind": "fill", "questionType": "tag", "options": []},
+    ], ratingOptionId="101", future_content={"keep": True})
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [prompt, mixed]}
+    view = {**default_workflow_nodes()[1], "content": [{**mixed, "content_slot": "view"}, _prompt_content("page-notice", content_slot="view")], "content_bindings": {"view": [mixed["content_id"], "page-notice"]}}
+    original = deepcopy([final, view])
+    payload = WorkflowUpdate.model_validate({"nodes": [final, view], "content_library": [mixed, prompt]})
+    patched = await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    fetched = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+    for response in (patched, fetched):
+        assert response.nodes[0].content == original[0]["content"]
+        assert response.nodes[1].content == original[1]["content"]
+        assert response.content_library == [mixed, prompt, _prompt_content("page-notice")]
+    assert db.commits == 1
+    assert db.added[0].after_state["nodes"] == db.workflow.nodes
+    assert [final, view] == original
+
+
+@pytest.mark.parametrize("color", ["#3B82F6", "#F97316", "#EF4444", "#10B981", "#abc", "#abcd", "#112233", "#11223344"])
+def test_prompt_normalizes_content_title_and_safe_colors(color):
+    node = _evaluation("final", "实线上级")
+    node["content"] = [_prompt_content(prompt={"content": "  提示正文  ", "scope": "cycle", "color": color, "future": True})]
+    content = normalize_workflow_nodes([node])[0]["content"][0]
+    assert content["prompt"] == {"title": "", "content": "提示正文", "scope": "cycle", "color": color, "future": True}
+    assert content["name"] == "提示"
+    assert content["description"] == ""
+    assert content["items"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("location", ["top", "item", "library"])
+@pytest.mark.parametrize("changes", [
+    {"content": " \t\n "}, {"content": "字" * 2001}, {"content": None}, {"title": []},
+    {"scope": "unknown"}, {"scope": None}, {"color": "red"}, {"color": "url(https://bad)"},
+    {"color": "#fff; background:red"}, {"color": "#gggggg"}, {"color": None},
+])
+async def test_prompt_invalid_input_uses_existing_422_without_writes(workflow_save_setup, monkeypatch, location, changes):
+    service, db = workflow_save_setup
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    prompt = _prompt_content()
+    prompt["prompt"].update(changes)
+    node = {**_evaluation("final", "实线上级"), "include_final_result": True}
+    library = []
+    if location == "top":
+        node["content"] = [prompt]
+    elif location == "item":
+        node["content"] = [_view_source_content(items=[{"id": "notice", "kind": "prompt", "prompt": prompt["prompt"]}])]
+    else:
+        library = [prompt]
+    payload = WorkflowUpdate.model_validate({"nodes": [node], "content_library": library})
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "TEMPLATE_WORKFLOW_INVALID"
+    assert exc.value.detail["node_id"] == (None if location == "library" else "final")
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_form", ["inline", "bindings"])
+@pytest.mark.parametrize("prompt_form", ["top", "item"])
+async def test_result_view_rejects_prompt_as_final_answer_source(workflow_save_setup, source_form, prompt_form):
+    service, db = workflow_save_setup
+    content = _prompt_content() if prompt_form == "top" else _view_source_content(items=[{"id": "notice", "kind": "prompt", "prompt": _prompt_content()["prompt"]}])
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True}
+    if source_form == "inline":
+        final["content"] = [content]
+    else:
+        final["content_bindings"] = {"fill": [content["content_id"]]}
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": [content["content_id"]]}}
+    with pytest.raises(TemplateWorkflowValidationError, match="仅可选择终评环节"):
+        await service.save_nodes(77, [final, view], content_library=[content], actor_type="PORTAL_USER", actor_ref="9")
+    assert db.added == []
+    assert db.commits == 0
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enabled", [False, True])
 async def test_service_preserves_rating_level_rule_toggle(workflow_save_setup, enabled):
@@ -754,98 +846,6 @@ def test_workflow_api_rejects_caller_without_configuration_permission():
     )
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
-
-
-def _content_preview_client(node, *, permission=True, template_exists=True):
-    from copy import deepcopy
-    from app.performance.auth_context import get_performance_access_context
-
-    app = FastAPI()
-    app.include_router(templates_router.router, prefix="/api/v1")
-    original = deepcopy(node)
-
-    class Db:
-        async def get(self, model, template_id):
-            assert model is PerformanceTemplate
-            return SimpleNamespace(id=template_id) if template_exists else None
-
-        async def execute(self, _query):
-            stored_nodes = [original] if original["node_type"] == "evaluation" else [{**_evaluation("final", "实线上级"), "include_final_result": True}, original]
-            record = SimpleNamespace(nodes=stored_nodes, content_library=[], cycle_count=0, project_count=0)
-            return SimpleNamespace(scalar_one_or_none=lambda: record)
-
-    app.dependency_overrides[get_session] = lambda: Db()
-    app.dependency_overrides[get_performance_access_context] = lambda: PerformanceAccessContext(
-        subject_type="PORTAL_USER", subject_id=7, display_name="preview", account_type=None,
-        portal_entry_permissions=("performance.admin",) if permission else ("performance.app",),
-        role_grants=(), permission_codes=("performance.configuration.manage",) if permission else (),
-    )
-    return TestClient(app), original
-
-
-def test_content_preview_crops_unsaved_employee_schema_without_writes():
-    from copy import deepcopy
-
-    node = {**_evaluation("evaluation-1", "被评估人"), "include_final_result": True, "content": [{
-        "content_id": "local", "type": "custom", "name": "Local title", "description": "secret-root",
-        "settings": {"hideDescription": True}, "items": [
-            {"id": "visible", "label": "secret-name", "hint": "secret-hint", "questionType": "tag",
-             "settings": {"hideName": True, "hideDescription": True}, "options": [{"id": "a", "label": "Allowed"}]},
-            {"id": "hidden", "label": "secret-hidden", "questionType": "tag", "settings": {"mode": "hidden"},
-             "options": [{"id": "secret-option", "label": "secret-option"}]},
-        ],
-    }]}
-    client, stored = _content_preview_client(node)
-    before = deepcopy(stored)
-    payload = deepcopy(node)
-    payload["content"][0]["items"][0]["options"][0]["label"] = "Unsaved option"
-    response = client.post("/api/v1/performance/templates/901/content-preview", json={"node": payload})
-    assert response.status_code == 200
-    assert "secret" not in response.text
-    assert "Unsaved option" in response.text
-    assert response.json()["answers"] == {}
-    assert [field["id"] for field in response.json()["form_schema"][0]["fields"]] == ["visible"]
-    assert stored == before
-
-
-def test_content_preview_result_view_uses_request_flags_and_no_task_answers():
-    node = {**default_workflow_nodes()[1], "content": [{
-        "content_id": "view", "content_slot": "view", "type": "custom", "name": "View", "items": [
-            {"id": "allowed", "label": "Question", "questionType": "tag", "settings": {"allowView": True, "required": True}},
-            {"id": "denied", "label": "secret", "settings": {"allowView": False}},
-            {"id": "text", "label": "Text question", "hint": "secret-item-description", "questionType": "text", "settings": {"allowView": True}},
-        ],
-    }]}
-    client, _ = _content_preview_client(node)
-    response = client.post("/api/v1/performance/templates/901/content-preview", json={"node": node})
-    assert "secret" not in response.text
-    assert "Text question" in response.text
-    assert "secret-item-description" not in response.text
-    assert response.json()["answers"] == {}
-    assert response.json()["form_schema"][0]["fields"][0]["readonly"] is True
-    assert response.json()["form_schema"][0]["fields"][0]["required"] is False
-
-
-@pytest.mark.parametrize("mutation,expected", [("employee", 403), ("missing-template", 404), ("other-node", 404), ("other-type", 404), ("extra-body", 422), ("extra-node", 422), ("other-binding", 422), ("other-reference", 422)])
-def test_content_preview_permission_membership_and_strict_contract(mutation, expected):
-    from copy import deepcopy
-    node = {**_evaluation("evaluation-1", "被评估人"), "include_final_result": True}
-    client, _ = _content_preview_client(node, permission=mutation != "employee", template_exists=mutation != "missing-template")
-    body = {"node": deepcopy(node)}
-    if mutation == "other-node":
-        body["node"]["node_id"] = "other-template-node"
-    if mutation == "other-type":
-        body["node"]["node_type"] = "result_view"
-    if mutation == "extra-body":
-        body["task_id"] = 9
-    if mutation == "extra-node":
-        body["node"]["task_id"] = 9
-    if mutation == "other-binding":
-        body["node"]["content_bindings"] = {"fill": ["other-template-content"]}
-    if mutation == "other-reference":
-        body["node"]["content"] = [{"type": "reference", "reference_kind": "node", "reference_value": "other-template-node"}]
-    response = client.post("/api/v1/performance/templates/901/content-preview", json=body)
-    assert response.status_code == expected
 
 
 class _NoDuplicateResult:

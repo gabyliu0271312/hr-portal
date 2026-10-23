@@ -2,7 +2,7 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'evaluation-work-summary' | 'evaluation-custom-tag' | 'result-view-item' | 'result-view-tag'
+export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-tag' | 'result-view-item' | 'result-view-tag'
 export interface ItemSettingsCapabilities {
   hideName: boolean
   hideDescription?: boolean
@@ -17,24 +17,27 @@ export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsC
   'custom-text': { hideName: true, mode: true, required: true },
   'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
   rating: { hideName: true, mode: false, required: true, levelRules: true },
+  prompt: { hideName: false, mode: false, required: false },
   'evaluation-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
   'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
   'result-view-item': { hideName: false, mode: false, required: false },
   'result-view-tag': { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
 }
-export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' }, item?: { questionType?: 'text' | 'tag' }): ItemSettingsVariant {
-  if (content.type === 'rating') return 'rating'
-  if (content.type === 'custom') return (item?.questionType || content.questionType || 'text') === 'tag' ? 'custom-tag' : 'custom-text'
+export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }): ItemSettingsVariant {
+  if (content.type === 'prompt' || item?.kind === 'prompt') return 'prompt'
+  if (item?.kind === 'rating' || content.type === 'rating' && item?.kind === undefined) return 'rating'
+  if (content.type === 'custom' || content.type === 'rating' && item?.kind === 'fill') return (item?.questionType || content.questionType || 'text') === 'tag' ? 'custom-tag' : 'custom-text'
   return 'work-summary'
 }
 
-export function supportsEvaluationView(content: { type: string; questionType?: 'text' | 'tag' }, item?: { questionType?: 'text' | 'tag' }) {
+export function supportsEvaluationView(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
   const variant = getItemSettingsVariant(content, item)
   return variant === 'work-summary' || variant === 'custom-tag'
 }
 
-export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { questionType?: 'text' | 'tag' }[] }) {
-  return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' }
+export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }[] }) {
+  if (content.type === 'prompt') return { allowMultiple: false, allowUnknown: false }
+  return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' && content.items.some(item => item.kind !== 'fill' && item.kind !== 'prompt') }
 }
 
 export interface StageContentRule {

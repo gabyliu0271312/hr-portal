@@ -47,21 +47,19 @@ def _inline_options(content: dict, item: dict | None = None) -> list[dict]:
     return options
 
 
+def _item_kind(content: dict, item: dict) -> str:
+    return item.get("kind") or ("rating" if content.get("type") == "rating" else "fill")
+
+
 def _rating_reference(content: dict) -> str:
-    items = content.get("items") or []
-    return str(content.get("ratingOptionId") or (items[-1].get("id") if items else ""))
+    items = [item for item in content.get("items") or [] if _item_kind(content, item) == "rating"]
+    return str(content.get("ratingOptionId") or ((items[-1].get("ratingOptionId") or items[-1].get("id")) if items else ""))
 
 
 def _normalize_rating_item(content: dict) -> None:
     if content.get("type") != "rating":
         return
-    items = content.get("items") or []
     reference = _rating_reference(content)
-    selected = next((item for item in items if str(item.get("id")) == reference), None)
-    if selected is None and items:
-        selected = items[-1]
-        reference = str(selected.get("id") or "")
-    content["items"] = [selected] if selected else []
     if reference:
         content["ratingOptionId"] = reference
 
@@ -71,15 +69,18 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
     contents = hydrated.get("content") or []
     for content in contents:
         _normalize_rating_item(content)
-    rating_references = {
-        id(content): _rating_reference(content)
-        for content in contents
-        if content.get("type") == "rating" and (
-            not content.get("options") or content.get("ratingDisplayMode") not in {"标签样式", "下拉样式"}
-            or _rating_reference(content).isdigit()
-        )
-    }
-    question_ids = {int(value) for value in rating_references.values() if value.isdigit()}
+    rating_targets = []
+    for content in contents:
+        if content.get("type") == "prompt":
+            continue
+        if content.get("type") == "rating":
+            rating_targets.append((content, _rating_reference(content)))
+        for item in content.get("items") or []:
+            if _item_kind(content, item) == "rating":
+                reference = str(item.get("ratingOptionId") or item.get("id") or _rating_reference(content))
+                if item.get("kind") == "rating":
+                    rating_targets.append((item, reference))
+    question_ids = {int(reference) for _, reference in rating_targets if reference.isdigit()}
     questions: dict[int, tuple[PerformanceReviewQuestion, PerformanceReviewRule]] = {}
     if question_ids:
         rows = (
@@ -91,37 +92,36 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
         ).all()
         questions = {question.id: (question, rule) for question, rule in rows}
 
+    for target, raw_id in rating_targets:
+        pair = questions.get(int(raw_id)) if raw_id.isdigit() else None
+        if pair:
+            question, rule = pair
+            if target.get("options") is None:
+                target["options"] = [
+                    _option(level, index)
+                    for index, level in enumerate((rule.config or {}).get("levels") or [])
+                    if isinstance(level, dict)
+                ]
+            else:
+                levels_by_id = {
+                    str(level.get("id")): level
+                    for level in ((rule.config or {}).get("levels") or [])
+                    if isinstance(level, dict) and level.get("id") is not None
+                }
+                for option in target["options"]:
+                    level = levels_by_id.get(str(option.get("id")))
+                    if not level:
+                        continue
+                    defaults = _option(level, 0)
+                    for key, value in defaults.items():
+                        if key not in option:
+                            option[key] = value
+            if not target.get("ratingDisplayMode"):
+                target["ratingDisplayMode"] = question.display_mode or "标签样式"
+            if target.get("description") is None:
+                target["description"] = question.description or ""
     for content in contents:
-        if content.get("type") == "rating":
-            raw_id = rating_references.get(id(content), "")
-            pair = questions.get(int(raw_id)) if raw_id.isdigit() else None
-            if pair:
-                question, rule = pair
-                if content.get("options") is None:
-                    content["options"] = [
-                        _option(level, index)
-                        for index, level in enumerate((rule.config or {}).get("levels") or [])
-                        if isinstance(level, dict)
-                    ]
-                else:
-                    levels_by_id = {
-                        str(level.get("id")): level
-                        for level in ((rule.config or {}).get("levels") or [])
-                        if isinstance(level, dict) and level.get("id") is not None
-                    }
-                    for option in content["options"]:
-                        level = levels_by_id.get(str(option.get("id")))
-                        if not level:
-                            continue
-                        defaults = _option(level, 0)
-                        for key, value in defaults.items():
-                            if key not in option:
-                                option[key] = value
-                if "ratingDisplayMode" not in content or not content["ratingDisplayMode"]:
-                    content["ratingDisplayMode"] = question.display_mode or "标签样式"
-                if content.get("description") is None:
-                    content["description"] = question.description or ""
-        elif content.get("type") == "custom" and content.get("questionType") == "tag" and not content.get("options"):
+        if content.get("type") == "custom" and content.get("questionType") == "tag" and not content.get("options"):
             content["options"] = _inline_options(content)
     return hydrated
 
@@ -129,7 +129,7 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
 def build_self_summary_schema(template: dict) -> list[dict]:
     sections: list[dict] = []
     for content_index, content in enumerate(template.get("content") or []):
-        if (content.get("content_slot") or "fill") != "fill":
+        if (content.get("content_slot") or "fill") != "fill" or content.get("type") == "prompt":
             continue
         content = deepcopy(content)
         _normalize_rating_item(content)
@@ -137,19 +137,24 @@ def build_self_summary_schema(template: dict) -> list[dict]:
         fields: list[dict] = []
         seen_field_ids: set[str] = set()
         for item_index, item in enumerate(content.get("items") or []):
+            kind = _item_kind(content, item)
+            if kind == "prompt":
+                continue
             item_settings = item.get("settings") or {}
             if item_settings.get("mode") == "hidden":
                 continue
             content_type = content.get("type")
+            is_fill = kind == "fill" and (item.get("kind") == "fill" or content_type == "custom")
             question_type = (
                 item.get("questionType")
                 or content.get("questionType")
                 or "text"
-            ) if content_type == "custom" else None
-            field_type = "rating" if content_type == "rating" else (
-                "tag_with_followup" if content_type == "custom" and question_type == "tag" else "rich_text"
+            ) if is_fill else None
+            field_type = "rating" if kind == "rating" else (
+                "tag_with_followup" if is_fill and question_type == "tag" else "rich_text"
             )
-            options = _inline_options(content, item) if field_type in {"rating", "tag_with_followup"} else []
+            option_content = {} if item.get("kind") == "fill" and content_type == "rating" else content
+            options = _inline_options(option_content, item) if field_type in {"rating", "tag_with_followup"} else []
             base_field_id = str(item.get("id") or f"{section_id}-{item_index}")
             field_id = base_field_id
             suffix = 1
@@ -166,12 +171,12 @@ def build_self_summary_schema(template: dict) -> list[dict]:
                 "options": options,
             }
             if field_type == "rating":
-                field["display_mode"] = content.get("ratingDisplayMode") or "标签样式"
+                field["display_mode"] = item.get("ratingDisplayMode") or content.get("ratingDisplayMode") or "标签样式"
                 field["hide_name"] = bool(item_settings.get("hideName", False))
                 field["allow_unknown"] = (content.get("settings") or {}).get("allowUnknown") is True
-            elif content_type == "custom" and question_type == "text":
+            elif is_fill and question_type == "text":
                 field["hide_name"] = bool(item_settings.get("hideName", False))
-            elif content_type == "custom" and question_type == "tag":
+            elif is_fill and question_type == "tag":
                 field["hide_name"] = bool(item_settings.get("hideName", False))
                 field["description"] = item.get("hint") or ""
                 field["placeholder"] = "请输入补充说明"
@@ -516,19 +521,6 @@ def project_self_summary_answers(schema: list[dict], answers: dict, *, include_r
                 if result is not None:
                     projected[field_id] = result
     return projected
-
-
-def build_content_preview_schema(template: dict) -> list[dict]:
-    if template.get("node_type") != "result_view":
-        return build_self_summary_schema(template)
-    views = [content for content in template.get("content") or [] if content.get("content_slot") == "view"]
-    sources = [{**deepcopy(content), "content_slot": "fill"} for content in views]
-    schema = _project_result_view_schema({"content": sources}, views)
-    for section in schema:
-        for field in section["fields"]:
-            field["readonly"] = True
-            field["required"] = False
-    return schema
 
 
 def self_summary_value_empty(field: dict, value: object) -> bool:

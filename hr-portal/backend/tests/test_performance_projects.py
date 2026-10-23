@@ -1038,7 +1038,7 @@ async def test_self_summary_rating_hydration_preserves_inline_display_and_conten
 
 
 
-def test_self_summary_legacy_duplicate_rating_keeps_only_selected_question():
+def test_self_summary_legacy_rating_keeps_mixed_item_order():
     from app.performance.self_summary_service import build_self_summary_schema
 
     schema = build_self_summary_schema({"content": [{
@@ -1050,14 +1050,73 @@ def test_self_summary_legacy_duplicate_rating_keeps_only_selected_question():
         "items": [
             {"id": "old", "label": "旧评估项"},
             {"id": "new", "label": "新评估项"},
+            {"id": "fill", "kind": "fill", "label": "自定义填写", "questionType": "text"},
+            {"id": "notice", "kind": "prompt", "label": "提示", "prompt": {"title": "提示", "content": "说明", "color": "#3B82F6", "scope": "all"}},
         ],
     }]})
 
-    assert len(schema[0]["fields"]) == 1
-    assert schema[0]["fields"][0]["id"] == "new"
-    assert schema[0]["fields"][0]["label"] == "新评估项"
+    assert [field["id"] for field in schema[0]["fields"]] == ["old", "new", "fill"]
+    assert [field["type"] for field in schema[0]["fields"]] == ["rating", "rating", "rich_text"]
+    assert schema[0]["fields"][1]["label"] == "新评估项"
     assert schema[0]["fields"][0]["options"] == [{"id": "a", "label": "优秀", "color": "#3370ff", "placeholder": "", "required": False}]
-    assert schema[0]["fields"][0]["display_mode"] == "标签样式"
+
+
+@pytest.mark.asyncio
+async def test_mixed_content_hydration_and_answers_exclude_prompts():
+    from copy import deepcopy
+    from app.performance.self_summary_service import (
+        build_self_summary_schema, hydrate_self_summary_template, project_self_summary_answers,
+        sanitize_self_summary_answers, self_summary_field_requires_value,
+    )
+
+    prompt = {"title": "提醒", "content": "请如实填写", "color": "#3B82F6", "scope": "all"}
+    template = {"content": [
+        {"type": "prompt", "prompt": prompt, "items": [{"id": "bad", "settings": {"required": True}}]},
+        {"content_id": "mixed", "type": "rating", "ratingOptionId": "101", "items": [
+            {"id": "text", "kind": "fill", "questionType": "text", "settings": {"required": True}},
+            {"id": "notice", "kind": "prompt", "prompt": prompt, "settings": {"required": True}},
+            {"id": "local-rating", "kind": "rating", "ratingOptionId": "102"},
+            {"id": "101", "label": "原评估项"},
+            {"id": "tag", "kind": "fill", "questionType": "tag", "options": [{"id": "t", "label": "标签"}]},
+        ]},
+    ]}
+    before = deepcopy(template)
+
+    class Db:
+        async def execute(self, _statement):
+            return SimpleNamespace(all=lambda: [
+                (SimpleNamespace(id=101, description="原题", display_mode="标签样式"), SimpleNamespace(config={"levels": [{"id": "a", "name": "原评级"}]})),
+                (SimpleNamespace(id=102, description="新增题", display_mode="下拉样式"), SimpleNamespace(config={"levels": [{"id": "b", "name": "新评级"}]})),
+            ])
+
+    hydrated = await hydrate_self_summary_template(template, Db())
+    items = hydrated["content"][1]["items"]
+    assert [item["id"] for item in items] == ["text", "notice", "local-rating", "101", "tag"]
+    assert items[0] == template["content"][1]["items"][0]
+    assert items[1] == template["content"][1]["items"][1]
+    assert items[-1] == template["content"][1]["items"][-1]
+    assert items[2]["options"][0]["id"] == "b"
+    schema = build_self_summary_schema(hydrated)
+    fields = schema[0]["fields"]
+    assert [field["id"] for field in fields] == ["text", "local-rating", "101", "tag"]
+    assert [field["type"] for field in fields] == ["rich_text", "rating", "rating", "tag_with_followup"]
+    assert fields[1]["display_mode"] == "下拉样式"
+    assert [field["options"][0]["id"] for field in fields[1:]] == ["b", "a", "t"]
+    assert self_summary_field_requires_value(fields[0], "")
+    answers = {"notice": "must not persist", "bad": "must not persist", "text": "正文", "local-rating": "b", "101": "a", "tag": {"tags": ["t"]}}
+    expected = {key: value for key, value in answers.items() if key not in {"notice", "bad"}}
+    assert sanitize_self_summary_answers(schema, answers) == expected
+    assert project_self_summary_answers(schema, answers) == expected
+    assert template == before
+
+
+def test_prompt_only_schema_has_no_answer_fields():
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    assert build_self_summary_schema({"content": [
+        {"type": "prompt", "items": [{"id": "fake", "kind": "rating"}]},
+        {"type": "rating", "items": [{"id": "notice", "kind": "prompt", "settings": {"required": True}}]},
+    ]}) == []
 
 
 @pytest.mark.asyncio

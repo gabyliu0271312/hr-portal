@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -91,11 +92,42 @@ def _content_id(content: dict) -> str:
     return str(content.get("content_id") or content.get("id") or f"{content.get('type', 'custom')}-{content.get('name', '')}")
 
 
+def _normalize_prompt(value: object, node_id: str | None = None) -> dict:
+    if not isinstance(value, dict):
+        raise TemplateWorkflowValidationError("提示配置不合法", node_id=node_id)
+    prompt = deepcopy(value)
+    text = prompt.get("content")
+    if not isinstance(text, str) or not text.strip() or len(text.strip()) > 2000:
+        raise TemplateWorkflowValidationError("提示内容不能为空且最多 2000 个字符", node_id=node_id)
+    title = prompt.get("title", "")
+    if not isinstance(title, str):
+        raise TemplateWorkflowValidationError("提示标题不合法", node_id=node_id)
+    if prompt.get("scope") not in ("all", "cycle"):
+        raise TemplateWorkflowValidationError("提示适用范围不合法", node_id=node_id)
+    color = prompt.get("color")
+    if not isinstance(color, str) or not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", color):
+        raise TemplateWorkflowValidationError("提示颜色不合法", node_id=node_id)
+    prompt.update(title=title, content=text.strip())
+    return prompt
+
+
+def _normalize_content(raw: dict, node_id: str | None = None) -> dict:
+    content = deepcopy(raw)
+    if content.get("type") == "prompt":
+        content["prompt"] = _normalize_prompt(content.get("prompt"), node_id)
+        content.update(items=[], name=content["prompt"]["title"] or "提示", description="")
+    else:
+        for item in content.get("items") or []:
+            if item.get("kind") == "prompt":
+                item["prompt"] = _normalize_prompt(item.get("prompt"), node_id)
+    return content
+
+
 def normalize_content_library(contents: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     seen_ids: set[str] = set()
     for index, raw in enumerate(contents):
-        content = deepcopy(raw)
+        content = _normalize_content(raw)
         base_id = _content_id(content)
         content_id = base_id
         suffix = index + 1
@@ -112,7 +144,7 @@ def normalize_content_library(contents: list[dict]) -> list[dict]:
 def _merge_content_library(library: list[dict], contents: list[dict]) -> list[dict]:
     merged = {content["content_id"]: content for content in normalize_content_library(library)}
     for raw in contents:
-        content = deepcopy(raw)
+        content = _normalize_content(raw)
         content["content_id"] = _content_id(content)
         content.pop("content_slot", None)
         merged.setdefault(content["content_id"], content)
@@ -223,7 +255,7 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
             }
         )
         if node.get("content") is not None:
-            normalized[-1]["content"] = deepcopy(node["content"])
+            normalized[-1]["content"] = [_normalize_content(content, node_id) for content in node["content"]]
 
         if node_type == "result_reconsideration":
             try:
@@ -283,8 +315,8 @@ def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> No
     allowed_ids = set()
     for content_id in fill_ids:
         content = fill_contents.get(content_id, contents_by_id.get(content_id))
-        if content and any(
-            (item.get("settings") or {}).get("mode") != "hidden"
+        if content and content.get("type") != "prompt" and any(
+            item.get("kind") != "prompt" and (item.get("settings") or {}).get("mode") != "hidden"
             for item in content.get("items") or []
         ):
             allowed_ids.add(content_id)
@@ -305,10 +337,15 @@ def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> No
     for node in nodes:
         if node["node_type"] != "result_view":
             continue
-        view_ids = set(node["content_bindings"].get("view") or []) | {
+        local_prompt_ids = {
             _content_id(content)
             for content in node.get("content") or []
-            if content.get("content_slot") == "view"
+            if content.get("content_slot") == "view" and content.get("type") == "prompt"
+        }
+        view_ids = (set(node["content_bindings"].get("view") or []) - local_prompt_ids) | {
+            _content_id(content)
+            for content in node.get("content") or []
+            if content.get("content_slot") == "view" and content.get("type") != "prompt"
         }
         if not view_ids.issubset(allowed_ids):
             raise TemplateWorkflowValidationError(

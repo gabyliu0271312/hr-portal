@@ -8,7 +8,7 @@ import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSett
 import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
-import { getItemSettingsVariant, getStageContentRule, itemSettingsCapabilities } from './performanceContentSettingsRules'
+import { getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationView } from './performanceContentSettingsRules'
 
 const content = {
   id: 'content-1',
@@ -28,6 +28,30 @@ describe('PerformanceConfiguredContentBlock', () => {
   afterEach(() => {
     document.body.innerHTML = ''
   })
+
+  it('renders prompt blocks without root or item settings', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'prompt', name: '提示块', prompt: { title: '操作提示', content: '请先确认范围', color: '#3370ff', scope: 'all' }, items: [] } as any,
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: {}, rootSettingsEnabled: true, itemSettingsEnabled: true,
+      rootSettingsVariant: 'work-summary-root', itemSettingsVariant: 'work-summary-item',
+    } })
+    expect(wrapper.find('.performance-prompt-display__title').text()).toBe('操作提示')
+    expect(wrapper.find('.performance-prompt-display__content').text()).toBe('请先确认范围')
+    expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+  })
+
+  it('keeps rating fill items on custom settings while legacy rating items use rating settings', () => {
+    expect(getItemSettingsVariant({ type: 'rating' }, { kind: 'fill', questionType: 'tag' })).toBe('custom-tag')
+    expect(getItemSettingsVariant({ type: 'rating' }, { kind: 'fill', questionType: 'text' })).toBe('custom-text')
+    expect(getItemSettingsVariant({ type: 'rating' }, { kind: 'rating' })).toBe('rating')
+    expect(getItemSettingsVariant({ type: 'prompt' }, undefined)).toBe('prompt')
+    expect(getRootSettingsCapabilities({ type: 'prompt', items: [] })).toEqual({ allowMultiple: false, allowUnknown: false })
+    expect(supportsEvaluationView({ type: 'prompt' }, { kind: 'prompt' })).toBe(false)
+  })
+
 
   it('starts work-summary item settings with fill settings and preserves the root flow', async () => {
     const wrapper = mount(PerformanceConfiguredContentBlock, {

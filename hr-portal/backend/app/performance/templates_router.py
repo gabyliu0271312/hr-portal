@@ -13,7 +13,6 @@ from sqlalchemy.exc import IntegrityError
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, require_performance_permission
 from app.performance.models import PerformanceAuditEvent, PerformanceMetricType, PerformanceReviewRule, PerformanceTemplate, PerformanceTemplateWorkflow
-from app.performance.self_summary_service import build_content_preview_schema, resolve_self_summary_content
 from app.performance.template_workflow_service import (
     PerformanceTemplateWorkflowService,
     TemplateWorkflowValidationError,
@@ -50,16 +49,6 @@ class WorkflowNode(BaseModel):
     executor_config: dict | None = None
     content_bindings: dict[str, list[str]] | None = None
     content: list[dict] | None = Field(default=None, max_length=100)
-
-
-class ContentPreviewRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    node: WorkflowNode
-
-
-class ContentPreviewResponse(BaseModel):
-    form_schema: list[dict]
-    answers: dict = Field(default_factory=dict)
 
 
 class WorkflowUpdate(BaseModel):
@@ -443,37 +432,6 @@ async def get_template_workflow(
     service = PerformanceTemplateWorkflowService(db)
     nodes, cycle_count, project_count = await service.get_nodes(template_id)
     return _response(template_id, nodes, cycle_count, project_count, await service.get_content_library(template_id))
-
-
-@router.post("/{template_id}/content-preview", response_model=ContentPreviewResponse)
-async def preview_template_content(
-    template_id: int,
-    payload: ContentPreviewRequest,
-    _: PerformanceAccessContext = Depends(
-        require_performance_permission("performance.configuration.manage")
-    ),
-    db: AsyncSession = Depends(get_session),
-):
-    template = await db.get(PerformanceTemplate, template_id)
-    if template is None:
-        raise HTTPException(status_code=404, detail={"code": "TEMPLATE_NOT_FOUND", "message": "绩效模板不存在"})
-    service = PerformanceTemplateWorkflowService(db)
-    nodes, _, _ = await service.get_nodes(template_id)
-    existing = next((node for node in nodes if node.get("node_id") == payload.node.node_id), None)
-    if existing is None or existing.get("node_type") != payload.node.node_type:
-        raise HTTPException(status_code=404, detail={"code": "TEMPLATE_NODE_NOT_FOUND", "message": "模板节点不存在"})
-    node = payload.node.model_dump(exclude_unset=True)
-    library = await service.get_content_library(template_id)
-    allowed_content_ids = {str(content.get("content_id") or content.get("id")) for content in library}
-    allowed_content_ids.update(str(content.get("content_id") or content.get("id")) for content in node.get("content") or [])
-    node_ids = {item["node_id"] for item in nodes}
-    if any(str(content_id) not in allowed_content_ids for ids in (node.get("content_bindings") or {}).values() for content_id in ids) or any(
-        content.get("reference_kind") == "node" and content.get("reference_value") not in node_ids
-        for content in node.get("content") or []
-    ):
-        raise HTTPException(status_code=422, detail={"code": "TEMPLATE_CONTENT_REFERENCE_INVALID", "message": "内容引用不属于当前模板"})
-    node = resolve_self_summary_content(node, library)
-    return ContentPreviewResponse(form_schema=build_content_preview_schema(node))
 
 
 @router.patch("/{template_id}/workflow", response_model=WorkflowResponse)

@@ -49,6 +49,32 @@ describe('performance content shared primitives', () => {
     expect(item.classes()).toContain('content-renderer-item--selected')
     expect(item.classes()).toContain('content-renderer-item--interactive')
   })
+  it('renders mixed rating, fill, and prompt items in source order', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: {
+      type: 'rating', options: [{ id: 'a', label: '符合预期' }], items: [
+        { id: 'rating', label: '评级题' },
+        { id: 'fill', kind: 'fill', label: '补充说明', questionType: 'text', hint: '请输入补充说明' },
+        { id: 'prompt', kind: 'prompt', label: '不应重复的题头', prompt: { title: '提示标题', content: '提示内容', color: '#3370ff', scope: 'all' } },
+      ],
+    } as any } })
+    expect(wrapper.findAll('[data-content-item-id]').map(item => item.attributes('data-content-item-id'))).toEqual(['rating', 'fill', 'prompt'])
+    expect(wrapper.findAll('.content-renderer-rating')).toHaveLength(1)
+    expect(wrapper.find('.content-renderer-item--name-hidden').exists()).toBe(false)
+    expect(wrapper.get('.performance-prompt-display__title').text()).toBe('提示标题')
+    expect(wrapper.get('.performance-prompt-display__content').text()).toBe('提示内容')
+    expect(wrapper.find('.content-renderer-prompt .performance-assessment-rich-text-field').exists()).toBe(false)
+  })
+
+  it('renders a top-level prompt without exposing item settings', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: {
+      type: 'prompt', prompt: { title: '环节提示', content: '请关注重点', color: '#ff0000', scope: 'cycle' }, items: [],
+    } as any } })
+    expect(wrapper.get('.performance-prompt-display__title').text()).toBe('环节提示')
+    expect(wrapper.get('.performance-prompt-display__content').text()).toBe('请关注重点')
+    expect(wrapper.find('[data-content-item-id]').exists()).toBe(false)
+  })
+
+
   it('uses item required settings for text items regardless of content type', async () => {
     const custom = { type: 'custom' as const, name: '文本型填写题', description: '', items: [{ id: 'text-item', label: '填写题名称', richText: '' }] }
     const wrapper = mount(PerformanceContentRenderer, { props: { content: custom, interactive: true, itemSettings: { 'text-item': { mode: 'fill', required: true } } } })

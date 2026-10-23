@@ -75,31 +75,21 @@
               <PerformanceRepeatableFillItemList :items="workSummaryItems" :invalid="submitted" @add="addWorkSummaryItem" @remove="removeWorkSummaryItem" @reorder="reorderWorkSummary" @drag-start="startSummarySort" @drag-end="finishSummarySort" @drag-cancel="cancelSummarySort" />
             </template>
 
-            <template v-else-if="activeType === 'custom'">
-              <PerformanceRepeatableFillItemList v-model:items="items" :invalid="submitted" show-question-type :tag-options="tagOptions" @add="addCustomFillItem" @remove="removeCustomItem" @reorder="reorderCustomItems" @drag-start="startCustomSort" @drag-end="finishCustomSort" @drag-cancel="cancelCustomSort" />
+            <template v-else-if="activeType === 'custom' || activeType === 'rating'">
+              <PerformanceRepeatableFillItemList v-model:items="items" :invalid="submitted" :mixed="true" :show-question-type="true" :tag-options="tagOptions" :rating-options="ratingOptions" @add="addMixedItem" @remove="removeCustomItem" @reorder="reorderCustomItems" @drag-start="startCustomSort" @drag-end="finishCustomSort" @drag-cancel="cancelCustomSort" />
             </template>
-
-            <div v-else class="config-box">
-              <div class="config-box__heading">评估项</div>
-              <PerformanceAssessmentSelect class="inside-select" label="评估项" required placeholder="请选择" :options="ratingOptions" :model-value="draft.ratingOptionId" :invalid="submitted && !selectedRating && !items.length" empty-text="暂无评估项" @update:model-value="selectRatingOption" />
-            </div>
-            <div v-if="activeType==='rating'" class="add-area"><button class="add-button" type="button" @click="addItem"><Plus /> 添加</button></div>
           </div>
 
           <div class="preview-pane">
             <span class="preview-label">预览</span>
             <PerformanceAssessmentPreviewHeader class="preview-root-header" heading-tag="h3" :name="draft.name.trim() || '未命名名称'" :description="draft.description" />
-            <div v-if="activeType==='rating' && selectedRating" class="rating-preview">
-              <strong>{{ selectedRating.label }}</strong>
-              <PerformanceRatingControl :options="ratingPreviewOptions" :display-mode="selectedRating.displayMode" :interactive="false" :aria-label="`${selectedRating.displayMode || '标签样式'}预览`" />
-            </div>
-            <template v-else-if="activeType==='custom'">
-              <div v-for="item in items" :key="`preview-${item.id}`">
-                <div v-if="item.questionType==='tag'" class="tag-preview">
-                  <PerformanceTemplateFieldRenderer mode="edit" :editable="true" :field="tagPreviewField(item)" :label="tagPreviewField(item).label" :value="tagPreviewValue(item)" @update:value="value => updateTagPreview(item, value)" />
-                </div>
+            <template v-if="activeType==='rating' || activeType==='custom'">
+              <template v-for="item in items" :key="`preview-${item.id}`">
+                <div v-if="item.kind === 'prompt' && item.prompt" class="prompt-preview"><PerformancePromptDisplay :value="item.prompt" /></div>
+                <div v-else-if="item.kind === 'rating'" class="rating-preview"><strong>{{ item.label || '未命名评估项' }}</strong><PerformanceRatingControl :options="ratingItemOptions(item)" :display-mode="ratingItemDisplayMode(item)" :interactive="false" :aria-label="`${item.label || '评估项'}预览`" /></div>
+                <div v-else-if="item.questionType==='tag'" class="tag-preview"><PerformanceTemplateFieldRenderer mode="edit" :editable="true" :field="tagPreviewField(item)" :label="tagPreviewField(item).label" :value="tagPreviewValue(item)" @update:value="value => updateTagPreview(item, value)" /></div>
                 <div v-else class="text-preview"><strong>{{ item.label.trim() || '未命名填写题' }}</strong><PerformanceRichTextEditor v-model="item.richText" :placeholder="item.hint || '请输入内容'" /></div>
-              </div>
+              </template>
             </template>
             <template v-else-if="activeType==='work_summary'">
               <div v-for="item in workSummaryItems" :key="`preview-${item.id}`" class="text-preview"><strong>{{ item.label.trim() || '未命名填写题' }}</strong><PerformanceRichTextEditor :key="`editor-${item.id}`" v-model="item.richText" :placeholder="item.hint || '请输入内容'" /></div>
@@ -118,17 +108,16 @@ import { computed, defineComponent, h, nextTick, onBeforeUnmount, reactive, ref,
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
-import type { PerformanceTemplateField } from '@/api/performance'
-import { ArrowDown, ArrowUp, CircleCheckFilled, Close, Delete, Edit, Plus } from '@element-plus/icons-vue'
+import type { PerformancePromptValue, PerformanceTemplateContentItem, PerformanceTemplateField } from '@/api/performance'
+import { ArrowDown, ArrowUp, CircleCheckFilled, Close, Edit, Plus } from '@element-plus/icons-vue'
 import { ElEmpty } from 'element-plus'
 import PerformanceAssessmentEditorModal from './PerformanceAssessmentEditorModal.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceRepeatableFillItemList from './PerformanceRepeatableFillItemList.vue'
 import PerformanceFormField from './PerformanceFormField.vue'
-import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
+import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import PerformanceSwitch from './PerformanceSwitch.vue'
-import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceContentOptionCard from './PerformanceContentOptionCard.vue'
@@ -137,9 +126,9 @@ export type AssessmentContentType = 'work_summary' | 'rating' | 'custom'
 export interface AssessmentOption { id:string; label:string; description?:string; disabled?:boolean; disabledReason?:string; levels?:string[]; levelOptions?:Array<{id:string;label:string;color?:string}>; displayMode?:'标签样式'|'下拉样式' }
 export interface AssessmentTagField { label:string; content:string }
 export interface AssessmentTagOption extends AssessmentOption { defaultFields?:AssessmentTagField[] }
-export interface AssessmentContentDraft { type:AssessmentContentType; name:string; description:string; items:Array<{id:string;label:string;hint:string;richText?:string;questionType?:'text'|'tag';tagOptionId?:string;defaultAll?:boolean;settings?:{mode?:'fill'|'hidden'|'view';required?:boolean;hideName?:boolean;hideDescription?:boolean;allowView?:boolean;allowMultiple?:boolean;levelRulesEnabled?:boolean};options?:Array<{id:string;label:string;placeholder?:string;color?:string}>}>; id?:string; content_id?:string; content_slot?:'fill'|'reference'|'adjustment'|'view'; settings?:{hideDescription?:boolean;allowMultiple?:boolean;allowUnknown?:boolean;mode?:string;required?:boolean}; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
+export interface AssessmentContentDraft { type:AssessmentContentType|'prompt'; name:string; description:string; items:Array<PerformanceTemplateContentItem>; prompt?:PerformancePromptValue; id?:string; content_id?:string; content_slot?:'fill'|'reference'|'adjustment'|'view'; settings?:{hideDescription?:boolean;allowMultiple?:boolean;allowUnknown?:boolean;mode?:string;required?:boolean}; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
 interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
-interface FillItem { id:string; label:string; hint:string; richText?:string; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
+interface FillItem { id:string; label:string; hint:string; richText?:string; kind?:'rating'|'fill'|'prompt'; prompt?:PerformancePromptValue; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
 
 const props=withDefaults(defineProps<{open:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
@@ -165,12 +154,11 @@ const drawerContents=computed(()=>{
 const workSummaryItems=ref<WorkSummaryItem[]>([])
 const draft=reactive({name:'',description:'',itemName:'',hint:'',richText:'',ratingOptionId:'',questionType:'text' as 'text'|'tag',tagOptionId:'',defaultAll:false})
 let idCounter=0,contentCounter=0,successTimer:ReturnType<typeof setTimeout>|null=null
-const nextId=()=>`assessment-content-${++idCounter}`
+const nextId=()=>{let id:string;do{id=`assessment-content-${++idCounter}`}while([...items.value,...workSummaryItems.value,...drawerContents.value.flatMap(content=>content.items)].some(item=>item.id===id));return id}
 const nextContentId=()=>`content-${Date.now()}-${++contentCounter}`
 const activeLabel=computed(()=>({work_summary:'工作总结',rating:'评分评级',custom:'自定义'} as const)[activeType.value!]||'')
-const selectedRating=computed(()=>props.ratingOptions.find(item=>item.id===draft.ratingOptionId)||null)
-const selectedTag=computed(()=>props.tagOptions.find(item=>item.id===draft.tagOptionId)||null)
-const ratingPreviewOptions=computed(()=> selectedRating.value?.levelOptions || (selectedRating.value?.levels || []).map((level,index)=>({id:`rating-preview-${index}`,label:level})))
+function ratingItemOptions(item:FillItem){if(item.options!==undefined)return item.options;const option=props.ratingOptions.find(candidate=>candidate.id===item.ratingOptionId||candidate.id===item.id);return option?.levelOptions||(option?.levels||[]).map((label,index)=>({id:`${option?.id||item.id}-${index}`,label}))}
+function ratingItemDisplayMode(item:FillItem){return item.ratingDisplayMode||props.ratingOptions.find(candidate=>candidate.id===item.ratingOptionId||candidate.id===item.id)?.displayMode||'标签样式'}
 function normalizeTagItem(item:FillItem){
   const source=props.tagOptions.find(option=>option.id===item.tagOptionId)
   return {...item,label:item.label?.trim()?item.label:source?.label||'标签型填写题',hint:item.hint??source?.description??'',options:item.options!==undefined?item.options.map(option=>({...option,placeholder:option.placeholder??source?.defaultFields?.find(field=>field.label===option.label)?.content??''})):source?.defaultFields?.map((field,index)=>({id:`${item.tagOptionId}-${index}`,label:field.label,placeholder:field.content}))}
@@ -221,12 +209,14 @@ function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{
   resetDraft(); editingCreatedId.value=content?(content.content_id||content.id):null; activeType.value=type
   if(content){
     Object.assign(draft,{name:content.name,description:content.description,ratingOptionId:content.ratingOptionId||(type==='rating'?content.items[0]?.id||'':''),questionType:content.questionType||'text',tagOptionId:content.tagOptionId||'',defaultAll:!!content.defaultAll})
-    if(type==='work_summary' || type==='custom') {
+    if(type==='work_summary' || type==='custom' || type==='rating') {
       const fillItems=content.items.length?content.items:[{id:nextId(),label:'',hint:'',richText:''}]
-      const targetItems=fillItems.map(item=>JSON.parse(JSON.stringify({...item,richText:item.richText||'',questionType:item.questionType||content.questionType||'text',tagOptionId:item.tagOptionId??content.tagOptionId,defaultAll:item.defaultAll??content.defaultAll,options:item.options??content.options})))
+      const targetItems=fillItems.map(item=>JSON.parse(JSON.stringify({...item,kind:item.kind||(type==='rating'?'rating':'fill'),ratingOptionId:item.kind==='rating'||(type==='rating'&&!item.kind)?(item as FillItem).ratingOptionId||content.ratingOptionId||item.id:undefined,ratingDisplayMode:item.ratingDisplayMode||(type==='rating'&&item.kind!=='fill'&&item.kind!=='prompt'?content.ratingDisplayMode:undefined),richText:item.richText||'',questionType:item.questionType||content.questionType||'text',tagOptionId:item.tagOptionId??content.tagOptionId,defaultAll:item.defaultAll??content.defaultAll,options:item.options??(item.kind==='fill'&&type==='rating'?undefined:content.options)})))
       if(type==='work_summary') workSummaryItems.value=targetItems
       else items.value=targetItems
     } else if(type==='rating') items.value=[]
+  } else if(type==='rating') {
+    items.value.push(createRatingItem())
   } else if(type==='work_summary') {
     workSummaryItems.value.push(createWorkSummaryItem())
   } else if(type==='custom') {
@@ -237,15 +227,13 @@ function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{
 function closeModal(){activeType.value=null;editingCreatedId.value=null;resetDraft();void nextTick(()=>drawerRef.value?.focus())}
 function toggleExpanded(id:string){const next=new Set(expandedIds.value);next.has(id)?next.delete(id):next.add(id);expandedIds.value=next}
 function toggleAllExpanded(){expandedIds.value=allExpanded.value?new Set():new Set(created.value.map(item=>item.id))}
-function editCreated(content:AssessmentContentDraft&{id:string}){openModal(content.type,content)}
-defineExpose({ openEditor: (content: AssessmentContentDraft & { id: string }) => openModal(content.type, content) })
-function selectRatingOption(value:string){draft.ratingOptionId=value;items.value=[];submitted.value=false;itemSubmitted.value=false}
+function editCreated(content:AssessmentContentDraft&{id:string}){if(content.type==='prompt')return;openModal(content.type,content)}
+defineExpose({ openEditor: (content: AssessmentContentDraft & { id: string }) => { if(content.type!=='prompt')openModal(content.type, content) } })
 function addWorkSummaryItem(){workSummaryItems.value.push(createWorkSummaryItem())}
-function createCustomFillItem():FillItem{return{id:nextId(),label:'',hint:'',richText:'',questionType:'text',tagOptionId:'',defaultAll:false}}
-function addCustomFillItem(){items.value.push(createCustomFillItem())}
-function addItem(){
-  if(activeType.value==='rating'){if(!selectedRating.value){itemSubmitted.value=true;return}items.value=[{id:selectedRating.value.id,label:selectedRating.value.label,hint:''}];itemSubmitted.value=false}
-}
+function createCustomFillItem():FillItem{return{id:nextId(),label:'',hint:'',richText:'',kind:'fill',questionType:'text',tagOptionId:'',defaultAll:false}}
+function createPromptItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'prompt',prompt:{title:'',content:'',color:'#3B82F6',scope:'all'}}}
+function createRatingItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'rating',ratingOptionId:''}}
+function addMixedItem(kind:'fill'|'prompt'='fill'){items.value.push(kind==='prompt'?createPromptItem():createCustomFillItem())}
 function createWorkSummaryItem():WorkSummaryItem{return{id:nextId(),label:'',hint:'',richText:''}}
 function removeCustomItem(indexOrId:number|string){items.value=typeof indexOrId==='number'?items.value.filter((_,itemIndex)=>itemIndex!==indexOrId):items.value.filter(item=>item.id!==indexOrId);itemSubmitted.value=false}
 function removeWorkSummaryItem(index:number){if(activeType.value!=='work_summary'||workSummaryItems.value.length<2)return;workSummaryItems.value.splice(index,1)}
@@ -266,26 +254,22 @@ function startCustomSort(index:number){draggedIndex.value=index}
 function finishCustomSort(){draggedIndex.value=null}
 function cancelCustomSort(){draggedIndex.value=null}
 function validItem(){
-  if(activeType.value==='rating')return!!selectedRating.value
   if(activeType.value==='work_summary')return workSummaryItems.value.length>0&&workSummaryItems.value.every(item=>!!item.label.trim())
-  return items.value.length>0&&items.value.every(item=>item.questionType==='tag'?!!item.tagOptionId:!!item.label.trim())
+  return items.value.length>0&&items.value.every(item=>item.kind==='prompt'?!!item.prompt?.content?.trim()&&item.prompt.content.length<=2000:item.kind==='rating'?!!item.ratingOptionId:item.questionType==='tag'?!!item.tagOptionId:!!item.label.trim())
 }
 function confirmContent(){
   submitted.value=true;if(!activeType.value||!draft.name.trim()||!validItem())return
-  const ratingItem=selectedRating.value?{id:selectedRating.value.id,label:selectedRating.value.label,hint:''}:null
   const finalItems:AssessmentContentDraft['items']=activeType.value==='work_summary'
-    ? workSummaryItems.value.map(({id,label,hint,richText})=>({id,label:label.trim(),hint:hint.trim(),richText}))
-    : activeType.value==='custom'
-      ? items.value.map(item=>{const normalized=item.questionType==='tag'?normalizeTagItem(item):item;return{...normalized,label:normalized.label.trim(),hint:(normalized.hint??'').trim()}})
-      : activeType.value==='rating'&&ratingItem?[ratingItem]:[...items.value]
+    ? workSummaryItems.value.map(({id,label,hint,richText})=>({id,label:label.trim(),hint:hint.trim(),richText,kind:'fill' as const}))
+    : items.value.map(item=>{const normalized=item.questionType==='tag'?normalizeTagItem(item):item;return{...normalized,label:normalized.label.trim(),hint:(normalized.hint??'').trim()}})
   const existing=editingCreatedId.value?drawerContents.value.find(item=>contentKey(item)===editingCreatedId.value):undefined
-  const ratingLevels=selectedRating.value?.levelOptions||(selectedRating.value?.levels||[]).map((label,index)=>({id:`${selectedRating.value!.id}-${index}`,label}))
-  const preservedItems=finalItems.map(item=>{
-    const previous=existing?.items.find(value=>value.id===item.id)
-    return activeType.value==='rating' && previous?{...item,...previous}:{...previous,...item}
-  })
-  const sameRating=existing?.ratingOptionId===selectedRating.value?.id
-  const nextContent={...existing,type:activeType.value,name:draft.name.trim(),description:draft.description.trim(),items:preservedItems,ratingOptionId:activeType.value==='rating'?selectedRating.value?.id:undefined,ratingDisplayMode:activeType.value==='rating'?((sameRating?existing?.ratingDisplayMode:selectedRating.value?.displayMode)||'标签样式'):undefined,questionType:undefined,tagOptionId:undefined,defaultAll:undefined,options:activeType.value==='rating'?(sameRating?existing?.options??ratingLevels:ratingLevels):existing?.options}
+  const preservedItems=finalItems.map(item=>({...existing?.items.find(value=>value.id===item.id),...item}))
+  const ratingItem=preservedItems.find(item=>item.kind==='rating')
+  const ratingOptionId=ratingItem?.ratingOptionId
+  const ratingLevels=ratingItem?ratingItemOptions(ratingItem):[]
+  const option=props.ratingOptions.find(candidate=>candidate.id===ratingOptionId)
+  const sameRating=existing?.ratingOptionId===ratingOptionId
+  const nextContent={...existing,type:activeType.value,name:draft.name.trim(),description:draft.description.trim(),items:preservedItems,ratingOptionId,ratingDisplayMode:activeType.value==='rating'?(sameRating?existing?.ratingDisplayMode||option?.displayMode:option?.displayMode):undefined,questionType:undefined,tagOptionId:undefined,defaultAll:undefined,options:activeType.value==='rating'?(sameRating?existing?.options??ratingLevels:ratingLevels):existing?.options}
   if(editingCreatedId.value){const id=editingCreatedId.value;const saved={...nextContent,id,content_id:existing?.content_id||id};const index=created.value.findIndex(item=>contentKey(item)===id);if(index>=0)created.value[index]=saved;else created.value.push(saved)}
   else {const contentId=nextContentId();created.value.push({id:contentId,content_id:contentId,...nextContent})}
   activeType.value=null;editingCreatedId.value=null;resetDraft();success.value=true;if(successTimer)clearTimeout(successTimer);successTimer=setTimeout(()=>success.value=false,2200);void nextTick(()=>drawerRef.value?.focus())

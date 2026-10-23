@@ -1080,17 +1080,24 @@ export const performanceTemplateApi = {
     const { data } = await api.get<PerformanceWorkflowResponse>(`/performance/templates/${id}/workflow`)
     return data
   },
-  async previewContent(id: number, node: PerformanceWorkflowNode): Promise<{ form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }> {
-    const { data } = await api.post<{ form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>(`/performance/templates/${id}/content-preview`, { node })
-    return data
-  },
   async updateWorkflow(id: number, payload: { nodes: PerformanceWorkflowNode[]; content_library?: PerformanceTemplateContent[] }): Promise<PerformanceWorkflowResponse> {
     const { data } = await api.patch<PerformanceWorkflowResponse>(`/performance/templates/${id}/workflow`, payload)
     return data
   },
 }
 
+export interface PerformancePromptValue {
+  title: string
+  content: string
+  color: string
+  scope: 'all' | 'cycle'
+}
+
 export interface PerformanceTemplateContentItem {
+  kind?: 'rating' | 'fill' | 'prompt'
+  prompt?: PerformancePromptValue
+  ratingOptionId?: string
+  ratingDisplayMode?: '标签样式' | '下拉样式'
   id: string
   label: string
   hint: string
@@ -1112,7 +1119,8 @@ export interface PerformanceTemplateContentItem {
 
 export interface PerformanceTemplateContent {
   id?: string
-  type: 'work_summary' | 'rating' | 'custom' | 'reference'
+  type: 'work_summary' | 'rating' | 'custom' | 'reference' | 'prompt'
+  prompt?: PerformancePromptValue
   name: string
   description: string
   items: PerformanceTemplateContentItem[]

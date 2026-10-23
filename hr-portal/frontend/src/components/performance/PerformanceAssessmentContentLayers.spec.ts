@@ -9,6 +9,11 @@ import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer
 import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import optionCardSource from './PerformanceContentOptionCard.vue?raw'
+import PerformancePromptForm from './PerformancePromptForm.vue'
+import PerformancePromptModal from './PerformancePromptModal.vue'
+import PerformanceItemAddMenu from './PerformanceItemAddMenu.vue'
+import addMenuSource from './PerformanceItemAddMenu.vue?raw'
+import promptFormSource from './PerformancePromptForm.vue?raw'
 
 const ratingOptions: AssessmentOption[] = [
   { id: 'duplicate', label: '绩效评级', description: '7档绩效等级', disabled: true, disabledReason: '模板中已存在该评估项', displayMode: '标签样式' },
@@ -73,6 +78,91 @@ function placeCaretInEmptyLeaf(editor: HTMLElement) {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceAssessmentContentLayers', () => {
+  it('shares prompt fields, isolates radio groups and discards modal edits on cancel', async () => {
+    const value = { title: '原标题', content: '原内容', color: '#3B82F6', scope: 'all' as const }
+    const inline = mount(PerformancePromptForm, { props: { modelValue: value, variant: 'inline' } })
+    const other = mount(PerformancePromptForm, { props: { modelValue: value } })
+    expect(inline.findAll('input[type="radio"]').map(input => input.attributes('name'))).not.toContain(other.get('input[type="radio"]').attributes('name'))
+    const modal = mount(PerformancePromptModal, { props: { open: true, initialValue: value }, global: { stubs: { Teleport: true } } })
+    expect(modal.findComponent(PerformancePromptForm).exists()).toBe(true)
+    await modal.get('input[type="text"]').setValue('未保存标题')
+    await modal.findAll('.prompt-modal__footer button')[1].trigger('click')
+    expect(modal.emitted('save')).toBeUndefined()
+    expect(value.title).toBe('原标题')
+    await modal.setProps({ open: false })
+    await modal.setProps({ open: true })
+    expect((modal.get('input[type="text"]').element as HTMLInputElement).value).toBe('原标题')
+    expect(promptFormSource).toContain('width: 100%')
+    inline.unmount(); other.unmount(); modal.unmount()
+  })
+
+  it('uses token-based menu states and supports Escape, arrows and outside dismissal', async () => {
+    const menu = mount(PerformanceItemAddMenu, { global: { stubs: { Teleport: true } }, attachTo: document.body })
+    const trigger = menu.get('button')
+    await trigger.trigger('click')
+    expect(menu.findAll('[role="menuitem"]').map(item => item.text())).toEqual(['填写项', '提示项'])
+    ;(menu.get('[role="menuitem"]').element as HTMLButtonElement).focus()
+    await menu.get('[role="menuitem"]').trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(menu.findAll('[role="menuitem"]')[1].element)
+    await menu.get('[role="menu"]').trigger('keydown', { key: 'Escape' })
+    expect(menu.find('[role="menu"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(trigger.element)
+    await trigger.trigger('click')
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await menu.vm.$nextTick()
+    expect(menu.find('[role="menu"]').exists()).toBe(false)
+    expect(addMenuSource).toContain('background: transparent')
+    expect(addMenuSource).toContain('var(--performance-menu-item-hover-background)')
+    expect(addMenuSource).toContain('<Teleport to="body">')
+    menu.unmount()
+  })
+
+  it.each(['自定义', '评分评级'])('adds shared fill and prompt items to %s and preserves mixed order on edit', async label => {
+    const wrapper = mountLayers()
+    await openType(wrapper, label)
+    await modalInputs(wrapper)[0].setValue('混合内容')
+    if (label === '评分评级') {
+      await wrapper.get('.select-shell > button').trigger('click')
+      await wrapper.findAll('.option-menu [role="option"]')[1].trigger('click')
+    } else {
+      await wrapper.get('.repeatable-fill-item-list input[placeholder="请输入"]').setValue('原填写题')
+    }
+    const add = async (kind: '填写项' | '提示项') => {
+      await wrapper.get('.performance-item-add-menu__trigger').trigger('click')
+      expect(wrapper.findAll('.performance-item-add-menu__menu button').map(button => button.text())).toEqual(['填写项', '提示项'])
+      await wrapper.findAll('.performance-item-add-menu__menu button').find(button => button.text() === kind)!.trigger('click')
+    }
+    await add('填写项')
+    const fills = wrapper.findAll('.repeatable-fill-item-list input[placeholder="请输入"]')
+    await fills.at(-1)!.setValue('新增自定义填写题')
+    expect(wrapper.findAll('.question-type-option input[value="tag"]').length).toBeGreaterThan(0)
+    await add('提示项')
+    expect(wrapper.get('.performance-prompt-form').classes()).toContain('performance-prompt-form--inline')
+    await wrapper.get('.performance-prompt-form input[type="text"]').setValue('共同提示')
+    await wrapper.get('.performance-prompt-form textarea').setValue('请如实填写')
+    const sortable = wrapper.getComponent({ name: 'PerformanceSortableList' })
+    sortable.vm.$emit('reorder', 2, 0)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.preview-pane .prompt-preview')).toHaveLength(1)
+    expect(wrapper.findAll('.saved-item .item-card__title').map(title => title.text())).toEqual(['提示', label === '评分评级' ? '评估项' : '填写项', '填写项'])
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved.items.map((item: any) => item.kind)).toEqual(['prompt', label === '评分评级' ? 'rating' : 'fill', 'fill'])
+    expect(saved.items[0].prompt).toMatchObject({ title: '共同提示', content: '请如实填写', scope: 'all' })
+    if (label === '评分评级') expect(saved.ratingOptionId).toBe('annual')
+    wrapper.unmount()
+    const reopened = mount(PerformanceAssessmentContentLayers, { props: { open: true, initialContents: [saved], ratingOptions, tagOptions }, global: { stubs: { Teleport: true } } })
+    ;(reopened.vm as any).openEditor(saved)
+    await reopened.vm.$nextTick()
+    expect(reopened.findAll('.saved-item .item-card__title').map(title => title.text())).toEqual(['提示', label === '评分评级' ? '评估项' : '填写项', '填写项'])
+    expect((reopened.get('.performance-prompt-form textarea').element as HTMLTextAreaElement).value).toBe('请如实填写')
+    await reopened.get('.modal-footer .button--primary').trigger('click')
+    await reopened.get('.drawer-footer .button--primary').trigger('click')
+    expect((reopened.emitted('confirm')![0][0] as any[])[0].items.map((item: any) => item.id)).toEqual(saved.items.map((item: any) => item.id))
+    reopened.unmount()
+  })
+
   it('keeps unavailable contents disabled with the shared reason popover and blocks forged changes', async () => {
     const content = { id: 'allowed', content_id: 'allowed', type: 'custom' as const, name: '终评内容', description: '', items: [{ id: 'i', label: '意见', hint: '' }] }
     const reason = '仅可选择终评环节执行人「直属上级」填写的内容'
@@ -203,7 +293,6 @@ describe('PerformanceAssessmentContentLayers', () => {
     await modalInputs(wrapper)[0].setValue('评级内容')
     await wrapper.get('.select-shell > button').trigger('click')
     await wrapper.findAll('.option-menu [role="option"]')[1].trigger('click')
-    await wrapper.get('.add-button').trigger('click')
     expect(wrapper.get('.select-shell > button').text()).toContain('年度综合评级')
 
     await wrapper.get('.select-shell > button').trigger('click')
@@ -214,7 +303,8 @@ describe('PerformanceAssessmentContentLayers', () => {
     const contents = wrapper.emitted('confirm')?.[0]?.[0] as Array<{ ratingOptionId?: string; ratingDisplayMode?: string; items: Array<{ id: string; label: string }>; options?: Array<{ label: string }> }>
     expect(contents[0].ratingOptionId).toBe('dropdown')
     expect(contents[0].ratingDisplayMode).toBe('下拉样式')
-    expect(contents[0].items).toEqual([{ id: 'dropdown', label: '季度评级', hint: '' }])
+    expect(contents[0].items).toHaveLength(1)
+    expect(contents[0].items[0]).toMatchObject({ kind: 'rating', ratingOptionId: 'dropdown', label: '季度评级', hint: '' })
     expect(contents[0].options?.map(option => option.label)).toEqual(['优秀', '良好', '待改进'])
   })
 
@@ -462,7 +552,8 @@ describe('PerformanceAssessmentContentLayers', () => {
     const list = wrapper.get('.repeatable-fill-item-list')
     expect(list.findAll('.saved-item')).toHaveLength(1)
     await list.find('input[placeholder="请输入"]').setValue('第一个填写项')
-    await wrapper.get('.add-button').trigger('click')
+    await wrapper.get('.performance-item-add-menu__trigger').trigger('click')
+    await wrapper.get('.performance-item-add-menu__menu button').trigger('click')
 
     expect(wrapper.findAll('.repeatable-fill-item-list .saved-item')).toHaveLength(2)
     expect(wrapper.findAll('.repeatable-fill-item-list .performance-drag-handle')).toHaveLength(2)
@@ -537,7 +628,8 @@ describe('PerformanceAssessmentContentLayers', () => {
     const tagList = wrapper.get('.repeatable-fill-item-list')
     await tagList.get('.select-shell > button').trigger('click')
     await tagList.get('.option-menu [role="option"]').trigger('click')
-    await wrapper.get('.add-button').trigger('click')
+    await wrapper.get('.performance-item-add-menu__trigger').trigger('click')
+    await wrapper.get('.performance-item-add-menu__menu button').trigger('click')
 
     const items = wrapper.findAll('.repeatable-fill-item-list .saved-item')
     expect(items).toHaveLength(2)

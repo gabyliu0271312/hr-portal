@@ -20,7 +20,7 @@
       </div>
     </aside>
 
-    <aside v-if="!employeePreviewOpen" class="text-normal" aria-label="内容设置">
+    <aside class="text-normal" aria-label="内容设置">
       <div class="text-normal__title">内容设置</div>
       <div class="text-normal__divider" aria-hidden="true"></div>
       <div v-if="pageHeadingSelected" class="page-name-settings">
@@ -31,19 +31,8 @@
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
     </aside>
 
-    <ContentSettingsStageRenderer class="content-stage-renderer" :class="{ 'is-employee-preview': employeePreviewOpen }" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
+    <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <div v-if="selectedStageData" class="content-pane">
-        <div v-if="employeePreviewAvailable" class="employee-preview-entry">
-          <PerformanceButton v-if="!employeePreviewOpen && !employeePreviewLoading" class="employee-preview-entry__button" variant="outline-primary" @click="openEmployeePreview">员工视角预览</PerformanceButton>
-          <PerformanceButton v-else class="employee-preview-entry__button" @click="closeEmployeePreview">{{ employeePreviewLoading ? '取消预览' : '返回配置' }}</PerformanceButton>
-          <span v-if="employeePreviewLoading" role="status">加载员工视角预览中…</span>
-        </div>
-        <div v-if="employeePreviewError" class="employee-preview-error" role="alert">{{ employeePreviewError }}</div>
-        <div v-if="employeePreviewOpen" class="employee-preview" aria-label="员工视角预览">
-          <PerformanceTemplateRenderer mode="edit" :title="contentPageName" :sections="employeePreviewSections" :answers="employeePreviewAnswers" :editable="false" />
-          <p v-if="!employeePreviewSections.length" class="employee-preview__empty">暂无员工可见内容</p>
-        </div>
-        <template v-else>
         <section v-if="isResultView" class="result-view-section" aria-label="绩效结果">
           <PerformanceContentSelectionFrame variant="root" :selected="pageHeadingSelected" class="result-view-section__content" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
             <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
@@ -106,7 +95,6 @@
           <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
           <PerformanceReferenceEntryBar class="result-view-reference-entry" label="添加其他参考内容" @select="handleContentAction('add-reference')" />
         </template>
-        </template>
       </div>
       <div v-if="referenceTabEmpty" class="reference-entry-pane">
         <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
@@ -119,15 +107,15 @@
         <ul><li v-for="item in content.items" :key="item.id">{{ item.label }}</li></ul>
       </article>
     </aside>
-    <PerformancePromptModal v-model:open="promptModalOpen" @save="handlePromptSave" />
+    <PerformancePromptModal v-model:open="promptModalOpen" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
     <PerformanceAssessmentContentLayers ref="contentLayerRef" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceTemplateSection, type PerformanceWorkflowNode } from '@/api/performance'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformancePromptValue, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
 import PerformanceTemplateSectionCard from '@/components/performance/PerformanceTemplateSectionCard.vue'
 import PerformanceAssessmentPreviewHeader from '@/components/performance/PerformanceAssessmentPreviewHeader.vue'
@@ -140,9 +128,6 @@ import PerformanceTemplateOperateBar from '@/components/performance/PerformanceT
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
-import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
-import { performanceTemplateInitialAnswers } from '@/components/performance/performanceTemplateAnswers'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
@@ -253,7 +238,7 @@ const finalContents = computed(() => {
       if (content) contents.set(id, content)
     }
   })
-  return [...contents.values()].filter(content => content.type !== 'reference' && content.items?.some(item => item.settings?.mode !== 'hidden'))
+  return [...contents.values()].filter(content => content.type !== 'reference' && content.type !== 'prompt' && content.items?.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden'))
 })
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
@@ -275,6 +260,8 @@ const summaryActions = computed(() => {
   ]
 })
 const promptModalOpen = ref(false)
+const editingPrompt = ref<(AssessmentContentDraft & { id: string }) | null>(null)
+let promptCounter = 0
 const contentDrawerOpen = ref(false)
 const allContentDrawerOpen = ref(false)
 const referenceDrawerOpen = ref(false)
@@ -308,24 +295,28 @@ function selectResultReconsiderationPreview() {
   clearContentSelection()
   resultReconsiderationPreviewSelected.value = true
 }
-watch([selectedStage, activeTab], () => { clearContentSelection(); pageNameError.value = '' })
+watch([selectedStage, activeTab], () => { clearContentSelection(); pageNameError.value = ''; promptModalOpen.value = false; editingPrompt.value = null })
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
 const itemSettings = ref<Record<string, WorkSummaryItemSettings>>({})
 const contentIdentity = (content: PerformanceTemplateContent) => content.content_id || content.id || `${content.type}-${content.name}`
 const cloneContent = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T): T {
   if (content.type !== 'rating') return content
-  const ratingOptionId = content.ratingOptionId || content.items.at(-1)?.id || ''
+  const ratingItems = content.items.filter(item => item.kind === 'rating' || !item.kind)
+  const ratingOptionId = content.ratingOptionId || ratingItems.at(-1)?.id || ''
   const current = ratingOptions.value.find(option => option.id === ratingOptionId)
-  const selected = content.items.find(item => item.id === ratingOptionId) || content.items.at(-1)
+  const selected = ratingItems.find(item => item.id === ratingOptionId) || ratingItems.at(-1)
   const item = selected
     ? { ...selected, label: selected.label ?? current?.label ?? '', hint: selected.hint ?? '' }
-    : current ? { id: current.id, label: current.label, hint: '' } : null
+    : current ? { id: current.id, kind: 'rating' as const, label: current.label, hint: '' } : null
   const options = content.options ?? (current?.levelOptions?.length
     ? cloneContent(current.levelOptions)
     : current?.levels?.map((label, index) => ({ id: `${current.id}-${index}`, label })))
   const ratingDisplayMode = content.ratingDisplayMode || current?.displayMode
-  return { ...content, ratingOptionId, ratingDisplayMode, items: item ? [item] : [], options }
+  const items = content.items.some(value => value.kind)
+    ? content.items.map(value => value === selected && item ? item : value)
+    : item ? [item] : []
+  return { ...content, ratingOptionId, ratingDisplayMode, items, options }
 }
 const configuredCardKey = (content: PerformanceTemplateContent) => `${selectedStage.value || 'stage'}:${activeTab.value}:${contentIdentity(content)}`
 const contentLayerRef = ref<InstanceType<typeof PerformanceAssessmentContentLayers> | null>(null)
@@ -347,7 +338,7 @@ const referenceSelectedValues = computed(() => {
   const contents: PerformanceTemplateContent[] = isResultView.value ? resultReferences.value : configuredContents.value
   return contents.map(content => content.reference_value || content.content_id || content.id || content.name)
 })
-const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => (content.type as string) !== 'reference').map(content => {
+const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => content.type !== 'prompt' && (content.type as string) !== 'reference').map(content => {
   const source = isResultView.value ? finalContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
 }) as Array<AssessmentContentDraft & { id: string }>)
@@ -356,13 +347,6 @@ const activeStageContentRule = computed(() => {
   return selectedStageData.value?.nodeType === 'evaluation' && activeTab.value !== 'fill' ? { ...rule, itemSettingsEnabled: false } : rule
 })
 const configuredSettingsVisible = ref(false)
-const employeePreviewOpen = ref(false)
-const employeePreviewLoading = ref(false)
-const employeePreviewError = ref('')
-const employeePreviewSections = ref<PerformanceTemplateSection[]>([])
-const employeePreviewAnswers = ref<Record<string, unknown>>({})
-const employeePreviewAvailable = computed(() => Boolean(!isResultView.value && props.templateId && selectedWorkflowNode.value && activeTab.value === 'fill'))
-let employeePreviewRequest = 0
 const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && configuredSettingsVisible.value)
 const allowedContentTypes = computed(() => activeStageContentRule.value.allowedContentTypes)
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
@@ -415,7 +399,11 @@ function openAllContentDrawer() {
 }
 function handleContentAction(key: string) {
   syncSelectedStageContents()
-  if (key === 'add-prompt') promptModalOpen.value = true
+  if (key === 'add-prompt') {
+    editingPrompt.value = null
+    promptModalOpen.value = true
+    return
+  }
   if (key === 'add-reference') { referenceDrawerOpen.value = true; return }
   const contentSlot = key === 'add-final-content' ? 'view' : key === 'add-content' ? activeTab.value : null
   if (contentSlot && availableTabs.value.some((tab) => tab.key === contentSlot)) {
@@ -429,7 +417,16 @@ function handleTabChange(tab: string) {
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   setConfiguredContents(node?.content?.filter((content) => (content.content_slot || 'fill') === tab) || [])
 }
-function handlePromptSave() {
+function handlePromptSave(value: PerformancePromptValue) {
+  if (!selectedStage.value || !value.content.trim()) return
+  const id = editingPrompt.value?.id || `prompt-${Date.now()}-${++promptCounter}`
+  const prompt: AssessmentContentDraft & { id: string } = { ...editingPrompt.value, id, type: 'prompt', name: value.title.trim() || '提示', description: '', items: [], prompt: cloneContent(value), content_id: id, content_slot: activeTab.value as PerformanceTemplateContent['content_slot'] }
+  const contents = serializeConfiguredContents()
+  const next = editingPrompt.value ? contents.map(content => contentIdentity(content) === id ? prompt : content) : [...contents, prompt]
+  setConfiguredContents(next)
+  mergeContentLibrary([prompt])
+  const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
+  if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
   promptModalOpen.value = false
 }
 function setConfiguredContents(contents: PerformanceTemplateContent[]) {
@@ -468,10 +465,10 @@ function serializeConfiguredContents(slot = activeTab.value): PerformanceTemplat
     id,
     content_id: content.content_id || id,
     content_slot: slot as PerformanceTemplateContent['content_slot'],
-    settings: activeStageContentRule.value.rootSettingsEnabled ? rootSettingFor(id) : content.settings,
+    settings: content.type !== 'prompt' && activeStageContentRule.value.rootSettingsEnabled ? rootSettingFor(id) : content.settings,
     items: content.items.map(({ settings, ...item }) => ({
       ...item,
-      settings: activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationView(content, item))
+      settings: item.kind !== 'prompt' && activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationView(content, item))
         && (!isResultView.value || (content.type === 'custom' && (item.questionType || content.questionType || 'text') === 'tag'))
         ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, selectedStageData.value?.nodeType === 'evaluation' && slot === 'fill' && supportsEvaluationView(content, item))
         : settings,
@@ -488,36 +485,6 @@ function syncSelectedStageContents() {
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
 }
-function closeEmployeePreview() {
-  employeePreviewRequest += 1
-  employeePreviewOpen.value = false
-  employeePreviewLoading.value = false
-  employeePreviewError.value = ''
-  employeePreviewSections.value = []
-  employeePreviewAnswers.value = {}
-}
-watch([selectedStage, activeTab, () => props.templateId], closeEmployeePreview, { flush: 'sync' })
-onBeforeUnmount(closeEmployeePreview)
-async function openEmployeePreview() {
-  if (!employeePreviewAvailable.value || employeePreviewLoading.value || !selectedWorkflowNode.value || !props.templateId) return
-  const request = ++employeePreviewRequest
-  const node = cloneContent(selectedWorkflowNode.value)
-  replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
-  employeePreviewError.value = ''
-  employeePreviewLoading.value = true
-  try {
-    const preview = await performanceTemplateApi.previewContent(props.templateId, node)
-    if (request !== employeePreviewRequest) return
-    employeePreviewSections.value = preview.form_schema
-    employeePreviewAnswers.value = performanceTemplateInitialAnswers(preview.form_schema, preview.answers)
-    employeePreviewOpen.value = true
-  } catch {
-    if (request !== employeePreviewRequest) return
-    employeePreviewError.value = '员工视角预览加载失败，请稍后重试'
-  } finally {
-    if (request === employeePreviewRequest) employeePreviewLoading.value = false
-  }
-}
 function selectStage(id: string) {
   syncSelectedStageContents()
   selectedStage.value = id
@@ -530,14 +497,21 @@ function selectStage(id: string) {
 function handleContentConfirm(contents: AssessmentContentDraft[]) {
   if (isResultView.value && contents.some(content => !finalContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
   const localContents = serializeConfiguredContents()
-  setConfiguredContents(isResultView.value ? contents.map(content => {
+  const nextContents = isResultView.value ? contents.map(content => {
     const source = finalContents.value.find(item => contentIdentity(item) === contentIdentity(content))!
     const local = localContents.find(item => contentIdentity(item) === contentIdentity(content))
     return { ...source, settings: local?.settings ?? source.settings, items: source.items.map(item => {
       const localItem = local?.items.find(candidate => candidate.id === item.id)
       return { ...item, settings: localItem?.settings ?? item.settings }
     }) }
-  }) : contents as PerformanceTemplateContent[])
+  }) : contents as PerformanceTemplateContent[]
+  const pending = [...nextContents]
+  const ordered: PerformanceTemplateContent[] = []
+  localContents.forEach(content => {
+    if (content.type === 'prompt') ordered.push(content)
+    else if (pending.length) ordered.push(pending.shift()!)
+  })
+  setConfiguredContents([...ordered, ...pending])
   mergeContentLibrary(configuredContents.value)
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
@@ -595,6 +569,11 @@ function removeConfigured(index: number) {
 }
 function editConfigured(content: AssessmentContentDraft & { id: string }) {
   syncSelectedStageContents()
+  if (content.type === 'prompt') {
+    editingPrompt.value = cloneContent(content)
+    promptModalOpen.value = true
+    return
+  }
   contentDrawerOpen.value = true
   if (isResultView.value) return
   void nextTick(() => contentLayerRef.value?.openEditor(content))
@@ -853,11 +832,6 @@ onMounted(async () => {
 .result-view-reference{display:flex;justify-content:space-between;align-items:center;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary)}
 .result-view-reference button{border:0;border-radius:var(--radius-sm);background:transparent;color:var(--performance-button-text-color);font:inherit;cursor:pointer}
 .content-stage-renderer{grid-column:2;grid-row:1}
-.content-stage-renderer.is-employee-preview{grid-column:2 / 4}
-.employee-preview-entry{display:flex;align-items:center;gap:var(--spacing-2);margin:0 0 var(--spacing-3);padding:0 4px}
-.employee-preview-entry span,.employee-preview__empty{color:var(--color-text-secondary);font-size:14px;line-height:22px}
-.employee-preview-error{margin:0 0 var(--spacing-3);padding:var(--spacing-2) var(--spacing-3);border:1px solid var(--color-border-light);border-radius:var(--radius-md);background:var(--color-bg-card);color:var(--performance-field-error-color);font-size:14px;line-height:22px}
-.employee-preview{width:100%;max-width:100%;padding:var(--spacing-4);box-sizing:border-box;border-radius:var(--radius-md);background:var(--color-bg-card)}
 .text-normal {
   grid-column: 3;
   grid-row: 1;
