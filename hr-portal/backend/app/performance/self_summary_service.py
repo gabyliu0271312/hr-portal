@@ -518,19 +518,6 @@ def project_self_summary_answers(schema: list[dict], answers: dict, *, include_r
     return projected
 
 
-def build_content_preview_schema(template: dict) -> list[dict]:
-    if template.get("node_type") != "result_view":
-        return build_self_summary_schema(template)
-    views = [content for content in template.get("content") or [] if content.get("content_slot") == "view"]
-    sources = [{**deepcopy(content), "content_slot": "fill"} for content in views]
-    schema = _project_result_view_schema({"content": sources}, views)
-    for section in schema:
-        for field in section["fields"]:
-            field["readonly"] = True
-            field["required"] = False
-    return schema
-
-
 def self_summary_value_empty(field: dict, value: object) -> bool:
     if field.get("type") == "tag_with_followup":
         if not isinstance(value, dict) or not value.get("tags"):

@@ -20,7 +20,7 @@
       </div>
     </aside>
 
-    <aside v-if="!employeePreviewOpen" class="text-normal" aria-label="内容设置">
+    <aside class="text-normal" aria-label="内容设置">
       <div class="text-normal__title">内容设置</div>
       <div class="text-normal__divider" aria-hidden="true"></div>
       <div v-if="pageHeadingSelected" class="page-name-settings">
@@ -31,19 +31,8 @@
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
     </aside>
 
-    <ContentSettingsStageRenderer class="content-stage-renderer" :class="{ 'is-employee-preview': employeePreviewOpen }" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
+    <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <div v-if="selectedStageData" class="content-pane">
-        <div v-if="employeePreviewAvailable" class="employee-preview-entry">
-          <PerformanceButton v-if="!employeePreviewOpen && !employeePreviewLoading" class="employee-preview-entry__button" variant="outline-primary" @click="openEmployeePreview">员工视角预览</PerformanceButton>
-          <PerformanceButton v-else class="employee-preview-entry__button" @click="closeEmployeePreview">{{ employeePreviewLoading ? '取消预览' : '返回配置' }}</PerformanceButton>
-          <span v-if="employeePreviewLoading" role="status">加载员工视角预览中…</span>
-        </div>
-        <div v-if="employeePreviewError" class="employee-preview-error" role="alert">{{ employeePreviewError }}</div>
-        <div v-if="employeePreviewOpen" class="employee-preview" aria-label="员工视角预览">
-          <PerformanceTemplateRenderer mode="edit" :title="contentPageName" :sections="employeePreviewSections" :answers="employeePreviewAnswers" :editable="false" />
-          <p v-if="!employeePreviewSections.length" class="employee-preview__empty">暂无员工可见内容</p>
-        </div>
-        <template v-else>
         <section v-if="isResultView" class="result-view-section" aria-label="绩效结果">
           <PerformanceContentSelectionFrame variant="root" :selected="pageHeadingSelected" class="result-view-section__content" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
             <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
@@ -106,7 +95,6 @@
           <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
           <PerformanceReferenceEntryBar class="result-view-reference-entry" label="添加其他参考内容" @select="handleContentAction('add-reference')" />
         </template>
-        </template>
       </div>
       <div v-if="referenceTabEmpty" class="reference-entry-pane">
         <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
@@ -126,8 +114,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceTemplateSection, type PerformanceWorkflowNode } from '@/api/performance'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
 import PerformanceTemplateSectionCard from '@/components/performance/PerformanceTemplateSectionCard.vue'
 import PerformanceAssessmentPreviewHeader from '@/components/performance/PerformanceAssessmentPreviewHeader.vue'
@@ -140,9 +128,6 @@ import PerformanceTemplateOperateBar from '@/components/performance/PerformanceT
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
-import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
-import { performanceTemplateInitialAnswers } from '@/components/performance/performanceTemplateAnswers'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
@@ -356,13 +341,6 @@ const activeStageContentRule = computed(() => {
   return selectedStageData.value?.nodeType === 'evaluation' && activeTab.value !== 'fill' ? { ...rule, itemSettingsEnabled: false } : rule
 })
 const configuredSettingsVisible = ref(false)
-const employeePreviewOpen = ref(false)
-const employeePreviewLoading = ref(false)
-const employeePreviewError = ref('')
-const employeePreviewSections = ref<PerformanceTemplateSection[]>([])
-const employeePreviewAnswers = ref<Record<string, unknown>>({})
-const employeePreviewAvailable = computed(() => Boolean(!isResultView.value && props.templateId && selectedWorkflowNode.value && activeTab.value === 'fill'))
-let employeePreviewRequest = 0
 const hasActiveConfiguredSettings = computed(() => Boolean(selectedConfiguredId.value) && configuredSettingsVisible.value)
 const allowedContentTypes = computed(() => activeStageContentRule.value.allowedContentTypes)
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
@@ -487,36 +465,6 @@ function syncSelectedStageContents() {
   if (!selectedStage.value) return
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
-}
-function closeEmployeePreview() {
-  employeePreviewRequest += 1
-  employeePreviewOpen.value = false
-  employeePreviewLoading.value = false
-  employeePreviewError.value = ''
-  employeePreviewSections.value = []
-  employeePreviewAnswers.value = {}
-}
-watch([selectedStage, activeTab, () => props.templateId], closeEmployeePreview, { flush: 'sync' })
-onBeforeUnmount(closeEmployeePreview)
-async function openEmployeePreview() {
-  if (!employeePreviewAvailable.value || employeePreviewLoading.value || !selectedWorkflowNode.value || !props.templateId) return
-  const request = ++employeePreviewRequest
-  const node = cloneContent(selectedWorkflowNode.value)
-  replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
-  employeePreviewError.value = ''
-  employeePreviewLoading.value = true
-  try {
-    const preview = await performanceTemplateApi.previewContent(props.templateId, node)
-    if (request !== employeePreviewRequest) return
-    employeePreviewSections.value = preview.form_schema
-    employeePreviewAnswers.value = performanceTemplateInitialAnswers(preview.form_schema, preview.answers)
-    employeePreviewOpen.value = true
-  } catch {
-    if (request !== employeePreviewRequest) return
-    employeePreviewError.value = '员工视角预览加载失败，请稍后重试'
-  } finally {
-    if (request === employeePreviewRequest) employeePreviewLoading.value = false
-  }
 }
 function selectStage(id: string) {
   syncSelectedStageContents()
@@ -853,11 +801,6 @@ onMounted(async () => {
 .result-view-reference{display:flex;justify-content:space-between;align-items:center;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary)}
 .result-view-reference button{border:0;border-radius:var(--radius-sm);background:transparent;color:var(--performance-button-text-color);font:inherit;cursor:pointer}
 .content-stage-renderer{grid-column:2;grid-row:1}
-.content-stage-renderer.is-employee-preview{grid-column:2 / 4}
-.employee-preview-entry{display:flex;align-items:center;gap:var(--spacing-2);margin:0 0 var(--spacing-3);padding:0 4px}
-.employee-preview-entry span,.employee-preview__empty{color:var(--color-text-secondary);font-size:14px;line-height:22px}
-.employee-preview-error{margin:0 0 var(--spacing-3);padding:var(--spacing-2) var(--spacing-3);border:1px solid var(--color-border-light);border-radius:var(--radius-md);background:var(--color-bg-card);color:var(--performance-field-error-color);font-size:14px;line-height:22px}
-.employee-preview{width:100%;max-width:100%;padding:var(--spacing-4);box-sizing:border-box;border-radius:var(--radius-md);background:var(--color-bg-card)}
 .text-normal {
   grid-column: 3;
   grid-row: 1;

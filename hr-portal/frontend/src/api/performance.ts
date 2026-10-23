@@ -1080,10 +1080,6 @@ export const performanceTemplateApi = {
     const { data } = await api.get<PerformanceWorkflowResponse>(`/performance/templates/${id}/workflow`)
     return data
   },
-  async previewContent(id: number, node: PerformanceWorkflowNode): Promise<{ form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }> {
-    const { data } = await api.post<{ form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>(`/performance/templates/${id}/content-preview`, { node })
-    return data
-  },
   async updateWorkflow(id: number, payload: { nodes: PerformanceWorkflowNode[]; content_library?: PerformanceTemplateContent[] }): Promise<PerformanceWorkflowResponse> {
     const { data } = await api.patch<PerformanceWorkflowResponse>(`/performance/templates/${id}/workflow`, payload)
     return data
