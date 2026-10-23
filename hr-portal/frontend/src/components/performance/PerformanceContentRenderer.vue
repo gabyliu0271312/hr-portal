@@ -106,10 +106,8 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{padding:var(--spacing-2);border:2px solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}
 .content-renderer-item--configured{width:100%;min-height:0;margin:0;padding:var(--performance-readonly-item-padding-block) var(--performance-readonly-item-padding-inline);border-radius:var(--radius-sm)}
-.content-renderer-item--configured:not(.content-renderer-item--view){min-height:185.333px;padding-bottom:10.333px}
-.content-renderer-item--configured.content-renderer-rating:not(.content-renderer-item--view){min-height:92px;padding-bottom:10.333px}
-.content-renderer-item--configured.content-renderer-rating>strong{line-height:24px}
-.content-renderer-item--configured.content-renderer-rating--name-hidden:not(.content-renderer-item--view){min-height:62px;padding:0 22px 10.333px}
+.content-renderer-item--configured.content-renderer-rating>strong{line-height:var(--performance-header-title-line-height)}
+.content-renderer-item--configured.content-renderer-rating--name-hidden{padding-block:var(--spacing-2)}
 .content-renderer-rating--name-hidden .content-renderer-rating__levels{margin-top:0}
 .content-renderer-item.is-selected{border-color:#3370ff;box-shadow:none}
 .content-renderer-item--configured :deep(.performance-assessment-rich-text-field){margin:0}

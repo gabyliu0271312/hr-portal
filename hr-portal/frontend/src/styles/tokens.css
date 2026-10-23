@@ -49,6 +49,7 @@
   --performance-readonly-answer-padding: var(--spacing-4);
   --performance-readonly-field-gap: var(--spacing-2);
   --performance-readonly-tag-gap: var(--spacing-2);
+  --performance-result-view-tag-inset-block: var(--spacing-2);
   --performance-settings-text-secondary: #646a73;
   --performance-content-settings-width: 272px;
   --performance-settings-help-line-height: 21px;
