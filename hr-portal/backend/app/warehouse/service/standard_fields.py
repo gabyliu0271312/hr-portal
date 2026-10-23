@@ -140,6 +140,8 @@ async def read_standard_field(db, field_id):
 
 
 async def _validate_definition(db, payload):
+    if payload.value_domain is not None and payload.data_type != "enum":
+        _error(422, "standard_field_value_domain_requires_enum", "仅enum标准字段允许维护枚举值域")
     if payload.is_permission_anchor and not (
         payload.data_type == "string" and payload.permission_domain in {"org", "cost_center"}
         and payload.grain_level in {"coarse", "fine"}
@@ -203,6 +205,27 @@ async def create_standard_field(db, payload, user):
         return await read_standard_field(db, field.id)
 
 
+async def update_standard_field_value_domain(db, field_id, version_id, payload, user):
+    async with _transaction(db):
+        field = await _field(db, field_id, lock=True)
+        version = await _version(db, field_id, version_id)
+        _check_revision(version, payload.expected_revision)
+        if version.status != "draft":
+            _error(409, "standard_field_version_readonly", "仅草稿可编辑值域，已启用版本须创建新版本")
+        if version.data_type != "enum":
+            _error(422, "standard_field_value_domain_requires_enum", "仅enum标准字段允许维护枚举值域")
+        if await db.scalar(select(User.id).where(
+            User.id == version.owner_user_id, User.is_active.is_(True),
+        )) is None:
+            _error(400, "standard_field_owner_invalid", "负责人不存在或已停用")
+        version.value_domain = payload.value_domain.model_dump(mode="json") if payload.value_domain is not None else None
+        version.revision += 1
+        version.updated_at = datetime.now(UTC)
+        await db.flush()
+        _audit(db, "value_domain_updated", field, version, user, reason_supplied=True)
+        return await _out(db, version)
+
+
 async def create_standard_field_version(db, field_id, payload, user):
     async with _transaction(db):
         field = await _field(db, field_id, lock=True)
@@ -239,7 +262,10 @@ async def update_standard_field_version(db, field_id, version_id, payload, user)
         if version.status != "draft":
             _error(409, "standard_field_version_readonly", "仅草稿可编辑，已批准语义须创建新版本")
         await _validate_definition(db, payload)
-        for key, value in _definition(payload).items():
+        definition = _definition(payload)
+        if "value_domain" not in payload.model_fields_set:
+            definition.pop("value_domain", None)
+        for key, value in definition.items():
             setattr(version, key, value)
         version.revision += 1
         version.updated_at = datetime.now(UTC)
@@ -370,10 +396,47 @@ async def _binding_out(db, field_id, binding):
     )
 
 
-async def list_binding_candidates(db, field_id, keyword=None, table_name=None, dataset_id=None):
+async def _binding_dataset(db, dataset_id, user, lock=False):
+    from app.datasets.models import DataSet
+    from app.datasets.router import _can_access
+    stmt = select(DataSet).where(DataSet.id == dataset_id)
+    if lock:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    dataset = await db.scalar(stmt)
+    if dataset is None:
+        _error(404, "standard_binding_dataset_not_found", "绑定来源数据集不存在")
+    if user is None or not await _can_access(user, dataset, db):
+        _error(403, "dataset_acl_denied", "当前用户不具备数据集资源访问权")
+    return dataset
+
+
+async def _require_binding_dataset_scope(db, dataset):
+    from app.datasets.models import DataSetTable, DataSetRelation, DatasetCalculatedField
+    tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset.id))).scalars().all()
+    relation = await db.scalar(select(DataSetRelation.id).where(DataSetRelation.dataset_id == dataset.id).limit(1))
+    calculated = await db.scalar(select(DatasetCalculatedField.id).where(DatasetCalculatedField.dataset_id == dataset.id).limit(1))
+    if (dataset.warehouse_layer != "DWD" or not dataset.is_active or dataset.status not in {"draft", "published"}
+            or len(tables) != 1 or relation is not None or calculated is not None):
+        _error(409, "standard_binding_scope_unsupported", "绑定仅支持有效、无关联或计算字段的单表DWD数据集")
+
+
+async def list_binding_candidates(db, field_id, keyword=None, table_name=None, dataset_id=None, user=None):
     await _field(db, field_id)
-    from app.data.models import StandardFieldBinding, TableColumn
+    if table_name is not None:
+        table_name = table_name.strip()
+        if not table_name:
+            _error(422, "standard_binding_scope_required", "来源表范围不能为空")
+    if dataset_id is None and not table_name:
+        _error(422, "standard_binding_scope_required", "候选查询必须指定dataset_id或来源表范围")
+    from app.data.models import RegisteredTable, StandardFieldBinding, TableColumn
     from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
+    from app.datasets.router import _can_access
+    if dataset_id is not None:
+        await _binding_dataset(db, dataset_id, user)
+    if table_name is not None and await db.scalar(select(RegisteredTable.id).where(
+        RegisteredTable.table_name == table_name,
+    )) is None:
+        _error(404, "standard_binding_source_not_found", "绑定来源表不存在")
     candidates = []
     bindings = (await db.execute(select(StandardFieldBinding))).scalars().all()
     table_bindings = {row.table_column_id: row for row in bindings if row.table_column_id is not None}
@@ -382,14 +445,16 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
     if table_name:
         table_stmt = table_stmt.where(TableColumn.table_name == table_name)
     if dataset_id:
-        table_stmt = table_stmt.where(False)
-    for column in (await db.execute(table_stmt)).scalars().all():
+        table_stmt = table_stmt.join(DataSetTable, DataSetTable.table_name == TableColumn.table_name).where(
+            DataSetTable.dataset_id == dataset_id
+        )
+    for column in (await db.execute(table_stmt)).scalars().unique().all():
         if keyword and keyword.lower() not in " ".join((column.column_code, column.column_label, column.source_field_id or "")).lower():
             continue
         binding = table_bindings.get(column.id)
         candidates.append(StandardFieldBindingCandidateOut(
             target_kind="table_column", target_id=column.id, table_name=column.table_name,
-            column_code=column.column_code, display_name=column.column_label,
+            dataset_id=dataset_id, column_code=column.column_code, display_name=column.column_label,
             source_field_id=column.source_field_id or _physical_source_identity(column.table_name, column.column_code),
             data_type=column.data_type, is_visible=bool(column.is_visible), is_sensitive=bool(column.is_sensitive),
             existing_binding_id=binding.id if binding else None,
@@ -406,7 +471,7 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
     if table_name:
         output_stmt = output_stmt.where(DataSetTable.table_name == table_name)
     for output, dataset, source in (await db.execute(output_stmt.order_by(DataSet.id, DatasetOutputField.display_order))).all():
-        if source is None:
+        if source is None or (dataset_id is None and (user is None or not await _can_access(user, dataset, db))):
             continue
         if keyword and keyword.lower() not in " ".join((output.output_code, output.output_label, output.source_column)).lower():
             continue
@@ -425,6 +490,7 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
 
 async def create_suggested_binding(db, field_id, payload, user):
     from app.data.models import StandardFieldBinding, StandardFieldVersion
+    from app.datasets.models import DataSetTable
     async with _transaction(db):
         field = await _field(db, field_id, lock=True)
         version = (await db.execute(select(StandardFieldVersion).where(
@@ -435,7 +501,20 @@ async def create_suggested_binding(db, field_id, payload, user):
             _error(404, "standard_field_version_not_found", "标准字段版本不存在")
         if version.status == "archived":
             _error(409, "standard_binding_version_archived", "归档语义版本不可创建绑定")
+        if payload.dataset_id is not None:
+            scoped_dataset = await _binding_dataset(db, payload.dataset_id, user, lock=True)
+            await _require_binding_dataset_scope(db, scoped_dataset)
         target = await _binding_target(db, payload.target_kind, payload.target_id, lock=True)
+        if payload.dataset_id is not None:
+            if target["dataset_id"] is not None and target["dataset_id"] != payload.dataset_id:
+                _error(422, "standard_binding_target_out_of_scope", "绑定目标不属于指定数据集")
+            if target["dataset_id"] is None:
+                in_dataset = await db.scalar(select(DataSetTable.id).where(
+                    DataSetTable.dataset_id == payload.dataset_id,
+                    DataSetTable.table_name == target["table_name"],
+                ))
+                if in_dataset is None:
+                    _error(422, "standard_binding_target_out_of_scope", "绑定目标不属于指定数据集")
         await _require_binding_target(db, target, user)
         if not _binding_type_compatible(version.data_type, target["data_type"]):
             _error(400, "standard_binding_type_incompatible", "标准字段类型与来源字段类型不兼容")
@@ -498,7 +577,7 @@ async def transition_binding(db, field_id, binding_id, payload, user, target_sta
 
 async def _require_binding_target(db, target, user):
     from app.data.models import RegisteredTable, TableColumn
-    from app.datasets.models import DataSet, DataSetTable, DataSetRelation, DatasetCalculatedField
+    from app.datasets.models import DataSet, DataSetTable
     from app.datasets.router import _can_access
     from app.permissions.masker import get_hidden_columns, _is_super_admin
     from sqlalchemy import text
@@ -526,12 +605,7 @@ async def _require_binding_target(db, target, user):
         for dataset in datasets:
             if not await _can_access(user, dataset, db):
                 _error(403, "dataset_acl_denied", "当前用户不具备数据集资源访问权")
-            tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset.id))).scalars().all()
-            relation = await db.scalar(select(DataSetRelation.id).where(DataSetRelation.dataset_id == dataset.id).limit(1))
-            calculated = await db.scalar(select(DatasetCalculatedField.id).where(DatasetCalculatedField.dataset_id == dataset.id).limit(1))
-            if (dataset.warehouse_layer != "DWD" or not dataset.is_active or dataset.status not in {"draft", "published"}
-                    or len(tables) != 1 or relation is not None or calculated is not None):
-                _error(409, "standard_binding_scope_unsupported", "绑定仅支持有效、无关联或计算字段的单表DWD数据集")
+            await _require_binding_dataset_scope(db, dataset)
     if (not column.is_visible or not target["is_visible"]
             or ((column.is_sensitive or target["is_sensitive"]) and not await _is_super_admin(user, db))
             or code in await get_hidden_columns(user, table.table_name, db)):

@@ -993,7 +993,9 @@ async def test_binding_candidates_suggest_confirm_invalidate_and_duplicate_targe
     from sqlalchemy import text
     client, engine, _, _ = standard_catalog_api
     base = "/api/v1/warehouse/standard-fields/1"
-    candidates = await client.get(base + "/binding-candidates", params={"keyword": "employee"})
+    missing_scope = await client.get(base + "/binding-candidates", params={"keyword": "employee"})
+    assert missing_scope.status_code == 422
+    candidates = await client.get(base + "/binding-candidates", params={"keyword": "employee", "dataset_id": 4})
     assert candidates.status_code == 200, candidates.text
     rows = candidates.json()
     assert {row["target_kind"] for row in rows} == {"table_column", "dataset_output_field"}
@@ -2436,3 +2438,272 @@ async def test_dwd_output_binding_uses_real_source_acl_and_current_fields(monkey
     else:
         await standard_fields._require_binding_target(db, target, SimpleNamespace(id=7))
         assert target["source_field_id"] == "source-amount"
+
+
+@pytest.mark.parametrize("domain", [
+    {"items": [{"code": " ", "name": "Name"}]},
+    {"items": [{"code": "a", "name": " \t"}]},
+    {"items": [{"code": " a ", "name": "One"}, {"code": "a", "name": "Two"}]},
+    {"items": [{"code": "a", "name": "One", "enabled": 1}]},
+    {"items": [{"code": "a", "name": "One", "sort_order": True}]},
+    {"items": [{"code": "a", "name": "One", "unknown": "forbidden"}]},
+    {"items": [], "unknown": "forbidden"},
+])
+def test_value_domain_schema_rejects_blank_duplicate_and_extra(domain):
+    from pydantic import ValidationError
+    from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldValueDomainUpdateIn
+    with pytest.raises(ValidationError):
+        StandardFieldValueDomainUpdateIn(value_domain=domain, expected_revision=0, reason="review")
+    with pytest.raises(ValidationError):
+        StandardFieldCreateIn(**_definition_payload(field_code="enum_test", data_type="enum", value_domain=domain))
+
+
+def test_value_domain_schema_normalizes_manual_enum_items():
+    from app.warehouse.schemas import StandardFieldValueDomainUpdateIn
+    payload = StandardFieldValueDomainUpdateIn(value_domain={"items": [
+        {"code": " manual-code ", "name": " Manual name ", "enabled": False, "sort_order": 2},
+    ]}, expected_revision=0, reason=" review ")
+    assert payload.value_domain.model_dump() == {"items": [
+        {"code": "manual-code", "name": "Manual name", "enabled": False, "sort_order": 2},
+    ]}
+    assert payload.reason == "review"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "update", "version"])
+async def test_value_domain_non_enum_cannot_bypass_dedicated_api(monkeypatch, operation):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from fastapi import HTTPException
+    from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldVersionCreateIn, StandardFieldVersionUpdateIn
+    from app.warehouse.service import standard_fields as service
+    result = Mock()
+    result.scalar_one.return_value = SimpleNamespace(version=1)
+    db = SimpleNamespace(execute=AsyncMock(return_value=result), scalar=AsyncMock(return_value=None),
+                         commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr(service, "_field", AsyncMock(return_value=SimpleNamespace(id=1)))
+    monkeypatch.setattr(service, "_version", AsyncMock(return_value=SimpleNamespace(revision=0, status="draft")))
+    data = _definition_payload(value_domain={"items": [{"code": "a", "name": "Manual"}]})
+    with pytest.raises(HTTPException) as error:
+        if operation == "create":
+            await service.create_standard_field(db, StandardFieldCreateIn(**data, field_code="test"), SimpleNamespace(id=7))
+        elif operation == "update":
+            await service.update_standard_field_version(db, 1, 11,
+                StandardFieldVersionUpdateIn(**data, expected_revision=0), SimpleNamespace(id=7))
+        else:
+            await service.create_standard_field_version(db, 1,
+                StandardFieldVersionCreateIn(**data, expected_version=1), SimpleNamespace(id=7))
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "standard_field_value_domain_requires_enum"
+    db.commit.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_value_domain_draft_update_approve_and_new_version(standard_catalog_api):
+    from sqlalchemy import text
+    client, engine, _, _ = standard_catalog_api
+    base = "/api/v1/warehouse/standard-fields"
+    domain = {"items": [{"code": "manual-a", "name": "Manual A", "enabled": True, "sort_order": 0}]}
+    created = await client.post(base, json=_definition_payload(field_code="manual_enum", data_type="enum", value_domain=domain))
+    assert created.status_code == 201, created.text
+    field = created.json()
+    field_id, version_id = field["id"], field["latest_version"]["id"]
+    path = f"{base}/{field_id}/versions/{version_id}"
+    domain["items"][0]["name"] = "Manual revised"
+    updated = await client.put(path + "/value-domain", json={"value_domain": domain, "expected_revision": 0, "reason": "private reason"})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["value_domain"] == domain and updated.json()["revision"] == 1
+    stale = await client.put(path + "/value-domain", json={"value_domain": None, "expected_revision": 0, "reason": "stale"})
+    assert stale.status_code == 409 and stale.json()["detail"]["code"] == "standard_field_revision_conflict"
+    approved = await client.post(path + "/approve", json={"expected_revision": 1, "reason": "reviewed"})
+    assert approved.status_code == 200, approved.text
+    readonly = await client.put(path + "/value-domain", json={"value_domain": None, "expected_revision": 2, "reason": "no overwrite"})
+    assert readonly.status_code == 409 and readonly.json()["detail"]["code"] == "standard_field_version_readonly"
+    new = await client.post(f"{base}/{field_id}/versions", json=_definition_payload(
+        data_type="enum", value_domain={"items": []}, expected_version=1))
+    assert new.status_code == 201, new.text
+    detail = await client.get(f"{base}/{field_id}")
+    assert detail.json()["versions"][1]["value_domain"] == domain
+    async with engine.connect() as conn:
+        logs = (await conn.execute(text("SELECT metadata_json FROM system_logs WHERE action='standard_field_value_domain_updated'"))).scalars().all()
+        assert len(logs) == 1 and logs[0]["revision"] == 1
+        assert "manual-a" not in str(logs) and "private reason" not in str(logs)
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_value_domain_legacy_dict_reads_remain_compatible(standard_catalog_api):
+    from sqlalchemy import text
+    client, engine, _, _ = standard_catalog_api
+    legacy = {"range": {"min": 1, "max": 9}, "legacy_options": ["old-approved"]}
+    async with engine.begin() as conn:
+        await conn.execute(models.StandardFieldVersion.__table__.update().where(models.StandardFieldVersion.id == 11).values(value_domain=legacy))
+        await conn.execute(text("UPDATE standard_field_versions SET status='active',approved_by=7,approved_at=now(),approval_reason='old approval' WHERE id=11"))
+    base = "/api/v1/warehouse/standard-fields"
+    for path in (base, base + "/1"):
+        response = await client.get(path)
+        assert response.status_code == 200, response.text
+        field = response.json()["items"][0] if path == base else response.json()
+        assert field["latest_version"]["value_domain"] == legacy
+    response = await client.put(base + "/1/versions/11/value-domain", json={"value_domain": None, "expected_revision": 0, "reason": "immutable"})
+    assert response.status_code == 409
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT value_domain FROM standard_field_versions WHERE id=11")) == legacy
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_value_domain_omitted_update_preserves_existing_domain(standard_catalog_api, legacy):
+    from sqlalchemy import text
+    client, engine, factory, _ = standard_catalog_api
+    domain = {"legacy_options": ["old-manual"]} if legacy else {"items": [
+        {"code": "manual-a", "name": "Manual A", "enabled": True, "sort_order": 0}]}
+    async with engine.begin() as conn:
+        await conn.execute(models.StandardFieldVersion.__table__.update().where(
+            models.StandardFieldVersion.id == 11).values(data_type="enum", value_domain=domain))
+    from types import SimpleNamespace
+    from app.warehouse.schemas import StandardFieldVersionUpdateIn
+    from app.warehouse.service import standard_fields as service
+    payload = StandardFieldVersionUpdateIn(**_definition_payload(
+        data_type="enum", field_name="Other property edited", expected_revision=0))
+    async with factory() as db:
+        result = await service.update_standard_field_version(db, 1, 11, payload, SimpleNamespace(id=7))
+        assert result.value_domain == domain and result.revision == 1
+    path = "/api/v1/warehouse/standard-fields/1/versions/11"
+    if legacy:
+        invalid = await client.put(path, json=_definition_payload(
+            data_type="enum", expected_revision=1, value_domain=domain))
+        assert invalid.status_code == 422
+    approved = await client.post(path + "/approve", json={"expected_revision": 1, "reason": "review"})
+    assert approved.status_code == 200, approved.text
+    readonly = await client.put(path, json=_definition_payload(data_type="enum", expected_revision=2))
+    assert readonly.status_code == 409 and readonly.json()["detail"]["code"] == "standard_field_version_readonly"
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT value_domain FROM standard_field_versions WHERE id=11")) == domain
+        assert await conn.scalar(text("SELECT revision FROM standard_field_versions WHERE id=11")) == 2
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs WHERE action='standard_field_draft_updated'")) == 1
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_value_domain_permissions_schema_owner_and_wrong_version(standard_catalog_api):
+    from sqlalchemy import text
+    from app.core.deps import current_user
+    client, engine, _, app = standard_catalog_api
+    path = "/api/v1/warehouse/standard-fields/1/versions/11/value-domain"
+    payload = {"value_domain": {"items": []}, "expected_revision": 0, "reason": "manual"}
+    response = await client.put(path, json=payload)
+    assert response.status_code == 422 and response.json()["detail"]["code"] == "standard_field_value_domain_requires_enum"
+    assert (await client.put(path.replace("/11/", "/999/"), json=payload)).status_code == 404
+    assert (await client.put(path, json={**payload, "approved_by": 7})).status_code == 422
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE standard_field_versions SET data_type='enum' WHERE id=11"))
+        await conn.execute(text("UPDATE users SET is_active=false WHERE id=7"))
+    response = await client.put(path, json=payload)
+    assert response.status_code == 400 and response.json()["detail"]["code"] == "standard_field_owner_invalid"
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE users SET is_active=true WHERE id=7"))
+        await conn.execute(text("UPDATE role_menus SET can_update=false WHERE menu_id=2"))
+    assert (await client.put(path, json=payload)).status_code == 403
+    app.dependency_overrides.pop(current_user)
+    assert (await client.put(path, json=payload)).status_code == 401
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT revision FROM standard_field_versions WHERE id=11")) == 0
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs")) == 0
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_value_domain_concurrent_revision_and_audit_atomicity(postgres_standard_catalog):
+    import asyncio
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from sqlalchemy import text
+    from app.warehouse.schemas import StandardFieldValueDomainUpdateIn
+    from app.warehouse.service import standard_fields as service
+    engine, factory, _ = postgres_standard_catalog
+    async with engine.begin() as conn:
+        await conn.execute(text("UPDATE standard_field_versions SET data_type='enum' WHERE id=11"))
+    async def run():
+        async with factory() as db:
+            try:
+                await service.update_standard_field_value_domain(db, 1, 11,
+                    StandardFieldValueDomainUpdateIn(value_domain={"items": [{"code": "manual", "name": "Manual"}]},
+                        expected_revision=0, reason="review"), SimpleNamespace(id=7))
+                return 200
+            except HTTPException as error:
+                return error.status_code
+    assert sorted(await asyncio.gather(run(), run())) == [200, 409]
+    async with engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE system_logs ADD CONSTRAINT value_domain_audit_fail CHECK (action != 'standard_field_value_domain_updated') NOT VALID"))
+    async with factory() as db:
+        with pytest.raises(HTTPException) as error:
+            await service.update_standard_field_value_domain(db, 1, 11,
+                StandardFieldValueDomainUpdateIn(value_domain=None, expected_revision=1, reason="rollback"), SimpleNamespace(id=7))
+        assert error.value.status_code == 409
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT revision FROM standard_field_versions WHERE id=11")) == 1
+        assert await conn.scalar(text("SELECT value_domain FROM standard_field_versions WHERE id=11")) == {"items": [
+            {"code": "manual", "name": "Manual", "enabled": True, "sort_order": 0}]}
+        assert await conn.scalar(text("SELECT count(*) FROM system_logs WHERE action='standard_field_value_domain_updated'")) == 1
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_binding_candidates_dataset_and_source_scope_acl_and_target_membership(standard_catalog_api):
+    from sqlalchemy import text
+    from app.datasets.models import DataSet, DataSetTable, DatasetOutputField
+    client, engine, _, _ = standard_catalog_api
+    async with engine.begin() as conn:
+        await conn.execute(models.RegisteredTable.__table__.insert().values(
+            id=32, table_name="dwd_probe", table_label="DWD", warehouse_layer="DWD"))
+        await conn.execute(DataSet.__table__.insert().values(id=5, name="other_dataset", warehouse_layer="DWD"))
+        await conn.execute(DataSetTable.__table__.insert().values(id=5, dataset_id=5, table_name="source_probe", alias="other"))
+        await conn.execute(DatasetOutputField.__table__.insert().values(id=42, dataset_id=5,
+            source_alias="other", source_column="employee_no", output_code="other_employee", output_label="Other employee"))
+    base = "/api/v1/warehouse/standard-fields/1"
+    response = await client.get(base + "/binding-candidates", params={"dataset_id": 4})
+    assert response.status_code == 200, response.text
+    assert {(row["target_kind"], row["target_id"]) for row in response.json()} == {
+        ("table_column", 18), ("table_column", 19), ("dataset_output_field", 41)}
+    response = await client.get(base + "/binding-candidates", params={"table_name": "source_probe"})
+    assert response.status_code == 200 and [row["target_id"] for row in response.json()] == [17]
+    response = await client.get(base + "/binding-candidates", params={"dataset_id": 4, "table_name": "source_probe"})
+    assert response.status_code == 200 and response.json() == []
+    for params, expected in (({}, 422), ({"table_name": " "}, 422), ({"dataset_id": 999}, 404),
+                             ({"table_name": "missing"}, 404), ({"dataset_id": 5}, 403)):
+        assert (await client.get(base + "/binding-candidates", params=params)).status_code == expected
+    for kind, target_id in (("table_column", 17), ("dataset_output_field", 42)):
+        response = await client.post(base + "/bindings", json={"dataset_id": 4, "target_kind": kind,
+            "target_id": target_id, "standard_field_version_id": 11})
+        assert response.status_code == 422 and response.json()["detail"]["code"] == "standard_binding_target_out_of_scope"
+    response = await client.post(base + "/bindings", json={"dataset_id": 5, "target_kind": "table_column",
+        "target_id": 17, "standard_field_version_id": 11})
+    assert response.status_code == 403 and response.json()["detail"]["code"] == "dataset_acl_denied"
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM standard_field_bindings")) == 0
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["multitable", "relation", "calculated"])
+async def test_binding_explicit_dataset_rejects_unsupported_scope(standard_catalog_api, change):
+    from sqlalchemy import text
+    from app.datasets.models import DataSetTable, DataSetRelation, DatasetCalculatedField
+    client, engine, _, _ = standard_catalog_api
+    async with engine.begin() as conn:
+        await conn.execute(DataSetTable.__table__.update().where(DataSetTable.id == 4).values(table_name="source_probe"))
+        if change == "multitable":
+            await conn.execute(DataSetTable.__table__.insert().values(id=5, dataset_id=4, table_name="dwd_probe", alias="second"))
+        elif change == "relation":
+            await conn.execute(DataSetRelation.__table__.insert().values(id=1, dataset_id=4, left_alias="current", right_alias="current", keys=[]))
+        else:
+            await conn.execute(DatasetCalculatedField.__table__.insert().values(id=1, dataset_id=4, code="calc", label="Calc", formula="1"))
+    response = await client.post("/api/v1/warehouse/standard-fields/1/bindings", json={
+        "dataset_id": 4, "target_kind": "table_column", "target_id": 17, "standard_field_version_id": 11})
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "standard_binding_scope_unsupported"
+    async with engine.connect() as conn:
+        assert await conn.scalar(text("SELECT count(*) FROM standard_field_bindings")) == 0

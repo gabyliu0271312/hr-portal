@@ -17,6 +17,7 @@ from app.warehouse.schemas import (
     StandardFieldVersionCreateIn,
     StandardFieldVersionOut,
     StandardFieldVersionUpdateIn,
+    StandardFieldValueDomainUpdateIn,
 )
 from app.warehouse.service import standard_fields as service
 
@@ -64,7 +65,7 @@ async def binding_candidates(
     user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_binding_candidates(db, field_id, keyword, table_name, dataset_id)
+    return await service.list_binding_candidates(db, field_id, keyword, table_name, dataset_id, user)
 
 
 @router.post("/{field_id}/bindings", response_model=StandardFieldBindingOut, status_code=201)
@@ -75,6 +76,17 @@ async def create_binding(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.create_suggested_binding(db, field_id, payload, user)
+
+
+@router.put("/{field_id}/versions/{version_id}/value-domain", response_model=StandardFieldVersionOut)
+async def update_value_domain(
+    payload: StandardFieldValueDomainUpdateIn,
+    field_id: int = Path(..., gt=0),
+    version_id: int = Path(..., gt=0),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_standard_field_value_domain(db, field_id, version_id, payload, user)
 
 
 @router.post("/{field_id}/bindings/{binding_id}/confirm", response_model=StandardFieldBindingOut)

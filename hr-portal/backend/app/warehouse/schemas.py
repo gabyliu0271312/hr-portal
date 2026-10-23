@@ -1696,6 +1696,50 @@ class FormulaDecomposeOut(BaseModel):
 StandardFieldStatus = Literal["draft", "active", "deprecated", "archived"]
 
 
+class StandardFieldValueDomainItemIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    code: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=128)
+    enabled: bool = Field(default=True, strict=True)
+    sort_order: int = Field(default=0, ge=0, strict=True)
+
+    @field_validator("code", "name")
+    @classmethod
+    def nonempty_text(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("值域编码和名称不能为空")
+        return value
+
+
+class StandardFieldValueDomainIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    items: list[StandardFieldValueDomainItemIn] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("items")
+    @classmethod
+    def unique_codes(cls, value):
+        codes = [item.code for item in value]
+        if len(set(codes)) != len(codes):
+            raise ValueError("值域编码不可重复")
+        return value
+
+
+class StandardFieldValueDomainUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    value_domain: StandardFieldValueDomainIn | None = Field(...)
+    expected_revision: int = Field(ge=0, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def value_domain_reason(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("操作原因不能为空")
+        return value
+
+
 class StandardFieldDefinitionIn(BaseModel):
     model_config = {"extra": "forbid"}
     field_name: str = Field(min_length=1, max_length=128)
@@ -1705,7 +1749,7 @@ class StandardFieldDefinitionIn(BaseModel):
     permission_domain: Literal["public", "org", "cost_center", "salary", "personal"]
     is_permission_anchor: bool = Field(default=False, strict=True)
     owner_user_id: int = Field(gt=0, strict=True)
-    value_domain: dict | None = None
+    value_domain: StandardFieldValueDomainIn | None = None
     category_ids: list[int] = Field(default_factory=list, max_length=100)
 
     @field_validator("field_name", "business_definition")
@@ -1752,6 +1796,7 @@ class StandardFieldActionIn(BaseModel):
 
 class StandardFieldVersionOut(StandardFieldDefinitionIn):
     model_config = {"from_attributes": True}
+    value_domain: dict | None = None
     id: int
     standard_field_id: int
     version: int
@@ -1817,6 +1862,7 @@ class StandardFieldBindingCreateIn(BaseModel):
     target_kind: Literal["table_column", "dataset_output_field"]
     target_id: int = Field(gt=0, strict=True)
     standard_field_version_id: int = Field(gt=0, strict=True)
+    dataset_id: int | None = Field(default=None, gt=0, strict=True)
 
 
 class StandardFieldBindingActionIn(BaseModel):

@@ -2,6 +2,22 @@ import { api } from './client'
 
 export type StandardFieldStatus = 'draft' | 'active' | 'deprecated' | 'archived'
 
+export interface StandardFieldEnumValue {
+  code: string
+  name: string
+  enabled: boolean
+  sort_order: number
+  [key: string]: unknown
+}
+
+export type StandardFieldValueDomain = Record<string, unknown> & { items?: StandardFieldEnumValue[] }
+
+export interface StandardFieldBindingCandidateParams {
+  keyword?: string
+  table_name?: string
+  dataset_id?: number
+}
+
 export interface StandardFieldVersion {
   id: number
   standard_field_id: number
@@ -15,6 +31,7 @@ export interface StandardFieldVersion {
   is_permission_anchor: boolean
   owner_user_id: number
   category_ids: number[]
+  value_domain: StandardFieldValueDomain | null
   status: StandardFieldStatus
   created_by: number
   approved_by: number | null
@@ -81,6 +98,7 @@ export interface StandardFieldBindingCreatePayload {
   target_kind: StandardFieldBindingCandidate['target_kind']
   target_id: number
   standard_field_version_id: number
+  dataset_id?: number
 }
 
 export interface StandardFieldListResponse {
@@ -97,7 +115,7 @@ export interface StandardFieldDefinitionPayload {
   permission_domain: string
   is_permission_anchor: boolean
   owner_user_id: number
-  value_domain?: Record<string, unknown> | null
+  value_domain?: StandardFieldValueDomain | null
   category_ids: number[]
   expected_version?: number
   expected_revision?: number
@@ -110,7 +128,8 @@ export const standardFieldsApi = {
   get(id: number) {
     return api.get<StandardFieldDetail>(`/warehouse/standard-fields/${id}`).then(r => r.data)
   },
-  bindingCandidates(fieldId: number, params: { keyword?: string; table_name?: string; dataset_id?: number } = {}) {
+  bindingCandidates(fieldId: number, params: StandardFieldBindingCandidateParams = {}) {
+    if (!params.dataset_id && !params.table_name?.trim()) return Promise.resolve<StandardFieldBindingCandidate[]>([])
     return api.get<StandardFieldBindingCandidate[]>(`/warehouse/standard-fields/${fieldId}/binding-candidates`, { params }).then(r => r.data)
   },
   createBinding(fieldId: number, payload: StandardFieldBindingCreatePayload) {

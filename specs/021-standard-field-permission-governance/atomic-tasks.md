@@ -1080,3 +1080,155 @@ hr-portal/backend/.venv/Scripts/python.exe -m pytest
 - 真实业务专项：`python -m pytest tests/test_report_execution_binding.py -k real_conversion_contract_binding --postgres-acceptance -q --tb=short -p no:cacheprovider`；完整报表文件去掉`-k`。范围内已验证的旧证据可复用；改了共享查询/权限/刷新后扩大到实际影响面，不为凑数量重跑无关模块。
 - 忘记DB环境会在schema-check解析db主机失败exit2，这不是业务测试失败也不是通过；跳过也不当通过。只验证0267→0268增量，不再误跑全历史离线链；历史0026离线JSON/0046版本长度/0051 seed依赖缺口单列。
 - 完整最新规格以本节和START_HERE为入口；旧段落保留审计过程。新session不能声称“无条件runtime仍false”，也不能反过来宣称“整个A/开发应用/生产已启用”。
+
+## 2026-10-23 最新交接：生产部署完成，分摊业务启用因共享来源隔离阻塞
+
+**下次启动先读本节。**本节覆盖上方关于“release恒409、无治理UI、生产仍0267、生产健康待确认”的历史当前态；历史失败和测试覆盖边界保留。当前是**代码已部署、两项生产目录治理完成、分摊试点未启用**，不是A或021整体验收完成。用户本轮最后要求先做好交接，暂停继续生产启用操作。
+
+### 1. 用户授权与访问分工
+
+- 用户要求快速完成A的单表allocation汇总MVP，不等待B；随后明确要求在main提交推送、提供生产更新和启用代码。
+- 开发库由我方直接获取/验证；生产由用户在服务器执行我方给出的代码并返回安全摘要，我方没有直接连接生产。
+- 不要求返回员工姓名/工号原值、薪酬/金额明细、业务字段值、标签/筛选值、密码、JWT、Token、完整配置或备份正文。数据集/字段/规则/出口ID及依赖计数是元数据，不当业务数据取样。
+- 每次仅给一段完整生产命令，等实际返回再继续。不能把自动通知、子代理报告当用户新批准。现有授权不包括自动停旧出口、覆盖旧DWD、修改ACL或批量切换旧报表。
+- 用户确认绩效已开发完成；021不改绩效。交接时重新检查git，当前绩效又有其他会话未提交变更，保留、不混改、不擅自提交。
+
+### 2. Git、实现范围及实际验证
+
+- 已按用户要求在main提交并推送：`e5316c0553e608bbdc3ca153ef2c20c612e8927d`，标题`feat: deliver governance and performance MVP`，共26文件。提交当时工作区干净、origin/main同步；该提交同时包含用户确认完成的绩效内容，不是纯021补丁。
+- 2026-10-23本次交接只读实查：本地main HEAD仍为e5316c0；有绩效组件/测试、specs/002文档和未跟踪绩效组件/截图变更。下次重新检查status和远程，不假设工作区干净。本次交接只编辑021的START_HERE/atomic，不提交推送。
+- 021后端改动：`app/warehouse/service/standard_fields.py`、`release_gate.py`、`app/warehouse/router.py`、`app/reports/report_service.py`、`router.py`，及既有`test_standard_field_catalog.py`、`test_report_execution_binding.py`。
+  - 正式开放经当前ACL/字段权限、物理类型/来源身份、技术/计算字段及单表边界验证的DWD物理字段/输出suggest→confirm；输出绑定使用真实来源物理身份。
+  - 报表执行绑定批准前复用运行时同一配置/计划构造和编译，未支持配置先拒绝，不执行结果SELECT、不先切版本。普通ReportOut已有execution_version，不泄露binding/fingerprint。
+  - release复用完整字段/授权/转换/出口与真实execution readiness；候选published用`set_committed_value`且finally恢复，避免nested transaction强制flush。最终`SELECT DataSet FOR UPDATE + populate_existing`复核version/status/is_active/warehouse_layer，成功发布与审计原子提交，失败回滚，重复发布不无谓增加语义版本。
+- 021前端：reports.ts/js、standardFields.ts、warehouse.ts/js；ReportExecutionAuthorization/useReportViewer/ReportViewerPanel、ReportDesigner/ReportList及既有测试；StandardFieldBindingPanel/StandardFieldDrawer、WarehouseModelReadinessPanel/WarehouseModeling。
+  - 现有目录入口绑定与确认，模型准入/合同创建批准/转换批准/发布入口，报表显式执行授权及限缩范围提示。
+  - 报表端复核后补加载失败重试、按钮权限、仓库查看权限、JSON字符串detail.message解析；authorized报表设计器重定向/未开放渠道阻断，运行失败清旧结果，对象/权限变化丢弃迟到响应。
+  - 后端`_binding_out`明确`revision=binding.binding_version`，目录detail只有binding_version；不能把这两个响应字段误判成两个独立令牌。缺令牌不默认0。
+  - 治理UI虽已接线并通过类型检查，不能据此声明每个新增交互、409/撤权竞态及真实PC端到端均已验收。
+
+实际证据（分次执行，不能相加拼成一次全绿）：
+
+| 验证 | 实际结果/边界 |
+| --- | --- |
+| 初次两文件隔离PG回归 | 196 passed、10 failed、339 warnings，771.81s；9项权限fixture缺表、1项release锁内扫描问题，不隐瞒首轮失败 |
+| release专项最终隔离PG | 12 passed、156 deselected；含锁内不扫转换数据、候选不提前flush、版本/归档/停用并发保护、成功/回滚；保留正式转换验证 |
+| 正式allocation四组真库HTTP链 | 4 passed、38 deselected、29 warnings，110.55s，exit0；draft→真实转换/合同批准→release→重复release版本仍1→readiness→绑定→run/COUNT/分页/CSV/XLSX；org400、cc300、both600非700、none拒绝，金额仅合成数据 |
+| 权限fixture后续修复 | 补FieldCategoryAssignment/UserVisibleCategory/RoleVisibleCategory/FieldCategoryToolWhitelist；代理回报原专项162 passed、2 failed，后补role_id=1/category_id=9测试权限数据，仅重跑`-k test_confirmed_source_binding_is_checked_by_real_refresh`为2 passed、166 deselected、7 warnings，15.37s，exit0；不是完整文件重跑全绿 |
+| 后端无DB定向 | 代理最终回报五组137 passed、176 deselected、1 warning；DB_PORT=1禁连，不能代替真库 |
+| 前端最终定向 | `npm test -- --run src/views/report/ReportList.spec.ts src/components/report src/components/warehouse`：6文件42 passed，12.60s；其中ScopeGovernance20项为已有范围治理测试，不能冒充新增绑定/准入组件专项全覆盖 |
+| 前端最终完整构建 | `npm run build`：vue-tsc+Vite通过，55.04s；此前并行绩效类型错误及报表模板错误已不再阻塞该次构建，不再作为当前失败项 |
+| 差异检查 | 本轮相关git diff --check通过；本次交接文档另行检查 |
+
+- 未完成：开发/生产普通用户真实PC全流程走查、生产试点结果/外部出口兼容/P95/安全回退演练；不因API或build通过勾X2150–X2152整项。A父项仍未全部达标，B/全渠道/多事实/下钻不在本次完成范围。
+- 本地曾验证开发backend health为dev/db.ok=true、开发库0268且run/approval为0；这是当时证据，不是交接时重新盘点或正式对象批准。
+
+### 3. 用户回传的生产部署证据
+
+- 路径：`/opt/hr-portal/hr-portal`；Git旧版（已知1.8.3.1），Compose v2.27.1；前端对外端口37801。数据库容器`hr-portal-db`、后端`hr-portal-backend`、前端`hr-portal-frontend`、`hr-portal-gotenberg`。
+- 生产从`5736c20eb8d7034ed9fea06f45bcb55827976e90`更新至完整e5316c0；用户确认前后端build、`up -d --no-deps backend frontend`成功。源码bind更新前停止backend，未重建DB/gotenberg。
+- 数据库当前和代码head均`0268_warehouse_conversion_evidence`；通过frontend代理的health返回`status=ok,env=prod,db_ok=true`；backend `RUNNING=true RESTART_COUNT=0`。证明部署/迁移/启动通过，不证明业务试点或出口兼容验收通过。
+- 用户回传DB端口仍`0.0.0.0:5432->5432/tcp`，这是既有部署状态，不在本轮更改；不宣称已完成网络暴露安全治理。生产专用配置/PG_DATA_DIR及挂载必须保留，不能覆盖为仓库默认目录。
+- 备份：`/data/hr-portal/deploy-backups/update-20261023-132536-e5316c0/hr_portal.dump`，35749107 bytes，SHA256 `e8d9e610effcbbcace44cdff49cc47f573bc6ec5f98b4eee6586592ae3573167`；有previous-commit.txt及docker-compose.yml.before。成功更新命令包含`pg_restore --list`校验且后续步骤已完成；未做恢复演练，不称已证明完整可恢复。
+- 没有回填任何生产报表execution_version/ACL、没有创建分摊授权合同/转换证据/批准或021分摊试点；旧报表没有由本轮流程批量迁移。当前15报表是否仍全legacy未在最终部署后重新全表核对，不能拿早期盘点当最终写后断言。
+
+### 4. 已实际完成的生产业务元数据写入（仅两项目录治理）
+
+- 用户确认负责人统一系统管理员；只读核实`1 | admin | 系统管理员 | 超级管理员`。
+- 生产通过当前admin密码登录正式API，创建/审核目录及数据集10输出suggest/confirm；未直接INSERT/UPDATE治理表，也未脚本补造转换证据。最终用户回传：
+
+```text
+FIELD_CODE=field_type STATUS=active VERSION=1 CONFIRMED_BINDINGS=1
+FIELD_CODE=cost_classification STATUS=active VERSION=1 CONFIRMED_BINDINGS=1
+VALUE_FIELD=SKIPPED
+```
+
+| 对象 | 已批准含义/归属 | 当前实际状态 |
+| --- | --- | --- |
+| field_type | 匹配类型；费用分类规则使用的来源匹配字段类型；enum/public/coarse/非权限锚点，owner=1 | active v1，数据集10的field_type输出确认绑定1项 |
+| cost_classification | 费用分类；规则返回的费用归类；enum/public/coarse/非权限锚点，owner=1 | active v1，数据集10的cost_classification输出确认绑定1项 |
+| value | 条件值随field_type可能表示工号或甲方，存在多义/个人识别风险 | 用户同意暂不治理、不绑定、不新增开放；**没有隐藏现存物理/输出字段，也没有改变旧渠道权限** |
+
+- 数据集10实际来源`emp_monthly_cost_class`为ODS，别名current，3个输出647 field_type(enum)、648 value(string)、649 cost_classification(enum)。数据集本身warehouse_layer=DWD，不代表来源物理表是DWD。
+- 两项输出绑定成功不等于物理列也已绑定、整个数据集全字段准入或新报表可运行。value仍是未确认业务输出，因此不能绕全输出门禁；不为了通过而删除共享输出/降敏。
+- **重要纠错**：此前以“数据集10字段少且出口计数0”推荐分摊试点错误；这是费用分类规则表，不具备allocation事实/人员键/中心键/数值度量，不能伪装allocation_fact。两个已批准标准字段可保留，禁止自动删除/改名；后续不再为数据集10创建分摊合同。
+
+### 5. 生产真正分摊对象与阻塞（已有足够证据，不要再泛化盘点）
+
+用户正式只读元数据结果：
+
+| 对象 | 确认事实 |
+| --- | --- |
+| emp_monthly_allocation | 实际物理表存在且已注册，来源分层ODS；数据集8直接引用，别名current，dataset层DWD/published/version1/单表/1报表；没有conversion run |
+| dwd_emp_monthly_allocation | 实际物理表存在且已注册，DWD；数据集15引用，别名同表名，published/version83/6张来源表/7份报表；不是可以直接新启用的独立单表对象 |
+| dwd_021_allocation_pilot | 仅提出的目标名，生产物理表/注册均不存在，未创建 |
+| 标准化规则 | 两个allocation资产查询standardization_rules结果0行；不能声称已有同名rename/full_refresh证据 |
+| 自动化 | emp_monthly_allocation→dwd_emp_monthly_allocation，enabled=true，update_mode=passthrough，trigger_strategy=on_sync_success，dwd_write_strategy=incremental_upsert |
+| 活跃外部依赖 | 关联链查询返回出口12(report/db_snapshot)、17(table/api_expose)、18(table/feishu_sheet)、22(table/api_expose)、23(table/api_expose)，均active；没有变更或停用 |
+
+源/目标两表各6个业务字段（字段元数据一致，不是业务值取样）：
+
+| 字段 | 类型 | 范围角色/说明 |
+| --- | --- | --- |
+| cost_period | string | 业务键组成 |
+| employee_no | string | 业务键组成；人员标识，不是普通汇总维度 |
+| employee | string | 姓名/人员定位风险，不可作中心汇总输出 |
+| code | string | scope_role=cc_code，业务键组成 |
+| dimension_value | string | 实际含义/可用分组语义仍需业务证据，不能凭名猜 |
+| headcount | number | 数值度量，**不能解释为薪酬/金额，也不能未经确认直接声称COUNT DISTINCT人数** |
+
+- 当前6字段is_visible=true/is_sensitive=false/is_computed=false是元数据状态，不等于员工字段可公开或敏感分类已经完整验证。
+- **阻塞原因**：原ODS共享自动处理，目标DWD共享多事实数据集15和外部下游；给来源增加规则可能改变现有自动处理，覆盖旧DWD可能改变出口。当前release_gate还追溯转换来源及共享表/数据集/报表的active出口，因此仅换新目标表名并不能证明隔离或通过准入。
+- 此前“生产没有分摊DWD”的说法已纠正：物理DWD存在，只是没有符合本轮独立单表/证据/出口隔离要求的可启用对象。早期active_export_count查询覆盖不完整，0不当正式无出口证明；以本节依赖盘点及正式门禁为准。
+- 当前生产**未创建新规则、未运行分摊转换、未覆盖原DWD、未创建新试点来源/目标/数据集/报表、未批准allocation合同或切换authorized_v1**。两项目录治理不代表生产分摊MVP完成。
+
+### 6. 下一轮唯一主MVP：先在开发端实现可证明的试点隔离闭环
+
+1. 从本节启动，核对代码/版本/开发环境和共享工作区；不再从头重复询问生产dataset10字段或admin ID。复用本次已得元数据，只有与拟变更直接相关且可能漂移的依赖才重新核对。
+2. 先在开发环境验证受控隔离方案：独立试点来源/目标/数据集/报表，或经评审的正式版本隔离；**方案尚未实现/验收，不把独立来源复制视为已有能力**。受控来源必须有权限/字段限制、来源血缘、版本/一致性和清理/停止边界，不用临时SQL复制业务数据冒充正式转换；如复制源不再属于直接ODS→DWD证据子集，需要明确合同并实现测试，不能靠改层级或隐藏血缘穿透门禁。
+3. 复用唯一standardization_rules/Mapping与正式成功事务证据，不在原共享来源新增试验规则、不改原on_sync_success自动任务、不覆盖旧DWD、不停5个出口、不削弱external_exports_not_isolated、不伪造run/approval，不通过切回legacy漏洞兜底。
+4. 开发先证实：隔离普通用户的ACL/字段/D OR获准中心汇总、重复去重、COUNT/导出同源、漂移撤权拒绝、真实PC创建→批准→发布→绑定→运行可用；同时验证共享原来源/原DWD/自动任务/数据集15/出口调用没有未批准影响。新对象不因默认published或超管成功而放行。
+5. 写清隔离方案触及的V0/V1影响、schema/规则/数据生命周期、业务字段口径（尤其headcount、dimension_value）、试点用户及可接受差异；需要业务决定时一次只提当前真正阻塞的问题。新生产数据复制/规则/对象/ACL/转换操作范围重新取得明确批准，再给用户单段可执行代码。
+6. 开发验证完成后才继续生产正式流程，用户执行并返回安全状态；生产当前PC/旧出口/性能/回退证据仍未验收。不把健康200、目录active或隔离真库4项当生产业务已启用。
+
+仍未完成：X2126全入口准入/生产隔离、X2131/X2132/X2133真实PC整体验收、X2142生产试点、X2143完整业务切片、X2150/X2154/X2153/X2151/X2152及A成功标准；B和后续仍不纳入本轮。此交接不新增父项勾选。
+
+### 7. 生产终端操作已踩坑及恢复边界
+
+- 生产Git不支持`git remote get-url`；用兼容的`git remote -v`，输出如含凭证不要返回。比较提交必须使用完整SHA，不能用`git rev-parse HEAD`的40位结果与7位短SHA作字符串相等判断。
+- 旧Git的`git fetch origin main`本次只更新FETCH_HEAD；后续需明确refspec `git fetch origin refs/heads/main:refs/remotes/origin/main`。更新固定完整目标，用ancestor/ff-only验证，不自动发布之后未知main内容。
+- 部署外层用括号子shell及失败停止，避免set -e让用户整个SSH标签退出；更新挂载源码前停backend，保持生产Compose/PG_DATA_DIR/37801端口，不down -v、不重建数据库、不现场打补丁。
+- 宿主机没有python3，使用backend容器已有python。SQL必须传给`psql`，不能把BEGIN/SELECT通过`sh -s`当shell执行；SQL heredoc终止符单独顶格，输出里的`>`不是需要复制的命令。
+- 账号密码首次两次401均在登录前后停止，没有目录写入；**不能据此断言账号密码已改变**。整段粘贴中的read可吞下一行代码，应先单独`read -s -p`，实际出现提示后输入；第二步同会话执行API代码。
+- 密码/Token不写文档、文件或对话，不生成管理员Token绕登录，不重置密码。此前命令曾用`docker exec -e ADMIN_PASSWORD="$ADMIN_PASSWORD"`，密码虽未回显仍可能进入进程参数；下次避免展开到argv，结束及时unset，不要求用户返回env。API请求不自动重试批准/绑定等写操作；多请求不是跨接口全事务，失败后先查已提交状态，不能泛称所有步骤都回滚。
+- 本次生产核对/治理命令均由用户运行，我方未直连。已备份不等于可随意恢复整库；停止试点/安全回滚不得覆盖其他模块或恢复权限漏洞。
+
+## 2026-10-23 增量：候选范围过滤、枚举值域及编辑入口
+
+用户反馈生产目录候选过多且无关、enum无值域维护入口、active无编辑入口后，明确要求按建议开发。本节为后续本地增量，**尚未提交、推送或部署，不改变上一节生产e5316c0/0268状态与共享来源隔离阻塞**；本轮不继续分摊生产启用、不改绩效/报表、无新迁移。
+
+### 功能及接口契约
+
+- X2125/X2131本地增量：`GET /warehouse/standard-fields/{id}/binding-candidates`必须传`dataset_id`或`table_name`，缺范围422；dataset不存在404、当前ACL拒绝403。选择数据集时返回该来源物理字段及输出候选；前端按当前数据集输出或物理表范围展示，不再默认请求全局候选。创建建议绑定传可选dataset_id，服务端核对目标归属，不信任客户端过滤；单表DWD/无JOIN无计算、字段权限/类型/来源身份及原有确认门禁继续保留。旧API调用方无scope查询将422，生产工具需同步适配，不能当无兼容变化。
+- X2124/X2133本地增量：枚举值域使用`{"items":[{"code":"...","name":"...","enabled":true,"sort_order":0}]}`。code/name去首尾空白后非空、1–128字符，code不可重复，items最多1000，enabled严格bool、sort_order非负整数，额外key拒绝。不包含说明字段，不读业务值、不自动发现/转换、不承诺枚举运行时执行器。
+- 新增`PUT /warehouse/standard-fields/{field_id}/versions/{version_id}/value-domain`，`warehouse.standard_fields.catalog U`，请求value_domain/expected_revision/reason；只允许draft+enum，负责人有效、行锁/并发令牌、审计同事务，active不可原地改。通用创建/更新/新版本也禁止非enum写值域，避免旁路。UI使用原草稿保存API携带value_domain，不强制专用PUT作为唯一入口。
+- 旧任意dict值域保留读取兼容；草稿更新省略value_domain时保留旧值，显式提交不合新格式的dict仍422；API显式null可清除draft值域。前端对无items旧格式明确只读并禁止保存/新建版本，须先受控格式迁移，本轮不新增迁移器、不静默丢旧值。
+- 草稿显示“编辑草稿”，active显示“已启用版本不可原地改，点击新建版本调整；旧绑定不会自动切换”。创建新语义版本不是自动迁移已有确认绑定；本轮不新增重绑迁移流程。
+- 新增组件StandardFieldDefinitionForm、StandardFieldVersions、StandardFieldValueDomain；Drawer/BindingPanel小于200行。对象/范围切换、关闭、卸载、撤权丢弃迟到响应，U撤销丢弃未保存输入；409保留草稿、主动核对，不自动重试。错误支持提取JSON字符串detail.message。
+
+### 修改文件
+
+- 后端：`app/warehouse/schemas.py`、`standard_fields_router.py`、`service/standard_fields.py`、`tests/test_standard_field_catalog.py`。
+- 前端：`src/api/standardFields.ts`及新增JS镜像、`StandardFieldBindingPanel.vue`、`StandardFieldDrawer.vue`、新增`StandardFieldDefinitionForm.vue`/`StandardFieldVersions.vue`/`StandardFieldValueDomain.vue`、既有`ScopeGovernance.spec.ts`。
+- 文档：本节及START_HERE；未修改生产数据、历史迁移/head、原自动任务或出口。
+
+### 实际验证（分次记录）
+
+- 后端代理15432隔离专项：33 passed、154 deselected、0 skipped、45 warnings，98.24s；覆盖候选范围/ACL/目标归属、枚举创建/草稿/批准/新版本、旧dict读取、非enum旁路、并发及审计回滚。额外误启动的全文件真库运行超过600s后停止，不记通过。
+- 主代理最终无DB：`DB_HOST=127.0.0.1 DB_PORT=1 ... python -m pytest tests/test_standard_field_catalog.py -q --tb=short -p no:cacheprovider`，51 passed、138 skipped、1 warning，7.75s；跳过真库标记不算通过。
+- 主代理最终隔离兼容：15432/hr021_acceptance，`python -m pytest tests/test_standard_field_catalog.py --postgres-acceptance -k value_domain_omitted_update_preserves_existing_domain -q --tb=short -p no:cacheprovider`，2 passed、187 deselected、5 warnings，11.75s；旧/新值域省略更新均保留，active更新409。凭证只在进程内从隔离容器读取，不打印。
+- 主代理最终前端：`npx vue-tsc --noEmit`通过；`npx vitest run src/components/warehouse`，3文件46 passed，7.14s，ScopeGovernance其中42项（包括既有范围治理和新增交互）。覆盖不请求全局、范围过滤、迟到结果、dataset_id POST、枚举校验/严格投影、409保稿、旧dict只读和U撤销清理。
+- 主代理最终`npm run build`通过，含vue-tsc及Vite，43.39s；仅依赖PURE注释位置告警。前端真实PC浏览器/API联调未运行，不以mock组件和build替代。
+- git diff --check通过。无本轮完整后端全文件全绿证据，不拼接分次结果；A父任务/生产业务启用保持未完成。
+
+下次：若用户要求提交/生产更新，先检查当前status及唯一head，按具体授权提交推送这批字段治理增量，再给固定完整SHA的生产备份/构建/应用重建命令（无新迁移，但需核对current=head）。部署后以系统管理员在PC验收候选选择、enum草稿/新版本及409；生产已批准的两个v1字段不自动改值域或重绑。分摊共享来源隔离仍按上一节单独推进，不因目录体验改进视为生产分摊已启用。

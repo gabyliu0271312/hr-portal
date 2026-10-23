@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { standardFieldsApi, type StandardFieldDefinitionPayload, type StandardFieldDetail, type StandardFieldVersion } from '@/api/standardFields'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
 import { useUserStore } from '@/stores/user'
 import StandardFieldBindingPanel from './StandardFieldBindingPanel.vue'
+import StandardFieldDefinitionForm from './StandardFieldDefinitionForm.vue'
+import StandardFieldVersions from './StandardFieldVersions.vue'
 
-const props = defineProps<{ modelValue: boolean; fieldId: number | null }>()
+const props = defineProps<{ modelValue: boolean; fieldId: number | null; datasetId?: number | null; tableName?: string | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
 const userStore = useUserStore()
 const detail = ref<StandardFieldDetail | null>(null)
@@ -16,16 +18,22 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const mode = ref<'view' | 'create' | 'version' | 'edit'>('view')
-const reason = ref('')
+const canView = computed(() => userStore.menus.some(menu => menu.code === 'warehouse.standard_fields.catalog'))
+const canWrite = computed(() => canView.value && userStore.hasOp('warehouse.standard_fields.catalog', mode.value === 'edit' ? 'U' : 'C'))
+let requestId = 0
+let contextId = 0
 const form = reactive<StandardFieldDefinitionPayload>({
   field_code: '', field_name: '', business_definition: '', data_type: 'string', grain_level: null,
-  permission_domain: 'public', is_permission_anchor: false, owner_user_id: 0, category_ids: [],
+  permission_domain: 'public', is_permission_anchor: false, owner_user_id: 0, category_ids: [], value_domain: null,
 })
-const dataTypes = [{ value: 'string', label: '字符串' }, { value: 'number', label: '数值' }, { value: 'date', label: '日期' }, { value: 'datetime', label: '日期时间' }, { value: 'bool', label: '布尔' }, { value: 'enum', label: '枚举' }]
-const grains = [{ value: 'coarse', label: '粗粒度' }, { value: 'fine', label: '细粒度' }, { value: 'identifying', label: '个人标识' }]
-const domains = [{ value: 'public', label: '通用' }, { value: 'org', label: '组织' }, { value: 'cost_center', label: '成本中心' }, { value: 'salary', label: '薪酬' }, { value: 'personal', label: '个人信息' }]
-const statusLabels: Record<string, string> = { draft: '草稿', active: '已启用', deprecated: '已弃用', archived: '已归档' }
-const writable = () => mode.value !== 'view'
+const writable = () => mode.value !== 'view' && canWrite.value
+const migrationRequired = computed(() => [form.value_domain, detail.value?.latest_version.value_domain].some(domain => domain != null && !Array.isArray(domain.items)))
+
+function message(cause: any, fallback: string) {
+  let value = cause?.response?.data?.detail
+  if (typeof value === 'string') { try { value = JSON.parse(value) } catch { return value || fallback } }
+  return typeof value === 'string' ? value : typeof value?.message === 'string' ? value.message : fallback
+}
 
 function fill(version?: StandardFieldVersion) {
   form.field_code = detail.value?.field_code || ''
@@ -37,31 +45,35 @@ function fill(version?: StandardFieldVersion) {
   form.is_permission_anchor = version?.is_permission_anchor || false
   form.owner_user_id = version?.owner_user_id || userStore.user?.id || 0
   form.category_ids = [...(version?.category_ids || [])]
+  form.value_domain = version?.value_domain ? JSON.parse(JSON.stringify(version.value_domain)) : null
 }
 
 async function load() {
-  if (!props.modelValue) return
+  const current = ++requestId
+  detail.value = null; categories.value = []; loading.value = false; error.value = ''
+  mode.value = 'view'; fill()
+  if (!props.modelValue || !canView.value) return
   loading.value = true
-  error.value = ''
   try {
     const [record, categoryList] = await Promise.all([
       props.fieldId ? standardFieldsApi.get(props.fieldId) : Promise.resolve(null),
       fieldCategoriesApi.list().catch(() => [] as FieldCategory[]),
     ])
+    if (current !== requestId) return
     detail.value = record
     categories.value = categoryList
     fill(record?.latest_version)
     mode.value = props.fieldId ? 'view' : 'create'
   } catch (cause: any) {
-    error.value = cause?.response?.data?.detail || '标准字段详情加载失败，请重试'
+    if (current === requestId) error.value = message(cause, '标准字段详情加载失败，请重试')
   } finally {
-    loading.value = false
+    if (current === requestId) loading.value = false
   }
 }
 
-function close() { if (!saving.value) emit('update:modelValue', false) }
-function beginVersion() { if (detail.value?.versions.some(version => version.status === 'draft')) { ElMessage.warning('请先处理已有草稿'); return }; fill(detail.value?.latest_version); mode.value = 'version'; reason.value = '' }
-function beginEdit() { fill(detail.value?.latest_version); mode.value = 'edit'; reason.value = '' }
+function close() { if (!saving.value) { ++contextId; ++requestId; emit('update:modelValue', false) } }
+function beginVersion() { if (migrationRequired.value || saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'C')) return; if (detail.value?.versions.some(version => version.status === 'draft')) { ElMessage.warning('请先处理已有草稿'); return }; fill(detail.value?.latest_version); mode.value = 'version' }
+function beginEdit() { if (saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U') || detail.value?.latest_version.status !== 'draft') return; fill(detail.value.latest_version); mode.value = 'edit' }
 function cancel() { if (detail.value) { fill(detail.value.latest_version); mode.value = 'view' } else close() }
 function normalizedForm(): StandardFieldDefinitionPayload {
   return {
@@ -69,13 +81,21 @@ function normalizedForm(): StandardFieldDefinitionPayload {
     data_type: form.data_type, grain_level: form.grain_level || null,
     permission_domain: form.permission_domain, is_permission_anchor: form.is_permission_anchor,
     owner_user_id: form.owner_user_id, category_ids: form.category_ids,
+    value_domain: form.value_domain ? { items: (form.value_domain.items || []).map(item => ({ code: item.code.trim(), name: item.name.trim(), enabled: item.enabled, sort_order: item.sort_order })) } : null,
   }
 }
 async function save() {
+  if (migrationRequired.value || saving.value || loading.value || !writable() || (mode.value === 'edit' && detail.value?.latest_version.status !== 'draft')) return
   if (!form.field_name.trim() || !form.business_definition.trim() || !form.owner_user_id || (mode.value === 'create' && !form.field_code?.trim())) {
     ElMessage.warning('请填写字段编码、名称、业务定义与负责人')
     return
   }
+  const items = form.data_type === 'enum' ? form.value_domain?.items || [] : []
+  if (items.length > 1000 || items.some(item => !item.code.trim() || !item.name.trim() || item.code.trim().length > 128 || item.name.trim().length > 128 || !Number.isInteger(item.sort_order) || item.sort_order < 0) || new Set(items.map(item => item.code.trim())).size !== items.length) {
+    ElMessage.warning('最多维护1000项；编码和名称须为1–128字符、编码不重复，排序须为非负整数')
+    return
+  }
+  const context = contextId
   saving.value = true
   try {
     const payload = normalizedForm()
@@ -86,40 +106,47 @@ async function save() {
     } else if (detail.value && mode.value === 'edit') {
       await standardFieldsApi.updateVersion(detail.value.id, detail.value.latest_version.id, { ...payload, expected_revision: detail.value.latest_version.revision })
     }
+    if (context !== contextId || !canWrite.value) return
     ElMessage.success('草稿已保存，不会自动发布或授权')
     emit('changed')
     emit('update:modelValue', false)
   } catch (cause: any) {
-    error.value = cause?.response?.data?.detail || '保存失败，请核对目录版本后重试'
+    if (context === contextId) error.value = message(cause, '保存失败，请核对目录版本后重试')
   } finally {
-    saving.value = false
+    if (context === contextId) saving.value = false
   }
 }
 async function transition(version: StandardFieldVersion, action: 'approve' | 'deprecate' | 'archive') {
-  if (!detail.value) return
-  let reason = ''
-  try {
-    const result = await ElMessageBox.prompt('请填写本次操作原因，操作后不能自动恢复旧版本', '确认字段版本变更', {
-      inputValidator: value => Boolean(value.trim()) || '请填写原因',
-      confirmButtonText: '确认', cancelButtonText: '取消',
-    })
-    reason = result.value.trim()
-  } catch { return }
+  const op = action === 'archive' ? 'D' : 'U'
+  if (!detail.value || saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', op)) return
+  const context = contextId
+  const fieldId = detail.value.id
   saving.value = true
   try {
-    if (action === 'approve') await standardFieldsApi.approve(detail.value.id, version.id, version.revision, reason)
-    else if (action === 'deprecate') await standardFieldsApi.deprecate(detail.value.id, version.id, version.revision, reason)
-    else await standardFieldsApi.archive(detail.value.id, version.id, version.revision, reason)
+    const result = await ElMessageBox.prompt('请填写本次操作原因，操作后不能自动恢复旧版本', '确认字段版本变更', {
+      inputValidator: value => Boolean(value.trim()) || '请填写原因', confirmButtonText: '确认', cancelButtonText: '取消',
+    })
+    if (context !== contextId || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', op)) return
+    await standardFieldsApi[action](fieldId, version.id, version.revision, result.value.trim())
+    if (context !== contextId) return
     ElMessage.success('状态已更新；当前查询权限未改变')
-    detail.value = await standardFieldsApi.get(detail.value.id)
-    emit('changed')
+    await load()
+    if (context === contextId) emit('changed')
   } catch (cause: any) {
-    error.value = cause?.response?.data?.detail || '操作未完成，请主动重新加载并核对版本'
+    if (cause === 'cancel' || cause === 'close') return
+    if (context === contextId) error.value = message(cause, '操作未完成，请主动重新加载并核对版本')
   } finally {
-    saving.value = false
+    if (context === contextId) saving.value = false
   }
 }
-watch(() => [props.modelValue, props.fieldId], () => { if (props.modelValue) void load() })
+watch(() => [props.modelValue, props.fieldId, canView.value], () => { ++contextId; saving.value = false; void load() }, { immediate: true, flush: 'sync' })
+watch(canWrite, allowed => {
+  if (allowed || mode.value === 'view') return
+  ++contextId; saving.value = false; error.value = ''; mode.value = 'view'; fill(detail.value?.latest_version)
+  if (!detail.value) emit('update:modelValue', false)
+}, { flush: 'sync' })
+watch(() => form.data_type, (value, previous) => { if (writable() && previous === 'enum' && value !== 'enum') form.value_domain = null })
+onBeforeUnmount(() => { ++contextId; ++requestId })
 </script>
 
 <template>
@@ -127,62 +154,20 @@ watch(() => [props.modelValue, props.fieldId], () => { if (props.modelValue) voi
     <div v-loading="loading" class="standard-field-drawer">
       <el-alert v-if="error" :title="String(error)" type="error" :closable="false" show-icon />
       <p class="standard-field-drawer__note">此处维护业务字段语义，不创建物理列；草稿和建议绑定不会开放业务查询。</p>
-      <template v-if="!loading">
-        <el-form v-if="writable()" label-position="top" @submit.prevent="save">
-          <el-form-item label="字段编码" required>
-            <el-input v-model="form.field_code" :disabled="mode !== 'create'" maxlength="64" placeholder="例如 employee_no" />
-          </el-form-item>
-          <el-form-item label="字段名称" required><el-input v-model="form.field_name" maxlength="128" /></el-form-item>
-          <el-form-item label="业务定义" required><el-input v-model="form.business_definition" type="textarea" :rows="3" maxlength="4000" /></el-form-item>
-          <el-form-item label="数据类型" required>
-            <el-select v-model="form.data_type" style="width: 100%">
-              <el-option v-for="item in dataTypes" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="识别粒度">
-            <el-select v-model="form.grain_level" clearable placeholder="请选择" style="width: 100%">
-              <el-option v-for="item in grains" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="语义域" required>
-            <el-select v-model="form.permission_domain" style="width: 100%">
-              <el-option v-for="item in domains" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="负责人用户 ID" required><el-input-number v-model="form.owner_user_id" :min="1" :precision="0" controls-position="right" /></el-form-item>
-          <el-form-item label="字段分类">
-            <el-select v-model="form.category_ids" multiple clearable placeholder="可选已有分类" style="width: 100%">
-              <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="权限锚点候选"><el-switch v-model="form.is_permission_anchor" /></el-form-item>
-        </el-form>
+      <p v-if="!canView" role="alert">无权限查看标准字段目录。</p>
+      <p v-else-if="migrationRequired" role="status">旧格式值域仅支持读取，请先完成值域格式迁移；保存草稿和新建版本暂不可用。</p>
+      <template v-if="canView && !loading">
+        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" @update:model-value="Object.assign(form, $event)" @submit="save" />
         <template v-else-if="detail">
-          <el-descriptions :column="1" border>
-            <el-descriptions-item label="编码">{{ detail.field_code }}</el-descriptions-item>
-            <el-descriptions-item label="当前已批准版本">{{ detail.current_active_version_id ? `#${detail.current_active_version_id}` : '暂无' }}</el-descriptions-item>
-          </el-descriptions>
-          <div class="standard-field-drawer__section">
-            <div class="standard-field-drawer__section-title"><strong>语义版本</strong><PermissionButton menu="warehouse.standard_fields.catalog" op="C" size="small" @click="beginVersion">新建版本</PermissionButton></div>
-            <div v-for="version in detail.versions" :key="version.id" class="standard-field-drawer__version">
-              <div><strong>v{{ version.version }} · {{ version.field_name }}</strong> <el-tag size="small">{{ statusLabels[version.status] || version.status }}</el-tag></div>
-              <p>{{ version.business_definition }}</p>
-              <div class="standard-field-drawer__actions">
-                <PermissionButton v-if="version.id === detail.latest_version.id && version.status === 'draft'" menu="warehouse.standard_fields.catalog" op="U" size="small" @click="beginEdit">编辑草稿</PermissionButton>
-                <PermissionButton v-if="version.status === 'draft'" menu="warehouse.standard_fields.catalog" op="U" size="small" :disabled="saving" @click="transition(version, 'approve')">审核启用</PermissionButton>
-                <PermissionButton v-if="version.status === 'active'" menu="warehouse.standard_fields.catalog" op="U" size="small" :disabled="saving" @click="transition(version, 'deprecate')">弃用</PermissionButton>
-                <PermissionButton v-if="version.status !== 'archived'" menu="warehouse.standard_fields.catalog" op="D" size="small" :disabled="saving" @click="transition(version, 'archive')">归档</PermissionButton>
-              </div>
-            </div>
-          </div>
-          <StandardFieldBindingPanel :field-id="detail.id" :active-version-id="detail.current_active_version_id" :bindings="detail.bindings" @changed="load(); emit('changed')" />
+          <StandardFieldVersions :detail="detail" :saving="saving" :migration-required="migrationRequired" @create-version="beginVersion" @edit="beginEdit" @transition="transition" />
+          <StandardFieldBindingPanel :field-id="detail.id" :active-version-id="detail.current_active_version_id" :bindings="detail.bindings" :dataset-id="datasetId" :table-name="tableName" @changed="load(); emit('changed')" />
         </template>
       </template>
     </div>
     <template #footer>
       <el-button @click="close">关闭</el-button>
       <el-button v-if="writable()" @click="cancel">取消</el-button>
-      <PermissionButton v-if="writable()" menu="warehouse.standard_fields.catalog" :op="mode === 'edit' ? 'U' : 'C'" type="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存草稿' }}</PermissionButton>
+      <PermissionButton v-if="writable()" menu="warehouse.standard_fields.catalog" :op="mode === 'edit' ? 'U' : 'C'" type="primary" :disabled="saving || migrationRequired" @click="save">{{ saving ? '保存中…' : '保存草稿' }}</PermissionButton>
     </template>
   </el-drawer>
 </template>
@@ -190,9 +175,4 @@ watch(() => [props.modelValue, props.fieldId], () => { if (props.modelValue) voi
 <style scoped>
 .standard-field-drawer { display: grid; gap: 16px; color: var(--color-text-primary); }
 .standard-field-drawer__note { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
-.standard-field-drawer__section { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid var(--color-border); }
-.standard-field-drawer__section-title, .standard-field-drawer__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.standard-field-drawer__section-title { justify-content: space-between; }
-.standard-field-drawer__version { padding: 12px 0; border-bottom: 1px solid var(--color-border); }
-.standard-field-drawer__version p { margin: 8px 0; color: var(--color-text-secondary); }
 </style>
