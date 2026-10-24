@@ -267,8 +267,13 @@ function fieldLabelValid(code: string): boolean {
 async function loadStandardFields() {
   if (standardFields.value.length) return
   try {
-    const result = await standardFieldsApi.list({ status: 'active', limit: 200 })
-    standardFields.value = result.items
+    const collected: StandardFieldSummary[] = []
+    for (let offset = 0; offset < 2000; offset += 100) {
+      const page = await standardFieldsApi.list({ status: 'active', offset, limit: 100 })
+      collected.push(...page.items)
+      if (page.items.length < 100 || collected.length >= page.total) break
+    }
+    standardFields.value = collected
   } catch (cause: any) {
     ElMessage.error(detail(cause, '标准字段目录加载失败'))
   }
