@@ -203,6 +203,32 @@ async def test_create_table_can_create_initial_entity_columns(monkeypatch, fake_
     assert period_calls[0][0].period_col == "month"
 
 
+async def test_create_table_marks_interface_columns_for_source_sync(monkeypatch, fake_user):
+    _install_create_table_fakes(monkeypatch)
+    db = FakeSession(results=[None])
+    payload = tables_router.CreateTableIn(
+        table_name="ods_source_fed",
+        table_label="接口来源表",
+        columns=[
+            tables_router.InitialColumnIn(
+                column_code="amount",
+                column_label="金额",
+                data_type="number",
+                is_interface=True,
+                agg_role="measure",
+            )
+        ],
+    )
+
+    await tables_router.create_table(payload, user=fake_user, db=db)
+
+    # ODS + DWD 副本都必须是接口字段，否则同步会丢弃非主键列的源值
+    assert [(c.column_code, c.auto_discovered) for c in db.added_all] == [
+        ("amount", True),
+        ("amount", True),
+    ]
+
+
 async def test_create_table_rejects_invalid_table_name_before_db_work(fake_user):
     db = FakeSession()
     payload = tables_router.CreateTableIn(

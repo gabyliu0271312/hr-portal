@@ -137,6 +137,18 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
         issue("external_export_reference_unchecked", "外部出口引用尚未完成校验")
     if external_export_count:
         issue("external_exports_not_isolated", "数据集存在外部推送出口，未完成版本隔离与结果对照")
+    automation_conflicts = []
+    try:
+        from app.warehouse.models import OdsDwdAutomationConfig
+        async with db.begin_nested():
+            automation_conflicts = (await db.execute(select(OdsDwdAutomationConfig.id).where(
+                OdsDwdAutomationConfig.target_dwd_table_name.in_(set(aliases.values())),
+                OdsDwdAutomationConfig.enabled.is_(True),
+            ))).scalars().all()
+    except SQLAlchemyError:
+        automation_conflicts = []
+    if automation_conflicts:
+        issue("automation_target_not_evidenced", "目标表仍启用 ODS→DWD 自动任务，会自动写入且不产生转换证据；请先停用该自动配置")
     isolation = None
     try:
         async with db.begin_nested():

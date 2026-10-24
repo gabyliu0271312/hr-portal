@@ -47,6 +47,7 @@ class InitialColumnIn(BaseModel):
     scope_role: str | None = None
     enum_options: list[str] | None = None
     agg_role: str = "dimension"
+    is_interface: bool = False
 
 
 class CreateTableIn(BaseModel):
@@ -188,7 +189,7 @@ async def create_table(
                 is_sensitive=c.is_sensitive,
                 is_visible=c.is_visible,
                 display_order=c.display_order,
-                auto_discovered=False,
+                auto_discovered=c.is_interface,
                 description=c.description,
                 scope_role=c.scope_role,
                 enum_options=c.enum_options,
@@ -274,7 +275,7 @@ async def create_table(
                 is_sensitive=c.is_sensitive,
                 is_visible=c.is_visible,
                 display_order=c.display_order,
-                auto_discovered=False,
+                auto_discovered=c.is_interface,
                 description=c.description,
                 scope_role=c.scope_role,
                 enum_options=c.enum_options,
