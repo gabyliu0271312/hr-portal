@@ -377,6 +377,11 @@ export interface PeriodConfigPayload {
   source_label?: string
 }
 
+/** 删除草稿资产（含 DWD 孪生表） */
+export function deleteAsset(tableName: string): Promise<{ ok: boolean }> {
+  return api.delete(`/warehouse/assets/${encodeURIComponent(tableName)}`).then(r => r.data)
+}
+
 export function updatePeriodConfig(
   tableName: string,
   payload: PeriodConfigPayload,

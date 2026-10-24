@@ -3,17 +3,21 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import PerformanceDragHandle from '@/components/performance/PerformanceDragHandle.vue'
+import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
 import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
+import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import { SOURCE_TYPES } from '@/config/dataSources'
 import { adminTablesApi } from '@/api/admin_tables'
 import { datasourcesApi, type ConnectorTypeDefinition, type DiscoveredField } from '@/api/datasources'
 import { standardFieldsApi, type StandardFieldSummary } from '@/api/standardFields'
-import { listAssetColumns, updateAsset, updatePeriodConfig } from '@/api/warehouse'
+import { deleteAsset, listAssetColumns, updateAsset, updatePeriodConfig } from '@/api/warehouse'
 
 const props = defineProps<{ existingTableNames: string[] }>()
 const emit = defineEmits<{ done: [] }>()
 
 interface ManualField {
+  uid: number
   column_code: string
   column_label: string
   data_type: string
@@ -21,6 +25,18 @@ interface ManualField {
   is_visible: boolean
   is_sensitive: boolean
   agg_role: string
+}
+
+interface ColumnPayload {
+  column_code: string
+  column_label: string
+  data_type: string
+  is_pk_part: boolean
+  is_visible: boolean
+  is_sensitive?: boolean
+  display_order: number
+  agg_role: string
+  is_interface: boolean
 }
 
 const visible = ref(false)
@@ -37,9 +53,11 @@ const discovered = ref<DiscoveredField[]>([])
 const manualFields = ref<ManualField[]>([])
 const standardFields = ref<StandardFieldSummary[]>([])
 const periodField = ref('')
-const businessKeys = ref<string[]>([])
+const businessKeys = reactive<Record<string, boolean>>({})
 const fieldChoice = reactive<Record<string, number>>({})
 const tableName = ref('')
+const draftSignature = ref('')
+let manualUid = 0
 
 const form = reactive({
   table_label: '',
@@ -54,6 +72,10 @@ const fieldItems = computed<any[]>(() => currentType.value?.groups?.flatMap((gro
 const typeGroups = computed<any[]>(() => (currentType.value?.groups || []).filter((group: any) => (group.fields || []).length))
 const previewAvailable = computed(() => currentType.value?.supports_discovery === true)
 const activeFields = computed(() => standardFields.value.filter(item => item.current_active_version_id))
+const inactiveFields = computed(() => standardFields.value.filter(item => !item.current_active_version_id))
+const selectedBusinessKeys = computed(() => matchFields.value
+  .filter(field => businessKeys[field.code])
+  .map(field => field.code))
 const stepItems = computed(() => [
   {
     key: 'basic',
@@ -61,9 +83,9 @@ const stepItems = computed(() => [
     hint: '填写资产标识、来源方式与期间属性；来源方式决定下一步获取字段的方式。',
   },
   form.source_kind === 'interface'
-    ? { key: 'source', label: '接口配置', hint: '填写接入配置后点击“下一步”，系统自动校验接口并发现字段。' }
-    : { key: 'manual', label: '字段定义', hint: '直接定义字段结构，创建后可在该资产的数据视图中导入 Excel 维护数据。' },
-  { key: 'match', label: '字段匹配', hint: '指定期间字段与业务主键，并为字段确认标准字段绑定；确认绑定会记录审计原因“资产接入向导确认”。' },
+    ? { key: 'source', label: '接口配置', hint: '填写接入配置后点击“下一步”，系统自动校验接口、发现字段并保存为草稿资产。' }
+    : { key: 'manual', label: '字段定义', hint: '定义字段结构后点击“下一步”保存为草稿资产；数据可在数据视图通过 Excel 导入。' },
+  { key: 'match', label: '字段匹配', hint: '拖拽调整字段顺序，打开“业务主键”开关标记主键列，并为字段匹配标准字段。' },
 ])
 const currentStep = computed(() => stepItems.value[step.value])
 const panelWidth = computed(() => (step.value === 1 && form.source_kind === 'interface') ? '720px' : step.value === 0 ? '640px' : '1040px')
@@ -100,13 +122,14 @@ function reset() {
   finishing.value = false
   sourceType.value = ''
   tableName.value = ''
+  draftSignature.value = ''
   Object.keys(config).forEach(key => delete config[key])
   Object.keys(fieldChoice).forEach(key => delete fieldChoice[key])
+  Object.keys(businessKeys).forEach(key => delete businessKeys[key])
   discovered.value = []
   manualFields.value = []
   standardFields.value = []
   periodField.value = ''
-  businessKeys.value = []
   Object.assign(form, { table_label: '', table_name: '', description: '', is_period: false, source_kind: 'interface' })
 }
 
@@ -120,11 +143,13 @@ async function attemptClose() {
   if (finishing.value || syncing.value) return
   if (dirty.value) {
     try {
-      await ElMessageBox.confirm('当前填写内容尚未保存，确定返回吗？', '未保存内容', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning',
-      })
+      await ElMessageBox.confirm(
+        tableName.value
+          ? '当前字段匹配尚未提交，草稿已保存到资产管理；确定返回吗？'
+          : '当前填写内容尚未保存，确定返回吗？',
+        '未保存内容',
+        { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+      )
     } catch {
       return
     }
@@ -192,9 +217,25 @@ function inferType(field: DiscoveredField): string {
 }
 
 function defaultKeys() {
-  businessKeys.value = matchFields.value
-    .filter(field => field.code !== periodField.value)
-    .map(field => field.code)
+  Object.keys(businessKeys).forEach(key => delete businessKeys[key])
+  for (const field of matchFields.value) {
+    businessKeys[field.code] = field.code !== periodField.value
+  }
+}
+
+function moveItem<T>(list: T[], from: number, to: number) {
+  if (from === to || from < 0 || to < 0) return
+  const [item] = list.splice(from, 1)
+  list.splice(to, 0, item)
+}
+
+function reorderManual(from: number, to: number) {
+  moveItem(manualFields.value, from, to)
+}
+
+function reorderMatch(from: number, to: number) {
+  if (form.source_kind === 'interface') moveItem(discovered.value, from, to)
+  else moveItem(manualFields.value, from, to)
 }
 
 async function verifySource(): Promise<boolean> {
@@ -229,7 +270,9 @@ async function verifySource(): Promise<boolean> {
 }
 
 function addManualField() {
+  manualUid += 1
   manualFields.value.push({
+    uid: manualUid,
     column_code: '', column_label: '', data_type: 'string',
     is_pk_part: false, is_visible: true, is_sensitive: false, agg_role: 'dimension',
   })
@@ -269,7 +312,7 @@ async function loadStandardFields() {
   try {
     const collected: StandardFieldSummary[] = []
     for (let offset = 0; offset < 2000; offset += 100) {
-      const page = await standardFieldsApi.list({ status: 'active', offset, limit: 100 })
+      const page = await standardFieldsApi.list({ offset, limit: 100 })
       collected.push(...page.items)
       if (page.items.length < 100 || collected.length >= page.total) break
     }
@@ -309,18 +352,20 @@ async function next() {
         : manualFields.value[0]?.column_code || ''
     }
     defaultKeys()
+    const saved = await saveDraft(buildColumns())
+    if (!saved) return
     step.value = 2
     dirty.value = false
   }
 }
 
-function buildColumns() {
+function buildColumns(): ColumnPayload[] {
   if (form.source_kind === 'interface') {
     return discovered.value.map((field, index) => ({
       column_code: field.column_code,
       column_label: field.label || field.column_code,
       data_type: inferType(field),
-      is_pk_part: field.column_code === periodField.value || businessKeys.value.includes(field.column_code),
+      is_pk_part: field.column_code === periodField.value || businessKeys[field.column_code] === true,
       is_visible: true,
       display_order: (index + 1) * 10,
       agg_role: 'dimension',
@@ -331,13 +376,62 @@ function buildColumns() {
     column_code: field.column_code.trim(),
     column_label: field.column_label.trim(),
     data_type: field.data_type,
-    is_pk_part: field.column_code === periodField.value || businessKeys.value.includes(field.column_code),
+    is_pk_part: field.column_code === periodField.value || businessKeys[field.column_code] === true,
     is_visible: field.is_visible,
     is_sensitive: field.is_sensitive,
     display_order: (index + 1) * 10,
     agg_role: field.agg_role,
     is_interface: false,
   }))
+}
+
+function columnsSignature(columns: ColumnPayload[]): string {
+  return JSON.stringify([
+    form.is_period,
+    periodField.value,
+    ...columns.map(column => [
+      column.column_code, column.column_label, column.data_type,
+      column.is_pk_part, column.is_visible, column.is_sensitive, column.agg_role, column.display_order,
+    ]),
+  ])
+}
+
+async function saveDraft(columns: ColumnPayload[]): Promise<boolean> {
+  const nextTableName = form.table_name.trim()
+  const signature = columnsSignature(columns)
+  try {
+    if (tableName.value && signature === draftSignature.value) return true
+    if (tableName.value) {
+      await deleteAsset(tableName.value)
+      tableName.value = ''
+      draftSignature.value = ''
+    }
+    await adminTablesApi.create({
+      table_name: nextTableName,
+      table_label: form.table_label.trim(),
+      description: form.description.trim() || null,
+      is_period: form.is_period,
+      period_col: periodField.value || 'month',
+      period_source: 'field',
+      asset_status: 'draft',
+      columns,
+    })
+    tableName.value = nextTableName
+    draftSignature.value = signature
+    ElMessage.success('已保存为草稿资产')
+    if (form.is_period && periodField.value) {
+      const label = matchFields.value.find(field => field.code === periodField.value)?.label || periodField.value
+      await updatePeriodConfig(nextTableName, {
+        period_col: periodField.value,
+        period_source: 'field',
+        source_label: label,
+      })
+    }
+    return true
+  } catch (cause: any) {
+    ElMessage.error(detail(cause, '草稿保存失败，请检查表名是否已被占用'))
+    return false
+  }
 }
 
 async function bindFields(columns: Array<{ id: number; column_code: string }>) {
@@ -383,31 +477,15 @@ async function bindFields(columns: Array<{ id: number; column_code: string }>) {
 
 async function finish() {
   if (finishing.value) return
+  if (!tableName.value) {
+    ElMessage.warning('请先在上一步保存草稿')
+    return
+  }
   finishing.value = true
   try {
-    const nextTableName = form.table_name.trim()
-    const columns = buildColumns()
-    await adminTablesApi.create({
-      table_name: nextTableName,
-      table_label: form.table_label.trim(),
-      description: form.description.trim() || null,
-      is_period: form.is_period,
-      period_col: periodField.value || 'month',
-      period_source: 'field',
-      asset_status: 'draft',
-      columns,
-    })
-    tableName.value = nextTableName
-
-    if (form.is_period && periodField.value) {
-      const label = matchFields.value.find(field => field.code === periodField.value)?.label || periodField.value
-      await updatePeriodConfig(nextTableName, {
-        period_col: periodField.value,
-        period_source: 'field',
-        source_label: label,
-      })
-    }
-
+    const nextTableName = tableName.value
+    const saved = await saveDraft(buildColumns())
+    if (!saved) return
     const columnResult = await listAssetColumns(nextTableName)
     await bindFields(columnResult.columns)
 
@@ -425,13 +503,13 @@ async function finish() {
         secrets,
         is_active: true,
         ingestion_mode: form.is_period ? 'period_full_snapshot' : 'current_snapshot',
-        business_key_fields: businessKeys.value,
+        business_key_fields: selectedBusinessKeys.value,
       })
       syncing.value = true
       try {
         await datasourcesApi.sync(created.id)
       } catch (cause: any) {
-        ElMessage.warning(detail(cause, '首次同步未完成；资产已创建为草稿，可在资产详情继续同步'))
+        ElMessage.warning(detail(cause, '首次同步未完成；草稿已保存，可在资产详情继续同步'))
         visible.value = false
         emit('done')
         return
@@ -447,7 +525,7 @@ async function finish() {
     visible.value = false
     emit('done')
   } catch (cause: any) {
-    ElMessage.error(detail(cause, '完成失败；资产可能已创建为草稿，请在资产详情核对'))
+    ElMessage.error(detail(cause, '完成失败；草稿已保存，可在资产管理中核对或删除'))
   } finally {
     finishing.value = false
   }
@@ -574,71 +652,111 @@ defineExpose({ open })
         <div v-else-if="step === 1" class="panel-body">
           <div class="panel-actions">
             <el-button @click="addManualField">添加字段</el-button>
-            <span class="field-hint">手工字段不参与接口同步；数据通过数据视图的 Excel 导入维护。</span>
+            <span class="field-hint">拖拽左侧手柄调整字段顺序；手工字段不参与接口同步，数据通过数据视图的 Excel 导入维护。</span>
           </div>
-          <el-empty v-if="!manualFields.length" description="请添加字段；创建后可在数据视图导入 Excel" :image-size="48" />
-          <div v-for="(field, index) in manualFields" :key="index" class="manual-row">
-            <el-input v-model="field.column_code" placeholder="字段编码，如 employee_no" style="width: 180px" />
-            <el-input v-model="field.column_label" placeholder="字段名称" style="width: 160px" />
-            <el-select v-model="field.data_type" style="width: 110px">
-              <el-option label="文本" value="string" />
-              <el-option label="数字" value="number" />
-              <el-option label="日期" value="date" />
-              <el-option label="日期时间" value="datetime" />
-              <el-option label="布尔" value="bool" />
-            </el-select>
-            <el-select v-model="field.agg_role" style="width: 110px">
-              <el-option label="维度" value="dimension" />
-              <el-option label="度量" value="measure" />
-            </el-select>
-            <el-checkbox v-model="field.is_pk_part">主键</el-checkbox>
-            <el-checkbox v-model="field.is_visible">可见</el-checkbox>
-            <el-checkbox v-model="field.is_sensitive">敏感</el-checkbox>
-            <el-button text type="danger" @click="removeManualField(index)">删除</el-button>
-          </div>
+          <el-empty v-if="!manualFields.length" description="请添加字段；保存草稿后可在数据视图导入 Excel" :image-size="48" />
+          <PerformanceSortableList
+            v-else
+            :items="manualFields"
+            item-key="uid"
+            :gap="8"
+            @reorder="reorderManual"
+          >
+            <template #default="{ item: field, index, dragging, itemStyle }">
+              <div
+                class="manual-row"
+                :class="{ 'is-dragging': dragging }"
+                :style="itemStyle"
+                :data-sortable-index="index"
+              >
+                <PerformanceDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
+                <el-input v-model="field.column_code" placeholder="字段编码，如 employee_no" style="width: 180px" />
+                <el-input v-model="field.column_label" placeholder="字段名称" style="width: 160px" />
+                <el-select v-model="field.data_type" style="width: 110px">
+                  <el-option label="文本" value="string" />
+                  <el-option label="数字" value="number" />
+                  <el-option label="日期" value="date" />
+                  <el-option label="日期时间" value="datetime" />
+                  <el-option label="布尔" value="bool" />
+                </el-select>
+                <el-select v-model="field.agg_role" style="width: 110px">
+                  <el-option label="维度" value="dimension" />
+                  <el-option label="度量" value="measure" />
+                </el-select>
+                <el-checkbox v-model="field.is_visible">可见</el-checkbox>
+                <el-checkbox v-model="field.is_sensitive">敏感</el-checkbox>
+                <el-button text type="danger" @click="removeManualField(index)">删除</el-button>
+              </div>
+            </template>
+          </PerformanceSortableList>
         </div>
 
         <div v-else class="panel-body">
-          <div class="field-grid">
-            <label v-if="form.is_period" class="field">
-              <span class="field-label">期间字段<i class="required">*</i></span>
-              <el-select v-model="periodField" placeholder="选择年月字段">
-                <el-option
-                  v-for="field in matchFields"
-                  :key="field.code"
-                  :label="`${field.label} → ${field.code}${field.is_yearmonth ? '' : '（非年月）'}`"
-                  :value="field.code"
-                  :disabled="form.source_kind === 'interface' && hasYearMonthField && !field.is_yearmonth"
-                />
-              </el-select>
-            </label>
-            <label class="field">
-              <span class="field-label">业务主键</span>
-              <el-select v-model="businessKeys" multiple filterable placeholder="选择构成业务主键的字段">
-                <el-option v-for="field in matchFields" :key="field.code" :label="field.label" :value="field.code" />
-              </el-select>
-            </label>
+          <label v-if="form.is_period" class="field field--narrow">
+            <span class="field-label">期间字段<i class="required">*</i></span>
+            <el-select v-model="periodField" placeholder="选择年月字段">
+              <el-option
+                v-for="field in matchFields"
+                :key="field.code"
+                :label="`${field.label} → ${field.code}${field.is_yearmonth ? '' : '（非年月）'}`"
+                :value="field.code"
+                :disabled="form.source_kind === 'interface' && hasYearMonthField && !field.is_yearmonth"
+              />
+            </el-select>
+          </label>
+          <div class="match-head">
+            <span></span>
+            <span>源字段</span>
+            <span>标准字段</span>
+            <span class="match-head-key">业务主键</span>
           </div>
-          <el-table :data="matchFields" stripe max-height="52vh" class="match-table">
-            <el-table-column label="源字段" min-width="220">
-              <template #default="{ row }">
-                <strong>{{ row.label }}</strong>
-                <div class="sub">{{ row.code }}</div>
-              </template>
-            </el-table-column>
-            <el-table-column label="标准字段" min-width="320">
-              <template #default="{ row }">
-                <el-select v-model="fieldChoice[row.code]" clearable filterable placeholder="选择标准字段">
-                  <el-option
-                    v-for="item in activeFields"
-                    :key="item.id"
-                    :label="`${item.field_code} · ${item.latest_version.field_name}`"
-                    :value="item.id"
-                  />
+          <PerformanceSortableList :items="matchFields" item-key="code" :gap="8" @reorder="reorderMatch">
+            <template #default="{ item, index, dragging, itemStyle }">
+              <div
+                class="match-row"
+                :class="{ 'is-dragging': dragging }"
+                :style="itemStyle"
+                :data-sortable-index="index"
+              >
+                <PerformanceDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
+                <div class="match-source">
+                  <strong>{{ item.label }}</strong>
+                  <span class="sub">{{ item.code }}</span>
+                </div>
+                <el-select
+                  v-model="fieldChoice[item.code]"
+                  clearable
+                  filterable
+                  placeholder="选择标准字段"
+                  class="match-select"
+                >
+                  <el-option-group v-if="activeFields.length" label="已生效">
+                    <el-option
+                      v-for="field in activeFields"
+                      :key="field.id"
+                      :label="`${field.field_code} · ${field.latest_version.field_name}`"
+                      :value="field.id"
+                    />
+                  </el-option-group>
+                  <el-option-group v-if="inactiveFields.length" label="未生效（不可绑定）">
+                    <el-option
+                      v-for="field in inactiveFields"
+                      :key="field.id"
+                      :label="`${field.field_code} · ${field.latest_version.field_name}`"
+                      :value="field.id"
+                      disabled
+                    />
+                  </el-option-group>
                 </el-select>
-              </template>
-            </el-table-column>
-          </el-table>
+                <div class="match-key">
+                  <PerformanceSwitch
+                    v-model="businessKeys[item.code]"
+                    :aria-label="`${item.label} 是否作为业务主键`"
+                  />
+                </div>
+              </div>
+            </template>
+          </PerformanceSortableList>
         </div>
       </section>
     </div>
@@ -746,9 +864,60 @@ defineExpose({ open })
   gap: var(--spacing-2);
   align-items: center;
   flex-wrap: wrap;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
 }
-.match-table {
+.manual-row.is-dragging,
+.match-row.is-dragging {
+  box-shadow: var(--shadow-popover);
+}
+.field--narrow {
+  max-width: 360px;
+}
+.match-head {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) minmax(0, 320px) 88px;
+  gap: var(--spacing-3);
+  align-items: center;
+  padding: 0 var(--spacing-3);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 20px;
+}
+.match-head-key {
+  text-align: center;
+}
+.match-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) minmax(0, 320px) 88px;
+  gap: var(--spacing-3);
+  align-items: center;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+}
+.match-source {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+.match-source strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.match-select {
   width: 100%;
+}
+.match-key {
+  display: flex;
+  justify-content: center;
 }
 .sub {
   color: var(--color-text-secondary);

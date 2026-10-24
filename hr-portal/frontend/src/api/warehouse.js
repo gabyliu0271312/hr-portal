@@ -18,6 +18,10 @@ export function getAsset(tableName) {
 export function updateAsset(tableName, payload) {
     return api.patch(`/warehouse/assets/${encodeURIComponent(tableName)}`, payload).then(r => r.data);
 }
+/** 删除草稿资产（含 DWD 孪生表） */
+export function deleteAsset(tableName) {
+    return api.delete(`/warehouse/assets/${encodeURIComponent(tableName)}`).then(r => r.data);
+}
 export function updatePeriodConfig(tableName, payload) {
     return api.put(`/warehouse/assets/${encodeURIComponent(tableName)}/period-config`, payload).then(r => r.data);
 }

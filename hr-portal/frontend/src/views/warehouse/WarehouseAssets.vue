@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown, Grid, Menu, Plus } from '@element-plus/icons-vue'
-import { listAssets, updateAsset, batchUpdateAssetLayer, type Asset } from '@/api/warehouse'
+import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown, Grid, Menu, Plus, Delete } from '@element-plus/icons-vue'
+import { deleteAsset, listAssets, updateAsset, batchUpdateAssetLayer, type Asset } from '@/api/warehouse'
 import { useUserStore } from '@/stores/user'
 import AssetOnboardingDialog from '@/components/warehouse/AssetOnboardingDialog.vue'
 import LayerTag from '@/components/warehouse/LayerTag.vue'
@@ -13,6 +13,7 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 const canEditAsset = () => userStore.hasOp('warehouse.assets', 'U')
+const canDeleteAsset = () => userStore.hasOp('warehouse.assets', 'D')
 
 // 视图模式
 type ViewMode = 'card' | 'table'
@@ -136,6 +137,25 @@ function goSource(asset: Asset) {
     router.push('/datasource/endpoints')
   } else {
     ElMessage.info('当前资产为内部表 / 手工维护，无需配置外部来源')
+  }
+}
+
+async function removeDraft(asset: Asset) {
+  try {
+    await ElMessageBox.confirm(
+      `删除草稿资产「${asset.table_label}」？将同时删除其 DWD 孪生表与空数据集，操作不可恢复。`,
+      '删除草稿',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await deleteAsset(asset.table_name)
+    ElMessage.success('草稿已删除')
+    load()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '删除失败')
   }
 }
 
@@ -298,6 +318,13 @@ onMounted(load)
           <el-button text size="small" :icon="DataAnalysis" @click="goPreview(a.table_name)">预览</el-button>
           <el-button text size="small" :icon="Connection" @click="goImpact(a.table_name)">血缘</el-button>
           <el-button v-if="canEditAsset()" text size="small" :icon="Edit" @click="openEdit(a)">编辑</el-button>
+          <el-button
+            v-if="canDeleteAsset() && a.asset_status === 'draft'"
+            text
+            size="small"
+            :icon="Delete"
+            @click="removeDraft(a)"
+          >删除</el-button>
         </div>
       </div>
     </div>
@@ -356,6 +383,11 @@ onMounted(load)
                   <el-dropdown-item :icon="DataAnalysis" @click="goPreview(row.table_name)">预览</el-dropdown-item>
                   <el-dropdown-item :icon="Connection" @click="goImpact(row.table_name)">影响分析</el-dropdown-item>
                   <el-dropdown-item :icon="Link" @click="goSource(row)">来源配置</el-dropdown-item>
+                  <el-dropdown-item
+                    v-if="canDeleteAsset() && row.asset_status === 'draft'"
+                    :icon="Delete"
+                    @click="removeDraft(row)"
+                  >删除草稿</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>

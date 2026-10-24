@@ -536,6 +536,129 @@ async def list_asset_columns(
     return {"table_name": table_name, "columns": columns}
 
 
+@router.delete(
+    "/assets/{table_name}",
+    summary="删除草稿资产",
+    dependencies=[Depends(require_op("warehouse.assets", "D"))],
+)
+async def delete_draft_asset(table_name: str, db: AsyncSession = Depends(get_session)):
+    """删除仍为草稿状态的数据资产及其 DWD 孪生表。
+
+    仅草稿可删；已发布资产必须先停用/下线，避免误删正在被报表或出口使用的表。
+    被报表、成本分摊方案或数据源自动任务引用时返回 409。
+    """
+    from sqlalchemy import delete
+    from sqlalchemy.exc import IntegrityError
+
+    from app.allocation.models import AllocationScheme
+    from app.data.ddl import drop_source_table
+    from app.data.dynamic_loader import unregister_source_table_model
+    from app.data.models import StandardFieldBinding
+    from app.datasources.models import DataSource
+    from app.datasources.sync_service import PERIOD_TABLES
+    from app.datasets.models import DatasetOutputField
+
+    rt = (
+        await db.execute(select(RegisteredTable).where(RegisteredTable.table_name == table_name))
+    ).scalar_one_or_none()
+    if rt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"资产不存在: {table_name}")
+    if rt.is_builtin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="内置表不允许删除")
+    if rt.asset_status != "draft":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="仅草稿状态的资产允许删除；已发布资产请先下线",
+        )
+
+    targets = [table_name]
+    if table_name.startswith("ods_"):
+        dwd_name = "dwd_" + table_name[4:]
+        dwd_rt = (
+            await db.execute(select(RegisteredTable).where(RegisteredTable.table_name == dwd_name))
+        ).scalar_one_or_none()
+        if dwd_rt is not None:
+            if dwd_rt.asset_status != "draft":
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail=f"DWD 表 {dwd_name} 不是草稿状态，无法连同删除",
+                )
+            targets.append(dwd_name)
+
+    datasets = (
+        await db.execute(
+            select(DataSet)
+            .join(DataSetTable, DataSetTable.dataset_id == DataSet.id)
+            .where(DataSetTable.table_name.in_(targets))
+        )
+    ).scalars().unique().all()
+    dataset_ids = [ds.id for ds in datasets]
+    for ds in datasets:
+        used_tables = (
+            await db.execute(
+                select(DataSetTable.table_name).where(DataSetTable.dataset_id == ds.id)
+            )
+        ).scalars().all()
+        if any(name not in targets for name in used_tables):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"资产已被数据集 {ds.name} 使用，无法删除草稿",
+            )
+    if dataset_ids:
+        report_ref = (
+            await db.execute(select(Report.id).where(Report.dataset_id.in_(dataset_ids)).limit(1))
+        ).scalar_one_or_none()
+        allocation_ref = (
+            await db.execute(
+                select(AllocationScheme.id).where(AllocationScheme.dataset_id.in_(dataset_ids)).limit(1)
+            )
+        ).scalar_one_or_none()
+        if report_ref is not None or allocation_ref is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="资产已被报表或成本分摊方案引用，无法删除",
+            )
+
+    column_ids = (
+        await db.execute(
+            select(TableColumn.id).where(TableColumn.table_name.in_(targets))
+        )
+    ).scalars().all()
+    output_ids = []
+    if dataset_ids:
+        output_ids = (
+            await db.execute(
+                select(DatasetOutputField.id).where(DatasetOutputField.dataset_id.in_(dataset_ids))
+            )
+        ).scalars().all()
+    if column_ids or output_ids:
+        conditions = []
+        if column_ids:
+            conditions.append(StandardFieldBinding.table_column_id.in_(column_ids))
+        if output_ids:
+            conditions.append(StandardFieldBinding.dataset_output_field_id.in_(output_ids))
+        await db.execute(delete(StandardFieldBinding).where(*conditions))
+
+    for name in targets:
+        await drop_source_table(db, name, cascade=True)
+        unregister_source_table_model(name)
+        PERIOD_TABLES.pop(name, None)
+    await db.execute(delete(TableColumn).where(TableColumn.table_name.in_(targets)))
+    if dataset_ids:
+        await db.execute(delete(DataSet).where(DataSet.id.in_(dataset_ids)))
+    await db.execute(delete(DataSource).where(DataSource.table_name.in_(targets)))
+    await db.execute(delete(RegisteredTable).where(RegisteredTable.table_name.in_(targets)))
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="资产仍被其他治理对象引用，无法删除",
+        ) from exc
+    return {"ok": True}
+
+
 # ==================== 来源与开放 (T0202) ====================
 
 @router.get(
