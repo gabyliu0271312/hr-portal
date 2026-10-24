@@ -174,6 +174,7 @@ export interface ModelListItem {
   owner_name: string | null
   status: string
   version: number
+  release_version?: number
   table_count: number | null
   published_at: string | null
   created_at: string | null

@@ -7,9 +7,9 @@ import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
   getModel, updateModel, createModel, previewModel, saveOutputFields,
-  buildDataset, listModelVersions, previewModelV2,
+  previewModelV2,
   type OutputFieldPayload, type PreviewResult,
-  type ModelVersion, type ModelPreviewV2,
+  type ModelPreviewV2,
 } from '@/api/warehouse'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelReadinessPanel.vue'
@@ -33,7 +33,7 @@ const stepItems = [
 ]
 const pageTitle = computed(() => (form.value.label ? `数据模型 · ${form.value.label}` : '新建数据模型'))
 
-const modelMeta = ref({ status: 'draft', version: 1, published_at: null as string | null })
+const modelMeta = ref({ status: 'draft', version: 1, release_version: 0, published_at: null as string | null })
 const readinessRef = ref<InstanceType<typeof WarehouseModelReadinessPanel> | null>(null)
 const admissionReady = ref(false)
 const publishing = ref(false)
@@ -113,7 +113,6 @@ const outputFields = ref<OutputFieldRow[]>([])
 const previewData = ref<PreviewResult|null>(null); const previewLoading = ref(false)
 const previewError = ref('')
 const previewV2 = ref<ModelPreviewV2 | null>(null)
-const versions = ref<ModelVersion[]>([])
 const activeNames = ref<string[]>([])
 
 function isSingleTableDataset(ds: DatasetItem) {
@@ -395,7 +394,6 @@ async function saveDraft(): Promise<boolean> {
       modelId.value = res.id
       await saveOutputFields(res.id, outputPayload())
       router.replace(`/warehouse/modeling/visual/${res.id}`)
-      await loadVersions()
     }
     savedSignature.value = currentSignature.value
     return true
@@ -409,28 +407,18 @@ async function doPublish() {
   if (!modelId.value || !canEdit.value) return
   if (!admissionReady.value) { ElMessage.warning('准入尚未通过，请先补齐阻断项'); return }
   try {
-    await ElMessageBox.confirm('发布后模型将对授权消费方生效，并自动执行一次构建。确定发布？', '确认发布', { type: 'warning' })
+    await ElMessageBox.confirm('发布后模型将对授权消费方生效。确定发布？', '确认发布', { type: 'warning' })
   } catch { return }
   publishing.value = true
   try {
     const latest = await getModel(modelId.value)
-    modelMeta.value = { status: latest.status, version: latest.version, published_at: latest.published_at }
+    modelMeta.value = { status: latest.status, version: latest.version, release_version: latest.release_version ?? 0, published_at: latest.published_at }
     await nextTick()
     const released = await readinessRef.value?.publish()
     if (!released) return
-    try {
-      const build = await buildDataset(modelId.value)
-      if (build.status === 'success') {
-        ElMessage.success(`发布成功，构建完成：输出 ${build.row_count ?? '?'} 行`)
-      } else {
-        ElMessage.warning(`发布成功，但构建未完成：${build.error_message || '可在数据建模列表“更多 → 重新构建”重试'}`)
-      }
-    } catch (buildError: any) {
-      ElMessage.warning(`发布成功，但构建未完成：${buildError?.response?.data?.detail || '可在数据建模列表“更多 → 重新构建”重试'}`)
-    }
+    ElMessage.success('发布成功')
     const refreshed = await getModel(modelId.value)
-    modelMeta.value = { status: refreshed.status, version: refreshed.version, published_at: refreshed.published_at }
-    void loadVersions()
+    modelMeta.value = { status: refreshed.status, version: refreshed.version, release_version: refreshed.release_version ?? 0, published_at: refreshed.published_at }
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '发布失败')
   } finally {
@@ -450,11 +438,6 @@ async function doPreview() {
     previewV2.value = null
     previewError.value = e?.response?.data?.detail || '预览失败，请检查关联与输出字段'
   } finally { previewLoading.value = false }
-}
-
-async function loadVersions() {
-  if (!modelId.value) return
-  try { versions.value = await listModelVersions(modelId.value) } catch { versions.value = [] }
 }
 
 async function goBack() {
@@ -481,9 +464,8 @@ async function load() {
     if (modelId.value) {
       const d = await getModel(modelId.value)
       form.value = { label: d.label || d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }
-      modelMeta.value = { status: d.status, version: d.version, published_at: d.published_at }
-      void loadVersions()
-      for (const t of d.tables) {
+      modelMeta.value = { status: d.status, version: d.version, release_version: d.release_version ?? 0, published_at: d.published_at }
+        for (const t of d.tables) {
         const asset = availableTables.value.find(a => a.table_name === t.table_name)
         let cols: ColInfo[] = []
         try { const { listAssetColumns } = await import('@/api/warehouse'); const r = await listAssetColumns(t.table_name); cols = (r.columns || []).map((c: any) => ({ code: c.column_code, label: c.column_label || c.column_code })) } catch {}
@@ -589,22 +571,13 @@ onBeforeUnmount(() => {
               <el-tag size="small" :type="modelMeta.status === 'published' ? 'success' : 'info'">
                 {{ modelMeta.status === 'published' ? '已发布' : '草稿' }}
               </el-tag>
-              <span>当前版本 v{{ modelMeta.version }}</span>
-              <span v-if="modelMeta.published_at">发布于 {{ modelMeta.published_at }}</span>
+              <span>结构版本 v{{ modelMeta.version }}</span>
+              <span>发布序号 {{ modelMeta.release_version }}</span>
+              <span v-if="modelMeta.published_at">最近发布 {{ modelMeta.published_at }}</span>
             </div>
             <span v-else class="field-hint">保存后生成模型标识与版本</span>
+            <span class="field-hint">结构版本与转换批准绑定，仅随模型结构变化；发布序号每次发布成功 +1。</span>
           </div>
-          <el-table v-if="versions.length" :data="versions" size="small" max-height="200" class="version-table">
-            <el-table-column prop="version" label="版本" width="70" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag size="small" type="info">{{ row.status }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="发布时间">
-              <template #default="{ row }">{{ row.published_at || '—' }}</template>
-            </el-table-column>
-          </el-table>
         </div>
       </section>
 
@@ -792,7 +765,7 @@ onBeforeUnmount(() => {
         <header class="panel-head panel-head--row">
           <div>
             <h2>模型准入</h2>
-            <p>准入通过后才能发布；发布会写入模型状态并自动执行一次构建。</p>
+            <p>准入通过后才能发布；发布会写入模型状态并记录发布序号。</p>
           </div>
           <div class="panel-actions">
             <el-tag :type="admissionReady ? 'success' : 'danger'">
@@ -860,10 +833,12 @@ onBeforeUnmount(() => {
   min-height: 0;
   padding: var(--spacing-6);
   box-sizing: border-box;
+  overflow-y: auto;
 }
 .wizard-panel {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   width: 100%;
   max-width: 1200px;
   min-height: 0;

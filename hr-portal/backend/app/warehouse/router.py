@@ -3618,20 +3618,13 @@ async def build_dataset(
 ):
     """将 virtual DataSet 物化为物理表。
 
-    - 校验分层流转（ODS→DWD→DWS→ADS），非法跳转返回 400
-    - 只处理已入仓数据，不触发 UCP/DataSource 实时拉取
+    当前版本尚未实现数据集物化：数据集按虚拟视图方式在线执行，
+    报表执行不依赖物化表。调用方会收到明确的 501，而不是 500。
     """
-    svc = _svc(db)
-    result = await svc.build_dataset(dataset_id)
-
-    if "error" in result:
-        code_map = {"not_found": 404, "build_mode": 400, "layer_check": 400}
-        raise HTTPException(
-            status_code=code_map.get(result["error"], 500),
-            detail=result["detail"],
-        )
-
-    return result
+    raise HTTPException(
+        status.HTTP_501_NOT_IMPLEMENTED,
+        detail="数据集物化构建尚未实现：当前数据集以虚拟视图在线执行，无需构建物理表",
+    )
 
 
 # ==================== R0204 刷新策略 ====================

@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh, View, Edit, VideoPlay, Lock, Clock, ArrowDown } from '@element-plus/icons-vue'
-import { listModels, archiveModel, buildDataset, type ModelListItem } from '@/api/warehouse'
+import { Plus, Search, Refresh, View, Lock, Clock, ArrowDown } from '@element-plus/icons-vue'
+import { listModels, archiveModel, type ModelListItem } from '@/api/warehouse'
 import { api } from '@/api/client'
 import { datasetsApi } from '@/api/datasets'
 import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
@@ -63,8 +63,6 @@ const REFRESH_HINTS: Record<string, string> = {
 
 const refreshStrategies = ref<Record<number, string>>({})
 const strategyLoading = ref<Set<number>>(new Set())
-const buildingIds = ref<Set<number>>(new Set())
-const buildStatuses = ref<Record<number, { status: string; msg?: string }>>({})
 
 // 定时配置
 const scheduleVisible = ref(false)
@@ -103,24 +101,6 @@ async function changeStrategy(datasetId: number, strategy: string) {
 async function loadWithStrategies() {
   await load()
   for (const m of models.value) loadStrategy(m.id)
-}
-
-async function doBuild(model: ModelListItem) {
-  const id = model.id
-  buildingIds.value.add(id)
-  buildStatuses.value[id] = { status: 'running' }
-  try {
-    const result = await buildDataset(id)
-    buildStatuses.value[id] = {
-      status: result.status,
-      msg: result.status === 'success' ? `输出 ${result.row_count ?? '?'} 行` : (result.error_message || '构建失败'),
-    }
-    if (result.status === 'success') ElMessage.success(`模型「${model.label || model.name}」构建完成`)
-    else ElMessage.error(buildStatuses.value[id].msg || '构建失败')
-  } catch (e: any) {
-    buildStatuses.value[id] = { status: 'failed', msg: e?.response?.data?.detail || '构建请求失败' }
-    ElMessage.error(buildStatuses.value[id].msg || '构建失败')
-  } finally { buildingIds.value.delete(id) }
 }
 
 async function load() {
@@ -218,9 +198,6 @@ onMounted(loadWithStrategies)
           <el-table-column label="分层" width="100">
             <template #default="{ row }">{{ LAYER_LABELS[row.warehouse_layer] || row.warehouse_layer }}</template>
           </el-table-column>
-          <el-table-column prop="subject_area" label="主题域" width="90" />
-          <el-table-column prop="owner_name" label="负责人" width="90" />
-          <el-table-column prop="table_count" label="关联表数" width="80" align="center" />
           <el-table-column label="状态" width="80" align="center">
             <template #default="{ row }">
               <el-tag size="small" :type="STATUS_TAG[row.status] || 'info'">{{ STATUS_LABELS[row.status] || row.status }}</el-tag>
@@ -244,9 +221,6 @@ onMounted(loadWithStrategies)
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column label="版本" width="60" align="center">
-            <template #default="{ row }">{{ row.version || 1 }}</template>
-          </el-table-column>
           <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
               <el-button text size="small" :icon="View" @click="goEdit(row.id)">编辑</el-button>
@@ -254,12 +228,6 @@ onMounted(loadWithStrategies)
                 <el-button text size="small">更多<el-icon style="margin-left: 2px"><ArrowDown /></el-icon></el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item
-                      v-if="row.status === 'published'"
-                      :icon="VideoPlay"
-                      :disabled="buildingIds.has(row.id)"
-                      @click="doBuild(row)"
-                    >{{ buildingIds.has(row.id) ? '构建中…' : '重新构建' }}</el-dropdown-item>
                     <el-dropdown-item :icon="Clock" @click="openSchedule(row)">构建设置</el-dropdown-item>
                     <el-dropdown-item v-if="userStore.hasOp('warehouse.assets','U')" :icon="Lock" @click="openAcl(row)">访问授权</el-dropdown-item>
                     <el-dropdown-item

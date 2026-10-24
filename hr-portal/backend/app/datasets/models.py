@@ -65,7 +65,12 @@ class DataSet(Base):
         String(16), nullable=False, default="published", server_default="published"
     )
     business_definition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # version 是结构版本：转换批准(warehouse_conversion_approvals.dataset_version)按它绑定，不能因发布而变动
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # release_version 是发布序号：每次发布成功 +1，仅用于展示与发布历史，不参与门禁校验
+    release_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0", comment="发布序号（每次发布成功+1）"
+    )
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -296,12 +296,15 @@ async def request_dataset_release(db, dataset_id, expected_version, user):
         if (dataset.version, dataset.status, dataset.is_active, dataset.warehouse_layer) != observed_state:
             raise HTTPException(409, detail={"code": "dataset_release_state_conflict", "message": "数据集状态已变化，请重新检查"})
         dataset.status = "published"
+        # 发布序号与结构版本分离：结构版本被转换批准绑定，不能因发布递增
+        dataset.release_version = (dataset.release_version or 0) + 1
         if previous_status != "published":
             dataset.published_by = user.id
             dataset.published_at = datetime.now(UTC)
         db.add(SystemLog(
             category="scope_governance", action="dataset_release", status="success", user_id=user.id,
             metadata_json={"dataset_id": dataset_id, "version": dataset.version,
+                           "release_version": dataset.release_version,
                            "previous_status": previous_status, "status": "published",
                            "contract_id": execution.contract_id, "contract_version": execution.contract_version},
         ))
