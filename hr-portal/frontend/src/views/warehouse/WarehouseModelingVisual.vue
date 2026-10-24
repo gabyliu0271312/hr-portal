@@ -1,22 +1,43 @@
 ﻿<script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Delete, Finished, Search, Clock, Plus, Loading, MagicStick } from '@element-plus/icons-vue'
+import { Delete, Search, Plus, Loading, MagicStick } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
   getModel, updateModel, createModel, previewModel, saveOutputFields,
   publishModelV2, listModelVersions, previewModelV2,
-  type OutputFieldPayload, type PreviewResult, type Asset,
+  type OutputFieldPayload, type PreviewResult,
   type ModelVersion, type ModelPreviewV2,
 } from '@/api/warehouse'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
+import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import PerformanceDragHandle from '@/components/performance/PerformanceDragHandle.vue'
+import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
+import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 
 const route = useRoute(); const router = useRouter()
 const userStore = useUserStore()
-const modelId = route.params.id ? Number(route.params.id) : null
+const modelId = ref<number | null>(route.params.id ? Number(route.params.id) : null)
+
+const step = ref(0)
+const stepItems = [
+  { key: 'basic', label: '基本信息' },
+  { key: 'build', label: '数据建模' },
+  { key: 'fields', label: '输出字段' },
+  { key: 'preview', label: '数据预览' },
+]
+const pageTitle = computed(() => (form.value.label ? `数据模型 · ${form.value.label}` : '新建数据模型'))
+
+function nextStep() {
+  if (step.value === 0 && !form.value.label.trim()) {
+    ElMessage.warning('请填写模型名称')
+    return
+  }
+  if (step.value < stepItems.length - 1) step.value += 1
+}
 
 // 计算字段弹窗
 const cfDialogVisible = ref(false)
@@ -25,8 +46,9 @@ function onCalculatedFieldSaved(_field: DatasetCalculatedField) {
   cfDialogVisible.value = false
   ElMessage.success('计算字段已保存，请刷新输出字段列表')
 }
-const isNew = !modelId
-const canEdit = computed(() => isNew ? userStore.hasOp('warehouse.assets','C') : userStore.hasOp('warehouse.assets','U'))
+const canEdit = computed(() => modelId.value
+  ? userStore.hasOp('warehouse.assets', 'U')
+  : userStore.hasOp('warehouse.assets', 'C'))
 
 const form = ref({ label: '', warehouse_layer: 'DWD', subject_area: '', business_definition: '', owner_name: '' })
 const loading = ref(false); const saving = ref(false); const error = ref<string|null>(null)
@@ -54,11 +76,24 @@ const selectedNode = ref<string|null>(null); const selectedEdge = ref<number|nul
 const currentEdge = computed(() => selectedEdge.value !== null ? relations.value[selectedEdge.value] : null)
 const drawerVisible = ref(false)
 
-const outputFields = ref<OutputFieldPayload[]>([]); const previewData = ref<PreviewResult|null>(null); const previewLoading = ref(false)
+interface OutputFieldRow {
+  _uid: number
+  source_alias: string
+  source_column: string
+  output_code: string
+  output_label: string
+  data_type: string
+  agg_role: string
+  description: string
+  is_sensitive: boolean
+  is_visible: boolean
+}
+let ofUid = 0
+const outputFields = ref<OutputFieldRow[]>([])
+const previewData = ref<PreviewResult|null>(null); const previewLoading = ref(false)
 const previewV2 = ref<ModelPreviewV2 | null>(null)
 const versions = ref<ModelVersion[]>([]); const versionVisible = ref(false)
 const activeNames = ref<string[]>([])
-const rightTab = ref<'fields'|'preview'>('fields')
 
 function isSingleTableDataset(ds: DatasetItem) {
   const isNormalizedSingleTable = ds.name.startsWith('ds_')
@@ -155,10 +190,24 @@ function connectedAliases(alias: string) {
   return set
 }
 
+let moveBound = false
+function bindCanvasMove(on: boolean) {
+  if (on && !moveBound) {
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    moveBound = true
+  } else if (!on && moveBound) {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    moveBound = false
+  }
+}
+
 function startConnect(e:MouseEvent, alias:string) {
   e.stopPropagation(); e.preventDefault()
   const n = tables.value.find(t=>t.alias===alias); if (!n) return
   connecting.value = { from: alias, mx: e.clientX, my: e.clientY }
+  bindCanvasMove(true)
 }
 
 function onMove(e: MouseEvent) {
@@ -195,11 +244,24 @@ function onUp() {
     }
     finishConnect()
   } else if (connecting.value) {
-    fadingLine.value = true; setTimeout(() => { connecting.value = null; fadingLine.value = false }, 200)
-  } else { dragNode.value = null; hoverTarget.value = null }
+    fadingLine.value = true
+    setTimeout(() => { connecting.value = null; fadingLine.value = false }, 200)
+    bindCanvasMove(false)
+  } else {
+    dragNode.value = null
+    hoverTarget.value = null
+    bindCanvasMove(false)
+  }
 }
-function finishConnect() { dragNode.value = null; connecting.value = null; hoverTarget.value = null }
-function onDragStart(e:MouseEvent, alias:string) { if(e.button!==0)return;e.preventDefault();const n=tables.value.find(t=>t.alias===alias);if(!n)return;dragNode.value=alias;dragStart.value={x:e.clientX,y:e.clientY,nx:n.x,ny:n.y} }
+function finishConnect() { dragNode.value = null; connecting.value = null; hoverTarget.value = null; bindCanvasMove(false) }
+function onDragStart(e:MouseEvent, alias:string) {
+  if(e.button!==0)return
+  e.preventDefault()
+  const n=tables.value.find(t=>t.alias===alias); if(!n)return
+  dragNode.value=alias
+  dragStart.value={x:e.clientX,y:e.clientY,nx:n.x,ny:n.y}
+  bindCanvasMove(true)
+}
 
 // ==================== 边路由 ====================
 function edgeEndpoints(rel: RelationEdge) {
@@ -249,8 +311,43 @@ function selectEdgeFn(i: number) { selectedEdge.value = i; selectedNode.value = 
 function removeRelation(i: number) { relations.value.splice(i, 1); selectedEdge.value = null; drawerVisible.value = false; autoLayout() }
 function addKey(ri: number) { relations.value[ri].keys.push({ left: '', right: '' }) }
 function removeKey(ri: number, ki: number) { relations.value[ri].keys.splice(ki, 1) }
-function addOF() { outputFields.value.push({ source_alias: tables.value[0]?.alias || '', source_column: '', output_code: '', output_label: '', data_type: 'string', agg_role: 'dimension', is_sensitive: false, is_visible: true, display_order: outputFields.value.length }) }
+function addOF() {
+  ofUid += 1
+  outputFields.value.push({
+    _uid: ofUid,
+    source_alias: tables.value[0]?.alias || '',
+    source_column: '',
+    output_code: '',
+    output_label: '',
+    data_type: 'string',
+    agg_role: 'dimension',
+    description: '',
+    is_sensitive: false,
+    is_visible: true,
+  })
+}
 function removeOF(i: number) { outputFields.value.splice(i, 1) }
+function reorderFields(from: number, to: number) {
+  if (from === to) return
+  const [item] = outputFields.value.splice(from, 1)
+  outputFields.value.splice(to, 0, item)
+}
+function outputPayload(): OutputFieldPayload[] {
+  return outputFields.value
+    .filter(f => f.output_code.trim() && f.output_label.trim())
+    .map((f, index) => ({
+      source_alias: f.source_alias,
+      source_column: f.source_column,
+      output_code: f.output_code,
+      output_label: f.output_label,
+      data_type: f.data_type || 'string',
+      description: f.description || null,
+      agg_role: f.agg_role || 'dimension',
+      is_sensitive: f.is_sensitive,
+      is_visible: f.is_visible,
+      display_order: index,
+    }))
+}
 
 // ==================== 保存/发布/预览 ====================
 async function saveDraft() {
@@ -258,25 +355,42 @@ async function saveDraft() {
   try {
     const tablePayload = tables.value.map(t => ({ table_name: t.table_name, alias: t.alias }))
     const relationPayload = relations.value.filter(r => r.from && r.to).map(r => ({ left_alias: r.from, right_alias: r.to, join_type: r.join_type, cardinality: r.cardinality, left_keys: r.keys.filter(k => k.left).map(k => k.left), right_keys: r.keys.filter(k => k.right).map(k => k.right) }))
-    if (modelId) {
-      await updateModel(modelId, { label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
-      const v = outputFields.value.filter(f => f.output_code && f.output_label); if (v.length) await saveOutputFields(modelId, v)
+    if (modelId.value) {
+      await updateModel(modelId.value, { label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
+      const v = outputPayload(); if (v.length) await saveOutputFields(modelId.value, v)
       await load()
-      ElMessage.success('已更新')
+      ElMessage.success('已保存')
     } else {
+      if (!form.value.label.trim()) { ElMessage.warning('请填写模型名称'); return }
       const res = await createModel({ name: makeModelCode(form.value.label), label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
-      ElMessage.success(`已创建 ID:${res.id}`); router.replace(`/warehouse/modeling/visual/${res.id}`)
+      modelId.value = res.id
+      const v = outputPayload(); if (v.length) await saveOutputFields(res.id, v)
+      ElMessage.success('已创建')
+      router.replace(`/warehouse/modeling/visual/${res.id}`)
     }
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
 }
 
 async function doPublish() {
-  if (!modelId) { ElMessage.warning('请先保存'); return }
-  try { await ElMessageBox.confirm('确定发布？', '确认', { type: 'info' }); const v = outputFields.value.filter(f => f.output_code && f.output_label); if (v.length) await saveOutputFields(modelId, v); const res = await publishModelV2(modelId); ElMessage.success(`已发布 v${res.version}`); router.push('/warehouse/modeling') } catch {}
+  if (!modelId.value) { ElMessage.warning('请先保存模型'); return }
+  try {
+    await ElMessageBox.confirm('确定发布该模型？', '确认发布', { type: 'info' })
+    const v = outputPayload(); if (v.length) await saveOutputFields(modelId.value, v)
+    const res = await publishModelV2(modelId.value)
+    ElMessage.success(`已发布 v${res.version}`)
+    router.push('/warehouse/modeling')
+  } catch { /* 取消或失败已提示 */ }
 }
 
-async function doPreview() { if (!modelId) return; previewLoading.value = true; try { previewData.value = await previewModel(modelId); previewV2.value = await previewModelV2(modelId); rightTab.value = 'preview' } catch { ElMessage.error('预览失败') } finally { previewLoading.value = false } }
-async function showVersions() { if (!modelId) return; try { versions.value = await listModelVersions(modelId); versionVisible.value = true } catch { ElMessage.error('加载版本历史失败') } }
+async function doPreview() {
+  if (!modelId.value) { ElMessage.warning('请先保存模型'); return }
+  previewLoading.value = true
+  try {
+    previewData.value = await previewModel(modelId.value)
+    previewV2.value = await previewModelV2(modelId.value)
+  } catch { ElMessage.error('预览失败') } finally { previewLoading.value = false }
+}
+async function showVersions() { if (!modelId.value) return; try { versions.value = await listModelVersions(modelId.value); versionVisible.value = true } catch { ElMessage.error('加载版本历史失败') } }
 function goBack() { router.back() }
 
 // ==================== 加载 ====================
@@ -287,8 +401,8 @@ async function load() {
   outputFields.value = []
   try {
     const datasets = await datasetsApi.list(); availableTables.value = (datasets || []).filter(isSingleTableDataset).map(ds => ({ table_name: ds.tables[0].table_name, table_label: ds.label || ds.tables[0].table_label || ds.tables[0].table_name, dataset_code: formatDatasetCode(ds), warehouse_layer: ds.warehouse_layer || 'DWD' }))
-    if (modelId) {
-      const d = await getModel(modelId)
+    if (modelId.value) {
+      const d = await getModel(modelId.value)
       form.value = { label: d.label || d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }
       for (const t of d.tables) {
         const asset = availableTables.value.find(a => a.table_name === t.table_name)
@@ -298,50 +412,122 @@ async function load() {
         tables.value.push({ id: t.id, table_name: t.table_name, alias: t.alias, label: resolveNodeLabel(asset, t.table_name, preferredLabel), dataset_code: resolveNodeDatasetCode(asset, t.table_name, t.dataset_code), layer: resolveNodeLayer(asset, t.table_name, t.warehouse_layer), x: 0, y: 0, columns: cols })
       }
       relations.value = d.relations.map((r: any) => ({ id: r.id, from: r.left_alias, to: r.right_alias, join_type: r.join_type, cardinality: r.cardinality, keys: r.keys || [] }))
-      outputFields.value = d.output_fields.map((f: any) => ({ source_alias: f.source_alias, source_column: f.source_column, output_code: f.output_code, output_label: f.output_label, data_type: f.data_type, description: f.description, agg_role: f.agg_role, is_sensitive: f.is_sensitive, is_visible: f.is_visible, display_order: f.display_order }))
+      outputFields.value = d.output_fields.map((f: any) => {
+        ofUid += 1
+        return {
+          _uid: ofUid,
+          source_alias: f.source_alias,
+          source_column: f.source_column,
+          output_code: f.output_code,
+          output_label: f.output_label,
+          data_type: f.data_type || 'string',
+          agg_role: f.agg_role || 'dimension',
+          description: f.description || '',
+          is_sensitive: !!f.is_sensitive,
+          is_visible: f.is_visible !== false,
+        }
+      })
       await nextTick(); autoLayout()
     }
   } catch (e: any) { error.value = e?.response?.data?.detail || '加载失败' } finally { loading.value = false }
 }
 
 onMounted(load)
+onBeforeUnmount(() => {
+  window.removeEventListener('mousemove', onPanMoveGlobal)
+  window.removeEventListener('mouseup', onPanEndGlobal)
+  bindCanvasMove(false)
+})
 </script>
 
 <template>
-  <div class="vm-root" @mousemove="onMove" @mouseup="onUp" @mouseleave="onUp">
-    <!-- 工具栏 -->
-    <div class="vm-bar">
-      <el-button text :icon="ArrowLeft" @click="goBack">返回</el-button>
-      <el-input v-model="form.label" placeholder="模型名称" size="small" style="width:160px" />
-      <el-select v-model="form.warehouse_layer" size="small" style="width:110px"><el-option v-for="(v,k) in LAYER_LABELS" :key="k" :label="v" :value="k" /></el-select>
-      <el-input v-model="form.subject_area" placeholder="主题域" size="small" style="width:80px" />
-      <el-input v-model="form.owner_name" placeholder="负责人" size="small" style="width:80px" />
-      <span style="flex:1" />
-      <el-button size="small" @click="autoLayout()">自动布局</el-button>
-      <el-button size="small" @click="resetView()">重置视图</el-button>
-      <el-button v-if="canEdit" size="small" :loading="saving" @click="saveDraft">保存</el-button>
-      <el-button v-if="modelId&&userStore.hasOp('warehouse.assets','U')" size="small" type="success" :icon="Finished" @click="doPublish">发布</el-button>
-      <el-button v-if="modelId" size="small" :icon="Clock" @click="showVersions">版本</el-button>
-      <el-button size="small" @click="doPreview" :loading="previewLoading">预览</el-button>
-    </div>
-    <el-alert v-if="error" type="error" :title="error" show-icon :closable="false" style="margin:0 12px" />
+  <FullScreenModal :title="pageTitle" :show-footer="false" @back="goBack">
+    <template #actions>
+      <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="数据模型步骤" />
+      <el-button v-if="modelId" text @click="showVersions">版本</el-button>
+      <el-button v-if="canEdit" :loading="saving" @click="saveDraft">保存</el-button>
+      <el-button v-if="step > 0" @click="step -= 1">上一步</el-button>
+      <el-button v-if="step < stepItems.length - 1" type="primary" @click="nextStep">下一步</el-button>
+      <el-button v-else type="primary" :disabled="!modelId || !canEdit" @click="doPublish">发布</el-button>
+    </template>
 
-    <div v-loading="loading" class="vm-body">
-      <!-- 左栏：表选择器 -->
-      <div class="vm-left">
-        <div class="vm-lt">数据表</div>
-        <div class="vm-ls"><el-input v-model="tableSearch" placeholder="搜索..." size="small" :prefix-icon="Search" clearable /></div>
-        <div class="vm-ll">
-          <div v-for="t in filteredTables" :key="t.table_name" class="vm-to" @click="addTable(t.table_name)">
-            <span class="vm-dot" :style="{background:LAYER_COLORS[t.warehouse_layer]||'#909399'}" />
-            <div class="vm-oi"><div class="vm-on">{{ t.table_label }}</div><div class="vm-op">{{ t.dataset_code }}</div></div>
+    <div v-loading="loading" class="wizard-body">
+      <el-alert v-if="error" type="error" :title="error" show-icon :closable="false" />
+
+      <!-- 1. 基本信息 -->
+      <section v-if="step === 0" class="wizard-panel wizard-panel--narrow">
+        <header class="panel-head">
+          <h2>基本信息</h2>
+          <p>填写模型标识与归属；保存后即可进入数据建模。</p>
+        </header>
+        <div class="panel-body">
+          <label class="field">
+            <span class="field-label">模型名称<i class="required">*</i></span>
+            <el-input v-model="form.label" placeholder="如 员工月度分摊模型" maxlength="120" />
+          </label>
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">分层</span>
+              <el-select v-model="form.warehouse_layer">
+                <el-option v-for="(v, k) in LAYER_LABELS" :key="k" :label="v" :value="k" />
+              </el-select>
+            </label>
+            <label class="field">
+              <span class="field-label">主题域</span>
+              <el-input v-model="form.subject_area" placeholder="如 薪酬、组织" />
+            </label>
           </div>
-          <el-empty v-if="!filteredTables.length" description="无表可添加" :image-size="48" />
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">负责人</span>
+              <el-input v-model="form.owner_name" placeholder="负责人姓名" />
+            </label>
+            <div class="field">
+              <span class="field-label">模型标识</span>
+              <div class="inline-meta">
+                <el-tag v-if="modelId" size="small" type="info">ID {{ modelId }}</el-tag>
+                <span v-else class="field-hint">保存后生成</span>
+              </div>
+            </div>
+          </div>
+          <label class="field">
+            <span class="field-label">业务定义</span>
+            <el-input v-model="form.business_definition" type="textarea" :rows="3" placeholder="说明模型口径与用途" />
+          </label>
         </div>
-      </div>
+      </section>
 
-      <!-- 中：可缩放画布 -->
-      <div class="vm-cv" @wheel.prevent="onWheel" @mousedown="onPanStart" :style="{cursor:isPanning?'grabbing':'grab'}">
+      <!-- 2. 数据建模 -->
+      <section v-else-if="step === 1" class="wizard-panel wizard-panel--fill">
+        <header class="panel-head panel-head--row">
+          <div>
+            <h2>数据建模</h2>
+            <p>从左侧添加数据表，拖拽节点调整位置，拖动节点两侧圆点连线建立关联。</p>
+          </div>
+          <div class="panel-actions">
+            <el-button size="small" @click="autoLayout()">自动布局</el-button>
+            <el-button size="small" @click="resetView()">重置视图</el-button>
+          </div>
+        </header>
+        <div class="builder">
+          <aside class="builder-aside">
+            <div class="builder-aside-title">数据表</div>
+            <div class="builder-aside-search">
+              <el-input v-model="tableSearch" placeholder="搜索表名或编码" size="small" :prefix-icon="Search" clearable />
+            </div>
+            <div class="builder-aside-list">
+              <div v-for="t in filteredTables" :key="t.table_name" class="table-option" @click="addTable(t.table_name)">
+                <span class="table-dot" :style="{ background: LAYER_COLORS[t.warehouse_layer] || '#909399' }" />
+                <div class="table-option-main">
+                  <div class="table-option-name">{{ t.table_label }}</div>
+                  <div class="table-option-code">{{ t.dataset_code }}</div>
+                </div>
+              </div>
+              <el-empty v-if="!filteredTables.length" description="无表可添加" :image-size="48" />
+            </div>
+          </aside>
+
+          <div class="vm-cv" @wheel.prevent="onWheel" @mousedown="onPanStart" :style="{cursor:isPanning?'grabbing':'grab'}">
         <div class="vm-cv-inner" :style="{transform:`translate(${panX}px,${panY}px) scale(${zoom})`,transformOrigin:'0 0',width:Math.max(...tables.map(t=>t.x+NODE_W),800)+200+'px',height:Math.max(...tables.map(t=>t.y+NODE_H),500)+200+'px'}">
           <!-- 边 -->
           <svg class="vm-svg" style="position:absolute;inset:0;overflow:visible;pointer-events:none">
@@ -382,46 +568,115 @@ onMounted(load)
           </div>
         </div>
       </div>
+        </div>
+      </section>
 
-      <!-- 右栏：Tab 面板 -->
-      <div class="vm-right-panel">
-        <el-tabs v-model="rightTab" class="vm-tabs" stretch>
-          <el-tab-pane label="输出字段" name="fields">
-            <div class="vm-rp-header"><span style="font-size:12px;color:#909399">{{ outputFields.length }} 个字段</span><div style="display:flex;gap:6px"><el-button v-if="modelId" size="small" :icon="MagicStick" @click="cfDialogVisible = true">计算字段</el-button><el-button size="small" :icon="Plus" @click="addOF">添加</el-button></div></div>
-            <div class="vm-of-list">
-              <div v-for="(f,i) in outputFields" :key="i" class="vm-of-card">
-                <div class="vm-of-row">
-                  <el-input v-model="outputFields[i].source_alias" size="small" placeholder="来源表" style="width:68px" />
-                  <el-input v-model="outputFields[i].source_column" size="small" placeholder="字段" style="width:68px" />
-                  <span style="color:#909399">→</span>
-                  <el-input v-model="outputFields[i].output_code" size="small" placeholder="编码" style="width:68px" />
-                  <el-input v-model="outputFields[i].output_label" size="small" placeholder="名称" style="width:68px" />
-                </div>
-                <div class="vm-of-row2">
-                  <el-select v-model="outputFields[i].data_type" size="small" style="width:70px"><el-option label="string" value="string" /><el-option label="number" value="number" /><el-option label="date" value="date" /></el-select>
-                  <el-select v-model="outputFields[i].agg_role" size="small" style="width:75px"><el-option label="维度" value="dimension" /><el-option label="度量" value="measure" /></el-select>
-                  <el-input v-model="outputFields[i].description" size="small" placeholder="描述" style="width:80px" />
-                  <el-button text size="small" type="danger" @click="removeOF(i)">×</el-button>
-                </div>
+      <!-- 3. 输出字段 -->
+      <section v-else-if="step === 2" class="wizard-panel wizard-panel--wide">
+        <header class="panel-head panel-head--row">
+          <div>
+            <h2>输出字段</h2>
+            <p>输出字段决定数据集对外可用的列；拖拽调整顺序，顺序即输出顺序。</p>
+          </div>
+          <div class="panel-actions">
+            <el-button v-if="modelId" size="small" :icon="MagicStick" @click="cfDialogVisible = true">计算字段</el-button>
+            <el-button size="small" :icon="Plus" @click="addOF">添加字段</el-button>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div class="of-head">
+            <span></span>
+            <span>来源表</span>
+            <span>来源字段</span>
+            <span>输出编码</span>
+            <span>输出名称</span>
+            <span>类型</span>
+            <span>角色</span>
+            <span>描述</span>
+            <span></span>
+          </div>
+          <PerformanceSortableList
+            v-if="outputFields.length"
+            :items="outputFields"
+            item-key="_uid"
+            :gap="8"
+            @reorder="reorderFields"
+          >
+            <template #default="{ item: f, index, dragging, itemStyle }">
+              <div class="of-row" :class="{ 'is-dragging': dragging }" :style="itemStyle" :data-sortable-index="index">
+                <PerformanceDragHandle :label="`拖拽第${index + 1}个输出字段`" :dragging="dragging" />
+                <el-select v-model="f.source_alias" size="small" filterable allow-create placeholder="来源表">
+                  <el-option v-for="t in tables" :key="t.alias" :label="t.label || t.alias" :value="t.alias" />
+                </el-select>
+                <el-select v-model="f.source_column" size="small" filterable allow-create placeholder="来源字段">
+                  <el-option
+                    v-for="c in (tables.find(t => t.alias === f.source_alias)?.columns || [])"
+                    :key="c.code"
+                    :label="`${c.label}（${c.code}）`"
+                    :value="c.code"
+                  />
+                </el-select>
+                <el-input v-model="f.output_code" size="small" placeholder="output_code" />
+                <el-input v-model="f.output_label" size="small" placeholder="输出名称" />
+                <el-select v-model="f.data_type" size="small">
+                  <el-option label="文本" value="string" />
+                  <el-option label="数字" value="number" />
+                  <el-option label="日期" value="date" />
+                </el-select>
+                <el-select v-model="f.agg_role" size="small">
+                  <el-option label="维度" value="dimension" />
+                  <el-option label="度量" value="measure" />
+                </el-select>
+                <el-input v-model="f.description" size="small" placeholder="描述" />
+                <el-button text size="small" type="danger" @click="removeOF(index)">删除</el-button>
               </div>
-              <el-empty v-if="!outputFields.length" description="暂无输出字段" :image-size="48" />
-            </div>
-          </el-tab-pane>
-          <el-tab-pane label="预览" name="preview">
-            <div v-if="previewLoading" style="text-align:center;padding:40px"><el-icon class="is-loading" :size="24"><Loading /></el-icon></div>
-            <template v-else-if="previewData">
-              <el-alert v-for="e in (previewV2?.errors||[])" :key="e.node_id" :title="`${e.node_id}: ${e.message}`" type="error" show-icon :closable="false" size="small" style="margin-bottom:4px" />
-              <el-collapse v-if="previewV2?.sql" v-model="activeNames" style="margin-bottom:4px">
-                <el-collapse-item title="SQL" name="sql"><pre class="vm-sql">{{ previewV2.sql }}</pre></el-collapse-item>
-                <el-collapse-item title="关系" name="explain"><pre class="vm-explain">{{ previewV2.sql_explanation }}</pre></el-collapse-item>
-              </el-collapse>
-              <el-table :data="previewData.items" border size="small" max-height="240"><el-table-column v-for="c in previewData.columns" :key="c" :prop="c" :label="c" min-width="70" show-overflow-tooltip /></el-table>
-              <div style="font-size:11px;color:#909399;margin-top:4px">总数 {{ previewData.summary.main_count??'—' }} · 返回 {{ previewData.summary.result_count??'—' }} · 未匹配 {{ previewData.summary.unmatched_count??'—' }}</div>
             </template>
-            <el-empty v-else description="点击「预览」生成数据" :image-size="48" />
-          </el-tab-pane>
-        </el-tabs>
-      </div>
+          </PerformanceSortableList>
+          <el-empty v-else description="暂无输出字段，点击右上角「添加字段」" :image-size="60" />
+        </div>
+      </section>
+
+      <!-- 4. 数据预览 -->
+      <section v-else class="wizard-panel wizard-panel--wide">
+        <header class="panel-head panel-head--row">
+          <div>
+            <h2>数据预览</h2>
+            <p>按当前建模生成 SQL 并预览结果；预览不落库，用于确认关联与输出是否正确。</p>
+          </div>
+          <div class="panel-actions">
+            <el-button type="primary" :loading="previewLoading" :disabled="!modelId" @click="doPreview">运行预览</el-button>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div v-if="previewLoading" class="preview-loading">
+            <el-icon class="is-loading" :size="24"><Loading /></el-icon>
+          </div>
+          <template v-else-if="previewData">
+            <el-alert
+              v-for="e in (previewV2?.errors || [])"
+              :key="e.node_id"
+              :title="`${e.node_id}: ${e.message}`"
+              type="error"
+              show-icon
+              :closable="false"
+              size="small"
+            />
+            <el-collapse v-if="previewV2?.sql" v-model="activeNames">
+              <el-collapse-item title="SQL" name="sql"><pre class="vm-sql">{{ previewV2.sql }}</pre></el-collapse-item>
+              <el-collapse-item title="关系" name="explain"><pre class="vm-explain">{{ previewV2.sql_explanation }}</pre></el-collapse-item>
+            </el-collapse>
+            <div class="preview-table">
+              <el-table :data="previewData.items" border size="small" max-height="46vh">
+                <el-table-column v-for="c in previewData.columns" :key="c" :prop="c" :label="c" min-width="90" show-overflow-tooltip />
+              </el-table>
+            </div>
+            <p class="preview-summary">
+              总数 {{ previewData.summary.main_count ?? '—' }} · 返回 {{ previewData.summary.result_count ?? '—' }} · 未匹配 {{ previewData.summary.unmatched_count ?? '—' }}
+            </p>
+          </template>
+          <el-empty v-else description="点击「运行预览」生成数据" :image-size="60" />
+        </div>
+      </section>
     </div>
 
     <!-- 属性抽屉 -->
@@ -466,27 +721,77 @@ onMounted(load)
     <el-dialog v-model="cfDialogVisible" title="管理计算字段" width="800px" v-if="modelId">
       <CalculatedFieldBridge :dataset-id="modelId" :datasets="[]" :tables="[]" @saved="onCalculatedFieldSaved" />
     </el-dialog>
-  </div>
+  </FullScreenModal>
 </template>
 
 <style scoped>
-.vm-root { display: flex; flex-direction: column; height: calc(100vh - 56px); overflow: hidden; background: #f8f9fb; }
+.wizard-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-4);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--spacing-6);
+  box-sizing: border-box;
+}
+.wizard-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1200px;
+  min-height: 0;
+  padding: var(--spacing-7) var(--spacing-8) var(--spacing-8);
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-card);
+}
+.wizard-panel--narrow { max-width: 640px; }
+.wizard-panel--fill { flex: 1 1 auto; max-width: none; }
+.panel-head { display: flex; flex-direction: column; flex-shrink: 0; gap: var(--spacing-2); }
+.panel-head--row { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: var(--spacing-4); }
+.panel-head h2 { margin: 0; color: var(--color-text-primary); font-size: var(--font-size-xl); font-weight: 600; line-height: var(--line-height-tight); }
+.panel-head p { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--line-height-base); }
+.panel-body { display: flex; flex-direction: column; gap: var(--spacing-4); margin-top: var(--spacing-6); min-height: 0; }
+.panel-actions { display: flex; flex-shrink: 0; align-items: center; gap: var(--spacing-2); flex-wrap: wrap; }
+.field { display: flex; flex-direction: column; gap: var(--spacing-2); min-width: 0; }
+.field :deep(.el-select) { width: 100%; }
+.field-label { color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: 22px; }
+.required { margin-left: var(--spacing-1); color: var(--color-text-danger-strong); font-style: normal; }
+.field-hint { color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-5) var(--spacing-6); }
+.inline-meta { display: flex; align-items: center; min-height: var(--performance-control-height); }
 
-.vm-bar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: #fff; border-bottom: 1px solid #e2e5ea; flex-shrink: 0; flex-wrap: wrap; }
-
-.vm-body { display: flex; flex: 1; overflow: hidden; }
-
-/* ===== 左栏 ===== */
-.vm-left { width: 180px; flex-shrink: 0; background: #fff; border-right: 1px solid #e2e5ea; display: flex; flex-direction: column; overflow: hidden; }
-.vm-lt { font-weight: 600; font-size: 12px; padding: 8px 12px; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
-.vm-ls { padding: 0 8px 6px; }
-.vm-ll { flex: 1; overflow-y: auto; padding: 0 6px 6px; }
-.vm-to { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: background .15s; }
-.vm-to:hover { background: #f0f2f5; }
-.vm-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.vm-oi { min-width: 0; }
-.vm-on { font-size: 12px; font-weight: 500; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vm-op { font-size: 10px; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ===== 数据建模 ===== */
+.builder {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: var(--spacing-5);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.builder-aside {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border-light);
+  background: var(--color-bg-subtle);
+}
+.builder-aside-title { padding: var(--spacing-3) var(--spacing-4) 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: 600; }
+.builder-aside-search { padding: var(--spacing-2) var(--spacing-3); }
+.builder-aside-list { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; overflow-y: auto; padding: 0 var(--spacing-2) var(--spacing-3); }
+.table-option { display: flex; align-items: center; gap: var(--spacing-2); padding: var(--spacing-2) var(--spacing-3); border-radius: var(--radius-sm); cursor: pointer; }
+.table-option:hover { background: var(--color-bg-hover); }
+.table-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; }
+.table-option-main { min-width: 0; }
+.table-option-name { overflow: hidden; color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.table-option-code { overflow: hidden; color: var(--color-text-placeholder); font-family: var(--font-mono); font-size: var(--font-size-xs); text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== 画布 ===== */
 .vm-cv { flex: 1; overflow: hidden; position: relative; background: #f5f6f8; }
@@ -522,18 +827,29 @@ onMounted(load)
 .vm-nd.connecting .vm-port { background: #3b6ff5; transform: translateY(-50%) scale(1.3); box-shadow: 0 0 0 4px rgba(59,111,245,.25); }
 .vm-nd.h .vm-port { background: #3b6ff5; transform: translateY(-50%) scale(1.3); box-shadow: 0 0 0 4px rgba(59,111,245,.25); }
 
-/* ===== 右栏 ===== */
-.vm-right-panel { width: 340px; flex-shrink: 0; background: #fff; border-left: 1px solid #e2e5ea; display: flex; flex-direction: column; overflow: hidden; }
-.vm-tabs { height: 100%; display: flex; flex-direction: column; }
-.vm-tabs :deep(.el-tabs__content) { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
-.vm-tabs :deep(.el-tabs__header) { margin: 0; padding: 0 8px; }
-.vm-rp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.vm-of-list { display: flex; flex-direction: column; gap: 4px; }
-.vm-of-card { padding: 6px 8px; border: 1px solid #ebeef5; border-radius: 6px; background: #fafafa; }
-.vm-of-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
-.vm-of-row2 { display: flex; align-items: center; gap: 4px; }
-.vm-sql { background: #f5f7fa; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; max-height: 120px; margin: 0; }
-.vm-explain { font-size: 11px; color: #606266; white-space: pre-wrap; margin: 0; }
+/* ===== 输出字段 ===== */
+.of-head,
+.of-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) 96px 88px minmax(0, 1.2fr) 56px;
+  gap: var(--spacing-2);
+  align-items: center;
+}
+.of-head { padding: 0 var(--spacing-3); color: var(--color-text-secondary); font-size: var(--font-size-xs); line-height: 20px; }
+.of-row {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+}
+.of-row.is-dragging { box-shadow: var(--shadow-popover); }
+
+/* ===== 预览 ===== */
+.preview-loading { display: flex; justify-content: center; padding: var(--spacing-8) 0; }
+.preview-table { overflow-x: auto; }
+.preview-summary { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.vm-sql { max-height: 180px; margin: 0; padding: var(--spacing-3); border-radius: var(--radius-sm); background: var(--color-bg-subtle); font-size: var(--font-size-xs); overflow-x: auto; }
+.vm-explain { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); white-space: pre-wrap; }
 
 /* ===== 抽屉 ===== */
 .vm-fg { margin-bottom: 10px; }
