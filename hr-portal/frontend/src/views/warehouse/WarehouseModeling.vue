@@ -2,8 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Refresh, View, Edit, VideoPlay, Finished, Lock, Clock } from '@element-plus/icons-vue'
-import { listModels, publishModel, archiveModel, buildDataset, type ModelListItem } from '@/api/warehouse'
+import { Plus, Search, Refresh, View, Edit, VideoPlay, Lock, Clock, ArrowDown } from '@element-plus/icons-vue'
+import { listModels, archiveModel, buildDataset, type ModelListItem } from '@/api/warehouse'
 import { api } from '@/api/client'
 import { datasetsApi } from '@/api/datasets'
 import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
@@ -11,8 +11,6 @@ import ScheduleConfigDialog from '@/components/common/ScheduleConfigDialog.vue'
 import { useUserStore } from '@/stores/user'
 import WarehouseDimension from './WarehouseDimension.vue'
 import WarehouseDwsAggregate from './WarehouseDwsAggregate.vue'
-import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelReadinessPanel.vue'
-import PermissionButton from '@/components/PermissionButton.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -74,8 +72,6 @@ const scheduleKind = ref('dataset_build')
 const scheduleBizId = ref(0)
 const scheduleBizName = ref('')
 const schedulePayload = ref<Record<string, any>>({})
-const readinessVisible = ref(false)
-const readinessModel = ref<ModelListItem | null>(null)
 
 function openSchedule(model: ModelListItem) {
   scheduleKind.value = 'dataset_build'
@@ -142,7 +138,6 @@ async function load() {
 
 function goCreate() { router.push('/warehouse/modeling/visual') }
 function goEdit(id: number) { router.push(`/warehouse/modeling/visual/${id}`) }
-function openReadiness(model: ModelListItem) { readinessModel.value = model; readinessVisible.value = true }
 
 async function openAcl(model: ModelListItem) {
   aclModel.value = model
@@ -164,15 +159,6 @@ async function saveAcl() {
     aclVisible.value = false
   } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') }
   finally { aclSaving.value = false }
-}
-
-async function doPublish(model: ModelListItem) {
-  try {
-    await ElMessageBox.confirm(`确定发布模型「${model.label || model.name}」？`, '确认发布', { type: 'info' })
-    await publishModel(model.id)
-    ElMessage.success('发布成功')
-    load()
-  } catch { /* 取消 */ }
 }
 
 async function doArchive(model: ModelListItem) {
@@ -203,24 +189,24 @@ onMounted(loadWithStrategies)
 
     <!-- Tab 1: 数据建模 -->
     <div v-show="activeTab === 'modeling'">
-      <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 16px">
-        <el-button v-if="userStore.hasOp('warehouse.assets','C')" type="primary" :icon="Plus" @click="goCreate">快速关联</el-button>
-      </div>
       <el-card shadow="never" style="margin-bottom: 16px">
-        <el-form :inline="true" size="small">
-          <el-form-item label="搜索">
-            <el-input v-model="keyword" placeholder="模型名称" clearable style="width: 200px" @keyup.enter="(page=1,load())" />
-          </el-form-item>
-          <el-form-item label="状态">
-            <el-select v-model="statusFilter" clearable placeholder="全部" style="width: 120px" @change="(page=1,load())">
-              <el-option label="草稿" value="draft" /><el-option label="已发布" value="published" /><el-option label="已归档" value="archived" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" :icon="Search" size="small" @click="(page=1,load())">查询</el-button>
-            <el-button :icon="Refresh" size="small" @click="(page=1,keyword='',statusFilter='',load())">重置</el-button>
-          </el-form-item>
-        </el-form>
+        <div class="filter-row">
+          <el-form :inline="true" size="small" class="filter-form" @submit.prevent="(page=1,load())">
+            <el-form-item label="搜索">
+              <el-input v-model="keyword" placeholder="模型名称" clearable style="width: 200px" @keyup.enter="(page=1,load())" />
+            </el-form-item>
+            <el-form-item label="状态">
+              <el-select v-model="statusFilter" clearable placeholder="全部" style="width: 120px" @change="(page=1,load())">
+                <el-option label="草稿" value="draft" /><el-option label="已发布" value="published" /><el-option label="已归档" value="archived" />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :icon="Search" size="small" @click="(page=1,load())">查询</el-button>
+              <el-button :icon="Refresh" size="small" @click="(page=1,keyword='',statusFilter='',load())">重置</el-button>
+            </el-form-item>
+          </el-form>
+          <el-button v-if="userStore.hasOp('warehouse.assets','C')" type="primary" :icon="Plus" @click="goCreate">快速建模</el-button>
+        </div>
       </el-card>
 
       <el-card shadow="never">
@@ -261,27 +247,29 @@ onMounted(loadWithStrategies)
           <el-table-column label="版本" width="60" align="center">
             <template #default="{ row }">{{ row.version || 1 }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="340" fixed="right">
+          <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
               <el-button text size="small" :icon="View" @click="goEdit(row.id)">编辑</el-button>
-              <PermissionButton menu="warehouse.assets" op="V" text size="small" @click="openReadiness(row)">准入</PermissionButton>
-              <el-button v-if="userStore.hasOp('warehouse.assets','U')" text size="small" :icon="Lock" @click="openAcl(row)">授权</el-button>
-              <el-button text size="small" :icon="Clock" @click="openSchedule(row)">定时</el-button>
-              <el-tooltip
-                v-if="row.status === 'published'"
-                :content="buildStatuses[row.id]?.status === 'failed' ? buildStatuses[row.id]?.msg : buildStatuses[row.id]?.status === 'success' ? buildStatuses[row.id]?.msg : ''"
-                :disabled="!buildStatuses[row.id] || buildStatuses[row.id]?.status === 'running'"
-                placement="top"
-              >
-                <el-button
-                  text size="small" :icon="VideoPlay"
-                  :type="buildStatuses[row.id]?.status === 'success' ? 'success' : buildStatuses[row.id]?.status === 'failed' ? 'danger' : 'primary'"
-                  :loading="buildingIds.has(row.id)"
-                  @click="doBuild(row)"
-                >构建</el-button>
-              </el-tooltip>
-              <el-button v-else-if="row.status === 'draft' && userStore.hasOp('warehouse.assets','U')" text size="small" :icon="Finished" type="success" @click="doPublish(row)">发布</el-button>
-              <el-button v-if="row.status !== 'archived' && userStore.hasOp('warehouse.assets','U')" text size="small" type="warning" @click="doArchive(row)">归档</el-button>
+              <el-dropdown trigger="click" style="margin-left: 4px">
+                <el-button text size="small">更多<el-icon style="margin-left: 2px"><ArrowDown /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item
+                      v-if="row.status === 'published'"
+                      :icon="VideoPlay"
+                      :disabled="buildingIds.has(row.id)"
+                      @click="doBuild(row)"
+                    >{{ buildingIds.has(row.id) ? '构建中…' : '重新构建' }}</el-dropdown-item>
+                    <el-dropdown-item :icon="Clock" @click="openSchedule(row)">构建设置</el-dropdown-item>
+                    <el-dropdown-item v-if="userStore.hasOp('warehouse.assets','U')" :icon="Lock" @click="openAcl(row)">访问授权</el-dropdown-item>
+                    <el-dropdown-item
+                      v-if="row.status !== 'archived' && userStore.hasOp('warehouse.assets','U')"
+                      divided
+                      @click="doArchive(row)"
+                    >归档</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </template>
           </el-table-column>
         </el-table>
@@ -312,14 +300,6 @@ onMounted(loadWithStrategies)
     <div v-show="activeTab === 'dws'" class="tab-content">
       <WarehouseDwsAggregate />
     </div>
-
-    <WarehouseModelReadinessPanel
-      v-if="readinessModel"
-      v-model="readinessVisible"
-      :model-id="readinessModel.id"
-      :model-version="readinessModel.version"
-      :model-name="readinessModel.label || readinessModel.name"
-    />
 
     <!-- 定时配置弹窗 -->
     <ScheduleConfigDialog
@@ -360,5 +340,18 @@ onMounted(loadWithStrategies)
 .tab-content {
   /* 子页面自带 padding，这里抵消外层 padding 避免双倍 */
   margin: -24px;
+}
+.filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+.filter-form {
+  flex: 1 1 auto;
+}
+.filter-form :deep(.el-form-item) {
+  margin-bottom: 0;
 }
 </style>

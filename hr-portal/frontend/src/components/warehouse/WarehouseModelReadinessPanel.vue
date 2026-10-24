@@ -20,8 +20,9 @@ import {
   type ProductAuthorizationContract,
 } from '@/api/warehouse'
 
-const props = defineProps<{ modelId: number; modelVersion: number; modelName: string; modelValue: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
+const props = defineProps<{ modelId: number; modelVersion: number; modelName: string }>()
+const emit = defineEmits<{ ready: [eligible: boolean]; published: [] }>()
+defineExpose({ refresh: load, publish: release })
 const loading = ref(false)
 const releasing = ref(false)
 const error = ref('')
@@ -45,7 +46,6 @@ function detail(cause: any, fallback: string) {
 }
 function statusText(eligible: boolean) { return eligible ? '通过' : '阻断' }
 async function load() {
-  if (!props.modelValue) return
   loading.value = true
   error.value = ''
   releaseMessage.value = ''
@@ -64,10 +64,13 @@ async function load() {
     if (!contractForm.value.tableName && model.tables.length === 1) contractForm.value.tableName = model.tables[0].table_name
   } catch (cause: any) {
     error.value = cause?.response?.status === 403 ? '无权查看模型准入状态。' : detail(cause, '模型准入状态加载失败，请重试。')
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+    emit('ready', releaseReadiness.value?.eligible === true)
+  }
 }
-async function release() {
-  if (releasing.value || !releaseReadiness.value?.eligible) return
+async function release(): Promise<boolean> {
+  if (releasing.value || !releaseReadiness.value?.eligible) return false
   releasing.value = true
   releaseMessage.value = ''
   try {
@@ -75,8 +78,11 @@ async function release() {
     releaseMessage.value = '发布成功，模型已进入已发布状态。'
     ElMessage.success('模型发布成功')
     await load()
+    emit('published')
+    return true
   } catch (cause: any) {
     releaseMessage.value = detail(cause, '发布未完成；请重新检查阻断原因。')
+    return false
   } finally { releasing.value = false }
 }
 async function createContract() {
@@ -144,12 +150,15 @@ async function approve(contract: ProductAuthorizationContract) {
   } catch (cause: any) { ElMessage.error(detail(cause, '授权合同批准失败，请重新加载。')) }
   finally { contractApproving.value = false }
 }
-watch(() => props.modelValue, value => { if (value) void load() }, { immediate: true })
+watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immediate: true })
 </script>
 
 <template>
-  <el-dialog :model-value="modelValue" :title="`模型准入 · ${modelName}`" width="min(920px, 94vw)" @close="emit('update:modelValue', false)">
-    <div v-loading="loading" class="readiness-panel">
+  <div v-loading="loading" class="readiness-panel">
+    <div class="readiness-panel__head">
+      <strong>{{ modelName }}</strong>
+      <el-button size="small" :loading="loading" @click="load">重新检查</el-button>
+    </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <p class="readiness-panel__note">这里仅展示服务端准入判断。客户端不传运行时开关，也不会展示员工、金额、SQL 或来源敏感值。</p>
       <div class="readiness-grid">
@@ -200,13 +209,12 @@ watch(() => props.modelValue, value => { if (value) void load() }, { immediate: 
           </template>
         </div>
       </section>
-    </div>
-    <template #footer><el-button @click="emit('update:modelValue', false)">关闭</el-button><PermissionButton menu="warehouse.assets" op="U" type="primary" :disabled="releasing || !releaseReadiness?.eligible" @click="release">按当前版本发布</PermissionButton></template>
-  </el-dialog>
+  </div>
 </template>
 
 <style scoped>
 .readiness-panel { display: grid; gap: 16px; }
+.readiness-panel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-3); color: var(--color-text-primary); font-size: var(--font-size-md); }
 .readiness-panel__note { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
 .readiness-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .readiness-card { padding: 14px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-hover); }

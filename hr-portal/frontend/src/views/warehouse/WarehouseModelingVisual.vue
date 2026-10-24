@@ -7,11 +7,12 @@ import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
   getModel, updateModel, createModel, previewModel, saveOutputFields,
-  publishModelV2, listModelVersions, previewModelV2,
+  buildDataset, listModelVersions, previewModelV2,
   type OutputFieldPayload, type PreviewResult,
   type ModelVersion, type ModelPreviewV2,
 } from '@/api/warehouse'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
+import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelReadinessPanel.vue'
 import FullScreenModal from '@/components/performance/FullScreenModal.vue'
 import PerformanceDragHandle from '@/components/performance/PerformanceDragHandle.vue'
 import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
@@ -28,10 +29,14 @@ const stepItems = [
   { key: 'build', label: '数据建模' },
   { key: 'fields', label: '输出字段' },
   { key: 'preview', label: '数据预览' },
+  { key: 'admission', label: '模型准入' },
 ]
 const pageTitle = computed(() => (form.value.label ? `数据模型 · ${form.value.label}` : '新建数据模型'))
 
 const modelMeta = ref({ status: 'draft', version: 1, published_at: null as string | null })
+const readinessRef = ref<InstanceType<typeof WarehouseModelReadinessPanel> | null>(null)
+const admissionReady = ref(false)
+const publishing = ref(false)
 const savedSignature = ref('')
 const currentSignature = computed(() => JSON.stringify({
   form: form.value,
@@ -401,17 +406,35 @@ async function saveDraft(): Promise<boolean> {
 }
 
 async function doPublish() {
-  if (!modelId.value) { ElMessage.warning('请先完成前面的步骤'); return }
+  if (!modelId.value || !canEdit.value) return
+  if (!admissionReady.value) { ElMessage.warning('准入尚未通过，请先补齐阻断项'); return }
   try {
-    await ElMessageBox.confirm('确定发布该模型？', '确认发布', { type: 'info' })
+    await ElMessageBox.confirm('发布后模型将对授权消费方生效，并自动执行一次构建。确定发布？', '确认发布', { type: 'warning' })
   } catch { return }
-  if (dirty.value && !(await saveDraft())) return
+  publishing.value = true
   try {
-    const res = await publishModelV2(modelId.value)
-    ElMessage.success(`已发布 v${res.version}`)
-    router.push('/warehouse/modeling')
+    const latest = await getModel(modelId.value)
+    modelMeta.value = { status: latest.status, version: latest.version, published_at: latest.published_at }
+    await nextTick()
+    const released = await readinessRef.value?.publish()
+    if (!released) return
+    try {
+      const build = await buildDataset(modelId.value)
+      if (build.status === 'success') {
+        ElMessage.success(`发布成功，构建完成：输出 ${build.row_count ?? '?'} 行`)
+      } else {
+        ElMessage.warning(`发布成功，但构建未完成：${build.error_message || '可在数据建模列表“更多 → 重新构建”重试'}`)
+      }
+    } catch (buildError: any) {
+      ElMessage.warning(`发布成功，但构建未完成：${buildError?.response?.data?.detail || '可在数据建模列表“更多 → 重新构建”重试'}`)
+    }
+    const refreshed = await getModel(modelId.value)
+    modelMeta.value = { status: refreshed.status, version: refreshed.version, published_at: refreshed.published_at }
+    void loadVersions()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '发布失败')
+  } finally {
+    publishing.value = false
   }
 }
 
@@ -504,9 +527,15 @@ onBeforeUnmount(() => {
     <template #actions>
       <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="数据模型步骤" />
       <span class="save-state">{{ saving ? '保存中…' : dirty ? '未保存' : (modelId ? '已保存' : '') }}</span>
-      <el-button v-if="step > 0" :disabled="saving" @click="step -= 1">上一步</el-button>
+      <el-button v-if="step > 0" :disabled="saving || publishing" @click="step -= 1">上一步</el-button>
       <el-button v-if="step < stepItems.length - 1" type="primary" :loading="saving" @click="nextStep">下一步</el-button>
-      <el-button v-else type="primary" :disabled="!modelId || !canEdit || saving" @click="doPublish">发布</el-button>
+      <el-button
+        v-else
+        type="primary"
+        :loading="publishing"
+        :disabled="!modelId || !canEdit || saving || !admissionReady"
+        @click="doPublish"
+      >{{ modelMeta.status === 'published' ? '重新发布' : '发布' }}</el-button>
     </template>
 
     <div v-loading="loading" class="wizard-body">
@@ -719,7 +748,7 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- 4. 数据预览 -->
-      <section v-else class="wizard-panel wizard-panel--wide">
+      <section v-else-if="step === 3" class="wizard-panel wizard-panel--wide">
         <header class="panel-head panel-head--row">
           <div>
             <h2>数据预览</h2>
@@ -755,6 +784,32 @@ onBeforeUnmount(() => {
             </p>
           </template>
           <el-empty v-else description="暂无预览数据；完成前面步骤后进入本步会自动加载" :image-size="60" />
+        </div>
+      </section>
+
+      <!-- 5. 模型准入 -->
+      <section v-else class="wizard-panel wizard-panel--wide">
+        <header class="panel-head panel-head--row">
+          <div>
+            <h2>模型准入</h2>
+            <p>准入通过后才能发布；发布会写入模型状态并自动执行一次构建。</p>
+          </div>
+          <div class="panel-actions">
+            <el-tag :type="admissionReady ? 'success' : 'danger'">
+              {{ admissionReady ? '准入通过' : '存在阻断项' }}
+            </el-tag>
+          </div>
+        </header>
+        <div class="panel-body">
+          <WarehouseModelReadinessPanel
+            v-if="modelId"
+            ref="readinessRef"
+            :model-id="modelId"
+            :model-version="modelMeta.version"
+            :model-name="form.label || '当前模型'"
+            @ready="admissionReady = $event"
+          />
+          <el-empty v-else description="请先完成并保存前面的步骤" :image-size="60" />
         </div>
       </section>
     </div>
