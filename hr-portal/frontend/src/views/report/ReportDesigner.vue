@@ -19,7 +19,7 @@ import { reportsApi, deriveValueRules, REPORT_VISIBILITY_LABELS, type Aggregatio
 import type { ColumnInfo } from '@/api/data'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 import { useTableOptions } from '@/composables/useTableOptions'
-import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
+import type { ScopeStrategy } from '@/constants/scopeStrategy'
 import {
   dependencyCount,
   removeReportColumnInstance,
@@ -177,7 +177,6 @@ const basicSettingsOpen = ref(false)
 const currentDatasetName = computed(() => currentDataset.value?.name || datasets.value.find((d) => d.id === form.dataset_id)?.name || '未选择数据集')
 const datasetUnavailable = computed(() => Boolean(datasetsLoaded.value && form.dataset_id && !datasets.value.some((d) => d.id === form.dataset_id)))
 const publishStatusLabel = computed(() => REPORT_VISIBILITY_LABELS[form.visibility])
-const scopeStrategyLabel = computed(() => SCOPE_STRATEGY_OPTIONS.find((item) => item.value === form.scope_strategy)?.label || '继承默认')
 const filterSummary = computed(() => form.filters.length ? `${form.filters.length} 条筛选` : '未设置筛选')
 const pushSummary = computed(() => reportPushTargets.value.length ? `${reportPushTargets.value.length} 个推送配置` : '未配置推送')
 

@@ -1426,4 +1426,19 @@ VALUE_FIELD=SKIPPED
   - `src/views/datasource/DatasetEdit.vue`：移除策略选择；保存仍携带载入值，新数据集为null由后端默认/继承。
 - 未做：报表设计器的策略选择（1b下一批，需同步处理legacy只读回显）；删除`reports/datasets/registered_tables.scope_strategy`列或旧API字段。
 - 验证：`vue-tsc --noEmit`通过；`npm run build`通过（42.67s）；相关组件测试65 passed；`CostCenterMappingWorkspace.spec` 1项失败在干净HEAD上同样失败（基线问题，与本次改动无关）。
-- 下一步1b：新建报表不出现策略选择、legacy只读回显；同一产品下两份报表继承合同、报表ACL不能扩大数据集授权；PC验收。
+- 下一步1b：新建报表不出现策略选择；同一产品下两份报表继承合同、报表ACL不能扩大数据集授权；PC验收。
+
+### 10. MVP 1b 报表侧与跨报表继承验证（2026-10-24）
+
+- 前端收口：
+  - `src/components/report/ReportBasicInfo.vue`移除“数据范围策略”选择；`src/views/report/ReportDesigner.vue`移除未使用的策略标签；`src/views/system/FieldColumns.vue`移除只读策略标签。
+  - 新建报表不再传`scope_strategy`（null），编辑保留载入值；legacy字段/API/DB列保留，legacy报表仍按原值执行。
+  - **按用户2026-10-24要求，legacy也不在界面显示策略**；因此未实现原spec的“legacy只读回显”，差异记录在此，字段和值仍可经API读取。
+- 跨报表继承验证（开发库，真实API）：
+  - 报表22（public，ACL空）与报表23（scoped，ACL仅用户6）同属数据集530，均绑定合同1、均`authorized_v1`；报表23 `scope_strategy=null`。
+  - pilot021运行报表23：**74组/543**，与报表22一致，证明同一产品合同被两份报表继承，无需逐份选策略。
+  - 报表ACL不能扩大数据集授权：向报表23 ACL加入无数据集权限的用户9 → 400“只能授权给拥有该数据集权限的用户”。
+  - 有数据集权限但不在报表23 ACL的用户10 → 403“无权访问该报表”；同一用户运行public报表22 → 73组/542（人员范围），证明报表可见性与数据集授权相互独立、只能收紧。
+- 前端验证：`vue-tsc --noEmit`通过；`npm run build`通过（42.24s），构建产物中已无“数据范围策略”；报表相关测试21 passed。
+- 开发库状态：报表23与测试用户9/10保留（9/10已停用）；数据集530 ACL恢复为仅用户6。
+- 未完成：**用户PC验收**（新建报表无策略选择；public/scoped两份报表；越权提示）。完成后才勾选1b具名子项。

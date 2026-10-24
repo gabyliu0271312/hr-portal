@@ -9,7 +9,6 @@ import {
   type TableMeta,
 } from '@/api/table_columns'
 import { adminTablesApi } from '@/api/admin_tables'
-import { SCOPE_STRATEGY_OPTIONS } from '@/constants/scopeStrategy'
 
 // T0102: 字段管理已迁移到数据仓库，当前页面为只读兼容入口
 
@@ -150,10 +149,6 @@ onMounted(async () => {
                 :value="t.table_name"
               />
             </el-select>
-            <!-- 只读展示数据范围策略 -->
-            <el-tag v-if="currentRegisteredTable" type="info" effect="plain">
-              策略：{{ SCOPE_STRATEGY_OPTIONS.find(s => s.value === currentRegisteredTable?.scope_strategy)?.label || currentRegisteredTable?.scope_strategy }}
-            </el-tag>
             <el-button
               type="primary"
               size="small"

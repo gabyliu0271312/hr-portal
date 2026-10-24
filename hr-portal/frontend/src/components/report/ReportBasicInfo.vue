@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import type { DatasetItem } from '@/api/datasets'
 import { reportsApi, type ReportAclItem, type ReportVisibility } from '@/api/reports'
 import AclEditor from '@/components/AclEditor.vue'
-import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
+import type { ScopeStrategy } from '@/constants/scopeStrategy'
 
 const props = defineProps<{
   name: string
@@ -42,10 +42,6 @@ const datasetIdModel = computed({
 const visibilityModel = computed({
   get: () => props.visibility,
   set: (v) => emit('update:visibility', v),
-})
-const scopeStrategyModel = computed({
-  get: () => props.scopeStrategy,
-  set: (v) => emit('update:scopeStrategy', v),
 })
 const aclModel = computed({
   get: () => props.acl,
@@ -122,16 +118,6 @@ function datasetTableName(table: DatasetItem['tables'][number]): string {
         </div>
       </el-form-item>
 
-      <el-form-item class="strategy-field" label="数据范围策略">
-        <el-select v-model="scopeStrategyModel" size="small" clearable placeholder="继承默认" style="width: 100%">
-          <el-option
-            v-for="item in SCOPE_STRATEGY_OPTIONS"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </el-select>
-      </el-form-item>
     </div>
 
     <el-form-item v-if="showDescription" class="description-field" label="描述">
