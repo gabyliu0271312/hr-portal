@@ -13,7 +13,7 @@ import {
 } from '@/api/datasets'
 import { dataApi, type ColumnInfo } from '@/api/data'
 import AclEditor, { type AclRow } from '@/components/AclEditor.vue'
-import { SCOPE_STRATEGY_OPTIONS, type ScopeStrategy } from '@/constants/scopeStrategy'
+import type { ScopeStrategy } from '@/constants/scopeStrategy'
 
 const route = useRoute()
 const router = useRouter()
@@ -393,17 +393,6 @@ onMounted(async () => {
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" />
         </el-form-item>
-        <el-form-item label="数据范围策略">
-          <el-select v-model="form.scope_strategy" clearable style="width: 260px" placeholder="继承表默认">
-            <el-option
-              v-for="item in SCOPE_STRATEGY_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
-
         <div class="section-title">纳入的数据表（{{ form.tables.length }}）</div>
         <div v-for="(t, i) in form.tables" :key="i" class="rule-row">
           <el-select

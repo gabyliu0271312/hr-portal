@@ -478,7 +478,6 @@ const activeTab = ref('overview')
 
 // 编辑模式
 const editMode = ref(false)
-import { SCOPE_STRATEGY_OPTIONS } from '@/constants/scopeStrategy'
 import LayerTag from '@/components/warehouse/LayerTag.vue'
 import { WAREHOUSE_LAYER_OPTIONS } from '@/constants/warehouseLayers'
 
@@ -672,12 +671,6 @@ onMounted(() => {
               <el-option v-for="s in STATUS_OPTIONS" :key="s" :label="STATUS_LABELS[s]" :value="s" />
             </el-select>
           </el-form-item>
-          <el-form-item label="数据范围策略">
-            <el-select v-model="editForm.scope_strategy" clearable style="width: 100%">
-              <el-option v-for="item in SCOPE_STRATEGY_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
-            </el-select>
-            <div style="font-size: 12px; color: #909399; margin-top: 2px">控制该表多个权限标签之间的取数关系</div>
-          </el-form-item>
           <el-form-item label="UCP 资源">
             <ResourcePicker
               :model-value="{ system_id: editForm.ucp_system_id, resource_id: editForm.ucp_resource_id, resource_name: editForm.ucp_resource_name }"
@@ -714,7 +707,6 @@ onMounted(() => {
                 {{ asset.created_at ? formatDateTime(asset.created_at) : '—' }}
               </el-descriptions-item>
               <el-descriptions-item v-if="asset.is_period" label="周期字段">{{ asset.period_col || '待发现' }}</el-descriptions-item>
-              <el-descriptions-item label="数据范围策略">{{ asset.scope_strategy || '—' }}</el-descriptions-item>
             </el-descriptions>
           </el-tab-pane>
 

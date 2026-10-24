@@ -1415,4 +1415,15 @@ VALUE_FIELD=SKIPPED
 - 开发端PC验收用户确认“**均符合要求**”（2026-10-24）：数据集530准入首次打开加载、隔离证明=已隔离、阻断为空；报表22运行/翻页/CSV/XLSX；移除数据集ACL后运行403。用户未逐项回传数值，API侧另有74组/543、CSV 2039B、XLSX 6308B证据，二者分开记录。
 - 编码修正：报表名/描述、用户6显示名曾因工具编码写入乱码，已用UTF-8字节修正为`021分摊试点汇总`/`021 MVP4 受控试点报表`/`021试点执行人`；转换批准原因受append-only触发器保护仍为乱码，**未绕过触发器修改**，后续批准使用正确编码。
 - **完成边界**：这是MVP 4开发端单对象闭环验收，不等于A父任务完成。X2126.b/c、X2142、生产试点启用、停止/回退演练仍未完成；A父任务保持未勾。
-- 下一轮MVP：**5.1 受控业务筛选与期间条件**（当前`authorized_v1`仍拒绝筛选/排序）。
+- 下一轮MVP：**1b 产品能力只配置一次**（用户2026-10-24纠正顺序：先补1b，再补MVP 2的正式D入口，之后才是5.x筛选）。1b首批为“新对象不再选择数据范围策略”。
+
+### 9. MVP 1b 首批：新对象策略选择收口（2026-10-24）
+
+- 目标：新建/编辑新数据资产、数据集时前端不再显示`scope_strategy`，由后端默认值和数据产品合同裁决；legacy字段、API及已有值保留，不删库列。
+- 前端改动：
+  - `src/components/data/CreateTableDialog.vue`：移除“数据范围策略”选择，创建请求不再传`scope_strategy`，走后端默认。
+  - `src/views/warehouse/WarehouseAssetDetail.vue`：编辑表单与只读详情移除策略展示；保存仍携带载入值，legacy资产值不变。
+  - `src/views/datasource/DatasetEdit.vue`：移除策略选择；保存仍携带载入值，新数据集为null由后端默认/继承。
+- 未做：报表设计器的策略选择（1b下一批，需同步处理legacy只读回显）；删除`reports/datasets/registered_tables.scope_strategy`列或旧API字段。
+- 验证：`vue-tsc --noEmit`通过；`npm run build`通过（42.67s）；相关组件测试65 passed；`CostCenterMappingWorkspace.spec` 1项失败在干净HEAD上同样失败（基线问题，与本次改动无关）。
+- 下一步1b：新建报表不出现策略选择、legacy只读回显；同一产品下两份报表继承合同、报表ACL不能扩大数据集授权；PC验收。
