@@ -1454,5 +1454,5 @@ VALUE_FIELD=SKIPPED
 - 本轮先做阶段1–2并测试，不动D明细入口；生产不启用试点。
 - **阶段1已实现（2026-10-24）**：合同新增`schema_version/standard_fields/resolved_standard_fields`；schema 2按标准字段编码解析唯一输出/锚点列，锚点要求active+is_permission_anchor+权限域匹配；批准时复核绑定版本。验证：全量catalog 192 passed（632.68s）、报表执行42 passed（100.61s）、无DB 81 passed/150 skipped。旧合同行为不变。详见计划文档§8。
 - **阶段2–4已实现（2026-10-24）**：S运行时按标准字段语义识别人员定位（identifying/personal/同锚点字段）；报表配置支持无点号标准字段编码并惰性解析；新增`GET /models/{id}/standard-fields`与准入面板标准字段合同开关。验证：catalog 192 passed、report binding 42 passed、前端build通过。
-- **阶段5合同迁移已完成**：`employee_no`锚点标准字段+隐藏DWD列绑定；合同1退休、schema2合同2批准；转换批准id5；报表22/23/24重绑并运行74组/543。**D明细入口未实现**，下轮单独交付。合同切换需“retire旧→approve新”两步，尚无原子切换。
+- **阶段5已完成**：`employee_no`锚点标准字段+DWD列绑定；合同4（schema2，`detail_output_fields`=cost_period/code/headcount/employee_no）active，转换批准id6；S报表22/23/24运行74组/543；新增D明细执行路径，报表25运行**723行/合计542**，CSV 723行/XLSX 19873B，仅中心权限用户403 `authorized_detail_denied`。合同切换需“retire旧→approve新”两步，尚无原子切换；明细暂不支持筛选/排序。
 - 详见 [mvp2-standard-field-identity-plan.md](mvp2-standard-field-identity-plan.md) §9。

@@ -187,7 +187,8 @@ async def _evaluate(db, dataset_id, user=None, expected_run_id=None, expected_co
         issue("authorization_contract_drift", "授权合同结构已漂移")
     if (len(definition.facts) != 1 or definition.facts[0].role not in {"person_fact", "allocation_fact"}
             or definition.facts[0].table_name != tables[0].table_name or definition.facts[0].alias != tables[0].alias
-            or set(definition.output_fields) != {output.output_code for output in outputs}
+            or (set(definition.output_fields) | set(definition.detail_output_fields))
+               != {output.output_code for output in outputs}
             or contract.approved_by is None or contract.approved_at is None or not (contract.approval_reason or "").strip()):
         issue("authorization_contract_invalid", "事实、输出白名单或批准信息不完整")
     if expected_contract_id is not None and contract.id != expected_contract_id:

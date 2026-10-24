@@ -62,10 +62,13 @@ class ProductAuthorizationDefinition(BaseModel):
     dimensions: list[str] = Field(default_factory=list, max_length=200)
     measures: list[str] = Field(default_factory=list, max_length=200)
     internal_fields: list[str] = Field(default_factory=list, max_length=200)
+    # 明细输出白名单；与 S 的 output_fields 独立，二者并集须覆盖数据集全部输出。
+    detail_output_fields: list[str] = Field(default_factory=list, max_length=200)
     standard_fields: list[str] = Field(default_factory=list, max_length=500)
     resolved_standard_fields: dict[str, dict] = Field(default_factory=dict)
 
-    @field_validator("output_fields", "dimensions", "measures", "internal_fields", "standard_fields")
+    @field_validator("output_fields", "dimensions", "measures", "internal_fields",
+                     "detail_output_fields", "standard_fields")
     @classmethod
     def validate_fields(cls, values):
         if len(values) != len(set(values)) or any(not value.strip() for value in values):
@@ -84,8 +87,8 @@ class ProductAuthorizationDefinition(BaseModel):
                 raise ValueError("schema 2 合同必须声明要暴露的标准字段")
             if (set(self.dimensions) | set(self.measures)) - set(self.standard_fields):
                 raise ValueError("维度和度量须在标准字段白名单中")
-            if (set(self.output_fields) | set(self.internal_fields)) - set(self.standard_fields):
-                raise ValueError("输出和内部字段须在标准字段白名单中")
+            if (set(self.output_fields) | set(self.internal_fields) | set(self.detail_output_fields)) - set(self.standard_fields):
+                raise ValueError("输出、明细输出和内部字段须在标准字段白名单中")
             anchor_codes = {fact.employee_key for fact in self.facts if fact.employee_key}
             anchor_codes |= {fact.cost_center_key for fact in self.facts if fact.cost_center_key}
             if anchor_codes - set(self.standard_fields):
@@ -359,6 +362,7 @@ async def _resolve_standard_definition(db, dataset_id, payload):
     output_codes = [pick_output(code) for code in payload.output_fields]
     dimension_codes = [pick_output(code, require_dimension=True) for code in payload.dimensions]
     measure_codes = [pick_output(code) for code in payload.measures]
+    detail_codes = [pick_output(code) for code in payload.detail_output_fields]
 
     facts = []
     column_cache: dict[str, dict] = {}
@@ -417,6 +421,7 @@ async def _resolve_standard_definition(db, dataset_id, payload):
     payload.output_fields = output_codes
     payload.dimensions = dimension_codes
     payload.measures = measure_codes
+    payload.detail_output_fields = detail_codes
     payload.internal_fields = internal_fields
     payload.facts = facts
     payload.resolved_standard_fields = resolved
@@ -460,6 +465,9 @@ async def _validate_definition(db, dataset_id, payload):
     for code in [*payload.output_fields, *payload.dimensions, *payload.measures]:
         if code not in output_codes:
             raise HTTPException(400, detail={"code": "contract_field_not_in_output", "message": f"字段不属于数据集输出白名单: {code}"})
+    for code in payload.detail_output_fields:
+        if code not in output_codes:
+            raise HTTPException(400, detail={"code": "contract_detail_field_not_in_output", "message": f"明细字段不属于数据集输出白名单: {code}"})
     for fact in payload.facts:
         if aliases.get(fact.alias) != fact.table_name:
             raise HTTPException(400, detail={"code": "contract_fact_table_mismatch", "message": f"事实别名未映射到声明表: {fact.alias}"})

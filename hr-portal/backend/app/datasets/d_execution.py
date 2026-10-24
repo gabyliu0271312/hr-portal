@@ -580,6 +580,104 @@ async def compile_person_fact_d_select_for_user(*, contract: DExecutionContractS
     return select(*projected).where(membership), []
 
 
+async def compile_person_scope_membership(*, user, fact, db):
+    """任意声明人员键的事实的人员范围（D）成员；不使用成本中心并集。"""
+    from app.data.models import DATA_TABLES
+    from app.permissions.scope_filter import ROSTER_EMP_COL, ROSTER_TABLE, _entity_text, is_unrestricted
+
+    roster = DATA_TABLES.get(ROSTER_TABLE)
+    fact_model = DATA_TABLES.get(fact.table_name)
+    if (roster is None or fact_model is None or not fact.employee_key
+            or "raw" in roster.__table__.columns or "raw" in fact_model.__table__.columns
+            or ROSTER_EMP_COL not in roster.__table__.columns
+            or fact.employee_key not in fact_model.__table__.columns):
+        return None, [_scope_issue("d_execution_membership_unresolved", "人员事实或花名册授权锚点不可用")]
+    roster_alias = aliased(roster, name="d_scope_roster")
+    roster_scope, issues = await compile_person_fact_d_scope(
+        user=user, table=ROSTER_TABLE, model=roster, db=db, table_alias=roster_alias)
+    if issues:
+        return None, issues
+    if is_unrestricted(roster_scope):
+        return None, [_scope_issue("d_execution_membership_unrestricted", "人员范围尚未完成受控资格核验")]
+    members = select(_entity_text(roster_alias, ROSTER_EMP_COL)).where(roster_scope)
+    return cast(fact_model.__table__.c[fact.employee_key], String).in_(members), []
+
+
+async def compile_allocation_fact_d_select_for_user(*, contract, request, user, db):
+    """按合同明细白名单编译人员范围明细投影（不聚合、不含中心汇总）。"""
+    from app.data.models import DATA_TABLES, TableColumn
+    from app.permissions.masker import get_hidden_columns
+    from app.permissions.scope_filter import is_unrestricted
+    from app.reports.sql_builder import _entity_column
+
+    contract = _as_contract(contract)
+    definition = contract.definition
+    if len(definition.facts) != 1:
+        return None, [_scope_issue("d_execution_fact_invalid", "明细执行只支持单一事实")]
+    fact = definition.facts[0]
+    if fact.role not in {"person_fact", "allocation_fact"} or not fact.employee_key:
+        return None, [_scope_issue("d_execution_fact_invalid", "事实未声明人员键")]
+    if request.plan.aggregations or request.plan.group_by:
+        return None, [_scope_issue("d_execution_plan_unsupported", "明细执行不支持聚合或分组")]
+    if request.plan.filters or request.plan.order_by or request.plan.personal_fields or request.plan.employee_keys:
+        return None, [_scope_issue("d_execution_plan_unsupported", "明细执行暂不支持筛选、排序或个人定位依赖")]
+    allowed = set(definition.detail_output_fields)
+    if not set(request.plan.output_fields) <= allowed:
+        return None, [_scope_issue("d_execution_detail_field_not_allowed", "执行字段不在合同明细白名单")]
+    model = DATA_TABLES.get(fact.table_name)
+    if model is None or model.__table__.name != fact.table_name or "raw" in model.__table__.columns:
+        return None, [_scope_issue("d_execution_entity_model_required", "明细执行必须使用合同声明的实体列事实")]
+    columns = (await db.execute(select(TableColumn).where(TableColumn.table_name == fact.table_name))).scalars().all()
+    current_columns = {column.column_code: column for column in columns}
+    if fact.employee_key not in current_columns or fact.fact_key not in current_columns:
+        return None, [_scope_issue("d_execution_column_metadata_missing", "事实授权锚点元数据不存在")]
+    outputs = {item["output_code"]: item for item in contract.model_snapshot["outputs"]}
+    hidden = await get_hidden_columns(user, fact.table_name, db, tool_key=None)
+    if hidden is None:
+        return None, [_scope_issue("d_execution_field_access_unresolved", "字段授权尚未完成裁决")]
+    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
+    projected = []
+    for output_code in request.plan.output_fields:
+        output = outputs.get(output_code)
+        if output is None:
+            return None, [_scope_issue("d_execution_output_missing", "明细输出不在合同快照中")]
+        source_column = output["source_column"]
+        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+                or source_column in protected or output_code in protected):
+            return None, [_scope_issue("d_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
+        if source_column not in model.__table__.columns:
+            return None, [_scope_issue("d_execution_source_column_missing", "执行计划字段物理来源不存在")]
+        projected.append(_entity_column(model, source_column).label(output_code))
+    membership, issues = await compile_person_scope_membership(user=user, fact=fact, db=db)
+    if issues:
+        return None, issues
+    if membership is None or _contains_false_clause(membership):
+        return None, [_scope_issue("d_execution_scope_required", "执行D明细必须先完成受控人员范围裁决")]
+    if is_unrestricted(membership):
+        return None, [_scope_issue("d_execution_membership_unrestricted", "人员范围尚未完成受控资格核验")]
+    return select(*projected).where(membership), []
+
+
+async def compile_allocation_fact_d_result_statements_for_user(*, contract, request, user, db, page=1, page_size=50):
+    """从同一明细投影派生 COUNT/分页/导出语句，保证三渠道同源。"""
+    from sqlalchemy import func
+    from app.data.models import DATA_TABLES
+    from app.reports.sql_builder import _entity_column
+
+    contract = _as_contract(contract)
+    base, issues = await compile_allocation_fact_d_select_for_user(
+        contract=contract, request=request, user=user, db=db)
+    if issues or base is None:
+        return None, issues
+    fact = contract.definition.facts[0]
+    model = DATA_TABLES.get(fact.table_name)
+    order_column = _entity_column(model, fact.fact_key)
+    count_statement = select(func.count()).select_from(base.subquery())
+    preview_statement = base.order_by(order_column).offset((page - 1) * page_size).limit(page_size)
+    export_statement = base.order_by(order_column)
+    return {"count": count_statement, "preview": preview_statement, "export": export_statement}, []
+
+
 def _blocked(
     request: DExecutionBindingIn | None,
     issues: list[dict[str, str]],

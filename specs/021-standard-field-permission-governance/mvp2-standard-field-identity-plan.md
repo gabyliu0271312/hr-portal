@@ -233,7 +233,20 @@
   - 转换批准 id 5（run 5 / contract 2 / dataset v1）；发布准入 eligible、隔离已证明
 - 报表 22/23/24 重新绑定合同 2，运行均为 **74 组 / 543**。
 
-**D 明细入口未实现**。它需要新的执行路径：人员范围 D、字段投影、中心用户拒绝、隐藏字段拒绝、run/COUNT/分页/CSV/XLSX 同源。下一轮单独交付，不在本次宣称完成。
+**D 明细入口已实现（方案 B：同一合同增加明细白名单）**：
+
+- 合同新增 `detail_output_fields`，与 S 的 `output_fields` 独立；转换批准要求二者并集覆盖数据集全部输出。
+- 数据集 530 新增 `employee_no` 输出（id 666）并绑定标准字段版本 4；DWD 列改为可见。
+- 合同 4（schema 2）`detail_output_fields = cost_period, code, headcount, employee_no`；合同 2/3 退休、合同 4 active；转换批准 id 6；发布准入 eligible、隔离已证明。
+- 新增 D 执行路径：
+  - `compile_allocation_fact_d_select_for_user` / `compile_allocation_fact_d_result_statements_for_user`：人员范围成员、明细投影、COUNT/分页/导出同源；不含成本中心并集。
+  - 报表服务按 `config.aggregate` 分流：true→S，false→D；执行绑定批准同步走 D 计划。
+  - 明细字段必须属于合同 `detail_output_fields`；隐藏/敏感/无权字段拒绝。
+- 开发库明细报表 25（private，pilot021）：
+  - 运行：**total=723、4 列**；CSV 723 行、headcount 合计 **542**（与人员范围一致）；XLSX 200/19873B。
+  - 仅有中心权限的用户运行同一报表：**403 `authorized_detail_denied`**。
+  - S 报表 22/23/24 重新绑定合同 4 后仍为 74 组/543。
+- 边界：明细暂不支持筛选/排序；单人组再识别风险保留；敏感字段拒绝路径代码已具备，开发库未单独构造敏感输出验证。
 
 ### 验证与风险
 

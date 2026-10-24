@@ -80,34 +80,25 @@ async def run_authorized_report_query(*, report, channel, **query):
     if (binding.get("contract_id") != readiness.contract_id
             or binding.get("contract_version") != readiness.contract_version):
         raise HTTPException(409, detail={"code": "execution_binding_stale", "message": "授权合同版本已变化，请重新批准"})
-    return await _execute_authorized_summary(report, channel, query, readiness)
-
-
-async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, page_size=50):
-    from app.datasets.models import DataProductAuthorizationContract, DatasetOutputField
-    from app.datasets.d_execution import SExecutionBindingIn, compile_allocation_fact_s_result_statements_for_user
     from app.reports.config import ReportConfig
-    from app.warehouse.schemas import ExecutionPlanIn
-    from sqlalchemy import select
-
     try:
         config = ReportConfig(**report.config)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
-    unsupported = (config.filters or config.sorts or config.value_rules or config.filter_logic
-        or config.transpose or config.rounding_corrections or config.list_lookup
-        or config.dimension_merge_rules or config.default_split_rule or not config.aggregate)
-    unsupported_settings = any(set(setting) - {"display_name", "hidden", "display_format"}
-                               for setting in config.column_settings.values())
-    if unsupported or unsupported_settings:
-        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
-    outputs = (await db.execute(select(DatasetOutputField).where(
-        DatasetOutputField.dataset_id == report.dataset_id))).scalars().all()
+    if config.aggregate:
+        return await _execute_authorized_summary(report, channel, query, readiness)
+    return await _execute_authorized_detail(report, channel, query, readiness)
+
+
+async def _resolve_report_columns(config, dataset_id, outputs, db):
+    """把报表列解析为数据集输出；支持 output_code、alias.column 和标准字段编码。"""
+    from app.datasets.models import DatasetOutputField
+    from sqlalchemy import select
+
     by_source = {}
     for output in outputs:
         for key in (output.output_code, f"{output.source_alias}.{output.source_column}"):
             by_source.setdefault(key, []).append(output)
-    # 新报表可用标准字段编码引用输出；旧报表继续用 output_code/物理列名。
     standard_to_output: dict[str, str] = {}
     ambiguous_semantic: set[str] = set()
     semantic_loaded = False
@@ -124,7 +115,7 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
             .join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id)
             .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
             .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
-            .where(DatasetOutputField.dataset_id == report.dataset_id,
+            .where(DatasetOutputField.dataset_id == dataset_id,
                    StandardFieldBinding.status == "confirmed",
                    StandardFieldVersion.status == "active")
         )).all()
@@ -150,6 +141,30 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
         if len(candidates) != 1:
             raise HTTPException(422, detail={"code": "authorized_output_unresolved", "message": "报表字段不属于唯一批准输出"})
         selected.append((column, next(iter(candidates.values()))))
+    return selected
+
+
+async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, page_size=50):
+    from app.datasets.models import DataProductAuthorizationContract, DatasetOutputField
+    from app.datasets.d_execution import SExecutionBindingIn, compile_allocation_fact_s_result_statements_for_user
+    from app.reports.config import ReportConfig
+    from app.warehouse.schemas import ExecutionPlanIn
+    from sqlalchemy import select
+
+    try:
+        config = ReportConfig(**report.config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
+    unsupported = (config.filters or config.sorts or config.value_rules or config.filter_logic
+        or config.transpose or config.rounding_corrections or config.list_lookup
+        or config.dimension_merge_rules or config.default_split_rule or not config.aggregate)
+    unsupported_settings = any(set(setting) - {"display_name", "hidden", "display_format"}
+                               for setting in config.column_settings.values())
+    if unsupported or unsupported_settings:
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+    outputs = (await db.execute(select(DatasetOutputField).where(
+        DatasetOutputField.dataset_id == report.dataset_id))).scalars().all()
+    selected = await _resolve_report_columns(config, report.dataset_id, outputs, db)
     if len({output.output_code for _, output in selected}) != len(selected):
         raise HTTPException(422, detail={"code": "authorized_instances_unsupported", "message": "新执行版本不支持重复字段实例"})
     aggregate_by_output = {}
@@ -181,7 +196,15 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
 
 
 async def validate_authorized_report_plan(*, report, readiness, user, db):
-    await _compile_authorized_summary_plan(report, readiness, user, db)
+    from app.reports.config import ReportConfig
+    try:
+        config = ReportConfig(**report.config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
+    if config.aggregate:
+        await _compile_authorized_summary_plan(report, readiness, user, db)
+    else:
+        await _compile_authorized_detail_plan(report, readiness, user, db)
 
 
 async def _execute_authorized_summary(report, channel, query, readiness):
@@ -207,6 +230,83 @@ async def _execute_authorized_summary(report, channel, query, readiness):
     items = [{instance.instance_id: serialize(result[output.output_code]) for instance, output in selected} for result in rows]
     if query.get("warnings_sink") is not None:
         query["warnings_sink"].append("当前授权范围内汇总：人员范围与获准成本中心范围合并")
+    return columns, items, total
+
+
+async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, page_size=50):
+    from app.datasets.models import DataProductAuthorizationContract, DatasetOutputField
+    from app.datasets.d_execution import DExecutionBindingIn, compile_allocation_fact_d_result_statements_for_user
+    from app.datasets.authorization_contract import ProductAuthorizationDefinition
+    from app.reports.config import ReportConfig
+    from app.warehouse.schemas import ExecutionPlanIn
+    from sqlalchemy import select
+
+    try:
+        config = ReportConfig(**report.config)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
+    unsupported = (config.filters or config.sorts or config.value_rules or config.filter_logic
+        or config.transpose or config.rounding_corrections or config.list_lookup
+        or config.dimension_merge_rules or config.default_split_rule or config.aggregate
+        or config.aggregations)
+    unsupported_settings = any(set(setting) - {"display_name", "hidden", "display_format"}
+                               for setting in config.column_settings.values())
+    if unsupported or unsupported_settings:
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+    outputs = (await db.execute(select(DatasetOutputField).where(
+        DatasetOutputField.dataset_id == report.dataset_id))).scalars().all()
+    selected = await _resolve_report_columns(config, report.dataset_id, outputs, db)
+    if len({output.output_code for _, output in selected}) != len(selected):
+        raise HTTPException(422, detail={"code": "authorized_instances_unsupported", "message": "新执行版本不支持重复字段实例"})
+    row = await db.get(DataProductAuthorizationContract, readiness.contract_id)
+    if (row is None or row.status != "active" or row.dataset_id != report.dataset_id
+            or row.contract_version != readiness.contract_version):
+        raise HTTPException(409, detail={"code": "execution_contract_invalid", "message": "授权合同不可用"})
+    try:
+        definition = ProductAuthorizationDefinition.model_validate(row.contract_json)
+    except ValueError as exc:
+        raise HTTPException(409, detail={"code": "execution_contract_invalid", "message": "授权合同定义无效"}) from exc
+    planned = [output.output_code for _, output in selected]
+    if not set(planned) <= set(definition.detail_output_fields):
+        raise HTTPException(403, detail={"code": "authorized_detail_field_denied", "message": "字段不在合同明细白名单"})
+    snapshot = {"id": row.id, "dataset_id": row.dataset_id, "contract_version": row.contract_version,
+                "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot}
+    request = DExecutionBindingIn(dataset_id=report.dataset_id, contract_id=row.id,
+        contract_version=row.contract_version, plan=ExecutionPlanIn(output_fields=planned))
+    statements, issues = await compile_allocation_fact_d_result_statements_for_user(
+        contract=snapshot, request=request, user=user, db=db, page=page, page_size=page_size)
+    if issues:
+        denied = any(issue["code"] in {"d_execution_scope_denied", "d_execution_hidden_field_forbidden",
+                                       "d_execution_membership_unrestricted"} for issue in issues)
+        raise HTTPException(403 if denied else 409, detail={
+            "code": "authorized_detail_denied" if denied else "authorized_detail_blocked",
+            "message": "当前授权或查询配置不满足明细执行条件"})
+    return config, selected, statements
+
+
+async def _execute_authorized_detail(report, channel, query, readiness):
+    if query.get("filters") or query.get("sorts"):
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+    config, selected, statements = await _compile_authorized_detail_plan(
+        report, readiness, query["user"], query["db"],
+        page=query.get("page", 1), page_size=query.get("page_size", 50))
+    total = await query["db"].scalar(statements["count"])
+    rows = (await query["db"].execute(statements["preview"] if channel == "run" else statements["export"])).mappings().all()
+    from datetime import date, datetime
+    from decimal import Decimal
+    def serialize(value):
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        return value
+    columns = [{"code": instance.instance_id, "source_code": instance.source_code,
+                "label": instance.label or output.output_label,
+                "data_type": output.data_type, "is_sensitive": output.is_sensitive}
+               for instance, output in selected]
+    items = [{instance.instance_id: serialize(result[output.output_code]) for instance, output in selected} for result in rows]
+    if query.get("warnings_sink") is not None:
+        query["warnings_sink"].append("当前授权范围内明细：仅人员范围，不含成本中心汇总")
     return columns, items, total
 
 
