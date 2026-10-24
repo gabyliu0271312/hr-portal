@@ -1459,3 +1459,26 @@ VALUE_FIELD=SKIPPED
 - **标准字段与未治理列规则已确认（2026-10-24）**：存储层不要求标准字段、身份层绑定可选且可审计、消费层（数据集发布/合同/报表）只认已绑定标准字段；技术列白名单`id/pk_hash/synced_at`；探索层=未发布（draft）数据集，不新增“已发布未签约”中间态；缺字段时就地创建标准字段（域/owner/审批）后重绑，禁止走schema1后门。规则见 [mvp2-standard-field-identity-plan.md](mvp2-standard-field-identity-plan.md) §11。
 - **数据建模改为四段式（2026-10-24）**：`WarehouseModelingVisual`由三栏画布页改为全屏四步（基本信息/数据建模/输出字段/数据预览），复用`FullScreenModal`/`PerformanceStepFlow`/`PerformanceSortableList`/`PerformanceDragHandle`与全局token；**无保存按钮**，点“下一步”自动保存（新建即创建、已存在即更新），签名未变化则跳过保存，未保存点“返回”弹窗确认；**数据预览进入即自动加载**（无“运行预览”按钮，失败在页内提示）；**版本信息并入基本信息**（当前状态/版本/发布时间 + 版本历史表，取消顶部“版本”按钮与弹窗）；输出字段可拖拽排序、来源表/字段改为下拉+可手填、清空输出也会持久化；画布拖拽/连线改用window监听避免跨头部丢事件；修复新建后`modelId`未更新导致重复创建。验证：vue-tsc与build通过
 - **数据建模改为五段式与单一发布路径（2026-10-24）**：步骤为基本信息/数据建模/输出字段/数据预览/模型准入；准入面板由弹窗改为内嵌内容（`WarehouseModelReadinessPanel`去掉el-dialog与footer，暴露`refresh/publish`并`emit ready`），“准入”不再是列表按钮；顶部按钮区仅“上一步/下一步”，最后一步显示“发布/重新发布”，**仅准入通过才可点**，发布调用`/models/{id}/release`后**同步自动构建**`/datasets/{id}/build`，构建失败不回滚发布、提示可到列表“更多→重新构建”。列表行收敛为“编辑+更多（重新构建/构建设置/访问授权/归档）”，删除不受控的`/publish`发布按钮与独立构建按钮；“快速关联”改名“快速建模”并并入筛选行。**版本已拆分（2026-10-25）**：新增`datasets.release_version`（迁移`0269`），`release`成功时`release_version+1`并写入SystemLog；`datasets.version`保持为**结构版本**，仍被`warehouse_conversion_approvals.dataset_version`与DB触发器`validate_warehouse_conversion_approval`绑定，发布不递增。开发库实测（数据集530/user6）：发布前后`version=1`不变、`release_version 0→1`，发布后准入仍eligible、转换批准仍有效、报表22仍返回74组。基本信息展示“结构版本/发布序号/最近发布”，移除静态版本历史表。**构建能力未实现**：`/datasets/{id}/build`原先调用不存在的`svc.build_dataset`导致500，现改为明确501“物化构建尚未实现”；列表“重新构建”入口移除，发布不再自动构建；刷新策略/定时仍保留但当前无可物化对象（待后续实现物化或移除）。。
+## 2026-10-25 A剩余范围盘点与5.1受控筛选交付
+
+### A剩余范围盘点（开发侧可视）
+
+- **已完成本地实现、仍受生产/业务门禁阻塞**：X2110/X2111（止损与健康诊断已落地，生产验收未做）、X2120/X2124/X2125/X2127/X2131/X2133（标准字段目录、绑定、发现确认、刷新收口、UI）、X2122.meta/validation/execution.*（合同与执行诊断）、X2132.product-inheritance、X2140/X2141 内部切片、X2143.result-adapter/allocation。
+- **需要生产环境或用户执行**：X2106/X2101/X2103（盘点与清单）、X2112/X2142/X2151（旧报表试点与灰度回滚）、X2150/X2154/X2153（真实执行/来源链路/字段治理验收）、X2152（边界确认）。
+- **真正未实现的开发包**：5.1 受控筛选、5.2 人员定位与明细D接线、5.3 多维汇总、5.4 汇总后下钻、5.5 人数指标、5.6 维度参考JOIN、5.7 多事实防放大、5.8 派生/透视/维度归并。
+- 结论：A不能在一轮内完成；本轮按路线先交付 **5.1（受控业务筛选与期间条件）** 的代码与服务端校验，其余按序推进。
+
+### 5.1 本轮实现（开发库，未部署生产）
+
+- 合同：`ProductAuthorizationDefinition.approved_filters`（字段 + 操作符白名单 `eq/in/gte/lte/between`）。校验：字段必须在合同 `dimensions` 内、不得是内部字段；重复字段拒绝。
+- 执行计划：`ExecutionPlanIn.conditions`（`PlanConditionIn`：field/operator/value），与旧的 `filters: list[str]` 分离；后者继续拒绝。
+- S 编译：先计算 D/S 授权范围，再 AND 合同批准条件；条件字段必须在批准输出内、对当前用户可见且非敏感；人员定位字段仍拒绝（`_semantic_locator_codes` 纳入条件字段）。COUNT/preview/export 由同一编译结果派生，口径一致。
+- 报表运行：`config.filters` 与运行期 `filters` 覆盖统一走 `apply_runtime_overrides` 后按合同校验；未批准字段/操作符返回 403 `authorized_filter_*`；排序、派生、filter_logic 等仍阻断。
+- 明细 D 路径仍整体拒绝筛选（留给5.2）。
+
+### 验证与证据
+
+- 单元/服务：`pytest -q tests/test_d_execution.py tests/test_report_execution_binding.py` → **69 passed / 52 skipped**；新增6个筛选合同/计划用例与1个运行期筛选拒绝用例；原“filters 一律不支持”的用例改为“未批准即403”。
+- 全量后端：**2854 passed / 247 skipped / 8 failed**；8个失败与干净HEAD一致（AI控制2、分摊归档3、质量1、UCP1）加已知抖动的 result-detail 1个，本轮无新增回归。
+- 开发库真实SQL探针（数据集530/用户6，合同JSON仅在内存附加 approved_filters，未改库）：baseline 74组；`cost_period eq 202602`=74；`in [202602]`=74；`code eq ZZZ`=**0组**（条件生效且未扩大授权）；`employee_no` 条件 → `s_execution_filter_not_approved` 拒绝。
+- 未完成：报表级端到端需要新合同版本（v5）声明 approved_filters 并重新绑定报表22/23/24/25；该动作会退役当前 v4，属治理变更，等待用户批准后在开发库执行并做PC验收。

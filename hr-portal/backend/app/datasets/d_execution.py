@@ -177,6 +177,26 @@ def validate_allocation_fact_s_execution(contract, request):
         issues.append(_s_issue("s_execution_personal_locator_forbidden", "S执行切片不允许个人定位字段"))
     if plan.filters or plan.order_by:
         issues.append(_s_issue("s_execution_plan_unsupported", "当前S切片不支持筛选或排序覆盖"))
+    if plan.conditions:
+        approved = {item.field: set(item.operators) for item in definition.approved_filters}
+        for condition in plan.conditions:
+            operators = approved.get(condition.field)
+            if not operators or condition.operator not in operators:
+                issues.append(_s_issue(
+                    "s_execution_filter_not_approved",
+                    f"筛选条件 {condition.field} 未获授权合同批准",
+                ))
+                continue
+            if condition.field not in definition.dimensions:
+                issues.append(_s_issue("s_execution_filter_not_approved", "筛选字段必须是批准维度"))
+            if condition.operator == "in" and not (
+                    isinstance(condition.value, list) and condition.value and len(condition.value) <= 200):
+                issues.append(_s_issue("s_execution_filter_value_invalid", "in 筛选需要非空列表值"))
+            elif condition.operator == "between" and not (
+                    isinstance(condition.value, list) and len(condition.value) == 2):
+                issues.append(_s_issue("s_execution_filter_value_invalid", "between 筛选需要两个边界值"))
+            elif condition.operator in {"eq", "gte", "lte"} and isinstance(condition.value, (list, dict)):
+                issues.append(_s_issue("s_execution_filter_value_invalid", "筛选值类型不支持"))
     if "count_distinct" in plan.aggregations.values():
         issues.append(_s_issue("s_execution_aggregation_unsupported", "人数指标须独立批准，当前切片不支持"))
     if issues:
@@ -256,6 +276,7 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         return None, validation.issues
     if request.plan.filters or request.plan.order_by or request.plan.personal_fields or request.plan.employee_keys:
         return None, [_s_issue("s_execution_plan_unsupported", "S汇总暂不接受个人定位、排序或客户端筛选覆盖")]
+    conditions = list(request.plan.conditions)
     bound_contract = _as_contract(contract)
     fact = bound_contract.definition.facts[0]
     model = DATA_TABLES.get(fact.table_name)
@@ -317,7 +338,8 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
     semantic_locators = _semantic_locator_codes(outputs, semantics_by_output, anchor_field_id)
     locator_refs = (set(request.plan.output_fields) | set(request.plan.group_by)
                     | set(request.plan.aggregations) | set(request.plan.filters)
-                    | set(request.plan.order_by)) & semantic_locators
+                    | set(request.plan.order_by)
+                    | {condition.field for condition in conditions}) & semantic_locators
     if locator_refs:
         return None, [_s_issue("s_execution_personal_locator_forbidden", "人员定位字段不能通过汇总路径使用")]
     checked_versions = set()
@@ -402,7 +424,35 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         user=user, fact=fact, model=model, db=db)
     if issues or scope is None:
         return None, issues or [_s_issue("s_execution_scope_denied", "当前用户没有可解析的汇总范围")]
-    return select(*projected).where(scope).group_by(*group_columns), []
+    # 业务筛选在授权范围之后叠加：先生成D/S范围，再AND合同批准的条件，不改变授权集合
+    approved = {item.field: set(item.operators) for item in bound_contract.definition.approved_filters}
+    clauses = []
+    for condition in conditions:
+        if condition.operator not in approved.get(condition.field, set()):
+            return None, [_s_issue("s_execution_filter_not_approved", "筛选条件未获授权合同批准")]
+        output = outputs.get(condition.field)
+        if output is None:
+            return None, [_s_issue("s_execution_filter_field_missing", "筛选字段不是批准输出")]
+        source_column = output["source_column"]
+        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+                or source_column in protected or condition.field in protected):
+            return None, [_s_issue("s_execution_hidden_field_forbidden", "筛选字段对当前用户不可见")]
+        if source_column not in current_columns or source_column not in model.__table__.columns:
+            return None, [_s_issue("s_execution_source_column_missing", "筛选字段物理来源不存在")]
+        column = _entity_column(model, source_column)
+        if condition.operator == "eq":
+            clauses.append(column == condition.value)
+        elif condition.operator == "in":
+            clauses.append(column.in_(condition.value))
+        elif condition.operator == "gte":
+            clauses.append(column >= condition.value)
+        elif condition.operator == "lte":
+            clauses.append(column <= condition.value)
+        elif condition.operator == "between":
+            clauses.append(column.between(condition.value[0], condition.value[1]))
+        else:
+            return None, [_s_issue("s_execution_filter_not_approved", "筛选操作符未获批准")]
+    return select(*projected).where(scope, *clauses).group_by(*group_columns), []
 
 
 async def compile_allocation_fact_s_result_statements_for_user(

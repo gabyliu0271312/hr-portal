@@ -518,7 +518,7 @@ async def test_postgres_real_conversion_contract_binding_run_count_csv_xlsx(post
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", [
-    {"aggregate": False}, {"filters": [{"column": "r.amount", "op": "eq", "value": 1}]},
+    {"aggregate": False},
     {"sorts": [{"column": "r.amount", "order": "asc"}]},
     {"column_settings": {"r.amount": {"formula": "r.amount"}}},
 ])
@@ -536,13 +536,40 @@ async def test_binding_validation_rejects_unsupported_config_before_sql(change):
 
 
 @pytest.mark.asyncio
+async def test_binding_validation_rejects_filter_not_approved_by_contract():
+    from unittest.mock import Mock
+    output = SimpleNamespace(id=1, output_code="amount", source_alias="r", source_column="amount", data_type="number")
+    result = Mock()
+    result.scalars.return_value.all.return_value = [output]
+    contract = SimpleNamespace(id=11, dataset_id=2, contract_version=1, status="active",
+        contract_json={"facts": [{"alias": "r", "table_name": "allocation_fact", "fact_key": "id",
+                                  "employee_key": "employee_no", "role": "person_fact"}],
+                       "output_fields": ["amount"], "dimensions": [], "measures": ["amount"],
+                       "internal_fields": []},
+        model_snapshot={})
+    db = SimpleNamespace(execute=AsyncMock(return_value=result), get=AsyncMock(return_value=contract), scalar=AsyncMock())
+    report = _report()
+    report.config = {**report.config, "filters": [{"column": "r.amount", "op": "eq", "value": 1}]}
+    with pytest.raises(HTTPException) as error:
+        await report_service.validate_authorized_report_plan(report=report,
+            readiness=SimpleNamespace(contract_id=11, contract_version=1), user=SimpleNamespace(id=7), db=db)
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] in {"authorized_filter_denied", "authorized_filter_field_denied"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("issues", [[], [{"code": "s_execution_scope_denied"}], [{"code": "invalid_grouping"}]])
 async def test_binding_validation_compiles_actual_plan_without_reading_results(monkeypatch, issues):
     from unittest.mock import Mock
     output = SimpleNamespace(id=1, output_code="amount", source_alias="r", source_column="amount", data_type="number")
     result = Mock()
     result.scalars.return_value.all.return_value = [output]
-    contract = SimpleNamespace(id=11, dataset_id=2, contract_version=1, status="active", contract_json={}, model_snapshot={})
+    contract = SimpleNamespace(id=11, dataset_id=2, contract_version=1, status="active",
+        contract_json={"facts": [{"alias": "r", "table_name": "allocation_fact", "fact_key": "id",
+                                  "employee_key": "employee_no", "role": "person_fact"}],
+                       "output_fields": ["amount"], "dimensions": [], "measures": ["amount"],
+                       "internal_fields": []},
+        model_snapshot={})
     db = SimpleNamespace(execute=AsyncMock(return_value=result), get=AsyncMock(return_value=contract), scalar=AsyncMock())
     compile_plan = AsyncMock(return_value=({"count": object(), "preview": object(), "export": object()}, issues))
     monkeypatch.setattr("app.datasets.d_execution.compile_allocation_fact_s_result_statements_for_user", compile_plan)
@@ -595,3 +622,28 @@ def test_report_output_exposes_version_but_never_binding_metadata():
 from tests.test_d_execution import postgres_d_fact
 from tests.test_scope_classification import postgres_classification_schema
 from tests.test_standard_field_catalog import postgres_standard_catalog, standard_catalog_api
+
+
+@pytest.mark.asyncio
+async def test_runtime_filter_requires_contract_approval():
+    from unittest.mock import Mock
+    output = SimpleNamespace(id=1, output_code="amount", source_alias="r", source_column="amount", data_type="number")
+    result = Mock()
+    result.scalars.return_value.all.return_value = [output]
+    contract = SimpleNamespace(id=11, dataset_id=2, contract_version=1, status="active",
+        contract_json={"facts": [{"alias": "r", "table_name": "allocation_fact", "fact_key": "id",
+                                  "employee_key": "employee_no", "role": "person_fact"}],
+                       "output_fields": ["amount"], "dimensions": [], "measures": ["amount"],
+                       "internal_fields": []},
+        model_snapshot={})
+    db = SimpleNamespace(execute=AsyncMock(return_value=result), get=AsyncMock(return_value=contract), scalar=AsyncMock())
+    report = _report()
+    report.config = {**report.config,
+                     "filters": [{"column": "r.amount", "op": "eq", "value": 1, "visible": True, "locked": False}]}
+    with pytest.raises(HTTPException) as error:
+        await report_service._compile_authorized_summary_plan(
+            report, SimpleNamespace(contract_id=11, contract_version=1),
+            SimpleNamespace(id=7), db,
+            runtime_filters=[{"__index": 0, "op": "eq", "value": 2}])
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] in {"authorized_filter_denied", "authorized_filter_field_denied"}

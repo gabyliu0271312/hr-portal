@@ -1990,10 +1990,19 @@ class TreeHealthOut(BaseModel):
     issues: list[TreeHealthIssueOut]
 
 
+class PlanConditionIn(BaseModel):
+    """合同批准的筛选条件：字段必须是合同批准维度，操作符必须在批准列表内。"""
+    model_config = {"extra": "forbid"}
+    field: str = Field(min_length=1, max_length=128)
+    operator: Literal["eq", "in", "gte", "lte", "between"]
+    value: Any
+
+
 class ExecutionPlanIn(BaseModel):
     model_config = {"extra": "forbid"}
     output_fields: list[str] = Field(min_length=1, max_length=500)
     filters: list[str] = Field(default_factory=list, max_length=200)
+    conditions: list[PlanConditionIn] = Field(default_factory=list, max_length=50)
     group_by: list[str] = Field(default_factory=list, max_length=200)
     order_by: list[str] = Field(default_factory=list, max_length=200)
     aggregations: dict[str, Literal["sum", "count", "count_distinct", "avg", "min", "max"]] = Field(default_factory=dict)

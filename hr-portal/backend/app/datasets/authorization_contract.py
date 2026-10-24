@@ -53,6 +53,25 @@ class ProductFactContract(BaseModel):
         return self
 
 
+SUPPORTED_FILTER_OPERATORS = ("eq", "in", "gte", "lte", "between")
+
+
+class ApprovedFilter(BaseModel):
+    """合同批准的筛选能力：只允许在已批准维度上按批准操作符收窄。"""
+    model_config = {"extra": "forbid"}
+    field: str = Field(min_length=1, max_length=128)
+    operators: list[Literal["eq", "in", "gte", "lte", "between"]] = Field(
+        default_factory=lambda: ["eq"], min_length=1, max_length=5
+    )
+
+    @field_validator("operators")
+    @classmethod
+    def validate_operators(cls, values):
+        if len(values) != len(set(values)):
+            raise ValueError("筛选操作符不可重复")
+        return values
+
+
 class ProductAuthorizationDefinition(BaseModel):
     model_config = {"extra": "forbid"}
     schema_version: Literal[1, 2] = 1
@@ -66,6 +85,8 @@ class ProductAuthorizationDefinition(BaseModel):
     detail_output_fields: list[str] = Field(default_factory=list, max_length=200)
     standard_fields: list[str] = Field(default_factory=list, max_length=500)
     resolved_standard_fields: dict[str, dict] = Field(default_factory=dict)
+    # 合同批准的筛选能力；为空表示该产品暂不开放业务筛选（authorized_v1 拒绝任何筛选）。
+    approved_filters: list[ApprovedFilter] = Field(default_factory=list, max_length=50)
 
     @field_validator("output_fields", "dimensions", "measures", "internal_fields",
                      "detail_output_fields", "standard_fields")
@@ -100,6 +121,15 @@ class ProductAuthorizationDefinition(BaseModel):
                 raise ValueError("维度和度量须在输出白名单中")
         if set(self.dimensions) & set(self.measures):
             raise ValueError("维度和度量不得重叠")
+        if self.approved_filters:
+            if len({item.field for item in self.approved_filters}) != len(self.approved_filters):
+                raise ValueError("筛选字段不可重复")
+            for item in self.approved_filters:
+                # 只允许在批准维度上筛选：度量/内部字段/人员定位字段一律不可作为筛选条件
+                if item.field not in self.dimensions:
+                    raise ValueError(f"筛选字段 {item.field} 必须是合同批准的维度")
+                if item.field in self.internal_fields:
+                    raise ValueError(f"内部字段 {item.field} 不可作为筛选条件")
         return self
 
 

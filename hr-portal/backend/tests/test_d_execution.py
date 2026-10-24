@@ -869,3 +869,69 @@ async def test_postgres_d_projection_rechecks_current_field_protection(postgres_
             contract=contract, request=_request(), user=SimpleNamespace(id=7), db=db)
         assert statement is None
         assert issues[0]["code"] == "d_execution_hidden_field_forbidden"
+
+
+# ==================== 5.1 受控业务筛选（合同批准字段+操作符） ====================
+
+def _s_definition_with_filters(**overrides):
+    payload = {
+        "facts": [{"alias": "allocation", "table_name": "allocation_fact", "fact_key": "fact_id",
+                   "employee_key": "employee_no", "cost_center_key": "cc_code",
+                   "allow_cost_center_summary": True, "role": "allocation_fact"}],
+        "output_fields": ["cc_code", "department", "amount"],
+        "dimensions": ["cc_code", "department"], "measures": ["amount"],
+        "internal_fields": ["allocation.fact_id", "allocation.employee_no"],
+    }
+    payload.update(overrides)
+    return ProductAuthorizationDefinition.model_validate(payload)
+
+
+def _s_plan(**overrides):
+    values = {"output_fields": ["cc_code", "amount"], "group_by": ["cc_code"],
+              "aggregations": {"amount": "sum"}}
+    values.update(overrides)
+    return ExecutionPlanIn(**values)
+
+
+def test_s_execution_accepts_contract_approved_filter():
+    contract = _s_contract(definition=_s_definition_with_filters(
+        approved_filters=[{"field": "department", "operators": ["eq", "in"]}]))
+    result = validate_allocation_fact_s_execution(contract, _s_request(plan=_s_plan(
+        conditions=[{"field": "department", "operator": "eq", "value": "组织1"}])))
+    assert result.eligible is True
+
+
+def test_s_execution_rejects_unapproved_filter_field():
+    contract = _s_contract(definition=_s_definition_with_filters())
+    result = validate_allocation_fact_s_execution(contract, _s_request(plan=_s_plan(
+        conditions=[{"field": "department", "operator": "eq", "value": "组织1"}])))
+    assert result.eligible is False
+    assert any(issue["code"] == "s_execution_filter_not_approved" for issue in result.issues)
+
+
+def test_s_execution_rejects_unapproved_filter_operator():
+    contract = _s_contract(definition=_s_definition_with_filters(
+        approved_filters=[{"field": "department", "operators": ["eq"]}]))
+    result = validate_allocation_fact_s_execution(contract, _s_request(plan=_s_plan(
+        conditions=[{"field": "department", "operator": "in", "value": ["组织1"]}])))
+    assert result.eligible is False
+    assert any(issue["code"] == "s_execution_filter_not_approved" for issue in result.issues)
+
+
+def test_s_execution_rejects_invalid_filter_value_shape():
+    contract = _s_contract(definition=_s_definition_with_filters(
+        approved_filters=[{"field": "department", "operators": ["in", "between"]}]))
+    bad_in = validate_allocation_fact_s_execution(contract, _s_request(plan=_s_plan(
+        conditions=[{"field": "department", "operator": "in", "value": "组织1"}])))
+    assert bad_in.eligible is False
+    assert any(issue["code"] == "s_execution_filter_value_invalid" for issue in bad_in.issues)
+    bad_between = validate_allocation_fact_s_execution(contract, _s_request(plan=_s_plan(
+        conditions=[{"field": "department", "operator": "between", "value": ["a"]}])))
+    assert bad_between.eligible is False
+
+
+def test_contract_rejects_filter_on_measure_or_internal_field():
+    with pytest.raises(ValueError):
+        _s_definition_with_filters(approved_filters=[{"field": "amount", "operators": ["eq"]}])
+    with pytest.raises(ValueError):
+        _s_definition_with_filters(approved_filters=[{"field": "allocation.employee_no", "operators": ["eq"]}])
