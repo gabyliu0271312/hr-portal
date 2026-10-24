@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
 import FullScreenModal from '@/components/performance/FullScreenModal.vue'
 import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
@@ -27,6 +27,7 @@ const visible = ref(false)
 const step = ref(0)
 const saving = ref(false)
 const previewing = ref(false)
+const dirty = ref(false)
 const syncing = ref(false)
 const finishing = ref(false)
 const types = ref<ConnectorTypeDefinition[]>([])
@@ -60,7 +61,7 @@ const stepItems = computed(() => [
     hint: '填写资产标识、来源方式与期间属性；来源方式决定下一步获取字段的方式。',
   },
   form.source_kind === 'interface'
-    ? { key: 'source', label: '接口配置', hint: '选择接入类型并预览来源字段；预览只读取表头与样本，不保存配置、不创建资产。' }
+    ? { key: 'source', label: '接口配置', hint: '填写接入配置后点击“下一步”，系统自动校验接口并发现字段。' }
     : { key: 'manual', label: '字段定义', hint: '直接定义字段结构，创建后可在该资产的数据视图中导入 Excel 维护数据。' },
   { key: 'match', label: '字段匹配', hint: '指定期间字段与业务主键，并为字段确认标准字段绑定；确认绑定会记录审计原因“资产接入向导确认”。' },
 ])
@@ -74,6 +75,12 @@ const hasYearMonthField = computed(() => matchFields.value.some(field => field.i
 watch(visible, (value) => {
   document.body.style.overflow = value ? 'hidden' : ''
 })
+
+watch(
+  [form, config, sourceType, manualFields, periodField, businessKeys, fieldChoice],
+  () => { dirty.value = true },
+  { deep: true, flush: 'sync' },
+)
 
 onBeforeUnmount(() => {
   document.body.style.overflow = ''
@@ -106,21 +113,28 @@ function reset() {
 function open() {
   reset()
   visible.value = true
+  dirty.value = false
 }
 
-function close() {
+async function attemptClose() {
   if (finishing.value || syncing.value) return
+  if (dirty.value) {
+    try {
+      await ElMessageBox.confirm('当前填写内容尚未保存，确定返回吗？', '未保存内容', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      })
+    } catch {
+      return
+    }
+  }
   visible.value = false
 }
 
 function prev() {
   if (finishing.value || syncing.value || step.value === 0) return
   step.value -= 1
-}
-
-function onHeaderBack() {
-  if (step.value === 0) close()
-  else prev()
 }
 
 async function loadTypes() {
@@ -183,31 +197,32 @@ function defaultKeys() {
     .map(field => field.code)
 }
 
-async function previewSource() {
+async function verifySource(): Promise<boolean> {
   if (!sourceType.value) {
     ElMessage.warning('请选择接入类型')
-    return
+    return false
   }
   const missing = fieldItems.value.filter(field => field.required && !String(config[field.key] || '').trim())
   if (missing.length) {
     ElMessage.warning(`请填写必填项：${missing.map(field => field.label).join('、')}`)
-    return
+    return false
   }
   previewing.value = true
   try {
     const { settings, secrets } = splitPayload()
     discovered.value = await datasourcesApi.previewFields({ source_type: sourceType.value, settings, secrets })
     if (!discovered.value.length) {
-      ElMessage.warning('未发现字段，请检查读取范围和表头行')
-      return
+      ElMessage.warning('来源校验通过，但未发现字段，请检查读取范围和表头行')
+      return false
     }
     periodField.value = form.is_period
       ? (discovered.value.find(field => field.is_yearmonth)?.column_code || '')
       : ''
     defaultKeys()
-    ElMessage.success(`已发现 ${discovered.value.length} 个字段`)
+    return true
   } catch (cause: any) {
-    ElMessage.error(detail(cause, '字段预览失败'))
+    ElMessage.error(detail(cause, '接口校验失败，请检查配置'))
+    return false
   } finally {
     previewing.value = false
   }
@@ -260,6 +275,7 @@ async function loadStandardFields() {
 }
 
 async function next() {
+  if (finishing.value || syncing.value || previewing.value) return
   if (step.value === 0) {
     if (!form.table_label.trim() || !form.table_name.trim()) {
       ElMessage.warning('请填写中文名和表名')
@@ -271,14 +287,16 @@ async function next() {
       addManualField()
     }
     step.value = 1
+    dirty.value = false
     return
   }
   if (step.value === 1) {
-    if (form.source_kind === 'interface' && !discovered.value.length) {
-      ElMessage.warning('请先预览来源字段')
+    if (form.source_kind === 'interface') {
+      const verified = await verifySource()
+      if (!verified) return
+    } else if (!validateManualFields()) {
       return
     }
-    if (form.source_kind === 'manual' && !validateManualFields()) return
     await loadStandardFields()
     if (form.is_period && !periodField.value) {
       periodField.value = form.source_kind === 'interface'
@@ -287,6 +305,7 @@ async function next() {
     }
     defaultKeys()
     step.value = 2
+    dirty.value = false
   }
 }
 
@@ -433,12 +452,19 @@ defineExpose({ open })
 </script>
 
 <template>
-  <FullScreenModal v-if="visible" title="新建资产" :show-footer="false" @back="onHeaderBack">
+  <FullScreenModal v-if="visible" title="新建资产" :show-footer="false" @back="attemptClose">
     <template #actions>
       <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="新建资产步骤" />
-      <el-button :disabled="finishing || syncing" @click="close">取消</el-button>
-      <el-button v-if="step > 0" :disabled="finishing || syncing" @click="prev">上一步</el-button>
-      <el-button v-if="step < stepItems.length - 1" type="primary" @click="next">下一步</el-button>
+      <el-button v-if="step > 0" :disabled="finishing || syncing || previewing" @click="prev">上一步</el-button>
+      <el-button
+        v-if="step < stepItems.length - 1"
+        type="primary"
+        :loading="previewing"
+        :disabled="step === 1 && form.source_kind === 'interface' && !previewAvailable"
+        @click="next"
+      >
+        下一步
+      </el-button>
       <el-button v-else type="primary" :loading="finishing || syncing" @click="finish">完成建资产</el-button>
     </template>
 
@@ -535,20 +561,9 @@ defineExpose({ open })
             </div>
           </section>
 
-          <div v-if="currentType" class="panel-actions panel-actions--split">
-            <span class="field-hint">预览只读取表头与少量样本，不保存配置、不创建资产。</span>
-            <el-button type="primary" :loading="previewing" :disabled="!previewAvailable" @click="previewSource">
-              预览字段
-            </el-button>
-          </div>
-
-          <el-alert
-            v-if="discovered.length"
-            type="success"
-            :closable="false"
-            :title="`已发现 ${discovered.length} 个字段`"
-            description="进入下一步可指定期间字段、业务主键，并逐一匹配标准字段。"
-          />
+          <p v-if="currentType" class="field-hint">
+            点击“下一步”将自动校验接口并发现字段；校验通过才进入字段匹配，仅读取表头与少量样本，不保存配置。
+          </p>
         </div>
 
         <div v-else-if="step === 1" class="panel-body">
@@ -703,9 +718,6 @@ defineExpose({ open })
   align-items: center;
   gap: var(--spacing-3);
   flex-wrap: wrap;
-}
-.panel-actions--split {
-  justify-content: space-between;
 }
 .form-section {
   display: flex;
