@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Search, Plus, Loading, MagicStick } from '@element-plus/icons-vue'
@@ -31,13 +31,28 @@ const stepItems = [
 ]
 const pageTitle = computed(() => (form.value.label ? `数据模型 · ${form.value.label}` : '新建数据模型'))
 
-function nextStep() {
+const modelMeta = ref({ status: 'draft', version: 1, published_at: null as string | null })
+const savedSignature = ref('')
+const currentSignature = computed(() => JSON.stringify({
+  form: form.value,
+  tables: tables.value.map(t => [t.table_name, t.alias]),
+  relations: relations.value.map(r => [r.from, r.to, r.join_type, r.cardinality, r.keys]),
+  outputs: outputFields.value.map(f => [f.source_alias, f.source_column, f.output_code, f.output_label, f.data_type, f.agg_role, f.description, f.is_sensitive, f.is_visible]),
+}))
+const dirty = computed(() => currentSignature.value !== savedSignature.value)
+
+async function nextStep() {
   if (step.value === 0 && !form.value.label.trim()) {
     ElMessage.warning('请填写模型名称')
     return
   }
+  if (dirty.value && !(await saveDraft())) return
   if (step.value < stepItems.length - 1) step.value += 1
 }
+
+watch(step, (value) => {
+  if (value === 3) void doPreview()
+})
 
 // 计算字段弹窗
 const cfDialogVisible = ref(false)
@@ -91,8 +106,9 @@ interface OutputFieldRow {
 let ofUid = 0
 const outputFields = ref<OutputFieldRow[]>([])
 const previewData = ref<PreviewResult|null>(null); const previewLoading = ref(false)
+const previewError = ref('')
 const previewV2 = ref<ModelPreviewV2 | null>(null)
-const versions = ref<ModelVersion[]>([]); const versionVisible = ref(false)
+const versions = ref<ModelVersion[]>([])
 const activeNames = ref<string[]>([])
 
 function isSingleTableDataset(ds: DatasetItem) {
@@ -350,48 +366,86 @@ function outputPayload(): OutputFieldPayload[] {
 }
 
 // ==================== 保存/发布/预览 ====================
-async function saveDraft() {
+async function saveDraft(): Promise<boolean> {
+  if (saving.value) return false
   saving.value = true
   try {
     const tablePayload = tables.value.map(t => ({ table_name: t.table_name, alias: t.alias }))
     const relationPayload = relations.value.filter(r => r.from && r.to).map(r => ({ left_alias: r.from, right_alias: r.to, join_type: r.join_type, cardinality: r.cardinality, left_keys: r.keys.filter(k => k.left).map(k => k.left), right_keys: r.keys.filter(k => k.right).map(k => k.right) }))
-    if (modelId.value) {
-      await updateModel(modelId.value, { label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
-      const v = outputPayload(); if (v.length) await saveOutputFields(modelId.value, v)
-      await load()
-      ElMessage.success('已保存')
-    } else {
-      if (!form.value.label.trim()) { ElMessage.warning('请填写模型名称'); return }
-      const res = await createModel({ name: makeModelCode(form.value.label), label: form.value.label, warehouse_layer: form.value.warehouse_layer, subject_area: form.value.subject_area || undefined, business_definition: form.value.business_definition || undefined, owner_name: form.value.owner_name || undefined, tables: tablePayload, relations: relationPayload })
-      modelId.value = res.id
-      const v = outputPayload(); if (v.length) await saveOutputFields(res.id, v)
-      ElMessage.success('已创建')
-      router.replace(`/warehouse/modeling/visual/${res.id}`)
+    const payload = {
+      label: form.value.label,
+      warehouse_layer: form.value.warehouse_layer,
+      subject_area: form.value.subject_area || undefined,
+      business_definition: form.value.business_definition || undefined,
+      owner_name: form.value.owner_name || undefined,
+      tables: tablePayload,
+      relations: relationPayload,
     }
-  } catch (e: any) { ElMessage.error(e?.response?.data?.detail || '保存失败') } finally { saving.value = false }
+    if (modelId.value) {
+      await updateModel(modelId.value, payload)
+      await saveOutputFields(modelId.value, outputPayload())
+    } else {
+      if (!form.value.label.trim()) { ElMessage.warning('请填写模型名称'); return false }
+      const res = await createModel({ name: makeModelCode(form.value.label), ...payload })
+      modelId.value = res.id
+      await saveOutputFields(res.id, outputPayload())
+      router.replace(`/warehouse/modeling/visual/${res.id}`)
+      await loadVersions()
+    }
+    savedSignature.value = currentSignature.value
+    return true
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '自动保存失败')
+    return false
+  } finally { saving.value = false }
 }
 
 async function doPublish() {
-  if (!modelId.value) { ElMessage.warning('请先保存模型'); return }
+  if (!modelId.value) { ElMessage.warning('请先完成前面的步骤'); return }
   try {
     await ElMessageBox.confirm('确定发布该模型？', '确认发布', { type: 'info' })
-    const v = outputPayload(); if (v.length) await saveOutputFields(modelId.value, v)
+  } catch { return }
+  if (dirty.value && !(await saveDraft())) return
+  try {
     const res = await publishModelV2(modelId.value)
     ElMessage.success(`已发布 v${res.version}`)
     router.push('/warehouse/modeling')
-  } catch { /* 取消或失败已提示 */ }
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '发布失败')
+  }
 }
 
 async function doPreview() {
-  if (!modelId.value) { ElMessage.warning('请先保存模型'); return }
+  if (!modelId.value) return
   previewLoading.value = true
+  previewError.value = ''
   try {
     previewData.value = await previewModel(modelId.value)
     previewV2.value = await previewModelV2(modelId.value)
-  } catch { ElMessage.error('预览失败') } finally { previewLoading.value = false }
+  } catch (e: any) {
+    previewData.value = null
+    previewV2.value = null
+    previewError.value = e?.response?.data?.detail || '预览失败，请检查关联与输出字段'
+  } finally { previewLoading.value = false }
 }
-async function showVersions() { if (!modelId.value) return; try { versions.value = await listModelVersions(modelId.value); versionVisible.value = true } catch { ElMessage.error('加载版本历史失败') } }
-function goBack() { router.back() }
+
+async function loadVersions() {
+  if (!modelId.value) return
+  try { versions.value = await listModelVersions(modelId.value) } catch { versions.value = [] }
+}
+
+async function goBack() {
+  if (dirty.value) {
+    try {
+      await ElMessageBox.confirm('当前修改尚未保存，确定返回吗？', '未保存内容', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      })
+    } catch { return }
+  }
+  router.back()
+}
 
 // ==================== 加载 ====================
 async function load() {
@@ -404,6 +458,8 @@ async function load() {
     if (modelId.value) {
       const d = await getModel(modelId.value)
       form.value = { label: d.label || d.name, warehouse_layer: d.warehouse_layer, subject_area: d.subject_area || '', business_definition: d.business_definition || '', owner_name: d.owner_name || '' }
+      modelMeta.value = { status: d.status, version: d.version, published_at: d.published_at }
+      void loadVersions()
       for (const t of d.tables) {
         const asset = availableTables.value.find(a => a.table_name === t.table_name)
         let cols: ColInfo[] = []
@@ -429,7 +485,10 @@ async function load() {
       })
       await nextTick(); autoLayout()
     }
-  } catch (e: any) { error.value = e?.response?.data?.detail || '加载失败' } finally { loading.value = false }
+  } catch (e: any) { error.value = e?.response?.data?.detail || '加载失败' } finally {
+    savedSignature.value = currentSignature.value
+    loading.value = false
+  }
 }
 
 onMounted(load)
@@ -444,11 +503,10 @@ onBeforeUnmount(() => {
   <FullScreenModal :title="pageTitle" :show-footer="false" @back="goBack">
     <template #actions>
       <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="数据模型步骤" />
-      <el-button v-if="modelId" text @click="showVersions">版本</el-button>
-      <el-button v-if="canEdit" :loading="saving" @click="saveDraft">保存</el-button>
-      <el-button v-if="step > 0" @click="step -= 1">上一步</el-button>
-      <el-button v-if="step < stepItems.length - 1" type="primary" @click="nextStep">下一步</el-button>
-      <el-button v-else type="primary" :disabled="!modelId || !canEdit" @click="doPublish">发布</el-button>
+      <span class="save-state">{{ saving ? '保存中…' : dirty ? '未保存' : (modelId ? '已保存' : '') }}</span>
+      <el-button v-if="step > 0" :disabled="saving" @click="step -= 1">上一步</el-button>
+      <el-button v-if="step < stepItems.length - 1" type="primary" :loading="saving" @click="nextStep">下一步</el-button>
+      <el-button v-else type="primary" :disabled="!modelId || !canEdit || saving" @click="doPublish">发布</el-button>
     </template>
 
     <div v-loading="loading" class="wizard-body">
@@ -494,6 +552,30 @@ onBeforeUnmount(() => {
             <span class="field-label">业务定义</span>
             <el-input v-model="form.business_definition" type="textarea" :rows="3" placeholder="说明模型口径与用途" />
           </label>
+
+          <div class="panel-divider"></div>
+          <div class="field">
+            <span class="field-label">版本信息</span>
+            <div v-if="modelId" class="version-meta">
+              <el-tag size="small" :type="modelMeta.status === 'published' ? 'success' : 'info'">
+                {{ modelMeta.status === 'published' ? '已发布' : '草稿' }}
+              </el-tag>
+              <span>当前版本 v{{ modelMeta.version }}</span>
+              <span v-if="modelMeta.published_at">发布于 {{ modelMeta.published_at }}</span>
+            </div>
+            <span v-else class="field-hint">保存后生成模型标识与版本</span>
+          </div>
+          <el-table v-if="versions.length" :data="versions" size="small" max-height="200" class="version-table">
+            <el-table-column prop="version" label="版本" width="70" />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag size="small" type="info">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="发布时间">
+              <template #default="{ row }">{{ row.published_at || '—' }}</template>
+            </el-table-column>
+          </el-table>
         </div>
       </section>
 
@@ -641,13 +723,11 @@ onBeforeUnmount(() => {
         <header class="panel-head panel-head--row">
           <div>
             <h2>数据预览</h2>
-            <p>按当前建模生成 SQL 并预览结果；预览不落库，用于确认关联与输出是否正确。</p>
-          </div>
-          <div class="panel-actions">
-            <el-button type="primary" :loading="previewLoading" :disabled="!modelId" @click="doPreview">运行预览</el-button>
+            <p>进入本步自动按当前建模生成 SQL 并预览结果；预览不落库，用于确认关联与输出是否正确。</p>
           </div>
         </header>
         <div class="panel-body">
+          <el-alert v-if="previewError" type="error" :title="previewError" show-icon :closable="false" />
           <div v-if="previewLoading" class="preview-loading">
             <el-icon class="is-loading" :size="24"><Loading /></el-icon>
           </div>
@@ -674,7 +754,7 @@ onBeforeUnmount(() => {
               总数 {{ previewData.summary.main_count ?? '—' }} · 返回 {{ previewData.summary.result_count ?? '—' }} · 未匹配 {{ previewData.summary.unmatched_count ?? '—' }}
             </p>
           </template>
-          <el-empty v-else description="点击「运行预览」生成数据" :image-size="60" />
+          <el-empty v-else description="暂无预览数据；完成前面步骤后进入本步会自动加载" :image-size="60" />
         </div>
       </section>
     </div>
@@ -706,16 +786,6 @@ onBeforeUnmount(() => {
       </template>
       <el-empty v-else description="点击画布上的节点或关联线" :image-size="48" />
     </el-drawer>
-
-    <!-- 版本历史 -->
-    <el-dialog v-model="versionVisible" title="版本历史" width="500px">
-      <el-table :data="versions" size="small" stripe>
-        <el-table-column prop="version" label="版本" width="80" />
-        <el-table-column prop="status" label="状态" width="80"><template #default="{ row }"><el-tag size="small">{{ row.status }}</el-tag></template></el-table-column>
-        <el-table-column label="发布时间" width="160"><template #default="{ row }">{{ row.published_at || '-' }}</template></el-table-column>
-      </el-table>
-      <el-empty v-if="!versions.length" description="暂无版本历史" :image-size="60" />
-    </el-dialog>
 
     <!-- 计算字段弹窗 -->
     <el-dialog v-model="cfDialogVisible" title="管理计算字段" width="800px" v-if="modelId">
@@ -764,6 +834,10 @@ onBeforeUnmount(() => {
 .field-hint { color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-5) var(--spacing-6); }
 .inline-meta { display: flex; align-items: center; min-height: var(--performance-control-height); }
+.save-state { color: var(--color-text-secondary); font-size: var(--font-size-xs); white-space: nowrap; }
+.panel-divider { height: 1px; background: var(--color-border-light); }
+.version-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2); color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.version-table { width: 100%; }
 
 /* ===== 数据建模 ===== */
 .builder {
