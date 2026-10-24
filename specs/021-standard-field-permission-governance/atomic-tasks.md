@@ -1443,3 +1443,12 @@ VALUE_FIELD=SKIPPED
 - 前端验证：`vue-tsc --noEmit`通过；`npm run build`通过（42.24s），构建产物中已无“数据范围策略”；报表相关测试21 passed。
 - 开发库状态：报表23与测试用户9/10保留（9/10已停用）；数据集530 ACL恢复为仅用户6。
 - 未完成：**用户PC验收**（新建报表无策略选择；public/scoped两份报表；越权提示）。完成后才勾选1b具名子项。
+
+### 11. MVP 2 前置决策：标准字段身份与新合同字段引用（2026-10-24）
+
+- 讨论记录与实施计划见 [mvp2-standard-field-identity-plan.md](mvp2-standard-field-identity-plan.md)。
+- 已确认：D/S由查询形态判定（聚合/分组），不由“明细字段清单”判定；明细字段清单由数据集输出+产品合同+标准字段绑定+字段权限四层维护。
+- 当前缺口：合同`employee_key/cost_center_key`是物理列名且未强制绑定标准字段；`is_permission_anchor`未被合同/门禁消费；identifying只匹配声明物理键；同一语义换列名（工号/员工ID）会漏判。
+- 决策：新合同引用**标准字段身份**（服务端经confirmed绑定解析到唯一输出/列），不做`output_code==field_code`字符串判断；锚点必须绑定active锚点版本；旧合同/旧报表保持output_code不变；B只预留可空`entity_scope`。
+- 实施顺序：阶段0设计冻结 → 1解析器/合同版本 → 2锚点与identifying语义化 → 3报表配置接入 → 4 UI收口 → 5试点重新批准+MVP2 D入口 → 6 B衔接准备。
+- 本轮先做阶段1–2并测试，不动D明细入口；生产不启用试点。
