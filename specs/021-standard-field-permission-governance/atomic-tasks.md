@@ -1402,3 +1402,13 @@ VALUE_FIELD=SKIPPED
 开发库当前状态：数据集530 published、合同1 active、转换批准4（run 5）、报表22 `authorized_v1` public；ACL=用户6；用户7/8已停用；数据源10 inactive/无调度；自动配置5 disabled。
 
 **未完成**：用户PC真实浏览器验收（打开准入抽屉看隔离证明→运行→分页→CSV/XLSX→撤权拒绝）。生产未做任何写入，也未复刻报表。下一轮：先做PC验收；若要在生产启用，需先决定问题2/3的产品化处理方式并单独批准生产数据源操作。
+
+### 8. 产品修复与生产范围决策（2026-10-24）
+
+- 提交`f662514631aab13ffdde8e4f1ea30978c86b5b20`（`fix: mark interface columns and block unevidenced auto writes`）：
+  - `POST /admin/tables`的`InitialColumnIn`新增`is_interface`，ODS与DWD副本按该标记写`auto_discovered`；默认false保持原手工字段语义。接口来源表必须显式传true，否则同步仍会丢弃非主键源值。
+  - `check_dataset_release`新增`automation_target_not_evidenced`：目标表仍存在enabled的`ods_dwd_automation_configs`时阻断，提示先停用自动配置；查询异常时降级为不阻断（兼容缺表测试环境）。
+- 实际验证：`test_admin_tables_router.py` 10 passed（含新增接口列用例）；隔离PG `test_standard_field_catalog.py -k release_gate` 17 passed；`test_report_execution_binding.py` 42 passed；开发库实测自动配置开=阻断、关=通过。
+- **用户决策：生产只部署修复，不新建数据源/试点对象。**延续2026-10-24“生产没有真实新接入需求、不要复刻该报表”的边界。生产启用试点需等真实接入点并另行批准。
+- 待执行：用户在生产运行`cb9b520→f662514`区间更新（后端+前端重建，无迁移），返回SHA/health摘要；随后只做只读冒烟（数据集15准入首开、隔离证明、自动任务阻断是否出现），不建任何对象。
+- 开发端PC验收仍未执行；`pilot021`密码为临时随机值，验收前在用户管理重置。
