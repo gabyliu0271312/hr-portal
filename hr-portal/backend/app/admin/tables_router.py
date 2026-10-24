@@ -61,6 +61,7 @@ class CreateTableIn(BaseModel):
     icon: str = "Grid"
     display_order: int = 999
     scope_strategy: str = DEFAULT_SCOPE_STRATEGY
+    asset_status: str = "published"
     create_datasource: bool = False
     datasource_source_type: str = "upload"
     columns: list[InitialColumnIn] = Field(default_factory=list)
@@ -131,6 +132,12 @@ async def create_table(
     except DDLValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
+    if payload.asset_status not in {"draft", "published"}:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="新建资产的初始状态只支持 draft 或 published",
+        )
+
     # P0a-1: ODS 表名必须以 ods_ 开头
     if not table_name.startswith("ods_"):
         raise HTTPException(
@@ -171,6 +178,7 @@ async def create_table(
         icon=payload.icon,
         display_order=payload.display_order,
         scope_strategy=scope_strategy,
+        asset_status=payload.asset_status,
     )
     db.add(rt)
     await db.flush()
@@ -255,6 +263,7 @@ async def create_table(
         display_order=payload.display_order,
         scope_strategy=scope_strategy,
         warehouse_layer="DWD",
+        asset_status=payload.asset_status,
     )
     db.add(dwd_rt)
     await db.flush()

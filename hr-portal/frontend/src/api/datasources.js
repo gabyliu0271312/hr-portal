@@ -8,6 +8,7 @@ export const datasourcesApi = {
     remove: (id) => api.delete(`/datasources/${id}`).then((r) => r.data),
     test: (id, body) => api.post(`/datasources/${id}/test`, body ?? null).then((r) => r.data),
     discoverFields: (id) => api.post(`/datasources/${id}/discover-fields`).then((r) => r.data),
+    previewFields: (body) => api.post('/datasources/preview-fields', body).then((r) => r.data),
     sync: (id) => api
         .post(`/datasources/${id}/sync`, null, { timeout: 300_000 })
         .then((r) => r.data),

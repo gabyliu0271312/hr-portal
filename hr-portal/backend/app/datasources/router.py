@@ -219,6 +219,55 @@ async def list_connector_types_endpoint(
     return {"items": list_connector_types(consumer)}
 
 
+class DataSourcePreviewIn(BaseModel):
+    source_type: str
+    settings: dict = {}
+    secrets: dict = {}
+    table_name: str | None = None
+
+
+@router.post(
+    "/preview-fields",
+    response_model=list[DiscoveredFieldOut],
+    dependencies=[Depends(require_op("datasource.endpoints", "C"))],
+)
+async def preview_source_fields(
+    body: DataSourcePreviewIn,
+    db: AsyncSession = Depends(get_session),
+) -> list[DiscoveredFieldOut]:
+    """在资产创建前预览/发现来源字段；不保存配置、不创建资产。"""
+    from app.codegen.rules import deterministic_code, unique_code
+    from app.data.models import TableColumn
+    from app.datasources.beisen_client import make_client
+    from app.datasources.sync_service import _normalize_yyyymm
+
+    client = make_client(body.source_type, body.settings or {}, body.secrets or {})
+    if not hasattr(client, "discover_fields"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="该数据源类型暂不支持字段发现")
+    fields = await client.discover_fields()
+    existing = []
+    if body.table_name:
+        existing = (await db.execute(select(TableColumn).where(
+            TableColumn.table_name == body.table_name,
+        ))).scalars().all()
+    label_codes = {column.column_label: column.column_code for column in existing}
+    used_codes = {column.column_code for column in existing}
+    result = []
+    for field in fields:
+        label = str(field["label"])
+        code = label_codes.get(label) or unique_code(deterministic_code(label), used_codes)
+        used_codes.add(code)
+        samples = list(field.get("sample_values") or [])
+        result.append(DiscoveredFieldOut(
+            source_key=str(field["source_key"]),
+            label=label,
+            column_code=code,
+            sample_values=samples,
+            is_yearmonth=any(bool(_normalize_yyyymm(value)) for value in samples),
+        ))
+    return result
+
+
 @router.get("", response_model=list[DataSourceOut])
 async def list_datasources(
     _: User = Depends(current_user),

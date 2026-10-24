@@ -28,8 +28,23 @@ export interface CreateTableIn {
   icon?: string
   display_order?: number
   scope_strategy?: ScopeStrategy
+  asset_status?: string
   create_datasource?: boolean
   datasource_source_type?: string
+  columns?: Array<{
+    column_code: string
+    column_label: string
+    data_type?: string
+    is_pk_part?: boolean
+    is_sensitive?: boolean
+    is_visible?: boolean
+    display_order?: number
+    description?: string | null
+    scope_role?: string | null
+    enum_options?: string[] | null
+    agg_role?: string
+    is_interface?: boolean
+  }>
 }
 
 export const adminTablesApi = {

@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, View, Edit, DataAnalysis, Connection, Link, List, ArrowDown, Grid, Menu, Plus } from '@element-plus/icons-vue'
 import { listAssets, updateAsset, batchUpdateAssetLayer, type Asset } from '@/api/warehouse'
 import { useUserStore } from '@/stores/user'
-import CreateTableDialog from '@/components/data/CreateTableDialog.vue'
+import AssetOnboardingDialog from '@/components/warehouse/AssetOnboardingDialog.vue'
 import LayerTag from '@/components/warehouse/LayerTag.vue'
 import { WAREHOUSE_LAYER_OPTIONS, WAREHOUSE_LAYER_LABELS, WAREHOUSE_LAYER_CODES } from '@/constants/warehouseLayers'
 
@@ -40,7 +40,7 @@ const editAsset = ref<Asset | null>(null)
 const editForm = ref({ warehouse_layer: '', subject_area: '', owner_name: '', asset_status: '' })
 const editSaving = ref(false)
 
-const createDialogRef = ref<InstanceType<typeof CreateTableDialog> | null>(null)
+const createDialogRef = ref<InstanceType<typeof AssetOnboardingDialog> | null>(null)
 const assetTypeFilter = ref('')
 const typeOptions = ['', 'table', 'view', 'model', 'metric', 'api']
 const TYPE_LABELS: Record<string, string> = { table: '数据表', view: '数据视图', model: '数据模型', metric: '指标', api: '数据API' }
@@ -375,7 +375,7 @@ onMounted(load)
     </el-card>
 
     <!-- 新建资产对话框 -->
-    <CreateTableDialog
+    <AssetOnboardingDialog
       ref="createDialogRef"
       :existing-table-names="assets.map((a) => a.table_name)"
       @done="onCreated"

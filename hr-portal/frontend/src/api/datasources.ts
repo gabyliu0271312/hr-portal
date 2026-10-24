@@ -95,6 +95,12 @@ export const datasourcesApi = {
     api.post<TestResult>(`/datasources/${id}/test`, body ?? null).then((r) => r.data),
   discoverFields: (id: number) =>
     api.post<DiscoveredField[]>(`/datasources/${id}/discover-fields`).then((r) => r.data),
+  previewFields: (body: {
+    source_type: string
+    settings?: Record<string, any>
+    secrets?: Record<string, string>
+    table_name?: string | null
+  }) => api.post<DiscoveredField[]>('/datasources/preview-fields', body).then((r) => r.data),
   sync: (id: number) =>
     api
       .post<SyncResult>(`/datasources/${id}/sync`, null, { timeout: 300_000 })
