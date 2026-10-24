@@ -181,3 +181,21 @@
 | 2026-10-24 | 旧接口是否改成标准字段编码 | 不改；旧合同/旧报表保持 output_code |
 | 2026-10-24 | 是否为 B 预留字段 | 预留可空 `entity_scope`，不实现 B |
 | 2026-10-24 | 派生/技术字段 | 技术字段排除；派生字段需显式语义/批准 |
+
+## 8. 阶段 1 实施记录（2026-10-24）
+
+已实现（`hr-portal/backend/app/datasets/authorization_contract.py`）：
+
+- `ProductAuthorizationDefinition` 新增 `schema_version`（默认 1，旧合同自动按 1 读取）、`standard_fields`、`resolved_standard_fields`。
+- schema 2 输入按标准字段编码解析：
+  - 输出/维度/度量：经 confirmed 输出绑定找到唯一 `output_code`；0 条或多条拒绝。
+  - `employee_key/cost_center_key`：经 confirmed 表列绑定解析为物理列，要求 active 版本、`is_permission_anchor=true`、权限域 `org`/`cost_center`、粒度 coarse/fine、类型一致。
+  - `internal_fields`：解析为输出或事实列，并自动补齐 `alias.fact_key/employee_key/cost_center_key`。
+  - 解析结果写入 `resolved_standard_fields.outputs` / `.columns`，合同 JSON 归一化为现有执行结构。
+- 错误码：`standard_field_not_bound`、`standard_field_ambiguous`、`standard_field_type_mismatch`、`standard_field_grain_invalid`、`standard_field_anchor_invalid`、`standard_field_contract_scope_unsupported`（schema 2 暂仅支持单事实）、`standard_field_binding_drift`（批准时 409）。
+- schema 1 合同行为完全不变；旧合同、旧报表、旧导出不受影响。
+- 新增 PG 测试 3 项：正向解析、未绑定拒绝、非锚点拒绝。实际结果：
+  - `test_standard_field_catalog.py --postgres-acceptance` 全量 **192 passed**（632.68s）
+  - `test_report_execution_binding.py --postgres-acceptance` **42 passed**（100.61s）
+  - 无 DB 定向 **81 passed / 150 skipped**
+- 未做：阶段 2（identifying 语义化）、阶段 3（报表配置接入）、阶段 4（UI）、阶段 5（试点重新批准/D 入口）、阶段 6（B 衔接）。开发库试点仍使用 schema 1 合同；切换 schema 2 需要先为 `employee_no` 建锚点标准字段并完成绑定。

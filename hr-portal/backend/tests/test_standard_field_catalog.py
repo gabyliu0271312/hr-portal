@@ -2707,3 +2707,84 @@ async def test_binding_explicit_dataset_rejects_unsupported_scope(standard_catal
     assert response.status_code == 409 and response.json()["detail"]["code"] == "standard_binding_scope_unsupported"
     async with engine.connect() as conn:
         assert await conn.scalar(text("SELECT count(*) FROM standard_field_bindings")) == 0
+
+
+async def _make_employee_anchor(engine):
+    from datetime import UTC, datetime
+    from sqlalchemy import text
+    from app.data import models
+
+    async with engine.begin() as conn:
+        await conn.execute(models.StandardFieldVersion.__table__.insert().values(
+            id=12, standard_field_id=1, version=2, field_name="Employee anchor",
+            business_definition="Employee anchor for person scope", data_type="string",
+            grain_level="coarse", permission_domain="org", is_permission_anchor=True,
+            owner_user_id=7, created_by=7, status="active", approved_by=7,
+            approved_at=datetime.now(UTC), approval_reason="anchor reviewed",
+        ))
+        await conn.execute(text(
+            "UPDATE standard_field_bindings SET standard_field_version_id=12, "
+            "observed_source_field_id='dwd-employee', observed_data_type='string' WHERE id=51"
+        ))
+
+
+def _schema2_contract(*, standard_fields, output_fields, employee_key="employee_no"):
+    return {
+        "schema_version": 2,
+        "expected_version": 0,
+        "standard_fields": standard_fields,
+        "output_fields": output_fields,
+        "dimensions": [],
+        "measures": [],
+        "internal_fields": [],
+        "facts": [{
+            "alias": "current", "table_name": "dwd_probe", "fact_key": "employee_no",
+            "employee_key": employee_key, "role": "person_fact",
+        }],
+    }
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_schema2_contract_resolves_standard_field_identity(conversion_acceptance_api):
+    client, engine, _factory, _ = conversion_acceptance_api
+    await _make_employee_anchor(engine)
+
+    created = await client.post(
+        "/api/v1/warehouse/models/4/authorization-contracts",
+        json=_schema2_contract(standard_fields=["employee_no"], output_fields=["employee_no"]),
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["schema_version"] == 2
+    assert body["output_fields"] == ["employee_no"]
+    assert body["facts"][0]["employee_key"] == "employee_no"
+    assert body["resolved_standard_fields"]["outputs"]["employee_no"]["version_id"] == 11
+    assert body["resolved_standard_fields"]["columns"]["employee_no"]["version_id"] == 12
+    assert "current.employee_no" in body["internal_fields"]
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_schema2_contract_rejects_unbound_standard_field(conversion_acceptance_api):
+    client, _engine, _factory, _ = conversion_acceptance_api
+    created = await client.post(
+        "/api/v1/warehouse/models/4/authorization-contracts",
+        json=_schema2_contract(standard_fields=["missing_field"], output_fields=["missing_field"],
+                               employee_key="missing_field"),
+    )
+    assert created.status_code == 400, created.text
+    assert created.json()["detail"]["code"] == "standard_field_not_bound"
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_schema2_contract_rejects_non_anchor_employee_key(conversion_acceptance_api):
+    client, _engine, _factory, _ = conversion_acceptance_api
+    # 版本 11 为 identifying/public，未标记授权锚点；不得作为人员锚点。
+    created = await client.post(
+        "/api/v1/warehouse/models/4/authorization-contracts",
+        json=_schema2_contract(standard_fields=["employee_no"], output_fields=["employee_no"]),
+    )
+    assert created.status_code == 400, created.text
+    assert created.json()["detail"]["code"] == "standard_field_anchor_invalid"

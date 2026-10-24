@@ -6,7 +6,12 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select, text
 
-from app.data.models import TableColumn
+from app.data.models import (
+    StandardField,
+    StandardFieldBinding,
+    StandardFieldVersion,
+    TableColumn,
+)
 from app.datasets.models import (
     DataSet,
     DataSetRelation,
@@ -50,13 +55,17 @@ class ProductFactContract(BaseModel):
 
 class ProductAuthorizationDefinition(BaseModel):
     model_config = {"extra": "forbid"}
+    schema_version: Literal[1, 2] = 1
     facts: list[ProductFactContract] = Field(min_length=1, max_length=32)
-    output_fields: list[str] = Field(min_length=1, max_length=500)
+    # schema 1: 数据集输出编码；schema 2 输入: 标准字段编码，落库前由服务端解析为输出编码。
+    output_fields: list[str] = Field(default_factory=list, max_length=500)
     dimensions: list[str] = Field(default_factory=list, max_length=200)
     measures: list[str] = Field(default_factory=list, max_length=200)
     internal_fields: list[str] = Field(default_factory=list, max_length=200)
+    standard_fields: list[str] = Field(default_factory=list, max_length=500)
+    resolved_standard_fields: dict[str, dict] = Field(default_factory=dict)
 
-    @field_validator("output_fields", "dimensions", "measures", "internal_fields")
+    @field_validator("output_fields", "dimensions", "measures", "internal_fields", "standard_fields")
     @classmethod
     def validate_fields(cls, values):
         if len(values) != len(set(values)) or any(not value.strip() for value in values):
@@ -67,8 +76,25 @@ class ProductAuthorizationDefinition(BaseModel):
     def validate_structure(self):
         if len({fact.alias for fact in self.facts}) != len(self.facts):
             raise ValueError("来源别名不可重复")
-        if (set(self.dimensions) | set(self.measures)) - set(self.output_fields):
-            raise ValueError("维度和度量须在输出白名单中")
+        normalized = self.schema_version == 2 and bool(self.resolved_standard_fields)
+        if self.schema_version == 2 and not normalized:
+            if not self.standard_fields:
+                raise ValueError("schema 2 合同必须声明 standard_fields")
+            if not self.output_fields:
+                raise ValueError("schema 2 合同必须声明要暴露的标准字段")
+            if (set(self.dimensions) | set(self.measures)) - set(self.standard_fields):
+                raise ValueError("维度和度量须在标准字段白名单中")
+            if (set(self.output_fields) | set(self.internal_fields)) - set(self.standard_fields):
+                raise ValueError("输出和内部字段须在标准字段白名单中")
+            anchor_codes = {fact.employee_key for fact in self.facts if fact.employee_key}
+            anchor_codes |= {fact.cost_center_key for fact in self.facts if fact.cost_center_key}
+            if anchor_codes - set(self.standard_fields):
+                raise ValueError("授权锚点须在标准字段白名单中")
+        else:
+            if not self.output_fields:
+                raise ValueError("字段必须非空且不重复")
+            if (set(self.dimensions) | set(self.measures)) - set(self.output_fields):
+                raise ValueError("维度和度量须在输出白名单中")
         if set(self.dimensions) & set(self.measures):
             raise ValueError("维度和度量不得重叠")
         return self
@@ -246,7 +272,184 @@ async def _collect_contract_physical_drift(db, definition, tables, relations, ou
     return issues
 
 
+def _usable_binding(binding, version) -> bool:
+    return (
+        binding.status == "confirmed"
+        and binding.binding_version > 0
+        and binding.confirmed_by is not None
+        and binding.confirmed_at is not None
+        and version is not None
+        and version.status == "active"
+        and version.approved_by is not None
+        and version.approved_at is not None
+        and bool((version.approval_reason or "").strip())
+    )
+
+
+async def _confirmed_output_bindings(db, dataset_id):
+    rows = (await db.execute(
+        select(DatasetOutputField, StandardFieldBinding, StandardField, StandardFieldVersion)
+        .select_from(DatasetOutputField)
+        .join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id)
+        .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+        .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+        .where(DatasetOutputField.dataset_id == dataset_id)
+    )).all()
+    by_code: dict[str, list] = {}
+    for output, binding, field, version in rows:
+        if _usable_binding(binding, version):
+            by_code.setdefault(field.field_code, []).append((output, binding, version))
+    return by_code
+
+
+async def _confirmed_column_bindings(db, table_name):
+    rows = (await db.execute(
+        select(TableColumn, StandardFieldBinding, StandardField, StandardFieldVersion)
+        .select_from(TableColumn)
+        .join(StandardFieldBinding, StandardFieldBinding.table_column_id == TableColumn.id)
+        .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+        .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+        .where(TableColumn.table_name == table_name)
+    )).all()
+    by_code: dict[str, list] = {}
+    for column, binding, field, version in rows:
+        if _usable_binding(binding, version):
+            by_code.setdefault(field.field_code, []).append((column, binding, version))
+    return by_code
+
+
+def _resolution_error(code: str, message: str):
+    return HTTPException(400, detail={"code": code, "message": message})
+
+
+async def _resolve_standard_definition(db, dataset_id, payload):
+    """schema 2: 标准字段编码 → 唯一输出/物理列；归一化后复用现有校验与执行。
+
+    输入约定：
+    - output_fields/dimensions/measures/internal_fields 均为标准字段编码；
+    - facts 的 employee_key/cost_center_key 为标准字段编码，fact_key 仍为物理主键列名；
+    - 服务端解析后把上述字段替换为输出编码/物理列名，并写入 resolved_standard_fields。
+    """
+    if payload.schema_version != 2 or payload.resolved_standard_fields:
+        return payload
+    if len(payload.facts) != 1:
+        raise _resolution_error("standard_field_contract_scope_unsupported", "schema 2 当前仅支持单一事实")
+    output_bindings = await _confirmed_output_bindings(db, dataset_id)
+    tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset_id))).scalars().all()
+    aliases = {row.alias: row.table_name for row in tables}
+    resolved: dict[str, dict] = {"outputs": {}, "columns": {}}
+
+    def pick_output(code: str, *, require_dimension: bool = False) -> str:
+        candidates = output_bindings.get(code, [])
+        if not candidates:
+            raise _resolution_error("standard_field_not_bound", f"标准字段未绑定到数据集输出: {code}")
+        if len(candidates) != 1:
+            raise _resolution_error("standard_field_ambiguous", f"标准字段绑定了多个数据集输出: {code}")
+        output, _binding, version = candidates[0]
+        if _normalized_metadata_type(version.data_type) != _normalized_metadata_type(output.data_type):
+            raise _resolution_error("standard_field_type_mismatch", f"标准字段与输出类型不一致: {code}")
+        if require_dimension and version.grain_level not in {"coarse", "fine"}:
+            raise _resolution_error("standard_field_grain_invalid", f"标准字段不能作为分组维度: {code}")
+        resolved["outputs"].setdefault(code, {
+            "output_code": output.output_code, "output_id": output.id,
+            "version_id": version.id, "standard_field_id": version.standard_field_id,
+        })
+        return output.output_code
+
+    output_codes = [pick_output(code) for code in payload.output_fields]
+    dimension_codes = [pick_output(code, require_dimension=True) for code in payload.dimensions]
+    measure_codes = [pick_output(code) for code in payload.measures]
+
+    facts = []
+    column_cache: dict[str, dict] = {}
+    for fact in payload.facts:
+        if aliases.get(fact.alias) != fact.table_name:
+            raise _resolution_error("contract_fact_table_mismatch", f"事实别名未映射到声明表: {fact.alias}")
+        column_bindings = column_cache.setdefault(fact.table_name, await _confirmed_column_bindings(db, fact.table_name))
+
+        def pick_anchor(code: str, domain: str) -> str:
+            candidates = column_bindings.get(code, [])
+            if len(candidates) != 1:
+                raise _resolution_error("standard_field_anchor_invalid", f"授权锚点必须唯一绑定到事实列: {code}")
+            column, _binding, version = candidates[0]
+            if (not version.is_permission_anchor or version.permission_domain != domain
+                    or version.grain_level not in {"coarse", "fine"}):
+                raise _resolution_error("standard_field_anchor_invalid", f"授权锚点语义无效: {code}")
+            if _normalized_metadata_type(version.data_type) != _normalized_metadata_type(column.data_type):
+                raise _resolution_error("standard_field_anchor_invalid", f"授权锚点与事实列类型不一致: {code}")
+            resolved["columns"][code] = {
+                "column_code": column.column_code, "column_id": column.id,
+                "version_id": version.id, "standard_field_id": version.standard_field_id,
+            }
+            return column.column_code
+
+        employee_key = pick_anchor(fact.employee_key, "org") if fact.employee_key else None
+        cost_center_key = pick_anchor(fact.cost_center_key, "cost_center") if fact.cost_center_key else None
+        facts.append(fact.model_copy(update={"employee_key": employee_key, "cost_center_key": cost_center_key}))
+
+    internal_fields: list[str] = []
+    for code in payload.internal_fields:
+        if code in resolved["outputs"]:
+            internal_fields.append(f"{facts[0].alias}.{resolved['outputs'][code]['output_code']}")
+            continue
+        found = False
+        for fact in facts:
+            column_bindings = column_cache.setdefault(fact.table_name, await _confirmed_column_bindings(db, fact.table_name))
+            candidates = column_bindings.get(code, [])
+            if len(candidates) == 1:
+                column, _binding, version = candidates[0]
+                resolved["columns"][code] = {
+                    "column_code": column.column_code, "column_id": column.id,
+                    "version_id": version.id, "standard_field_id": version.standard_field_id,
+                }
+                internal_fields.append(f"{fact.alias}.{column.column_code}")
+                found = True
+                break
+        if not found:
+            raise _resolution_error("standard_field_not_bound", f"内部字段未绑定到事实列或输出: {code}")
+
+    for fact in facts:
+        for column in {fact.fact_key, fact.employee_key, fact.cost_center_key} - {None}:
+            entry = f"{fact.alias}.{column}"
+            if entry not in internal_fields:
+                internal_fields.append(entry)
+
+    payload.output_fields = output_codes
+    payload.dimensions = dimension_codes
+    payload.measures = measure_codes
+    payload.internal_fields = internal_fields
+    payload.facts = facts
+    payload.resolved_standard_fields = resolved
+    return payload
+
+
+async def _validate_resolution(db, dataset_id, payload):
+    """批准前复核：已解析的标准字段绑定仍指向同一 active 版本。"""
+    if payload.schema_version != 2 or not payload.resolved_standard_fields:
+        return
+
+    async def check(field, code: str, target_id, version_id):
+        rows = (await db.execute(
+            select(StandardFieldVersion.id)
+            .select_from(StandardFieldBinding)
+            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .where(field == target_id, StandardFieldBinding.status == "confirmed",
+                   StandardFieldVersion.status == "active")
+        )).scalars().all()
+        if len(rows) != 1 or rows[0] != version_id:
+            raise HTTPException(409, detail={
+                "code": "standard_field_binding_drift",
+                "message": f"标准字段绑定已漂移，请重新检查合同: {code}",
+            })
+
+    for code, item in (payload.resolved_standard_fields.get("outputs") or {}).items():
+        await check(StandardFieldBinding.dataset_output_field_id, code, item.get("output_id"), item.get("version_id"))
+    for code, item in (payload.resolved_standard_fields.get("columns") or {}).items():
+        await check(StandardFieldBinding.table_column_id, code, item.get("column_id"), item.get("version_id"))
+
+
 async def _validate_definition(db, dataset_id, payload):
+    payload = await _resolve_standard_definition(db, dataset_id, payload)
     dataset = await db.get(DataSet, dataset_id)
     if dataset is None:
         raise HTTPException(404, detail={"code": "dataset_not_found", "message": "数据集不存在"})
@@ -345,6 +548,7 @@ async def approve_contract(db, dataset_id, contract_id, payload, user):
             raise HTTPException(409, detail={"code": "contract_transition_conflict", "message": "草稿状态或版本已变化"})
         current = ProductAuthorizationDefinition.model_validate(row.contract_json)
         _, tables, relations, outputs = await _validate_definition(db, dataset_id, current)
+        await _validate_resolution(db, dataset_id, current)
         if (len(current.facts) != 1 or relations
                 or any(f.role not in {"person_fact", "allocation_fact"} for f in current.facts)
                 or (current.facts[0].role == "person_fact" and (current.facts[0].allow_cost_center_summary or current.facts[0].cost_center_key))

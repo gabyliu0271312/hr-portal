@@ -1452,3 +1452,4 @@ VALUE_FIELD=SKIPPED
 - 决策：新合同引用**标准字段身份**（服务端经confirmed绑定解析到唯一输出/列），不做`output_code==field_code`字符串判断；锚点必须绑定active锚点版本；旧合同/旧报表保持output_code不变；B只预留可空`entity_scope`。
 - 实施顺序：阶段0设计冻结 → 1解析器/合同版本 → 2锚点与identifying语义化 → 3报表配置接入 → 4 UI收口 → 5试点重新批准+MVP2 D入口 → 6 B衔接准备。
 - 本轮先做阶段1–2并测试，不动D明细入口；生产不启用试点。
+- **阶段1已实现（2026-10-24）**：合同新增`schema_version/standard_fields/resolved_standard_fields`；schema 2按标准字段编码解析唯一输出/锚点列，锚点要求active+is_permission_anchor+权限域匹配；批准时复核绑定版本。验证：全量catalog 192 passed（632.68s）、报表执行42 passed（100.61s）、无DB 81 passed/150 skipped。旧合同行为不变。详见计划文档§8。阶段2未开始。
