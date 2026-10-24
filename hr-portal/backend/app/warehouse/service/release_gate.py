@@ -4,7 +4,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.data.models import StandardFieldBinding, StandardFieldVersion, TableColumn
 from app.datasets.models import DataSet, DataSetTable, DatasetOutputField, DataProductAuthorizationContract
-from app.warehouse.schemas import DatasetReleaseIssueOut, DatasetReleaseReadinessOut
+from app.warehouse.schemas import DatasetIsolationOut, DatasetReleaseIssueOut, DatasetReleaseReadinessOut
 from app.warehouse.service.standard_fields import _physical_source_identity
 from app.warehouse.service.standardization import _normalized_metadata_type, _physical_metadata_type
 from app.warehouse.service_ref import LEGACY_REPORT_PREFIX, SOURCE_DATASET, SOURCE_REPORT, SOURCE_TABLE
@@ -137,6 +137,47 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
         issue("external_export_reference_unchecked", "外部出口引用尚未完成校验")
     if external_export_count:
         issue("external_exports_not_isolated", "数据集存在外部推送出口，未完成版本隔离与结果对照")
+    isolation = None
+    try:
+        async with db.begin_nested():
+            row = (await db.execute(text(
+                "WITH bound_tables AS ("
+                "    SELECT table_name FROM dataset_tables WHERE dataset_id = :dataset_id"
+                "), source_tables AS ("
+                "    SELECT DISTINCT cr.source_table FROM bound_tables bt "
+                "    JOIN LATERAL ("
+                "        SELECT source_table FROM warehouse_conversion_runs "
+                "        WHERE target_table = bt.table_name ORDER BY id DESC LIMIT 1"
+                "    ) cr ON TRUE"
+                ") "
+                "SELECT "
+                "    (SELECT coalesce(array_agg(table_name ORDER BY table_name), '{}') "
+                "        FROM bound_tables) AS target_tables, "
+                "    (SELECT coalesce(array_agg(source_table ORDER BY source_table), '{}') "
+                "        FROM source_tables) AS source_tables, "
+                "    (SELECT count(*) FROM dataset_tables WHERE dataset_id <> :dataset_id "
+                "        AND table_name IN (SELECT table_name FROM bound_tables)"
+                "    ) AS shared_target_dataset_count, "
+                "    (SELECT count(*) FROM dataset_tables WHERE dataset_id <> :dataset_id "
+                "        AND table_name IN (SELECT source_table FROM source_tables)"
+                "    ) AS shared_source_dataset_count, "
+                "    (SELECT count(*) FROM warehouse_conversion_runs cr "
+                "        WHERE cr.source_table IN (SELECT source_table FROM source_tables) "
+                "        AND cr.target_table NOT IN (SELECT table_name FROM bound_tables)"
+                "    ) AS source_other_target_count"
+            ), {"dataset_id": dataset_id})).mappings().one()
+        isolation = DatasetIsolationOut(
+            target_tables=list(row["target_tables"] or []),
+            source_tables=list(row["source_tables"] or []),
+            shared_target_dataset_count=int(row["shared_target_dataset_count"] or 0),
+            shared_source_dataset_count=int(row["shared_source_dataset_count"] or 0),
+            source_other_target_count=int(row["source_other_target_count"] or 0),
+            active_export_count=external_export_count,
+            isolated=not (row["shared_target_dataset_count"] or row["shared_source_dataset_count"]
+                          or row["source_other_target_count"] or external_export_count),
+        )
+    except SQLAlchemyError:
+        isolation = None
     if contract is None:
         issue("authorization_contract_unverified", "事实归属、人员/中心授权路径和实际粒度合同尚未验证")
     else:
@@ -178,7 +219,7 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
         dataset_id=dataset_id, dataset_status=dataset.status, eligible=eligible,
         fields_eligible=fields_eligible, authorization_verified=authorization_verified,
         conversion_verified=conversion_verified, checked_output_count=len(outputs),
-        confirmed_output_count=confirmed, issues=issues,
+        confirmed_output_count=confirmed, issues=issues, isolation=isolation,
     )
 
 

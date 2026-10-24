@@ -1301,3 +1301,69 @@ VALUE_FIELD=SKIPPED
 - 记录本轮**标准字段目录体验增量用户生产验收通过**。用户没有逐项返回枚举值、负例、409/撤权、全部角色矩阵的执行摘要，因此不把笼统验收确认扩写为所有自动化/安全场景已在生产执行。两项标准字段/旧绑定未自动迁移；具体后续枚举编辑内容未知，不推测生产业务写入。
 - 本批没有新迁移；生产0268及prod健康通过是此前e5316c0部署证据，本次没有重新取得current/head/health摘要。若下一轮有数据库或应用变更，再按实际影响验证，不宣称本轮已重测。
 - 下一步不再把生产ac6cc70待部署/目录验收列为阻塞；分摊MVP仍因共享自动来源、数据集15及5个active出口未隔离而未启用。无新用户授权不继续生产规则/数据复制/合同/ACL/报表切版；A整包父任务保持原未完成边界。本次仅同步交接文档，未自动提交推送。
+
+## 2026-10-24 增量：MVP4 开发端受控隔离试点闭环
+
+**下次启动先读本节。**本节记录按2026-10-23 §6在**开发环境**落地“独立试点来源→目标→数据集→报表”的受控隔离闭环。**开发端已跑通，代码未提交/未推送，生产未触碰**；A/B父任务仍未完成。
+
+### 1. 开发端试点对象（仅开发库`hr_portal`，0268）
+
+| 对象 | 实际值 |
+| --- | --- |
+| 受控来源 | `ods_021_allocation_pilot`（ODS，registered id 444；5业务列；8行、2期间202604/202605） |
+| 目标 | `dwd_021_allocation_pilot`（DWD，同名rename全量刷新生成；最新run id 2） |
+| 数据集 | id 530 `ds_dwd_021_allocation_pilot`；3输出`cost_period/code/headcount`；v1 published |
+| 标准字段 | id 1 `cost_period`、2 `code`、3 `headcount`，各v1 active；输出+物理列共6条confirmed绑定 |
+| 授权合同 | id 1；`allocation_fact`；fact_key=`id`、employee_key=`employee_no`、cost_center_key=`code`；allow_cost_center_summary=true |
+| 转换批准 | id 1（run 2 / contract 1 / dataset v1） |
+| 报表 | id 22「021分摊试点汇总」；public；`execution_version=authorized_v1`；已绑定合同1/v1 |
+| 隔离证据 | source=`ods_021_allocation_pilot`，target=`dwd_021_allocation_pilot`；其他数据集引用目标=0、引用来源=0；来源生成其他目标=0；active出口=0；automation_rules/datasources引用=0 |
+
+- 演示行来自开发库现有8行分摊数据，经产品数据接口`POST /data/{table}`写入；未用裸SQL复制业务数据，未伪造转换/批准证据。
+- 未改共享`emp_monthly_allocation`/`dwd_emp_monthly_allocation`，未在共享来源加规则，未停任何出口，未为数据集10创建分摊合同。
+- 数据集只保留3个输出；`employee_no`、`dimension_value`为隐藏列，`employee`未进入试点来源，避免把姓名/未知语义当输出。
+
+### 2. 代码改动（5文件，未提交）
+
+- `app/warehouse/service/standardization.py::_prepare_dwd_refresh`：刷新生成的DWD以`id`为物理主键但没有TableColumn元数据，导致授权合同无法声明fact_key（实测`contract_fact_key_missing: id`）。缺失时补一条隐藏技术元数据（`is_visible=false`、`auto_discovered=true`、类型按物理`number`）。
+- `app/warehouse/service/release_gate.py`：发布准入**新增只读**`isolation`证据（来源/目标表、其他数据集引用数、来源其他目标数、active出口数）。**未改变原门禁阻断语义，原出口SQL保持原样**。
+- `app/warehouse/schemas.py`：新增`DatasetIsolationOut`及`DatasetReleaseReadinessOut.isolation`。
+- 前端`src/api/warehouse.ts`、`src/components/warehouse/WarehouseModelReadinessPanel.vue`：模型准入抽屉新增「隔离证明」区，只展示表名与计数，不展示业务值或表内取值。
+
+**测试暴露并纠正的问题**：初版把“共享目标/来源数据集”也作为新阻断，导致`test_postgres_release_gate_blocks_active_direct_and_shared_exports` 10项失败，证明现有契约只以active出口阻断、共享数据集本身不阻断。已收回为只读证据并恢复原出口SQL；未以修改测试方式放行。开发库该共享来源场景仍需运营上保持隔离，但不冒充门禁新语义。
+
+### 3. 实际验证（分次记录，不拼成一次全绿）
+
+| 验证 | 实际结果 |
+| --- | --- |
+| 后端无DB定向（`test_report_execution_binding`+`test_standard_field_catalog`） | 81 passed、150 skipped、1 warning、11.75s（跳过不算通过） |
+| 隔离PG `test_report_execution_binding.py --postgres-acceptance` | 42 passed、94.64s |
+| 隔离PG `test_standardization_service.py --postgres-acceptance` | 30 passed、3.71s |
+| 隔离PG `test_standard_field_catalog.py -k release_gate` | 17 passed、101.94s |
+| 隔离PG `test_standard_field_catalog.py --postgres-acceptance`全量复跑 | **189 passed、741.53s、exit 0** |
+| 前端`vue-tsc --noEmit` | 通过 |
+| 前端`vitest run src/components/warehouse` | 3文件46 passed、32.31s（.ts/.js两份spec均执行） |
+| 前端`npm run build` | 通过、50.27s；「隔离证明」已进入`WarehouseModeling` chunk |
+| 开发真实API链路（admin配置+pilot021受限用户执行） | 发布`eligible=true`；run total=2、headcount合计8；CSV 200/107B；XLSX 200/5003B |
+| 人员/中心路径 | 仅人员范围（正式员工）=6；仅中心范围=8；双路径=8（非14，去重生效） |
+| 撤权 | 移除数据集ACL后run=403「无权访问该报表」 |
+| 反向出口阻断 | 数据集11（`emp_monthly_cost_result`，3个active出口）`isolated=false`且`external_exports_not_isolated`存在 |
+| 隔离证据接口 | 数据集530 `isolated=true`，sharedTarget/sharedSource/otherTarget/exports均为0 |
+
+- 开发后端已重启载入本轮代码，`/api/v1/health`=env dev、db.ok=true；开发前端镜像已重建并重启（8080）。
+- 超级管理员不能作为分摊试点执行人：`execution_readiness`对无限人员范围返回`s_execution_unrestricted_scope_unverified`，这是现有设计，不是本轮回归。
+
+### 4. 开发环境数据/配置变更（仅开发库，须保留记录）
+
+- `cost_center_tree`存在3组同名根节点导致树健康阻断；将id 12417/12420/12476的`name`/`path`追加编码后，成本中心树恢复`eligible=true`。影响仅开发库显示名。
+- 新建角色id 5「021试点管理员」（`warehouse.assets` U、`report.list` VCUE、相关只读菜单）。
+- 新建用户id 6 `pilot021`（角色5、tag 7/8、数据集530 ACL），作为试点执行人；密码为临时随机值，**未写入文档或对话**；PC验收前由管理员在用户管理重置。
+- 新建tag 7「021试点人员范围」（`employment_type=正式员工`）、tag 8「021试点中心范围」（`cost_center_tree` 12364含下级）。
+- 临时用户id 7/8（仅人员/仅中心验证）已停用；用户2（jenna.zhang）角色/标签已恢复原状（role 2、tag 5），不再持有试点ACL。
+
+### 5. 未完成、停止方式与下一步
+
+- **PC真实浏览器验收未做**：需受限用户（pilot021或等效）在现有页面完成 查看隔离证明→运行→分页→CSV/XLSX→撤权拒绝；admin不能替代，原因见上。
+- 生产未部署、未迁移、未创建任何对象；生产共享来源、dataset15及5个active出口的隔离问题**未被本闭环解除**。
+- 试点当前保持启用（dataset published、contract 1 active、report 22 authorized_v1）。停止方式：停用报表22或retire合同1并停用数据集530；**不提供回退legacy的执行路径**。
+- 本轮没有新Alembic迁移；未提交/push。下一轮若继续：先做PC验收并把结果写回本节，再评估开发端停止/回滚演练，最后才讨论生产隔离方案的独立审批。

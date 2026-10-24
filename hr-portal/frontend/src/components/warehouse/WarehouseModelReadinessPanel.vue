@@ -124,6 +124,22 @@ watch(() => props.modelValue, value => { if (value) void load() })
       </div>
       <el-alert v-if="releaseMessage" :title="releaseMessage" :type="releaseReadiness?.eligible ? 'success' : 'warning'" :closable="false" />
       <section class="readiness-section"><strong>阻断原因</strong><el-empty v-if="!releaseReadiness?.issues.length" description="当前没有发布阻断原因" :image-size="48" /><ul v-else><li v-for="issue in releaseReadiness.issues" :key="`${issue.code}-${issue.target_id || ''}`">{{ issue.message }}</li></ul></section>
+      <section class="readiness-section">
+        <div class="isolation-head">
+          <strong>隔离证明</strong>
+          <el-tag v-if="releaseReadiness?.isolation" size="small" :type="releaseReadiness.isolation.isolated ? 'success' : 'danger'">{{ releaseReadiness.isolation.isolated ? '已隔离' : '未隔离' }}</el-tag>
+        </div>
+        <p class="readiness-panel__note">仅展示对象依赖计数，不展示业务数据或表内取值。</p>
+        <el-descriptions v-if="releaseReadiness?.isolation" :column="2" size="small" border>
+          <el-descriptions-item label="目标表">{{ releaseReadiness.isolation.target_tables.join('、') || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="来源表">{{ releaseReadiness.isolation.source_tables.join('、') || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="其他数据集引用目标表">{{ releaseReadiness.isolation.shared_target_dataset_count }}</el-descriptions-item>
+          <el-descriptions-item label="其他数据集引用来源表">{{ releaseReadiness.isolation.shared_source_dataset_count }}</el-descriptions-item>
+          <el-descriptions-item label="来源生成的其他目标">{{ releaseReadiness.isolation.source_other_target_count }}</el-descriptions-item>
+          <el-descriptions-item label="活跃外部出口">{{ releaseReadiness.isolation.active_export_count }}</el-descriptions-item>
+        </el-descriptions>
+        <el-empty v-else description="尚未取得隔离检查结果" :image-size="48" />
+      </section>
       <section class="readiness-section"><strong>转换批准</strong><div v-if="conversion && !conversion.eligible" class="reason-form"><el-input v-model="conversionReason" placeholder="批准原因（必填）" maxlength="1000" /><PermissionButton menu="warehouse.assets" op="U" size="small" :disabled="conversionApproving || !conversionReason.trim() || !conversion.run_id || !conversion.contract_id" @click="approveConversionAction">批准转换</PermissionButton></div></section>
       <section class="readiness-section"><strong>授权合同状态</strong><div class="reason-form"><el-input v-model="contractForm.tableName" placeholder="事实表名" maxlength="64" /><el-input v-model="contractForm.factKey" placeholder="事实键" maxlength="128" /><el-input v-model="contractForm.employeeKey" placeholder="人员键" maxlength="128" /><el-input v-model="contractForm.costCenterKey" placeholder="中心键（可选）" maxlength="128" /><PermissionButton menu="warehouse.assets" op="U" size="small" :disabled="createContractSaving || !contractForm.tableName.trim() || !contractForm.factKey.trim() || !contractForm.employeeKey.trim()" @click="createContract">创建合同草稿</PermissionButton></div><el-empty v-if="!contracts.length" description="暂无授权合同" :image-size="48" /><div v-for="contract in contracts" :key="contract.id" class="contract-row"><span>合同 v{{ contract.contract_version }}</span><el-tag size="small">{{ contract.status === 'active' ? '已启用' : contract.status === 'draft' ? '草稿' : '已停用' }}</el-tag><template v-if="contract.status === 'draft'"><el-input v-model="contractReason" placeholder="批准原因（必填）" maxlength="1000" /><PermissionButton menu="warehouse.assets" op="U" size="small" :disabled="contractApproving || !contractReason.trim()" @click="approve(contract)">批准合同</PermissionButton></template></div></section>
     </div>
@@ -139,6 +155,7 @@ watch(() => props.modelValue, value => { if (value) void load() })
 .readiness-card div, .contract-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .readiness-card p { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 12px; }
 .readiness-section { display: grid; gap: 10px; border-top: 1px solid var(--color-border); padding-top: 14px; }
+.isolation-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .readiness-section ul { margin: 0; padding-left: 20px; color: var(--color-danger); }
 .contract-row { justify-content: flex-start; padding: 8px 0; }
 .reason-form { display: flex; gap: 8px; align-items: center; }

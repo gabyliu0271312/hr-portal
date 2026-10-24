@@ -1897,6 +1897,16 @@ class DatasetReleaseIssueOut(BaseModel):
     message: str
 
 
+class DatasetIsolationOut(BaseModel):
+    target_tables: list[str]
+    source_tables: list[str]
+    shared_target_dataset_count: int
+    shared_source_dataset_count: int
+    source_other_target_count: int
+    active_export_count: int
+    isolated: bool
+
+
 class DatasetReleaseReadinessOut(BaseModel):
     dataset_id: int
     dataset_status: str
@@ -1907,6 +1917,7 @@ class DatasetReleaseReadinessOut(BaseModel):
     checked_output_count: int
     confirmed_output_count: int
     issues: list[DatasetReleaseIssueOut]
+    isolation: DatasetIsolationOut | None = None
 
 
 class DatasetReleaseIn(BaseModel):

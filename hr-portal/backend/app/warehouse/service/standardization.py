@@ -722,6 +722,16 @@ class StandardizationRuleService:
         ), {"table_name": target})).all()
         physical_types = {code: _physical_metadata_type(kind) for code, kind in physical_rows}
         source_by_code = {column.column_code: column for column in source_columns}
+        # 刷新生成的 DWD 以 id 为物理主键，事实合同需要其字段元数据。
+        if table is not None and "id" in physical_types and "id" not in {column.column_code for column in existing}:
+            identity_column = TableColumn(
+                table_name=target, column_code="id", column_label="事实标识",
+                data_type="number", is_visible=False, auto_discovered=True,
+                display_order=0, agg_role="dimension",
+            )
+            self.session.add(identity_column)
+            await self.session.flush()
+            existing = [*existing, identity_column]
         for column in existing:
             if _is_system_technical_column(column.column_code):
                 continue

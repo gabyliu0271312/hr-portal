@@ -513,6 +513,16 @@ export interface DatasetReadinessIssue {
   message: string
 }
 
+export interface DatasetIsolation {
+  target_tables: string[]
+  source_tables: string[]
+  shared_target_dataset_count: number
+  shared_source_dataset_count: number
+  source_other_target_count: number
+  active_export_count: number
+  isolated: boolean
+}
+
 export interface DatasetReleaseReadiness {
   dataset_id: number
   dataset_status: string
@@ -523,6 +533,7 @@ export interface DatasetReleaseReadiness {
   checked_output_count: number
   confirmed_output_count: number
   issues: DatasetReadinessIssue[]
+  isolation?: DatasetIsolation | null
 }
 
 export interface ConversionReadiness {
