@@ -97,6 +97,54 @@ class BeisenReportClient:
         self._validate()
         return await _get_token(self.token_url, self.app_key, self.app_secret)
 
+    async def discover_fields(self) -> list[dict]:
+        """读取报表表头，并用一页样本推断字段类型与年月标记。"""
+        import asyncio
+
+        self._validate()
+        if not self.header_url:
+            raise RuntimeError("北森报表缺少表头接口地址，无法发现字段")
+        token = await self.get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            header_response = await client.get(
+                self.header_url, params={"reportId": self.report_id}, headers=headers
+            )
+            header_response.raise_for_status()
+            columns = (header_response.json().get("data") or {}).get("columns") or []
+            if not columns:
+                raise RuntimeError("北森报表未返回表头字段")
+            samples: dict[str, list] = {}
+            try:
+                await asyncio.sleep(1.2)
+                sample_response = await client.get(
+                    self.data_url,
+                    params={"reportId": self.report_id, "page": 1, "pageSize": 50},
+                    headers=headers,
+                )
+                sample_response.raise_for_status()
+                rows = (sample_response.json().get("data") or {}).get("datas") or []
+                for row in rows[:20]:
+                    if not isinstance(row, dict):
+                        continue
+                    for key, value in row.items():
+                        if value in (None, ""):
+                            continue
+                        bucket = samples.setdefault(str(key), [])
+                        if len(bucket) < 3:
+                            bucket.append(value)
+            except Exception as error:  # 样本读取失败不影响表头发现
+                logger.warning("[beisen] 样本行读取失败，仅返回表头: %s", error)
+        fields = []
+        for column in columns:
+            uuid = str(column.get("id") or "")
+            fields.append({
+                "source_key": uuid,
+                "label": str(column.get("title") or uuid),
+                "sample_values": samples.get(uuid, []),
+            })
+        return fields
+
     async def get_grid_data(
         self,
         page_size: int = 1000,
@@ -456,6 +504,63 @@ class FeishuBitableClient:
     def __init__(self, settings: dict, secrets: dict):
         self.settings, self.secrets = settings, secrets
         self.base_url = str(settings.get("FEISHU_BASE_URL") or "https://open.feishu.cn").rstrip("/")
+
+    async def _tenant_token(self, client: httpx.AsyncClient) -> str:
+        app_id = str(self.secrets.get("FEISHU_APP_ID") or "")
+        app_secret = str(self.secrets.get("FEISHU_APP_SECRET") or "")
+        if not app_id or not app_secret:
+            raise RuntimeError("飞书 App ID / App Secret 未配置")
+        response = await client.post(
+            f"{self.base_url}/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": app_id, "app_secret": app_secret},
+        )
+        response.raise_for_status()
+        body = response.json()
+        token = body.get("tenant_access_token")
+        if body.get("code", 0) != 0 or not token:
+            raise RuntimeError(f"飞书访问凭证获取失败: {body.get('msg') or body.get('code')}")
+        return str(token)
+
+    async def discover_fields(self) -> list[dict]:
+        """读取多维表格字段定义，并取一页记录作为样本。"""
+        app_token = str(self.settings.get("FEISHU_BITABLE_APP_TOKEN") or "")
+        table_id = str(self.settings.get("FEISHU_BITABLE_TABLE_ID") or "")
+        if not app_token or not table_id:
+            raise RuntimeError("飞书多维表格 App Token / 数据表 ID 未配置")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            token = await self._tenant_token(client)
+            auth = {"Authorization": f"Bearer {token}"}
+            fields_response = await client.get(
+                f"{self.base_url}/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/fields",
+                params={"page_size": 100}, headers=auth,
+            )
+            fields_response.raise_for_status()
+            fields_body = fields_response.json()
+            if fields_body.get("code", 0) != 0:
+                raise RuntimeError(f"飞书多维表格字段读取失败: {fields_body.get('msg') or fields_body.get('code')}")
+            names = [
+                str(item.get("field_name") or "")
+                for item in (fields_body.get("data") or {}).get("items") or []
+                if item.get("field_name")
+            ]
+            samples: dict[str, list] = {}
+            try:
+                records_response = await client.get(
+                    f"{self.base_url}/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records",
+                    params={"page_size": 20}, headers=auth,
+                )
+                records_response.raise_for_status()
+                for item in (records_response.json().get("data") or {}).get("items") or []:
+                    values = item.get("fields") or {}
+                    for name, value in values.items():
+                        if value in (None, "", []):
+                            continue
+                        bucket = samples.setdefault(str(name), [])
+                        if len(bucket) < 3:
+                            bucket.append(value)
+            except Exception as error:  # 样本读取失败不影响字段发现
+                logger.warning("[feishu_bitable] 样本记录读取失败，仅返回字段: %s", error)
+        return [{"source_key": name, "label": name, "sample_values": samples.get(name, [])} for name in names]
 
     async def fetch(self) -> list[dict]:
         app_id = str(self.secrets.get("FEISHU_APP_ID") or "")

@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
+import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
+import { SOURCE_TYPES } from '@/config/dataSources'
 import { adminTablesApi } from '@/api/admin_tables'
 import { datasourcesApi, type ConnectorTypeDefinition, type DiscoveredField } from '@/api/datasources'
 import { standardFieldsApi, type StandardFieldSummary } from '@/api/standardFields'
@@ -47,13 +50,34 @@ const form = reactive({
 
 const currentType = computed(() => types.value.find(item => item.code === sourceType.value) || null)
 const fieldItems = computed<any[]>(() => currentType.value?.groups?.flatMap((group: any) => group.fields || []) || [])
+const typeGroups = computed<any[]>(() => (currentType.value?.groups || []).filter((group: any) => (group.fields || []).length))
+const previewAvailable = computed(() => currentType.value?.supports_discovery === true)
 const activeFields = computed(() => standardFields.value.filter(item => item.current_active_version_id))
-const steps = computed(() => form.source_kind === 'interface'
-  ? ['基本信息', '接口预览', '字段匹配']
-  : ['基本信息', '字段定义', '字段匹配'])
+const stepItems = computed(() => [
+  {
+    key: 'basic',
+    label: '基本信息',
+    hint: '填写资产标识、来源方式与期间属性；来源方式决定下一步获取字段的方式。',
+  },
+  form.source_kind === 'interface'
+    ? { key: 'source', label: '接口配置', hint: '选择接入类型并预览来源字段；预览只读取表头与样本，不保存配置、不创建资产。' }
+    : { key: 'manual', label: '字段定义', hint: '直接定义字段结构，创建后可在该资产的数据视图中导入 Excel 维护数据。' },
+  { key: 'match', label: '字段匹配', hint: '指定期间字段与业务主键，并为字段确认标准字段绑定；确认绑定会记录审计原因“资产接入向导确认”。' },
+])
+const currentStep = computed(() => stepItems.value[step.value])
+const panelWidth = computed(() => (step.value === 1 && form.source_kind === 'interface') ? '720px' : step.value === 0 ? '640px' : '1040px')
 const matchFields = computed(() => form.source_kind === 'interface'
   ? discovered.value.map(field => ({ code: field.column_code, label: field.label, is_yearmonth: field.is_yearmonth }))
   : manualFields.value.map(field => ({ code: field.column_code, label: field.column_label, is_yearmonth: false })))
+const hasYearMonthField = computed(() => matchFields.value.some(field => field.is_yearmonth))
+
+watch(visible, (value) => {
+  document.body.style.overflow = value ? 'hidden' : ''
+})
+
+onBeforeUnmount(() => {
+  document.body.style.overflow = ''
+})
 
 function detail(cause: any, fallback: string) {
   const value = cause?.response?.data?.detail
@@ -84,12 +108,42 @@ function open() {
   visible.value = true
 }
 
+function close() {
+  if (finishing.value || syncing.value) return
+  visible.value = false
+}
+
+function prev() {
+  if (finishing.value || syncing.value || step.value === 0) return
+  step.value -= 1
+}
+
+function onHeaderBack() {
+  if (step.value === 0) close()
+  else prev()
+}
+
 async function loadTypes() {
   if (types.value.length) return
+  // 与来源配置保持一致：内置类型打底，服务端目录覆盖同名定义并补充缺失类型
+  types.value = SOURCE_TYPES.map(item => ({
+    code: item.code,
+    label: item.label,
+    description: item.description,
+    groups: item.groups,
+    testable: item.testable,
+    defaultSchedule: item.defaultSchedule,
+    supports_discovery: item.supportsDiscovery === true,
+  }))
   try {
-    types.value = await datasourcesApi.types('warehouse')
+    const remoteTypes = await datasourcesApi.types('warehouse')
+    for (const remote of remoteTypes) {
+      const index = types.value.findIndex(item => item.code === remote.code)
+      if (index >= 0) types.value[index] = { ...types.value[index], ...remote }
+      else types.value.push(remote)
+    }
   } catch (cause: any) {
-    ElMessage.error(detail(cause, '接入类型加载失败'))
+    ElMessage.error(detail(cause, '接入类型目录加载失败，已使用内置类型'))
   }
 }
 
@@ -103,7 +157,7 @@ function onTypeChange() {
 function splitPayload() {
   const settings: Record<string, string> = {}
   const secrets: Record<string, string> = {}
-  const secretKeys = new Set<string>(currentType.value?.secret_keys || [])
+  const secretKeys = new Set(currentType.value?.secret_keys || [])
   for (const field of fieldItems.value) {
     const value = config[field.key] ?? ''
     if (field.type === 'password' || secretKeys.has(field.key)) {
@@ -379,150 +433,314 @@ defineExpose({ open })
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="新建资产" width="min(1020px, 96vw)" :close-on-click-modal="false">
-    <el-steps :active="step" finish-status="success" simple style="margin-bottom: 18px">
-      <el-step v-for="title in steps" :key="title" :title="title" />
-    </el-steps>
-
-    <div v-if="step === 0" class="onboarding-section">
-      <div class="grid-2">
-        <el-form-item label="中文名" required>
-          <el-input v-model="form.table_label" placeholder="如 员工月度分摊" />
-        </el-form-item>
-        <el-form-item label="表名（英文编码）" required>
-          <SmartCodeInput
-            v-model="form.table_name"
-            :label="form.table_label"
-            scope="table"
-            prefix="ods_"
-            context="数据资产表名"
-            :existing-codes="props.existingTableNames"
-            editable
-          />
-        </el-form-item>
-      </div>
-      <el-form-item label="描述">
-        <el-input v-model="form.description" type="textarea" :rows="2" placeholder="可选" />
-      </el-form-item>
-      <div class="grid-2">
-        <el-form-item label="来源方式">
-          <el-radio-group v-model="form.source_kind">
-            <el-radio-button value="interface">接口同步</el-radio-button>
-            <el-radio-button value="manual">手工建字段（含 Excel 导入）</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="是否月度表">
-          <el-switch v-model="form.is_period" active-text="月度表" inactive-text="非月度" />
-        </el-form-item>
-      </div>
-    </div>
-
-    <div v-else-if="step === 1 && form.source_kind === 'interface'" class="onboarding-section">
-      <el-form-item label="接入类型" required>
-        <el-select v-model="sourceType" style="width: 100%" @change="onTypeChange">
-          <el-option v-for="item in types" :key="item.code" :label="item.label" :value="item.code" />
-        </el-select>
-        <p v-if="currentType" class="hint">{{ currentType.description }}</p>
-      </el-form-item>
-      <template v-if="currentType">
-        <el-form-item v-for="field in fieldItems" :key="field.key" :label="field.label" :required="field.required">
-          <el-input
-            v-model="config[field.key]"
-            :type="field.type === 'password' ? 'password' : 'text'"
-            :show-password="field.type === 'password'"
-            :placeholder="field.placeholder || ''"
-          />
-        </el-form-item>
-        <div class="actions">
-          <el-button type="primary" :loading="previewing" @click="previewSource">预览字段</el-button>
-        </div>
-        <el-alert v-if="discovered.length" type="success" :closable="false" :title="`已发现 ${discovered.length} 个字段，进入下一步匹配期间与标准字段`" />
-        <p class="hint">预览只读取字段和样本，不保存配置、不创建资产。</p>
-      </template>
-    </div>
-
-    <div v-else-if="step === 1" class="onboarding-section">
-      <div class="actions">
-        <el-button size="small" @click="addManualField">添加字段</el-button>
-      </div>
-      <el-empty v-if="!manualFields.length" description="请添加字段；创建后可在数据视图导入 Excel" :image-size="48" />
-      <div v-for="(field, index) in manualFields" :key="index" class="manual-row">
-        <el-input v-model="field.column_code" placeholder="字段编码，如 employee_no" style="width: 180px" />
-        <el-input v-model="field.column_label" placeholder="字段名称" style="width: 160px" />
-        <el-select v-model="field.data_type" style="width: 110px">
-          <el-option label="文本" value="string" />
-          <el-option label="数字" value="number" />
-          <el-option label="日期" value="date" />
-          <el-option label="日期时间" value="datetime" />
-          <el-option label="布尔" value="bool" />
-        </el-select>
-        <el-select v-model="field.agg_role" style="width: 110px">
-          <el-option label="维度" value="dimension" />
-          <el-option label="度量" value="measure" />
-        </el-select>
-        <el-checkbox v-model="field.is_pk_part">主键</el-checkbox>
-        <el-checkbox v-model="field.is_visible">可见</el-checkbox>
-        <el-checkbox v-model="field.is_sensitive">敏感</el-checkbox>
-        <el-button size="small" text type="danger" @click="removeManualField(index)">删除</el-button>
-      </div>
-      <p class="hint">手工字段不会参与接口同步；数据通过数据视图的 Excel 导入维护。</p>
-    </div>
-
-    <div v-else class="onboarding-section">
-      <el-form-item v-if="form.is_period" label="期间字段">
-        <el-select v-model="periodField" style="width: 360px" placeholder="选择年月字段">
-          <el-option
-            v-for="field in matchFields"
-            :key="field.code"
-            :label="`${field.label} → ${field.code}${field.is_yearmonth ? '' : '（非年月）'}`"
-            :value="field.code"
-            :disabled="form.source_kind === 'interface' && !field.is_yearmonth"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="业务主键">
-        <el-select v-model="businessKeys" multiple filterable style="width: 100%" placeholder="选择构成业务主键的字段">
-          <el-option v-for="field in matchFields" :key="field.code" :label="field.label" :value="field.code" />
-        </el-select>
-      </el-form-item>
-      <el-table :data="matchFields" stripe max-height="400" style="width: 100%">
-        <el-table-column label="源字段" min-width="200">
-          <template #default="{ row }">
-            <strong>{{ row.label }}</strong>
-            <div class="sub">{{ row.code }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="标准字段" min-width="280">
-          <template #default="{ row }">
-            <el-select v-model="fieldChoice[row.code]" clearable filterable placeholder="选择标准字段" style="width: 100%">
-              <el-option
-                v-for="item in activeFields"
-                :key="item.id"
-                :label="`${item.field_code} · ${item.latest_version.field_name}`"
-                :value="item.id"
-              />
-            </el-select>
-          </template>
-        </el-table-column>
-      </el-table>
-      <p class="hint">标准字段必须已有 active 版本；确认绑定会记录审计原因“资产接入向导确认”。</p>
-    </div>
-
-    <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button v-if="step > 0" :disabled="finishing" @click="step -= 1">上一步</el-button>
-      <el-button v-if="step < 2" type="primary" @click="next">下一步</el-button>
+  <FullScreenModal v-if="visible" title="新建资产" :show-footer="false" @back="onHeaderBack">
+    <template #actions>
+      <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="新建资产步骤" />
+      <el-button :disabled="finishing || syncing" @click="close">取消</el-button>
+      <el-button v-if="step > 0" :disabled="finishing || syncing" @click="prev">上一步</el-button>
+      <el-button v-if="step < stepItems.length - 1" type="primary" @click="next">下一步</el-button>
       <el-button v-else type="primary" :loading="finishing || syncing" @click="finish">完成建资产</el-button>
     </template>
-  </el-dialog>
+
+    <div class="onboarding-body">
+      <section class="onboarding-panel" :style="{ maxWidth: panelWidth }">
+        <header class="panel-header">
+          <h2>{{ currentStep.label }}</h2>
+          <p>{{ currentStep.hint }}</p>
+        </header>
+
+        <div v-if="step === 0" class="panel-body">
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">中文名<i class="required">*</i></span>
+              <el-input v-model="form.table_label" placeholder="如 员工月度分摊" />
+            </label>
+            <label class="field">
+              <span class="field-label">表名（英文编码）<i class="required">*</i></span>
+              <SmartCodeInput
+                v-model="form.table_name"
+                :label="form.table_label"
+                scope="table"
+                prefix="ods_"
+                context="数据资产表名"
+                :existing-codes="props.existingTableNames"
+                editable
+              />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field-label">描述</span>
+            <el-input v-model="form.description" type="textarea" :rows="3" placeholder="可选" />
+          </label>
+          <div class="field-grid">
+            <div class="field">
+              <span class="field-label">来源方式</span>
+              <el-radio-group v-model="form.source_kind">
+                <el-radio-button value="interface">接口同步</el-radio-button>
+                <el-radio-button value="manual">手工创建</el-radio-button>
+              </el-radio-group>
+            </div>
+            <div class="field">
+              <span class="field-label">期间属性</span>
+              <div class="inline-control">
+                <el-switch v-model="form.is_period" active-text="月度表" inactive-text="非月度" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="step === 1 && form.source_kind === 'interface'" class="panel-body">
+          <label class="field">
+            <span class="field-label">接入类型<i class="required">*</i></span>
+            <el-select v-model="sourceType" placeholder="选择接入类型" @change="onTypeChange">
+              <el-option v-for="item in types" :key="item.code" :label="item.label" :value="item.code" />
+            </el-select>
+            <span v-if="currentType" class="field-hint">{{ currentType.description }}</span>
+          </label>
+
+          <el-alert
+            v-if="currentType && !previewAvailable"
+            type="warning"
+            :closable="false"
+            title="该接入类型暂不支持在建资产前预览字段"
+            description="请改用「手工创建」定义字段，或先创建资产后在资产详情的来源配置中完成同步与字段发现。"
+          />
+
+          <section v-for="group in typeGroups" :key="group.title" class="form-section">
+            <h3 class="form-section-title">{{ group.title }}</h3>
+            <div class="field-grid">
+              <label v-for="field in group.fields" :key="field.key" class="field">
+                <span class="field-label">{{ field.label }}<i v-if="field.required" class="required">*</i></span>
+                <el-select
+                  v-if="field.type === 'select'"
+                  v-model="config[field.key]"
+                  :placeholder="field.placeholder || '请选择'"
+                >
+                  <el-option
+                    v-for="option in field.options || []"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+                <el-input
+                  v-else
+                  v-model="config[field.key]"
+                  :type="field.type === 'password' ? 'password' : 'text'"
+                  :show-password="field.type === 'password'"
+                  :placeholder="field.placeholder || ''"
+                />
+                <span v-if="field.hint" class="field-hint">{{ field.hint }}</span>
+              </label>
+            </div>
+          </section>
+
+          <div v-if="currentType" class="panel-actions panel-actions--split">
+            <span class="field-hint">预览只读取表头与少量样本，不保存配置、不创建资产。</span>
+            <el-button type="primary" :loading="previewing" :disabled="!previewAvailable" @click="previewSource">
+              预览字段
+            </el-button>
+          </div>
+
+          <el-alert
+            v-if="discovered.length"
+            type="success"
+            :closable="false"
+            :title="`已发现 ${discovered.length} 个字段`"
+            description="进入下一步可指定期间字段、业务主键，并逐一匹配标准字段。"
+          />
+        </div>
+
+        <div v-else-if="step === 1" class="panel-body">
+          <div class="panel-actions">
+            <el-button @click="addManualField">添加字段</el-button>
+            <span class="field-hint">手工字段不参与接口同步；数据通过数据视图的 Excel 导入维护。</span>
+          </div>
+          <el-empty v-if="!manualFields.length" description="请添加字段；创建后可在数据视图导入 Excel" :image-size="48" />
+          <div v-for="(field, index) in manualFields" :key="index" class="manual-row">
+            <el-input v-model="field.column_code" placeholder="字段编码，如 employee_no" style="width: 180px" />
+            <el-input v-model="field.column_label" placeholder="字段名称" style="width: 160px" />
+            <el-select v-model="field.data_type" style="width: 110px">
+              <el-option label="文本" value="string" />
+              <el-option label="数字" value="number" />
+              <el-option label="日期" value="date" />
+              <el-option label="日期时间" value="datetime" />
+              <el-option label="布尔" value="bool" />
+            </el-select>
+            <el-select v-model="field.agg_role" style="width: 110px">
+              <el-option label="维度" value="dimension" />
+              <el-option label="度量" value="measure" />
+            </el-select>
+            <el-checkbox v-model="field.is_pk_part">主键</el-checkbox>
+            <el-checkbox v-model="field.is_visible">可见</el-checkbox>
+            <el-checkbox v-model="field.is_sensitive">敏感</el-checkbox>
+            <el-button text type="danger" @click="removeManualField(index)">删除</el-button>
+          </div>
+        </div>
+
+        <div v-else class="panel-body">
+          <div class="field-grid">
+            <label v-if="form.is_period" class="field">
+              <span class="field-label">期间字段<i class="required">*</i></span>
+              <el-select v-model="periodField" placeholder="选择年月字段">
+                <el-option
+                  v-for="field in matchFields"
+                  :key="field.code"
+                  :label="`${field.label} → ${field.code}${field.is_yearmonth ? '' : '（非年月）'}`"
+                  :value="field.code"
+                  :disabled="form.source_kind === 'interface' && hasYearMonthField && !field.is_yearmonth"
+                />
+              </el-select>
+            </label>
+            <label class="field">
+              <span class="field-label">业务主键</span>
+              <el-select v-model="businessKeys" multiple filterable placeholder="选择构成业务主键的字段">
+                <el-option v-for="field in matchFields" :key="field.code" :label="field.label" :value="field.code" />
+              </el-select>
+            </label>
+          </div>
+          <el-table :data="matchFields" stripe max-height="52vh" class="match-table">
+            <el-table-column label="源字段" min-width="220">
+              <template #default="{ row }">
+                <strong>{{ row.label }}</strong>
+                <div class="sub">{{ row.code }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="标准字段" min-width="320">
+              <template #default="{ row }">
+                <el-select v-model="fieldChoice[row.code]" clearable filterable placeholder="选择标准字段">
+                  <el-option
+                    v-for="item in activeFields"
+                    :key="item.id"
+                    :label="`${item.field_code} · ${item.latest_version.field_name}`"
+                    :value="item.id"
+                  />
+                </el-select>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </section>
+    </div>
+  </FullScreenModal>
 </template>
 
 <style scoped>
-.onboarding-section { display: grid; gap: 12px; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.hint { margin: 4px 0 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
-.sub { color: var(--color-text-secondary); font-size: 11px; }
-.manual-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-@media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+.onboarding-body {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--spacing-6);
+  box-sizing: border-box;
+}
+.onboarding-panel {
+  width: 100%;
+  padding: var(--spacing-7) var(--spacing-8) var(--spacing-8);
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-card);
+}
+.panel-header h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+}
+.panel-header p {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-base);
+}
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-5);
+  margin-top: var(--spacing-6);
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-5) var(--spacing-6);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+.field :deep(.el-select) {
+  width: 100%;
+}
+.field-label {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 22px;
+}
+.required {
+  margin-left: var(--spacing-1);
+  color: var(--color-text-danger-strong);
+  font-style: normal;
+}
+.field-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+.inline-control {
+  display: flex;
+  align-items: center;
+  min-height: var(--performance-control-height);
+}
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+.panel-actions--split {
+  justify-content: space-between;
+}
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+.form-section + .form-section {
+  margin-top: calc(var(--spacing-5) - var(--spacing-2));
+}
+.form-section-title {
+  margin: 0;
+  padding-bottom: var(--spacing-2);
+  border-bottom: 1px solid var(--color-border-light);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 22px;
+}
+.manual-row {
+  display: flex;
+  gap: var(--spacing-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.match-table {
+  width: 100%;
+}
+.sub {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 900px) {
+  .field-grid { grid-template-columns: minmax(0, 1fr); }
+  .onboarding-body { padding: var(--spacing-3); }
+  .onboarding-panel { padding: var(--spacing-5); }
+}
 </style>

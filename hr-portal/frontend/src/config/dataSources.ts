@@ -47,6 +47,8 @@ export interface SourceTypeDef {
   testable?: boolean
   /** 默认调度选项（覆盖通用默认） */
   defaultSchedule?: string
+  /** 是否支持创建资产前预览来源字段 */
+  supportsDiscovery?: boolean
 }
 
 /** ============================================================

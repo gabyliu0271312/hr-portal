@@ -41,6 +41,7 @@ export interface ConnectorTypeDefinition {
   secret_keys?: string[]
   testable?: boolean
   defaultSchedule?: string
+  supports_discovery?: boolean
   supports_warehouse?: boolean
   supports_ucp?: boolean
   ucp_adapter_code?: string | null
