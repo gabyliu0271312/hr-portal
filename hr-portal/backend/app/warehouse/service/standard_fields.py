@@ -515,7 +515,8 @@ async def create_suggested_binding(db, field_id, payload, user):
                 ))
                 if in_dataset is None:
                     _error(422, "standard_binding_target_out_of_scope", "绑定目标不属于指定数据集")
-        await _require_binding_target(db, target, user)
+        await _require_binding_target(db, target, user,
+            allow_hidden_anchor=payload.target_kind == "table_column" and version.is_permission_anchor)
         if not _binding_type_compatible(version.data_type, target["data_type"]):
             _error(400, "standard_binding_type_incompatible", "标准字段类型与来源字段类型不兼容")
         target_clause = (StandardFieldBinding.table_column_id == payload.target_id
@@ -557,7 +558,8 @@ async def transition_binding(db, field_id, binding_id, payload, user, target_sta
                 _error(409, "standard_binding_confirm_invalid", "仅suggested绑定和完整批准的active语义版本可确认")
             kind = "table_column" if binding.table_column_id is not None else "dataset_output_field"
             target = await _binding_target(db, kind, binding.table_column_id or binding.dataset_output_field_id, lock=True)
-            await _require_binding_target(db, target, user)
+            await _require_binding_target(db, target, user,
+                allow_hidden_anchor=binding.table_column_id is not None and version.is_permission_anchor)
             if not _binding_type_compatible(version.data_type, target["data_type"]):
                 _error(409, "standard_binding_type_drift", "来源字段类型已变化，请重新建立建议绑定")
             if target["source_field_id"] != binding.observed_source_field_id or target["data_type"] != binding.observed_data_type:
@@ -575,7 +577,7 @@ async def transition_binding(db, field_id, binding_id, payload, user, target_sta
         return await _binding_out(db, field_id, binding)
 
 
-async def _require_binding_target(db, target, user):
+async def _require_binding_target(db, target, user, *, allow_hidden_anchor: bool = False):
     from app.data.models import RegisteredTable, TableColumn
     from app.datasets.models import DataSet, DataSetTable
     from app.datasets.router import _can_access
@@ -606,9 +608,10 @@ async def _require_binding_target(db, target, user):
             if not await _can_access(user, dataset, db):
                 _error(403, "dataset_acl_denied", "当前用户不具备数据集资源访问权")
             await _require_binding_dataset_scope(db, dataset)
-    if (not column.is_visible or not target["is_visible"]
-            or ((column.is_sensitive or target["is_sensitive"]) and not await _is_super_admin(user, db))
-            or code in await get_hidden_columns(user, table.table_name, db)):
+    hidden = (not column.is_visible or not target["is_visible"]
+              or code in await get_hidden_columns(user, table.table_name, db))
+    if ((hidden and not allow_hidden_anchor)
+            or ((column.is_sensitive or target["is_sensitive"]) and not await _is_super_admin(user, db))):
         _error(403, "standard_binding_field_denied", "当前字段不可用于标准绑定")
     physical_type = await db.scalar(text(
         "SELECT data_type FROM information_schema.columns "

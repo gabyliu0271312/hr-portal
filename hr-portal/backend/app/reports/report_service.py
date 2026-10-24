@@ -107,9 +107,46 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
     for output in outputs:
         for key in (output.output_code, f"{output.source_alias}.{output.source_column}"):
             by_source.setdefault(key, []).append(output)
+    # 新报表可用标准字段编码引用输出；旧报表继续用 output_code/物理列名。
+    standard_to_output: dict[str, str] = {}
+    ambiguous_semantic: set[str] = set()
+    semantic_loaded = False
+
+    async def load_semantic_map():
+        nonlocal semantic_loaded
+        if semantic_loaded:
+            return
+        semantic_loaded = True
+        from app.data.models import StandardField, StandardFieldBinding, StandardFieldVersion
+        semantic_rows = (await db.execute(
+            select(DatasetOutputField.id, StandardField.field_code)
+            .select_from(DatasetOutputField)
+            .join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id)
+            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+            .where(DatasetOutputField.dataset_id == report.dataset_id,
+                   StandardFieldBinding.status == "confirmed",
+                   StandardFieldVersion.status == "active")
+        )).all()
+        outputs_by_id = {output.id: output for output in outputs}
+        for output_id, field_code in semantic_rows:
+            output = outputs_by_id.get(output_id)
+            if output is None:
+                continue
+            if field_code in standard_to_output and standard_to_output[field_code] != output.output_code:
+                ambiguous_semantic.add(field_code)
+            standard_to_output.setdefault(field_code, output.output_code)
+
     selected = []
     for column in config.columns:
         candidates = {row.id: row for row in by_source.get(column.source_code, [])}
+        if not candidates:
+            await load_semantic_map()
+            target_code = standard_to_output.get(column.source_code)
+            if column.source_code in ambiguous_semantic or target_code is None:
+                candidates = {}
+            else:
+                candidates = {row.id: row for row in by_source.get(target_code, [])}
         if len(candidates) != 1:
             raise HTTPException(422, detail={"code": "authorized_output_unresolved", "message": "报表字段不属于唯一批准输出"})
         selected.append((column, next(iter(candidates.values()))))

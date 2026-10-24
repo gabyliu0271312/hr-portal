@@ -1971,6 +1971,30 @@ async def list_authorization_contracts(model_id: int, db: AsyncSession = Depends
     return await list_contracts(db, model_id)
 
 
+@router.get("/models/{model_id}/standard-fields", dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def list_model_standard_fields(model_id: int, db: AsyncSession = Depends(get_session)):
+    """数据集的输出标准字段映射；供合同编辑器选择标准字段身份。"""
+    from app.datasets.authorization_contract import _confirmed_output_bindings
+    bindings = await _confirmed_output_bindings(db, model_id)
+    result = []
+    for code, entries in sorted(bindings.items()):
+        if len(entries) != 1:
+            continue
+        output, _binding, version = entries[0]
+        result.append({
+            "standard_field_code": code,
+            "standard_field_id": version.standard_field_id,
+            "version_id": version.id,
+            "output_code": output.output_code,
+            "output_label": output.output_label,
+            "data_type": output.data_type,
+            "grain_level": version.grain_level,
+            "permission_domain": version.permission_domain,
+            "is_permission_anchor": version.is_permission_anchor,
+        })
+    return result
+
+
 @router.post("/models/{model_id}/authorization-contracts", response_model=ProductAuthorizationOut, status_code=201, dependencies=[Depends(require_op("warehouse.assets", "U"))])
 async def create_authorization_contract(model_id: int, payload: ProductAuthorizationCreateIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
     from app.datasets.authorization_contract import create_contract

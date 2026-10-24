@@ -199,3 +199,50 @@
   - `test_report_execution_binding.py --postgres-acceptance` **42 passed**（100.61s）
   - 无 DB 定向 **81 passed / 150 skipped**
 - 未做：阶段 2（identifying 语义化）、阶段 3（报表配置接入）、阶段 4（UI）、阶段 5（试点重新批准/D 入口）、阶段 6（B 衔接）。开发库试点仍使用 schema 1 合同；切换 schema 2 需要先为 `employee_no` 建锚点标准字段并完成绑定。
+
+## 9. 阶段 2–5 实施记录（2026-10-24）
+
+### 阶段 2 实施：identifying 语义化
+
+- `d_execution._semantic_locator_codes`：人员定位不再只看合同声明的物理键，而是把以下输出都视为定位字段：
+  - `grain_level == identifying`
+  - `permission_domain == personal`
+  - `standard_field_id` 与员工锚点绑定的标准字段一致（换列名也命中）
+- S 运行时对 `output_fields/group_by/aggregations/filters/order_by` 做交集阻断；新增单元测试覆盖三种命中。
+- S 契约批准仍使用声明键做形状校验；运行时为最终授权门禁。
+
+### 阶段 3 实施：报表配置接入
+
+- `report_service._compile_authorized_summary_plan` 与 `reports/validation.ensure_valid_report_field_references` 支持无点号的标准字段编码：经 confirmed active 输出绑定解析为唯一输出；旧 `alias.column`/output_code 路径不变。
+- 解析映射惰性加载，旧报表不触发额外查询。
+- 开发库报表 24 使用 `["cost_period","code","headcount"]` 标准编码创建并运行：**74 组 / 543**，与旧报表一致。
+
+### 阶段 4 实施：UI 收口
+
+- 新增 `GET /warehouse/models/{id}/standard-fields`：返回输出→标准字段映射（编码、版本、粒度、权限域、是否锚点）。
+- 模型准入面板新增“标准字段合同（schema 2）”开关；锚点输入提示为标准字段编码；合同列表显示“标准字段”标记；创建合同使用最新合同版本号（修正原先误用数据集版本）。
+- 前端 `vue-tsc` 与 `npm run build` 通过（43.83s）。
+
+### 阶段 5 实施：试点合同迁移（已完成）与 D 入口（未完成）
+
+- 新建 `employee_no` 标准字段（id 4，version 4，string/coarse/org/is_permission_anchor=true），绑定隐藏的 DWD 列 `dwd_021_allocation_pilot.employee_no`（column 4401）。
+- 修复产品限制：`is_permission_anchor` 的 `table_column` 绑定允许隐藏列；敏感字段仍受限。
+- 合同 1 退休；schema 2 合同 2 创建并批准：
+  - `standard_fields = cost_period, code, headcount, employee_no`
+  - 输出 `cost_period/code/headcount`；维度 `cost_period/code`；度量 `headcount`；锚点 `employee_no/code`
+  - 转换批准 id 5（run 5 / contract 2 / dataset v1）；发布准入 eligible、隔离已证明
+- 报表 22/23/24 重新绑定合同 2，运行均为 **74 组 / 543**。
+
+**D 明细入口未实现**。它需要新的执行路径：人员范围 D、字段投影、中心用户拒绝、隐藏字段拒绝、run/COUNT/分页/CSV/XLSX 同源。下一轮单独交付，不在本次宣称完成。
+
+### 验证与风险
+
+| 项 | 结果 |
+| --- | --- |
+| 全量 catalog 隔离库 | 192 passed（623.55s） |
+| 报表执行隔离库 | 42 passed（82.40s） |
+| 前端 build | 通过（43.83s） |
+| 开发库合同迁移 | 合同2 active、报表22/23/24 运行74组/543 |
+
+- 合同切换需“retire 旧 → approve 新”两步，中间没有 active 合同；尚未实现原子切换。
+- 锚点隐藏列豁免仅限 `is_permission_anchor` 的 `table_column` 绑定；`dataset_output_field` 仍要求可见。

@@ -577,6 +577,8 @@ export interface ProductAuthorizationContract {
   dimensions: string[]
   measures: string[]
   internal_fields: string[]
+  schema_version?: number
+  standard_fields?: string[]
 }
 
 export function getReleaseReadiness(id: number): Promise<DatasetReleaseReadiness> {
@@ -597,6 +599,22 @@ export function releaseModel(id: number, expectedVersion: number): Promise<Datas
 }
 export function listAuthorizationContracts(id: number): Promise<ProductAuthorizationContract[]> {
   return api.get(`/warehouse/models/${id}/authorization-contracts`).then(r => r.data)
+}
+
+export interface ModelStandardFieldBinding {
+  standard_field_code: string
+  standard_field_id: number
+  version_id: number
+  output_code: string
+  output_label: string
+  data_type: string
+  grain_level: string | null
+  permission_domain: string
+  is_permission_anchor: boolean
+}
+
+export function listModelStandardFields(id: number): Promise<ModelStandardFieldBinding[]> {
+  return api.get(`/warehouse/models/${id}/standard-fields`).then(r => r.data)
 }
 export function createAuthorizationContract(id: number, payload: Record<string, unknown>): Promise<ProductAuthorizationContract> {
   return api.post(`/warehouse/models/${id}/authorization-contracts`, payload).then(r => r.data)

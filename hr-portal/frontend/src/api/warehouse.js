@@ -74,6 +74,7 @@ export function getConversionReadiness(id) { return api.get(`/warehouse/models/$
 export function getAuthorizationExecutionReadiness(id) { return api.get(`/warehouse/models/${id}/authorization-execution-readiness`).then(r => r.data); }
 export function releaseModel(id, expectedVersion) { return api.post(`/warehouse/models/${id}/release`, { expected_version: expectedVersion }).then(r => r.data); }
 export function listAuthorizationContracts(id) { return api.get(`/warehouse/models/${id}/authorization-contracts`).then(r => r.data); }
+export function listModelStandardFields(id) { return api.get(`/warehouse/models/${id}/standard-fields`).then(r => r.data); }
 export function createAuthorizationContract(id, payload) { return api.post(`/warehouse/models/${id}/authorization-contracts`, payload).then(r => r.data); }
 export function approveAuthorizationContract(id, contractId, payload) { return api.post(`/warehouse/models/${id}/authorization-contracts/${contractId}/approve`, payload).then(r => r.data); }
 export function approveConversion(id, payload) { return api.post(`/warehouse/models/${id}/conversion-readiness/approve`, payload).then(r => r.data); }

@@ -163,9 +163,14 @@ async def ensure_valid_report_field_references(
     config: Any, dataset_id: int, user: User, db: AsyncSession,
     runtime_filters: list[dict[str, Any]] | None = None,
 ) -> None:
-    from app.data.models import TableColumn
+    from app.data.models import (
+        StandardField,
+        StandardFieldBinding,
+        StandardFieldVersion,
+        TableColumn,
+    )
     from app.datasets.calculated_fields import active_calculated_fields
-    from app.datasets.models import DataSetTable
+    from app.datasets.models import DataSetTable, DatasetOutputField
     from app.permissions.masker import get_hidden_columns
 
     tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset_id))).scalars().all()
@@ -178,6 +183,38 @@ async def ensure_valid_report_field_references(
         hidden_by_alias[alias] = await get_hidden_columns(user, table.table_name, db)
 
     calculated_fields = {f'calc.{field.code}': field for field in await active_calculated_fields(dataset_id, db)}
+    # 新报表允许用标准字段编码引用输出；旧报表继续用 alias.column。
+    standard_outputs: dict[str, DatasetOutputField] = {}
+    ambiguous_semantic: set[str] = set()
+    semantic_loaded = False
+
+    async def load_semantic_map():
+        nonlocal semantic_loaded
+        if semantic_loaded:
+            return
+        semantic_loaded = True
+        outputs = (await db.execute(select(DatasetOutputField).where(
+            DatasetOutputField.dataset_id == dataset_id))).scalars().all()
+        outputs_by_id = {output.id: output for output in outputs}
+        semantic_rows = (await db.execute(
+            select(DatasetOutputField.id, StandardField.field_code)
+            .select_from(DatasetOutputField)
+            .join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id)
+            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+            .where(DatasetOutputField.dataset_id == dataset_id,
+                   StandardFieldBinding.status == "confirmed",
+                   StandardFieldVersion.status == "active")
+        )).all()
+        for output_id, field_code in semantic_rows:
+            output = outputs_by_id.get(output_id)
+            if output is None:
+                continue
+            existing = standard_outputs.get(field_code)
+            if existing is not None and existing.id != output.id:
+                ambiguous_semantic.add(field_code)
+            standard_outputs.setdefault(field_code, output)
+
     checked: set[str] = set()
 
     async def validate_source(source_code: str, path: str) -> None:
@@ -193,8 +230,13 @@ async def ensure_valid_report_field_references(
                     await validate_source(dependency, f'{path} 的计算字段依赖')
             return
         if '.' not in source_code:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f'{path} 字段格式无效: {source_code}')
-        alias, column_code = source_code.split('.', 1)
+            await load_semantic_map()
+            output = standard_outputs.get(source_code)
+            if output is None or source_code in ambiguous_semantic:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f'{path} 字段格式无效: {source_code}')
+            alias, column_code = output.source_alias, output.source_column
+        else:
+            alias, column_code = source_code.split('.', 1)
         alias = resolve_report_source_alias(alias, list(tables))
         table = tables_by_alias.get(alias)
         column = columns_by_alias.get(alias, {}).get(column_code)

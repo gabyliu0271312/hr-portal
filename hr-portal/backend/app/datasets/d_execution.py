@@ -76,6 +76,20 @@ def _s_issue(code: str, message: str) -> dict[str, str]:
     return {"code": code, "message": message}
 
 
+def _semantic_locator_codes(outputs, semantics_by_output, anchor_field_id):
+    """按标准字段语义识别人员定位输出，而不只看合同声明的物理键。"""
+    codes = set()
+    for code, item in outputs.items():
+        semantic = semantics_by_output.get(item["id"])
+        if semantic is None:
+            continue
+        _binding, version = semantic
+        if (version.grain_level == "identifying" or version.permission_domain == "personal"
+                or (anchor_field_id is not None and version.standard_field_id == anchor_field_id)):
+            codes.add(code)
+    return codes
+
+
 def validate_allocation_fact_s_execution(contract, request):
     """Validate a server-bound S plan without accepting client scope controls."""
     try:
@@ -287,6 +301,25 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
                            if binding.table_column_id is not None}
     semantics_by_output = {binding.dataset_output_field_id: (binding, version) for binding, version in semantics
                            if binding.dataset_output_field_id is not None}
+    anchor_field_id = None
+    if fact.employee_key:
+        anchor_field_id = await db.scalar(
+            select(StandardFieldVersion.standard_field_id)
+            .select_from(TableColumn)
+            .join(StandardFieldBinding, StandardFieldBinding.table_column_id == TableColumn.id)
+            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .where(TableColumn.table_name == fact.table_name,
+                   TableColumn.column_code == fact.employee_key,
+                   StandardFieldBinding.status == "confirmed",
+                   StandardFieldVersion.status == "active")
+            .limit(1)
+        )
+    semantic_locators = _semantic_locator_codes(outputs, semantics_by_output, anchor_field_id)
+    locator_refs = (set(request.plan.output_fields) | set(request.plan.group_by)
+                    | set(request.plan.aggregations) | set(request.plan.filters)
+                    | set(request.plan.order_by)) & semantic_locators
+    if locator_refs:
+        return None, [_s_issue("s_execution_personal_locator_forbidden", "人员定位字段不能通过汇总路径使用")]
     checked_versions = set()
     from app.warehouse.service.standard_fields import _physical_source_identity
     for code in request.plan.output_fields:

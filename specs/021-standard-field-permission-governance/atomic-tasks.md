@@ -1452,4 +1452,7 @@ VALUE_FIELD=SKIPPED
 - 决策：新合同引用**标准字段身份**（服务端经confirmed绑定解析到唯一输出/列），不做`output_code==field_code`字符串判断；锚点必须绑定active锚点版本；旧合同/旧报表保持output_code不变；B只预留可空`entity_scope`。
 - 实施顺序：阶段0设计冻结 → 1解析器/合同版本 → 2锚点与identifying语义化 → 3报表配置接入 → 4 UI收口 → 5试点重新批准+MVP2 D入口 → 6 B衔接准备。
 - 本轮先做阶段1–2并测试，不动D明细入口；生产不启用试点。
-- **阶段1已实现（2026-10-24）**：合同新增`schema_version/standard_fields/resolved_standard_fields`；schema 2按标准字段编码解析唯一输出/锚点列，锚点要求active+is_permission_anchor+权限域匹配；批准时复核绑定版本。验证：全量catalog 192 passed（632.68s）、报表执行42 passed（100.61s）、无DB 81 passed/150 skipped。旧合同行为不变。详见计划文档§8。阶段2未开始。
+- **阶段1已实现（2026-10-24）**：合同新增`schema_version/standard_fields/resolved_standard_fields`；schema 2按标准字段编码解析唯一输出/锚点列，锚点要求active+is_permission_anchor+权限域匹配；批准时复核绑定版本。验证：全量catalog 192 passed（632.68s）、报表执行42 passed（100.61s）、无DB 81 passed/150 skipped。旧合同行为不变。详见计划文档§8。
+- **阶段2–4已实现（2026-10-24）**：S运行时按标准字段语义识别人员定位（identifying/personal/同锚点字段）；报表配置支持无点号标准字段编码并惰性解析；新增`GET /models/{id}/standard-fields`与准入面板标准字段合同开关。验证：catalog 192 passed、report binding 42 passed、前端build通过。
+- **阶段5合同迁移已完成**：`employee_no`锚点标准字段+隐藏DWD列绑定；合同1退休、schema2合同2批准；转换批准id5；报表22/23/24重绑并运行74组/543。**D明细入口未实现**，下轮单独交付。合同切换需“retire旧→approve新”两步，尚无原子切换。
+- 详见 [mvp2-standard-field-identity-plan.md](mvp2-standard-field-identity-plan.md) §9。
