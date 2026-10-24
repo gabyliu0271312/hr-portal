@@ -1367,3 +1367,38 @@ VALUE_FIELD=SKIPPED
 - 生产未部署、未迁移、未创建任何对象；生产共享来源、dataset15及5个active出口的隔离问题**未被本闭环解除**。
 - 试点当前保持启用（dataset published、contract 1 active、report 22 authorized_v1）。停止方式：停用报表22或retire合同1并停用数据集530；**不提供回退legacy的执行路径**。
 - 本轮没有新Alembic迁移；未提交/push。下一轮若继续：先做PC验收并把结果写回本节，再评估开发端停止/回滚演练，最后才讨论生产隔离方案的独立审批。
+
+### 6. 生产只读冒烟（2026-10-24）
+
+- 生产已由用户更新至`cb9b520`；回传：backend running/restart=0、frontend running、`REV=0268_warehouse_conversion_evidence`、health=`env=prod/db.ok=true`。本批无新迁移。
+- 首次冒烟发现**准入抽屉首次打开不加载**（`v-if`挂载时`modelValue`已为true，`watch`非`immediate`），已修复为`immediate:true`并推送`7c943169693b08a8017eb695ff332316cc7b0b6a`（仅前端1文件，vue-tsc+build通过）。用户后续截图已能加载；**未收到7c94316部署的SHA/health摘要**，不把该次部署写成已验证。
+- 数据集15准入只读结果：78输出、0已确认；隔离证明=**未隔离**；目标表6张（含`dwd_emp_monthly_allocation`）；来源表=`—`（生产自动任务为passthrough/incremental，无`same_name_full_refresh`运行证据）；其他数据集引用目标表=2；来源其他目标=0；活跃外部出口=6。
+- 6个出口身份：`3(table,dwd_emp_monthly_salary)`、`12(report,3)`、`17(table,report:8)`、`18(table,report:3)`、`22(table,dwd_emp_monthly_allocation)`、`23(table,report:18)`，即2026-10-23交接的5个分摊链出口（12/17/18/22/23）+薪资表出口3；**未发现交接后新增出口**。
+- 生产`datasources`只读：`emp_monthly_allocation|beisen_report|is_active=false|每日 06:00|last_status=success|last_rows=886`；`dwd_emp_monthly_allocation`无独立datasource。`settings`/`secrets_encrypted`均为非空JSON，且无复制端点；新建独立同源目标需重新配置同一北森报表及凭证。
+- **未执行任何生产写操作**：未建试点对象、未复制数据、未改ACL/出口/自动任务。下一步需用户在“新建同源配置（需报表凭证）”与“一次性受控快照（需明确批准并定义清理边界）”之间选择；在选定前不开工生产写入。
+
+### 7. 开发端真实报表验证（2026-10-24，MVP4 闭环达成）
+
+用户明确：**生产不复刻该报表，开发库接入同一报表验证功能**。开发库新建数据源id 10（`beisen_report`，report `a4c44d96-d690-4afd-9e8f-be7c81645024`，与现有`emp_monthly_allocation`相同），同步886行、期间202602、77个成本中心。
+
+验证过程中发现并处理的三个真实问题：
+
+1. **字段按显示名映射**：同步用`column_label`对齐报表列；试点表自拟名称导致`cost_period`取空并报“未返回有效年月”。已将`cost_period/code/headcount`显示名改回报表原名`成本归属年月/编码/系数`（column_code不变）。
+2. **手工字段被同步丢弃**：`POST /admin/tables`预建的列默认`auto_discovered=false`；同步逻辑把“非业务键的手工字段”视为本地维护并主动丢弃源值，导致`维度值/系数`886行全空。已将5个业务列改为`auto_discovered=true`。**这是产品缺口**：任何先用管理端建表、再用接口同步的表都会遇到；生产复刻必须按此处理或改造。
+3. **来源配置自动创建ODS→DWD自动任务**：`ods_dwd_automation_configs` id 5（`on_sync_success` + `incremental_upsert`, `auto_created=true`）在每次同步后写DWD但不产生转换证据，使已批准的run 4变成`conversion_lineage_stale`。已禁用该自动配置，并将数据源设为`is_active=false`、空调度，试点只保留“显式全量刷新+证据”一条写入路径。**这是渠道冲突**：生产启用时必须显式处理，不能一边要转换证据一边放任自动任务写同一目标。
+
+最终验证结果（开发库真实报表数据）：
+
+| 验证 | 实际结果 |
+| --- | --- |
+| ODS | 886行、77个成本中心、期间202602、`headcount`合计677.00 |
+| DWD/转换 | 886行、合计677.00；run 5、转换批准id 4 |
+| 发布准入 | fields/auth/conversion均true，隔离=已隔离，issues=0 |
+| 双路径运行 | 人员+中心：74组、合计543；仅人员：73组、542；仅中心：1组、1；**542+1=543、73+1=74，无重复计数** |
+| 导出 | CSV 200/2039B；XLSX 200/6308B |
+| 撤权 | 移除数据集ACL后run=403「数据集当前不可消费」 |
+| 隐藏字段 | 报表自动发现的`员工`列(employee_id)已隐藏，未进入DWD/输出 |
+
+开发库当前状态：数据集530 published、合同1 active、转换批准4（run 5）、报表22 `authorized_v1` public；ACL=用户6；用户7/8已停用；数据源10 inactive/无调度；自动配置5 disabled。
+
+**未完成**：用户PC真实浏览器验收（打开准入抽屉看隔离证明→运行→分页→CSV/XLSX→撤权拒绝）。生产未做任何写入，也未复刻报表。下一轮：先做PC验收；若要在生产启用，需先决定问题2/3的产品化处理方式并单独批准生产数据源操作。
