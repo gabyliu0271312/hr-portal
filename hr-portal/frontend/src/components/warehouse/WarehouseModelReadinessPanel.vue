@@ -109,7 +109,7 @@ async function approve(contract: ProductAuthorizationContract) {
   } catch (cause: any) { ElMessage.error(detail(cause, '授权合同批准失败，请重新加载。')) }
   finally { contractApproving.value = false }
 }
-watch(() => props.modelValue, value => { if (value) void load() })
+watch(() => props.modelValue, value => { if (value) void load() }, { immediate: true })
 </script>
 
 <template>
