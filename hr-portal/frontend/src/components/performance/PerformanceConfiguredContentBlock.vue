@@ -64,6 +64,14 @@ const itemSettingsVariant = computed(() => {
     if (variant === 'rating') return 'evaluation-rating'
     return variant
   }
+  if (props.itemSettingsVariant === 'result-communication-item') {
+    const variant = getItemSettingsVariant(props.content, props.content.items.find((candidate) => candidate.id === selectedItemId.value))
+    if (variant === 'work-summary') return 'result-communication-work-summary'
+    if (variant === 'custom-text') return 'result-communication-custom-text'
+    if (variant === 'custom-tag') return 'result-communication-custom-tag'
+    if (variant === 'rating') return 'result-communication-rating'
+    return variant
+  }
   if (props.itemSettingsVariant === 'result-view-item') {
     const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
     return getItemSettingsVariant(props.content, item) === 'custom-tag' ? 'result-view-tag' : 'result-view-item'
