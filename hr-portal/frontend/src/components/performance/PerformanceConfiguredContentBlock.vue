@@ -164,7 +164,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       :interactive="true"
       :selected-item-id="selectedItemKey"
       :item-settings="rendererItemSettings"
-      :readonly-empty-answer-text="props.itemSettingsVariant === 'result-view-item' || props.itemSettingsVariant === 'evaluation-item' ? '这里展示用户填写内容' : ''"
+      :readonly-empty-answer-text="props.itemSettingsVariant === 'result-view-item' || props.itemSettingsVariant === 'evaluation-item' || props.itemSettingsVariant === 'result-communication-item' ? '这里展示用户填写内容' : ''"
       class="configured-content-card__details"
       @select-item="selectItem"
     />

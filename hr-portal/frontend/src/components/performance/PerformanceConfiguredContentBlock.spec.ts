@@ -569,6 +569,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     await wrapper.get('[data-content-item-id="tag"]').trigger('click')
     expect(wrapper.find('[data-content-item-id="tag"] .readonly-tag-panel').exists()).toBe(true)
     expect(wrapper.find('[data-content-item-id="tag"] .tag-rich-text-input.is-display-only').exists()).toBe(true)
+    expect(wrapper.get('[data-content-item-id="tag"] .tag-preview__selected-group .rich-answer').text()).toBe('这里展示用户填写内容')
     wrapper.unmount()
   })
 
