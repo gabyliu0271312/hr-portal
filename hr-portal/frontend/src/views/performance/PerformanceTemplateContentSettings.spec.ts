@@ -1207,7 +1207,7 @@ describe('PerformanceTemplateContentSettings', () => {
     layer.vm.$emit('confirm', [{ type: 'work_summary', name: '非应用环节内容', description: '描述', items: [{ id: 'other-item', label: '填写项', hint: '' }] }])
     await wrapper.vm.$nextTick()
     await wrapper.get('.configured-content-card__row').trigger('click')
-    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(false)
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(true)
     expect(wrapper.find('.text-normal__body').exists()).toBe(false)
   })
 

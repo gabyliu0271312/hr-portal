@@ -254,12 +254,9 @@
 
 ## 评估型环节填写项三态配置（PM-T004-T05-F15，2026-10-22）
 
-- 本次按用户最后澄清仅实现配置项、配置区格式联动与保存回显，不实现员工端真实结果读取。后续读取使用当前周期/项目被评估人在唯一工作总结环节提交的同一模板内容，且只允许已提交结果，不读取草稿。
-- 集中能力表仅为 evaluation/fill 中的工作总结和自定义标签 item 开放三项：在此环节填写、在此环节隐藏、在此环节查看被评估人的填写结果。默认fill；fill面板为填写设置/必填项设置，hidden/view只保留填写设置。保留required与其他字段，切回fill恢复；不同item和环节独立。
-- 自定义标签按item.questionType优先、content.questionType兼容、缺省text；评分评级、自定义文本、参考Tab及其他节点不新增该入口。结果查看的allowView复选框属于F13，不能替代这里的view单选，也不改写保存mode。
-- view预览复用PerformanceTemplateFieldRenderer的readonly分支，移除填写工具栏、输入控件和星号，仍可点击外层选择题目；无真实员工答案，不以模板提示或默认全选标签冒充已提交内容。外框沿用4px圆角与2px蓝色选中，工作总结/标签参考最小高132/186px，宽度跟随原内容区；仅捕获外框，不宣称内部像素级还原。
-- items[].settings.mode新增view，通过原workflow GET/PATCH JSONB保存；normalize/serialize及预览透传均按环节/slot/题型门控，其他配置和未知字段保留。无迁移、新API、权限、快照或生效时机变更。
-- 验证：整合后前端block/page/renderer/layers四文件120/120通过，核心block/page复测65/65通过；后端evaluation_item_modes专项6/6、完整workflow回归137/137通过（既有python_multipart弃用提示）；前端最终vue-tsc+vite build通过，整合后补充显式 `WorkSummaryItemSettings` 类型收窄派生mode，行为不变；git diff --check通过。真实登录态页面PNG与真实数据库/API重开尚未执行，F15保持未勾选；不部署、不提交。UI合规N0001/N0002/N0004/N0005/N1102-N1104；沿用T05已确认蓝图、公共组件与token，无禁止项。
+- 本次按用户最后澄清实现评估型环节的执行人上下文能力矩阵：仅当 `node_type=evaluation` 且执行人为 `360°评估人` 或 `直属/直接上级` 时，开放四类已有内容（工作总结、评分评级、自定义文本、自定义标签）的内容设置。两种执行人均支持工作总结 Root 隐藏描述/允许添加多个；工作总结 Item 三态填写/隐藏/查看；评分评级 Item 隐藏名称/必填/按规则配置可选等级；自定义文本 Item 隐藏名称/三态填写/隐藏/查看/必填；自定义标签 Item 隐藏名称/隐藏描述/三态填写/隐藏/查看/必填；四类内容 Root 均支持隐藏描述。仅 360°评估人的评分评级 Root 额外支持“评估时允许选择不了解”，直属/直接上级不开放该项。其他评估执行人上下文不自动开放这组能力。
+- 该能力沿用已有内容选择器、`PerformanceWorkSummaryRootSettings`、`PerformanceWorkSummaryItemSettings`、评级规则组件和 workflow JSONB/settings 保存回显，不操作具体模板实例，不新增 API、数据库、权限或周期快照规则。三态查看后续读取边界仍以已确认的员工端读取契约为准。
+- 评估型环节的配置能力由 workflow 节点执行人上下文驱动，不按模板名称或具体模板数据写死；自定义文本与自定义标签均按 item.questionType 优先判定。
 
 ## 结果复议处理填写内容展示（PM-T004-T05-F14，2026-10-22）
 

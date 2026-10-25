@@ -5,7 +5,9 @@ const itemSettingsCapabilities = {
   rating: { hideName: true, mode: false, required: true, levelRules: true },
   prompt: { hideName: false, mode: false, required: false, allowView: true, onlyWhenFilling: true },
   "evaluation-work-summary": { hideName: false, mode: true, required: true, viewResults: true },
+  "evaluation-custom-text": { hideName: true, mode: true, required: true, viewResults: true },
   "evaluation-custom-tag": { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
+  "evaluation-rating": { hideName: true, mode: false, required: true, levelRules: true },
   "result-view-item": { hideName: false, mode: false, required: false },
   "result-view-tag": { hideName: true, hideDescription: true, mode: false, required: false, allowView: true }
 };
@@ -17,10 +19,17 @@ function getItemSettingsVariant(content, item) {
 }
 function supportsEvaluationView(content, item) {
   const variant = getItemSettingsVariant(content, item);
-  return variant === "work-summary" || variant === "custom-tag";
+  return variant === "work-summary" || variant === "custom-text" || variant === "custom-tag";
 }
-function getRootSettingsCapabilities(content) {
+function getEvaluationExecutorKind(executorLabel, executorTypes = []) {
+  if (executorLabel?.includes("360") || executorTypes.some((type) => /360|REVIEWER/i.test(type))) return "reviewer_360";
+  if (executorLabel?.includes("直属") || executorLabel?.includes("直接") || executorLabel?.includes("实线") || executorTypes.includes("DIRECT_MANAGER")) return "direct_manager";
+  return "other";
+}
+function getRootSettingsCapabilities(content, variant = "") {
   if (content.type === "prompt") return { allowMultiple: false, allowUnknown: false };
+  if (variant === "evaluation-360-root") return { allowMultiple: content.type === "work_summary", allowUnknown: content.type === "rating" };
+  if (variant === "evaluation-direct-root") return { allowMultiple: content.type === "work_summary", allowUnknown: false };
   return { allowMultiple: content.type === "work_summary", allowUnknown: content.type === "rating" && content.items.some((item) => item.kind !== "fill" && item.kind !== "prompt") };
 }
 const genericRule = {
@@ -74,14 +83,23 @@ const contentSlotLabels = {
   adjustment: "\u914D\u7F6E\u4F9B\u8C03\u6574\u5185\u5BB9",
   view: "\u914D\u7F6E\u67E5\u770B\u5185\u5BB9"
 };
-function getStageContentRule(nodeType) {
-  return stageContentRules[nodeType || ""] || genericRule;
+function getStageContentRule(nodeType, evaluationExecutorKind = "other") {
+  const rule = stageContentRules[nodeType || ""] || genericRule;
+  if (nodeType === "evaluation" && evaluationExecutorKind !== "other") {
+    return {
+      ...rule,
+      rootSettingsEnabled: true,
+      rootSettingsVariant: evaluationExecutorKind === "reviewer_360" ? "evaluation-360-root" : "evaluation-direct-root"
+    };
+  }
+  return rule;
 }
-function getStageContentTabs(nodeType) {
-  return getStageContentRule(nodeType).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }));
+function getStageContentTabs(nodeType, evaluationExecutorKind = "other") {
+  return getStageContentRule(nodeType, evaluationExecutorKind).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }));
 }
 export {
   contentSlotLabels,
+  getEvaluationExecutorKind,
   getItemSettingsVariant,
   getRootSettingsCapabilities,
   getStageContentRule,

@@ -8,7 +8,7 @@ import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSett
 import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
-import { getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationView } from './performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationView } from './performanceContentSettingsRules'
 
 const content = {
   id: 'content-1',
@@ -88,6 +88,9 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getItemSettingsVariant({ type: 'rating' }, { kind: 'rating' })).toBe('rating')
     expect(getItemSettingsVariant({ type: 'prompt' }, undefined)).toBe('prompt')
     expect(getRootSettingsCapabilities({ type: 'prompt', items: [] })).toEqual({ allowMultiple: false, allowUnknown: false })
+    expect(getRootSettingsCapabilities({ type: 'rating', items: [] }, 'evaluation-360-root')).toEqual({ allowMultiple: false, allowUnknown: true })
+    expect(getRootSettingsCapabilities({ type: 'rating', items: [] }, 'evaluation-direct-root')).toEqual({ allowMultiple: false, allowUnknown: false })
+    expect(supportsEvaluationView({ type: 'custom', questionType: 'text' })).toBe(true)
     expect(supportsEvaluationView({ type: 'prompt' }, { kind: 'prompt' })).toBe(false)
   })
 
@@ -350,6 +353,11 @@ describe('PerformanceConfiguredContentBlock', () => {
   it('exposes only confirmed stage and item capabilities with item-first legacy fallbacks', () => {
     expect(getStageContentRule('work_summary')).toMatchObject({ rootSettingsEnabled: true, itemSettingsEnabled: true, visibleSlots: ['fill'] })
     expect(getStageContentRule('evaluation')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true })
+    expect(getStageContentRule('evaluation', 'reviewer_360')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'evaluation-360-root', itemSettingsEnabled: true })
+    expect(getStageContentRule('evaluation', 'direct_manager')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'evaluation-direct-root', itemSettingsEnabled: true })
+    expect(getEvaluationExecutorKind('360°评估人')).toBe('reviewer_360')
+    expect(getEvaluationExecutorKind('直属上级')).toBe('direct_manager')
+    expect(getEvaluationExecutorKind('', ['DIRECT_MANAGER'])).toBe('direct_manager')
     expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true })
     for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'calibration', 'result_communication', 'result_reconsideration', 'unknown', undefined]) {
       expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
@@ -359,6 +367,10 @@ describe('PerformanceConfiguredContentBlock', () => {
       'custom-text': { hideName: true, mode: true, required: true },
       'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
       rating: { hideName: true, mode: false, required: true, levelRules: true },
+      'evaluation-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
+      'evaluation-custom-text': { hideName: true, mode: true, required: true, viewResults: true },
+      'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
+      'evaluation-rating': { hideName: true, mode: false, required: true, levelRules: true },
     })
     expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' }, { questionType: 'text' })).toBe('custom-text')
     expect(getItemSettingsVariant({ type: 'custom', questionType: 'text' }, { questionType: 'tag' })).toBe('custom-tag')
@@ -425,7 +437,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.find('.content-settings-detail--root').exists()).toBe(true)
   })
 
-  it.each(['work_summary', 'custom'] as const)('limits evaluation modes to supported %s items and renders readonly view previews', async type => {
+  it.each(['work_summary', 'custom'] as const)('enables evaluation modes for supported %s items and renders readonly view previews', async type => {
     const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
       content: { ...content, type, items: [{ id: 'item-1', label: '查看项', hint: '填写提示', questionType: 'tag' }, { id: 'text', label: '文本题', hint: '', questionType: 'text' }] },
       active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
@@ -452,7 +464,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.find('.work-summary-required-setting').exists()).toBe(true)
     if (type === 'custom') {
       await wrapper.get('[data-content-item-id="text"]').trigger('click')
-      expect(wrapper.find('.content-settings-detail--item').exists()).toBe(false)
+      expect(wrapper.find('.content-settings-detail--item').exists()).toBe(true)
     }
     wrapper.unmount()
   })

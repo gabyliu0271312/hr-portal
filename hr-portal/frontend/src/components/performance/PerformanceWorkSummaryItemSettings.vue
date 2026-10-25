@@ -33,7 +33,7 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 </script>
 
 <template>
-  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' }" :aria-label="variant === 'rating' ? '评分评级设置' : variant === 'custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
+  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' || variant === 'evaluation-rating' }" :aria-label="variant === 'rating' || variant === 'evaluation-rating' ? '评分评级设置' : variant === 'custom-text' || variant === 'evaluation-custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' || variant === 'evaluation-custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
     <fieldset v-if="capabilities.allowView" class="work-summary-setting-group work-summary-view-setting">
       <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" :checked-color="checkedColor" @update:model-value="update({ allowView: $event })" />
       <div v-if="modelValue.allowView !== false && (capabilities.hideName || capabilities.hideDescription || capabilities.onlyWhenFilling)" class="work-summary-view-options">

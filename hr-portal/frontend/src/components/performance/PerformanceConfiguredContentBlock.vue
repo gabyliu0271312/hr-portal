@@ -46,7 +46,7 @@ const emit = defineEmits<{
 }>()
 
 const previewContent = computed(() => ({ ...props.content, settings: { ...props.content.settings, ...(props.rootSettingsEnabled ? props.rootSettings : {}) } }))
-const rootCapabilities = computed(() => getRootSettingsCapabilities(props.content))
+const rootCapabilities = computed(() => getRootSettingsCapabilities(props.content, props.rootSettingsVariant))
 const isPromptContent = computed(() => props.content.type === 'prompt')
 const rootSettingsAvailable = computed(() => Boolean(props.rootSettingsEnabled && !isPromptContent.value))
 const owner = ref<'root' | 'item'>('root')
@@ -57,8 +57,12 @@ const settingsAvailable = computed(() => Boolean(selectedPrompt.value) || (owner
 const itemSettingsVariant = computed(() => {
   if (props.itemSettingsVariant === 'evaluation-item') {
     const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
-    const questionType = item?.questionType || props.content.questionType || 'text'
-    return props.content.type === 'work_summary' ? 'evaluation-work-summary' : questionType === 'tag' && supportsEvaluationView(props.content, item) ? 'evaluation-custom-tag' : getItemSettingsVariant(props.content, item)
+    const variant = getItemSettingsVariant(props.content, item)
+    if (variant === 'work-summary') return 'evaluation-work-summary'
+    if (variant === 'custom-text' && supportsEvaluationView(props.content, item)) return 'evaluation-custom-text'
+    if (variant === 'custom-tag' && supportsEvaluationView(props.content, item)) return 'evaluation-custom-tag'
+    if (variant === 'rating') return 'evaluation-rating'
+    return variant
   }
   if (props.itemSettingsVariant === 'result-view-item') {
     const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)

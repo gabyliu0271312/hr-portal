@@ -2,7 +2,8 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-tag' | 'result-view-item' | 'result-view-tag'
+export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-view-item' | 'result-view-tag'
+export type EvaluationExecutorKind = 'reviewer_360' | 'direct_manager' | 'other'
 export interface ItemSettingsCapabilities {
   hideName: boolean
   hideDescription?: boolean
@@ -20,7 +21,9 @@ export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsC
   rating: { hideName: true, mode: false, required: true, levelRules: true },
   prompt: { hideName: false, mode: false, required: false, allowView: true, onlyWhenFilling: true },
   'evaluation-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
+  'evaluation-custom-text': { hideName: true, mode: true, required: true, viewResults: true },
   'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
+  'evaluation-rating': { hideName: true, mode: false, required: true, levelRules: true },
   'result-view-item': { hideName: false, mode: false, required: false },
   'result-view-tag': { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
 }
@@ -33,11 +36,19 @@ export function getItemSettingsVariant(content: { type: string; questionType?: '
 
 export function supportsEvaluationView(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
   const variant = getItemSettingsVariant(content, item)
-  return variant === 'work-summary' || variant === 'custom-tag'
+  return variant === 'work-summary' || variant === 'custom-text' || variant === 'custom-tag'
 }
 
-export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }[] }) {
+export function getEvaluationExecutorKind(executorLabel?: string, executorTypes: readonly string[] = []): EvaluationExecutorKind {
+  if (executorLabel?.includes('360') || executorTypes.some(type => /360|REVIEWER/i.test(type))) return 'reviewer_360'
+  if (executorLabel?.includes('直属') || executorLabel?.includes('直接') || executorLabel?.includes('实线') || executorTypes.includes('DIRECT_MANAGER')) return 'direct_manager'
+  return 'other'
+}
+
+export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }[] }, variant = '') {
   if (content.type === 'prompt') return { allowMultiple: false, allowUnknown: false }
+  if (variant === 'evaluation-360-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' }
+  if (variant === 'evaluation-direct-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: false }
   return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' && content.items.some(item => item.kind !== 'fill' && item.kind !== 'prompt') }
 }
 
@@ -105,10 +116,18 @@ export const contentSlotLabels: Record<ContentSlot, string> = {
   view: '配置查看内容',
 }
 
-export function getStageContentRule(nodeType?: string): StageContentRule {
-  return stageContentRules[nodeType || ''] || genericRule
+export function getStageContentRule(nodeType?: string, evaluationExecutorKind: EvaluationExecutorKind = 'other'): StageContentRule {
+  const rule = stageContentRules[nodeType || ''] || genericRule
+  if (nodeType === 'evaluation' && evaluationExecutorKind !== 'other') {
+    return {
+      ...rule,
+      rootSettingsEnabled: true,
+      rootSettingsVariant: evaluationExecutorKind === 'reviewer_360' ? 'evaluation-360-root' : 'evaluation-direct-root',
+    }
+  }
+  return rule
 }
 
-export function getStageContentTabs(nodeType?: string) {
-  return getStageContentRule(nodeType).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }))
+export function getStageContentTabs(nodeType?: string, evaluationExecutorKind: EvaluationExecutorKind = 'other') {
+  return getStageContentRule(nodeType, evaluationExecutorKind).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }))
 }

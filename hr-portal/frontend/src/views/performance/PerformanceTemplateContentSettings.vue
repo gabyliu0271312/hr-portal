@@ -134,7 +134,7 @@ import type { WorkSummaryItemSettings } from '@/components/performance/Performan
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { getStageContentRule, getStageContentTabs, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -142,7 +142,7 @@ const props = defineProps<{ templateId?: number | null }>()
 const selectedStage = ref<string | null>(null)
 const activeTab = ref('fill')
 const loading = ref(false)
-const stages = ref<Array<{ id: string; nodeType: string; icon: string; title: string; executor: string }>>([])
+const stages = ref<Array<{ id: string; nodeType: string; icon: string; title: string; executor: string; executorTypes: string[] }>>([])
 const workflowNodes = ref<PerformanceWorkflowNode[]>([])
 const pageNameLocked = ref(false)
 const pageNameError = ref('')
@@ -321,7 +321,8 @@ function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T
 }
 const configuredCardKey = (content: PerformanceTemplateContent) => `${selectedStage.value || 'stage'}:${activeTab.value}:${contentIdentity(content)}`
 const contentLayerRef = ref<InstanceType<typeof PerformanceAssessmentContentLayers> | null>(null)
-const availableTabs = computed(() => getStageContentTabs(selectedStageData.value?.nodeType))
+const evaluationExecutorKind = computed(() => getEvaluationExecutorKind(selectedStageData.value?.executor, selectedStageData.value?.executorTypes))
+const availableTabs = computed(() => getStageContentTabs(selectedStageData.value?.nodeType, evaluationExecutorKind.value))
 const activeTabLabel = computed(() => availableTabs.value.find((tab) => tab.key === activeTab.value)?.label || availableTabs.value[0].label)
 const referenceTabEmpty = computed(() => activeTab.value === 'reference' && !configuredContents.value.length)
 const referenceNodeCandidates = computed(() => {
@@ -344,7 +345,7 @@ const assessmentInitialContents = computed(() => configuredContents.value.filter
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
 }) as Array<AssessmentContentDraft & { id: string }>)
 const activeStageContentRule = computed(() => {
-  const rule = getStageContentRule(selectedStageData.value?.nodeType)
+  const rule = getStageContentRule(selectedStageData.value?.nodeType, evaluationExecutorKind.value)
   return selectedStageData.value?.nodeType === 'evaluation' && activeTab.value !== 'fill' ? { ...rule, itemSettingsEnabled: false } : rule
 })
 const configuredSettingsVisible = ref(false)
@@ -490,7 +491,7 @@ function selectStage(id: string) {
   syncSelectedStageContents()
   selectedStage.value = id
   const node = workflowNodes.value.find((item) => item.node_id === id)
-  activeTab.value = getStageContentTabs(node?.node_type)[0]?.key || 'fill'
+  activeTab.value = getStageContentTabs(node?.node_type, getEvaluationExecutorKind(node?.executor_label, node?.executor_types))[0]?.key || 'fill'
   setConfiguredContents(node?.content?.filter((content) => (content.content_slot || 'fill') === activeTab.value) || [])
   selectedConfiguredId.value = null
   configuredHoverKey.value = null
@@ -604,7 +605,7 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
     if (!merged.has(contentId)) merged.set(contentId, { ...cloneContent(content), content_id: contentId })
   })
   contentLibrary.value = [...merged.values()]
-  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label }))
+  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label, executorTypes: node.executor_types || [] }))
 }
 async function save() {
   if (!props.templateId) return
