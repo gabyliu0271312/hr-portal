@@ -11,6 +11,8 @@ import PerformanceTextField from '@/components/performance/PerformanceTextField.
 import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import reviewer360ContentSource from '@/components/performance/PerformanceReviewer360Content.vue?raw'
+import stageRendererSource from '@/components/performance/ContentSettingsStageRenderer.vue?raw'
+import workspaceSource from '@/components/performance/PerformanceContentWorkspace.vue?raw'
 import selectionFrameSource from '@/components/performance/PerformanceContentSelectionFrame.vue?raw'
 import contentSettingsSource from './PerformanceTemplateContentSettings.vue?raw'
 import configuredBlockSource from '@/components/performance/PerformanceConfiguredContentBlock.vue?raw'
@@ -464,6 +466,16 @@ describe('PerformanceTemplateContentSettings', () => {
       '绩效结果查看环节',
       '结果复议处理',
     ])
+  })
+
+  it('uses one stable content workspace frame across stages', async () => {
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    expect(wrapper.get('.content-pane').classes()).toContain('performance-content-workspace')
+    expect(workspaceSource).toContain('width:var(--performance-content-width)')
+    expect(stageRendererSource).toContain('scrollbar-gutter: stable')
+    wrapper.unmount()
   })
 
   it('updates the selected stage without changing the empty right-panel contract', async () => {

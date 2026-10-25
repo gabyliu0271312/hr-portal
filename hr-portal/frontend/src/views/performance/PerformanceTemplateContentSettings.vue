@@ -32,7 +32,7 @@
     </aside>
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
-      <div v-if="selectedStageData" class="content-pane">
+      <PerformanceContentWorkspace v-if="selectedStageData" class="content-pane">
         <section v-if="isResultView" class="result-view-section" aria-label="绩效结果">
           <PerformanceContentSelectionFrame variant="root" :selected="pageHeadingSelected" class="result-view-section__content" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
             <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
@@ -96,10 +96,10 @@
           <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
           <PerformanceReferenceEntryBar class="result-view-reference-entry" label="添加其他参考内容" @select="handleContentAction('add-reference')" />
         </template>
-      </div>
-      <div v-if="referenceTabEmpty" class="reference-entry-pane">
+      </PerformanceContentWorkspace>
+      <PerformanceContentWorkspace v-if="referenceTabEmpty" class="reference-entry-pane">
         <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
-      </div>
+      </PerformanceContentWorkspace>
     </ContentSettingsStageRenderer>
     <aside v-if="false" class="configured-content-panel" aria-label="閰嶇疆濉啓鍐呭唴">
       <article v-for="content in configuredContents" :key="content.id" class="configured-content-card">
@@ -132,6 +132,7 @@ import PerformanceConfiguredContentBlock from '@/components/performance/Performa
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
+import PerformanceContentWorkspace from '@/components/performance/PerformanceContentWorkspace.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
@@ -767,10 +768,6 @@ onMounted(async () => {
   height: var(--hairline);
   background: rgba(31, 35, 41, 0.15);
 }
-
-.content-pane { width: 100%; max-width: 800px; margin: 12px auto 0; }
-
-.reference-entry-pane { width: 100%; max-width: 800px; margin: 12px auto 0; }
 
 .content-tab {
   position: relative;
