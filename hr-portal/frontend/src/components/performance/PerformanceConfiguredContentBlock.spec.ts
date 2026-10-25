@@ -385,7 +385,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getEvaluationExecutorKind('360°评估人')).toBe('reviewer_360')
     expect(getEvaluationExecutorKind('直属上级')).toBe('direct_manager')
     expect(getEvaluationExecutorKind('', ['DIRECT_MANAGER'])).toBe('direct_manager')
-    expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true })
+    expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-view-root', itemSettingsEnabled: true })
     for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'calibration', 'result_communication', 'result_reconsideration', 'unknown', undefined]) {
       expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
     }
@@ -444,6 +444,26 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect((panel().findAll('input')[1].element as HTMLInputElement).checked).toBe(true)
     expect((panel().findAll('input')[2].element as HTMLInputElement).checked).toBe(true)
     expect(wrapper.vm.$props.itemSettings.text).toEqual({ mode: 'fill', required: false })
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['work_summary', { id: 'item', label: '工作总结', hint: '' }, ['允许查看']],
+    ['rating', { id: 'item', label: '评级', hint: '' }, ['允许查看', '隐藏名称']],
+    ['custom', { id: 'item', label: '文本', hint: '', questionType: 'text' }, ['允许查看', '隐藏名称', '隐藏描述']],
+    ['custom', { id: 'item', label: '标签', hint: '', questionType: 'tag', options: [{ id: 'a', label: '标签A' }] }, ['允许查看', '隐藏名称', '隐藏描述']],
+  ] as const)('configures result-view %s content visibility settings', async (type, item, labels) => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type, items: [item] } as any,
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false, allowView: true },
+      itemSettings: { item: { mode: 'view', required: false, allowView: true } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'result-view-root', itemSettingsVariant: 'result-view-item',
+    } })
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--root .performance-checkbox__label').map(label => label.text())).toEqual(['允许查看', '隐藏描述'])
+    await wrapper.get('[data-content-item-id="item"]').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--item .performance-checkbox__label').map(label => label.text())).toEqual(labels)
     wrapper.unmount()
   })
 

@@ -134,7 +134,7 @@ import type { WorkSummaryItemSettings } from '@/components/performance/Performan
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -360,11 +360,11 @@ const availableContentCandidates = computed(() => {
     return { ...normalized, id: contentIdentity(normalized) }
   }) as Array<AssessmentContentDraft & { id: string }>
 })
-const defaultRootSettings = (): WorkSummaryRootSettings => ({ hideDescription: false, allowMultiple: false })
+const defaultRootSettings = (allowView = false): WorkSummaryRootSettings => ({ hideDescription: false, allowMultiple: false, ...(allowView ? { allowView: true } : {}) })
 const defaultItemSettings = (): WorkSummaryItemSettings => ({ mode: 'fill', required: true, hideName: false })
-function normalizeRootSettings(value: unknown): WorkSummaryRootSettings {
+function normalizeRootSettings(value: unknown, allowView = false): WorkSummaryRootSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return { ...settings, hideDescription: settings.hideDescription === true, allowMultiple: settings.allowMultiple === true }
+  return { ...settings, hideDescription: settings.hideDescription === true, allowMultiple: settings.allowMultiple === true, ...(allowView ? { allowView: settings.allowView !== false } : {}) }
 }
 function normalizeItemSettings(value: unknown, allowView = false): WorkSummaryItemSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
@@ -372,7 +372,8 @@ function normalizeItemSettings(value: unknown, allowView = false): WorkSummaryIt
   return { ...settings, mode, required: settings.required !== false, hideName: settings.hideName === true }
 }
 function rootSettingFor(contentId: string): WorkSummaryRootSettings {
-  return rootSettings.value[contentId] || defaultRootSettings()
+  const allowView = activeStageContentRule.value.rootSettingsVariant === 'result-view-root'
+  return rootSettings.value[contentId] || defaultRootSettings(allowView)
 }
 function itemSettingsForContent(contentId: string): Record<string, WorkSummaryItemSettings> {
   const content = configuredContents.value.find((item) => item.id === contentId)
@@ -448,8 +449,8 @@ function setConfiguredContents(contents: PerformanceTemplateContent[]) {
   })
   configuredContents.value = [...unique.values()] as Array<AssessmentContentDraft & { id: string }>
   configuredExpandedIds.value = new Set(configuredContents.value.map((item) => item.id))
-  rootSettings.value = Object.fromEntries(configuredContents.value.map((content) => [content.id, normalizeRootSettings(content.settings)]))
-  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, selectedStageData.value?.nodeType === 'evaluation' && activeTab.value === 'fill' && supportsEvaluationView(content, item))])))
+  rootSettings.value = Object.fromEntries(configuredContents.value.map((content) => [content.id, normalizeRootSettings(content.settings, activeStageContentRule.value.rootSettingsVariant === 'result-view-root')]))
+  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, activeTab.value === 'fill' && supportsStageItemView(selectedStageData.value?.nodeType, content, item))])))
 }
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
   const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
@@ -471,8 +472,8 @@ function serializeConfiguredContents(slot = activeTab.value): PerformanceTemplat
     items: content.items.map(({ settings, ...item }) => ({
       ...item,
       settings: item.kind !== 'prompt' && activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationItemSettings(content, item))
-        && (!isResultView.value || (content.type === 'custom' && (item.questionType || content.questionType || 'text') === 'tag'))
-        ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, selectedStageData.value?.nodeType === 'evaluation' && slot === 'fill' && supportsEvaluationView(content, item))
+        && (!isResultView.value || supportsResultViewSettings(content, item))
+        ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, slot === 'fill' && supportsStageItemView(selectedStageData.value?.nodeType, content, item))
         : settings,
     })),
   })))

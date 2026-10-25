@@ -11,7 +11,7 @@ import PerformanceDragHandle from './PerformanceDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
-import { getItemSettingsVariant, getRootSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView } from './performanceContentSettingsRules'
+import { getItemSettingsVariant, getRootSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView, supportsResultViewSettings } from './performanceContentSettingsRules'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 
 const props = defineProps<{
@@ -65,8 +65,12 @@ const itemSettingsVariant = computed(() => {
     return variant
   }
   if (props.itemSettingsVariant === 'result-view-item') {
-    const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
-    return getItemSettingsVariant(props.content, item) === 'custom-tag' ? 'result-view-tag' : 'result-view-item'
+    const variant = getItemSettingsVariant(props.content, props.content.items.find((candidate) => candidate.id === selectedItemId.value))
+    if (variant === 'work-summary') return 'result-view-work-summary'
+    if (variant === 'rating') return 'result-view-rating'
+    if (variant === 'custom-text') return 'result-view-custom-text'
+    if (variant === 'custom-tag') return 'result-view-tag'
+    return 'result-view-work-summary'
   }
   return getItemSettingsVariant(props.content, props.content.items.find((item) => item.id === selectedItemId.value))
 })
@@ -75,8 +79,8 @@ const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSet
 const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) => Boolean(props.itemSettingsEnabled)
   && item?.kind !== 'prompt'
   && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationItemSettings(props.content, item))
-const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value))
-  && (props.itemSettingsVariant !== 'result-view-item' || getItemSettingsVariant(props.content, props.content.items.find(item => item.id === selectedItemId.value)) === 'custom-tag'))
+  && (props.itemSettingsVariant !== 'result-view-item' || supportsResultViewSettings(props.content, item))
+const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value)))
 const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => itemSettingsAvailable(item)).map((item) => {
   const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
   return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: 'view', required: false } : settings]
@@ -164,7 +168,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       <PerformanceWorkSummaryItemSettings :model-value="promptSettings" variant="prompt" @update:model-value="updatePromptSettings" />
     </div>
     <div v-else-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
-      <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" @update:model-value="emit('update:root-settings', $event)" />
+      <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" :allow-view-enabled="rootCapabilities.allowView === true" @update:model-value="emit('update:root-settings', $event)" />
     </div>
     <div v-else class="content-settings-detail content-settings-detail--item" aria-label="Selected content item settings">
       <PerformanceWorkSummaryItemSettings :model-value="selectedItemSettings" :variant="itemSettingsVariant" @update:model-value="updateItemSettings" />

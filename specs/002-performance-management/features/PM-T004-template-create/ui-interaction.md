@@ -276,9 +276,9 @@
 
 ## 结果查看标签题允许查看（PM-T004-T05-F13，2026-10-22）
 
-- 仅结果查看view slot的自定义标签item显示公共“允许查看”复选框；缺省兼容为允许，关闭后灰框收起，但保留该题隐藏名称/描述设置，重新开启恢复。非标签题不新增配置能力。
-- 开启后在272px宽、84px自然高的灰框展示公共“隐藏名称”“隐藏描述”，#F5F6F7、16px内边距、8px行距、6px圆角、14px/22px系统字体。复用WorkSummaryItemSettings及集中result-view-tag能力，不新建同功能组件。配置区仍显示已关闭题的灰态和锁图标，允许重新选中恢复，不能把关闭的题从配置DOM删除。
-- hideName仅控制题目名/星号，hideDescription仅控制题目hint描述，不影响模块描述、标签选项及答案。两个选项独立、局限当前环节与当前item，沿用workflow JSONB/settings保存，重新选择内容也应保留局部设置。
+- 结果查看 `view` slot 的工作总结、评分评级、自定义文本、自定义标签四类 item 均显示公共“允许查看”复选框；缺省兼容为允许。关闭后保留当前 item 的显示配置并叠加不可查看蒙层，重新开启恢复。Root 同样显示“允许查看”，开启后显示“隐藏描述”。
+- Item 显示配置按题型复用：工作总结仅允许查看；评分评级允许查看/隐藏名称；自定义文本允许查看/隐藏名称/隐藏描述；自定义标签允许查看/隐藏名称/隐藏描述。非结果查看节点不新增这组 allowView 配置。
+- 配置区仍显示已关闭题的灰态和锁图标，允许重新选中恢复，不能把关闭的题从配置 DOM 删除；保存沿用 workflow JSONB/settings，局部显示设置和 allowView 值独立保留。
 - 2026-10-25 追加确认：结果查看 item 的 `allowView=false` 不得切换为通用 `mode=hidden` 或重绘内容结构；保持与允许查看时相同的只读内容渲染，仅通过共享 `PerformanceUnavailableOverlay` 叠加不可查看蒙层与隐藏图标。该渲染状态由公共内容 renderer 消费，后续结果查看内容类型可复用，配置项仍沿用现有 `items[].settings.allowView`。
 - 员工results接口兼容评级列表，并追加只读contents（task_id/form_schema/answers）；以项目result_view和终评节点快照为准，只有已完成终评、来源合法且allowView不为false的标签题可返回；后端白名单裁剪答案，隐藏名称/描述不以仅前端CSS作为边界。未开通、身份/成员不匹配沿用404 RESULT_NOT_FOUND；不修改结果开通、历史快照或生效策略。
 - 员工结果页复用PerformanceTemplateRenderer的readonly模式展示标签和说明，旧接口无contents时仍正常显示评级；空态/失败态沿用现有文案。实际浏览器/数据库重开证据未获得前，F13保持未勾选，不声称部署完成。
