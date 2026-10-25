@@ -1596,3 +1596,11 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 后端重启后按用户批准对 `dwd_021_allocation_pilot` 重复提交原 period-config（`cost_period/field/成本期间`），仅恢复运行时模型注册，不改变业务数据。
 - 探针结果：临时配置成功、v6重绑成功、明细运行 **200 / total=0**（人员定位条件生效）；随后原配置恢复、重新绑定成功，最终明细运行 **200 / total=723**。
 - 结论：5.2 人员定位的单字段 D 入口已完成开发库真实HTTP闭环；中心用户拒绝路径沿用既有报表25验收证据（403），多人员/姓名定位与下钻留后续包。
+
+### 5.3 中心×组织×期间多维汇总（2026-10-25 盘点与回归）
+
+- 现有 schema3 S 编译器已支持多维 `group_by`：维度由数据集输出 `agg_role=dimension` 与 identifying 语义推导；成本中心键/组织/期间可同时分组，人员 identifying 字段自动排除；范围仍先 P(u) OR C(u)，再聚合，双路径不重复计数。
+- COUNT/分页/CSV/XLSX 均从同一授权聚合子查询派生，已经有 `test_postgres_s_count_preview_and_export_share_result` 与多维范围测试覆盖。
+- 新增 schema3 多维推导单测：确认 `cost_period+cc_code+department` 保留为维度、`amount` 为度量、`employee_no` 不进入汇总输出。
+- 本地 `--postgres-acceptance` 由于测试进程无法解析配置的 PostgreSQL 主机而退出，未冒充通过；隔离 PostgreSQL 多维验收需在可达环境重跑。
+- 开发试点530当前输出没有组织字段，因此不能伪造“中心×组织”业务数字；需真实数据集输出包含组织维度后做PC/HTTP验收。5.3代码能力已具备，真实业务对象验收待数据条件。

@@ -986,3 +986,19 @@ def test_schema3_personal_filter_map_only_contains_identifying_outputs():
     filters = personal_filter_map(definition, outputs)
     assert set(filters) == {"employee_no"}
     assert filters["employee_no"] == {"eq", "in", "gte", "lte", "between"}
+
+
+def test_schema3_multidimensional_summary_plan_is_derived_and_allowed():
+    from app.datasets.authorization_contract import derived_summary_fields
+    definition = _schema3_definition()
+    outputs = [
+        {"id": 1, "output_code": "cost_period", "source_alias": "allocation", "source_column": "cost_period", "data_type": "string", "is_sensitive": False, "is_visible": True, "agg_role": "dimension"},
+        {"id": 2, "output_code": "cc_code", "source_alias": "allocation", "source_column": "cc_code", "data_type": "string", "is_sensitive": False, "is_visible": True, "agg_role": "dimension"},
+        {"id": 3, "output_code": "department", "source_alias": "allocation", "source_column": "department", "data_type": "string", "is_sensitive": False, "is_visible": True, "agg_role": "dimension"},
+        {"id": 4, "output_code": "amount", "source_alias": "allocation", "source_column": "amount", "data_type": "number", "is_sensitive": False, "is_visible": True, "agg_role": "measure"},
+        {"id": 5, "output_code": "employee_no", "source_alias": "allocation", "source_column": "employee_no", "data_type": "string", "is_sensitive": False, "is_visible": True, "agg_role": "dimension"},
+    ]
+    derived = derived_summary_fields(definition, outputs)
+    assert derived["dimensions"] == ["cost_period", "cc_code", "department"]
+    assert derived["measures"] == ["amount"]
+    assert "employee_no" not in derived["summary_outputs"]
