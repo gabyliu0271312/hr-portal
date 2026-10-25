@@ -208,3 +208,14 @@
 > 部署：本方案为后端改动 + 迁移，需走 `git pull → docker compose up -d --build backend`（含 alembic 自动迁移），再到 UI 配 org_unit 接口、依次同步 org_unit 与花名册。详见部署手册 `memory/hr_portal_server_deploy.md` §4。
 
 > **开发库验证（2026-10-25）**：组织单元数据源7同步成功1237行；直接修正开发库 `org_unit` 9个业务字段 `auto_discovered=true`（不做迁移、不改生产），同步后9列非空计数为`org_code=1237, org_name=1237, org_full_name=1237, parent_org_code=1236, parent_org_dim=1237, org_status=1237, establish_date=1237, effective_date=1237, change_type=1237`；组织树节点1237、RootOrg 1、空父节点1（RootOrg本身），组织单元字段与组织树关系恢复。
+
+## 八、组织层级标准字段与派生规则（2026-10-25 已确认）
+
+- 不要求来源系统冗余提供一级到十级组织字段；来源只维护组织ID/编码、名称、上级组织ID/编码及状态等基础数据。
+- 先建设系统级标准字段定义：`org_unit_id/name/parent_id/level/status`，以及 `org_level_1~10_id/name`。
+- `org_level_1~10` 是系统派生标准字段，不是 `org_unit` 或员工事实表的必备物理列；以 `事实.org_unit_id → org_tree.parent_id` 递归生成。
+- `RootOrg` 是虚拟根，不计入业务一级组织；RootOrg 的直接子节点为 `org_level_1`。
+- 北森来源已有一级到五级字段可保留为原始兼容字段并做一致性校验，但新治理数据集以系统组织树派生结果为正式组织层级口径；不以组织名称作为关联键。
+- 组织深度超过10级不得静默截断；组织树异常、孤儿、循环或层级超限时，需阻断需要组织层级分析的数据产品。
+- 当前 `include_inactive` 只控制组织树展示，不等于报表授权；失效组织是否进入统计需由数据产品口径另行声明。
+- 当前5.3真实组织汇总的前置顺序调整为：标准字段定义 → 组织树派生投影 → 组织层级输出绑定 → 中心×组织×期间汇总验收。

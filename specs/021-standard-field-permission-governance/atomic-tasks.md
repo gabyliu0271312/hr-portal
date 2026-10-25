@@ -1604,3 +1604,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 新增 schema3 多维推导单测：确认 `cost_period+cc_code+department` 保留为维度、`amount` 为度量、`employee_no` 不进入汇总输出。
 - 本地 `--postgres-acceptance` 由于测试进程无法解析配置的 PostgreSQL 主机而退出，未冒充通过；隔离 PostgreSQL 多维验收需在可达环境重跑。
 - 开发试点530当前输出没有组织字段，因此不能伪造“中心×组织”业务数字；需真实数据集输出包含组织维度后做PC/HTTP验收。5.3代码能力已具备，真实业务对象验收待数据条件。
+
+### 组织层级标准字段与派生优先（2026-10-25，用户确认）
+
+- 组织层级不增加全局 `tree_version` 或组织实体版本字段；当前组织表已包含有效/失效组织，`org_tree` 已有 `is_active` 与 `include_inactive` 展示开关。
+- 先建设系统级标准字段定义：`org_unit_id/name/parent_id/level/status` 与 `org_level_1~10_id/name`；后者是系统派生标准字段，不要求来源表冗余维护。
+- 统一派生链路：`事实.org_unit_id → org_tree.parent_id → 递归祖先 → org_level_1~10`；RootOrg 为虚拟根，不计入业务一级组织，RootOrg 直接子节点为 level 1。
+- 北森人员数据已有一级到五级字段时，保留为原始兼容字段并做一致性校验；新治理数据集正式口径以系统组织树派生结果为准，不以组织名称做关联键。
+- 深度超过10级、孤儿、循环或组织树异常不得静默截断/挂根，需阻断需要组织层级分析的数据产品。
+- 5.3真实组织汇总前置顺序调整为：系统标准字段定义 → 组织层级派生投影 → 数据集输出绑定 → 中心×组织×期间汇总验收。
