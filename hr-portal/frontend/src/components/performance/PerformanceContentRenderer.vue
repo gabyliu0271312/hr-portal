@@ -33,7 +33,7 @@
       <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" preview-only :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
       <template v-else-if="isRatingItem(item)">
         <div class="content-renderer-rating__header">
-          <strong v-if="!itemState(item.id).hideName">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
+          <strong v-if="!itemState(item.id).hideName" class="performance-item-title">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
         </div>
         <div class="content-renderer-rating__body">
           <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="content.options || []" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="content.ratingDisplayMode" :interactive="false" />
@@ -107,18 +107,17 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-prompt{margin:0}
 .content-renderer-rating{position:relative;margin:16px 0 0}
 .content-renderer-rating__readonly :deep(.performance-template-field){display:flex;align-items:center;gap:8px}.content-renderer-rating__readonly :deep(.template-field-label){margin:0}.content-renderer-rating__readonly :deep(.readonly-rating){min-width:0}
-.content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>strong{font-size:16px;font-weight:600;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
+.content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}
 .content-renderer-item--configured{width:100%;min-height:0;margin:0;padding:var(--performance-readonly-item-padding-block) var(--performance-readonly-item-padding-inline);border-radius:var(--radius-sm)}
-.performance-content-renderer--configured-card .content-renderer-rating__header{min-height:var(--performance-input-line-height);line-height:var(--performance-input-line-height)}
-.performance-content-renderer--configured-card .content-renderer-rating__header>strong{font-size:var(--font-size-md);line-height:inherit}
+.performance-content-renderer--configured-card .content-renderer-rating__header{min-height:var(--performance-item-title-line-height);line-height:var(--performance-item-title-line-height)}
 .content-renderer-item--configured.content-renderer-rating--name-hidden{padding-block:var(--spacing-2)}
 .content-renderer-rating--name-hidden .content-renderer-rating__levels{margin-top:0}
 .content-renderer-item.is-selected{border-color:#3370ff;box-shadow:none}
 .content-renderer-item--configured :deep(.performance-assessment-rich-text-field){margin:0}
-.content-renderer-item--configured :deep(.performance-assessment-rich-text-field__label){margin-bottom:3px;font-size:14px;line-height:22px}
+.content-renderer-item--configured :deep(.performance-assessment-rich-text-field__label){margin-bottom:3px}
 .content-renderer-hidden-icon{position:absolute;top:4px;right:8px;z-index:2;display:grid;place-items:center;width:24px;height:24px;padding:4px;border:0;background:transparent;color:#8f959e;pointer-events:none}
 .content-renderer-hidden-icon svg{display:block;width:16px;height:16px;overflow:hidden}
 .content-renderer-item--hidden :deep(.performance-template-field){opacity:.5;pointer-events:none}

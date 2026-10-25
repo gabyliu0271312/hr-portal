@@ -361,3 +361,13 @@
 - PerformanceTagRichTextInput仅editable且非displayOnly时添加is-editable，蓝色hover/focus边框仅此状态启用。不可编辑的内部填写框保持原灰色边框，不影响外层PerformanceContentSelectionFrame的蓝色虚线hover/实线选中；不改答案、默认选中、工具栏、布局、API/JSONB/权限/快照。
 - 验证：组件及内容设置6文件179/179通过，SelfSummaryTask.spec.js/Review.spec.ts另38/38通过；完整vue-tsc+vite、diff检查通过（既有VueUse PURE提示）。Chromium实际组件隔离验证未选框两处同为白底#FFFFFF/边框#8F959E，已选样式等待动画稳定后两处同#0442D2；配置input仍disabled，可编辑预览input可操作，普通disabled仍#EFF0F1。配置内部hover前后边框均#DEE0E3，外层仍蓝色虚线，点击checkbox区域只选item不勾选；内部contenteditable=false，可编辑预览仍蓝色hover，无pageerror。独立截图 `../../ui-blueprints/PM-T004-T05-F22-implemented-tag-preview-states.png`已查看，非登录态页面/真实数据库证据。
 - UI合规N0001/N0002/N0004/N0005/N1102-N1104；沿T05已确认蓝图做局部修复，无新设计体系/禁止项。不涉及后端/数据库验收、迁移、权限、周期快照、UCP；未替换运行容器、部署、commit或push。
+
+
+## 绩效题目标题全局token与单一公共样式（PM-T004-T05-F23，2026-10-25）
+
+- 本次用户确认以已加载的自定义标签型填写题item标题为基准，工作总结/评分评级/自定义文本item统一；不能各题型复制一套字体逻辑。完整卡片复核发现前三种继承details的#646A73而标签明确#1F2329，F21只统一字号/行高不足，本节取代其“字体四项一致即全部一致”的验收范围。
+- 在全局tokens.css定义`--performance-item-title-font-family/font-size/font-weight/line-height/color`，分别引用`--font-sans`、`--font-size-md`、600、22px、`--color-text-primary`。global.css仅一份`.performance-item-title`消费这五项token；RichTextField label（工作总结/文本）、ContentRenderer评级strong、TemplateFieldRenderer题头（标签等）统一添加公共类，删除旧局部字号/字重/行高/颜色定义和覆盖。后续只改全局语义token，不按题型写重复样式。
+- 原标签题头的strong继续font:inherit，布局/display/间距/必填标记不并入公共类；明确隐藏/禁用状态按原规则保留。原details仍为次文本灰色，不把整个内容容器改成主文本色。页面/内容块标题、描述、提示项和评级选项不使用此item标题角色。
+- 验证：5文件179/179通过（renderer29/block24/TemplateRenderer15/Layers54/page57），员工填写/结果/Checkbox另42/42；完整vue-tsc+vite及diff检查通过，有既有VueUse PURE提示。初次静态CSS测试因Vitest CSS raw处理读空失败，改用项目已有readFileSync方式后全组通过。
+- 真实Chromium挂载完整ConfiguredContentBlock，四类item的fontFamily相同、14px/600/22px/#1F2329，details仍#646A73；临时仅在浏览器覆盖五项token为monospace/18px/500/28px/#AA2266，四类标题全部同步，内容块主标题和描述的计算样式完全不变。恢复token后独立PNG `../../ui-blueprints/PM-T004-T05-F23-implemented-global-item-title-tokens.png`已查看，无pageerror；为真实组件隔离证据，不是登录态页面/数据库验收。
+- UI合规N0001/N0002/N0004/N0005/N1102-N1104，沿已确认T05蓝图，无新组件体系或禁止项；同步frontend/docs/design-system.md。无API/JSONB/权限/迁移/周期快照/UCP变化，后端/数据库验收不适用；未替换容器、部署、commit或push。

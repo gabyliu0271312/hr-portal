@@ -25,6 +25,13 @@
   --performance-content-hover-outline-offset: -1px;
   --performance-content-selected-shadow: inset 0 0 0 2px #3370ff;
 
+  /* Shared performance item titles */
+  --performance-item-title-font-family: var(--font-sans);
+  --performance-item-title-font-size: var(--font-size-md);
+  --performance-item-title-font-weight: 600;
+  --performance-item-title-line-height: 22px;
+  --performance-item-title-color: var(--color-text-primary);
+
   /* Shared performance content option cards */
   --performance-content-option-card-min-height: 54px;
   --performance-content-option-card-padding-inline: 16px;

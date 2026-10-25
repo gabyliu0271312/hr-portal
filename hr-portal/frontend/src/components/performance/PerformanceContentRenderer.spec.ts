@@ -4,6 +4,9 @@ import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import contentRendererSource from './PerformanceContentRenderer.vue?raw'
 import PerformanceRichTextToolbar from './PerformanceRichTextToolbar.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
+import { readFileSync } from 'node:fs'
+import richTextFieldSource from './PerformanceAssessmentRichTextField.vue?raw'
+import templateFieldSource from './PerformanceTemplateFieldRenderer.vue?raw'
 
 const content = {
   type: 'work_summary' as const,
@@ -236,17 +239,35 @@ describe('performance content shared primitives', () => {
     wrapper.unmount()
   })
 
-  it('uses shared compact title tokens for loaded rating items without changing preview typography', () => {
-    const props = { content: { type: 'rating' as const, items: [{ id: 'legacy', label: '旧评级题' }, { id: 'explicit', kind: 'rating' as const, label: '新增评级题' }], options: [] } }
-    const wrapper = mount(PerformanceContentRenderer, { props })
-    expect(wrapper.classes()).toContain('performance-content-renderer--configured-card')
-    expect(wrapper.findAll('.content-renderer-rating__header strong').map(title => title.text())).toEqual(['旧评级题', '新增评级题'])
-    expect(contentRendererSource).toContain('.performance-content-renderer--configured-card .content-renderer-rating__header{min-height:var(--performance-input-line-height);line-height:var(--performance-input-line-height)}')
-    expect(contentRendererSource).toContain('.performance-content-renderer--configured-card .content-renderer-rating__header>strong{font-size:var(--font-size-md);line-height:inherit}')
-    expect(contentRendererSource).not.toContain('.content-renderer-item--configured.content-renderer-rating>strong')
-    const preview = mount(PerformanceContentRenderer, { props: { ...props, variant: 'editor-preview' } })
-    expect(preview.classes()).not.toContain('performance-content-renderer--configured-card')
-    wrapper.unmount(); preview.unmount()
+  it.each([
+    { type: 'work_summary', questionType: 'text' },
+    { type: 'rating', questionType: undefined },
+    { type: 'custom', questionType: 'text' },
+    { type: 'custom', questionType: 'tag' },
+  ] as const)('uses the single global item title class for $type / $questionType', ({ type, questionType }) => {
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: { type, items: [{ id: 'title', label: '统一题目标题', questionType }], options: [] } } })
+    const title = wrapper.get('[data-content-item-id="title"] .performance-item-title')
+    expect(title.text()).toContain('统一题目标题')
+    expect(wrapper.findAll('.performance-item-title')).toHaveLength(1)
+    expect(title.attributes('style')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('defines item title typography once globally and removes per-renderer copies', () => {
+    const globalStylesSource = readFileSync('src/styles/global.css', 'utf8')
+    const tokensSource = readFileSync('src/styles/tokens.css', 'utf8')
+    expect(globalStylesSource.match(/\.performance-item-title\s*\{/g)).toHaveLength(1)
+    const style = globalStylesSource.match(/\.performance-item-title\s*\{([^}]+)\}/)![1]
+    for (const property of ['color', 'font-family', 'font-size', 'font-weight', 'line-height']) {
+      expect(style).toContain(`${property}: var(--performance-item-title-${property})`)
+    }
+    expect(tokensSource).toContain('--performance-item-title-color: var(--color-text-primary)')
+    expect(tokensSource).toContain('--performance-item-title-font-size: var(--font-size-md)')
+    expect(tokensSource).toContain('--performance-item-title-font-family: var(--font-sans)')
+    expect(contentRendererSource).not.toContain('.content-renderer-rating__header>strong{')
+    expect(richTextFieldSource).not.toMatch(/font-size:|font-weight:/)
+    expect(templateFieldSource.match(/\.template-field-label\{([^}]+)\}/)![1]).not.toMatch(/font-size:|font-weight:|line-height:|color:/)
+    expect(contentRendererSource).toContain('.performance-assessment-rich-text-field__label){margin-bottom:3px}')
   })
 
   it('renders rating levels from the selected rule snapshot', () => {

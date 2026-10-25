@@ -411,6 +411,14 @@
   - Given/When/Then: Given未选/已选标签、配置预览/可编辑预览/原有disabled；When点击/键盘或change、hover/focus和切换editable；Then颜色一致但配置不写答案、普通disabled保持灰色，内部边框稳定且外层仍可选择。组件/页面6文件179/179，员工填写/结果2文件另38/38通过；完整vue-tsc+vite及diff检查通过。
   - Evidence/DoD: 真实Chromium两处未选白底/已选#0442D2（动画稳定后）一致；配置input disabled、contenteditable=false、点击勾选框区域只选中item，普通disabled仍#EFF0F1；配置内部hover前后#DEE0E3、外层蓝色虚线、可编辑预览蓝色hover均验证，无pageerror。截图../../ui-blueprints/PM-T004-T05-F22-implemented-tag-preview-states.png已查看。纯前端交互修复以实际组件证据验收，未运行登录态业务页/数据库，后端不适用；无容器替换、部署、commit/push。不以此勾T05整体。
 
+- [x] PM-T004-T05-F23 四类item标题全局语义token与公共样式统一（2026-10-25确认）
+  - Goal/UI: 以自定义标签题item标题为基准，工作总结/评分评级/文本/标签题共用字体族、14px/600/22px和主文本色；一次全局token修改同步全部，不四处维护字体规则。沿T05蓝图，纯局部样式/设计系统归并。
+  - Reading/prerequisites: 本次完整卡片颜色继承定位、F21、Spec002/012既有UI规范及N0001/N0002/N0004/N0005/N1102-N1104；用户明确同意全局token+公共class方案。
+  - Allowed modifications: frontend/src/styles/tokens.css/global.css，PerformanceAssessmentRichTextField/ContentRenderer/TemplateFieldRenderer及既有ContentRenderer.spec.ts，frontend/docs/design-system.md、本功能文档和独立F23 PNG。保留题目行为/隐藏/必填、布局、内容块主标题/描述，不改API/权限/迁移/周期快照/UCP。
+  - Contract: 五项--performance-item-title-* token仅由全局.performance-item-title样式消费；三个渲染入口只添加公共class，移除重复字体/颜色定义。布局仍归原组件，明确隐藏/禁用状态保留；不改details次文本色、不把提示标题或页面/块标题并入item角色。
+  - Given/When/Then: Given四类题目完整卡片及字段显隐/只读/必填；When加载及修改全局token；Then正常标题全部一致且token同步生效、主标题/描述不变。5文件179/179、员工/结果/Checkbox另42/42，完整vue-tsc+vite及diff检查通过；无后端/数据库变更，相关验收不适用。
+  - Evidence/DoD: 真Chromium完整卡片四类标题同fontFamily/14px/600/22px/#1F2329，临时五token覆盖后均monospace/18px/500/28px/#AA2266，主标题/描述不变；恢复后截图../../ui-blueprints/PM-T004-T05-F23-implemented-global-item-title-tokens.png已查看，无pageerror。纯样式归并以实际组件/计算样式验收，登录态业务页与数据库未运行；无部署、容器替换、commit/push，不勾T05整体。
+
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。
   - Type: frontend/UI

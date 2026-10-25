@@ -45,6 +45,14 @@ h2 { font-size: var(--font-size-xl); }
 h3 { font-size: var(--font-size-lg); }
 h4 { font-size: var(--font-size-md); }
 
+.performance-item-title {
+  color: var(--performance-item-title-color);
+  font-family: var(--performance-item-title-font-family);
+  font-size: var(--performance-item-title-font-size);
+  font-weight: var(--performance-item-title-font-weight);
+  line-height: var(--performance-item-title-line-height);
+}
+
 p {
   margin: 0;
 }

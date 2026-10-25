@@ -85,6 +85,12 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 系统默认 sans-serif，不引入外部字体包。数字、编码、SQL、技术字段可用 `--font-mono`。
 
+### 绩效题目标题
+
+工作总结、评分评级、自定义文本和标签题的 item 标题统一添加全局类 `performance-item-title`；字体与颜色只在 `styles/global.css` 的这一份规则中消费 `styles/tokens.css` 的 `--performance-item-title-*` 语义 token。默认字体族引用 `--font-sans`，字号引用 `--font-size-md`（14px），字重600、行高22px、颜色引用 `--color-text-primary`（#1F2329）。后续全局调整只修改这些 token，不在题型组件中重复定义颜色/字体，不继承内容详情容器的次文本色。
+
+布局、间距、必填标记及明确的隐藏/禁用状态由原组件维护；页面标题、内容块主标题、描述、提示内容不属于此标题角色。新增相同语义的题目标题使用公共类，不另建局部字体规则。
+
 ### 圆角与阴影
 
 - 常规卡片、工具卡片：`--radius-md`，不超过 `8px`
