@@ -207,4 +207,4 @@
 
 > 部署：本方案为后端改动 + 迁移，需走 `git pull → docker compose up -d --build backend`（含 alembic 自动迁移），再到 UI 配 org_unit 接口、依次同步 org_unit 与花名册。详见部署手册 `memory/hr_portal_server_deploy.md` §4。
 
-> **2026-10-25 增量：分页拉取**：组织单元接口出现“配置成功但落库不全”时，优先检查北森返回的 `total/totalCount/totalRecords/recordsTotal` 与分页字段。后端 `BeisenApiClient` 已支持常见分页响应自动翻页并去重，`BeisenReportClient` 也兼容多种 total 字段；同步日志会在返回总数与实际去重行数不一致时告警。生产仍需用户部署后用元数据摘要验证配置的来源类型、last_rows 与数据库行数，不返回凭证或业务字段值。
+> **开发库验证（2026-10-25）**：组织单元数据源7同步成功1237行；直接修正开发库 `org_unit` 9个业务字段 `auto_discovered=true`（不做迁移、不改生产），同步后9列非空计数为`org_code=1237, org_name=1237, org_full_name=1237, parent_org_code=1236, parent_org_dim=1237, org_status=1237, establish_date=1237, effective_date=1237, change_type=1237`；组织树节点1237、RootOrg 1、空父节点1（RootOrg本身），组织单元字段与组织树关系恢复。
