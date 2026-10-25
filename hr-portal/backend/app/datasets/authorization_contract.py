@@ -41,6 +41,7 @@ class ProductFactContract(BaseModel):
     employee_key: str | None = Field(default=None, min_length=1, max_length=128)
     cost_center_key: str | None = Field(default=None, min_length=1, max_length=128)
     allow_cost_center_summary: bool = Field(default=False, strict=True)
+    allow_employee_count: bool = Field(default=False, strict=True)
     missing_assignment: Literal["reject", "unknown_bucket"] = "reject"
     role: Literal["person_fact", "allocation_fact", "reference", "bridge"] = "person_fact"
 
@@ -50,6 +51,8 @@ class ProductFactContract(BaseModel):
             raise ValueError("成本中心汇总仅供声明中心键的分摊事实")
         if self.role in {"person_fact", "allocation_fact"} and not self.employee_key:
             raise ValueError("事实必须声明人员键")
+        if self.allow_employee_count and (self.role not in {"person_fact", "allocation_fact"} or not self.employee_key):
+            raise ValueError("人数指标必须绑定含人员键的事实")
         return self
 
 

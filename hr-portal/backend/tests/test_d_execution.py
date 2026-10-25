@@ -1016,3 +1016,27 @@ def test_schema3_detail_filter_map_allows_dimensions_and_person_identity():
     fields = detail_filter_map(definition, outputs)
     assert set(fields) == {"cost_period", "code", "employee_no"}
     assert "headcount" not in fields
+
+
+def test_schema3_approved_employee_count_allows_distinct_person_key_metric():
+    from app.datasets.authorization_contract import ProductAuthorizationDefinition
+    definition = ProductAuthorizationDefinition.model_validate({
+        "schema_version": 3,
+        "facts": [{"alias": "allocation", "table_name": "allocation_fact", "fact_key": "fact_id",
+                   "employee_key": "employee_no", "cost_center_key": "cc_code",
+                   "allow_cost_center_summary": True, "allow_employee_count": True,
+                   "role": "allocation_fact"}],
+    })
+    contract = _s_contract(definition=definition, model_snapshot={
+        "tables": [{"id": 2, "table_name": "allocation_fact", "alias": "allocation"}],
+        "relations": [],
+        "outputs": [
+            {"id": 31, "source_alias": "allocation", "source_column": "cc_code", "output_code": "cc_code", "data_type": "string", "is_visible": True, "is_sensitive": False, "agg_role": "dimension"},
+            {"id": 32, "source_alias": "allocation", "source_column": "employee_no", "output_code": "employee_no", "data_type": "string", "is_visible": True, "is_sensitive": False, "agg_role": "dimension"},
+        ],
+    })
+    result = validate_allocation_fact_s_execution(contract, SExecutionBindingIn(
+        dataset_id=7, contract_id=12, contract_version=1,
+        plan=ExecutionPlanIn(output_fields=["cc_code", "employee_no"], group_by=["cc_code"], aggregations={"employee_no": "count_distinct"}),
+    ))
+    assert result.eligible is True

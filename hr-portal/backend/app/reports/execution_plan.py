@@ -41,7 +41,7 @@ def compile_execution_plan(
         issues.append({"code": "personal_locator_requires_detail", "message": "个人定位字段不能通过汇总路径使用"})
     if aggregate_requested and set(payload.filters) & identifying:
         issues.append({"code": "personal_filter_requires_detail", "message": "个人定位筛选必须使用人员明细授权"})
-    invalid_measures = sorted(set(payload.aggregations) - measures)
+    invalid_measures = sorted(set(payload.aggregations) - measures - allowed_count_keys)
     if invalid_measures:
         issues.append({"code": "aggregate_field_not_measure", "message": "只有批准度量可以聚合: " + ", ".join(invalid_measures)})
     if len(set(payload.group_by)) != len(payload.group_by):

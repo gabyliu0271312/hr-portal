@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import String, cast, false, func, or_, select
+from sqlalchemy import String, cast, false, func, or_, select, distinct
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import False_
 
@@ -102,6 +102,7 @@ def validate_allocation_fact_s_execution(contract, request):
             issues=[_s_issue("authorization_contract_invalid", "授权合同快照未通过服务端校验")],
         )
     issues: list[dict[str, str]] = []
+    approved_count_keys: set[str] = set()
     if bound_contract.status != "active":
         issues.append(_s_issue("authorization_contract_not_active", "只有active授权合同可以进入S执行校验"))
     if bound_contract.runtime_enabled:
@@ -162,16 +163,23 @@ def validate_allocation_fact_s_execution(contract, request):
             issues.append(_s_issue("s_execution_anchor_unbound", "S执行授权锚点未绑定批准事实"))
         identifying = {code for code, item in output_by_code.items()
                        if item["source_column"] in {fact.employee_key, fact.fact_key}}
-        if set(bound_request.plan.aggregations) & identifying:
+        approved_count_keys = {
+            code for code, aggregation in bound_request.plan.aggregations.items()
+            if aggregation == "count_distinct"
+            and fact.allow_employee_count
+            and output_by_code.get(code, {}).get("source_column") == fact.employee_key
+        }
+        if set(bound_request.plan.aggregations) & identifying - approved_count_keys:
             issues.append(_s_issue("s_execution_personal_locator_forbidden", "人员键聚合须独立批准，当前切片不支持"))
         from app.reports.execution_plan import compile_execution_plan
         from app.datasets.authorization_contract import derived_summary_fields
         derived = derived_summary_fields(definition, outputs) if definition.schema_version == 3 else None
-        allowed_fields = set(derived["summary_outputs"]) if derived else set(definition.output_fields)
+        allowed_fields = set(derived["summary_outputs"]) | approved_count_keys if derived else set(definition.output_fields)
         allowed_measures = set(derived["measures"]) if derived else set(definition.measures)
         shape = compile_execution_plan(bound_request.dataset_id, bound_request.plan,
             allowed_fields=allowed_fields, measures=allowed_measures,
-            approved_summary=True, identifying_fields=identifying)
+            approved_summary=True, approved_measure_fields=approved_count_keys,
+            identifying_fields=identifying)
         issues.extend(shape.issues)
     plan = bound_request.plan
     if not plan.aggregations:
@@ -210,7 +218,9 @@ def validate_allocation_fact_s_execution(contract, request):
             elif condition.operator in {"eq", "gte", "lte"} and isinstance(condition.value, (list, dict)):
                 issues.append(_s_issue("s_execution_filter_value_invalid", "筛选值类型不支持"))
     if "count_distinct" in plan.aggregations.values():
-        issues.append(_s_issue("s_execution_aggregation_unsupported", "人数指标须独立批准，当前切片不支持"))
+        count_keys = {code for code, aggregation in plan.aggregations.items() if aggregation == "count_distinct"}
+        if not all(code in approved_count_keys for code in count_keys):
+            issues.append(_s_issue("s_execution_aggregation_unsupported", "人数指标未获事实级批准"))
     if issues:
         return SExecutionValidationOut(
             dataset_id=bound_request.dataset_id, contract_id=bound_request.contract_id,
@@ -423,6 +433,11 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
             return None, [_s_issue("s_execution_aggregation_type_invalid", "聚合函数与度量类型不兼容")]
         if output_type and source_type != output_type and not (output_type == "enum" and source_type == "string"):
             return None, [_s_issue("s_execution_physical_type_drift", "汇总输出类型与物理度量类型不一致")]
+        if aggregation == "count_distinct":
+            if not (fact.allow_employee_count and source_column == fact.employee_key):
+                return None, [_s_issue("s_execution_aggregation_unsupported", "人数指标未获事实级批准")]
+            projected.append(func.count(distinct(expression)).label(output_code))
+            continue
         aggregate = {
             "sum": func.sum,
             "count": func.count,

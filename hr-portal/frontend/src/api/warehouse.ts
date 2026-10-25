@@ -575,7 +575,7 @@ export interface ProductAuthorizationContract {
   approval_reason: string | null
   created_by: number
   runtime_enabled: false
-  facts: Array<{ alias: string; table_name: string; fact_key: string; employee_key: string | null; cost_center_key: string | null; allow_cost_center_summary: boolean; role: string }>
+  facts: Array<{ alias: string; table_name: string; fact_key: string; employee_key: string | null; cost_center_key: string | null; allow_cost_center_summary: boolean; allow_employee_count?: boolean; role: string }>
   output_fields: string[]
   dimensions: string[]
   measures: string[]

@@ -1638,3 +1638,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 前端 `ReportPreviewTable` 增加可选 row-click；非授权/legacy 报表不启用下钻点击。
 - 验证：后端 d_execution/report-binding 定向 74 passed/52 skipped；前端 vue-tsc/build通过（39.43s），开发前端HTTP 200。
 - 开发真实数据探针仍需在后端运行时模型注册后执行；中心用户拒绝沿用既有报表25证据。
+
+### 5.5 已批准人数指标（首轮开发，2026-10-25）
+
+- 产品合同事实新增 `allow_employee_count`，只有事实声明人员键且明确批准时，才允许对人员键做 `COUNT(DISTINCT)`；不返回人员键名单。
+- S 校验/编译支持 `count_distinct` 人数度量：人员键可作为被聚合字段，但不能分组、筛选或直接输出为明细；未批准返回 `s_execution_aggregation_unsupported`/个人定位阻断。
+- 报表汇总结果将该聚合列展示为“人数”，仍由同一授权聚合子查询派生 COUNT/分页/导出。
+- 准入面板 schema3 合同创建增加“批准人数指标”开关，并创建只声明事实与路径的schema3草稿。
+- 新增单元验证：批准人数指标可通过，未批准路径仍拒绝；定向 d_execution/report binding 预计在完整回归中覆盖。
+- 尚未把任何生产/开发既有合同打开 `allow_employee_count`，避免未经业务确认改变现有报表口径；真实报表需新合同版本批准后验收。

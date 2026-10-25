@@ -288,7 +288,7 @@ async def _execute_authorized_summary(report, channel, query, readiness):
             return value.isoformat()
         return value
     columns = [{"code": instance.instance_id, "source_code": instance.source_code,
-                "label": instance.label or output.output_label,
+                "label": "人数" if aggregate_by_output.get(output.output_code) == "count_distinct" else (instance.label or output.output_label),
                 "data_type": "number" if aggregate_by_output.get(output.output_code) in {"sum", "avg", "count", "count_distinct"} else output.data_type,
                 "is_sensitive": output.is_sensitive} for instance, output in selected]
     items = [{instance.instance_id: serialize(result[output.output_code]) for instance, output in selected} for result in rows]

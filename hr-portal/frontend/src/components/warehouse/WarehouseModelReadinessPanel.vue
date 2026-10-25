@@ -34,7 +34,7 @@ const contracts = ref<ProductAuthorizationContract[]>([])
 const modelOutputFields = ref<Array<{ output_code: string; agg_role: string; is_sensitive: boolean }>>([])
 const standardFields = ref<ModelStandardFieldBinding[]>([])
 const useStandardContract = ref(true)
-const contractForm = ref({ alias: 'current', tableName: '', factKey: '', employeeKey: '', costCenterKey: '', role: 'allocation_fact' })
+const contractForm = ref({ alias: 'current', tableName: '', factKey: '', employeeKey: '', costCenterKey: '', role: 'allocation_fact', allowEmployeeCount: false })
 const createContractSaving = ref(false)
 const conversionReason = ref('')
 const contractReason = ref('')
@@ -92,28 +92,14 @@ async function createContract() {
   try {
     const latestContractVersion = contracts.value.reduce((max, item) => Math.max(max, item.contract_version), 0)
     const visible = modelOutputFields.value.filter(field => !field.is_sensitive)
-    const fact = { alias: form.alias, table_name: form.tableName.trim(), fact_key: form.factKey.trim(), employee_key: form.employeeKey.trim(), cost_center_key: form.costCenterKey.trim() || null, allow_cost_center_summary: Boolean(form.costCenterKey.trim()), missing_assignment: 'reject', role: form.role }
+    const fact = { alias: form.alias, table_name: form.tableName.trim(), fact_key: form.factKey.trim(), employee_key: form.employeeKey.trim(), cost_center_key: form.costCenterKey.trim() || null, allow_cost_center_summary: Boolean(form.costCenterKey.trim()), allow_employee_count: Boolean(form.allowEmployeeCount), missing_assignment: 'reject', role: form.role }
     if (useStandardContract.value) {
-      const byOutput = new Map(standardFields.value.map(item => [item.output_code, item.standard_field_code]))
-      const outputCodes = visible.map(field => byOutput.get(field.output_code)).filter((code): code is string => Boolean(code))
-      if (!outputCodes.length) {
-        ElMessage.warning('当前数据集没有已确认标准字段的输出，无法创建标准字段合同')
-        return
-      }
-      const dimensions = visible.filter(field => field.agg_role !== 'measure').map(field => byOutput.get(field.output_code)).filter((code): code is string => Boolean(code))
-      const measures = visible.filter(field => field.agg_role === 'measure').map(field => byOutput.get(field.output_code)).filter((code): code is string => Boolean(code))
-      const anchors = [form.employeeKey.trim(), form.costCenterKey.trim()].filter(Boolean)
       await createAuthorizationContract(props.modelId, {
-        schema_version: 2,
+        schema_version: 3,
         expected_version: latestContractVersion,
-        standard_fields: [...new Set([...outputCodes, ...anchors])],
-        output_fields: outputCodes,
-        dimensions,
-        measures,
-        internal_fields: [],
         facts: [fact],
       })
-      ElMessage.success('标准字段合同草稿已创建')
+      ElMessage.success('schema3事实与路径合同草稿已创建')
     } else {
       const outputs = visible.map(field => field.output_code)
       const dimensions = visible.filter(field => field.agg_role !== 'measure').map(field => field.output_code)
@@ -188,14 +174,15 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
       <section class="readiness-section">
         <strong>授权合同状态</strong>
         <div class="reason-form">
-          <el-switch v-model="useStandardContract" active-text="标准字段合同（schema 2）" />
-          <span class="readiness-panel__note">{{ useStandardContract ? '人员/中心锚点填写标准字段编码；事实表名与事实主键仍为物理标识。' : '旧合同模式：字段填写物理/输出编码。' }}</span>
+          <el-switch v-model="useStandardContract" active-text="schema3标准字段合同" />
+          <span class="readiness-panel__note">{{ useStandardContract ? '合同只声明事实与路径；字段面、D/S和筛选能力由数据集输出与标准字段语义推导。' : '旧合同模式：字段填写物理/输出编码。' }}</span>
         </div>
         <div class="reason-form">
           <el-input v-model="contractForm.tableName" placeholder="事实表名" maxlength="64" />
           <el-input v-model="contractForm.factKey" placeholder="事实主键（物理）" maxlength="128" />
           <el-input v-model="contractForm.employeeKey" :placeholder="useStandardContract ? '人员锚点（标准字段编码）' : '人员键'" maxlength="128" />
-          <el-input v-model="contractForm.costCenterKey" :placeholder="useStandardContract ? '中心锚点（标准字段编码，可选）' : '中心键（可选）'" maxlength="128" />
+          <el-input v-model="contractForm.costCenterKey" :placeholder="useStandardContract ? '中心锚点（物理字段编码，可选）' : '中心键（可选）'" maxlength="128" />
+          <el-checkbox v-if="useStandardContract" v-model="contractForm.allowEmployeeCount">批准人数指标（COUNT DISTINCT 人员键）</el-checkbox>
           <PermissionButton menu="warehouse.assets" op="U" size="small" :disabled="createContractSaving || !contractForm.tableName.trim() || !contractForm.factKey.trim() || !contractForm.employeeKey.trim()" @click="createContract">创建合同草稿</PermissionButton>
         </div>
         <el-empty v-if="!contracts.length" description="暂无授权合同" :image-size="48" />
