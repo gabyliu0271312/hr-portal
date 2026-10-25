@@ -39,6 +39,10 @@ export function supportsEvaluationView(content: { type: string; questionType?: '
   return variant === 'work-summary' || variant === 'custom-text' || variant === 'custom-tag'
 }
 
+export function supportsEvaluationItemSettings(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
+  return supportsEvaluationView(content, item) || getItemSettingsVariant(content, item) === 'rating'
+}
+
 export function getEvaluationExecutorKind(executorLabel?: string, executorTypes: readonly string[] = []): EvaluationExecutorKind {
   if (executorLabel?.includes('360') || executorTypes.some(type => /360|REVIEWER/i.test(type))) return 'reviewer_360'
   if (executorLabel?.includes('直属') || executorLabel?.includes('直接') || executorLabel?.includes('实线') || executorTypes.includes('DIRECT_MANAGER')) return 'direct_manager'

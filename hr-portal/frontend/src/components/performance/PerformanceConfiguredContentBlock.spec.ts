@@ -8,7 +8,7 @@ import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSett
 import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
-import { getEvaluationExecutorKind, getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationView } from './performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView } from './performanceContentSettingsRules'
 
 const content = {
   id: 'content-1',
@@ -91,6 +91,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getRootSettingsCapabilities({ type: 'rating', items: [] }, 'evaluation-360-root')).toEqual({ allowMultiple: false, allowUnknown: true })
     expect(getRootSettingsCapabilities({ type: 'rating', items: [] }, 'evaluation-direct-root')).toEqual({ allowMultiple: false, allowUnknown: false })
     expect(supportsEvaluationView({ type: 'custom', questionType: 'text' })).toBe(true)
+    expect(supportsEvaluationItemSettings({ type: 'rating' }, { kind: 'rating' })).toBe(true)
     expect(supportsEvaluationView({ type: 'prompt' }, { kind: 'prompt' })).toBe(false)
   })
 
@@ -350,6 +351,32 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '必填项设置'])
     wrapper.unmount()
   })
+  it('shows evaluation rating item settings without view-mode controls', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, {
+      props: {
+        content: { ...content, type: 'rating', name: '评分评级', items: [{ id: 'rating-item', label: '季度评级', hint: '' }] },
+        active: true,
+        expanded: true,
+        dragging: false,
+        index: 0,
+        count: 1,
+        toolbarVisible: false,
+        rootSettings: { hideDescription: false, allowMultiple: false, allowUnknown: true },
+        itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: false } },
+        rootSettingsEnabled: true,
+        itemSettingsEnabled: true,
+        rootSettingsVariant: 'evaluation-360-root',
+        itemSettingsVariant: 'evaluation-item',
+      },
+    })
+
+    await wrapper.get('[data-content-item-id="rating-item"]').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '必填项设置'])
+    expect(wrapper.findAll('.content-settings-detail--item input[type="radio"]')).toHaveLength(0)
+    expect(wrapper.findComponent(PerformanceRatingLevelRuleSettings).exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('exposes only confirmed stage and item capabilities with item-first legacy fallbacks', () => {
     expect(getStageContentRule('work_summary')).toMatchObject({ rootSettingsEnabled: true, itemSettingsEnabled: true, visibleSlots: ['fill'] })
     expect(getStageContentRule('evaluation')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true })

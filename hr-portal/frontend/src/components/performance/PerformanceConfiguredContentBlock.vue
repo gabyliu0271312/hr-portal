@@ -11,7 +11,7 @@ import PerformanceDragHandle from './PerformanceDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
-import { getItemSettingsVariant, getRootSettingsCapabilities, supportsEvaluationView } from './performanceContentSettingsRules'
+import { getItemSettingsVariant, getRootSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView } from './performanceContentSettingsRules'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 
 const props = defineProps<{
@@ -74,7 +74,7 @@ const selectedItemKey = computed(() => props.active && owner.value === 'item' &&
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
 const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) => Boolean(props.itemSettingsEnabled)
   && item?.kind !== 'prompt'
-  && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationView(props.content, item))
+  && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationItemSettings(props.content, item))
 const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value))
   && (props.itemSettingsVariant !== 'result-view-item' || getItemSettingsVariant(props.content, props.content.items.find(item => item.id === selectedItemId.value)) === 'custom-tag'))
 const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => itemSettingsAvailable(item)).map((item) => {

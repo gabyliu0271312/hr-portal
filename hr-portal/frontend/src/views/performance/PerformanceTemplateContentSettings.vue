@@ -134,7 +134,7 @@ import type { WorkSummaryItemSettings } from '@/components/performance/Performan
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -470,7 +470,7 @@ function serializeConfiguredContents(slot = activeTab.value): PerformanceTemplat
     settings: content.type !== 'prompt' && activeStageContentRule.value.rootSettingsEnabled ? rootSettingFor(id) : content.settings,
     items: content.items.map(({ settings, ...item }) => ({
       ...item,
-      settings: item.kind !== 'prompt' && activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationView(content, item))
+      settings: item.kind !== 'prompt' && activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationItemSettings(content, item))
         && (!isResultView.value || (content.type === 'custom' && (item.questionType || content.questionType || 'text') === 'tag'))
         ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, selectedStageData.value?.nodeType === 'evaluation' && slot === 'fill' && supportsEvaluationView(content, item))
         : settings,

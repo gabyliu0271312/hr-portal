@@ -21,6 +21,9 @@ function supportsEvaluationView(content, item) {
   const variant = getItemSettingsVariant(content, item);
   return variant === "work-summary" || variant === "custom-text" || variant === "custom-tag";
 }
+function supportsEvaluationItemSettings(content, item) {
+  return supportsEvaluationView(content, item) || getItemSettingsVariant(content, item) === "rating";
+}
 function getEvaluationExecutorKind(executorLabel, executorTypes = []) {
   if (executorLabel?.includes("360") || executorTypes.some((type) => /360|REVIEWER/i.test(type))) return "reviewer_360";
   if (executorLabel?.includes("直属") || executorLabel?.includes("直接") || executorLabel?.includes("实线") || executorTypes.includes("DIRECT_MANAGER")) return "direct_manager";
@@ -105,6 +108,7 @@ export {
   getStageContentRule,
   getStageContentTabs,
   itemSettingsCapabilities,
+  supportsEvaluationItemSettings,
   supportsEvaluationView,
   stageContentRules
 };
