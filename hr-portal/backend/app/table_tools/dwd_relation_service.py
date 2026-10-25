@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.column_roles import is_technical_column
 from app.datasets.models import DataSet
 from app.datasets.router import _can_consume as dataset_can_access
 from app.permissions.masker import get_hidden_columns

@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from app.data.column_roles import business_column_filter
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -36,6 +36,7 @@ from sqlalchemy.types import DateTime as SADateTime
 from sqlalchemy.types import Numeric as SANumeric
 from sqlalchemy.types import String as SAString
 
+from app.data.column_roles import is_technical_column
 from app.ai_formula.custom_functions import executable_functions
 from app.ai_formula.field_refs import row_field_resolver
 from app.ai_formula.formula_evaluator import evaluate_formula

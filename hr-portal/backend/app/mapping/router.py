@@ -13,6 +13,7 @@ from uuid import uuid4
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.data.column_roles import business_column_filter, is_technical_column
 from app.core.db import get_session
 from app.core.deps import current_user, user_has_op
 from pydantic import BaseModel, Field

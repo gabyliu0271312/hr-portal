@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import String, case, cast, desc, func, literal, null, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.column_roles import business_column_filter
 from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data.formula import eval_formula

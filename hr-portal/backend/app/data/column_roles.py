@@ -21,3 +21,17 @@ def is_technical_column(column_code: str | None) -> bool:
     if code.startswith(TECHNICAL_PREFIXES):
         return True
     return code.endswith(TECHNICAL_SUFFIXES)
+
+
+def business_column_filter(column):
+    """SQLAlchemy 条件：只保留业务列（与 is_technical_column 同一规则）。"""
+    from sqlalchemy import not_, or_
+
+    code = column.column_code
+    return not_(or_(
+        code.in_(tuple(sorted(TECHNICAL_COLUMN_CODES))),
+        code.like(r"raw\_%", escape="\\"),
+        code.like(r"src\_%", escape="\\"),
+        code.like(r"\_%", escape="\\"),
+        code.like(r"%\_hash", escape="\\"),
+    ))

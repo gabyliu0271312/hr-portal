@@ -1560,3 +1560,14 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
   - 标准化刷新：不再做 `is_visible = 自身 AND 源列` 传播，新建列按技术列规则取默认值。
 - 回归：报表22/23/24 各 74、25 明细 723、期间筛选 0；定向 72 passed/52 skipped；全量 2856 passed/247 skipped/8 failed（与干净HEAD一致）。
 - **尚未完成**：`table_columns.is_visible` / `dataset_output_fields.is_visible` 字段与 147 处读写（后端 25 文件、前端 20 文件，含推送/AI公式/映射/计算字段）尚未删除；字段管理页开关仍在。需单独一轮做迁移+全渠道回归，不能与授权改动混在一起。
+
+### 可见性去授权化第二步：全后端读取迁移（2026-10-25）
+
+- `business_column_filter(TableColumn)`：与 `is_technical_column` 同规则的 SQL 条件。
+- 已把后端全部“字段面”读取从 `is_visible` 切到代码规则：
+  - 数据视图列清单（`/data`）、数据对比元数据、映射目标字段与过滤、推送目标字段（4处）、推送路由、
+    报表 SQL 构建列可用性、报表字段校验、DWD 关联服务、单表数据集生成、资产字段清单（`include_hidden`）。
+- 授权路径（S/D/发布门禁/刷新）已在上一轮完成。
+- 回归：试点 74/74/74/723；全量 **2857 passed / 247 skipped / 8 failed**（与干净HEAD一致）。
+- **剩余（第三步）**：删除 `table_columns.is_visible` / `dataset_output_fields.is_visible` 列与 API 字段、
+  前端 55 处开关/类型（字段管理、资产向导、报表字段选择等），必须与迁移同一轮提交，否则前后端 422。

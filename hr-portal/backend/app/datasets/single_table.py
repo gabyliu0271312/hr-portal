@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.column_roles import is_technical_column
 from app.data.models import DATA_TABLES, RegisteredTable
 from app.datasets.models import DataSet, DataSetTable
 

@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, quote, urlparse
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.column_roles import business_column_filter
 from app.data.ddl import POSTGRES_IDENTIFIER_MAX_BYTES, make_identifier, postgres_type, quote_ident
 from app.data.models import DATA_TABLES, TableColumn
 from app.datasources.sync_service import PERIOD_TABLES

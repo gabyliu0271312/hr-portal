@@ -7,6 +7,7 @@ from typing import Optional
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.column_roles import business_column_filter
 from app.warehouse.service import DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.datasets.models import (
     DataSet,
