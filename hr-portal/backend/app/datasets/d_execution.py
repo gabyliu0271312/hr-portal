@@ -279,6 +279,7 @@ async def compile_allocation_fact_s_scope(*, user, fact, model, db, table_alias=
 
 async def compile_allocation_fact_s_select_for_user(*, contract, request, user, db):
     """Compile S aggregation from a server-bound contract with current field and scope checks."""
+    from app.data.column_roles import is_technical_column
     from app.data.models import DATA_TABLES, TableColumn
     from app.permissions.masker import get_hidden_columns
     from app.reports.sql_builder import _entity_column
@@ -391,14 +392,14 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
     hidden = await get_hidden_columns(user, fact.table_name, db, tool_key=None)
     if hidden is None:
         return None, [_s_issue("s_execution_field_access_unresolved", "字段授权尚未完成裁决")]
-    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
+    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     outputs = {item["output_code"]: item for item in bound_contract.model_snapshot["outputs"]}
     projected = []
     group_columns = []
     for output_code in request.plan.group_by:
         output = outputs[output_code]
         source_column = output["source_column"]
-        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+        if (output.get("is_sensitive") is not False or is_technical_column(source_column)
                 or source_column in protected or output_code in protected):
             return None, [_s_issue("s_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
         if source_column not in current_columns or source_column not in model.__table__.columns:
@@ -409,7 +410,7 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
     for output_code, aggregation in request.plan.aggregations.items():
         output = outputs[output_code]
         source_column = output["source_column"]
-        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+        if (output.get("is_sensitive") is not False or is_technical_column(source_column)
                 or source_column in protected or output_code in protected):
             return None, [_s_issue("s_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
         if source_column not in current_columns or source_column not in model.__table__.columns:
@@ -447,7 +448,7 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         if output is None:
             return None, [_s_issue("s_execution_filter_field_missing", "筛选字段不是批准输出")]
         source_column = output["source_column"]
-        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+        if (output.get("is_sensitive") is not False or is_technical_column(source_column)
                 or source_column in protected or condition.field in protected):
             return None, [_s_issue("s_execution_hidden_field_forbidden", "筛选字段对当前用户不可见")]
         if source_column not in current_columns or source_column not in model.__table__.columns:
@@ -616,7 +617,7 @@ async def compile_person_fact_d_select_for_user(*, contract: DExecutionContractS
     hidden = await get_hidden_columns(user, fact.table_name, db, tool_key=None)
     if hidden is None:
         return None, [_scope_issue("d_execution_field_access_unresolved", "字段授权尚未完成裁决")]
-    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
+    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     from app.reports.sql_builder import _entity_column
     projected = []
     for output_code in request.plan.output_fields:
@@ -669,6 +670,7 @@ async def compile_person_scope_membership(*, user, fact, db):
 async def compile_allocation_fact_d_select_for_user(*, contract, request, user, db):
     """按合同明细白名单编译人员范围明细投影（不聚合、不含中心汇总）。"""
     from app.data.models import DATA_TABLES, TableColumn
+    from app.data.column_roles import is_technical_column
     from app.permissions.masker import get_hidden_columns
     from app.permissions.scope_filter import is_unrestricted
     from app.reports.sql_builder import _entity_column
@@ -705,19 +707,15 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
         # schema 3：is_visible 只表达展示面，不作为执行拒绝依据；技术列/按用户隐藏/敏感列仍拒绝
         protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     else:
-        protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
+        protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     projected = []
     for output_code in request.plan.output_fields:
         output = outputs.get(output_code)
         if output is None:
             return None, [_scope_issue("d_execution_output_missing", "明细输出不在合同快照中")]
         source_column = output["source_column"]
-        if definition.schema_version == 3:
-            blocked = (output.get("is_sensitive") is not False or source_column in technical
-                       or source_column in protected or output_code in protected)
-        else:
-            blocked = (output.get("is_visible") is not True or output.get("is_sensitive") is not False
-                       or source_column in protected or output_code in protected)
+        blocked = (output.get("is_sensitive") is not False or is_technical_column(source_column)
+                   or source_column in protected or output_code in protected)
         if blocked:
             return None, [_scope_issue("d_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
         if source_column not in model.__table__.columns:

@@ -1549,3 +1549,14 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - **端到端（开发库真实HTTP）**：22/23/24 各 **74** 组，25 明细 **723** 行；22 默认筛选 74；运行期 `202601`=**0**；未配置字段=**422**；`contains`=**403**；CSV 默认 **75** 行、筛选 **1** 行。
 - **测试**：定向 122 passed/193 skipped（含 schema3 合同拒绝白名单、推导保留中心维度 2 例）；全量 **2856 passed / 247 skipped / 8 failed**（与干净HEAD一致，无新增回归）。
 - **未覆盖**：隐藏列（`is_visible=false`）作为明细输出的端到端验证需要下一次合同版本切换（当前试点列仍为可见）；前端无改动。
+
+### 可见性去授权化第一步（2026-10-25）
+
+- 新增 `app/data/column_roles.py::is_technical_column`：技术列只按代码规则判定（`id/pk_hash/synced_at`、`raw_/src_/_` 前缀、`_hash` 后缀），不提供人工开关。
+- 授权路径不再读取 `is_visible`：
+  - S 汇总：protected 仅按“按用户隐藏列 + 敏感列”，输出/筛选检查改为敏感/技术列判定；
+  - D 明细：可明细输出=数据集全部输出，拒绝条件改为敏感/技术列/按用户隐藏；
+  - 发布门禁：删除 `output_visibility_weakened` 规则（技术输出仍由 `technical_output_forbidden` 拒绝）；
+  - 标准化刷新：不再做 `is_visible = 自身 AND 源列` 传播，新建列按技术列规则取默认值。
+- 回归：报表22/23/24 各 74、25 明细 723、期间筛选 0；定向 72 passed/52 skipped；全量 2856 passed/247 skipped/8 failed（与干净HEAD一致）。
+- **尚未完成**：`table_columns.is_visible` / `dataset_output_fields.is_visible` 字段与 147 处读写（后端 25 文件、前端 20 文件，含推送/AI公式/映射/计算字段）尚未删除；字段管理页开关仍在。需单独一轮做迁移+全渠道回归，不能与授权改动混在一起。

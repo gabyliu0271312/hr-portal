@@ -63,8 +63,6 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
             issue("output_physical_type_drift", "实际物理字段、输出与字段元数据类型不一致", output)
         if column.is_sensitive and not output.is_sensitive:
             issue("output_sensitivity_weakened", "输出未继承来源字段敏感限制", output)
-        if not column.is_visible and output.is_visible:
-            issue("output_visibility_weakened", "输出未继承来源字段隐藏限制", output)
         match = binding_map.get(output.id)
         if match is None:
             issue("output_binding_missing", "输出字段没有标准字段确认绑定", output)

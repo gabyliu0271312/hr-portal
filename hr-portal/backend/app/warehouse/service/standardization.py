@@ -12,6 +12,8 @@ import logging
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.column_roles import is_technical_column
+
 logger = logging.getLogger(__name__)
 
 # ==================== 标准化规则 (R01) ====================
@@ -669,7 +671,6 @@ class StandardizationRuleService:
                         raise ValueError("DWD_REFRESH_TYPE_DRIFT: 输出字段类型已变化")
                     await self._validate_refresh_binding(output_id=output.id, column=column)
                     output.is_sensitive = bool(output.is_sensitive or column.is_sensitive)
-                    output.is_visible = bool(output.is_visible and column.is_visible)
                 counts[ds.id] = counts.get(ds.id, 0) + len(outputs)
             await self.session.flush()
             if commit:
@@ -1192,7 +1193,6 @@ class StandardizationRuleService:
                     # Keep TableColumn.id and governance fields stable across refreshes.
                     if src_meta is not None:
                         existing_column.is_sensitive = bool(existing_column.is_sensitive or src_meta.is_sensitive)
-                        existing_column.is_visible = bool(existing_column.is_visible and src_meta.is_visible)
                     continue
                 self.session.add(TableColumn(
                     table_name=target,
@@ -1202,7 +1202,7 @@ class StandardizationRuleService:
                     data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else (src_meta.data_type if src_meta else "string"),
                     is_pk_part=bool(src_meta.is_pk_part) if src_meta else False,
                     is_sensitive=bool(src_meta.is_sensitive) if src_meta else False,
-                    is_visible=False,
+                    is_visible=not is_technical_column(tgt),
                     display_order=(src_meta.display_order if src_meta else display_index * 10),
                     auto_discovered=True,
                     agg_role=(src_meta.agg_role if src_meta else "dimension"),
