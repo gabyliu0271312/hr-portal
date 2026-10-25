@@ -69,45 +69,6 @@ SOURCE_DROP_COLUMNS: dict[str, set[str]] = {
 }
 
 
-ORG_UNIT_FIELD_ALIASES: dict[str, set[str]] = {
-    "org_code": {"org_code", "orgcode", "orgunitcode", "code", "组织编码", "组织单元编码", "编码"},
-    "org_name": {"org_name", "orgname", "orgunitname", "name", "组织名称", "名称"},
-    "org_full_name": {"org_full_name", "orgfullname", "fullname", "组织全称", "全称"},
-    "parent_org_code": {"parent_org_code", "parentorgcode", "parentcode", "行政上级组织编码", "上级组织编码"},
-    "parent_org_dim": {"parent_org_dim", "parentorgdim", "orgadmin", "行政维度上级"},
-    "org_status": {"org_status", "orgstatus", "status", "state", "状态"},
-    "establish_date": {"establish_date", "establishdate", "设立日期"},
-    "effective_date": {"effective_date", "effectivedate", "startdate", "生效日期"},
-    "change_type": {"change_type", "changetype", "变动类型"},
-}
-
-
-def _source_key_token(value: object) -> str:
-    return re.sub(r"[^a-z0-9一-鿿]", "", str(value or "").strip().lower())
-
-
-def _canonicalize_org_unit_rows(rows: list[dict]) -> list[dict]:
-    """把北森 API/报表常见字段名归一到 org_unit 的9个既有业务列。"""
-    aliases = {
-        _source_key_token(alias): canonical
-        for canonical, values in ORG_UNIT_FIELD_ALIASES.items()
-        for alias in values
-    }
-    normalized: list[dict] = []
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        result = dict(row)
-        for key, value in row.items():
-            canonical = aliases.get(_source_key_token(key))
-            if canonical and (canonical not in result or result.get(canonical) in (None, "")):
-                result[canonical] = value
-            if canonical and key != canonical:
-                result.pop(key, None)
-        normalized.append(result)
-    return normalized
-
-
 # 年月列强制规范化为 YYYYMM（便于跨表按月份 JOIN）。
 # 如分摊表「成本归属年月」源端是 "2025-10"，统一成 "202510"，与成本中心「月份」对齐。
 YEARMONTH_COLUMNS: dict[str, set[str]] = {
@@ -1543,10 +1504,6 @@ async def _sync_to_table_impl(
         rows = await client.fetch()
     else:
         raise RuntimeError(f"客户端不支持数据拉取: {type(client).__name__}")
-
-    # 组织单元接口/报表的字段名在不同北森对象中不一致，先归一到既有9列再做实体同步。
-    if table_name == "org_unit":
-        rows = _canonicalize_org_unit_rows(rows or [])
 
     # 丢弃表头未翻译的 UUID 噪音列（含将来接口新增的同类列）
     _strip_uuid_columns(rows or [])
