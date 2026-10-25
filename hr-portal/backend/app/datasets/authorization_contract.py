@@ -94,6 +94,14 @@ def approved_filter_map(definition, outputs) -> dict[str, set[str]]:
     return {item.field: set(item.operators) for item in definition.approved_filters}
 
 
+def personal_filter_map(definition, outputs) -> dict[str, set[str]]:
+    """schema 3 人员定位筛选仅供明细D；汇总S不接受 identifying 条件。"""
+    if definition.schema_version != 3:
+        return {}
+    derived = derived_summary_fields(definition, outputs)
+    return {code: set(SUPPORTED_FILTER_OPERATORS) for code in derived["identifying"]}
+
+
 class ApprovedFilter(BaseModel):
     """合同批准的筛选能力：只允许在已批准维度上按批准操作符收窄。"""
     model_config = {"extra": "forbid"}

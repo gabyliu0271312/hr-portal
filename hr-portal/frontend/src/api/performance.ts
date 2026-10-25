@@ -1092,6 +1092,8 @@ export interface PerformancePromptValue {
   color: string
   scope: 'all' | 'cycle'
   showIcon?: boolean
+  allowView?: boolean
+  onlyWhenFilling?: boolean
 }
 
 export interface PerformanceTemplateContentItem {

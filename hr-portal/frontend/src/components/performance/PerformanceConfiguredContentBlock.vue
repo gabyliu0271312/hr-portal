@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, type CSSProperties } from 'vue'
+import type { PerformancePromptValue } from '@/api/performance'
 import type { AssessmentContentDraft } from './PerformanceAssessmentContentLayers.vue'
 import PerformanceAssessmentConfiguredPreview from './PerformanceAssessmentConfiguredPreview.vue'
 import PerformanceAddAnotherButton from './PerformanceAddAnotherButton.vue'
@@ -33,6 +34,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   activate: [contentId: string]
   'update:expanded': [expanded: boolean]
+  'update:content': [content: AssessmentContentDraft & { id: string }]
   'update:root-settings': [settings: WorkSummaryRootSettings]
   'update:item-settings': [settings: Record<string, WorkSummaryItemSettings>]
   'move-up': []
@@ -49,6 +51,9 @@ const isPromptContent = computed(() => props.content.type === 'prompt')
 const rootSettingsAvailable = computed(() => Boolean(props.rootSettingsEnabled && !isPromptContent.value))
 const owner = ref<'root' | 'item'>('root')
 const selectedItemId = ref<string | null>(null)
+const selectedPrompt = computed(() => owner.value === 'root' ? (isPromptContent.value ? props.content.prompt : undefined) : props.content.items.find(item => item.id === selectedItemId.value && item.kind === 'prompt')?.prompt)
+const promptSettings = computed<WorkSummaryItemSettings>(() => ({ mode: 'fill', required: false, allowView: selectedPrompt.value?.allowView !== false, onlyWhenFilling: selectedPrompt.value?.onlyWhenFilling === true }))
+const settingsAvailable = computed(() => Boolean(selectedPrompt.value) || (owner.value === 'root' ? rootSettingsAvailable.value : selectedItemSettingsEnabled.value))
 const itemSettingsVariant = computed(() => {
   if (props.itemSettingsVariant === 'evaluation-item') {
     const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
@@ -73,7 +78,7 @@ const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>((
   return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: settings.allowView === false ? 'hidden' : 'view', required: false } : settings]
 })))
 
-watch(() => props.active && (owner.value === 'root' ? rootSettingsAvailable.value : selectedItemSettingsEnabled.value), visible => emit('settings-visibility', visible), { immediate: true })
+watch(() => props.active && settingsAvailable.value, visible => emit('settings-visibility', visible), { immediate: true })
 
 watch(() => props.active, (active) => {
   if (!active) selectedItemId.value = null
@@ -89,6 +94,13 @@ function selectItem(itemId: string) {
   owner.value = 'item'
   selectedItemId.value = itemId
   emit('activate', props.content.id)
+}
+
+function updatePromptSettings(settings: WorkSummaryItemSettings) {
+  const patch: Partial<PerformancePromptValue> = { allowView: settings.allowView !== false, onlyWhenFilling: settings.onlyWhenFilling === true }
+  emit('update:content', owner.value === 'root'
+    ? { ...props.content, prompt: { ...selectedPrompt.value!, ...patch } }
+    : { ...props.content, items: props.content.items.map(item => item.id === selectedItemId.value ? { ...item, prompt: { ...item.prompt!, ...patch } } : item) })
 }
 
 function updateItemSettings(settings: WorkSummaryItemSettings) {
@@ -120,15 +132,15 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       @edit="emit('edit')"
       @delete="emit('delete')"
     />
-    <div class="configured-content-card__row" role="button" :tabindex="toolbarVisible ? 0 : -1" :aria-label="`Select ${content.name}`" @click="selectRoot">
+    <div class="configured-content-card__row" :class="{ 'configured-content-card__row--prompt': isPromptContent }" role="button" :tabindex="isPromptContent || toolbarVisible ? 0 : -1" :aria-label="`Select ${content.name}`" @click="selectRoot" @keydown.enter.prevent="selectRoot" @keydown.space.prevent="selectRoot">
       <div class="configured-content-card__header">
         <template v-if="isPromptContent">
-          <PerformancePromptDisplay v-if="expanded && content.prompt" :value="content.prompt" />
-          <strong v-else>{{ content.prompt?.title || content.name }}</strong>
+          <PerformancePromptDisplay v-if="content.prompt" :value="content.prompt" />
+          <strong v-else>{{ content.name }}</strong>
         </template>
         <PerformanceAssessmentPreviewHeader v-else :name="content.name" :description="rootSettingsEnabled && rootSettings.hideDescription ? '' : content.description" description-class="configured-content-card__description" />
       </div>
-      <PerformanceExpandButton :expanded="expanded" :hover-only="true" icon-variant="regular" label="Toggle content" @toggle="emit('update:expanded', !expanded)" @click.stop />
+      <PerformanceExpandButton v-if="!isPromptContent" :expanded="expanded" :hover-only="true" icon-variant="regular" label="Toggle content" @toggle="emit('update:expanded', !expanded)" @click.stop />
     </div>
     <PerformanceAssessmentConfiguredPreview
       v-if="expanded && !isPromptContent"
@@ -143,8 +155,11 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     <PerformanceAddAnotherButton v-if="rootSettingsAvailable && rootSettings.allowMultiple" class="configured-content-card__add-item" />
   </PerformanceContentSelectionFrame>
 
-  <div v-if="active && (owner === 'root' ? rootSettingsAvailable : selectedItemSettingsEnabled)" class="configured-content-settings">
-    <div v-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
+  <div v-if="active && settingsAvailable" class="configured-content-settings">
+    <div v-if="selectedPrompt" class="content-settings-detail content-settings-detail--prompt" aria-label="提示内容设置">
+      <PerformanceWorkSummaryItemSettings :model-value="promptSettings" variant="prompt" @update:model-value="updatePromptSettings" />
+    </div>
+    <div v-else-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
       <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" @update:model-value="emit('update:root-settings', $event)" />
     </div>
     <div v-else class="content-settings-detail content-settings-detail--item" aria-label="Selected content item settings">
@@ -157,5 +172,6 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
 .configured-content-card{position:relative;width:var(--performance-content-width);max-width:100%;margin:0;box-sizing:border-box;border:0;border-bottom:1px solid #dee0e3;border-radius:0;color:#1f2329;overflow:visible;background:#fff}.configured-content-card> :deep(.performance-drag-handle.is-strip){position:absolute;top:0;right:0;left:0;z-index:21;width:100%;height:24px;margin:0}.configured-content-card:focus-within{z-index:20;border-bottom-color:#dee0e3}.configured-content-card:hover{z-index:20}.configured-content-card.is-dragging{opacity:.72}.configured-content-card__row{display:grid;grid-template-columns:minmax(0,1fr) 24px;align-items:start;min-height:0;gap:var(--spacing-2);padding:var(--spacing-4) var(--spacing-6) var(--spacing-2);box-sizing:border-box}.configured-content-card.hides-description .configured-content-card__row{min-height:0}.configured-content-card__header{min-width:0}.configured-content-card__row :deep(.performance-assessment-preview-header){margin:0}.configured-content-card__row> :deep(.performance-expand-button){grid-column:2}.configured-content-card__details{max-width:792px;margin:0 auto;padding:0 0 8.667px;color:#646a73}.configured-content-card :deep(.performance-expand-button.is-hover-only){opacity:1;pointer-events:auto}.configured-content-card.rating-content-card{padding-bottom:8px}.configured-content-card.rating-content-card .configured-content-card__row{min-height:0;height:auto;margin-top:0;padding:var(--spacing-4) var(--spacing-6) var(--spacing-2)}.configured-content-card.rating-content-card .configured-content-card__details{padding:0 0 8px}.configured-content-card.allows-multiple .configured-content-card__details{padding-bottom:0}.configured-content-card__add-item{margin:0 0 20px 24px}.content-settings-detail{position:fixed;top:104px;right:0;z-index:30;width:320px;height:calc(100vh - 104px);padding:24px 20px;box-sizing:border-box;overflow:auto;background:#fff;color:#1f2329}
 .configured-content-card.is-result-readonly .configured-content-card__row{min-height:0}.configured-content-card.is-result-readonly.rating-content-card .configured-content-card__row{height:auto;min-height:0;margin-top:0}.configured-content-card.is-result-readonly.rating-content-card .configured-content-card__details{padding-bottom:var(--spacing-2)}.configured-content-card.is-result-readonly.rating-content-card{padding-bottom:0}
 .configured-content-card.is-result-tag .configured-content-card__details{padding-bottom:var(--performance-result-view-tag-inset-block)}
+.configured-content-card__row--prompt{display:block;padding:var(--performance-readonly-item-padding-block) var(--performance-readonly-item-padding-inline);border:var(--performance-content-item-border-width) solid transparent}
 .configured-content-settings{position:static}
 </style>

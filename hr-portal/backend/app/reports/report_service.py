@@ -297,19 +297,25 @@ async def _execute_authorized_summary(report, channel, query, readiness):
     return columns, items, total
 
 
-async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, page_size=50):
+async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, page_size=50, runtime_filters=None):
     from app.datasets.models import DataProductAuthorizationContract, DatasetOutputField
     from app.datasets.d_execution import DExecutionBindingIn, compile_allocation_fact_d_result_statements_for_user
     from app.datasets.authorization_contract import ProductAuthorizationDefinition
     from app.reports.config import ReportConfig
-    from app.warehouse.schemas import ExecutionPlanIn
+    from app.warehouse.schemas import ExecutionPlanIn, PlanConditionIn
     from sqlalchemy import select
 
     try:
         config = ReportConfig(**report.config)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
-    unsupported = (config.filters or config.sorts or config.value_rules or config.filter_logic
+    if runtime_filters:
+        from app.reports.runtime import apply_runtime_overrides
+        try:
+            config = apply_runtime_overrides(config, runtime_filters)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, detail={"code": "authorized_filter_invalid", "message": "运行筛选参数无效"}) from exc
+    unsupported = (config.sorts or config.value_rules or config.filter_logic
         or config.transpose or config.rounding_corrections or config.list_lookup
         or config.dimension_merge_rules or config.default_split_rule or config.aggregate
         or config.aggregations)
@@ -333,10 +339,26 @@ async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, p
     planned = [output.output_code for _, output in selected]
     if definition.schema_version != 3 and not set(planned) <= set(definition.detail_output_fields):
         raise HTTPException(403, detail={"code": "authorized_detail_field_denied", "message": "字段不在合同明细白名单"})
+    conditions = []
+    if config.filters:
+        from app.datasets.authorization_contract import personal_filter_map
+        personal_fields = personal_filter_map(definition, [
+            {"output_code": output.output_code, "source_column": output.source_column, "agg_role": output.agg_role}
+            for output in outputs
+        ])
+        by_source = {output.output_code: output for output in outputs}
+        by_source.update({f"{output.source_alias}.{output.source_column}": output for output in outputs})
+        for item in config.filters:
+            output = by_source.get(item.column)
+            if output is None or output.output_code not in personal_fields:
+                raise HTTPException(403, detail={"code": "authorized_personal_filter_denied", "message": "人员定位筛选只允许使用批准的人员标识字段"})
+            if item.op not in personal_fields[output.output_code]:
+                raise HTTPException(403, detail={"code": "authorized_personal_filter_denied", "message": "人员定位操作符未获批准"})
+            conditions.append(PlanConditionIn(field=output.output_code, operator=item.op, value=_normalize_filter_value(item.op, item.value)))
     snapshot = {"id": row.id, "dataset_id": row.dataset_id, "contract_version": row.contract_version,
                 "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot}
     request = DExecutionBindingIn(dataset_id=report.dataset_id, contract_id=row.id,
-        contract_version=row.contract_version, plan=ExecutionPlanIn(output_fields=planned))
+        contract_version=row.contract_version, plan=ExecutionPlanIn(output_fields=planned, conditions=conditions))
     statements, issues = await compile_allocation_fact_d_result_statements_for_user(
         contract=snapshot, request=request, user=user, db=db, page=page, page_size=page_size)
     if issues:
@@ -349,11 +371,12 @@ async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, p
 
 
 async def _execute_authorized_detail(report, channel, query, readiness):
-    if query.get("filters") or query.get("sorts"):
-        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+    if query.get("sorts"):
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持排序或派生配置"})
     config, selected, statements = await _compile_authorized_detail_plan(
         report, readiness, query["user"], query["db"],
-        page=query.get("page", 1), page_size=query.get("page_size", 50))
+        page=query.get("page", 1), page_size=query.get("page_size", 50),
+        runtime_filters=query.get("filters"))
     total = await query["db"].scalar(statements["count"])
     rows = (await query["db"].execute(statements["preview"] if channel == "run" else statements["export"])).mappings().all()
     from datetime import date, datetime

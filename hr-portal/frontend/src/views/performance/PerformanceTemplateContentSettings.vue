@@ -79,6 +79,7 @@
                 @activate="selectConfiguredContent"
                 @settings-visibility="visible => { if (selectedConfiguredId === content.id) configuredSettingsVisible = visible }"
                 @update:expanded="setConfiguredExpanded(content.id, $event)"
+                @update:content="updateConfiguredContent(index, $event)"
                 @update:root-settings="rootSettings[content.id] = $event"
                 @update:item-settings="setItemSettingsForContent(content.id, $event)"
                 @hover-change="configuredHoverKey = $event ? configuredCardKey(content) : null"

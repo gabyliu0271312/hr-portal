@@ -685,7 +685,7 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
     if request.plan.aggregations or request.plan.group_by:
         return None, [_scope_issue("d_execution_plan_unsupported", "明细执行不支持聚合或分组")]
     if request.plan.filters or request.plan.order_by or request.plan.personal_fields or request.plan.employee_keys:
-        return None, [_scope_issue("d_execution_plan_unsupported", "明细执行暂不支持筛选、排序或个人定位依赖")]
+        return None, [_scope_issue("d_execution_plan_unsupported", "明细执行暂不支持排序或客户端个人定位覆盖")]
     # schema 3：可明细输出 = 数据集全部输出（是否可见由按用户字段权限裁决）；1/2 仍读合同白名单
     allowed = (set(item["output_code"] for item in contract.model_snapshot["outputs"])
                if definition.schema_version == 3 else set(definition.detail_output_fields))
@@ -708,6 +708,34 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
         protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     else:
         protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
+    condition_clauses = []
+    if request.plan.conditions:
+        from app.datasets.authorization_contract import personal_filter_map
+        personal_fields = personal_filter_map(definition, list(outputs.values()))
+        for condition in request.plan.conditions:
+            if condition.field not in personal_fields or condition.operator not in personal_fields[condition.field]:
+                return None, [_scope_issue("d_execution_personal_filter_not_approved", "人员定位条件未获批准或不属于明细路径")]
+            output = outputs.get(condition.field)
+            if output is None:
+                return None, [_scope_issue("d_execution_filter_field_missing", "人员定位字段不存在")]
+            source_column = output["source_column"]
+            if source_column in technical or source_column in protected or output.get("is_sensitive") is not False:
+                return None, [_scope_issue("d_execution_hidden_field_forbidden", "人员定位字段对当前用户不可用")]
+            expression = _entity_column(model, source_column)
+            if condition.operator == "eq":
+                condition_clauses.append(expression == condition.value)
+            elif condition.operator == "in":
+                if not isinstance(condition.value, list) or not condition.value or len(condition.value) > 200:
+                    return None, [_scope_issue("d_execution_filter_value_invalid", "in 筛选需要非空列表值")]
+                condition_clauses.append(expression.in_(condition.value))
+            elif condition.operator == "gte":
+                condition_clauses.append(expression >= condition.value)
+            elif condition.operator == "lte":
+                condition_clauses.append(expression <= condition.value)
+            elif condition.operator == "between":
+                if not isinstance(condition.value, list) or len(condition.value) != 2:
+                    return None, [_scope_issue("d_execution_filter_value_invalid", "between 筛选需要两个边界值")]
+                condition_clauses.append(expression.between(condition.value[0], condition.value[1]))
     projected = []
     for output_code in request.plan.output_fields:
         output = outputs.get(output_code)
@@ -728,7 +756,7 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
         return None, [_scope_issue("d_execution_scope_required", "执行D明细必须先完成受控人员范围裁决")]
     if is_unrestricted(membership):
         return None, [_scope_issue("d_execution_membership_unrestricted", "人员范围尚未完成受控资格核验")]
-    return select(*projected).where(membership), []
+    return select(*projected).where(membership, *condition_clauses), []
 
 
 async def compile_allocation_fact_d_result_statements_for_user(*, contract, request, user, db, page=1, page_size=50):

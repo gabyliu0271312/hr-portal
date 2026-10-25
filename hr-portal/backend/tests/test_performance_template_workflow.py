@@ -440,9 +440,10 @@ async def test_mixed_content_and_prompts_patch_get_preserve_order_and_unknown_fi
     db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
     monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
     prompt = _prompt_content()
+    prompt["prompt"].update(showIcon=True, allowView=True, onlyWhenFilling=True)
     mixed = _view_source_content(items=[
         {"id": "text", "kind": "fill", "questionType": "text", "future": {"keep": True}},
-        {"id": "notice-item", "kind": "prompt", "label": "原标签", "hint": "原提示", "prompt": {**prompt["prompt"], "scope": "cycle", "extra": "保留"}},
+        {"id": "notice-item", "kind": "prompt", "label": "原标签", "hint": "原提示", "prompt": {**prompt["prompt"], "scope": "cycle", "allowView": False, "onlyWhenFilling": False, "extra": "保留"}},
         {"id": "101", "kind": "rating", "ratingOptionId": "101"},
         {"id": "tag", "kind": "fill", "questionType": "tag", "options": []},
     ], ratingOptionId="101", future_content={"keep": True})

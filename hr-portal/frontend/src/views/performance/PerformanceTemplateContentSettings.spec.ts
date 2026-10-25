@@ -81,6 +81,35 @@ describe('PerformanceTemplateContentSettings', () => {
     reopened.unmount()
   })
 
+  it('preserves page and embedded prompt view flags independently through save and reopen', async () => {
+    const prompt = { title: '提示', content: '正文', color: '#EF4444', scope: 'all', showIcon: true }
+    const pagePrompt = { id: 'page', content_id: 'page', type: 'prompt', name: '提示', description: '', items: [], prompt }
+    const mixed = { id: 'mixed', content_id: 'mixed', type: 'custom', name: '混合内容', description: '', items: [{ id: 'inline', kind: 'prompt', label: '', hint: '', prompt }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[1], content: [pagePrompt, mixed] }] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ ...payload } as any))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 }, global: { stubs: { Teleport: true } } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    const blocks = wrapper.findAllComponents(PerformanceConfiguredContentBlock)
+    await blocks[0].get('.configured-content-card__row').trigger('click')
+    await blocks[0].findAll('.content-settings-detail--prompt input')[1].setValue(true)
+    await blocks[1].get('[data-content-item-id="inline"]').trigger('click')
+    await blocks[1].get('.content-settings-detail--prompt input').setValue(false)
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[0].content![0].prompt).toMatchObject({ ...prompt, allowView: true, onlyWhenFilling: true })
+    expect(saved.nodes[0].content![1].items[0].prompt).toMatchObject({ ...prompt, allowView: false, onlyWhenFilling: false })
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(saved as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 }, global: { stubs: { Teleport: true } } })
+    await flushPromises()
+    await reopened.get('.stage-card').trigger('click')
+    await reopened.findAllComponents(PerformanceConfiguredContentBlock)[0].get('.configured-content-card__row').trigger('click')
+    expect((reopened.findAll('.content-settings-detail--prompt input')[1].element as HTMLInputElement).checked).toBe(true)
+    expect(reopened.findAll('.performance-prompt-display')[1].classes()).toContain('is-unavailable')
+    reopened.unmount()
+  })
+
   beforeEach(() => {
     vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({ nodes: mockNodes } as any)
     vi.spyOn(performanceReviewQuestionApi, 'list').mockResolvedValue([])

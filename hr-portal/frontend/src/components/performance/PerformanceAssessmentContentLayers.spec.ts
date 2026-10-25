@@ -17,6 +17,7 @@ import addMenuSource from './PerformanceItemAddMenu.vue?raw'
 import promptFormSource from './PerformancePromptForm.vue?raw'
 import promptDisplaySource from './PerformancePromptDisplay.vue?raw'
 import promptPopoverSource from './PerformancePromptPopover.vue?raw'
+import PerformancePromptNotice, { promptTypeForColor } from './PerformancePromptNotice.vue'
 
 const ratingOptions: AssessmentOption[] = [
   { id: 'duplicate', label: '绩效评级', description: '7档绩效等级', disabled: true, disabledReason: '模板中已存在该评估项', displayMode: '标签样式' },
@@ -109,8 +110,9 @@ describe('PerformanceAssessmentContentLayers', () => {
 
     const display = mount(PerformancePromptDisplay, { props: { value: { ...value, showIcon: true } } })
     expect(display.find('.performance-prompt-display__icon').exists()).toBe(true)
-    expect(display.attributes('style')).toContain('--performance-prompt-background: #F97316')
-    expect(promptDisplaySource).toContain('width: var(--performance-content-width)')
+    expect(display.attributes('style')).toContain('background-color: rgb(255, 243, 229)')
+    expect(display.get('.performance-prompt-display__icon').attributes('style')).toContain('color: rgb(249, 115, 22)')
+    expect(promptDisplaySource).toContain('width: 100%')
     expect(promptDisplaySource).not.toContain('border-left:')
     expect(promptDisplaySource).toContain('font: 600 16px/24px')
     expect(promptDisplaySource).toContain('font: 400 14px/22px')
@@ -118,6 +120,17 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(promptPopoverSource).not.toContain('z-index:1030')
     form.unmount()
     display.unmount()
+  })
+
+  it.each(['#3B82F6', '#F97316', '#EF4444', '#10B981'])('shares the hover notice background and icon shape for %s', async color => {
+    const value = { title: '标题', content: '内容', color, scope: 'all' as const, showIcon: true }
+    const notice = mount(PerformancePromptNotice, { props: { type: promptTypeForColor(color) } })
+    const display = mount(PerformancePromptDisplay, { props: { value } })
+    expect(display.element.style.backgroundColor).toBe(notice.element.style.backgroundColor)
+    expect(display.findAll('path').map(path => path.attributes('d'))).toEqual(notice.findAll('path').map(path => path.attributes('d')))
+    await display.setProps({ value: { ...value, showIcon: false } })
+    expect(display.find('.performance-prompt-display__icon').exists()).toBe(false)
+    notice.unmount(); display.unmount()
   })
 
   it('uses token-based menu states and supports Escape, arrows and outside dismissal', async () => {

@@ -11,6 +11,7 @@ export interface WorkSummaryItemSettings {
   hideName?: boolean
   hideDescription?: boolean
   allowView?: boolean
+  onlyWhenFilling?: boolean
   levelRulesEnabled?: boolean
 }
 
@@ -35,7 +36,8 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
   <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' }" :aria-label="variant === 'rating' ? '评分评级设置' : variant === 'custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
     <fieldset v-if="capabilities.allowView" class="work-summary-setting-group work-summary-view-setting">
       <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" :checked-color="checkedColor" @update:model-value="update({ allowView: $event })" />
-      <div v-if="modelValue.allowView !== false && (capabilities.hideName || capabilities.hideDescription)" class="work-summary-view-options">
+      <div v-if="modelValue.allowView !== false && (capabilities.hideName || capabilities.hideDescription || capabilities.onlyWhenFilling)" class="work-summary-view-options">
+        <PerformanceCheckbox v-if="capabilities.onlyWhenFilling" :model-value="modelValue.onlyWhenFilling === true" label="仅在填写时显示" :checked-color="checkedColor" @update:model-value="update({ onlyWhenFilling: $event })" />
         <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
         <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" @update:model-value="update({ hideDescription: $event })" />
       </div>

@@ -973,3 +973,16 @@ def test_schema3_derivation_keeps_cost_center_as_dimension():
     approved = approved_filter_map(definition, outputs)
     assert set(approved) == {"cc_code", "department"}
     assert approved["cc_code"] == {"eq", "in", "gte", "lte", "between"}
+
+
+def test_schema3_personal_filter_map_only_contains_identifying_outputs():
+    from app.datasets.authorization_contract import personal_filter_map
+    definition = _schema3_definition()
+    outputs = [
+        {"output_code": "employee_no", "source_column": "employee_no", "agg_role": "dimension"},
+        {"output_code": "code", "source_column": "cc_code", "agg_role": "dimension"},
+        {"output_code": "amount", "source_column": "amount", "agg_role": "measure"},
+    ]
+    filters = personal_filter_map(definition, outputs)
+    assert set(filters) == {"employee_no"}
+    assert filters["employee_no"] == {"eq", "in", "gte", "lte", "between"}

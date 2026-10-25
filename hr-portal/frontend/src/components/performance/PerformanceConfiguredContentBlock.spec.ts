@@ -29,7 +29,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     document.body.innerHTML = ''
   })
 
-  it('renders prompt blocks without root or item settings', async () => {
+  it('keeps prompts expanded and edits nested view settings with the shared controls', async () => {
     const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
       content: { ...content, type: 'prompt', name: '提示块', prompt: { title: '操作提示', content: '请先确认范围', color: '#3370ff', scope: 'all' }, items: [] } as any,
       active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
@@ -38,9 +38,46 @@ describe('PerformanceConfiguredContentBlock', () => {
     } })
     expect(wrapper.find('.performance-prompt-display__title').text()).toBe('操作提示')
     expect(wrapper.find('.performance-prompt-display__content').text()).toBe('请先确认范围')
-    expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+    expect(wrapper.find('.performance-expand-button').exists()).toBe(false)
+    await wrapper.setProps({ expanded: false })
+    expect(wrapper.get('.performance-prompt-display__content').text()).toBe('请先确认范围')
     await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.get('.content-settings-detail--prompt').text()).toBe('允许查看仅在填写时显示')
+    const toggles = wrapper.findAll('.content-settings-detail--prompt input')
+    expect((toggles[0].element as HTMLInputElement).checked).toBe(true)
+    await toggles[1].setValue(true)
+    let updated = (wrapper.emitted('update:content')!.at(-1) as [typeof wrapper.vm.$props.content])[0]
+    expect(updated.prompt).toMatchObject({ allowView: true, onlyWhenFilling: true })
+    await wrapper.setProps({ content: updated })
+    await toggles[0].setValue(false)
+    updated = (wrapper.emitted('update:content')!.at(-1) as [typeof updated])[0]
+    await wrapper.setProps({ content: updated })
+    expect(wrapper.find('.work-summary-view-options').exists()).toBe(false)
+    expect(wrapper.get('.performance-prompt-display').classes()).toContain('is-unavailable')
+    await wrapper.get('.content-settings-detail--prompt input').setValue(true)
+    await wrapper.setProps({ content: (wrapper.emitted('update:content')!.at(-1) as [typeof updated])[0] })
+    expect((wrapper.findAll('.content-settings-detail--prompt input')[1].element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each(['work-summary-item', 'evaluation-item', 'result-view-item', 'generic-item'])('edits embedded prompt settings independently in %s', async itemSettingsVariant => {
+    const inline = { title: '内部提示', content: '内部说明', color: '#10B981', scope: 'all' as const }
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, items: [...content.items, { id: 'prompt', kind: 'prompt', label: '', hint: '', prompt: inline }] },
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: {},
+      rootSettingsEnabled: false, itemSettingsEnabled: false, rootSettingsVariant: 'generic-root', itemSettingsVariant,
+    } })
+    await wrapper.get('[data-content-item-id="prompt"]').trigger('click')
+    expect(wrapper.get('.content-settings-detail--prompt .work-summary-view-options').text()).toBe('仅在填写时显示')
+    await wrapper.findAll('.content-settings-detail--prompt input')[1].setValue(true)
+    const updated = (wrapper.emitted('update:content')!.at(-1) as [typeof wrapper.vm.$props.content])[0]
+    expect(updated.items[0]).toEqual(content.items[0])
+    expect(updated.items[1].prompt).toMatchObject({ ...inline, onlyWhenFilling: true })
+    expect(inline).not.toHaveProperty('onlyWhenFilling')
+    await wrapper.setProps({ active: false })
     expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('keeps rating fill items on custom settings while legacy rating items use rating settings', () => {

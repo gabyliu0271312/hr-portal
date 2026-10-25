@@ -7,6 +7,7 @@ export interface ItemSettingsCapabilities {
   hideName: boolean
   hideDescription?: boolean
   allowView?: boolean
+  onlyWhenFilling?: boolean
   mode: boolean
   required: boolean
   levelRules?: boolean
@@ -17,7 +18,7 @@ export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsC
   'custom-text': { hideName: true, mode: true, required: true },
   'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
   rating: { hideName: true, mode: false, required: true, levelRules: true },
-  prompt: { hideName: false, mode: false, required: false },
+  prompt: { hideName: false, mode: false, required: false, allowView: true, onlyWhenFilling: true },
   'evaluation-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
   'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
   'result-view-item': { hideName: false, mode: false, required: false },

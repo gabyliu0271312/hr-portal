@@ -1580,3 +1580,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 前端字段类型、资产字段管理、资产向导、报表字段选择、标准字段候选、建模输出、数据视图、维度页已移除两列读写和开关；函数库自身的 `is_visible`（函数目录属性）保留，属于不同对象。
 - 回归：前端 `vue-tsc`/build通过（build 38.19s、容器200）；后端全量 **2855 passed / 247 skipped / 8 failed**，8个为干净HEAD既有失败；试点报表22/23/24各74、报表25明细723，迁移后HTTP回归通过。
 - 因物理列删除导致旧转换批准的模型指纹变化，当前开发数据集530的转换审批需要按现行schema3合同重新批准；该审批是共享治理状态变更，需用户单独确认后执行，未伪造批准证据。
+
+### 5.2 人员定位与明细D（首轮开发，2026-10-25）
+
+- schema3 合同新增推导助手 `personal_filter_map`：仅事实键/人员键对应的 identifying 输出允许进入 D 人员定位筛选，固定操作符 `eq/in/gte/lte/between`；中心键不进入人员定位白名单。
+- D 编译器新增 `ExecutionPlanIn.conditions` 支持：先生成受控人员范围 P(u)，再 AND 人员定位条件；不允许聚合、分组、排序、客户端个人路径覆盖；条件字段必须是 schema3 identifying 输出，敏感/按用户隐藏/技术列仍拒绝。
+- authorized detail 报表接入 config.filters/运行期 filters：schema3 只接受人员标识字段，未批准字段/操作符返回403，未配置运行时字段返回422；COUNT/分页/CSV/XLSX仍由同一D语句派生。
+- `is_visible` 物理删除后，D明细不再因展示属性拒绝隐藏人员锚点；字段权限与P(u)仍独立生效。
+- 单元验证：d_execution/report binding定向 **71 passed/52 skipped**（含 personal_filter_map）。
+- 未完成：开发报表25真实配置修改/PC人员定位验收被共享状态门禁阻止；需用户明确指定报表25配置与重新绑定后再做真实HTTP探针。5.2的姓名/多人员定位、下钻仍未开放。
