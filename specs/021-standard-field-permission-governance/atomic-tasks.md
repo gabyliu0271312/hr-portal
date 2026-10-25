@@ -1637,7 +1637,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 报表查看页授权汇总行可点击，生成当前非度量分组条件，打开明细抽屉；明细继续使用 COUNT/分页/CSV/XLSX 同源 D 逻辑。
 - 前端 `ReportPreviewTable` 增加可选 row-click；非授权/legacy 报表不启用下钻点击。
 - 验证：后端 d_execution/report-binding 定向 74 passed/52 skipped；前端 vue-tsc/build通过（39.43s），开发前端HTTP 200。
-- 开发真实数据探针仍需在后端运行时模型注册后执行；中心用户拒绝沿用既有报表25证据。
+
+### 5.6 开发库迁移与层级投影验证（2026-10-25）
+
+- 迁移 `0273_org_hierarchy_standard_fields` 已应用，开发库 Alembic head=0273；系统组织/层级标准字段共25个（5个基础 + 20个 level id/name）。
+- `GET /trees/org/hierarchy-levels?include_inactive=false&max_depth=10` HTTP 200，返回163个有效组织层级投影，最大业务深度4；`include_inactive=true` HTTP 200，返回1236个投影，最大深度6。
+- 当前组织树无循环、父节点缺失或深度溢出；层级投影接口验证通过。真实5.3中心×组织×期间仍需把组织层级派生输出接入具体数据集后验收。- 开发真实数据探针仍需在后端运行时模型注册后执行；中心用户拒绝沿用既有报表25证据。
 
 ### 5.5 已批准人数指标（首轮开发，2026-10-25）
 
