@@ -3,7 +3,7 @@
     <aside class="stage-panel" aria-label="按评估流程配置">
       <div class="stage-panel__header">
         <strong>按评估流程配置</strong>
-        <button class="all-content-button" type="button" aria-label="全部内容" @click="openAllContentDrawer">
+        <button v-if="!isCalibration" class="all-content-button" type="button" aria-label="全部内容" @click="openAllContentDrawer">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="ArrangeOutlined" aria-hidden="true">
             <path d="M2.467 11.5a1 1 0 0 1 1.366-.366L12 15.846l8.167-4.712a1 1 0 0 1 1 1.732l-8.534 4.923a1.267 1.267 0 0 1-1.266 0l-8.534-4.923a1 1 0 0 1-.366-1.366Z" fill="currentColor"></path>
             <path d="M2.453 16.193a1 1 0 0 1 1.354-.407L12 20.198l8.192-4.412a1 1 0 1 1 .949 1.761l-8.54 4.599a1.267 1.267 0 0 1-1.202 0l-8.54-4.599a1 1 0 0 1-.406-1.354ZM12 4.267l5.942 3.169L12 11 6.058 7.436 12 4.266Zm.502-2a1.067 1.067 0 0 0-1.004 0L2.83 6.89a.533.533 0 0 0-.023.928l8.643 5.186c.338.203.76.203 1.098 0l8.643-5.186a.533.533 0 0 0-.023-.928l-8.667-4.622Z" fill="currentColor"></path>
@@ -69,7 +69,7 @@
                 :item-style="itemStyle"
                 :index="index"
                 :count="configuredContents.length"
-                :toolbar-visible="configuredHoverKey === configuredCardKey(content)"
+                :toolbar-visible="!isCalibration && configuredHoverKey === configuredCardKey(content)"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
@@ -90,7 +90,7 @@
               />
             </template>
           </PerformanceSortableList>
-          <PerformanceTemplateOperateBar class="configured-content-footer" :actions="summaryActions" @action="handleContentAction" />
+          <PerformanceTemplateOperateBar v-if="summaryActions.length" class="configured-content-footer" :actions="summaryActions" @action="handleContentAction" />
         </section>
         <template v-if="isResultView">
           <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
@@ -214,6 +214,7 @@ const contentPageName = computed({
   },
 })
 const isResultView = computed(() => selectedStageData.value?.nodeType === 'result_view')
+const isCalibration = computed(() => selectedStageData.value?.nodeType === 'calibration')
 const isResultReconsiderationFill = computed(() => selectedStageData.value?.nodeType === 'result_reconsideration' && activeTab.value === 'fill')
 const isReviewer360Fill = computed(() => ['reviewer_360_invite', 'reviewer_360_confirm'].includes(selectedStageData.value?.nodeType || '') && activeTab.value === 'fill')
 const finalNode = computed(() => {
@@ -243,10 +244,12 @@ const finalContents = computed(() => {
   return [...contents.values()].filter(content => content.type !== 'reference' && content.type !== 'prompt' && content.items?.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden'))
 })
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
+const calibrationContents = computed(() => finalContents.value.map(content => ({ ...content, content_slot: 'adjustment' as const })))
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const resultReferences = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value)?.content?.filter(content => content.content_slot === 'reference') || [])
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
+  if (isCalibration.value) return []
   if (isReviewer360Fill.value) {
     return [{ key: 'add-prompt', label: '添加提示' }]
   }
@@ -485,7 +488,7 @@ function replaceNodeContentSlot(node: PerformanceWorkflowNode, slot: string, con
   node.content_bindings = { ...(node.content_bindings || {}), [slot]: contents.map((content) => content.content_id || content.id || `${content.type}-${content.name}`) }
 }
 function syncSelectedStageContents() {
-  if (!selectedStage.value) return
+  if (!selectedStage.value || isCalibration.value) return
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
 }
@@ -494,7 +497,8 @@ function selectStage(id: string) {
   selectedStage.value = id
   const node = workflowNodes.value.find((item) => item.node_id === id)
   activeTab.value = getStageContentTabs(node?.node_type, getEvaluationExecutorKind(node?.executor_label, node?.executor_types))[0]?.key || 'fill'
-  setConfiguredContents(node?.content?.filter((content) => (content.content_slot || 'fill') === activeTab.value) || [])
+  const contents = node?.node_type === 'calibration' ? calibrationContents.value : node?.content?.filter((content) => (content.content_slot || 'fill') === activeTab.value) || []
+  setConfiguredContents(contents)
   selectedConfiguredId.value = null
   configuredHoverKey.value = null
 }
@@ -587,7 +591,7 @@ function refreshRatingSnapshots() {
   workflowNodes.value = workflowNodes.value.map(node => ({ ...node, content: node.content?.map(content => normalizeRatingContent(content)) }))
   contentLibrary.value = contentLibrary.value.map(content => normalizeRatingContent(content))
   const node = workflowNodes.value.find(item => item.node_id === selectedStage.value)
-  if (node) setConfiguredContents(node.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
+  if (node) setConfiguredContents(node.node_type === 'calibration' ? calibrationContents.value : node.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
 }
 function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: PerformanceTemplateContent[] = []) {
   workflowNodes.value = cloneContent(nodes).map(node => {

@@ -478,6 +478,27 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
+  it('derives calibration content from the final-result evaluation without edit actions', async () => {
+    const finalContent = { content_id: 'final-content', content_slot: 'fill', type: 'work_summary', name: '终评内容', description: '', items: [{ id: 'final-item', label: '终评意见', hint: '' }] }
+    const nodes = [
+      { ...mockNodes[6], include_final_result: true, content: [finalContent] },
+      { ...mockNodes[4], content: [], content_bindings: {} },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ nodes: payload.nodes, content_library: payload.content_library } as any))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.get('.configured-content-panel').text()).toContain('终评内容')
+    expect(wrapper.find('.configured-content-footer').exists()).toBe(false)
+    expect(wrapper.find('.configured-card-action-toolbar').exists()).toBe(false)
+    expect(wrapper.find('.all-content-button').exists()).toBe(false)
+    await (wrapper.vm as any).save()
+    const savedNodes = update.mock.calls.at(-1)![1].nodes
+    expect(savedNodes[1].content).toEqual([])
+    wrapper.unmount()
+  })
+
   it('updates the selected stage without changing the empty right-panel contract', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()

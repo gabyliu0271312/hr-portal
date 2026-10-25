@@ -73,8 +73,8 @@ const stageContentRules = {
   },
   calibration: {
     ...genericRule,
-    visibleSlots: ["adjustment", "reference"],
-    forbiddenSlots: ["fill", "view"]
+    visibleSlots: ["adjustment"],
+    forbiddenSlots: ["fill", "reference", "view"]
   },
   result_communication: genericRule,
   result_view: {
