@@ -1667,3 +1667,11 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 当前授权执行继续只允许单事实；新增明确阻断码 `multi_fact_not_implemented`（合同批准入口）和既有 `s_execution_requires_one_fact`（S编译入口）。
 - 新增多事实安全门测试：未完成事实关联基数、逐事实范围裁决和度量去重验证前，不允许批准或执行多事实合同。
 - 未开启多事实能力，不以把多个表加入合同或前端选择器冒充完成；生产dataset15不受影响。
+
+### 5.8 派生/透视/维度归并安全首轮（2026-10-25）
+
+- authorized_v1 继续不开放 `value_rules/transpose/rounding_corrections/list_lookup/dimension_merge_rules/default_split_rule` 等派生后处理，避免前端拿明细自行计算或绕过授权聚合。
+- 汇总/明细阻断响应增加 `features` 具体列表，区分尚未批准的派生能力；保留统一 `authorized_config_unsupported` 兼容码。
+- 设计时筛选仍按5.1/5.2路径处理；排序和派生配置继续拒绝。
+- 定向 report execution binding：31 passed/12 skipped。
+- 未完成：未指定真实业务报表和批准的透视/归并/派生形态，因此本轮不开放任何派生执行；下一步需选一个真实配置逐项批准并回归 run/COUNT/导出。

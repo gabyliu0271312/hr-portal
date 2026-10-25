@@ -90,6 +90,22 @@ async def run_authorized_report_query(*, report, channel, **query):
     return await _execute_authorized_detail(report, channel, query, readiness)
 
 
+def _authorized_unsupported_features(config, *, detail: bool) -> list[str]:
+    features: list[str] = []
+    if config.sorts: features.append("sorts")
+    if config.value_rules: features.append("value_rules")
+    if config.filter_logic: features.append("filter_logic")
+    if config.transpose: features.append("transpose")
+    if config.rounding_corrections: features.append("rounding_corrections")
+    if config.list_lookup: features.append("list_lookup")
+    if config.dimension_merge_rules: features.append("dimension_merge_rules")
+    if config.default_split_rule: features.append("default_split_rule")
+    if config.aggregate and detail: features.append("aggregate_detail")
+    if not config.aggregate and not detail: features.append("detail_summary")
+    if config.aggregations and detail: features.append("detail_aggregations")
+    return features
+
+
 def _normalize_filter_value(operator: str, value: Any):
     """把报表筛选值规范成安全参数；非法形状在服务端拒绝，不拼接SQL。"""
     from fastapi import HTTPException
@@ -199,7 +215,7 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
     unsupported_settings = any(set(setting) - {"display_name", "hidden", "display_format"}
                                for setting in config.column_settings.values())
     if unsupported or unsupported_settings:
-        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "features": _authorized_unsupported_features(config, detail=False), "message": "当前授权汇总配置包含尚未批准的派生能力"})
     outputs = (await db.execute(select(DatasetOutputField).where(
         DatasetOutputField.dataset_id == report.dataset_id))).scalars().all()
     selected = await _resolve_report_columns(config, report.dataset_id, outputs, db)
@@ -322,7 +338,7 @@ async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, p
     unsupported_settings = any(set(setting) - {"display_name", "hidden", "display_format"}
                                for setting in config.column_settings.values())
     if unsupported or unsupported_settings:
-        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "message": "新执行版本暂不支持当前筛选、排序或派生配置"})
+        raise HTTPException(422, detail={"code": "authorized_config_unsupported", "features": _authorized_unsupported_features(config, detail=True), "message": "当前授权明细配置包含尚未批准的派生能力"})
     outputs = (await db.execute(select(DatasetOutputField).where(
         DatasetOutputField.dataset_id == report.dataset_id))).scalars().all()
     selected = await _resolve_report_columns(config, report.dataset_id, outputs, db)
