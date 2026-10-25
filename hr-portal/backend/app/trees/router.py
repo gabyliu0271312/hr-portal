@@ -6,7 +6,7 @@
 - GET /trees/employment-entity  用工主体 distinct 值
 - GET /trees/persons            人员姓名 distinct 值（支持 keyword 搜索）
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -71,6 +71,41 @@ async def get_cc_tree(
         stmt = stmt.where(CostCenterNode.is_active.is_(True))
     rows = (await db.execute(stmt)).scalars().all()
     return _build_tree(rows)
+
+
+class OrgHierarchyLevelOut(BaseModel):
+    node_id: int
+    node_code: str
+    depth: int
+    is_active: bool
+    levels: dict[str, Any]
+
+
+@router.get("/org/hierarchy-levels", response_model=list[OrgHierarchyLevelOut])
+async def get_org_hierarchy_levels(
+    include_inactive: bool = False,
+    max_depth: int = 10,
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[OrgHierarchyLevelOut]:
+    """返回组织节点到一级至十级的系统派生层级投影。"""
+    from app.warehouse.service.org_hierarchy import resolve_org_hierarchy
+
+    if max_depth < 1 or max_depth > 10:
+        raise HTTPException(status_code=422, detail="max_depth 必须在1到10之间")
+    rows = (await db.execute(select(OrgNode).order_by(OrgNode.level, OrgNode.code))).scalars().all()
+    projections, issues = resolve_org_hierarchy(rows, max_depth=max_depth)
+    if issues:
+        raise HTTPException(status_code=409, detail={
+            "code": "org_hierarchy_invalid",
+            "message": "组织树未通过层级解析",
+            "issues": [issue.__dict__ for issue in issues],
+        })
+    return [OrgHierarchyLevelOut(
+        node_id=item["node_id"], node_code=item["node_code"], depth=item["depth"],
+        is_active=item["is_active"],
+        levels={key: value for key, value in item.items() if key.startswith("org_level_")},
+    ) for item in projections if include_inactive or item["is_active"]]
 
 
 @router.get("/org", response_model=list[TreeNodeOut])

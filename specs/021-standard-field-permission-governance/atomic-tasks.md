@@ -1647,3 +1647,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 准入面板 schema3 合同创建增加“批准人数指标”开关，并创建只声明事实与路径的schema3草稿。
 - 新增单元验证：批准人数指标可通过，未批准路径仍拒绝；定向 d_execution/report binding 预计在完整回归中覆盖。
 - 尚未把任何生产/开发既有合同打开 `allow_employee_count`，避免未经业务确认改变现有报表口径；真实报表需新合同版本批准后验收。
+
+### 5.6 组织层级派生与受控参考关联（首轮开发，2026-10-25）
+
+- 新增 `org_hierarchy.resolve_org_hierarchy`：从当前 `org_tree` 递归生成 `org_level_1~10_id/code/name` 投影；RootOrg不计入业务一级。
+- 解析器拒绝循环、父节点缺失、深度超过10级，不静默挂根或截断。
+- 新增 `GET /trees/org/hierarchy-levels?include_inactive=&max_depth=`，用于组织层级投影/验证；失效开关只影响展示结果，不改变权限。
+- 新增系统标准字段种子迁移 `0273_org_hierarchy_standard_fields`：组织基础字段与 `org_level_1~10_id/name`，标准字段作为系统语义定义，不要求来源表冗余层级列。
+- 新增三组解析测试：RootOrg排除与层级生成、循环/父缺失阻断、深度溢出阻断。
+- 待开发环境重启应用0273后，验证标准字段数量与层级接口；真实5.3组织汇总需数据集输出组织维度后再验收。
