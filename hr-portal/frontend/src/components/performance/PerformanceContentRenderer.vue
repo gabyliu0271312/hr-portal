@@ -30,7 +30,7 @@
         <PerformancePromptDisplay v-if="item.prompt" :value="item.prompt" class="content-renderer-prompt" />
       </template>
       <div v-else-if="itemState(item.id).mode === 'view'" :class="{ 'content-renderer-rating__readonly': isRatingItem(item) }">
-        <PerformanceTemplateFieldRenderer class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" :empty-answer-text="readonlyEmptyAnswerText" :hide-item-description="true" />
+        <PerformanceTemplateFieldRenderer class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" :empty-answer-text="readonlyEmptyAnswerText" />
       </div>
       <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" preview-only :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
       <template v-else-if="isRatingItem(item)">
@@ -97,11 +97,8 @@ const viewField = (item: ContentItem): PerformanceTemplateField => {
   return { id: item.id, type: 'rich_text', label: item.label, required: false, hide_name: itemState(item.id).hideName === true }
 }
 const viewPreviewValue = (item: ContentItem) => {
-  if (isRatingItem(item)) return content.value.options?.[0]?.id || ''
-  if (isCustomTagItem(item)) {
-    const options = tagField(item).options || []
-    return { tags: options.map(option => option.id), notes: Object.fromEntries(options.map(option => [option.id, ''])) }
-  }
+  if (isRatingItem(item)) return ''
+  if (isCustomTagItem(item)) return { tags: [], notes: {} }
   return ''
 }
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })

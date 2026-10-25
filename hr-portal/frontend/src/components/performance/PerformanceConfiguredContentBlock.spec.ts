@@ -432,7 +432,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     await apply()
     expect(wrapper.find('[data-content-item-id="tag"] .template-field-label').exists()).toBe(false)
     expect(wrapper.find('[data-content-item-id="tag"] .template-field-description').exists()).toBe(false)
-    expect(wrapper.get('[data-content-item-id="tag"] .tag-preview__selected-group .rich-answer').text()).toBe('这里展示用户填写内容')
+    expect(wrapper.find('[data-content-item-id="tag"] .tag-preview__selected-group').exists()).toBe(false)
     await panel().findAll('input')[2].setValue(true)
     await apply()
     expect(wrapper.find('[data-content-item-id="tag"] .template-field-description').exists()).toBe(false)
