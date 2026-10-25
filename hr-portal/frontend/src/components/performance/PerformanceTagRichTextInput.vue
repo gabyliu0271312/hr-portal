@@ -1,5 +1,5 @@
 <template>
-  <div class="tag-rich-text-input tag-preview__editor" :class="{ 'has-selection': selectedOptions.length, invalid, 'is-display-only': displayOnly }" aria-label="标签填写区域">
+  <div class="tag-rich-text-input tag-preview__editor" :class="{ 'has-selection': selectedOptions.length, invalid, 'is-display-only': displayOnly, 'is-editable': editable && !displayOnly }" aria-label="标签填写区域">
     <PerformanceRichTextToolbar v-if="selectedOptions.length && !displayOnly" :readonly="!editable" :active="currentEditor()?.active" @before-command="currentEditor()?.rememberSelection()" @command="currentEditor()?.command($event)" />
     <div class="tag-preview__selected-groups tag-answers">
       <div v-if="legacy && selectedOptions.length" class="tag-preview__selected-group tag-answer legacy-tag-answer">
@@ -39,7 +39,7 @@ function remove(id: string) { if (props.editable && !props.displayOnly) { const 
 </script>
 <style scoped>
 .tag-rich-text-input{display:flex;flex-direction:column;width:100%;min-width:0;max-width:100%;min-height:78px;padding:6px 8px 0;box-sizing:border-box;border:1px solid #dee0e3;border-radius:6px;background:#fff}
-.tag-rich-text-input:hover,.tag-rich-text-input:focus-within{border-color:#3370ff}
+.tag-rich-text-input.is-editable:hover,.tag-rich-text-input.is-editable:focus-within{border-color:#3370ff}
 .tag-rich-text-input.invalid,.tag-rich-text-input.invalid:hover,.tag-rich-text-input.invalid:focus-within{border-color:#f54a45}
 .has-selection{min-height:0}.tag-rich-text-input.is-display-only{min-height:0;padding:var(--performance-readonly-answer-padding);border:0;background:var(--performance-review-readonly-surface);pointer-events:none}
 .tag-rich-text-input.is-display-only .tag-preview__selected-groups{gap:var(--performance-readonly-tag-gap)}

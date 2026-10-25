@@ -20,6 +20,22 @@ describe('PerformanceCheckbox', () => {
     expect(wrapper.get('.performance-checkbox').attributes('style')).toContain('--performance-checkbox-checked-color: #336df4')
   })
 
+  it('keeps normal checkbox visuals in readonly mode without allowing changes', async () => {
+    const wrapper = mount(PerformanceCheckbox, { props: { modelValue: true, label: '预览标签', readonly: true } })
+    expect(wrapper.get('input').attributes('disabled')).toBeDefined()
+    expect(wrapper.classes()).toContain('performance-checkbox--readonly')
+    expect(wrapper.classes()).not.toContain('performance-checkbox--disabled')
+    expect(wrapper.find('.ud__checkbox__wallpaper--checked').exists()).toBe(true)
+    await wrapper.get('input').trigger('change')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.setProps({ disabled: true })
+    expect(wrapper.classes()).toContain('performance-checkbox--disabled')
+    expect(wrapper.classes()).not.toContain('performance-checkbox--readonly')
+    await wrapper.get('input').trigger('change')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('supports the shared disabled state', () => {
     const wrapper = mount(PerformanceCheckbox, { props: { modelValue: false, label: '必填', disabled: true } })
     expect(wrapper.get('input').attributes('disabled')).toBeDefined()

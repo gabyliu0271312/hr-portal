@@ -337,3 +337,27 @@
 ### F01 历史验收记录
 
 - 验证：最终前端八组定向Vitest 131/131，后端workflow pytest 108/108，前端类型检查和生产构建通过。补齐view旧副本覆盖来源和普通节点同ID干扰binding-only来源的回归。前端向导测试输出既有jsdom XHR AggregateError日志（用例仍通过），构建有VueUse PURE注释警告，后端有Starlette弃用警告。本地Docker前后端镜像构建与容器替换通过，数据库和Gotenberg容器未替换；Alembic当前版本与head均0266。容器路由HTTP200、未登录API401，后端启动期间短暂502后恢复。浏览器跳转登录，未取得F01实际页面PNG，也未完成真实API保存重开验收；不得将登录页或目标图作为实现截图。F01保留未勾选。
+
+
+## 已加载评分评级 item 标题字体统一（PM-T004-T05-F21，2026-10-25）
+
+- 真实Chromium计算样式确认根因为字号/行高不一致，不是字体族：原评级item为16px/600/24px，同容器的工作总结、文本、标签item为14px/600/22px。
+- 仅`configured-card`变体内的评级item标题改用`--font-size-md`、`--performance-input-line-height`；保持600字重及原字体继承。原失效的直接子strong选择器替换为实际header/strong层级。旧缺省kind和显式rating均适用；内容块主标题、编辑弹窗预览、评级选项、必填/隐藏逻辑与间距保持原样。
+- 前端3文件105/105通过（renderer24/block24/page57），完整vue-tsc+vite通过，有既有VueUse PURE注释提示；独立真实组件Chromium验证五类item的fontFamily/fontSize/fontWeight/lineHeight相同，均14px/600/22px，root和editor-preview仍16px/600/24px，无pageerror。独立PNG：`../../ui-blueprints/PM-T004-T05-F21-implemented-rating-item-typography.png`，已查看；不是登录态业务页截图。
+- UI合规N0001/N0002/N0004/N0005/N1102-N1104；沿用T05蓝图，无信息架构或新设计体系。纯样式修复，无API、持久化、权限、迁移、周期快照或UCP影响；后端/数据库验收不适用。未替换容器、部署、commit或push。
+
+
+### 提示取消允许查看的右上角标识（PM-T004-T05-F20，2026-10-25追加确认）
+
+- `prompt.allowView=false`时，页面级及内嵌提示均在内部底色框右上角显示复用的`PerformanceVisibleLockIcon`按钮外观；恢复允许查看或旧值缺省时隐藏。与左侧showIcon独立，关闭颜色图标不影响隐藏标识。
+- 标识绝对定位在提示框内，top=4px、right=8px、按钮24px/图标16px，沿用公共spacing/icon token。文本预留右侧空间，按钮不独立响应点击、不抢焦点或阻断配置选择，沿用其他模块的状态标识行为；不改JSONB/权限或员工运行态。
+- 4文件Vitest159/159、完整vue-tsc+vite通过；初次build的两处测试get().exists()类型错误已修复后复验。真实Chromium验证两层标识的内部定位、预留空间、显隐/重新选择，无pageerror；独立PNG `../../ui-blueprints/PM-T004-T05-F20-implemented-prompt-hidden-marker.png`已查看，为实际组件隔离截图，非登录态页面。UI自检N0001/N0002/N0004/N0005/N1102-N1104，无新设计体系/禁止项；无API/数据库迁移、容器替换、部署或提交推送。
+
+
+## 标签题配置预览外观与只读交互分离（PM-T004-T05-F22，2026-10-25）
+
+- 用户确认配置区标签勾选框与弹窗预览外观一致，但配置画布仍不可试填。公共PerformanceCheckbox新增可选readonly（默认false）：沿正常颜色展示已选/未选，原生input仍disabled，拒绝change发出，命中交给外层item选择；disabled仍优先展示原灰态。
+- PerformanceTemplateFieldRenderer新增可选previewOnly（默认false），仅由PerformanceContentRenderer显式开启。不可编辑的配置预览使用readonly勾选框；其他不可编辑场景保持disabled灰态，员工可编辑/只读结果与弹窗试填不因此开放或关闭。
+- PerformanceTagRichTextInput仅editable且非displayOnly时添加is-editable，蓝色hover/focus边框仅此状态启用。不可编辑的内部填写框保持原灰色边框，不影响外层PerformanceContentSelectionFrame的蓝色虚线hover/实线选中；不改答案、默认选中、工具栏、布局、API/JSONB/权限/快照。
+- 验证：组件及内容设置6文件179/179通过，SelfSummaryTask.spec.js/Review.spec.ts另38/38通过；完整vue-tsc+vite、diff检查通过（既有VueUse PURE提示）。Chromium实际组件隔离验证未选框两处同为白底#FFFFFF/边框#8F959E，已选样式等待动画稳定后两处同#0442D2；配置input仍disabled，可编辑预览input可操作，普通disabled仍#EFF0F1。配置内部hover前后边框均#DEE0E3，外层仍蓝色虚线，点击checkbox区域只选item不勾选；内部contenteditable=false，可编辑预览仍蓝色hover，无pageerror。独立截图 `../../ui-blueprints/PM-T004-T05-F22-implemented-tag-preview-states.png`已查看，非登录态页面/真实数据库证据。
+- UI合规N0001/N0002/N0004/N0005/N1102-N1104；沿T05已确认蓝图做局部修复，无新设计体系/禁止项。不涉及后端/数据库验收、迁移、权限、周期快照、UCP；未替换运行容器、部署、commit或push。

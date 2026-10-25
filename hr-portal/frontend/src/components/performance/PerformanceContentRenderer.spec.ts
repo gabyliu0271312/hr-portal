@@ -139,6 +139,9 @@ describe('performance content shared primitives', () => {
     const renderer = wrapper.getComponent(PerformanceTemplateFieldRenderer)
     expect(renderer.props('mode')).toBe('edit')
     expect(renderer.props('editable')).toBe(false)
+    expect(renderer.props('previewOnly')).toBe(true)
+    expect(wrapper.get('.tag-options .performance-checkbox').classes()).toContain('performance-checkbox--readonly')
+    expect(wrapper.get('.tag-options .performance-checkbox').classes()).not.toContain('performance-checkbox--disabled')
     expect(wrapper.get('.template-field-label strong').text()).toBe('标签题')
     expect(wrapper.get('.template-field-description.tag-preview__description').text()).toBe('题目描述')
     expect(wrapper.find('.tag-followup > .tag-options.tag-checks + .tag-rich-text-input').exists()).toBe(true)
@@ -148,6 +151,23 @@ describe('performance content shared primitives', () => {
     expect(renderer.emitted('update:value')).toBeUndefined()
     expect(wrapper.emitted('update-answer')).toBeUndefined()
     expect(contentRendererSource).not.toMatch(/:deep\(\.(?:tag-options|tag-followup|template-field-description)\)/)
+    wrapper.unmount()
+  })
+
+  it('keeps ordinary noneditable tag fields disabled while explicitly configured previews stay normal', async () => {
+    const props = { mode: 'edit' as const, editable: false, field: { id: 'tag', type: 'tag_with_followup' as const, label: '标签题', options: [{ id: 'a', label: '标签A' }] }, label: '标签题', value: { tags: [], notes: {} } }
+    const wrapper = mount(PerformanceTemplateFieldRenderer, { props })
+    expect(wrapper.get('.performance-checkbox').classes()).toContain('performance-checkbox--disabled')
+    await wrapper.setProps({ previewOnly: true })
+    expect(wrapper.get('.performance-checkbox').classes()).toContain('performance-checkbox--readonly')
+    expect(wrapper.get('input').attributes('disabled')).toBeDefined()
+    await wrapper.get('input').trigger('change')
+    expect(wrapper.emitted('update:value')).toBeUndefined()
+    await wrapper.setProps({ editable: true })
+    expect(wrapper.get('.performance-checkbox').classes()).not.toContain('performance-checkbox--readonly')
+    expect(wrapper.get('input').attributes('disabled')).toBeUndefined()
+    await wrapper.get('input').setValue(true)
+    expect(wrapper.emitted('update:value')?.at(-1)).toEqual([{ tags: ['a'], notes: {} }])
     wrapper.unmount()
   })
 
@@ -214,6 +234,19 @@ describe('performance content shared primitives', () => {
     await wrapper.setProps({ content: { type: 'rating', items: [{ id: 'rating', label: '评级' }], options: levels.slice(0, 1), settings: { allowUnknown: false } } })
     expect(wrapper.findAll('.performance-rating-control__option').map(option => option.text())).toEqual(['A'])
     wrapper.unmount()
+  })
+
+  it('uses shared compact title tokens for loaded rating items without changing preview typography', () => {
+    const props = { content: { type: 'rating' as const, items: [{ id: 'legacy', label: '旧评级题' }, { id: 'explicit', kind: 'rating' as const, label: '新增评级题' }], options: [] } }
+    const wrapper = mount(PerformanceContentRenderer, { props })
+    expect(wrapper.classes()).toContain('performance-content-renderer--configured-card')
+    expect(wrapper.findAll('.content-renderer-rating__header strong').map(title => title.text())).toEqual(['旧评级题', '新增评级题'])
+    expect(contentRendererSource).toContain('.performance-content-renderer--configured-card .content-renderer-rating__header{min-height:var(--performance-input-line-height);line-height:var(--performance-input-line-height)}')
+    expect(contentRendererSource).toContain('.performance-content-renderer--configured-card .content-renderer-rating__header>strong{font-size:var(--font-size-md);line-height:inherit}')
+    expect(contentRendererSource).not.toContain('.content-renderer-item--configured.content-renderer-rating>strong')
+    const preview = mount(PerformanceContentRenderer, { props: { ...props, variant: 'editor-preview' } })
+    expect(preview.classes()).not.toContain('performance-content-renderer--configured-card')
+    wrapper.unmount(); preview.unmount()
   })
 
   it('renders rating levels from the selected rule snapshot', () => {

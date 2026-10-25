@@ -392,7 +392,24 @@
   - Evidence/status: 2026-10-23最终前端五文件Vitest157/157通过（Layers47/Page56/Renderer23/Block20/SortableList11），覆盖自定义/评级混合添加、原评级与fill/prompt同序、编辑重开、两层提示保留、公共表单复用/取消隔离/多实例radio、菜单键盘/外点、全局token及既有指针/键盘拖拽。命令：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/components/performance/PerformanceSortableList.spec.ts`。后端以`$env:PYTHONPATH='hr-portal/backend'; python -m pytest hr-portal/backend/tests/test_performance_template_workflow.py hr-portal/backend/tests/test_performance_projects.py -q`主线程复验392/392通过（1个既有python_multipart弃用警告）；覆盖PATCH/GET/审计、提示非法值422、未知字段/混合顺序、kind感知投影与提示不作为答案来源；result_view本地view提示可保存但不能作为终评来源。`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）最终通过，保留VueUse PURE注释提示；`git diff --check`通过，仅LF/CRLF提示。中间模板编译、缺组件import、提示可选类型与旧菜单选择器失败已修复后重跑。当前工作区同时存在其他会话删除员工预览入口/API/旧测试的改动，本轮保留、不将392通过解释为已删除预览功能回归通过。
   - 2026-10-25 follow-up: 按本次追加确认纠正底色和实际内缩、删除提示收起按钮，并复用结果查看的公共两级勾选结构；allowView默认true、onlyWhenFilling默认false，关闭父项保留子项。两层提示设置通过update:content接回页面局部权威，workflow PATCH/GET保留新字段。前端6文件190/190、后端workflow183/183、完整vue-tsc+vite及diff检查通过；新增页面mock保存重开和后端PATCH/GET替身保留断言。真实Chromium实际组件隔离验证：容器792/620时提示与工作总结输入框分别同宽740/568且左右边界一致，四种底色共享定义、所选图标色、无收起、父子恢复和两层隔离通过，tooltip2201高于弹窗2200且elementFromPoint命中，无pageerror；截图../../ui-blueprints/PM-T004-T05-F20-implemented-prompt-view-settings.png已查看。Spec012 N0001/N0002/N0004/N0005/N1102-N1104，无新设计体系/禁止项。
   - Not-run/blockers: 独立实际组件PNG已取得，登录态业务页面、真实数据库/API保存重开和全仓测试未执行；组件mock重开和后端测试替身不是实际数据库验收。员工端提示展示/周期范围解析未实现，本轮两级配置不宣称已接员工运行态；模板配置保存展示及不生成答案字段保持。无迁移、容器替换、生产部署、commit或push，完整F20保持未勾选。
+  - [x] F20.ui.hidden-marker 取消允许查看后在提示内部底色框右上角显示共享VisibleLock标识，恢复后隐藏；两层提示与showIcon独立。仅PerformancePromptDisplay及既有测试、Spec记录和独立PNG；输入沿既有prompt.allowView，无新保存/权限合同。4文件159/159、完整vue-tsc+vite及diff检查通过；真实Chromium两层标识top4/right8/24px外观/16px图标、无文本遮挡及配置选择恢复通过，无pageerror。实现截图../../ui-blueprints/PM-T004-T05-F20-implemented-prompt-hidden-marker.png已查看；无后端/API/迁移/快照/UCP改动，未部署/提交。F20整体原阻塞不变。
   - Definition of done: 代码、共享组件复用、UI、前后端保存读取和排序回归、build及证据齐备后才勾选；缺项如实说明。
+
+- [x] PM-T004-T05-F21 已加载评分评级 item 标题字体统一（2026-10-25）
+  - Goal/UI: 内容设置已加载的评级item标题与工作总结/文本/标签item统一14px/600/22px及同一继承字体；仅configured-card，沿用T05确认蓝图，无新页面。
+  - Prerequisites/reading: Spec002基线/T05/F20、Spec012 UI守则/N0001/N0002/N0004/N0005/N1102-N1104、既有renderer/题头/测试；纯样式任务。
+  - Allowed modifications: PerformanceContentRenderer.vue及既有同名spec、本功能交互/任务文档；独立PNG PM-T004-T05-F21-implemented-rating-item-typography.png。
+  - Contract/non-scope: 替换失效的直接子strong选择器，实际header/strong读取既有字号/行高token；不改块级标题、编辑弹窗预览、选项/必填/隐藏/间距、API/保存/权限/迁移/历史快照/UCP。
+  - Given/When/Then: Given旧缺省kind/显式rating及文本/标签/工作总结；When加载内容配置；Then同级标题计算字体族、字号、字重、行高相同，root/editor-preview不变。组件三文件105/105通过，完整vue-tsc+vite通过（既有VueUse PURE提示），diff检查通过。
+  - Evidence/DoD: 实际Chromium修复前16/600/24对14/600/22，修复后五类item均14/600/22、fontFamily相同；root/editor-preview保持16/600/24，无pageerror，独立实现PNG已查看。登录态业务页未运行，纯样式任务以实际组件DOM/计算样式/PNG验收；后端和数据库不适用。无容器替换、部署、commit/push；仅完成本局部任务，不勾T05整体。
+
+- [x] PM-T004-T05-F22 标签填写题配置预览外观与只读/hover分离（2026-10-25确认）
+  - Goal/UI: 添加后的配置区勾选框沿弹窗正常外观但不允许试填；内部填写框不可编辑时不出现蓝色hover/focus，外层item选择框保持。
+  - Reading/prerequisites: T05蓝图/F19共享渲染/本次只读定位结论、Spec002/012 UI规范及N0001/N0002/N0004/N0005/N1102-N1104；本轮用户明确同意调整，局部修复不新增整页蓝图。
+  - Allowed modifications: PerformanceCheckbox/TemplateFieldRenderer/TagRichTextInput/ContentRenderer及既有Checkbox/ContentRenderer/TemplateRenderer测试、本功能文档及独立F22 PNG。保留上一轮字体/提示标识与其他工作区修改。
+  - Contract: Checkbox readonly默认false，只读正常外观但原生disabled且不emit；disabled优先原灰态。FieldRenderer previewOnly默认false，只有配置renderer显式开启；TagRichTextInput的蓝色hover/focus要求editable且非displayOnly。无API/持久化/权限/迁移/周期快照/UCP改动，不改弹窗试填或员工真实disabled规则。
+  - Given/When/Then: Given未选/已选标签、配置预览/可编辑预览/原有disabled；When点击/键盘或change、hover/focus和切换editable；Then颜色一致但配置不写答案、普通disabled保持灰色，内部边框稳定且外层仍可选择。组件/页面6文件179/179，员工填写/结果2文件另38/38通过；完整vue-tsc+vite及diff检查通过。
+  - Evidence/DoD: 真实Chromium两处未选白底/已选#0442D2（动画稳定后）一致；配置input disabled、contenteditable=false、点击勾选框区域只选中item，普通disabled仍#EFF0F1；配置内部hover前后#DEE0E3、外层蓝色虚线、可编辑预览蓝色hover均验证，无pageerror。截图../../ui-blueprints/PM-T004-T05-F22-implemented-tag-preview-states.png已查看。纯前端交互修复以实际组件证据验收，未运行登录态业务页/数据库，后端不适用；无容器替换、部署、commit/push。不以此勾T05整体。
 
 - [ ] PM-T004-T05 内容设置整体架构与空态还原
   - Goal: 根据用户提供的 `screenshot-20260819-112335.png` 与 SnapSpec，实现内容设置三栏整体架构。

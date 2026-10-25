@@ -54,9 +54,11 @@ describe('PerformanceConfiguredContentBlock', () => {
     await wrapper.setProps({ content: updated })
     expect(wrapper.find('.work-summary-view-options').exists()).toBe(false)
     expect(wrapper.get('.performance-prompt-display').classes()).toContain('is-unavailable')
+    expect(wrapper.find('.performance-prompt-display > button [data-icon="VisibleLockOutlined"]').exists()).toBe(true)
     await wrapper.get('.content-settings-detail--prompt input').setValue(true)
     await wrapper.setProps({ content: (wrapper.emitted('update:content')!.at(-1) as [typeof updated])[0] })
     expect((wrapper.findAll('.content-settings-detail--prompt input')[1].element as HTMLInputElement).checked).toBe(true)
+    expect(wrapper.find('.performance-prompt-display__hidden-icon').exists()).toBe(false)
     wrapper.unmount()
   })
 

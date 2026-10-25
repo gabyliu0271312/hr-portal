@@ -19,6 +19,21 @@ const sections = [
 ]
 
 describe('PerformanceTemplateRenderer', () => {
+  it('gates tag input hover eligibility on editability without changing readonly answers', async () => {
+    const answer = { tags: ['a'], notes: { a: '保留答案' } }
+    const wrapper = mount(PerformanceTagRichTextInput, { props: { modelValue: answer, options: [{ id: 'a', label: '标签A' }], editable: true } })
+    expect(wrapper.classes()).toContain('is-editable')
+    await wrapper.setProps({ editable: false })
+    expect(wrapper.classes()).not.toContain('is-editable')
+    expect(wrapper.get('[contenteditable]').attributes('contenteditable')).toBe('false')
+    expect(wrapper.text()).toContain('保留答案')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.setProps({ editable: true, displayOnly: true })
+    expect(wrapper.classes()).not.toContain('is-editable')
+    expect(wrapper.classes()).toContain('is-display-only')
+    wrapper.unmount()
+  })
+
   it('renders the same registered field schema in readonly mode', () => {
     const wrapper = mount(PerformanceTemplateRenderer, {
       props: { mode: 'readonly', sections, answers: { rich: ['<ol><li>保留格式</li></ol>'], rating: ['five'], tag: [{ tags: ['good'], note: '<p>补充说明</p>' }] } },

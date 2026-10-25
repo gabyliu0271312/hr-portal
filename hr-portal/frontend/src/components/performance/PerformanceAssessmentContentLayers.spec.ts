@@ -133,6 +133,21 @@ describe('PerformanceAssessmentContentLayers', () => {
     notice.unmount(); display.unmount()
   })
 
+  it.each([false, true])('shows the unavailable marker inside the prompt independently of showIcon=%s', async showIcon => {
+    const value = { title: '提示标题', content: '提示内容', color: '#F97316', scope: 'all' as const, showIcon }
+    const display = mount(PerformancePromptDisplay, { props: { value } })
+    expect(display.find('.performance-prompt-display__hidden-icon').exists()).toBe(false)
+    await display.setProps({ value: { ...value, allowView: false } })
+    const marker = display.get('.performance-prompt-display__hidden-icon')
+    expect(marker.element.parentElement).toBe(display.element)
+    expect(marker.find('[data-icon="VisibleLockOutlined"]').exists()).toBe(true)
+    expect(marker.attributes('tabindex')).toBe('-1')
+    expect(display.find('.performance-prompt-display__icon').exists()).toBe(showIcon)
+    await display.setProps({ value: { ...value, allowView: true } })
+    expect(display.find('.performance-prompt-display__hidden-icon').exists()).toBe(false)
+    display.unmount()
+  })
+
   it('uses token-based menu states and supports Escape, arrows and outside dismissal', async () => {
     const menu = mount(PerformanceItemAddMenu, { global: { stubs: { Teleport: true } }, attachTo: document.body })
     const trigger = menu.get('button')

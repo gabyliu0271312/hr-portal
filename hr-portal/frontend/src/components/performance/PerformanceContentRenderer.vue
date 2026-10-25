@@ -30,7 +30,7 @@
       <div v-else-if="itemState(item.id).mode === 'view'" :class="{ 'content-renderer-rating__readonly': isRatingItem(item) }">
         <PerformanceTemplateFieldRenderer class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" :empty-answer-text="readonlyEmptyAnswerText" :hide-item-description="true" />
       </div>
-      <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
+      <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" preview-only :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
       <template v-else-if="isRatingItem(item)">
         <div class="content-renderer-rating__header">
           <strong v-if="!itemState(item.id).hideName">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
@@ -112,7 +112,8 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}
 .content-renderer-item--configured{width:100%;min-height:0;margin:0;padding:var(--performance-readonly-item-padding-block) var(--performance-readonly-item-padding-inline);border-radius:var(--radius-sm)}
-.content-renderer-item--configured.content-renderer-rating>strong{line-height:var(--performance-header-title-line-height)}
+.performance-content-renderer--configured-card .content-renderer-rating__header{min-height:var(--performance-input-line-height);line-height:var(--performance-input-line-height)}
+.performance-content-renderer--configured-card .content-renderer-rating__header>strong{font-size:var(--font-size-md);line-height:inherit}
 .content-renderer-item--configured.content-renderer-rating--name-hidden{padding-block:var(--spacing-2)}
 .content-renderer-rating--name-hidden .content-renderer-rating__levels{margin-top:0}
 .content-renderer-item.is-selected{border-color:#3370ff;box-shadow:none}

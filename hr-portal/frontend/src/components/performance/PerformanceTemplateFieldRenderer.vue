@@ -13,7 +13,7 @@
     </template>
     <template v-else-if="field.type === 'tag_with_followup'">
       <div :class="['tag-followup', { invalid }]">
-        <div class="tag-options tag-checks"><PerformanceCheckbox v-for="option in field.options || []" :key="option.id" :model-value="selectedTags.includes(option.id)" :label="option.label" :disabled="!editable" @update:model-value="checked => toggleTag(option.id, checked)" /><span v-if="!field.options?.length" class="empty-options">暂无可用标签选项</span></div>
+        <div class="tag-options tag-checks"><PerformanceCheckbox v-for="option in field.options || []" :key="option.id" :model-value="selectedTags.includes(option.id)" :label="option.label" :disabled="!editable && !previewOnly" :readonly="!editable && previewOnly" @update:model-value="checked => toggleTag(option.id, checked)" /><span v-if="!field.options?.length" class="empty-options">暂无可用标签选项</span></div>
         <PerformanceTagRichTextInput :model-value="value" :options="field.options || []" :editable="editable" :invalid="invalid" :placeholder="field.placeholder || '请输入补充说明'" @update:model-value="$emit('update:value', $event)" @queue-save="$emit('queue-save')" />
       </div>
     </template>
@@ -31,7 +31,7 @@ import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import { isRegisteredPerformanceTemplateField } from './performanceTemplateFieldRegistry'
 
-const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; invalid?: boolean; error?: string; emptyAnswerText?: string; hideItemDescription?: boolean }>(), { editable: false, invalid: false, error: '', emptyAnswerText: '', hideItemDescription: false })
+const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; previewOnly?: boolean; invalid?: boolean; error?: string; emptyAnswerText?: string; hideItemDescription?: boolean }>(), { editable: false, previewOnly: false, invalid: false, error: '', emptyAnswerText: '', hideItemDescription: false })
 const emit = defineEmits<{ 'update:value': [value: unknown]; 'queue-save': [] }>()
 const registered = computed(() => isRegisteredPerformanceTemplateField(props.field, props.mode))
 const selectedTags = computed(() => Array.isArray(props.value) ? props.value as string[] : (props.value as { tags?: string[] } | undefined)?.tags || [])
