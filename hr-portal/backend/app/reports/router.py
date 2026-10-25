@@ -174,6 +174,13 @@ class RunOverrides(BaseModel):
     filters: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class DrilldownIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    filters: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=100)
+
+
 class DimensionCombinationSearchIn(BaseModel):
     report_id: int | None = None
     dataset_id: int
@@ -1430,7 +1437,83 @@ async def run_report(
     )
 
 
-# ---- 数字格式化工具（供 CSV / XLSX 导出共用） ----
+@router.post(
+    "/{report_id}/drilldown",
+    response_model=RunResult,
+    dependencies=[Depends(require_op("report.list", "V"))],
+)
+async def drilldown_report(
+    report_id: int,
+    payload: DrilldownIn,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+    request: Request = None,
+) -> RunResult:
+    """从授权汇总重新执行人员明细D；不把汇总结果当作明细来源。"""
+    from copy import copy
+    from app.datasets.models import DataProductAuthorizationContract, DatasetOutputField
+    from app.datasets.authorization_contract import ProductAuthorizationDefinition
+    from app.reports.report_service import (
+        _execute_authorized_detail,
+        execution_fingerprint,
+        require_authorized_report_readiness,
+    )
+
+    report = await db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="报表不存在")
+    if (getattr(report, "execution_version", None) or "legacy_v1") != "authorized_v1":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={
+            "code": "drilldown_requires_authorized_report",
+            "message": "只有授权执行版本的报表允许下钻",
+        })
+    if not await _can_access(user, report, db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
+    binding = report.execution_binding or {}
+    if binding.get("fingerprint") != execution_fingerprint(report):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={
+            "code": "execution_binding_invalid", "message": "授权执行绑定已失效，请重新批准",
+        })
+    readiness = await require_authorized_report_readiness(report, user, db)
+
+    contract = await db.get(DataProductAuthorizationContract, readiness.contract_id)
+    outputs = (await db.execute(select(DatasetOutputField).where(
+        DatasetOutputField.dataset_id == report.dataset_id,
+    ))).scalars().all()
+    definition = ProductAuthorizationDefinition.model_validate(contract.contract_json)
+    fact = definition.facts[0]
+    employee_output = next((output for output in outputs if output.source_column == fact.employee_key), None)
+    config = dict(report.config or {})
+    config["aggregate"] = False
+    config["aggregations"] = {}
+    config["filters"] = []
+    config["sorts"] = []
+    columns = list(config.get("columns") or [])
+    if employee_output and not any(
+        item.get("source_code") in {employee_output.output_code, f"{employee_output.source_alias}.{employee_output.source_column}"}
+        for item in columns if isinstance(item, dict)
+    ):
+        columns.append({
+            "source_code": employee_output.output_code,
+            "instance_id": employee_output.output_code,
+            "label": employee_output.output_label,
+        })
+    config["columns"] = columns
+    drill_report = copy(report)
+    drill_report.config = config
+    columns_meta, items, total = await _execute_authorized_detail(
+        drill_report,
+        "run",
+        {"user": user, "db": db, "dataset_id": report.dataset_id,
+         "filters": payload.filters, "sorts": [], "page": payload.page,
+         "page_size": payload.page_size},
+        readiness,
+    )
+    return RunResult(columns=columns_meta, items=items, total=total,
+                     page=payload.page, page_size=payload.page_size, warnings=[
+                         "下钻已重新执行人员范围明细，不继承成本中心汇总明细",
+                     ])
+
 
 import decimal
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP

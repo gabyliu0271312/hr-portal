@@ -81,6 +81,10 @@ export const reportsApi = {
             .post(`/reports/${id}/run`, { filters }, { params: { page, page_size: safePageSize } })
             .then((r) => r.data);
     },
+    drilldown: (id, filters = [], page = 1, page_size = 50) => {
+        const safePageSize = Math.min(Math.max(Number(page_size) || 50, 1), REPORT_RUN_MAX_PAGE_SIZE);
+        return api.post(`/reports/${id}/drilldown`, { filters, page, page_size: safePageSize }).then((r) => r.data);
+    },
     explainConfig: (body) => api
         .post('/ai/capabilities/report.explain_config/answer', body, {
         timeout: AI_REPORT_EXPLAIN_TIMEOUT_MS,

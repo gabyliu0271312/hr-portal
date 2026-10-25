@@ -1630,3 +1630,11 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 运行/COUNT/分页/CSV/XLSX 继续由同一明细语句派生；中心用户没有 P(u) 时拒绝，不返回匿名逐行结果。
 - 新增 schema3 `detail_filter_map` 单元测试；d_execution/report binding 定向 **73 passed / 52 skipped**。
 - 未完成：当前没有新增独立“下钻”UI按钮，现有报表运行入口通过运行期筛选承载下钻条件；需要下一轮接入汇总行点击与PC走查。5.5人数指标及复杂下钻仍未开放。
+
+### 5.4 汇总行点击下钻 UI（2026-10-25）
+
+- 新增 `POST /reports/{report_id}/drilldown`：仅 authorized_v1 报表可用；从汇总条件重新执行 D，不复用汇总行明细；自动补充事实人员键输出；中心用户无 P(u) 时拒绝。
+- 报表查看页授权汇总行可点击，生成当前非度量分组条件，打开明细抽屉；明细继续使用 COUNT/分页/CSV/XLSX 同源 D 逻辑。
+- 前端 `ReportPreviewTable` 增加可选 row-click；非授权/legacy 报表不启用下钻点击。
+- 验证：后端 d_execution/report-binding 定向 74 passed/52 skipped；前端 vue-tsc/build通过（39.43s），开发前端HTTP 200。
+- 开发真实数据探针仍需在后端运行时模型注册后执行；中心用户拒绝沿用既有报表25证据。

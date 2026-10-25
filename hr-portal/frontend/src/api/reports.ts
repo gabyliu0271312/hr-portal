@@ -449,6 +449,11 @@ export const reportsApi = {
       .then((r) => r.data)
   },
 
+  drilldown: (id: number, filters: FilterCond[] = [], page = 1, page_size = 50) => {
+    const safePageSize = Math.min(Math.max(Number(page_size) || 50, 1), REPORT_RUN_MAX_PAGE_SIZE)
+    return api.post<RunResult>(`/reports/${id}/drilldown`, { filters, page, page_size: safePageSize }).then((r) => r.data)
+  },
+
   explainConfig: (body: ReportConfigExplainPayload) =>
     api
       .post<ReportConfigExplainResult>('/ai/capabilities/report.explain_config/answer', body, {

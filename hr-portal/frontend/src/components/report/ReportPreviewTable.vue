@@ -14,14 +14,15 @@ const props = defineProps<{
   fillViewport?: boolean
   pageSizes?: number[]
   columnSettings?: Record<string, ColumnSetting>
+  clickableRows?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:page': [v: number]
   'update:pageSize': [v: number]
   'page-change': []
+  'row-click': [row: Record<string, any>]
 }>()
-
 const NUMERIC_TYPES = new Set(['integer', 'number', 'decimal', 'float', 'double', 'numeric'])
 
 function formatCell(row: Record<string, any>, col: RunResult['columns'][number]): string {
@@ -48,6 +49,8 @@ function formatCell(row: Record<string, any>, col: RunResult['columns'][number])
         style="width: 100%"
         :height="height ?? (fillViewport ? '100%' : undefined)"
         :max-height="height || fillViewport ? undefined : (maxHeight ?? 400)"
+        :row-class-name="clickableRows ? 'is-drilldown-row' : undefined"
+        @row-click="(row: Record<string, any>) => clickableRows && emit('row-click', row)"
       >
         <el-table-column
           v-for="col in columns"
@@ -120,6 +123,9 @@ function formatCell(row: Record<string, any>, col: RunResult['columns'][number])
 .report-result-table :deep(.el-table__cell) {
   vertical-align: top;
 }
+
+.report-result-table :deep(.is-drilldown-row) { cursor: pointer; }
+.report-result-table :deep(.is-drilldown-row:hover > td) { background: var(--color-bg-hover); }
 
 .report-result-table :deep(.cell) {
   white-space: nowrap;
