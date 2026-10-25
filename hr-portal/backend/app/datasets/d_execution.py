@@ -710,11 +710,11 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
         protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     condition_clauses = []
     if request.plan.conditions:
-        from app.datasets.authorization_contract import personal_filter_map
-        personal_fields = personal_filter_map(definition, list(outputs.values()))
+        from app.datasets.authorization_contract import detail_filter_map
+        personal_fields = detail_filter_map(definition, list(outputs.values()))
         for condition in request.plan.conditions:
             if condition.field not in personal_fields or condition.operator not in personal_fields[condition.field]:
-                return None, [_scope_issue("d_execution_personal_filter_not_approved", "人员定位条件未获批准或不属于明细路径")]
+                return None, [_scope_issue("d_execution_detail_filter_not_approved", "明细条件未获批准或不属于明细路径")]
             output = outputs.get(condition.field)
             if output is None:
                 return None, [_scope_issue("d_execution_filter_field_missing", "人员定位字段不存在")]

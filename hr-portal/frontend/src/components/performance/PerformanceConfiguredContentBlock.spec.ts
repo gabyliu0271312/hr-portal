@@ -386,8 +386,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getEvaluationExecutorKind('直属上级')).toBe('direct_manager')
     expect(getEvaluationExecutorKind('', ['DIRECT_MANAGER'])).toBe('direct_manager')
     expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true })
-    expect(getStageContentRule('result_communication')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-communication-root', itemSettingsEnabled: true, itemSettingsVariant: 'result-communication-item' })
-    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'calibration', 'result_reconsideration', 'unknown', undefined]) {
+    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'calibration', 'result_communication', 'result_reconsideration', 'unknown', undefined]) {
       expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
     }
     expect(itemSettingsCapabilities).toMatchObject({
@@ -399,10 +398,6 @@ describe('PerformanceConfiguredContentBlock', () => {
       'evaluation-custom-text': { hideName: true, mode: true, required: true, viewResults: true },
       'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
       'evaluation-rating': { hideName: true, mode: false, required: true, levelRules: true },
-      'result-communication-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
-      'result-communication-custom-text': { hideName: true, mode: true, required: true, viewResults: true },
-      'result-communication-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
-      'result-communication-rating': { hideName: true, mode: false, required: true, levelRules: true },
     })
     expect(getItemSettingsVariant({ type: 'custom', questionType: 'tag' }, { questionType: 'text' })).toBe('custom-text')
     expect(getItemSettingsVariant({ type: 'custom', questionType: 'text' }, { questionType: 'tag' })).toBe('custom-tag')
@@ -522,19 +517,6 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')).toHaveLength(2)
     expect((wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')[0].element as HTMLInputElement).checked).toBe(true)
     expect((wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')[1].element as HTMLInputElement).checked).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('shows result-communication settings for custom-tag items', async () => {
-    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
-      content: { ...content, type: 'custom', items: [{ id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] }] },
-      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
-      rootSettings: { hideDescription: false, allowMultiple: false },
-      itemSettings: { tag: { mode: 'fill', required: true } },
-      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'result-communication-root', itemSettingsVariant: 'result-communication-item',
-    } })
-    await wrapper.get('[data-content-item-id="tag"]').trigger('click')
-    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置', '必填项设置'])
     wrapper.unmount()
   })
 

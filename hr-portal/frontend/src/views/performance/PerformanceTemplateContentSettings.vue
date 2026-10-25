@@ -134,7 +134,7 @@ import type { WorkSummaryItemSettings } from '@/components/performance/Performan
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsEvaluationView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -449,7 +449,7 @@ function setConfiguredContents(contents: PerformanceTemplateContent[]) {
   configuredContents.value = [...unique.values()] as Array<AssessmentContentDraft & { id: string }>
   configuredExpandedIds.value = new Set(configuredContents.value.map((item) => item.id))
   rootSettings.value = Object.fromEntries(configuredContents.value.map((content) => [content.id, normalizeRootSettings(content.settings)]))
-  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, activeTab.value === 'fill' && supportsStageItemView(selectedStageData.value?.nodeType, content, item))])))
+  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, selectedStageData.value?.nodeType === 'evaluation' && activeTab.value === 'fill' && supportsEvaluationView(content, item))])))
 }
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
   const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
@@ -472,7 +472,7 @@ function serializeConfiguredContents(slot = activeTab.value): PerformanceTemplat
       ...item,
       settings: item.kind !== 'prompt' && activeStageContentRule.value.itemSettingsEnabled && (selectedStageData.value?.nodeType !== 'evaluation' || supportsEvaluationItemSettings(content, item))
         && (!isResultView.value || (content.type === 'custom' && (item.questionType || content.questionType || 'text') === 'tag'))
-        ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, slot === 'fill' && supportsStageItemView(selectedStageData.value?.nodeType, content, item))
+        ? normalizeItemSettings(itemSettings.value[`${id}:${item.id}`] || settings, selectedStageData.value?.nodeType === 'evaluation' && slot === 'fill' && supportsEvaluationView(content, item))
         : settings,
     })),
   })))

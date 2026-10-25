@@ -102,6 +102,15 @@ def personal_filter_map(definition, outputs) -> dict[str, set[str]]:
     return {code: set(SUPPORTED_FILTER_OPERATORS) for code in derived["identifying"]}
 
 
+def detail_filter_map(definition, outputs) -> dict[str, set[str]]:
+    """schema 3 明细/下钻条件：维度与人员定位字段，排除度量和技术字段。"""
+    if definition.schema_version != 3:
+        return {}
+    derived = derived_summary_fields(definition, outputs)
+    allowed = set(derived["dimensions"]) | set(derived["identifying"])
+    return {code: set(SUPPORTED_FILTER_OPERATORS) for code in allowed}
+
+
 class ApprovedFilter(BaseModel):
     """合同批准的筛选能力：只允许在已批准维度上按批准操作符收窄。"""
     model_config = {"extra": "forbid"}

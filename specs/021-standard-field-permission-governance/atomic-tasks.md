@@ -1622,3 +1622,11 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 迁移 `0272_standard_field_display_name` 已应用开发库，旧版本最新 `field_name` 回填到 `standard_fields.display_name`；API新增 `PATCH /warehouse/standard-fields/{id}/display-name`。
 - 前端标准字段抽屉增加“展示名称”独立编辑说明，语义版本编辑仍走原版本流程。
 - 生产未部署；函数目录自身的 `is_visible` 不属于标准字段语义，不在本次拆分范围内。
+
+### 5.4 汇总后下钻（首轮开发，2026-10-25）
+
+- 明细D现在允许 schema3 的 `detail_filter_map`：维度字段与 identifying 人员字段可作为下钻条件，度量、技术列、敏感列、按用户隐藏列拒绝；D仍只走 P(u)，不把 C(u) 汇总贡献转换为员工明细。
+- 报表明细 `config.filters` 与运行期 `filters` 已接入同一 D 编译器；聚合报表仍走5.1合同批准筛选，明细报表可从汇总组带入期间/中心/组织条件后重新执行D。
+- 运行/COUNT/分页/CSV/XLSX 继续由同一明细语句派生；中心用户没有 P(u) 时拒绝，不返回匿名逐行结果。
+- 新增 schema3 `detail_filter_map` 单元测试；d_execution/report binding 定向 **73 passed / 52 skipped**。
+- 未完成：当前没有新增独立“下钻”UI按钮，现有报表运行入口通过运行期筛选承载下钻条件；需要下一轮接入汇总行点击与PC走查。5.5人数指标及复杂下钻仍未开放。

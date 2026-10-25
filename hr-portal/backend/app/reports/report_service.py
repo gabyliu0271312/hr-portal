@@ -341,8 +341,8 @@ async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, p
         raise HTTPException(403, detail={"code": "authorized_detail_field_denied", "message": "字段不在合同明细白名单"})
     conditions = []
     if config.filters:
-        from app.datasets.authorization_contract import personal_filter_map
-        personal_fields = personal_filter_map(definition, [
+        from app.datasets.authorization_contract import detail_filter_map
+        personal_fields = detail_filter_map(definition, [
             {"output_code": output.output_code, "source_column": output.source_column, "agg_role": output.agg_role}
             for output in outputs
         ])

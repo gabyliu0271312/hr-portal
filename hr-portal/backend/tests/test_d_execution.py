@@ -1002,3 +1002,17 @@ def test_schema3_multidimensional_summary_plan_is_derived_and_allowed():
     assert derived["dimensions"] == ["cost_period", "cc_code", "department"]
     assert derived["measures"] == ["amount"]
     assert "employee_no" not in derived["summary_outputs"]
+
+
+def test_schema3_detail_filter_map_allows_dimensions_and_person_identity():
+    from app.datasets.authorization_contract import detail_filter_map
+    definition = _schema3_definition()
+    outputs = [
+        {"output_code": "cost_period", "source_column": "cost_period", "agg_role": "dimension"},
+        {"output_code": "code", "source_column": "code", "agg_role": "dimension"},
+        {"output_code": "headcount", "source_column": "headcount", "agg_role": "measure"},
+        {"output_code": "employee_no", "source_column": "employee_no", "agg_role": "dimension"},
+    ]
+    fields = detail_filter_map(definition, outputs)
+    assert set(fields) == {"cost_period", "code", "employee_no"}
+    assert "headcount" not in fields
