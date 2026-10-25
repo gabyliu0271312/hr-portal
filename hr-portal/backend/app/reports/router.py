@@ -1298,8 +1298,14 @@ async def run_report(
     if report.dataset_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="报表必须绑定数据集")
 
+    # 运行时筛选在服务端按授权合同批准字段/操作符校验；新增字段直接拒绝（见 report_service）
     if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1" and overrides and overrides.filters:
-        raise HTTPException(422, detail={"code": "authorized_runtime_filters_unsupported", "message": "新执行版本尚未支持运行时筛选"})
+        base_columns = {item.column for item in ReportConfig(**(report.config or {})).filters}
+        unknown = [item.get("column") for item in overrides.filters
+                   if isinstance(item, dict) and item.get("column") and item["column"] not in base_columns]
+        if unknown:
+            raise HTTPException(422, detail={"code": "authorized_filter_unknown",
+                                             "message": "运行时筛选只能修改报表已配置的筛选字段"})
     await _ensure_report_dataset_consumable(report, user, db)
 
     cfg = ReportConfig(**(report.config or {}))
@@ -1839,8 +1845,14 @@ async def export_report_csv(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权访问该报表")
 
     export_filters = _parse_runtime_filters(runtime_filters)
+    # 导出筛选同样按合同批准字段/操作符校验
     if (getattr(report, "execution_version", None) or "legacy_v1") != "legacy_v1" and export_filters:
-        raise HTTPException(422, detail={"code": "authorized_runtime_filters_unsupported", "message": "新执行版本尚未支持运行时筛选"})
+        base_columns = {item.column for item in ReportConfig(**(report.config or {})).filters}
+        unknown = [item.get("column") for item in export_filters
+                   if isinstance(item, dict) and item.get("column") and item["column"] not in base_columns]
+        if unknown:
+            raise HTTPException(422, detail={"code": "authorized_filter_unknown",
+                                             "message": "运行时筛选只能修改报表已配置的筛选字段"})
     try:
         export_cfg = _ensure_valid_report_config(
             _apply_runtime_overrides(ReportConfig(**(report.config or {})), export_filters)

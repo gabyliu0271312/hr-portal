@@ -181,6 +181,14 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
         raise HTTPException(422, detail={"code": "authorized_config_invalid", "message": "报表配置无效"}) from exc
     if runtime_filters:
         from app.reports.runtime import apply_runtime_overrides
+        base_columns = {item.column for item in config.filters}
+        for item in runtime_filters:
+            column = (item or {}).get("column") if isinstance(item, dict) else None
+            if column and column not in base_columns:
+                raise HTTPException(422, detail={
+                    "code": "authorized_filter_unknown",
+                    "message": "运行时筛选只能修改报表已配置的筛选字段",
+                })
         try:
             config = apply_runtime_overrides(config, runtime_filters)
         except (TypeError, ValueError) as exc:

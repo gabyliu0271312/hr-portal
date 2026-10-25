@@ -125,10 +125,10 @@ class ProductAuthorizationDefinition(BaseModel):
             if len({item.field for item in self.approved_filters}) != len(self.approved_filters):
                 raise ValueError("筛选字段不可重复")
             for item in self.approved_filters:
-                # 只允许在批准维度上筛选：度量/内部字段/人员定位字段一律不可作为筛选条件
+                # 只允许在批准维度上筛选：度量/人员定位字段一律不可作为筛选条件
                 if item.field not in self.dimensions:
                     raise ValueError(f"筛选字段 {item.field} 必须是合同批准的维度")
-                if item.field in self.internal_fields:
+                if item.field in self.internal_fields and item.field not in self.output_fields:
                     raise ValueError(f"内部字段 {item.field} 不可作为筛选条件")
         return self
 

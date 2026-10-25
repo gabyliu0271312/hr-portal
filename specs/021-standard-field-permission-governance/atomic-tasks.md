@@ -1482,3 +1482,19 @@ VALUE_FIELD=SKIPPED
 - 全量后端：**2854 passed / 247 skipped / 8 failed**；8个失败与干净HEAD一致（AI控制2、分摊归档3、质量1、UCP1）加已知抖动的 result-detail 1个，本轮无新增回归。
 - 开发库真实SQL探针（数据集530/用户6，合同JSON仅在内存附加 approved_filters，未改库）：baseline 74组；`cost_period eq 202602`=74；`in [202602]`=74；`code eq ZZZ`=**0组**（条件生效且未扩大授权）；`employee_no` 条件 → `s_execution_filter_not_approved` 拒绝。
 - 未完成：报表级端到端需要新合同版本（v5）声明 approved_filters 并重新绑定报表22/23/24/25；该动作会退役当前 v4，属治理变更，等待用户批准后在开发库执行并做PC验收。
+
+### 5.1 合同v5切换与端到端验收（2026-10-25，开发库）
+
+- 开发库执行治理变更（用户已批准）：创建合同 v5（v4定义原样 + `approved_filters`：`cost_period`/`code` × `eq`/`in`）→ 退役 v4 → 批准 v5。
+- 切换后发现并处理两处真实问题：
+  1. **标准化重跑改变可见性**：重跑 `ods_021_allocation_pilot` 标准化后，DWD `employee_no` 列与输出 `666` 的 `is_visible` 由 true 变 false，导致合同快照漂移、明细D不可用。开发库已恢复为 true（临时SQL修复开发状态，不是生产证据）；这是 X2127「刷新不得丢TableColumn/输出可见性」的真实缺口，需产品修复。
+  2. **转换证据随来源重跑失效**：来源指纹变化→重新执行标准化（run 6，886行）→按 v5 重新批准转换（approval 7，dataset_version=1）。
+- 报表22/23/24/25 重新绑定合同 v5（用户6，`authorized_v1`）。
+- 端到端结果（真实HTTP，开发库）：
+  - 四份报表基线：22/23/24 各 **74**，25 明细 **723**；
+  - 报表22配置期间筛选 `cost_period eq 202602`：运行/COUNT **74**；
+  - 运行期覆写 `eq 202601`：**0**；`in [202602]`：**74**；`contains` 操作符：**403 authorized_filter_denied**；未配置字段（headcount/code）：**422 authorized_filter_unknown**；
+  - CSV导出：默认 **75行**（含表头），`202601` 筛选 **1行**（仅表头），与运行/COUNT同口径。
+- 代码补充：运行/导出入口不再一律拒绝运行期筛选；新增“只能修改报表已配置筛选字段”的显式拒绝，避免静默忽略。
+- 全量后端：2854 passed / 247 skipped / 8 failed（与干净HEAD一致）。
+- 未完成：用户PC走查（筛选面板改值、导出）、5.2 人员定位与明细D、5.3–5.8。
