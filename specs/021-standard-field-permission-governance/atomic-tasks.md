@@ -1589,3 +1589,10 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - `is_visible` 物理删除后，D明细不再因展示属性拒绝隐藏人员锚点；字段权限与P(u)仍独立生效。
 - 单元验证：d_execution/report binding定向 **71 passed/52 skipped**（含 personal_filter_map）。
 - 未完成：开发报表25真实配置修改/PC人员定位验收被共享状态门禁阻止；需用户明确指定报表25配置与重新绑定后再做真实HTTP探针。5.2的姓名/多人员定位、下钻仍未开放。
+
+### 5.2 真实探针结果（2026-10-25）
+
+- 用户已明确批准临时修改报表25增加 `employee_no eq "__probe__"`、按schema3合同v6重绑、运行后恢复原配置并重绑。
+- 实际执行：临时配置成功；探针重绑返回422（`authorized_config_unsupported`），随后 finally 已恢复原配置并重绑成功；最终报表25运行恢复 **723** 行。
+- 失败原因不是人员范围拒绝，而是明细D入口仍把 `config.filters` 视为“筛选/派生配置不支持”；代码随后已改为仅允许schema3 identifying人员字段筛选，未批准字段/操作符分别返回403/422。
+- 由于后端重启后 `DATA_TABLES` 未自动注册 `dwd_021_allocation_pilot`，当前HTTP准入再次需要对开发资产执行一次同值period-config以恢复运行时模型；该共享资产配置变更需用户另行确认，未擅自执行。
