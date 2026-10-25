@@ -667,7 +667,9 @@ async def approve_contract(db, dataset_id, contract_id, payload, user):
         current = ProductAuthorizationDefinition.model_validate(row.contract_json)
         _, tables, relations, outputs = await _validate_definition(db, dataset_id, current)
         await _validate_resolution(db, dataset_id, current)
-        if (len(current.facts) != 1 or relations
+        if len(current.facts) != 1:
+            raise HTTPException(409, detail={"code": "multi_fact_not_implemented", "message": "多事实授权执行尚未完成一对多基数与金额去重验证，当前合同不可批准"})
+        if (relations
                 or any(f.role not in {"person_fact", "allocation_fact"} for f in current.facts)
                 or (current.facts[0].role == "person_fact" and (current.facts[0].allow_cost_center_summary or current.facts[0].cost_center_key))
                 or (current.facts[0].role == "allocation_fact" and (not current.facts[0].allow_cost_center_summary or not current.facts[0].cost_center_key))):

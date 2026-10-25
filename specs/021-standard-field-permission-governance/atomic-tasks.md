@@ -1661,3 +1661,9 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 新增系统标准字段种子迁移 `0273_org_hierarchy_standard_fields`：组织基础字段与 `org_level_1~10_id/name`，标准字段作为系统语义定义，不要求来源表冗余层级列。
 - 新增三组解析测试：RootOrg排除与层级生成、循环/父缺失阻断、深度溢出阻断。
 - 待开发环境重启应用0273后，验证标准字段数量与层级接口；真实5.3组织汇总需数据集输出组织维度后再验收。
+
+### 5.7 多事实与一对多防放大（安全首轮，2026-10-25）
+
+- 当前授权执行继续只允许单事实；新增明确阻断码 `multi_fact_not_implemented`（合同批准入口）和既有 `s_execution_requires_one_fact`（S编译入口）。
+- 新增多事实安全门测试：未完成事实关联基数、逐事实范围裁决和度量去重验证前，不允许批准或执行多事实合同。
+- 未开启多事实能力，不以把多个表加入合同或前端选择器冒充完成；生产dataset15不受影响。

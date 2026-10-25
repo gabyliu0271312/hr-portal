@@ -1040,3 +1040,15 @@ def test_schema3_approved_employee_count_allows_distinct_person_key_metric():
         plan=ExecutionPlanIn(output_fields=["cc_code", "employee_no"], group_by=["cc_code"], aggregations={"employee_no": "count_distinct"}),
     ))
     assert result.eligible is True
+
+
+def test_multi_fact_safety_gate_remains_closed():
+    definition = _s_definition_with_filters()
+    payload = definition.model_dump()
+    payload["facts"].append({"alias": "bonus", "table_name": "bonus_fact", "fact_key": "id", "employee_key": "employee_no", "role": "person_fact"})
+    blocked = validate_allocation_fact_s_execution(
+        _s_contract(definition=ProductAuthorizationDefinition.model_validate(payload)),
+        _s_request(),
+    )
+    assert blocked.eligible is False
+    assert any(issue["code"] == "s_execution_requires_one_fact" for issue in blocked.issues)
