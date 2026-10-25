@@ -63,6 +63,7 @@ describe('performance content shared primitives', () => {
     expect(wrapper.get('.performance-prompt-display__title').text()).toBe('提示标题')
     expect(wrapper.get('.performance-prompt-display__content').text()).toBe('提示内容')
     expect(wrapper.find('.content-renderer-prompt .performance-assessment-rich-text-field').exists()).toBe(false)
+    expect(wrapper.findAll('[data-content-item-id]').every(item => item.classes().includes('content-renderer-item--configured'))).toBe(true)
   })
 
   it('renders a top-level prompt without exposing item settings', () => {

@@ -10,7 +10,7 @@
         'content-renderer-item--interactive',
         {
           'content-renderer-item--selected': selectionKey(item.id) === selectedItemId,
-          'content-renderer-item--configured': hasItemSettings(item.id) || (item.kind === 'prompt' && variant === 'configured-card'),
+          'content-renderer-item--configured': hasItemSettings(item.id) || variant === 'configured-card',
           'content-renderer-item--custom-tag': isCustomTagItem(item),
           'content-renderer-item--hidden': hasItemSettings(item.id) && itemState(item.id).mode === 'hidden',
           'content-renderer-item--view': hasItemSettings(item.id) && itemState(item.id).mode === 'view',

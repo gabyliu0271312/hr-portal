@@ -329,7 +329,10 @@
 
 - 2026-10-23实现验收记录：公共 `PerformancePromptForm` 由独立弹窗和内嵌条目共同消费；菜单通过 `PerformanceItemAddMenu` 复用，菜单使用全局 hover token 并以 Teleport 避免滚动容器裁切；`PerformanceSortableList` 同时承载评级/填写/提示。定向前端157/157、后端workflow/projects392/392、前端build和diff检查通过。未执行登录态浏览器、独立PNG、真实数据库重开和员工端提示展示，F20保持未勾选。
 
-- 2026-10-25提示组件修订：颜色选择器悬浮说明通过Teleport挂到body，并使用`--performance-popover-z-index`，高于内容弹窗遮罩，不再被添加提示弹窗遮挡。提示展示框直接使用保存的颜色作为底色，移除原左侧竖线；标题保持16px/600/24px，提示内容保持14px/400/22px，与添加内容中的标题/描述一致。颜色配置下新增公共复选框“显示icon”，默认关闭，开启后在文字前展示对应颜色的提示图标；`showIcon`作为既有JSONB提示对象的可选字段，旧数据缺省按关闭处理。展示框宽度使用`--performance-content-width`并受父容器限制。
+- 2026-10-25提示组件修订（以本次用户追加确认为准）：颜色悬浮提示沿用Teleport/body和公共popover层级；外部提示底色必须与相应悬浮示例的浅色底完全相同，复用`PerformancePromptNotice`导出的唯一色彩/图标定义，不能直接用色块的饱和颜色铺底。图标使用勾选颜色，内层符号白色；标题16px/600/24px、内容14px/400/22px沿用主/次文本色。`showIcon`默认false，保留既有保存/重开。
+- 页面级提示不显示收起按钮，且不受旧expanded值影响。提示底色框与实际工作总结输入框左右边界及宽度一致，而非与整张792px卡片同宽；共用`--performance-readonly-item-padding-inline`及`--performance-content-item-border-width`。配置卡片中的所有条目统一同一内缩，不以有无右侧配置能力决定布局宽度；编辑弹窗仍随父容器。
+- 点击页面级或内嵌提示时，右侧内容设置复用`PerformanceWorkSummaryItemSettings`的prompt变体：顶层“允许查看”（默认true）；开启时在与结果查看标签题相同的灰色嵌套框内展示“仅在填写时显示”（默认false）。关闭允许查看收起子项但保留子项值；管理画布保留灰态提示以便重新开启。两项保存在当前`prompt.allowView/onlyWhenFilling`，与showIcon、颜色和未知字段一起沿既有workflow JSONB保存。不同环节、提示和两种层级不串值；不将此配置验收冒充员工运行态提示/周期范围解析已完成。
+- 本轮验证：前端6文件190/190，后端workflow183/183；完整vue-tsc+vite通过（VueUse既有PURE注释提示）。真实Chromium隔离挂载实际组件，792px容器下工作总结输入框/页面提示/内嵌提示均左50px、宽740px；620px容器下均左50px、宽568px。浅底与hover notice相同、图标为所选色、无收起按钮、父子勾选恢复/提示隔离和tooltip2201高于modal2200均通过，无pageerror。独立PNG：`../../ui-blueprints/PM-T004-T05-F20-implemented-prompt-view-settings.png`，已查看；这是实际组件隔离证据，不是登录态业务页面或真实数据库回读。无迁移、容器替换、生产部署或提交推送。
 
 ### F01 历史验收记录
 
