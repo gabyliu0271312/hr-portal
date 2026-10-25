@@ -75,7 +75,7 @@ const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.c
   && (props.itemSettingsVariant !== 'result-view-item' || getItemSettingsVariant(props.content, props.content.items.find(item => item.id === selectedItemId.value)) === 'custom-tag'))
 const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => itemSettingsAvailable(item)).map((item) => {
   const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
-  return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: settings.allowView === false ? 'hidden' : 'view', required: false } : settings]
+  return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: 'view', required: false } : settings]
 })))
 
 watch(() => props.active && settingsAvailable.value, visible => emit('settings-visibility', visible), { immediate: true })

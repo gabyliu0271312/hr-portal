@@ -52,6 +52,8 @@
   --performance-review-completion-bg: #e4fae1;
   --performance-review-completion-icon: #32a645;
   --performance-review-readonly-surface: #f5f6f7;
+  --performance-content-unavailable-overlay: rgba(255, 255, 255, 0.56);
+  --performance-content-unavailable-icon: var(--color-text-placeholder);
   --performance-readonly-item-padding-block: var(--spacing-4);
   --performance-readonly-item-padding-inline: var(--spacing-6);
   --performance-readonly-answer-padding: var(--spacing-4);

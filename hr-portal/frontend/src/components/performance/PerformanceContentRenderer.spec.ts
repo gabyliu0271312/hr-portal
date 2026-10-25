@@ -198,6 +198,22 @@ describe('performance content shared primitives', () => {
     wrapper.unmount()
   })
 
+  it('keeps result-view content structure under the shared unavailable overlay', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type: 'custom', items: [{ id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] }] },
+      itemSettings: { tag: { mode: 'view', required: false, allowView: false } },
+      readonlyEmptyAnswerText: '这里展示用户填写内容',
+    } })
+    const item = wrapper.get('[data-content-item-id="tag"]')
+    expect(item.classes()).toContain('content-renderer-item--unavailable')
+    expect(item.classes()).not.toContain('content-renderer-item--hidden')
+    expect(item.attributes('aria-disabled')).toBeUndefined()
+    expect(wrapper.getComponent(PerformanceTemplateFieldRenderer).props('mode')).toBe('readonly')
+    expect(wrapper.find('.readonly-tag-panel').exists()).toBe(true)
+    expect(wrapper.find('.performance-unavailable-overlay').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('uses one configurable preview phrase for rich text and tag view items', async () => {
     const wrapper = mount(PerformanceContentRenderer, { props: {
       content: { type: 'custom', items: [

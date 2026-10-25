@@ -12,7 +12,8 @@
           'content-renderer-item--selected': selectionKey(item.id) === selectedItemId,
           'content-renderer-item--configured': hasItemSettings(item.id) || variant === 'configured-card',
           'content-renderer-item--custom-tag': isCustomTagItem(item),
-          'content-renderer-item--hidden': hasItemSettings(item.id) && itemState(item.id).mode === 'hidden',
+          'content-renderer-item--hidden': isHiddenItem(item.id),
+          'content-renderer-item--unavailable': isUnavailableItem(item.id),
           'content-renderer-item--view': hasItemSettings(item.id) && itemState(item.id).mode === 'view',
           'content-renderer-item--name-hidden': isCustomTextItem(item) && itemState(item.id).hideName === true,
           'content-renderer-rating--name-hidden': isRatingItem(item) && itemState(item.id).hideName === true,
@@ -20,10 +21,11 @@
       ]"
       :selected="selectionKey(item.id) === selectedItemId"
       :data-content-item-id="item.id"
-      :aria-disabled="hasItemSettings(item.id) && itemState(item.id).mode === 'hidden'"
+      :aria-disabled="isHiddenItem(item.id) ? 'true' : undefined"
       @click.stop="interactive && $emit('select-item', item.id)"
     >
-      <button v-if="hasItemSettings(item.id) && itemState(item.id).mode === 'hidden'" class="content-renderer-hidden-icon" type="button" aria-label="在此环节隐藏" tabindex="-1"><PerformanceVisibleLockIcon /></button>
+      <button v-if="isHiddenItem(item.id)" class="content-renderer-hidden-icon" type="button" aria-label="在此环节隐藏" tabindex="-1"><PerformanceVisibleLockIcon /></button>
+      <PerformanceUnavailableOverlay v-if="isUnavailableItem(item.id)" />
       <template v-if="item.kind === 'prompt'">
         <PerformancePromptDisplay v-if="item.prompt" :value="item.prompt" class="content-renderer-prompt" />
       </template>
@@ -54,13 +56,14 @@ import PerformanceRichTextBox from './PerformanceRichTextBox.vue'
 import PerformanceAssessmentRichTextField from './PerformanceAssessmentRichTextField.vue'
 import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame.vue'
 import PerformanceVisibleLockIcon from './PerformanceVisibleLockIcon.vue'
+import PerformanceUnavailableOverlay from './PerformanceUnavailableOverlay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import type { PerformancePromptValue as PromptValue, PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
 type ContentItem = { id: string; label: string; hint?: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PromptValue; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; defaultAll?: boolean }
 type Content = { type: 'work_summary' | 'rating' | 'custom' | 'prompt'; prompt?: PromptValue; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
-type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean }
+type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean }
 
 const props = withDefaults(defineProps<{
   content: Content
@@ -83,6 +86,8 @@ const hasItemSettings = (itemId: string) => {
   return Boolean(item && !isPromptItem(item) && Object.prototype.hasOwnProperty.call(props.itemSettings, itemId))
 }
 const itemState = (itemId: string): ItemSettings => props.itemSettings[itemId] || { mode: 'fill', required: false }
+const isHiddenItem = (itemId: string) => hasItemSettings(itemId) && itemState(itemId).mode === 'hidden'
+const isUnavailableItem = (itemId: string) => hasItemSettings(itemId) && itemState(itemId).allowView === false
 const isCustomTextItem = (item: ContentItem) => isFillItem(item) && (content.value.type === 'custom' || content.value.type === 'rating' && item.kind === 'fill') && (item.questionType || content.value.questionType || 'text') === 'text'
 const isCustomTagItem = (item: ContentItem) => isFillItem(item) && (content.value.type === 'custom' || content.value.type === 'rating' && item.kind === 'fill') && (item.questionType || content.value.questionType || 'text') === 'tag'
 const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
@@ -110,7 +115,7 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
-.content-renderer-item--interactive{padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}
+.content-renderer-item--interactive{position:relative;padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}
 .content-renderer-item--configured{width:100%;min-height:0;margin:0;padding:var(--performance-readonly-item-padding-block) var(--performance-readonly-item-padding-inline);border-radius:var(--radius-sm)}
 .performance-content-renderer--configured-card .content-renderer-rating__header{min-height:var(--performance-item-title-line-height);line-height:var(--performance-item-title-line-height)}
 .content-renderer-item--configured.content-renderer-rating--name-hidden{padding-block:var(--spacing-2)}
