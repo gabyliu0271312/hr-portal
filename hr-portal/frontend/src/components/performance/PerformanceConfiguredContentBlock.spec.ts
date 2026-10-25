@@ -473,13 +473,14 @@ describe('PerformanceConfiguredContentBlock', () => {
       rootSettingsEnabled: false, itemSettingsEnabled: true, rootSettingsVariant: 'generic-root', itemSettingsVariant: 'evaluation-item',
     } })
     await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
-    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['填写设置', '必填项设置'])
+    const fillGroups = type === 'custom' ? ['显示设置', '填写设置', '必填项设置'] : ['填写设置', '必填项设置']
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(fillGroups)
     expect(wrapper.findAll('.content-settings-detail--item input[type="radio"]').map(input => input.attributes('value'))).toEqual(['fill', 'hidden', 'view'])
     for (const mode of ['hidden', 'view'] as const) {
       await wrapper.get(`.content-settings-detail--item input[value="${mode}"]`).setValue()
       const settings = (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0]
       await wrapper.setProps({ itemSettings: settings })
-      expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['填写设置'])
+      expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(type === 'custom' ? ['显示设置', '填写设置'] : ['填写设置'])
       expect(settings.text).toEqual({ mode: 'fill', required: false })
     }
     expect(wrapper.get('[data-content-item-id="item-1"]').find('.performance-rich-text-box').exists()).toBe(false)
@@ -493,6 +494,29 @@ describe('PerformanceConfiguredContentBlock', () => {
       await wrapper.get('[data-content-item-id="text"]').trigger('click')
       expect(wrapper.find('.content-settings-detail--item').exists()).toBe(true)
     }
+    wrapper.unmount()
+  })
+
+  it('keeps evaluation custom-tag display settings when switching fill modes', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'custom', items: [{ id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] }] },
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false },
+      itemSettings: { tag: { mode: 'fill', required: true, hideName: false, hideDescription: false } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'evaluation-360-root', itemSettingsVariant: 'evaluation-item',
+    } })
+    await wrapper.get('[data-content-item-id="tag"]').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置', '必填项设置'])
+    const display = wrapper.get('.content-settings-detail--item')
+    await display.findAll('input[type="checkbox"]')[0].setValue(true)
+    await display.findAll('input[type="checkbox"]')[1].setValue(true)
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    await wrapper.get('.content-settings-detail--item input[value="view"]').setValue()
+    await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置'])
+    expect(wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')).toHaveLength(2)
+    expect((wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')[0].element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')[1].element as HTMLInputElement).checked).toBe(true)
     wrapper.unmount()
   })
 

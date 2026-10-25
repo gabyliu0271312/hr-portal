@@ -42,16 +42,12 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
         <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" @update:model-value="update({ hideDescription: $event })" />
       </div>
     </fieldset>
-    <fieldset v-else-if="capabilities.viewResults" class="work-summary-setting-group work-summary-view-setting">
-      <legend>填写设置</legend>
-      <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
-    </fieldset>
-    <fieldset v-else-if="capabilities.hideName || capabilities.hideDescription" class="work-summary-setting-group">
+    <fieldset v-if="!capabilities.allowView && (capabilities.hideName || capabilities.hideDescription)" class="work-summary-setting-group">
       <legend>显示设置</legend>
       <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
       <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" @update:model-value="update({ hideDescription: $event })" />
     </fieldset>
-    <fieldset v-if="capabilities.mode && !capabilities.viewResults" class="work-summary-setting-group">
+    <fieldset v-if="!capabilities.allowView && (capabilities.viewResults || capabilities.mode)" class="work-summary-setting-group work-summary-view-setting">
       <legend>填写设置</legend>
       <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
     </fieldset>
