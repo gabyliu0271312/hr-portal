@@ -228,7 +228,7 @@ async def list_datasets(
                 ),
             }
             for column in field_result.scalars().all()
-            if column.is_visible and column.column_code not in hidden_fields
+            if not is_technical_column(column.column_code) and column.column_code not in hidden_fields
         ]
         if fields:
             datasets.append(
@@ -470,7 +470,7 @@ async def _reference_catalog(
         field_result = await db.execute(
             select(TableColumn.column_code).where(
                 TableColumn.table_name == dataset.table_name,
-                TableColumn.is_visible.is_(True),
+                business_column_filter(TableColumn),
             )
         )
         fields = {row[0] for row in field_result.all()} - hidden_fields

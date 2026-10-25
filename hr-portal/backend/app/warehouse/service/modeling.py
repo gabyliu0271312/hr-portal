@@ -1235,23 +1235,23 @@ class DwsAggregateService:
         # 注册列：id / 分组维度 / 度量值 / synced_at
         col_order = 0
         for col_code, col_label in [("id", "ID"), ("synced_at", "同步时间")]:
-            self.session.add(TableColumn(table_name=view_name, column_code=col_code, column_label=col_label, data_type="integer" if col_code == "id" else "timestamptz", display_order=col_order, is_visible=True))
+            self.session.add(TableColumn(table_name=view_name, column_code=col_code, column_label=col_label, data_type="integer" if col_code == "id" else "timestamptz", display_order=col_order))
             col_order += 1
         for code in expanded_group_by:
             col_name = dim_col_name.get(code, code)
             col_label = dim_col_label.get(code, col_name)
-            self.session.add(TableColumn(table_name=view_name, column_code=col_name, column_label=col_label, data_type="string", display_order=col_order, is_visible=True))
+            self.session.add(TableColumn(table_name=view_name, column_code=col_name, column_label=col_label, data_type="string", display_order=col_order))
             col_order += 1
         if multi_measures:
             for alias, label, _ in multi_measures:
                 self.session.add(TableColumn(table_name=view_name, column_code=alias,
                                              column_label=label, data_type="numeric",
-                                             display_order=col_order, is_visible=True))
+                                             display_order=col_order))
                 col_order += 1
         else:
             self.session.add(TableColumn(table_name=view_name, column_code=measure_alias,
                                          column_label=measure_label, data_type="numeric",
-                                         display_order=col_order, is_visible=True))
+                                         display_order=col_order))
             col_order += 1
         # 注册时间派生列（X05）：仅在 time_field 已配置且校验通过时（time_select_exprs 非空）
         # 才写入 snapshot_month（原始期次）/ year / quarter / month，避免普通 DWS 元数据谎称有时间列。
@@ -1264,7 +1264,7 @@ class DwsAggregateService:
             ]:
                 self.session.add(TableColumn(table_name=view_name, column_code=t_col_code,
                                              column_label=t_col_label, data_type=t_col_type,
-                                             display_order=col_order, is_visible=True))
+                                             display_order=col_order))
                 col_order += 1
 
         # 4. 动态注册到 DATA_TABLES（使预览/查询可用）

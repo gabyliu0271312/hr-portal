@@ -42,7 +42,7 @@ const currentSignature = computed(() => JSON.stringify({
   form: form.value,
   tables: tables.value.map(t => [t.table_name, t.alias]),
   relations: relations.value.map(r => [r.from, r.to, r.join_type, r.cardinality, r.keys]),
-  outputs: outputFields.value.map(f => [f.source_alias, f.source_column, f.output_code, f.output_label, f.data_type, f.agg_role, f.description, f.is_sensitive, f.is_visible]),
+  outputs: outputFields.value.map(f => [f.source_alias, f.source_column, f.output_code, f.output_label, f.data_type, f.agg_role, f.description, f.is_sensitive]),
 }))
 const dirty = computed(() => currentSignature.value !== savedSignature.value)
 
@@ -106,7 +106,6 @@ interface OutputFieldRow {
   agg_role: string
   description: string
   is_sensitive: boolean
-  is_visible: boolean
 }
 let ofUid = 0
 const outputFields = ref<OutputFieldRow[]>([])
@@ -343,7 +342,6 @@ function addOF() {
     agg_role: 'dimension',
     description: '',
     is_sensitive: false,
-    is_visible: true,
   })
 }
 function removeOF(i: number) { outputFields.value.splice(i, 1) }
@@ -364,7 +362,6 @@ function outputPayload(): OutputFieldPayload[] {
       description: f.description || null,
       agg_role: f.agg_role || 'dimension',
       is_sensitive: f.is_sensitive,
-      is_visible: f.is_visible,
       display_order: index,
     }))
 }
@@ -485,7 +482,6 @@ async function load() {
           agg_role: f.agg_role || 'dimension',
           description: f.description || '',
           is_sensitive: !!f.is_sensitive,
-          is_visible: f.is_visible !== false,
         }
       })
       await nextTick(); autoLayout()

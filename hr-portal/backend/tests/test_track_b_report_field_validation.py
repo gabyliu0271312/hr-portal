@@ -41,9 +41,8 @@ class _MetadataDb:
 @pytest.mark.parametrize(
     ("columns", "hidden", "source_code", "message"),
     [
-        ([SimpleNamespace(column_code="amount", is_visible=True)], set(), "r.missing", "不存在"),
-        ([SimpleNamespace(column_code="amount", is_visible=False)], set(), "r.amount", "不可见"),
-        ([SimpleNamespace(column_code="amount", is_visible=True)], {"amount"}, "r.amount", "无权限"),
+        ([SimpleNamespace(column_code="amount")], set(), "r.missing", "不存在"),
+        ([SimpleNamespace(column_code="amount")], {"amount"}, "r.amount", "无权限"),
     ],
 )
 async def test_field_reference_validator_rejects_missing_invisible_or_hidden_columns(
@@ -75,7 +74,7 @@ async def test_field_reference_validator_accepts_legacy_alias_without_rewriting_
     monkeypatch.setattr(calculated_fields, "active_calculated_fields", AsyncMock(return_value=[]))
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
     table = SimpleNamespace(alias="current", table_name="dwd_emp_realtime_roster")
-    column = SimpleNamespace(column_code="employee_no", is_visible=True)
+    column = SimpleNamespace(column_code="employee_no")
     db = _MetadataDb([
         [table],
         [column],
@@ -106,7 +105,7 @@ async def test_field_reference_validator_rejects_hidden_calculated_field_depende
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value={"amount"}))
     db = _MetadataDb([
         [SimpleNamespace(alias="r", table_name="report_rows")],
-        [SimpleNamespace(column_code="amount", is_visible=True)],
+        [SimpleNamespace(column_code="amount")],
     ])
     config = ReportConfig(columns=[{"source_code": "calc.derived_amount", "instance_id": "calc.derived_amount"}])
 
@@ -171,7 +170,7 @@ async def test_field_reference_validator_accepts_existing_visible_column(monkeyp
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
     db = _MetadataDb([
         [SimpleNamespace(alias="r", table_name="report_rows")],
-        [SimpleNamespace(column_code="amount", is_visible=True)],
+        [SimpleNamespace(column_code="amount")],
     ])
     config = ReportConfig(columns=[{"source_code": "r.amount", "instance_id": "r.amount"}])
 
@@ -199,7 +198,7 @@ async def test_create_report_blocks_missing_output_field_before_persisting(monke
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
     db = _SaveDb([
         [SimpleNamespace(alias="r", table_name="report_rows")],
-        [SimpleNamespace(column_code="amount", is_visible=True)],
+        [SimpleNamespace(column_code="amount")],
         [],
     ])
     payload = ReportIn(
@@ -297,12 +296,12 @@ async def test_source_reference_validator_rejects_invalid_query_time_references(
     db = _MetadataDb([
         [SimpleNamespace(alias="r", table_name="report_rows")],
         [
-            SimpleNamespace(column_code="amount", is_visible=True),
-            SimpleNamespace(column_code="department", is_visible=True),
-            SimpleNamespace(column_code="employee_no", is_visible=True),
-            SimpleNamespace(column_code="name", is_visible=True),
-            SimpleNamespace(column_code="secret", is_visible=True),
-            SimpleNamespace(column_code="status", is_visible=True),
+            SimpleNamespace(column_code="amount"),
+            SimpleNamespace(column_code="department"),
+            SimpleNamespace(column_code="employee_no"),
+            SimpleNamespace(column_code="name"),
+            SimpleNamespace(column_code="secret"),
+            SimpleNamespace(column_code="status"),
         ],
     ])
     config = ReportConfig(columns=[{"source_code": "r.amount", "instance_id": "r.amount"}], **patch)
@@ -323,7 +322,7 @@ async def test_source_reference_validator_rejects_invalid_runtime_filter(monkeyp
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
     db = _MetadataDb([
         [SimpleNamespace(alias="r", table_name="report_rows")],
-        [SimpleNamespace(column_code="amount", is_visible=True)],
+        [SimpleNamespace(column_code="amount")],
     ])
     config = ReportConfig(columns=[{"source_code": "r.amount", "instance_id": "r.amount"}])
 
@@ -357,7 +356,7 @@ async def test_create_report_blocks_missing_filter_field_before_persisting(monke
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
     db = _SaveDb([
         [SimpleNamespace(alias="r", table_name="report_rows")],
-        [SimpleNamespace(column_code="amount", is_visible=True)],
+        [SimpleNamespace(column_code="amount")],
     ])
     payload = ReportIn(
         name="筛选字段校验报表",
@@ -471,7 +470,7 @@ async def test_invalid_filter_returns_422_in_run_export_and_push_paths(monkeypat
     def db_for_path():
         return _RouteDb([
             [SimpleNamespace(alias="r", table_name="report_rows")],
-            [SimpleNamespace(column_code="amount", is_visible=True)],
+            [SimpleNamespace(column_code="amount")],
         ])
 
     monkeypatch.setattr(calculated_fields, "active_calculated_fields", AsyncMock(return_value=[]))
@@ -512,7 +511,7 @@ async def test_legacy_alias_does_not_guess_non_dwd_or_multitable_sources(monkeyp
 
     monkeypatch.setattr(calculated_fields, "active_calculated_fields", AsyncMock(return_value=[]))
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=set()))
-    columns = [SimpleNamespace(column_code="employee_no", is_visible=True)]
+    columns = [SimpleNamespace(column_code="employee_no")]
     db = _MetadataDb([tables, *[columns for _ in tables]])
     config = ReportConfig(columns=["dwd_current.employee_no"])
     with pytest.raises(HTTPException) as error:
@@ -521,8 +520,8 @@ async def test_legacy_alias_does_not_guess_non_dwd_or_multitable_sources(monkeyp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("visible,hidden", [(False, set()), (True, {"employee_no"})])
-async def test_legacy_alias_keeps_current_field_permission_checks(monkeypatch, visible, hidden):
+@pytest.mark.parametrize("hidden", [{"employee_no"}])
+async def test_legacy_alias_keeps_current_field_permission_checks(monkeypatch, hidden):
     from app.datasets import calculated_fields
     from app.permissions import masker
 
@@ -530,7 +529,7 @@ async def test_legacy_alias_keeps_current_field_permission_checks(monkeypatch, v
     monkeypatch.setattr(masker, "get_hidden_columns", AsyncMock(return_value=hidden))
     db = _MetadataDb([
         [SimpleNamespace(alias="current", table_name="dwd_roster")],
-        [SimpleNamespace(column_code="employee_no", is_visible=visible)],
+        [SimpleNamespace(column_code="employee_no")],
     ])
     config = ReportConfig(columns=["dwd_current.employee_no"])
     with pytest.raises(HTTPException) as error:

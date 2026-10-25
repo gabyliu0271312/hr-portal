@@ -43,7 +43,6 @@ class ColumnInfo(BaseModel):
     data_type: str = "string"
     is_pk_part: bool = False
     is_sensitive: bool = False
-    is_visible: bool = True
     display_order: int = 999
     auto_discovered: bool = True
     enum_options: list[str] | None = None
@@ -54,7 +53,7 @@ class ColumnInfo(BaseModel):
 async def _get_columns(table: str, db: AsyncSession, only_visible: bool = False) -> list[TableColumn]:
     stmt = select(TableColumn).where(TableColumn.table_name == table)
     if only_visible:
-        stmt = stmt.where(TableColumn.is_visible.is_(True))
+        stmt = stmt.where(business_column_filter(TableColumn))
     stmt = stmt.order_by(TableColumn.display_order, TableColumn.id)
     return (await db.execute(stmt)).scalars().all()
 
@@ -286,7 +285,6 @@ async def get_columns(
             data_type=c.data_type,
             is_pk_part=c.is_pk_part,
             is_sensitive=c.is_sensitive or (c.column_code in sens_from_cat),
-            is_visible=c.is_visible,
             display_order=c.display_order,
             auto_discovered=c.auto_discovered,
             enum_options=c.enum_options,

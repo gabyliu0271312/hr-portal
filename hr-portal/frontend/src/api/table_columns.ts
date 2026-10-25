@@ -8,7 +8,6 @@ export interface TableColumn {
   data_type: string
   is_pk_part: boolean
   is_sensitive: boolean
-  is_visible: boolean
   display_order: number
   auto_discovered: boolean
   description: string | null
@@ -34,7 +33,6 @@ export interface ColumnUpdatePayload {
   data_type: string
   is_pk_part: boolean
   is_sensitive: boolean
-  is_visible: boolean
   display_order: number
   description?: string | null
   scope_role?: string | null

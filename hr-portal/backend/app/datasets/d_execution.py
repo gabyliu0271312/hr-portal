@@ -142,7 +142,7 @@ def validate_allocation_fact_s_execution(contract, request):
         and isinstance(item.get("source_column"), str) and bool(item["source_column"])
         and isinstance(item.get("data_type"), str)
         and item["data_type"] in {"string", "number", "date", "datetime", "bool", "enum"}
-        and type(item.get("is_visible")) is bool and type(item.get("is_sensitive")) is bool
+        and type(item.get("is_sensitive")) is bool
         for item in outputs)
     if not valid_outputs:
         issues.append(_s_issue("authorization_snapshot_invalid", "授权合同输出结构快照无效"))
@@ -323,7 +323,7 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
     for expected in outputs.values():
         current = current_outputs_by_id.get(expected["id"])
         if current is None or any(getattr(current, key) != expected[key] for key in (
-                "source_alias", "source_column", "output_code", "data_type", "is_visible", "is_sensitive")):
+                "source_alias", "source_column", "output_code", "data_type", "is_sensitive")):
             return None, [_s_issue("s_execution_output_drift", "当前数据集输出已偏离批准快照")]
     semantics = (await db.execute(select(StandardFieldBinding, StandardFieldVersion).join(
         StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id
@@ -704,7 +704,7 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
         return None, [_scope_issue("d_execution_field_access_unresolved", "字段授权尚未完成裁决")]
     technical = {"id", "pk_hash", "synced_at"}
     if definition.schema_version == 3:
-        # schema 3：is_visible 只表达展示面，不作为执行拒绝依据；技术列/按用户隐藏/敏感列仍拒绝
+        # schema 3：展示面由代码规则/字段面过滤决定；技术列、按用户隐藏列与敏感列仍拒绝
         protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     else:
         protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}

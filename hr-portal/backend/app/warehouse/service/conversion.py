@@ -143,7 +143,7 @@ def model_fingerprint(dataset, tables, relations, outputs, contract, run):
         "relations": [row.id for row in relations],
         "outputs": [{"id": row.id, "source_alias": row.source_alias, "source_column": row.source_column,
                      "output_code": row.output_code, "data_type": row.data_type,
-                     "is_sensitive": row.is_sensitive, "is_visible": row.is_visible}
+                     "is_sensitive": row.is_sensitive}
                     for row in sorted(outputs, key=lambda row: row.id)],
         "contract": {"id": contract.id, "version": contract.contract_version}, "run": run.id,
     })

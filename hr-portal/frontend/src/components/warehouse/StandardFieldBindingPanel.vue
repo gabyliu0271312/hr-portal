@@ -5,6 +5,7 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { datasetsApi, type DatasetItem } from '@/api/datasets'
 import { useUserStore } from '@/stores/user'
 import { standardFieldsApi, type StandardFieldBindingCandidate, type StandardFieldBindingRef } from '@/api/standardFields'
+import { isTechnicalColumn } from '@/utils/columnRoles'
 
 const props = defineProps<{
   fieldId: number
@@ -34,7 +35,7 @@ const scope = computed(() => ({
 }))
 const hasScope = computed(() => Boolean(scope.value.dataset_id || scope.value.table_name))
 const revisionById = computed(() => new Map(props.bindings.map(binding => [binding.id, binding.binding_version])))
-const visibleRows = computed(() => rows.value.filter(row => row.is_visible && !row.is_sensitive && (
+const visibleRows = computed(() => rows.value.filter(row => !isTechnicalColumn(row.column_code) && !row.is_sensitive && (
   scopeKind.value === 'dataset'
     ? row.target_kind === 'dataset_output_field' && row.dataset_id === scope.value.dataset_id
     : row.target_kind === 'table_column' && row.table_name === scope.value.table_name

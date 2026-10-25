@@ -22,7 +22,6 @@ interface ManualField {
   column_label: string
   data_type: string
   is_pk_part: boolean
-  is_visible: boolean
   is_sensitive: boolean
   agg_role: string
 }
@@ -32,7 +31,6 @@ interface ColumnPayload {
   column_label: string
   data_type: string
   is_pk_part: boolean
-  is_visible: boolean
   is_sensitive?: boolean
   display_order: number
   agg_role: string
@@ -274,7 +272,7 @@ function addManualField() {
   manualFields.value.push({
     uid: manualUid,
     column_code: '', column_label: '', data_type: 'string',
-    is_pk_part: false, is_visible: true, is_sensitive: false, agg_role: 'dimension',
+    is_pk_part: false, is_sensitive: false, agg_role: 'dimension',
   })
 }
 
@@ -366,7 +364,6 @@ function buildColumns(): ColumnPayload[] {
       column_label: field.label || field.column_code,
       data_type: inferType(field),
       is_pk_part: field.column_code === periodField.value || businessKeys[field.column_code] === true,
-      is_visible: true,
       display_order: (index + 1) * 10,
       agg_role: 'dimension',
       is_interface: true,
@@ -377,7 +374,6 @@ function buildColumns(): ColumnPayload[] {
     column_label: field.column_label.trim(),
     data_type: field.data_type,
     is_pk_part: field.column_code === periodField.value || businessKeys[field.column_code] === true,
-    is_visible: field.is_visible,
     is_sensitive: field.is_sensitive,
     display_order: (index + 1) * 10,
     agg_role: field.agg_role,
@@ -391,7 +387,7 @@ function columnsSignature(columns: ColumnPayload[]): string {
     periodField.value,
     ...columns.map(column => [
       column.column_code, column.column_label, column.data_type,
-      column.is_pk_part, column.is_visible, column.is_sensitive, column.agg_role, column.display_order,
+      column.is_pk_part, column.is_sensitive, column.agg_role, column.display_order,
     ]),
   ])
 }
@@ -683,7 +679,6 @@ defineExpose({ open })
                   <el-option label="维度" value="dimension" />
                   <el-option label="度量" value="measure" />
                 </el-select>
-                <el-checkbox v-model="field.is_visible">可见</el-checkbox>
                 <el-checkbox v-model="field.is_sensitive">敏感</el-checkbox>
                 <el-button text type="danger" @click="removeManualField(index)">删除</el-button>
               </div>

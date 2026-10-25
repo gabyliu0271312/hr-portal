@@ -10,10 +10,13 @@ import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import optionCardSource from './PerformanceContentOptionCard.vue?raw'
 import PerformancePromptForm from './PerformancePromptForm.vue'
+import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import PerformancePromptModal from './PerformancePromptModal.vue'
 import PerformanceItemAddMenu from './PerformanceItemAddMenu.vue'
 import addMenuSource from './PerformanceItemAddMenu.vue?raw'
 import promptFormSource from './PerformancePromptForm.vue?raw'
+import promptDisplaySource from './PerformancePromptDisplay.vue?raw'
+import promptPopoverSource from './PerformancePromptPopover.vue?raw'
 
 const ratingOptions: AssessmentOption[] = [
   { id: 'duplicate', label: '绩效评级', description: '7档绩效等级', disabled: true, disabledReason: '模板中已存在该评估项', displayMode: '标签样式' },
@@ -94,6 +97,27 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect((modal.get('input[type="text"]').element as HTMLInputElement).value).toBe('原标题')
     expect(promptFormSource).toContain('width: 100%')
     inline.unmount(); other.unmount(); modal.unmount()
+  })
+
+  it('uses selected prompt color, optional icon, matching text styles, and modal-safe popover layering', async () => {
+    const value = { title: '提示标题', content: '提示内容', color: '#F97316', scope: 'all' as const, showIcon: false }
+    const form = mount(PerformancePromptForm, { props: { modelValue: value } })
+    const iconToggle = form.get('input[aria-label="显示icon"]')
+    expect((iconToggle.element as HTMLInputElement).checked).toBe(false)
+    await iconToggle.setValue(true)
+    expect(form.emitted('update:modelValue')?.at(-1)).toEqual([{ ...value, showIcon: true }])
+
+    const display = mount(PerformancePromptDisplay, { props: { value: { ...value, showIcon: true } } })
+    expect(display.find('.performance-prompt-display__icon').exists()).toBe(true)
+    expect(display.attributes('style')).toContain('--performance-prompt-background: #F97316')
+    expect(promptDisplaySource).toContain('width: var(--performance-content-width)')
+    expect(promptDisplaySource).not.toContain('border-left:')
+    expect(promptDisplaySource).toContain('font: 600 16px/24px')
+    expect(promptDisplaySource).toContain('font: 400 14px/22px')
+    expect(promptPopoverSource).toContain('z-index:var(--performance-popover-z-index)')
+    expect(promptPopoverSource).not.toContain('z-index:1030')
+    form.unmount()
+    display.unmount()
   })
 
   it('uses token-based menu states and supports Escape, arrows and outside dismissal', async () => {

@@ -87,7 +87,7 @@ async def list_dwd_fields_by_dataset(
         hidden = await get_hidden_columns(user, table.table_name, db)
         columns = (await db.execute(select(TableColumn).where(TableColumn.table_name == table.table_name))).scalars().all()
         for column in columns:
-            if not column.is_visible or column.column_code in hidden:
+            if is_technical_column(column.column_code) or column.column_code in hidden:
                 continue
             result.append({
                 "code": f"{table.alias}.{column.column_code}",

@@ -57,7 +57,7 @@ function addOutputField() {
     source_alias: aliases.value[0] || '',
     source_column: '', output_code: '', output_label: '',
     data_type: 'string', agg_role: 'dimension',
-    is_sensitive: false, is_visible: true,
+    is_sensitive: false,
     display_order: outputFields.value.length,
   })
 }
@@ -95,7 +95,7 @@ async function doPreview() {
         source_alias: aliases.value[0] || '',
         source_column: c, output_code: c, output_label: c,
         data_type: 'string', agg_role: 'dimension',
-        is_sensitive: false, is_visible: true, display_order: i,
+        is_sensitive: false, display_order: i,
       }))
     }
   } catch { ElMessage.error('预览失败') }

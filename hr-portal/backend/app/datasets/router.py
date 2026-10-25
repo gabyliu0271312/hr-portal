@@ -641,7 +641,6 @@ class OutputFieldOut(BaseModel):
     data_type: str
     agg_role: str
     is_sensitive: bool
-    is_visible: bool
     display_order: int
     description: str | None = None
 
@@ -650,7 +649,6 @@ class OutputFieldUpdateIn(BaseModel):
     output_label: str | None = None
     agg_role: str | None = None
     description: str | None = None
-    is_visible: bool | None = None
 
 
 @router.get(
@@ -690,7 +688,6 @@ async def list_output_fields(
             "data_type": r.data_type,
             "agg_role": r.agg_role,
             "is_sensitive": r.is_sensitive,
-            "is_visible": r.is_visible,
             "display_order": r.display_order,
             "description": r.description,
         }
@@ -729,8 +726,6 @@ async def update_output_field(
         field.agg_role = payload.agg_role
     if payload.description is not None:
         field.description = payload.description
-    if payload.is_visible is not None:
-        field.is_visible = payload.is_visible
 
     await db.commit()
     await db.refresh(field)
@@ -744,7 +739,6 @@ async def update_output_field(
         "data_type": field.data_type,
         "agg_role": field.agg_role,
         "is_sensitive": field.is_sensitive,
-        "is_visible": field.is_visible,
         "display_order": field.display_order,
         "description": field.description,
     }

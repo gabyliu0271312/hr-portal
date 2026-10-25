@@ -13,7 +13,6 @@ export interface ColumnInfo {
   data_type: string
   is_pk_part: boolean
   is_sensitive: boolean
-  is_visible: boolean
   display_order: number
   auto_discovered: boolean
   enum_options: string[] | null

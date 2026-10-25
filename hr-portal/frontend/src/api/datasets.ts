@@ -162,7 +162,6 @@ export interface DatasetOutputField {
   data_type: string
   agg_role: 'dimension' | 'measure'
   is_sensitive: boolean
-  is_visible: boolean
   display_order: number
   description: string | null
 }
@@ -171,5 +170,4 @@ export interface DatasetOutputFieldUpdate {
   output_label?: string
   agg_role?: string
   description?: string
-  is_visible?: boolean
 }

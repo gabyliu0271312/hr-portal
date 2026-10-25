@@ -206,9 +206,6 @@ class DatasetOutputField(Base):
     is_sensitive: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    is_visible: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default="true"
-    )
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 

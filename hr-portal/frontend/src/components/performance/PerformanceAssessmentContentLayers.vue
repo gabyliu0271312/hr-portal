@@ -231,7 +231,7 @@ function editCreated(content:AssessmentContentDraft&{id:string}){if(content.type
 defineExpose({ openEditor: (content: AssessmentContentDraft & { id: string }) => { if(content.type!=='prompt')openModal(content.type, content) } })
 function addWorkSummaryItem(){workSummaryItems.value.push(createWorkSummaryItem())}
 function createCustomFillItem():FillItem{return{id:nextId(),label:'',hint:'',richText:'',kind:'fill',questionType:'text',tagOptionId:'',defaultAll:false}}
-function createPromptItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'prompt',prompt:{title:'',content:'',color:'#3B82F6',scope:'all'}}}
+function createPromptItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'prompt',prompt:{title:'',content:'',color:'#3B82F6',scope:'all',showIcon:false}}}
 function createRatingItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'rating',ratingOptionId:''}}
 function addMixedItem(kind:'fill'|'prompt'='fill'){items.value.push(kind==='prompt'?createPromptItem():createCustomFillItem())}
 function createWorkSummaryItem():WorkSummaryItem{return{id:nextId(),label:'',hint:'',richText:''}}

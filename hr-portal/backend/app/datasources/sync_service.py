@@ -445,7 +445,6 @@ async def _ensure_columns(
                 data_type=dtype,
                 is_pk_part=False,
                 is_sensitive=False,
-                is_visible=True,
                 display_order=max_order,
                 auto_discovered=True,
                 # 自动预标聚合角色：数字→度量，其余→维度（管理员可在字段管理改）

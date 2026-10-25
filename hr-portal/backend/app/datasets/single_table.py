@@ -30,7 +30,7 @@ async def _populate_output_fields_from_table_columns(
     ).scalars().all()
 
     for i, col in enumerate(cols):
-        if not col.is_visible:
+        if is_technical_column(col.column_code):
             continue
         db.add(DatasetOutputField(
             dataset_id=dataset_id,
@@ -42,7 +42,6 @@ async def _populate_output_fields_from_table_columns(
             agg_role=col.agg_role or "dimension",
             description=col.description or "",
             is_sensitive=bool(col.is_sensitive),
-            is_visible=True,
             display_order=i * 10,
         ))
 

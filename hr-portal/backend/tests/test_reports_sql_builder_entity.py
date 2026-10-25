@@ -95,7 +95,7 @@ def make_column(table_name: str, column_code: str, **overrides):
         "data_type": "string",
         "is_pk_part": False,
         "is_sensitive": False,
-        "is_visible": True,
+        
         "display_order": 10,
         "auto_discovered": True,
         "copy_from_last_month": False,

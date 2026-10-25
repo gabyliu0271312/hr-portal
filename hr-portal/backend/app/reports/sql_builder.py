@@ -1501,7 +1501,7 @@ async def run_dataset_query(
     else:
         for alias, cols in alias_columns.items():
             for c in cols:
-                if c.is_visible and c.column_code not in hidden_by_alias.get(alias, set()):
+                if not is_technical_column(c.column_code) and c.column_code not in hidden_by_alias.get(alias, set()):
                     pair = (alias, c.column_code)
                     display_selected.append(pair)
                     selected.append(pair)

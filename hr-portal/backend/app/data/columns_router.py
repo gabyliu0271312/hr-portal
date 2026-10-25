@@ -448,7 +448,6 @@ class ColumnIn(BaseModel):
     data_type: str = "string"
     is_pk_part: bool = False
     is_sensitive: bool = False
-    is_visible: bool = True
     display_order: int = 999
     description: str | None = None
     scope_role: str | None = None
@@ -469,7 +468,6 @@ class ColumnOut(BaseModel):
     data_type: str
     is_pk_part: bool
     is_sensitive: bool
-    is_visible: bool
     display_order: int
     auto_discovered: bool
     description: str | None
@@ -503,7 +501,6 @@ def _to_out(c: TableColumn) -> ColumnOut:
         data_type=c.data_type,
         is_pk_part=c.is_pk_part,
         is_sensitive=c.is_sensitive,
-        is_visible=c.is_visible,
         display_order=c.display_order,
         auto_discovered=c.auto_discovered,
         description=c.description,
@@ -591,7 +588,6 @@ async def create_column(
         data_type=payload.data_type,
         is_pk_part=payload.is_pk_part,
         is_sensitive=payload.is_sensitive,
-        is_visible=payload.is_visible,
         display_order=payload.display_order,
         description=payload.description,
         scope_role=payload.scope_role,
@@ -675,7 +671,6 @@ async def bulk_update(
             "data_type",
             "is_pk_part",
             "is_sensitive",
-            "is_visible",
             "display_order",
             "description",
             "scope_role",
@@ -798,7 +793,6 @@ async def update_column(
     col.data_type = payload.data_type
     col.is_pk_part = payload.is_pk_part
     col.is_sensitive = payload.is_sensitive
-    col.is_visible = payload.is_visible
     col.display_order = payload.display_order
     col.description = payload.description
     col.scope_role = payload.scope_role

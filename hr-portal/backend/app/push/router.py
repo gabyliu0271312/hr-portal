@@ -328,7 +328,7 @@ async def _query_parameter_metadata(source_table: str, db: AsyncSession) -> list
             select(TableColumn)
             .where(
                 TableColumn.table_name == source_table,
-                TableColumn.is_visible.is_(True),
+                business_column_filter(TableColumn),
                 TableColumn.is_sensitive.is_(False),
             )
             .order_by(TableColumn.display_order)

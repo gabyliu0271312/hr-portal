@@ -165,7 +165,6 @@ const reportPushColumns = computed(() => selectedColsDetail.value.map((c) => ({
   data_type: c.data_type || 'text',
   is_pk_part: false,
   is_sensitive: !!c.is_sensitive,
-  is_visible: true,
   display_order: form.selected_codes.indexOf(instanceIdOf(c)),
   auto_discovered: false,
   agg_role: c.agg_role || '',

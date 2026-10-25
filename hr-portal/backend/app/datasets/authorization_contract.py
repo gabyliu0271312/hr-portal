@@ -231,7 +231,7 @@ def _snapshot(tables, relations, outputs):
                        "join_type": row.join_type, "cardinality": row.cardinality, "keys": row.keys} for row in relations],
         "outputs": [{"id": row.id, "source_alias": row.source_alias, "source_column": row.source_column,
                      "output_code": row.output_code, "data_type": row.data_type, "is_sensitive": row.is_sensitive,
-                     "is_visible": row.is_visible, "agg_role": getattr(row, "agg_role", None) or "dimension"} for row in outputs],
+                     "agg_role": getattr(row, "agg_role", None) or "dimension"} for row in outputs],
     }
 
 
@@ -269,7 +269,7 @@ def _snapshot_drift(snapshot, tables, relations, outputs) -> bool:
             return True
         # 只比较快照中记录的字段，向后兼容新增的快照字段
         for item_id, recorded in expected.items():
-            if any(actual[item_id].get(field) != value for field, value in recorded.items()):
+            if any(field != "is_visible" and actual[item_id].get(field) != value for field, value in recorded.items()):
                 return True
     return False
 

@@ -35,7 +35,7 @@ class TableColumn(Base):
     """业务表的字段元数据。
 
     - 同步时：源端来什么字段就自动 INSERT 一条（首次出现时）
-    - 管理员：可改 column_label / data_type / is_pk_part / is_sensitive / display_order / is_visible
+    - 管理员：可改 column_label / data_type / is_pk_part / is_sensitive / display_order
     - 查询时：按 display_order 排序，按 column_code 从实体列提取值
     """
     __tablename__ = "table_columns"
@@ -59,9 +59,6 @@ class TableColumn(Base):
 
     # 是否敏感（用于脱敏）
     is_sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-    # 是否在列表里默认显示
-    is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # 列表展示顺序（越小越靠前）
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=999)

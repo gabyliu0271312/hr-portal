@@ -110,7 +110,6 @@ class L4RollbackService:
                             field_label=f.get("field_label", ""),
                             data_type=f.get("data_type", "string"),
                             is_sensitive=f.get("is_sensitive", False),
-                            is_visible=f.get("is_visible", True),
                             display_order=f.get("display_order", 0),
                             scope_role=f.get("scope_role", ""),
                             agg_role=f.get("agg_role", ""),

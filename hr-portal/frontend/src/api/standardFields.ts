@@ -78,7 +78,6 @@ export interface StandardFieldBindingCandidate {
   display_name: string
   source_field_id: string
   data_type: string
-  is_visible: boolean
   is_sensitive: boolean
   existing_binding_id: number | null
   existing_binding_status: StandardFieldBindingStatus | null

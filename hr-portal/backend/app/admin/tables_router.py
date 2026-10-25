@@ -41,7 +41,6 @@ class InitialColumnIn(BaseModel):
     data_type: str = "string"
     is_pk_part: bool = False
     is_sensitive: bool = False
-    is_visible: bool = True
     display_order: int = 999
     description: str | None = None
     scope_role: str | None = None
@@ -195,7 +194,6 @@ async def create_table(
                 data_type=c.data_type,
                 is_pk_part=c.is_pk_part,
                 is_sensitive=c.is_sensitive,
-                is_visible=c.is_visible,
                 display_order=c.display_order,
                 auto_discovered=c.is_interface,
                 description=c.description,
@@ -282,7 +280,6 @@ async def create_table(
                 data_type=c.data_type,
                 is_pk_part=c.is_pk_part,
                 is_sensitive=c.is_sensitive,
-                is_visible=c.is_visible,
                 display_order=c.display_order,
                 auto_discovered=c.is_interface,
                 description=c.description,

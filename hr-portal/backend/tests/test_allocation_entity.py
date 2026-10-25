@@ -133,7 +133,7 @@ def make_column(**overrides):
         "data_type": "string",
         "is_pk_part": True,
         "is_sensitive": False,
-        "is_visible": True,
+        
         "display_order": 0,
         "auto_discovered": True,
         "copy_from_last_month": False,

@@ -430,7 +430,7 @@ async def _load_source_columns_meta(
     source_cols = (
         await db.execute(
             select(TableColumn)
-            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+            .where(TableColumn.table_name == source_table, business_column_filter(TableColumn))
             .order_by(TableColumn.display_order)
         )
     ).scalars().all()
@@ -462,7 +462,7 @@ async def _load_source_rows(
     cols = (
         await db.execute(
             select(TableColumn)
-            .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+            .where(TableColumn.table_name == source_table, business_column_filter(TableColumn))
             .order_by(TableColumn.display_order)
         )
     ).scalars().all()
@@ -1050,7 +1050,7 @@ async def push_db_realtime(
         cols = (
             await db.execute(
                 sa_select(TableColumn)
-                .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+                .where(TableColumn.table_name == source_table, business_column_filter(TableColumn))
                 .order_by(TableColumn.display_order)
             )
         ).scalars().all()
@@ -1216,7 +1216,7 @@ async def push_db_snapshot(
         cols = (
             await db.execute(
                 sa_select(TableColumn)
-                .where(TableColumn.table_name == source_table, TableColumn.is_visible.is_(True))
+                .where(TableColumn.table_name == source_table, business_column_filter(TableColumn))
                 .order_by(TableColumn.display_order)
             )
         ).scalars().all()

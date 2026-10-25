@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Refresh } from '@element-plus/icons-vue'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
+import { isTechnicalColumn } from '@/utils/columnRoles'
 import {
   listDimensions, getDimensionTree, createDimension, updateDimension, deleteDimension, getDimensionImpact,
   listModels, getModel, getOutputFields, listAssetColumns, type Dimension,
@@ -60,7 +61,7 @@ async function loadDatasetFields(datasetId: number | undefined) {
   try {
     const fields = await getOutputFields(datasetId)
     columns.value = (fields || [])
-      .filter((f: any) => f.is_visible !== false)
+      .filter((f: any) => !isTechnicalColumn(f.column_code))
       .map((f: any) => ({
         column_code: f.output_code || f.source_column,
         column_label: f.output_label || f.output_code || f.source_column,
@@ -71,7 +72,7 @@ async function loadDatasetFields(datasetId: number | undefined) {
       const tableFields = await Promise.all((model.tables || []).map(async (t: any) => {
         const res = await listAssetColumns(t.table_name)
         return (res.columns || [])
-          .filter((c: any) => c.is_visible !== false)
+          .filter((c: any) => !isTechnicalColumn(c.column_code))
           .map((c: any) => ({
             column_code: c.column_code,
             column_label: c.column_label || c.column_code,

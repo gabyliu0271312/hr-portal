@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ColumnInfo } from '@/api/data'
+import { isTechnicalColumn } from '@/utils/columnRoles'
 
 const props = defineProps<{
   selectedCodes: string[]
@@ -67,7 +68,7 @@ function selectAll() {
   )
   const next = [...props.selectedCodes]
   for (const c of props.allColumns) {
-    if (c.is_visible && !existingSources.has(c.code)) {
+    if (!isTechnicalColumn(c.code) && !existingSources.has(c.code)) {
       next.push(c.code)
     }
   }
@@ -96,7 +97,6 @@ function clearAll() {
           <span>{{ c.label }}</span>
           <el-tag v-if="c.is_pk_part" size="small" type="primary" effect="plain">PK</el-tag>
           <el-tag v-if="c.is_sensitive" size="small" type="danger" effect="plain">敏感</el-tag>
-          <el-tag v-if="!c.is_visible" size="small" type="info" effect="plain">隐藏</el-tag>
           <span style="font-family: monospace; font-size: 11px; color: var(--color-text-placeholder); margin-left: auto">{{ c.code }}</span>
         </div>
         <div v-if="!availableColumns.length" class="empty-tip">所有字段已选入</div>

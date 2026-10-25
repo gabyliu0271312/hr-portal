@@ -460,8 +460,7 @@ async def update_period_config(
                 data_type="string",
                 is_pk_part=True,
                 is_sensitive=False,
-                is_visible=True,
-                display_order=0,
+                        display_order=0,
                 auto_discovered=True,
                 agg_role="dimension",
             ))
@@ -521,7 +520,7 @@ async def list_asset_columns(
 ):
     """获取资产的字段列表。
 
-    默认过滤 is_visible=False 的字段；字段管理可显式请求包含隐藏字段。
+    默认过滤技术列；不再提供人工可见性开关。
     始终过滤用户无权查看的敏感列。
     表不存在时返回 404。
     权限要求：warehouse.assets:V

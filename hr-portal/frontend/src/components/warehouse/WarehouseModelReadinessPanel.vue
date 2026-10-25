@@ -31,7 +31,7 @@ const releaseReadiness = ref<DatasetReleaseReadiness | null>(null)
 const conversion = ref<ConversionReadiness | null>(null)
 const authorization = ref<AuthorizationExecutionReadiness | null>(null)
 const contracts = ref<ProductAuthorizationContract[]>([])
-const modelOutputFields = ref<Array<{ output_code: string; agg_role: string; is_visible: boolean; is_sensitive: boolean }>>([])
+const modelOutputFields = ref<Array<{ output_code: string; agg_role: string; is_sensitive: boolean }>>([])
 const standardFields = ref<ModelStandardFieldBinding[]>([])
 const useStandardContract = ref(true)
 const contractForm = ref({ alias: 'current', tableName: '', factKey: '', employeeKey: '', costCenterKey: '', role: 'allocation_fact' })
@@ -60,7 +60,7 @@ async function load() {
     authorization.value = authorizationResult
     contracts.value = contractResult
     standardFields.value = standardFieldResult
-    modelOutputFields.value = model.output_fields.map(field => ({ output_code: field.output_code, agg_role: field.agg_role, is_visible: field.is_visible, is_sensitive: field.is_sensitive }))
+    modelOutputFields.value = model.output_fields.map(field => ({ output_code: field.output_code, agg_role: field.agg_role, is_sensitive: field.is_sensitive }))
     if (!contractForm.value.tableName && model.tables.length === 1) contractForm.value.tableName = model.tables[0].table_name
   } catch (cause: any) {
     error.value = cause?.response?.status === 403 ? '无权查看模型准入状态。' : detail(cause, '模型准入状态加载失败，请重试。')
@@ -91,7 +91,7 @@ async function createContract() {
   createContractSaving.value = true
   try {
     const latestContractVersion = contracts.value.reduce((max, item) => Math.max(max, item.contract_version), 0)
-    const visible = modelOutputFields.value.filter(field => field.is_visible && !field.is_sensitive)
+    const visible = modelOutputFields.value.filter(field => !field.is_sensitive)
     const fact = { alias: form.alias, table_name: form.tableName.trim(), fact_key: form.factKey.trim(), employee_key: form.employeeKey.trim(), cost_center_key: form.costCenterKey.trim() || null, allow_cost_center_summary: Boolean(form.costCenterKey.trim()), missing_assignment: 'reject', role: form.role }
     if (useStandardContract.value) {
       const byOutput = new Map(standardFields.value.map(item => [item.output_code, item.standard_field_code]))

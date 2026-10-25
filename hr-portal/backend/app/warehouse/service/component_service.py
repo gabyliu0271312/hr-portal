@@ -712,7 +712,7 @@ async def _infer_dimensions_from_dataset(db: AsyncSession, dataset_id: int) -> l
         result = await db.execute(
             sa_text(
                 "SELECT output_code FROM dataset_output_fields "
-                "WHERE dataset_id = :did AND is_visible = true "
+                "WHERE dataset_id = :did "
                 "ORDER BY display_order"
             ),
             {"did": dataset_id},

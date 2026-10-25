@@ -224,11 +224,11 @@ class WarehouseService:
         """获取资产字段列表。
 
         返回 None 表示表不存在（调用方应返回 404）。
-        默认过滤 is_visible=False 的列；字段管理可显式请求包含隐藏列。
+        默认过滤技术列；不再提供人工可见性开关。
         始终过滤用户无权查看的敏感列。
 
         权限逻辑：
-        1. 默认只返回 is_visible=True 的列；include_hidden=True 时返回全部元数据列
+        1. 默认过滤技术列；include_hidden 只兼容旧调用，不改变技术列判定
         2. 调用 get_hidden_columns 过滤用户无权查看的敏感列
         """
         rt = (
@@ -241,7 +241,7 @@ class WarehouseService:
 
         query = select(TableColumn).where(TableColumn.table_name == table_name)
         if not include_hidden:
-            query = query.where(TableColumn.is_visible == True)
+            query = query.where(business_column_filter(TableColumn))
         columns = (
             await self.session.execute(
                 query.order_by(TableColumn.display_order, TableColumn.id)
@@ -262,7 +262,6 @@ class WarehouseService:
                 "is_pk_part": col.is_pk_part,
                 "is_sensitive": col.is_sensitive,
                 "agg_role": col.agg_role or "dimension",
-                "is_visible": col.is_visible,
                 "description": col.description,
                 "source": "auto" if col.auto_discovered else "manual",
                 "auto_discovered": bool(col.auto_discovered),
@@ -551,7 +550,6 @@ class WarehouseService:
                     "description": f.description,
                     "agg_role": f.agg_role,
                     "is_sensitive": f.is_sensitive,
-                    "is_visible": f.is_visible,
                     "display_order": f.display_order,
                 }
                 for f in output_fields
@@ -756,8 +754,7 @@ class WarehouseService:
                 "description": f.description,
                 "agg_role": f.agg_role,
                 "is_sensitive": f.is_sensitive,
-                "is_visible": f.is_visible,
-                "display_order": f.display_order,
+                                "display_order": f.display_order,
             }
             for f in fields
         ]
@@ -840,8 +837,7 @@ class WarehouseService:
                 description=f.get("description"),
                 agg_role=f.get("agg_role", "dimension"),
                 is_sensitive=f.get("is_sensitive", False),
-                is_visible=f.get("is_visible", True),
-                display_order=f.get("display_order", 0),
+                                display_order=f.get("display_order", 0),
             )
             self.session.add(of)
 

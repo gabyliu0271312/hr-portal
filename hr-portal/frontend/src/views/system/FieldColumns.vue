@@ -211,7 +211,6 @@ onMounted(async () => {
             <div style="display: flex; flex-wrap: wrap; gap: 4px">
               <el-tag v-if="row.is_pk_part" size="small" type="danger" effect="plain">主键</el-tag>
               <el-tag v-if="row.is_sensitive" size="small" type="warning" effect="plain">敏感</el-tag>
-              <el-tag v-if="!row.is_visible" size="small" type="info" effect="plain">列表隐藏</el-tag>
               <el-tag v-if="row.copy_from_last_month" size="small" effect="plain">复制上月</el-tag>
               <el-tooltip v-if="row.is_computed" placement="top">
                 <template #content>
@@ -237,7 +236,7 @@ onMounted(async () => {
                 权限：{{ scopeRoleLabel(row.scope_role) }}
               </el-tag>
               <span
-                v-if="!row.is_pk_part && !row.is_sensitive && row.is_visible && !row.copy_from_last_month && !row.is_computed && row.data_type !== 'enum' && !row.scope_role"
+                v-if="!row.is_pk_part && !row.is_sensitive && !row.copy_from_last_month && !row.is_computed && row.data_type !== 'enum' && !row.scope_role"
                 style="color: var(--color-text-placeholder); font-size: 12px"
               >—</span>
             </div>

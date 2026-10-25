@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
+from app.data.column_roles import is_technical_column
 from app.data.models import (
     StandardField,
     StandardFieldBinding,
@@ -342,7 +343,7 @@ async def _binding_target(db, target_kind, target_id, lock=False):
             "table_name": target.table_name, "dataset_id": None, "dataset_name": None,
             "alias": None, "column_code": target.column_code, "display_name": target.column_label,
             "source_field_id": source_id, "data_type": target.data_type,
-            "is_visible": bool(target.is_visible), "is_sensitive": bool(target.is_sensitive),
+            "is_sensitive": bool(target.is_sensitive),
         }
     stmt = select(DatasetOutputField, DataSet).join(
         DataSet, DataSet.id == DatasetOutputField.dataset_id,
@@ -369,7 +370,7 @@ async def _binding_target(db, target_kind, target_id, lock=False):
         "alias": target.source_alias, "column_code": target.output_code,
         "source_column": target.source_column,
         "display_name": target.output_label, "source_field_id": source_id,
-        "data_type": target.data_type, "is_visible": bool(target.is_visible),
+        "data_type": target.data_type,
         "is_sensitive": bool(target.is_sensitive),
     }
 
@@ -456,7 +457,7 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
             target_kind="table_column", target_id=column.id, table_name=column.table_name,
             dataset_id=dataset_id, column_code=column.column_code, display_name=column.column_label,
             source_field_id=column.source_field_id or _physical_source_identity(column.table_name, column.column_code),
-            data_type=column.data_type, is_visible=bool(column.is_visible), is_sensitive=bool(column.is_sensitive),
+            data_type=column.data_type, is_sensitive=bool(column.is_sensitive),
             existing_binding_id=binding.id if binding else None,
             existing_binding_status=binding.status if binding else None,
         ))
@@ -481,7 +482,7 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
             dataset_name=dataset.name, alias=output.source_alias, column_code=output.output_code,
             display_name=output.output_label,
             source_field_id=source.source_field_id or _physical_source_identity(source.table_name, source.column_code),
-            data_type=output.data_type, is_visible=bool(output.is_visible), is_sensitive=bool(output.is_sensitive),
+            data_type=output.data_type, is_sensitive=bool(output.is_sensitive),
             existing_binding_id=binding.id if binding else None,
             existing_binding_status=binding.status if binding else None,
         ))
@@ -608,8 +609,7 @@ async def _require_binding_target(db, target, user, *, allow_hidden_anchor: bool
             if not await _can_access(user, dataset, db):
                 _error(403, "dataset_acl_denied", "当前用户不具备数据集资源访问权")
             await _require_binding_dataset_scope(db, dataset)
-    hidden = (not column.is_visible or not target["is_visible"]
-              or code in await get_hidden_columns(user, table.table_name, db))
+    hidden = (is_technical_column(code) or code in await get_hidden_columns(user, table.table_name, db))
     if ((hidden and not allow_hidden_anchor)
             or ((column.is_sensitive or target["is_sensitive"]) and not await _is_super_admin(user, db))):
         _error(403, "standard_binding_field_denied", "当前字段不可用于标准绑定")

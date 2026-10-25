@@ -484,21 +484,16 @@ async def _passthrough_sync(
                 schema_changed = True
         if col.column_code in dwd_cols:
             existing = dwd_cols[col.column_code]
-            for attr in ("column_label", "data_type", "is_pk_part", "is_sensitive", "is_visible", "display_order", "description"):
+            for attr in ("column_label", "data_type", "is_pk_part", "is_sensitive", "display_order", "description"):
                 setattr(existing, attr, getattr(col, attr))
         else:
             db.add(TableColumn(
                 table_name=dwd_table, column_code=col.column_code, column_label=col.column_label,
                 data_type=col.data_type, is_pk_part=col.is_pk_part, is_sensitive=col.is_sensitive,
-                is_visible=col.is_visible, display_order=col.display_order,
+                display_order=col.display_order,
                 auto_discovered=col.auto_discovered, description=col.description,
                 scope_role=col.scope_role, agg_role=col.agg_role,
             ))
-    # ODS 已删除的字段标记为不可见
-    ods_codes = {c.column_code for c in ods_cols}
-    for code, col in dwd_cols.items():
-        if code not in ods_codes and code not in ("id", "pk_hash", "synced_at"):
-            col.is_visible = False
     await db.commit()
     if schema_changed:
         await register_source_table_model(db, dwd_table, force=True)

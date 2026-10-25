@@ -23,7 +23,7 @@ import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePromptForm, { type PerformancePromptValue } from './PerformancePromptForm.vue'
 
-const DEFAULT_PROMPT: PerformancePromptValue = { title: '', content: '', color: '#3B82F6', scope: 'all' }
+const DEFAULT_PROMPT: PerformancePromptValue = { title: '', content: '', color: '#3B82F6', scope: 'all', showIcon: false }
 const props = withDefaults(defineProps<{
   open: boolean
   initialValue?: PerformancePromptValue

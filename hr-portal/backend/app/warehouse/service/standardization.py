@@ -727,7 +727,7 @@ class StandardizationRuleService:
         if table is not None and "id" in physical_types and "id" not in {column.column_code for column in existing}:
             identity_column = TableColumn(
                 table_name=target, column_code="id", column_label="事实标识",
-                data_type="number", is_visible=False, auto_discovered=True,
+                data_type="number", auto_discovered=True,
                 display_order=0, agg_role="dimension",
             )
             self.session.add(identity_column)
@@ -1202,7 +1202,6 @@ class StandardizationRuleService:
                     data_type=_to_table_column_data_type(column_types.get(tgt, "TEXT")) if transformed else (src_meta.data_type if src_meta else "string"),
                     is_pk_part=bool(src_meta.is_pk_part) if src_meta else False,
                     is_sensitive=bool(src_meta.is_sensitive) if src_meta else False,
-                    is_visible=not is_technical_column(tgt),
                     display_order=(src_meta.display_order if src_meta else display_index * 10),
                     auto_discovered=True,
                     agg_role=(src_meta.agg_role if src_meta else "dimension"),

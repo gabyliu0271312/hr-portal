@@ -1571,3 +1571,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 回归：试点 74/74/74/723；全量 **2857 passed / 247 skipped / 8 failed**（与干净HEAD一致）。
 - **剩余（第三步）**：删除 `table_columns.is_visible` / `dataset_output_fields.is_visible` 列与 API 字段、
   前端 55 处开关/类型（字段管理、资产向导、报表字段选择等），必须与迁移同一轮提交，否则前后端 422。
+
+### 可见性字段物理删除（2026-10-25，0270）
+
+- 用户已明确确认删除 `table_columns.is_visible` 与 `dataset_output_fields.is_visible`。
+- 迁移 `0270_drop_column_visibility` 已应用到开发库，alembic head=0270；两列已从数据库删除。
+- 后端 ORM、Schema、创建/更新/读取 API、字段管理、推送、映射、报表、DWD关联、单表数据集、标准字段候选已全部移除两列依赖；技术列由 `is_technical_column`/`business_column_filter` 代码规则判定。
+- 前端字段类型、资产字段管理、资产向导、报表字段选择、标准字段候选、建模输出、数据视图、维度页已移除两列读写和开关；函数库自身的 `is_visible`（函数目录属性）保留，属于不同对象。
+- 回归：前端 `vue-tsc`/build通过（build 38.19s、容器200）；后端全量 **2855 passed / 247 skipped / 8 failed**，8个为干净HEAD既有失败；试点报表22/23/24各74、报表25明细723，迁移后HTTP回归通过。
+- 因物理列删除导致旧转换批准的模型指纹变化，当前开发数据集530的转换审批需要按现行schema3合同重新批准；该审批是共享治理状态变更，需用户单独确认后执行，未伪造批准证据。

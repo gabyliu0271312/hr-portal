@@ -29,16 +29,15 @@ class _Session:
         return _ColumnsResult(self.columns)
 
 
-def _column(*, is_visible: bool):
+def _column():
     return SimpleNamespace(
         id=1,
-        column_code="hidden_field",
-        column_label="Hidden field",
+        column_code="business_field",
+        column_label="Business field",
         data_type="string",
         is_pk_part=False,
         is_sensitive=False,
         agg_role="dimension",
-        is_visible=is_visible,
         description=None,
         auto_discovered=True,
         is_computed=False,
@@ -51,7 +50,7 @@ def _column(*, is_visible: bool):
 
 
 def _load_columns(*, include_hidden: bool):
-    columns = [_column(is_visible=False)]
+    columns = [_column()]
     session = _Session(columns)
 
     result = asyncio.run(
@@ -64,15 +63,13 @@ def _load_columns(*, include_hidden: bool):
     return result, str(session.statements[1])
 
 
-def test_asset_columns_default_to_visible_fields_only():
+def test_asset_columns_use_code_rule_without_visibility_flag():
     result, statement = _load_columns(include_hidden=False)
+    assert result[0]["column_code"] == "business_field"
+    assert "is_visible" not in statement
 
-    assert result[0]["is_visible"] is False
-    assert "table_columns.is_visible = true" in statement
 
-
-def test_asset_columns_include_hidden_for_field_management():
+def test_asset_columns_include_hidden_compatibility_does_not_change_code_rule():
     result, statement = _load_columns(include_hidden=True)
-
-    assert result[0]["is_visible"] is False
-    assert "table_columns.is_visible = true" not in statement
+    assert result[0]["column_code"] == "business_field"
+    assert "is_visible" not in statement

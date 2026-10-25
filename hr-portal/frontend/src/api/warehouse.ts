@@ -86,7 +86,6 @@ export interface AssetColumn {
   data_type: string
   is_pk_part: boolean
   is_sensitive: boolean
-  is_visible: boolean
   display_order: number
   auto_discovered: boolean
   description: string | null
@@ -218,7 +217,6 @@ export interface OutputField {
   description: string | null
   agg_role: string
   is_sensitive: boolean
-  is_visible: boolean
   display_order: number
 }
 
@@ -232,7 +230,6 @@ export interface OutputFieldPayload {
   description?: string | null
   agg_role?: string
   is_sensitive?: boolean
-  is_visible?: boolean
   display_order?: number
 }
 

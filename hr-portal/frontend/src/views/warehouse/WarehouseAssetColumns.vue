@@ -30,7 +30,7 @@ const newColumnCode = ref('')
 const existingColumnCodes = computed(() => columns.value.map((c) => c.column_code))
 const editForm = ref({
   column_label: '', agg_role: 'dimension',
-  is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
+  is_pk_part: false, is_sensitive: false, copy_from_last_month: false,
   scope_role: '', display_order: 0, description: '',
   enum_options: [] as string[],
   enum_default: '' as string,
@@ -113,7 +113,7 @@ function openCreate() {
   newColumnCode.value = ''
   editForm.value = {
     column_label: '', agg_role: 'dimension',
-    is_pk_part: false, is_sensitive: false, is_visible: true, copy_from_last_month: false,
+    is_pk_part: false, is_sensitive: false, copy_from_last_month: false,
     scope_role: '',
     display_order: (columns.value[columns.value.length - 1]?.display_order ?? 0) + 10,
     description: '', enum_options: [], enum_default: '', formula_expr: '',
@@ -128,7 +128,7 @@ function enterEdit(col: AssetColumn) {
   selectedColumn.value = col
   editForm.value = {
     column_label: col.column_label, agg_role: col.agg_role || 'dimension',
-    is_pk_part: col.is_pk_part, is_sensitive: col.is_sensitive, is_visible: col.is_visible,
+    is_pk_part: col.is_pk_part, is_sensitive: col.is_sensitive,
     copy_from_last_month: col.copy_from_last_month,
     scope_role: col.scope_role || '', display_order: col.display_order, description: col.description || '',
     enum_options: Array.isArray(col.enum_options) ? [...col.enum_options] : [],
@@ -146,7 +146,7 @@ function buildPayload(): ColumnUpdatePayload {
     column_label: f.column_label,
     data_type: f.data_type || 'string',
     is_pk_part: f.is_pk_part, is_sensitive: f.is_sensitive,
-    is_visible: f.is_visible, display_order: f.display_order,
+    display_order: f.display_order,
     description: f.description || null, scope_role: f.scope_role || null,
     copy_from_last_month: f.copy_from_last_month, agg_role: f.agg_role,
     enum_options: f.data_type === 'enum' ? f.enum_options.map((value) => value.trim()).filter(Boolean) : null,
@@ -265,7 +265,6 @@ onMounted(load)
         <el-table-column label="属性" min-width="140">
           <template #default="{ row }">
             <div style="display: flex; flex-wrap: wrap; gap: 3px">
-              <el-tag v-if="!row.is_visible" size="small" type="info" effect="plain">隐藏</el-tag>
               <el-tag v-if="row.data_type === 'enum'" size="small">值列表·{{ row.enum_options?.length || 0 }}</el-tag>
               <el-tag v-if="row.scope_role" size="small" type="primary" effect="plain">权限：{{ SCOPE_ROLES.find(r => r.value === row.scope_role)?.label || row.scope_role }}</el-tag>
             </div>
@@ -331,7 +330,6 @@ onMounted(load)
           <el-form-item label="字段属性">
             <el-checkbox v-model="editForm.is_pk_part">参与业务主键</el-checkbox>
             <el-checkbox v-model="editForm.is_sensitive">敏感字段</el-checkbox>
-            <el-checkbox v-model="editForm.is_visible">列表展示</el-checkbox>
             <el-checkbox v-model="editForm.copy_from_last_month">复制上月</el-checkbox>
           </el-form-item>
           <el-form-item label="权限角色">
@@ -360,7 +358,6 @@ onMounted(load)
             <el-descriptions-item label="字段名称">{{ selectedColumn.column_label }}</el-descriptions-item>
             <el-descriptions-item label="数据类型">{{ DATA_TYPE_LABELS[selectedColumn.data_type] || selectedColumn.data_type }}</el-descriptions-item>
             <el-descriptions-item label="描述">{{ selectedColumn.description || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="可见">{{ selectedColumn.is_visible ? '是' : '否' }}</el-descriptions-item>
             <el-descriptions-item label="展示顺序">{{ selectedColumn.display_order }}</el-descriptions-item>
           </el-descriptions>
         </el-card>

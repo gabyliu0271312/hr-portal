@@ -54,7 +54,6 @@ function calcColumn(field: DatasetCalculatedField): ColumnInfo {
     data_type: field.data_type,
     is_pk_part: false,
     is_sensitive: field.is_sensitive,
-    is_visible: field.is_active,
     display_order: 999,
     auto_discovered: false,
     enum_options: null,

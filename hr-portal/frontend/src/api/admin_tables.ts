@@ -37,8 +37,7 @@ export interface CreateTableIn {
     data_type?: string
     is_pk_part?: boolean
     is_sensitive?: boolean
-    is_visible?: boolean
-    display_order?: number
+      display_order?: number
     description?: string | null
     scope_role?: string | null
     enum_options?: string[] | null

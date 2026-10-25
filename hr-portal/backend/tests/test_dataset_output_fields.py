@@ -89,7 +89,6 @@ def test_output_field_defaults():
     assert f.data_type == "string"
     assert f.agg_role == "dimension"
     assert f.is_sensitive is False
-    assert f.is_visible is True
     assert f.display_order == 0
     assert f.description is None
 

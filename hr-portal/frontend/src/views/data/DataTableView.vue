@@ -12,6 +12,7 @@ import { tableColumnsApi } from '@/api/table_columns'
 import { formatDateTime, formatDateOnly } from '@/utils/datetime'
 import { useDataExport } from '@/composables/useDataExport'
 import { pushTargetsApi } from '@/api/push_targets'
+import { isTechnicalColumn } from '@/utils/columnRoles'
 
 const route = useRoute()
 const { exporting, exportCsv } = useDataExport()
@@ -80,7 +81,7 @@ const query = reactive({
 // 值列表(enum)字段的筛选条件：{列编码: 选中值}
 const filters = reactive<Record<string, string>>({})
 const enumFilterColumns = computed(() =>
-  columns.value.filter((c) => c.data_type === 'enum' && c.is_visible)
+  columns.value.filter((c) => c.data_type === 'enum' && !isTechnicalColumn(c.code))
 )
 
 // ===== 行勾选 + 批量启用/停用 =====

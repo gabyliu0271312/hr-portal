@@ -81,7 +81,7 @@ class MetadataLoader:
 
         # 加载所有字段
         col_rows = (await self._db.execute(
-            select(TableColumn).where(TableColumn.is_visible.is_(True))
+            select(TableColumn).where(business_column_filter(TableColumn))
         )).scalars().all()
 
         for row in col_rows:

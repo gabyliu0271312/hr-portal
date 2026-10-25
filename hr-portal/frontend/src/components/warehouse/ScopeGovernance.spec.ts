@@ -314,7 +314,7 @@ function standardDetail(item = version()): StandardFieldDetail {
   return { id: item.standard_field_id, field_code: 'field_type', current_active_version_id: item.status === 'active' ? item.id : null, latest_version: item, versions: [item], bindings: [] }
 }
 function candidate(overrides: Partial<StandardFieldBindingCandidate> = {}): StandardFieldBindingCandidate {
-  return { target_kind: 'dataset_output_field', target_id: 647, table_name: null, dataset_id: 10, dataset_name: '费用分类', alias: 'current', column_code: 'field_type', display_name: '匹配类型', source_field_id: 'source-type', data_type: 'enum', is_visible: true, is_sensitive: false, existing_binding_id: null, existing_binding_status: null, ...overrides }
+  return { target_kind: 'dataset_output_field', target_id: 647, table_name: null, dataset_id: 10, dataset_name: '费用分类', alias: 'current', column_code: 'field_type', display_name: '匹配类型', source_field_id: 'source-type', data_type: 'enum', is_sensitive: false, existing_binding_id: null, existing_binding_status: null, ...overrides }
 }
 function standardSetup(item = version()) {
   store.menus = [{ code: 'warehouse.standard_fields.catalog' }]
@@ -346,14 +346,14 @@ describe('standard field scoped binding candidates', () => {
     wrapper.unmount()
   })
 
-  it('passes dataset identity and filters unrelated, hidden and sensitive candidates', async () => {
+  it('passes dataset identity and filters unrelated and sensitive candidates', async () => {
     const wrapper = bindingPanel(10)
-    mocks.get.mockResolvedValue({ data: [candidate(), candidate({ dataset_id: 15, display_name: '无关数据集' }), candidate({ is_sensitive: true, display_name: '敏感字段' }), candidate({ is_visible: false, display_name: '隐藏字段' }), candidate({ target_kind: 'table_column', table_name: 'other', display_name: '无关物理列' })] })
+    mocks.get.mockResolvedValue({ data: [candidate(), candidate({ dataset_id: 15, display_name: '无关数据集' }), candidate({ is_sensitive: true, display_name: '敏感字段' }), candidate({ target_kind: 'table_column', table_name: 'other', display_name: '无关物理列' })] })
     await button(wrapper, '查询').trigger('click')
     await flushPromises()
     expect(candidateCalls().at(-1)).toEqual(['/warehouse/standard-fields/1/binding-candidates', { params: { dataset_id: 10, table_name: undefined, keyword: undefined } }])
     expect(wrapper.text()).toContain('匹配类型')
-    for (const text of ['无关数据集', '敏感字段', '隐藏字段', '无关物理列']) expect(wrapper.text()).not.toContain(text)
+    for (const text of ['无关数据集', '敏感字段', '无关物理列']) expect(wrapper.text()).not.toContain(text)
     expect(wrapper.findComponent(standardTable).props('maxHeight')).toBe('600')
     const columns = wrapper.findAllComponents(standardColumn)
     expect(columns.find(column => column.props('label') === '操作')?.props()).toMatchObject({ width: '280', fixed: 'right' })

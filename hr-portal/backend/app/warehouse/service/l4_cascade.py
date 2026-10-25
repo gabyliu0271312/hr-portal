@@ -753,7 +753,6 @@ class L4CascadeEngine:
                 "field_label": getattr(f, "field_label", ""),
                 "data_type": getattr(f, "data_type", "string"),
                 "is_sensitive": getattr(f, "is_sensitive", False),
-                "is_visible": getattr(f, "is_visible", True),
                 "display_order": getattr(f, "display_order", 0),
                 "scope_role": getattr(f, "scope_role", ""),
                 "agg_role": getattr(f, "agg_role", ""),

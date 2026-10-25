@@ -329,6 +329,8 @@
 
 - 2026-10-23实现验收记录：公共 `PerformancePromptForm` 由独立弹窗和内嵌条目共同消费；菜单通过 `PerformanceItemAddMenu` 复用，菜单使用全局 hover token 并以 Teleport 避免滚动容器裁切；`PerformanceSortableList` 同时承载评级/填写/提示。定向前端157/157、后端workflow/projects392/392、前端build和diff检查通过。未执行登录态浏览器、独立PNG、真实数据库重开和员工端提示展示，F20保持未勾选。
 
+- 2026-10-25提示组件修订：颜色选择器悬浮说明通过Teleport挂到body，并使用`--performance-popover-z-index`，高于内容弹窗遮罩，不再被添加提示弹窗遮挡。提示展示框直接使用保存的颜色作为底色，移除原左侧竖线；标题保持16px/600/24px，提示内容保持14px/400/22px，与添加内容中的标题/描述一致。颜色配置下新增公共复选框“显示icon”，默认关闭，开启后在文字前展示对应颜色的提示图标；`showIcon`作为既有JSONB提示对象的可选字段，旧数据缺省按关闭处理。展示框宽度使用`--performance-content-width`并受父容器限制。
+
 ### F01 历史验收记录
 
 - 验证：最终前端八组定向Vitest 131/131，后端workflow pytest 108/108，前端类型检查和生产构建通过。补齐view旧副本覆盖来源和普通节点同ID干扰binding-only来源的回归。前端向导测试输出既有jsdom XHR AggregateError日志（用例仍通过），构建有VueUse PURE注释警告，后端有Starlette弃用警告。本地Docker前后端镜像构建与容器替换通过，数据库和Gotenberg容器未替换；Alembic当前版本与head均0266。容器路由HTTP200、未登录API401，后端启动期间短暂502后恢复。浏览器跳转登录，未取得F01实际页面PNG，也未完成真实API保存重开验收；不得将登录页或目标图作为实现截图。F01保留未勾选。

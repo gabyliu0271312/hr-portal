@@ -464,9 +464,9 @@ async def test_mixed_content_and_prompts_patch_get_preserve_order_and_unknown_fi
 @pytest.mark.parametrize("color", ["#3B82F6", "#F97316", "#EF4444", "#10B981", "#abc", "#abcd", "#112233", "#11223344"])
 def test_prompt_normalizes_content_title_and_safe_colors(color):
     node = _evaluation("final", "实线上级")
-    node["content"] = [_prompt_content(prompt={"content": "  提示正文  ", "scope": "cycle", "color": color, "future": True})]
+    node["content"] = [_prompt_content(prompt={"content": "  提示正文  ", "scope": "cycle", "color": color, "showIcon": True, "future": True})]
     content = normalize_workflow_nodes([node])[0]["content"][0]
-    assert content["prompt"] == {"title": "", "content": "提示正文", "scope": "cycle", "color": color, "future": True}
+    assert content["prompt"] == {"title": "", "content": "提示正文", "scope": "cycle", "color": color, "showIcon": True, "future": True}
     assert content["name"] == "提示"
     assert content["description"] == ""
     assert content["items"] == []

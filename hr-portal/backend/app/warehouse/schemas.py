@@ -238,7 +238,6 @@ class DatasetOutputFieldIn(BaseModel):
     description: Optional[str] = None
     agg_role: str = "dimension"
     is_sensitive: bool = False
-    is_visible: bool = True
     display_order: int = 0
 
 
@@ -1851,7 +1850,6 @@ class StandardFieldBindingCandidateOut(BaseModel):
     display_name: str
     source_field_id: str
     data_type: str
-    is_visible: bool
     is_sensitive: bool
     existing_binding_id: int | None = None
     existing_binding_status: Literal["unmapped", "suggested", "confirmed", "invalid"] | None = None

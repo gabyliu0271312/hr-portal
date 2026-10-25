@@ -243,7 +243,7 @@ async def ensure_valid_report_field_references(
         column = columns_by_alias.get(alias, {}).get(column_code)
         if table is None or column is None:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f'{path} 引用的数据集字段不存在: {source_code}')
-        if not getattr(column, 'is_visible', True):
+        if is_technical_column(getattr(column, 'column_code', None)):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f'{path} 引用的数据集字段不可见: {source_code}')
         if column_code in hidden_by_alias.get(alias, set()):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f'{path} 引用的数据集字段无权限: {source_code}')
