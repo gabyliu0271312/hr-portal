@@ -1613,3 +1613,12 @@ facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow
 - 北森人员数据已有一级到五级字段时，保留为原始兼容字段并做一致性校验；新治理数据集正式口径以系统组织树派生结果为准，不以组织名称做关联键。
 - 深度超过10级、孤儿、循环或组织树异常不得静默截断/挂根，需阻断需要组织层级分析的数据产品。
 - 5.3真实组织汇总前置顺序调整为：系统标准字段定义 → 组织层级派生投影 → 数据集输出绑定 → 中心×组织×期间汇总验收。
+
+### 标准字段展示名称与语义版本拆分（2026-10-25）
+
+- `field_code`/`standard_field_id` 是稳定身份，不因名称变化修改。
+- `display_name` 从 `standard_fields` 基础对象维护；修改展示名称不创建语义版本、不改变绑定、不触发转换批准或报表重新绑定；写入操作审计原因。
+- `StandardFieldVersion` 保留授权语义：`data_type`、`business_definition`、`grain_level`、`permission_domain`、`is_permission_anchor`、敏感分类与值域规则等变化必须创建新版本并审批。
+- 迁移 `0272_standard_field_display_name` 已应用开发库，旧版本最新 `field_name` 回填到 `standard_fields.display_name`；API新增 `PATCH /warehouse/standard-fields/{id}/display-name`。
+- 前端标准字段抽屉增加“展示名称”独立编辑说明，语义版本编辑仍走原版本流程。
+- 生产未部署；函数目录自身的 `is_visible` 不属于标准字段语义，不在本次拆分范围内。

@@ -26,6 +26,7 @@ const form = reactive<StandardFieldDefinitionPayload>({
   field_code: '', field_name: '', business_definition: '', data_type: 'string', grain_level: null,
   permission_domain: 'public', is_permission_anchor: false, owner_user_id: 0, category_ids: [], value_domain: null,
 })
+const displayName = ref('')
 const writable = () => mode.value !== 'view' && canWrite.value
 const migrationRequired = computed(() => [form.value_domain, detail.value?.latest_version.value_domain].some(domain => domain != null && !Array.isArray(domain.items)))
 
@@ -38,6 +39,7 @@ function message(cause: any, fallback: string) {
 function fill(version?: StandardFieldVersion) {
   form.field_code = detail.value?.field_code || ''
   form.field_name = version?.field_name || ''
+  displayName.value = version?.field_name || ''
   form.business_definition = version?.business_definition || ''
   form.data_type = version?.data_type || 'string'
   form.grain_level = version?.grain_level || null
@@ -74,6 +76,24 @@ async function load() {
 function close() { if (!saving.value) { ++contextId; ++requestId; emit('update:modelValue', false) } }
 function beginVersion() { if (migrationRequired.value || saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'C')) return; if (detail.value?.versions.some(version => version.status === 'draft')) { ElMessage.warning('请先处理已有草稿'); return }; fill(detail.value?.latest_version); mode.value = 'version' }
 function beginEdit() { if (saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U') || detail.value?.latest_version.status !== 'draft') return; fill(detail.value.latest_version); mode.value = 'edit' }
+async function saveDisplayName() {
+  if (!detail.value || !displayName.value.trim() || saving.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U')) return
+  saving.value = true
+  try {
+    const updated = await standardFieldsApi.updateDisplayName(detail.value.id, {
+      display_name: displayName.value.trim(),
+      expected_version: detail.value.latest_version.version,
+      reason: '更新标准字段展示名称',
+    })
+    detail.value = updated
+    fill(updated.latest_version)
+    ElMessage.success('展示名称已更新，不会创建语义版本')
+    emit('changed')
+  } catch (cause: any) {
+    error.value = message(cause, '展示名称更新失败，请重试')
+  } finally { saving.value = false }
+}
+
 function cancel() { if (detail.value) { fill(detail.value.latest_version); mode.value = 'view' } else close() }
 function normalizedForm(): StandardFieldDefinitionPayload {
   return {
@@ -159,6 +179,13 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
       <template v-if="canView && !loading">
         <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" @update:model-value="Object.assign(form, $event)" @submit="save" />
         <template v-else-if="detail">
+          <section class="display-name-editor">
+            <div><strong>展示名称</strong><p>名称修改不创建语义版本，不影响授权合同和报表绑定。</p></div>
+            <div class="display-name-editor__row">
+              <el-input v-model="displayName" maxlength="128" :disabled="saving || !userStore.hasOp('warehouse.standard_fields.catalog', 'U')" />
+              <PermissionButton menu="warehouse.standard_fields.catalog" op="U" :loading="saving" @click="saveDisplayName">更新</PermissionButton>
+            </div>
+          </section>
           <StandardFieldVersions :detail="detail" :saving="saving" :migration-required="migrationRequired" @create-version="beginVersion" @edit="beginEdit" @transition="transition" />
           <StandardFieldBindingPanel :field-id="detail.id" :active-version-id="detail.current_active_version_id" :bindings="detail.bindings" :dataset-id="datasetId" :table-name="tableName" @changed="load(); emit('changed')" />
         </template>
@@ -175,4 +202,7 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
 <style scoped>
 .standard-field-drawer { display: grid; gap: 16px; color: var(--color-text-primary); }
 .standard-field-drawer__note { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+.display-name-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-subtle); }
+.display-name-editor p { margin: 4px 0 0; color: var(--color-text-secondary); font-size: 12px; }
+.display-name-editor__row { display: flex; gap: 8px; }
 </style>

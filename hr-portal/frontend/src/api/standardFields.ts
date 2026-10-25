@@ -127,6 +127,9 @@ export const standardFieldsApi = {
   get(id: number) {
     return api.get<StandardFieldDetail>(`/warehouse/standard-fields/${id}`).then(r => r.data)
   },
+  updateDisplayName(fieldId: number, payload: { display_name: string; expected_version: number; reason: string }) {
+    return api.patch<StandardFieldDetail>(`/warehouse/standard-fields/${fieldId}/display-name`, payload).then(r => r.data)
+  },
   bindingCandidates(fieldId: number, params: StandardFieldBindingCandidateParams = {}) {
     if (!params.dataset_id && !params.table_name?.trim()) return Promise.resolve<StandardFieldBindingCandidate[]>([])
     return api.get<StandardFieldBindingCandidate[]>(`/warehouse/standard-fields/${fieldId}/binding-candidates`, { params }).then(r => r.data)

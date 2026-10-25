@@ -79,8 +79,10 @@ async def _category_map(db, version_ids):
 
 async def _out(db, version):
     categories = await _category_map(db, [version.id])
+    field = await db.get(StandardField, version.standard_field_id)
+    display_name = field.display_name if field and field.display_name else version.field_name
     return StandardFieldVersionOut.model_validate(version).model_copy(
-        update={"category_ids": categories.get(version.id, [])}
+        update={"field_name": display_name, "category_ids": categories.get(version.id, [])}
     )
 
 
@@ -113,7 +115,8 @@ async def list_standard_fields(db, keyword=None, status=None, offset=0, limit=50
     return StandardFieldListOut(total=total, items=[StandardFieldSummaryOut(
         id=field.id, field_code=field.field_code, current_active_version_id=current,
         latest_version=StandardFieldVersionOut.model_validate(version).model_copy(
-            update={"category_ids": categories.get(version.id, [])}
+            update={"field_name": field.display_name or version.field_name,
+                    "category_ids": categories.get(version.id, [])}
         ),
     ) for field, version, current in rows])
 
@@ -126,7 +129,8 @@ async def read_standard_field(db, field_id):
     )).scalars().all()
     categories = await _category_map(db, [version.id for version in versions])
     outputs = [StandardFieldVersionOut.model_validate(version).model_copy(
-        update={"category_ids": categories.get(version.id, [])}
+        update={"field_name": field.display_name or version.field_name,
+                "category_ids": categories.get(version.id, [])}
     ) for version in versions]
     bindings = (await db.execute(
         select(StandardFieldBinding).join(
@@ -188,12 +192,26 @@ def _audit(db, action, field, version, user, reason_supplied=False, binding=None
     ))
 
 
+async def update_standard_field_display_name(db, field_id, payload, user):
+    async with _transaction(db):
+        field = await _field(db, field_id, lock=True)
+        latest = (await db.execute(select(StandardFieldVersion).where(
+            StandardFieldVersion.standard_field_id == field_id,
+        ).order_by(StandardFieldVersion.version.desc()).limit(1))).scalar_one()
+        if latest.version != payload.expected_version:
+            _error(409, "standard_field_version_conflict", "目录已有新版本，请重新核对")
+        field.display_name = payload.display_name.strip()
+        _audit(db, "display_name_updated", field, latest, user, reason_supplied=True)
+        await db.flush()
+        return await read_standard_field(db, field_id)
+
+
 async def create_standard_field(db, payload, user):
     async with _transaction(db):
         await _validate_definition(db, payload)
         if await db.scalar(select(StandardField.id).where(StandardField.field_code == payload.field_code)):
             _error(409, "standard_field_code_exists", "标准字段编码已存在")
-        field = StandardField(field_code=payload.field_code, created_by=user.id)
+        field = StandardField(field_code=payload.field_code, display_name=payload.field_name, created_by=user.id)
         db.add(field)
         await db.flush()
         version = StandardFieldVersion(

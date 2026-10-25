@@ -11,6 +11,7 @@ from app.warehouse.schemas import (
     StandardFieldBindingCreateIn,
     StandardFieldBindingOut,
     StandardFieldCreateIn,
+    StandardFieldDisplayUpdateIn,
     StandardFieldDetailOut,
     StandardFieldListOut,
     StandardFieldStatus,
@@ -54,6 +55,17 @@ async def create_field(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.create_standard_field(db, payload, user)
+
+
+@router.patch("/{field_id}/display-name", response_model=StandardFieldDetailOut)
+async def update_display_name(
+    payload: StandardFieldDisplayUpdateIn,
+    field_id: int = Path(..., gt=0),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    """修改展示名称，不创建语义版本，不改变授权绑定。"""
+    return await service.update_standard_field_display_name(db, field_id, payload, user)
 
 
 @router.get("/{field_id}/binding-candidates", response_model=list[StandardFieldBindingCandidateOut])

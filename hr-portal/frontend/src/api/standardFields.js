@@ -6,6 +6,9 @@ const standardFieldsApi = {
   get(id) {
     return api.get(`/warehouse/standard-fields/${id}`).then((r) => r.data);
   },
+  updateDisplayName(fieldId, payload) {
+    return api.patch(`/warehouse/standard-fields/${fieldId}/display-name`, payload).then((r) => r.data);
+  },
   bindingCandidates(fieldId, params = {}) {
     if (!params.dataset_id && !params.table_name?.trim()) return Promise.resolve([]);
     return api.get(`/warehouse/standard-fields/${fieldId}/binding-candidates`, { params }).then((r) => r.data);

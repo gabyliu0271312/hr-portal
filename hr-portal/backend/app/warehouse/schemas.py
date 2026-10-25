@@ -1793,6 +1793,21 @@ class StandardFieldActionIn(BaseModel):
         return value
 
 
+class StandardFieldDisplayUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    display_name: str = Field(min_length=1, max_length=128)
+    expected_version: int = Field(ge=1, strict=True)
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("display_name", "reason")
+    @classmethod
+    def nonempty_text(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("展示名称和原因不能为空")
+        return value
+
+
 class StandardFieldVersionOut(StandardFieldDefinitionIn):
     model_config = {"from_attributes": True}
     value_domain: dict | None = None
