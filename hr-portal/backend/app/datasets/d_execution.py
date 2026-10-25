@@ -155,6 +155,9 @@ def validate_allocation_fact_s_execution(contract, request):
         bound_keys = {item["source_column"] for item in outputs}
         bound_keys |= {field.removeprefix(f"{fact.alias}.") for field in definition.internal_fields
                        if field.startswith(f"{fact.alias}.")}
+        if definition.schema_version == 3:
+            # schema 3 不声明内部字段白名单；锚点由合同事实声明并在建/批时核对物理列与类型
+            bound_keys |= {fact.fact_key, fact.employee_key, fact.cost_center_key} - {None}
         if not {fact.fact_key, fact.employee_key, fact.cost_center_key} <= bound_keys:
             issues.append(_s_issue("s_execution_anchor_unbound", "S执行授权锚点未绑定批准事实"))
         identifying = {code for code, item in output_by_code.items()
@@ -162,8 +165,12 @@ def validate_allocation_fact_s_execution(contract, request):
         if set(bound_request.plan.aggregations) & identifying:
             issues.append(_s_issue("s_execution_personal_locator_forbidden", "人员键聚合须独立批准，当前切片不支持"))
         from app.reports.execution_plan import compile_execution_plan
+        from app.datasets.authorization_contract import derived_summary_fields
+        derived = derived_summary_fields(definition, outputs) if definition.schema_version == 3 else None
+        allowed_fields = set(derived["summary_outputs"]) if derived else set(definition.output_fields)
+        allowed_measures = set(derived["measures"]) if derived else set(definition.measures)
         shape = compile_execution_plan(bound_request.dataset_id, bound_request.plan,
-            allowed_fields=set(definition.output_fields), measures=set(definition.measures),
+            allowed_fields=allowed_fields, measures=allowed_measures,
             approved_summary=True, identifying_fields=identifying)
         issues.extend(shape.issues)
     plan = bound_request.plan
@@ -171,14 +178,19 @@ def validate_allocation_fact_s_execution(contract, request):
         issues.append(_s_issue("s_execution_summary_required", "S执行切片必须包含度量聚合"))
     if len(set(plan.output_fields)) != len(plan.output_fields):
         issues.append(_s_issue("s_execution_duplicate_output", "S执行输出不可重复"))
-    if set(plan.group_by) - set(definition.dimensions):
+    allowed_dimensions = set(definition.dimensions)
+    if definition.schema_version == 3:
+        from app.datasets.authorization_contract import derived_summary_fields
+        allowed_dimensions = set(derived_summary_fields(definition, outputs)["dimensions"])
+    if set(plan.group_by) - allowed_dimensions:
         issues.append(_s_issue("s_execution_dimension_not_allowed", "分组字段不在批准维度中"))
     if plan.personal_fields or plan.employee_keys:
         issues.append(_s_issue("s_execution_personal_locator_forbidden", "S执行切片不允许个人定位字段"))
     if plan.filters or plan.order_by:
         issues.append(_s_issue("s_execution_plan_unsupported", "当前S切片不支持筛选或排序覆盖"))
     if plan.conditions:
-        approved = {item.field: set(item.operators) for item in definition.approved_filters}
+        from app.datasets.authorization_contract import approved_filter_map
+        approved = approved_filter_map(definition, outputs if isinstance(outputs, list) else [])
         for condition in plan.conditions:
             operators = approved.get(condition.field)
             if not operators or condition.operator not in operators:
@@ -187,7 +199,7 @@ def validate_allocation_fact_s_execution(contract, request):
                     f"筛选条件 {condition.field} 未获授权合同批准",
                 ))
                 continue
-            if condition.field not in definition.dimensions:
+            if condition.field not in allowed_dimensions:
                 issues.append(_s_issue("s_execution_filter_not_approved", "筛选字段必须是批准维度"))
             if condition.operator == "in" and not (
                     isinstance(condition.value, list) and condition.value and len(condition.value) <= 200):
@@ -425,7 +437,8 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
     if issues or scope is None:
         return None, issues or [_s_issue("s_execution_scope_denied", "当前用户没有可解析的汇总范围")]
     # 业务筛选在授权范围之后叠加：先生成D/S范围，再AND合同批准的条件，不改变授权集合
-    approved = {item.field: set(item.operators) for item in bound_contract.definition.approved_filters}
+    from app.datasets.authorization_contract import approved_filter_map
+    approved = approved_filter_map(bound_contract.definition, list(outputs.values()))
     clauses = []
     for condition in conditions:
         if condition.operator not in approved.get(condition.field, set()):
@@ -609,7 +622,7 @@ async def compile_person_fact_d_select_for_user(*, contract: DExecutionContractS
     for output_code in request.plan.output_fields:
         output = outputs[output_code]
         source_column = output["source_column"]
-        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+        if (output.get("is_sensitive") is not False or source_column in technical
                 or source_column in protected or output_code in protected):
             return None, [_scope_issue("d_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
         if source_column not in model.__table__.columns:
@@ -671,7 +684,9 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
         return None, [_scope_issue("d_execution_plan_unsupported", "明细执行不支持聚合或分组")]
     if request.plan.filters or request.plan.order_by or request.plan.personal_fields or request.plan.employee_keys:
         return None, [_scope_issue("d_execution_plan_unsupported", "明细执行暂不支持筛选、排序或个人定位依赖")]
-    allowed = set(definition.detail_output_fields)
+    # schema 3：可明细输出 = 数据集全部输出（是否可见由按用户字段权限裁决）；1/2 仍读合同白名单
+    allowed = (set(item["output_code"] for item in contract.model_snapshot["outputs"])
+               if definition.schema_version == 3 else set(definition.detail_output_fields))
     if not set(request.plan.output_fields) <= allowed:
         return None, [_scope_issue("d_execution_detail_field_not_allowed", "执行字段不在合同明细白名单")]
     model = DATA_TABLES.get(fact.table_name)
@@ -685,15 +700,25 @@ async def compile_allocation_fact_d_select_for_user(*, contract, request, user, 
     hidden = await get_hidden_columns(user, fact.table_name, db, tool_key=None)
     if hidden is None:
         return None, [_scope_issue("d_execution_field_access_unresolved", "字段授权尚未完成裁决")]
-    protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
+    technical = {"id", "pk_hash", "synced_at"}
+    if definition.schema_version == 3:
+        # schema 3：is_visible 只表达展示面，不作为执行拒绝依据；技术列/按用户隐藏/敏感列仍拒绝
+        protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
+    else:
+        protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive or not column.is_visible}
     projected = []
     for output_code in request.plan.output_fields:
         output = outputs.get(output_code)
         if output is None:
             return None, [_scope_issue("d_execution_output_missing", "明细输出不在合同快照中")]
         source_column = output["source_column"]
-        if (output.get("is_visible") is not True or output.get("is_sensitive") is not False
-                or source_column in protected or output_code in protected):
+        if definition.schema_version == 3:
+            blocked = (output.get("is_sensitive") is not False or source_column in technical
+                       or source_column in protected or output_code in protected)
+        else:
+            blocked = (output.get("is_visible") is not True or output.get("is_sensitive") is not False
+                       or source_column in protected or output_code in protected)
+        if blocked:
             return None, [_scope_issue("d_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
         if source_column not in model.__table__.columns:
             return None, [_scope_issue("d_execution_source_column_missing", "执行计划字段物理来源不存在")]

@@ -221,7 +221,8 @@ async def _compile_authorized_summary_plan(report, readiness, user, db, page=1, 
     except ValueError as exc:
         raise HTTPException(409, detail={"code": "execution_contract_invalid", "message": "授权合同定义无效"}) from exc
     # 业务筛选：只允许合同批准的字段+操作符；先授权后筛选，不改变D/S集合
-    approved = {item.field: set(item.operators) for item in definition.approved_filters}
+    from app.datasets.authorization_contract import approved_filter_map
+    approved = approved_filter_map(definition, list(outputs))
     by_instance = {instance.instance_id: output for instance, output in selected}
     conditions = []
     for item in config.filters:
@@ -330,7 +331,7 @@ async def _compile_authorized_detail_plan(report, readiness, user, db, page=1, p
     except ValueError as exc:
         raise HTTPException(409, detail={"code": "execution_contract_invalid", "message": "授权合同定义无效"}) from exc
     planned = [output.output_code for _, output in selected]
-    if not set(planned) <= set(definition.detail_output_fields):
+    if definition.schema_version != 3 and not set(planned) <= set(definition.detail_output_fields):
         raise HTTPException(403, detail={"code": "authorized_detail_field_denied", "message": "字段不在合同明细白名单"})
     snapshot = {"id": row.id, "dataset_id": row.dataset_id, "contract_version": row.contract_version,
                 "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot}

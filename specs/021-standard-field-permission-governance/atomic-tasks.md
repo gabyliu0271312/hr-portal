@@ -1499,3 +1499,53 @@ VALUE_FIELD=SKIPPED
 - 代码补充：运行/导出入口不再一律拒绝运行期筛选；新增“只能修改报表已配置筛选字段”的显式拒绝，避免静默忽略。
 - 全量后端：2854 passed / 247 skipped / 8 failed（与干净HEAD一致）。
 - 未完成：用户PC走查（筛选面板改值、导出）、5.2 人员定位与明细D、5.3–5.8。
+
+## 2026-10-25 合同瘦身（schema 3）：D/S 由查询形态推导
+
+### 决策（用户确认）
+
+- 不存在“汇总可用/仅明细可用字段”的清单；权限只分两类：**人员范围 P(u)** 与**成本中心范围 C(u)**。
+- **查询形态决定 D/S**：未聚合（行级）= 明细 D，仅 P(u)；聚合 = 汇总 S，P(u) ∪ C(u)。
+- **未聚合但只选非标识字段**（每人一行、不含工号）仍算明细，中心用户看不到这些行（防匿名逐行泄漏）。
+- 字段是否可出现在汇总，由标准字段 `grain_level=identifying` 推导；可出现在明细，由数据集输出 + 当前用户字段权限决定；`is_visible` 只影响展示，不再作为执行拒绝依据。
+- 度量不能作为筛选字段是推导（`agg_role`），不需要声明。
+
+### schema 3 合同只保留
+
+```
+schema_version: 3
+facts: [{alias, table_name, fact_key, employee_key, cost_center_key, role, allow_cost_center_summary}]
+```
+
+移除：`output_fields / dimensions / measures / detail_output_fields / internal_fields / standard_fields / approved_filters`。
+
+### 推导规则
+
+| 项 | 推导方式 |
+| --- | --- |
+| 可汇总输出 | 数据集输出中非 identifying（标准字段语义/事实锚点判定） |
+| 可分组维度 | 同上，且 `agg_role != measure` |
+| 可明细输出 | 数据集输出 ∩ 用户字段权限（含 identifying，如工号） |
+| 可筛选字段 | 可分组维度；操作符固定 `eq/in/gte/lte/between` |
+| 技术列 | `id/pk_hash/synced_at` 永久拒绝 |
+| schema 1/2 合同 | 保持原逻辑，不迁移 |
+
+### 配套
+
+- 发布门禁：字段绑定仍要求全部输出 confirmed+active；**取消“合同输出必须覆盖数据集全部输出”**（schema 3）。
+- 报表执行与绑定口径不变（仍绑定 contract_id + version）。
+- 试点：v6（schema 3）替换 v5，按 v6 重批转换、重绑报表 22–25，回归 74 组 / 723 行 / 中心用户拒绝 / CSV 一致。
+
+### schema 3 实施与试点切换（2026-10-25，开发库）
+
+- **合同**：`ProductAuthorizationDefinition` 支持 `schema_version=3`，只声明事实与路径；出现任何字段白名单声明（output/dimensions/measures/detail_output/internal/standard/approved_filters）即拒绝。
+- **推导助手**：`derived_summary_fields`（识别字段=事实键/人员键，成本中心键保留为维度）、`approved_filter_map`（schema3 可筛选=可分组维度，操作符固定 `eq/in/gte/lte/between`）。
+- **S 路径**：允许输出/维度/度量、筛选审批均按推导；`s_execution_anchor_unbound` 对 schema3 接受合同声明的事实锚点（物理列与类型仍在建/批时核对）。
+- **运行时准入**：`allocation_runtime_shape_unsupported` 的形态检查改为推导值。
+- **D 路径**：可明细输出=数据集全部输出；`is_visible` 不再作为拒绝依据（技术列/按用户隐藏/敏感列仍拒绝），隐藏锚点可作为明细输出。
+- **发布/转换**：schema3 不要求合同逐项覆盖数据集输出；字段绑定与快照漂移检查保留。
+- **快照**：`_snapshot` 增加 `agg_role`；批准时刷新快照；漂移比较改为“只比较快照中记录的字段”，兼容旧快照。
+- **试点切换**：v6（schema3）替换 v5，转换按 v6 重新批准（approval 8, run 6, dataset_version=1），报表22–25重新绑定 v6。
+- **端到端（开发库真实HTTP）**：22/23/24 各 **74** 组，25 明细 **723** 行；22 默认筛选 74；运行期 `202601`=**0**；未配置字段=**422**；`contains`=**403**；CSV 默认 **75** 行、筛选 **1** 行。
+- **测试**：定向 122 passed/193 skipped（含 schema3 合同拒绝白名单、推导保留中心维度 2 例）；全量 **2856 passed / 247 skipped / 8 failed**（与干净HEAD一致，无新增回归）。
+- **未覆盖**：隐藏列（`is_visible=false`）作为明细输出的端到端验证需要下一次合同版本切换（当前试点列仍为可见）；前端无改动。

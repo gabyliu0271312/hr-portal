@@ -56,6 +56,44 @@ class ProductFactContract(BaseModel):
 SUPPORTED_FILTER_OPERATORS = ("eq", "in", "gte", "lte", "between")
 
 
+def _item(source, key):
+    return source.get(key) if isinstance(source, dict) else getattr(source, key, None)
+
+
+def derived_summary_fields(definition, outputs) -> dict:
+    """schema 3：从数据集输出与事实锚点推导可汇总字段、维度、度量与识别字段。
+
+    outputs 支持 ORM 对象或 dict（需含 output_code / source_column / agg_role）。
+    """
+    # 人员/事实键属于识别字段；成本中心键是批准的汇总分组维度，不属于识别字段
+    anchors: set[str] = set()
+    for fact in definition.facts:
+        anchors |= {fact.fact_key, fact.employee_key} - {None}
+    all_codes = [_item(output, "output_code") for output in outputs]
+    identifying = {_item(output, "output_code") for output in outputs
+                   if _item(output, "source_column") in anchors}
+    summary = [output for output in outputs if _item(output, "output_code") not in identifying]
+    dimensions = [_item(output, "output_code") for output in summary
+                  if (_item(output, "agg_role") or "dimension") != "measure"]
+    measures = [_item(output, "output_code") for output in summary
+                if (_item(output, "agg_role") or "dimension") == "measure"]
+    return {
+        "all_outputs": all_codes,
+        "identifying": identifying,
+        "summary_outputs": [_item(output, "output_code") for output in summary],
+        "dimensions": dimensions,
+        "measures": measures,
+    }
+
+
+def approved_filter_map(definition, outputs) -> dict[str, set[str]]:
+    """schema 3 由可分组维度推导可筛选字段；schema 1/2 仍读合同声明。"""
+    if definition.schema_version == 3:
+        derived = derived_summary_fields(definition, outputs)
+        return {code: set(SUPPORTED_FILTER_OPERATORS) for code in derived["dimensions"]}
+    return {item.field: set(item.operators) for item in definition.approved_filters}
+
+
 class ApprovedFilter(BaseModel):
     """合同批准的筛选能力：只允许在已批准维度上按批准操作符收窄。"""
     model_config = {"extra": "forbid"}
@@ -74,7 +112,7 @@ class ApprovedFilter(BaseModel):
 
 class ProductAuthorizationDefinition(BaseModel):
     model_config = {"extra": "forbid"}
-    schema_version: Literal[1, 2] = 1
+    schema_version: Literal[1, 2, 3] = 1
     facts: list[ProductFactContract] = Field(min_length=1, max_length=32)
     # schema 1: 数据集输出编码；schema 2 输入: 标准字段编码，落库前由服务端解析为输出编码。
     output_fields: list[str] = Field(default_factory=list, max_length=500)
@@ -100,6 +138,24 @@ class ProductAuthorizationDefinition(BaseModel):
     def validate_structure(self):
         if len({fact.alias for fact in self.facts}) != len(self.facts):
             raise ValueError("来源别名不可重复")
+        if self.schema_version == 3:
+            # schema 3：合同只声明事实与路径；字段白名单/维度/度量/筛选能力全部由
+            # 数据集输出、标准字段语义与查询形态推导，合同里出现这些声明即视为无效。
+            declared = {
+                "output_fields": self.output_fields,
+                "dimensions": self.dimensions,
+                "measures": self.measures,
+                "detail_output_fields": self.detail_output_fields,
+                "internal_fields": self.internal_fields,
+                "standard_fields": self.standard_fields,
+                "approved_filters": self.approved_filters,
+            }
+            extra = [name for name, value in declared.items() if value]
+            if extra:
+                raise ValueError(f"schema 3 合同不接受字段白名单声明: {', '.join(extra)}")
+            if set(self.dimensions) & set(self.measures):
+                raise ValueError("维度和度量不得重叠")
+            return self
         normalized = self.schema_version == 2 and bool(self.resolved_standard_fields)
         if self.schema_version == 2 and not normalized:
             if not self.standard_fields:
@@ -175,7 +231,7 @@ def _snapshot(tables, relations, outputs):
                        "join_type": row.join_type, "cardinality": row.cardinality, "keys": row.keys} for row in relations],
         "outputs": [{"id": row.id, "source_alias": row.source_alias, "source_column": row.source_column,
                      "output_code": row.output_code, "data_type": row.data_type, "is_sensitive": row.is_sensitive,
-                     "is_visible": row.is_visible} for row in outputs],
+                     "is_visible": row.is_visible, "agg_role": getattr(row, "agg_role", None) or "dimension"} for row in outputs],
     }
 
 
@@ -209,8 +265,12 @@ def _snapshot_drift(snapshot, tables, relations, outputs) -> bool:
             return True
         expected = {item["id"]: item for item in items}
         actual = {item["id"]: item for item in current[key]}
-        if len(expected) != len(items) or expected != actual:
+        if len(expected) != len(items) or set(expected) != set(actual):
             return True
+        # 只比较快照中记录的字段，向后兼容新增的快照字段
+        for item_id, recorded in expected.items():
+            if any(actual[item_id].get(field) != value for field, value in recorded.items()):
+                return True
     return False
 
 
@@ -595,19 +655,37 @@ async def approve_contract(db, dataset_id, contract_id, payload, user):
         if current.facts[0].role == "allocation_fact":
             from app.datasets.d_execution import SExecutionBindingIn, validate_allocation_fact_s_execution
             from app.warehouse.schemas import ExecutionPlanIn
-            validation = validate_allocation_fact_s_execution(
-                {"id": row.id, "dataset_id": dataset_id, "contract_version": row.contract_version,
-                 "status": "active", "contract_json": row.contract_json,
-                 "model_snapshot": _snapshot(tables, relations, outputs)},
-                SExecutionBindingIn(dataset_id=dataset_id, contract_id=row.id,
-                    contract_version=row.contract_version, plan=ExecutionPlanIn(
-                        output_fields=current.output_fields, group_by=current.dimensions,
-                        aggregations={code: "sum" for code in current.measures})))
-            if not validation.eligible or len(tables) != 1:
+            if current.schema_version == 3:
+                derived = derived_summary_fields(current, outputs)
+                numeric_measures = [code for code in derived["measures"]
+                                    if next((o for o in outputs if o.output_code == code), None) is not None
+                                    and _normalized_metadata_type(next(o for o in outputs if o.output_code == code).data_type) == "number"]
+                sample_outputs = [*derived["dimensions"], *numeric_measures]
+                sample_plan = ExecutionPlanIn(
+                    output_fields=sample_outputs or derived["dimensions"][:1],
+                    group_by=derived["dimensions"],
+                    aggregations={code: "sum" for code in numeric_measures},
+                ) if sample_outputs else None
+            else:
+                sample_plan = ExecutionPlanIn(
+                    output_fields=current.output_fields, group_by=current.dimensions,
+                    aggregations={code: "sum" for code in current.measures})
+            if sample_plan is not None:
+                validation = validate_allocation_fact_s_execution(
+                    {"id": row.id, "dataset_id": dataset_id, "contract_version": row.contract_version,
+                     "status": "active", "contract_json": row.contract_json,
+                     "model_snapshot": _snapshot(tables, relations, outputs)},
+                    SExecutionBindingIn(dataset_id=dataset_id, contract_id=row.id,
+                        contract_version=row.contract_version, plan=sample_plan))
+                if not validation.eligible or len(tables) != 1:
+                    raise HTTPException(409, detail={"code": "contract_execution_validation_required", "message": "分摊事实锚点、维度或度量未通过汇总合同校验"})
+            elif len(tables) != 1:
                 raise HTTPException(409, detail={"code": "contract_execution_validation_required", "message": "分摊事实锚点、维度或度量未通过汇总合同校验"})
         physical_issues = await _collect_contract_physical_drift(db, current, tables, relations, outputs)
         if physical_issues:
             raise HTTPException(409, detail={"code": "contract_physical_validation_failed", "message": "授权合同引用的字段物理结构未通过校验"})
+        # 批准时刷新结构快照：批准才是真正绑定时刻，同时补全新增的快照字段（如 agg_role）
+        row.model_snapshot = _snapshot(tables, relations, outputs)
         row.status = "active"
         row.approved_by = user.id
         row.approved_at = datetime.now(UTC)
@@ -775,17 +853,26 @@ async def execution_readiness(db, dataset_id, user=None):
             outputs = (await db.execute(select(DatasetOutputField).where(
                 DatasetOutputField.dataset_id == dataset_id))).scalars().all()
             by_code = {output.output_code: output for output in outputs}
-            if (not definition.measures or not definition.dimensions
-                    or not set(definition.output_fields) <= set(by_code)
-                    or set(definition.output_fields) != set(definition.dimensions) | set(definition.measures)
+            if definition.schema_version == 3:
+                derived = derived_summary_fields(definition, outputs)
+                runtime_dimensions = derived["dimensions"]
+                runtime_measures = derived["measures"]
+                runtime_outputs = derived["summary_outputs"]
+            else:
+                runtime_dimensions = definition.dimensions
+                runtime_measures = definition.measures
+                runtime_outputs = definition.output_fields
+            if (not runtime_measures or not runtime_dimensions
+                    or not set(runtime_outputs) <= set(by_code)
+                    or set(runtime_outputs) != set(runtime_dimensions) | set(runtime_measures)
                     or any(_normalized_metadata_type(by_code[code].data_type) != "number"
-                           for code in definition.measures)):
+                           for code in runtime_measures)):
                 issues.append({"code": "allocation_runtime_shape_unsupported", "message": "当前运行切片要求全部输出为批准维度和数值度量"})
             else:
                 request = SExecutionBindingIn(dataset_id=dataset_id, contract_id=row.id,
                     contract_version=row.contract_version, plan=ExecutionPlanIn(
-                        output_fields=definition.output_fields, group_by=definition.dimensions,
-                        aggregations={code: "sum" for code in definition.measures}))
+                        output_fields=runtime_outputs, group_by=runtime_dimensions,
+                        aggregations={code: "sum" for code in runtime_measures}))
                 statement, compile_issues = await compile_allocation_fact_s_select_for_user(
                     contract={"id": row.id, "dataset_id": dataset_id, "contract_version": row.contract_version,
                               "status": row.status, "contract_json": row.contract_json, "model_snapshot": row.model_snapshot},

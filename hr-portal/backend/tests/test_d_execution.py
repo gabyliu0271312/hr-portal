@@ -935,3 +935,41 @@ def test_contract_rejects_filter_on_measure_or_internal_field():
         _s_definition_with_filters(approved_filters=[{"field": "amount", "operators": ["eq"]}])
     with pytest.raises(ValueError):
         _s_definition_with_filters(approved_filters=[{"field": "allocation.employee_no", "operators": ["eq"]}])
+
+
+# ==================== schema 3：合同只声明事实与路径 ====================
+
+def _schema3_definition(**overrides):
+    payload = {
+        "schema_version": 3,
+        "facts": [{"alias": "allocation", "table_name": "allocation_fact", "fact_key": "fact_id",
+                   "employee_key": "employee_no", "cost_center_key": "cc_code",
+                   "allow_cost_center_summary": True, "role": "allocation_fact"}],
+    }
+    payload.update(overrides)
+    return ProductAuthorizationDefinition.model_validate(payload)
+
+
+def test_schema3_contract_rejects_field_whitelists():
+    with pytest.raises(ValueError):
+        _schema3_definition(output_fields=["cc_code"])
+    with pytest.raises(ValueError):
+        _schema3_definition(approved_filters=[{"field": "cc_code", "operators": ["eq"]}])
+
+
+def test_schema3_derivation_keeps_cost_center_as_dimension():
+    from app.datasets.authorization_contract import derived_summary_fields, approved_filter_map
+    definition = _schema3_definition()
+    outputs = [
+        {"output_code": "cc_code", "source_column": "cc_code", "agg_role": "dimension"},
+        {"output_code": "department", "source_column": "department", "agg_role": "dimension"},
+        {"output_code": "amount", "source_column": "amount", "agg_role": "measure"},
+        {"output_code": "employee_no", "source_column": "employee_no", "agg_role": "dimension"},
+    ]
+    derived = derived_summary_fields(definition, outputs)
+    assert derived["identifying"] == {"employee_no"}
+    assert set(derived["dimensions"]) == {"cc_code", "department"}
+    assert derived["measures"] == ["amount"]
+    approved = approved_filter_map(definition, outputs)
+    assert set(approved) == {"cc_code", "department"}
+    assert approved["cc_code"] == {"eq", "in", "gte", "lte", "between"}
