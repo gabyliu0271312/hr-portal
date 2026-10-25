@@ -57,7 +57,7 @@
             <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
           </section>
         </template>
-        <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' && !isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
+        <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
@@ -285,7 +285,6 @@ function clearContentSelection() {
   pageHeadingSelected.value = false
 }
 function selectPageHeading() {
-  if (isCalibration.value) return
   clearContentSelection()
   pageHeadingSelected.value = true
 }
