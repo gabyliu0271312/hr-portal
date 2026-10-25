@@ -1488,6 +1488,7 @@ VALUE_FIELD=SKIPPED
 - 开发库执行治理变更（用户已批准）：创建合同 v5（v4定义原样 + `approved_filters`：`cost_period`/`code` × `eq`/`in`）→ 退役 v4 → 批准 v5。
 - 切换后发现并处理两处真实问题：
   1. **标准化重跑改变可见性**：重跑 `ods_021_allocation_pilot` 标准化后，DWD `employee_no` 列与输出 `666` 的 `is_visible` 由 true 变 false，导致合同快照漂移、明细D不可用。开发库已恢复为 true（临时SQL修复开发状态，不是生产证据）；这是 X2127「刷新不得丢TableColumn/输出可见性」的真实缺口，需产品修复。
+  根因（已定位，未修）：`standardization.py` 刷新时执行 `existing_column.is_visible = existing_column.is_visible and src_meta.is_visible`，ODS 源列 `employee_no` 隐藏（人员标识默认隐藏），因而把 DWD 列与数据集输出一并压成 false；而明细D需要输出该列，只能靠人工置为 true，刷新随即覆盖。涉及治理取舍（刷新是否应覆盖人工可见性 / 隐藏锚点能否作为批准明细输出），需产品决策后再改，避免用临时补丁绕过字段保护。
   2. **转换证据随来源重跑失效**：来源指纹变化→重新执行标准化（run 6，886行）→按 v5 重新批准转换（approval 7，dataset_version=1）。
 - 报表22/23/24/25 重新绑定合同 v5（用户6，`authorized_v1`）。
 - 端到端结果（真实HTTP，开发库）：
