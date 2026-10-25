@@ -249,7 +249,8 @@ class BeisenReportClient:
             #    直到收齐 total 或某一整轮零新增为止（乱序下多轮可逐步把漏行捞全）。
             seen_hashes: set[str] = set()
             datas: list = []
-            total = int(first_section.get("totalRecords", 0))
+            total = int(first_section.get("totalRecords") or first_section.get("totalCount")
+                        or first_section.get("total") or first_section.get("recordsTotal") or 0)
             MAX_PAGES = 500       # 单轮安全阀
             MAX_ROUNDS = 8        # 多轮重扫上限
             total_requests = 0
@@ -357,76 +358,137 @@ class BeisenApiClient:
         self._validate()
         return await _get_token(self.token_url, self.app_key, self.app_secret)
 
-    async def fetch(self, timeout: float = 30.0) -> list[dict]:
-        """调用一次数据接口，返回 items 列表
+    @staticmethod
+    def _page_value(payload: dict, names: tuple[str, ...]):
+        for name in names:
+            if name in payload and payload[name] not in (None, ""):
+                return payload[name], name
+        return None, None
 
-        北森接口 API 的响应约定：
-        - HTTP 200，但业务 code 在 body 里：{"code": "200", "data": [...], "message": null}
-        - data 直接是数组（成本中心、组织架构等）
-        - 业务失败：{"code": "500", "message": "...", "data": null}
+    @classmethod
+    def _extract_page(cls, data) -> tuple[list[dict], dict]:
+        """提取数据页和分页元数据，不丢弃 wrapper 中的 total/hasMore。"""
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)], {}
+        if not isinstance(data, dict):
+            return [], {}
+        containers = [data]
+        nested = data.get("data") or data.get("Data")
+        if isinstance(nested, dict):
+            containers.insert(0, nested)
+        for container in containers:
+            for key in ("items", "Items", "datas", "Datas", "Result", "results"):
+                value = container.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)], container | data
+            if isinstance(container, list):
+                return [item for item in container if isinstance(item, dict)], data
+        if isinstance(nested, list):
+            return [item for item in nested if isinstance(item, dict)], data
+        return [], data
+
+    @staticmethod
+    def _row_identity(row: dict) -> str:
+        import hashlib
+        return hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+
+    async def fetch(self, timeout: float = 30.0) -> list[dict]:
+        """拉取北森通用 API 的全部分页数据。
+
+        支持 page/pageNo/pageIndex/currentPage 与 pageSize/page_size/size/limit
+        常见命名；若响应没有 total/hasMore 分页证据，则保持兼容，仅执行一次请求。
         """
         self._validate()
         token = await _get_token(self.token_url, self.app_key, self.app_secret)
         body: dict = {}
         if self.body_template:
-            import json
             try:
-                body = json.loads(self.body_template) if isinstance(self.body_template, str) else self.body_template
-            except json.JSONDecodeError:
+                body = json.loads(self.body_template) if isinstance(self.body_template, str) else dict(self.body_template)
+            except (json.JSONDecodeError, TypeError, ValueError):
                 body = {}
+        headers = {"Authorization": f"Bearer {token}"}
+        page_names = ("pageIndex", "pageNo", "page", "currentPage", "PageIndex", "PageNo")
+        size_names = ("pageSize", "page_size", "size", "limit", "PageSize")
+        total_names = ("total", "totalCount", "totalRecords", "count", "Total")
+        more_names = ("hasMore", "has_more", "HasMore", "more")
 
         async with httpx.AsyncClient(timeout=timeout) as client:
-            if self.method == "GET":
-                resp = await client.get(
-                    self.data_url,
-                    headers={"Authorization": f"Bearer {token}"},
-                    params=body,
-                )
-            else:
-                resp = await client.request(
-                    self.method,
-                    self.data_url,
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json",
-                    },
-                    json=body,
-                )
-            resp.raise_for_status()
-            data = resp.json()
-
-            # 业务级错误：北森返回 200 但 code 不是 200
-            if isinstance(data, dict) and "code" in data:
-                code = str(data.get("code"))
-                if code not in ("200", "0"):
-                    msg = data.get("message") or "未知错误"
-                    raise RuntimeError(f"北森接口返回错误 (code={code}): {msg}")
-
-            # 提取 items：兼容多种 wrapper key
-            items: list = []
-            if isinstance(data, list):
-                items = data
-            elif isinstance(data, dict):
-                # 优先级：data 直接是数组（成本中心 API） → data.items / data.datas
-                d_field = data.get("data") or data.get("Data")
-                if isinstance(d_field, list):
-                    items = d_field
-                elif isinstance(d_field, dict):
-                    for kk in ("items", "Items", "datas", "Datas"):
-                        v = d_field.get(kk)
-                        if isinstance(v, list):
-                            items = v
-                            break
+            async def request_page(request_body: dict):
+                if self.method == "GET":
+                    response = await client.get(self.data_url, headers=headers, params=request_body)
                 else:
-                    for k in ("items", "Items", "Result", "results"):
-                        v = data.get(k)
-                        if isinstance(v, list):
-                            items = v
-                            break
+                    response = await client.request(
+                        self.method, self.data_url, headers={**headers, "Content-Type": "application/json"},
+                        json=request_body,
+                    )
+                response.raise_for_status()
+                data = response.json()
+                if isinstance(data, dict) and "code" in data and str(data.get("code")) not in ("200", "0"):
+                    raise RuntimeError(f"北森接口返回错误 (code={data.get('code')}): {data.get('message') or '未知错误'}")
+                return self._extract_page(data)
 
-            if not isinstance(items, list):
-                items = []
-            return items
+            first_items, meta = await request_page(body)
+            total, total_key = self._page_value(meta, total_names)
+            has_more, more_key = self._page_value(meta, more_names)
+            current, page_key = self._page_value(meta, page_names)
+            if page_key is None:
+                current, page_key = self._page_value(body, page_names)
+            size, size_key = self._page_value(meta, size_names)
+            if size_key is None:
+                size, size_key = self._page_value(body, size_names)
+            try:
+                total = int(total) if total is not None else None
+            except (TypeError, ValueError):
+                total = None
+            try:
+                current = int(current) if current is not None else 1
+            except (TypeError, ValueError):
+                current = 1
+            try:
+                size = max(1, int(size)) if size is not None else max(len(first_items), 100)
+            except (TypeError, ValueError):
+                size = max(len(first_items), 100)
+
+            rows: list[dict] = []
+            seen: set[str] = set()
+
+            def absorb(items: list[dict]):
+                for item in items:
+                    identity = self._row_identity(item)
+                    if identity not in seen:
+                        seen.add(identity)
+                        rows.append(item)
+
+            absorb(first_items)
+            needs_pages = bool((total is not None and total > len(rows)) or has_more is True)
+            if not needs_pages:
+                return rows
+            if page_key is None:
+                page_key = "pageIndex"
+            if size_key is None:
+                size_key = "pageSize"
+            max_pages = 1000
+            for _ in range(max_pages - 1):
+                if total is not None and len(rows) >= total:
+                    break
+                if has_more is False:
+                    break
+                next_body = dict(body)
+                next_body[page_key] = current + 1
+                next_body[size_key] = size
+                items, meta = await request_page(next_body)
+                if not items:
+                    break
+                before = len(rows)
+                absorb(items)
+                current += 1
+                has_more, _ = self._page_value(meta, more_names)
+                if len(rows) == before and has_more is not True:
+                    break
+            if total is not None and len(rows) < total:
+                logger.warning("[beisen_api] 分页拉取未收齐: received=%d total=%d url=%s", len(rows), total, self.data_url)
+            return rows
+
 
 
 # ===== 通用 HTTP API =====

@@ -206,3 +206,5 @@
 | 字段管理（验收观察，非最终操作） | 最终不应再存在 `org_node_code_2`；只保留源端真实编码列 `org_node_code` |
 
 > 部署：本方案为后端改动 + 迁移，需走 `git pull → docker compose up -d --build backend`（含 alembic 自动迁移），再到 UI 配 org_unit 接口、依次同步 org_unit 与花名册。详见部署手册 `memory/hr_portal_server_deploy.md` §4。
+
+> **2026-10-25 增量：分页拉取**：组织单元接口出现“配置成功但落库不全”时，优先检查北森返回的 `total/totalCount/totalRecords/recordsTotal` 与分页字段。后端 `BeisenApiClient` 已支持常见分页响应自动翻页并去重，`BeisenReportClient` 也兼容多种 total 字段；同步日志会在返回总数与实际去重行数不一致时告警。生产仍需用户部署后用元数据摘要验证配置的来源类型、last_rows 与数据库行数，不返回凭证或业务字段值。
