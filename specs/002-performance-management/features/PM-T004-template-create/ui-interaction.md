@@ -281,6 +281,7 @@
 - 配置区仍显示已关闭题的灰态和锁图标，允许重新选中恢复，不能把关闭的题从配置 DOM 删除；保存沿用 workflow JSONB/settings，局部显示设置和 allowView 值独立保留。
 - 2026-10-25 追加确认：结果查看 item 的 `allowView=false` 不得切换为通用 `mode=hidden` 或重绘内容结构；保持与允许查看时相同的只读内容渲染，仅通过共享 `PerformanceUnavailableOverlay` 叠加不可查看蒙层与隐藏图标。该渲染状态由公共内容 renderer 消费，后续结果查看内容类型可复用，配置项仍沿用现有 `items[].settings.allowView`。
 - 员工results接口兼容评级列表，并追加只读contents（task_id/form_schema/answers）；以项目result_view和终评节点快照为准，只有已完成终评、来源合法且allowView不为false的标签题可返回；后端白名单裁剪答案，隐藏名称/描述不以仅前端CSS作为边界。未开通、身份/成员不匹配沿用404 RESULT_NOT_FOUND；不修改结果开通、历史快照或生效策略。
+- 结果沟通环节复用直属上级评估的四类内容能力：Root 隐藏描述/工作总结允许添加多个；工作总结、文本、标签 Item 支持填写/隐藏/查看与必填；评分评级 Item 支持隐藏名称、必填和按规则配置可选等级，不开放“不了解”。该规则由 `result_communication` stage rule 驱动，不依赖具体模板实例。
 - 员工结果页复用PerformanceTemplateRenderer的readonly模式展示标签和说明，旧接口无contents时仍正常显示评级；空态/失败态沿用现有文案。实际浏览器/数据库重开证据未获得前，F13保持未勾选，不声称部署完成。
 
 - F13验证：前端四文件104/104、后端workflow/projects320/320通过；前端build（vue-tsc+vite）最终exit0、git diff --check通过。覆盖共享checkbox、隐藏双项独立/重选保留/保存mock重开、员工只读结果、拒绝访问、合法来源/任务/题目/答案裁剪及富文本清洗。既有VueUse PURE注释与python_multipart弃用提示未修改；实际浏览器/PNG、真实数据库/API持久化验收未执行，F13保持未勾选，无部署。

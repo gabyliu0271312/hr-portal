@@ -2,7 +2,7 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-view-work-summary' | 'result-view-rating' | 'result-view-custom-text' | 'result-view-tag'
+export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-communication-work-summary' | 'result-communication-custom-text' | 'result-communication-custom-tag' | 'result-communication-rating' | 'result-view-work-summary' | 'result-view-rating' | 'result-view-custom-text' | 'result-view-tag'
 export type EvaluationExecutorKind = 'reviewer_360' | 'direct_manager' | 'other'
 export interface ItemSettingsCapabilities {
   hideName: boolean
@@ -24,6 +24,10 @@ export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsC
   'evaluation-custom-text': { hideName: true, mode: true, required: true, viewResults: true },
   'evaluation-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
   'evaluation-rating': { hideName: true, mode: false, required: true, levelRules: true },
+  'result-communication-work-summary': { hideName: false, mode: true, required: true, viewResults: true },
+  'result-communication-custom-text': { hideName: true, mode: true, required: true, viewResults: true },
+  'result-communication-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true },
+  'result-communication-rating': { hideName: true, mode: false, required: true, levelRules: true },
   'result-view-work-summary': { hideName: false, mode: false, required: false, allowView: true },
   'result-view-rating': { hideName: true, mode: false, required: false, allowView: true },
   'result-view-custom-text': { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
@@ -51,6 +55,7 @@ export function supportsResultViewSettings(content: { type: string; questionType
 
 export function supportsStageItemView(nodeType: string | undefined, content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
   if (nodeType === 'evaluation') return supportsEvaluationView(content, item)
+  if (nodeType === 'result_communication') return ['work-summary', 'custom-text', 'custom-tag'].includes(getItemSettingsVariant(content, item))
   return false
 }
 
@@ -64,6 +69,7 @@ export function getRootSettingsCapabilities(content: { type: string; questionTyp
   if (content.type === 'prompt') return { allowMultiple: false, allowUnknown: false }
   if (variant === 'evaluation-360-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' }
   if (variant === 'evaluation-direct-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: false }
+  if (variant === 'result-communication-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: false }
   if (variant === 'result-view-root') return { allowMultiple: false, allowUnknown: false, allowView: true }
   return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' && content.items.some(item => item.kind !== 'fill' && item.kind !== 'prompt') }
 }
@@ -110,7 +116,13 @@ export const stageContentRules: Record<string, StageContentRule> = {
     visibleSlots: ['adjustment'],
     forbiddenSlots: ['fill', 'reference', 'view'],
   },
-  result_communication: genericRule,
+  result_communication: {
+    ...genericRule,
+    rootSettingsEnabled: true,
+    itemSettingsEnabled: true,
+    rootSettingsVariant: 'result-communication-root',
+    itemSettingsVariant: 'result-communication-item',
+  },
   result_view: {
     ...genericRule,
     visibleSlots: ['view'],
