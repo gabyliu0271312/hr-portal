@@ -192,8 +192,8 @@ describe('performance content shared primitives', () => {
     expect(wrapper.find('.content-renderer-hidden-icon').exists()).toBe(false)
     expect(wrapper.find('.readonly-tag-panel').exists()).toBe(true)
     expect(wrapper.find('.tag-rich-text-input.is-display-only').exists()).toBe(true)
-    expect(wrapper.find('.tag-preview__selected-group').exists()).toBe(false)
-    expect(wrapper.find('.tag-rich-text-input.is-display-only').exists()).toBe(true)
+    expect(wrapper.find('.tag-preview__selected-group').exists()).toBe(true)
+    expect(wrapper.get('.tag-preview__selected-group .rich-answer').text()).toBe('这里展示用户填写内容')
     expect(wrapper.find('.template-field-description').exists()).toBe(false)
     wrapper.unmount()
   })
@@ -225,12 +225,12 @@ describe('performance content shared primitives', () => {
     } })
     expect(wrapper.get('[data-content-item-id="text"] .rich-answer').text()).toBe('自定义预览文案')
     expect(wrapper.find('[data-content-item-id="text"] [role="toolbar"]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-content-item-id="tag"] .tag-preview__selected-group')).toHaveLength(0)
-    expect(wrapper.findAll('[data-content-item-id="tag"] .rich-answer')).toHaveLength(0)
+    expect(wrapper.findAll('[data-content-item-id="tag"] .tag-preview__selected-group')).toHaveLength(2)
+    expect(wrapper.findAll('[data-content-item-id="tag"] .rich-answer').map(answer => answer.text())).toEqual(['自定义预览文案', '自定义预览文案'])
     expect(wrapper.find('[data-content-item-id="tag"] .performance-rich-toolbar, [data-content-item-id="tag"] button, [data-content-item-id="tag"] input').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('不应展示的标签描述')
     await wrapper.setProps({ readonlyEmptyAnswerText: '更新后的预览' })
-    expect(wrapper.findAll('.rich-answer').map(answer => answer.text())).toEqual(['更新后的预览'])
+    expect(wrapper.findAll('.rich-answer').map(answer => answer.text())).toEqual(['更新后的预览', '更新后的预览', '更新后的预览'])
   })
 
   it('uses the shared readonly presentation for rating view previews', () => {
@@ -239,8 +239,9 @@ describe('performance content shared primitives', () => {
       itemSettings: { rating: { mode: 'view', required: false } },
     } })
     expect(wrapper.get('.readonly-field-rating .template-field-label').text()).toBe('年度评级')
-    expect(wrapper.get('.readonly-rating-badge').text()).toBe('—')
-    expect(wrapper.get('.readonly-rating-label').text()).toBe('')
+    expect(wrapper.get('.readonly-rating-badge').text()).toBe('A')
+    expect(wrapper.get('.readonly-rating-label').text()).toBe('优秀')
+    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('background-color: rgb(51, 112, 255)')
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
   })
 

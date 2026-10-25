@@ -432,7 +432,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     await apply()
     expect(wrapper.find('[data-content-item-id="tag"] .template-field-label').exists()).toBe(false)
     expect(wrapper.find('[data-content-item-id="tag"] .template-field-description').exists()).toBe(false)
-    expect(wrapper.find('[data-content-item-id="tag"] .tag-preview__selected-group').exists()).toBe(false)
+    expect(wrapper.get('[data-content-item-id="tag"] .tag-preview__selected-group .rich-answer').text()).toBe('这里展示用户填写内容')
     await panel().findAll('input')[2].setValue(true)
     await apply()
     expect(wrapper.find('[data-content-item-id="tag"] .template-field-description').exists()).toBe(false)
@@ -555,6 +555,20 @@ describe('PerformanceConfiguredContentBlock', () => {
     } })
     await wrapper.get('[data-content-item-id="tag"]').trigger('click')
     expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '填写设置', '必填项设置'])
+    wrapper.unmount()
+  })
+
+  it('reuses the shared view renderer for result-communication items', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'custom', items: [{ id: 'tag', label: '标签题', hint: '题目描述', questionType: 'tag', options: [{ id: 'a', label: '标签A' }] }] },
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false },
+      itemSettings: { tag: { mode: 'view', required: false } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'result-communication-root', itemSettingsVariant: 'result-communication-item',
+    } })
+    await wrapper.get('[data-content-item-id="tag"]').trigger('click')
+    expect(wrapper.find('[data-content-item-id="tag"] .readonly-tag-panel').exists()).toBe(true)
+    expect(wrapper.find('[data-content-item-id="tag"] .tag-rich-text-input.is-display-only').exists()).toBe(true)
     wrapper.unmount()
   })
 
