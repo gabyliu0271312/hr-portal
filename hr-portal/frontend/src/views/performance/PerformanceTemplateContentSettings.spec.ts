@@ -499,6 +499,20 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
+  it('does not expose page-name selection in calibration after switching from a fill stage', async () => {
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await wrapper.get('.template-section__heading').trigger('click')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(true)
+    await wrapper.findAll('.stage-card')[4].trigger('click')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(false)
+    expect(wrapper.get('.template-section__heading').attributes('role')).toBeUndefined()
+    await wrapper.get('.template-section__heading').trigger('click')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('updates the selected stage without changing the empty right-panel contract', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
