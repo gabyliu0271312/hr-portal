@@ -5,6 +5,7 @@ import PerformanceExpandButton from '@/components/performance/PerformanceExpandB
 import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue'
 import PerformanceAssessmentContentLayers from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceRatingControl from '@/components/performance/PerformanceRatingControl.vue'
+import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
@@ -740,6 +741,43 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
+  it('persists calibration display settings and rating rule settings through the shared item panel', async () => {
+    const text = { content_id: 'text', content_slot: 'fill', type: 'custom', name: '文本', description: '', items: [{ id: 'text-item', kind: 'fill', questionType: 'text', label: '文本题', hint: '', settings: { mode: 'fill', required: true, hideName: false } }] }
+    const tag = { content_id: 'tag', content_slot: 'fill', type: 'custom', questionType: 'tag', name: '标签', description: '', items: [{ id: 'tag-item', kind: 'fill', questionType: 'tag', label: '标签题', hint: '标签描述', options: [{ id: 'a', label: '协作' }], settings: { mode: 'fill', required: true, hideName: false, hideDescription: false } }] }
+    const rating = { content_id: 'rating', content_slot: 'fill', type: 'rating', name: '评级', description: '', options: [{ id: 'a', label: 'A' }], items: [{ id: 'rating-item', kind: 'rating', label: '评级题', hint: '', settings: { mode: 'fill', required: true, hideName: false, levelRulesEnabled: false } }] }
+    const final = { ...mockNodes[6], include_final_result: true, content: [text, tag, rating] }
+    const calibration = { ...mockNodes[4], content: [] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [final, calibration] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    const blocks = wrapper.findAllComponents(PerformanceConfiguredContentBlock)
+    await blocks[0].get('[data-content-item-id="text-item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
+    expect(wrapper.get('[data-content-item-id="text-item"]').classes()).toContain('content-renderer-item--name-hidden')
+    await blocks[1].get('[data-content-item-id="tag-item"]').trigger('click')
+    const tagCheckboxes = wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')
+    await tagCheckboxes[1].setValue(true)
+    expect(wrapper.find('[data-content-item-id="tag-item"] .template-field-description').exists()).toBe(false)
+    await blocks[2].get('[data-content-item-id="rating-item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
+    wrapper.getComponent(PerformanceSwitch).vm.$emit('update:modelValue', true)
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[1].calibration_settings).toMatchObject({
+      text: { items: { 'text-item': { allowModify: true, hideName: true } } },
+      tag: { items: { 'tag-item': { allowModify: true, hideName: false, hideDescription: true } } },
+      rating: { items: { 'rating-item': { allowModify: true, levelRulesEnabled: true } } },
+    })
+    expect(JSON.stringify(saved)).not.toContain('readonlySurface')
+    expect(saved.nodes[0].content?.[0].items[0].settings).toEqual(text.items[0].settings)
+    expect(saved.nodes[0].content?.[1].items[0].settings).toEqual(tag.items[0].settings)
+    expect(saved.nodes[0].content?.[2].items[0].settings).toEqual(rating.items[0].settings)
+    wrapper.unmount()
+  })
+
   it('exposes page-name selection in calibration after switching from a fill stage', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
@@ -1021,6 +1059,9 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
     expect(wrapper.find('.result-view-section__empty').exists()).toBe(false)
+    await wrapper.get('[data-content-item-id="final-item"]').trigger('click')
+    expect(wrapper.get('.result-view-section__content').classes()).not.toContain('is-selected')
+    expect(wrapper.get('[data-content-item-id="final-item"]').classes()).toContain('is-selected')
   })
 
   it('uses current final content instead of the previously selected view copy', async () => {

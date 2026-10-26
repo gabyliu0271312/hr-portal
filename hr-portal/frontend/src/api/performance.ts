@@ -1146,8 +1146,9 @@ export interface PerformanceTemplateContent {
   options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
 }
 
+export type PerformanceCalibrationItemSettings = { allowModify?: boolean; hideName?: boolean; hideDescription?: boolean; levelRulesEnabled?: boolean }
 export type PerformanceCalibrationSettings = Record<string, {
-  items?: Record<string, { allowModify?: boolean }>
+  items?: Record<string, PerformanceCalibrationItemSettings>
 }>
 
 export interface PerformanceWorkflowNode {

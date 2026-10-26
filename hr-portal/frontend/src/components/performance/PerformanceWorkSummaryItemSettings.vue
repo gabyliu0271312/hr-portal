@@ -44,14 +44,14 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
       <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" :checked-color="checkedColor" @update:model-value="update({ allowView: $event })" />
       <div v-if="modelValue.allowView !== false && (capabilities.hideName || capabilities.hideDescription || capabilities.onlyWhenFilling)" class="work-summary-view-options">
         <PerformanceCheckbox v-if="capabilities.onlyWhenFilling" :model-value="modelValue.onlyWhenFilling === true" label="仅在填写时显示" :checked-color="checkedColor" @update:model-value="update({ onlyWhenFilling: $event })" />
-        <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
-        <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" @update:model-value="update({ hideDescription: $event })" />
+        <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ hideName: $event })" />
+        <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ hideDescription: $event })" />
       </div>
     </fieldset>
     <fieldset v-if="!capabilities.allowView && (capabilities.hideName || capabilities.hideDescription)" class="work-summary-setting-group">
       <legend>显示设置</legend>
-      <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" @update:model-value="update({ hideName: $event })" />
-      <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" @update:model-value="update({ hideDescription: $event })" />
+      <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ hideName: $event })" />
+      <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ hideDescription: $event })" />
     </fieldset>
     <fieldset v-if="!capabilities.allowView && (capabilities.viewResults || capabilities.mode)" class="work-summary-setting-group work-summary-view-setting">
       <legend>填写设置</legend>

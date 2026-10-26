@@ -136,7 +136,7 @@ import ContentSettingsStageRenderer from '@/components/performance/ContentSettin
 import PerformanceContentWorkspace from '@/components/performance/PerformanceContentWorkspace.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
+import { getItemSettingsVariant, resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -394,9 +394,15 @@ function setItemSettingsForContent(contentId: string, settings: Record<string, W
     const items = { ...overrides[contentId]?.items }
     content.items.filter(item => supportsCalibrationItemSettings(content, item)).forEach(item => {
       const current = itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()
-      const allowModify = settings[item.id]?.allowModify !== false
-      items[item.id] = { ...items[item.id], allowModify }
-      itemSettings.value[`${contentId}:${item.id}`] = { ...current, allowModify }
+      const next = { ...current, ...(settings[item.id] || {}) }
+      const allowModify = next.allowModify !== false
+      const override = { ...items[item.id], allowModify }
+      const variant = getItemSettingsVariant(content, item)
+      if (variant === 'custom-text' || variant === 'custom-tag') override.hideName = next.hideName === true
+      if (variant === 'custom-tag') override.hideDescription = next.hideDescription === true
+      if (variant === 'rating') override.levelRulesEnabled = next.levelRulesEnabled === true
+      items[item.id] = override
+      itemSettings.value[`${contentId}:${item.id}`] = next
     })
     node.calibration_settings = { ...overrides, [contentId]: { ...overrides[contentId], items } }
     return
@@ -844,7 +850,7 @@ onMounted(async () => {
 .result-reconsideration-section__body{height:102px;padding:12px 24px;box-sizing:border-box}
 .result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
 .result-view-section{position:relative;width:var(--performance-content-width);max-width:100%;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
-.result-view-section__content{position:relative}
+.result-view-section__content{position:relative;overflow:visible}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}
 .result-view-section__drag{position:absolute;top:0;right:calc(50% - 20px);display:flex;justify-content:center;width:40px;height:24px;color:var(--color-text-secondary)}

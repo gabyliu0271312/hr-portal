@@ -138,10 +138,20 @@ function resolveCalibrationContents(contents, settings = {}) {
   return contents.map((content) => ({
     ...content,
     content_slot: "adjustment",
-    items: content.items.map((item) => supportsCalibrationItemSettings(content, item) ? {
-      ...item,
-      settings: { ...item.settings, allowModify: settings[content.content_id || content.id || `${content.type}-${content.name}`]?.items?.[item.id]?.allowModify !== false }
-    } : item)
+    items: content.items.map((item) => {
+      if (!supportsCalibrationItemSettings(content, item)) return item;
+      const override = settings[content.content_id || content.id || `${content.type}-${content.name}`]?.items?.[item.id];
+      return {
+        ...item,
+        settings: {
+          ...item.settings,
+          ...override?.hideName !== void 0 ? { hideName: override.hideName } : {},
+          ...override?.hideDescription !== void 0 ? { hideDescription: override.hideDescription } : {},
+          ...override?.levelRulesEnabled !== void 0 ? { levelRulesEnabled: override.levelRulesEnabled } : {},
+          allowModify: override?.allowModify !== false
+        }
+      };
+    })
   }));
 }
 export {

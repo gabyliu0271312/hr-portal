@@ -1405,7 +1405,7 @@ async def test_calibration_settings_patch_get_roundtrip_without_copying_final_co
     source = _view_source_content(content_type="work_summary", items=[{"id": "item", "settings": {"mode": "view", "required": False}}])
     original = deepcopy(source)
     final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [source]}
-    overrides = {source["content_id"]: {"items": {"item": {"allowModify": allow_modify}}}}
+    overrides = {source["content_id"]: {"items": {"item": {"allowModify": allow_modify, "hideName": True, "hideDescription": False, "levelRulesEnabled": True}}}}
     calibration = {**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration", "content": [], "calibration_settings": overrides}
     payload = WorkflowUpdate.model_validate({"nodes": [final, calibration]})
     patched = await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)

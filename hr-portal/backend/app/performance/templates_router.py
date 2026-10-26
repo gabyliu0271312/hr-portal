@@ -26,6 +26,9 @@ router = APIRouter(prefix="/performance/templates", tags=["performance-templates
 class CalibrationItemSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     allowModify: bool = Field(default=True, strict=True)
+    hideName: bool | None = Field(default=None, strict=True)
+    hideDescription: bool | None = Field(default=None, strict=True)
+    levelRulesEnabled: bool | None = Field(default=None, strict=True)
 
 
 class CalibrationContentSettings(BaseModel):
