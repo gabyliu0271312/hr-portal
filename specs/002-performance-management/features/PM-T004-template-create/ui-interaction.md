@@ -404,3 +404,11 @@
 - 继承mode为fill且模板未锁定时，“允许修改”可操作；mode为hidden/view时置灰禁用，沿PerformanceCheckbox全局disabled及已有token，与其他禁用选项采用同一灰态体系，不写校准专用颜色。
 - 禁用只限制操作，不清空原allowModify勾选值，不改mode/required；来源恢复fill后恢复可操作，模板锁定仍优先禁用。组件更新入口同样阻止禁用状态的变更事件。
 - 隐藏内容仍按F26显示在校准配置区，但不再允许在hidden/view状态切换“允许修改”；不改终评、结果查看或其他内容类型的配置权限。
+
+
+## 引用提示同行与未允许修改灰底（PM-T004-T05-F28，2026-10-26 用户确认）
+
+- 引用设置标题与信息图标同一行，图标紧随文字，沿原InfoPopover，移除独立图标行；标题字体不变，同行间距4px。
+- 校准工作总结item的allowModify=false时，富文本框（工具栏及内容区）整体使用performance-review-readonly-surface，与“在此环节查看被评估人的填写结果”同底色；仍显示填写题富文本结构、工具栏、hint/richText，不改成readonly结果占位，不改变mode/required或隐藏标识。
+- 仅由内容块派生readonlySurface渲染标识，经既有preview/itemSettings链路传给共享renderer，标识不参与配置保存；其他环节和内容类型不启用该灰底。恢复勾选后按原显示状态恢复底色，view模式沿原查看结构，hidden的F27禁用联动不变。
+- 验证标题/图标实际同行、工具栏与内容区背景等于查看结果token、结构仍不同、切换/保存重开保持及源内容不污染；独立截图和证据见F28。

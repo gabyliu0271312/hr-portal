@@ -35,6 +35,28 @@ describe('performance content shared primitives', () => {
     expect(wrapper.get('.content-renderer-editor__body').html()).toContain('<p>完成项目</p>')
   })
 
+  it.each(['fill', 'hidden'] as const)('uses a readonly surface for %s without replacing the rich-text preview', async mode => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content, interactive: true, itemSettings: { 'item-1': { mode, required: true, readonlySurface: true } },
+    } })
+    const item = wrapper.get('[data-content-item-id="item-1"]')
+    expect(item.classes()).toContain('content-renderer-item--readonly-surface')
+    expect(item.find('.performance-rich-text-box').exists()).toBe(true)
+    expect(item.find('.performance-rich-toolbar').exists()).toBe(true)
+    expect(item.get('.content-renderer-editor__body').html()).toContain('<p>完成项目</p>')
+    expect(item.find('.content-renderer-view-preview').exists()).toBe(false)
+    await item.trigger('click')
+    expect(wrapper.emitted('select-item')).toEqual([['item-1']])
+    await wrapper.setProps({ itemSettings: { 'item-1': { mode, required: true, readonlySurface: false } } })
+    expect(item.classes()).not.toContain('content-renderer-item--readonly-surface')
+    await wrapper.setProps({ itemSettings: { 'item-1': { mode: 'view', required: true, readonlySurface: true } } })
+    expect(item.find('.performance-rich-text-box').exists()).toBe(false)
+    expect(item.find('.performance-rich-toolbar').exists()).toBe(false)
+    expect(item.find('.content-renderer-view-preview').exists()).toBe(true)
+    expect(contentRendererSource).toContain('.content-renderer-item--readonly-surface :deep(.performance-rich-text-box){background:var(--performance-review-readonly-surface)}')
+    wrapper.unmount()
+  })
+
   it('uses the configured item hint when its rich-text content is empty', () => {
     const wrapper = mount(PerformanceContentRenderer, { props: { content: { ...content, items: [{ id: 'item-1', label: '本周工作', hint: '请说明本周工作成果', richText: '' }] } } })
     expect(wrapper.get('.content-renderer-editor__body').text()).toBe('请说明本周工作成果')

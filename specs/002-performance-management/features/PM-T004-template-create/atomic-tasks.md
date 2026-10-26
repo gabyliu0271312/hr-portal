@@ -486,3 +486,17 @@
   - Validation boundaries: 未实连生产或数据库，本轮无API/后端改动、后端测试未重跑，无迁移、部署、commit/push；仅勾F27，不勾T05整体。
   - Non-scope: 不部署、不commit/push，不新增脚本或测试文档；保留F26未提交变更。
   - Definition of done: 测试、构建、真实前端夹具验证和独立截图证据齐备后勾选，仅完成本局部任务。
+
+
+- [x] PM-T004-T05-F28 引用提示同行与禁止修改富文本灰底（2026-10-26）
+  - Goal/confirmation: 用户确认信息图标紧随“引用设置”文字同行；校准未勾选允许修改时富文本模块整体灰底，共用查看结果背景token但保留填写题工具栏/输入框结构，不改成结果查看展示。
+  - Reading/UI: 沿Spec002/012已读UI规则及T05/F24-F27确认面板，现有局部样式/状态调整，不新增完整蓝图。复用InfoPopover、配置内容块/preview/ContentRenderer及performance-review-readonly-surface。
+  - Allowed modifications: components/performance/{PerformanceWorkSummaryItemSettings.vue,PerformanceConfiguredContentBlock.vue及同名spec,PerformanceAssessmentConfiguredPreview.vue,PerformanceContentRenderer.vue及同名spec}、views/performance/PerformanceTemplateContentSettings.spec.ts、本任务/交互文件；独立PNG ui-blueprints/PM-T004-T05-F28-implemented-calibration-readonly-surface.png。
+  - Contract: 内容块将校准工作总结allowModify=false派生为仅渲染用readonlySurface标识，沿既有itemSettings传入共享renderer；不写入源item/settings/API。renderer只处理表面样式，不依赖校准业务字段，其他环节不派生标识。
+  - UI/side-effect boundary: 引用标题14px/600/22px保持，图标同行间距4px；灰底覆盖富文本工具栏及内容区，标题/必填/隐藏状态/选中框和hint/richText保留；mode=view继续原结果查看结构。勾回允许修改恢复原底色，hidden未勾选同样灰底；不改变mode、required、F27禁用联动。
+  - Given/When/Then: Given校准允许修改真假及fill/hidden/view；When选择/切换勾选/Tab/保存重开；Then整框背景等于查看结果token，未允许修改仍是富文本填写结构且有工具栏，其他环节/类型不变，渲染标识不进入保存载荷。
+  - Tests/evidence: focused组件/renderer/页面149/149通过；最终`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/PerformanceTemplateWorkflowSettings.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts`：6文件217/217通过；`npm --prefix hr-portal/frontend run build`完整vue-tsc及vite构建通过（既有VueUse PURE注释提示），`git diff --check`通过。
+  - UI evidence: 本地实际应用路由+Chromium内存接口夹具确认引用文字/图标中心均y=169、横向间距4px；未允许修改的富文本框、工具栏和内容区有效背景均rgb(245,246,247)，等于查看结果背景和performance-review-readonly-surface=#f5f6f7；填写结构仍有工具栏/边框/富文本，view无工具栏。hidden未允许修改同样灰底，勾回恢复白底；保存重开正确，源内容不变且payload无readonlySurface；无pageerror。独立F28 PNG已查看，不覆盖既有截图。
+  - Validation boundaries: 未实连生产/数据库，本轮未改API/后端，后端测试未重跑；无迁移、部署、commit/push。仅勾F28，不勾T05整体。
+  - Non-scope: 不改API/后端/数据库、其他三块配置权限、员工运行时答案、生产/部署、commit/push；不新增脚本或测试文档。
+  - Definition of done: 回归、构建、实际UI和独立截图证据齐备后勾选，仅完成本局部任务。

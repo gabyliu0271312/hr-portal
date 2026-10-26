@@ -94,8 +94,9 @@ const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; que
   && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationItemSettings(props.content, item))
   && (props.itemSettingsVariant !== 'result-view-item' || supportsResultViewSettings(props.content, item))
 const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value)))
-const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => item.kind !== 'prompt' && (isCalibration.value || itemSettingsAvailable(item))).map((item) => {
+const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings & { readonlySurface?: boolean }>>(() => Object.fromEntries(props.content.items.filter(item => item.kind !== 'prompt' && (isCalibration.value || itemSettingsAvailable(item))).map((item) => {
   const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
+  if (isCalibration.value) return [item.id, { ...settings, readonlySurface: supportsCalibrationItemSettings(props.content, item) && settings.allowModify === false }]
   return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: 'view', required: false } : settings]
 })))
 

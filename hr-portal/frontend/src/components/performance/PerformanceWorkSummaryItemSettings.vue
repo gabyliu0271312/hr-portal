@@ -54,7 +54,7 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
     </fieldset>
     <fieldset v-if="!capabilities.allowView && (capabilities.viewResults || capabilities.mode)" class="work-summary-setting-group work-summary-view-setting">
       <legend>填写设置</legend>
-      <div v-if="capabilities.modeDisabled" class="work-summary-inherited-setting"><div class="work-summary-inherited-setting-title">引用设置</div><div class="work-summary-inherited-setting-help"><PerformanceInfoPopover content="以下配置为在上级评估环节中的对应设置，不可修改" :width="272" /></div></div>
+      <div v-if="capabilities.modeDisabled" class="work-summary-inherited-setting"><div class="work-summary-inherited-setting-title"><span>引用设置</span><PerformanceInfoPopover content="以下配置为在上级评估环节中的对应设置，不可修改" :width="272" /></div></div>
       <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" :disabled="disabled || capabilities.modeDisabled" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
       <PerformanceCheckbox v-if="capabilities.allowModify" class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="allowModifyDisabled" @update:model-value="update({ allowModify: $event })" />
     </fieldset>
@@ -69,7 +69,7 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 <style scoped>
 .work-summary-item-settings{display:flex;flex-direction:column;color:var(--color-text-primary);font:400 var(--font-size-md)/22px var(--font-sans)}.work-summary-setting-group{display:flex;flex-direction:column;width:272px;margin:0;padding:0;border:0}.work-summary-setting-group+ .work-summary-setting-group{margin-top:24px}.work-summary-setting-group legend,.work-summary-inherited-setting-title{width:272px;height:22px;margin:0 0 8px;padding:0;color:var(--color-text-primary);font-size:var(--font-size-md);font-weight:600;line-height:22px}.work-summary-setting-group :deep(.performance-radio-group){display:flex;flex-direction:column;align-items:flex-start;gap:8px!important}.work-summary-setting-group :deep(.performance-checkbox){width:auto}.work-summary-setting-group :deep(.performance-checkbox + .performance-checkbox){margin-top:8px}
 .work-summary-view-options{display:flex;flex-direction:column;width:100%;margin-top:var(--spacing-2);padding:var(--spacing-4);box-sizing:border-box;background:var(--performance-review-readonly-surface);border-radius:6px}
-.work-summary-inherited-setting-help{height:16px;margin-bottom:12px}
+.work-summary-inherited-setting-title{display:flex;align-items:center;gap:4px}
 .work-summary-allow-modify-setting{margin-top:8px}
 .work-summary-level-rules{margin-top:var(--spacing-6)}
 </style>

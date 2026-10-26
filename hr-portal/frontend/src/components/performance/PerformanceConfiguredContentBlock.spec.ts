@@ -110,6 +110,8 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
     await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
     expect(wrapper.get('.work-summary-inherited-setting-title').text()).toBe('引用设置')
+    expect(wrapper.get('.work-summary-inherited-setting-title').findComponent(PerformanceInfoPopover).exists()).toBe(true)
+    expect(wrapper.find('.work-summary-inherited-setting-help').exists()).toBe(false)
     expect(wrapper.getComponent(PerformanceInfoPopover).props('content')).toBe('以下配置为在上级评估环节中的对应设置，不可修改')
     const radios = wrapper.findAll('.content-settings-detail input[type="radio"]')
     expect(radios).toHaveLength(3)
@@ -177,6 +179,25 @@ describe('PerformanceConfiguredContentBlock', () => {
       await wrapper.get('.configured-content-card__add-item').trigger('click')
       expect(wrapper.emitted('update:content')).toBeUndefined()
     }
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['calibration-item', 'work_summary', true],
+    ['evaluation-item', 'work_summary', false],
+    ['calibration-item', 'custom', false],
+  ] as const)('derives the readonly surface only for %s/%s', async (variant, type, muted) => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type }, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, rootSettingsEnabled: false, itemSettingsEnabled: true,
+      rootSettingsVariant: 'generic-root', itemSettingsVariant: variant,
+      itemSettings: { 'item-1': { mode: 'fill', required: true, allowModify: false } },
+    } })
+    expect(wrapper.get('[data-content-item-id="item-1"]').classes('content-renderer-item--readonly-surface')).toBe(muted)
+    expect(wrapper.find('.performance-rich-toolbar').exists()).toBe(true)
+    expect(wrapper.find('.content-renderer-view-preview').exists()).toBe(false)
+    await wrapper.setProps({ itemSettings: { 'item-1': { mode: 'fill', required: true, allowModify: true } } })
+    expect(wrapper.get('[data-content-item-id="item-1"]').classes('content-renderer-item--readonly-surface')).toBe(false)
     wrapper.unmount()
   })
 

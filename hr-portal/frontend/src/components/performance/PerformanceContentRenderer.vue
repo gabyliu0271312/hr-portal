@@ -14,6 +14,7 @@
           'content-renderer-item--custom-tag': isCustomTagItem(item),
           'content-renderer-item--hidden': isHiddenItem(item.id),
           'content-renderer-item--unavailable': isUnavailableItem(item.id),
+          'content-renderer-item--readonly-surface': itemState(item.id).readonlySurface === true,
           'content-renderer-item--view': hasItemSettings(item.id) && itemState(item.id).mode === 'view',
           'content-renderer-item--name-hidden': isCustomTextItem(item) && itemState(item.id).hideName === true,
           'content-renderer-rating--name-hidden': isRatingItem(item) && itemState(item.id).hideName === true,
@@ -63,7 +64,7 @@ import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import type { PerformancePromptValue as PromptValue, PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
 type ContentItem = { id: string; label: string; hint?: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PromptValue; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; defaultAll?: boolean }
 type Content = { type: 'work_summary' | 'rating' | 'custom' | 'prompt'; prompt?: PromptValue; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
-type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean }
+type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean; readonlySurface?: boolean }
 
 const props = withDefaults(defineProps<{
   content: Content
@@ -130,5 +131,6 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--name-hidden :deep(.performance-assessment-rich-text-field__label){display:none}
 .content-renderer-item--hidden :deep(.performance-rich-text-box){border-color:#dee0e3;background:#fff;pointer-events:none}
 .content-renderer-item--hidden :deep(.performance-rich-toolbar){color:#bbbfc4}
+.content-renderer-item--readonly-surface :deep(.performance-rich-text-box){background:var(--performance-review-readonly-surface)}
 .content-renderer-editor__body{min-height:90px;padding:6px 10px;color:#646a73;font-size:14px;line-height:22px;white-space:pre-wrap}
 </style>

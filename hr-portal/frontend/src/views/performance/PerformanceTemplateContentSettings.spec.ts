@@ -516,11 +516,14 @@ describe('PerformanceTemplateContentSettings', () => {
     expect((selected.element as HTMLInputElement).value).toBe(mode)
     expect(wrapper.find('.work-summary-required-setting').exists()).toBe(mode === 'fill')
     if (mode === 'fill') expect((wrapper.get('.work-summary-required-setting input').element as HTMLInputElement).checked).toBe(required)
+    if (mode !== 'view') expect(wrapper.get('[data-content-item-id="target"]').classes()).toContain('content-renderer-item--readonly-surface')
     expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(mode !== 'fill')
     expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(false)
     await wrapper.get('.work-summary-allow-modify-setting input').setValue(true)
     await (wrapper.vm as any).save()
     const saved = update.mock.calls.at(-1)![1]
+    expect(JSON.stringify(saved)).not.toContain('readonlySurface')
+    if (mode === 'fill') expect(wrapper.get('[data-content-item-id="target"]').classes()).not.toContain('content-renderer-item--readonly-surface')
     expect(saved.nodes[0].content).toEqual([source])
     expect(saved.nodes[1].content).toEqual([])
     expect(saved.nodes[1].calibration_settings).toEqual(mode === 'fill'
