@@ -1,5 +1,9 @@
 # HR Portal 项目级规则
 
+## 021开发入口
+
+涉及报表权限整合、D/S、新执行器退役或021主数据A/B任务，须先读 [021 README](../specs/021-standard-field-permission-governance/README.md) → [spec](../specs/021-standard-field-permission-governance/spec.md) → [当前MVP卡](../specs/021-standard-field-permission-governance/mvp-tasks.md)，按仓库 [CLAUDE.md](../CLAUDE.md) 的单卡启动/验收协议执行。021范围过滤以现行规格和实际代码为准，不按下文早期“Phase 4之前不做过滤”描述关闭保护；原报表能力保留，增强直接整合，不长期双引擎。
+
 ## 强制 SOP：新增菜单页面（三级菜单结构）
 
 > **菜单层级**：tab（一级，顶部）→ group（二级，左侧分组）→ leaf（三级，左侧叶子，对应实际页面）。
