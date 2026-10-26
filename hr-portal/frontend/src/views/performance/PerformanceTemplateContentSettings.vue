@@ -33,14 +33,14 @@
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <PerformanceContentWorkspace v-if="selectedStageData" class="content-pane">
-        <section v-if="isResultView" class="result-view-section" aria-label="绩效结果">
-          <PerformanceContentSelectionFrame variant="root" :selected="pageHeadingSelected" class="result-view-section__content" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
+        <template v-if="isResultView">
+          <PerformanceContentSelectionFrame variant="root" :selected="pageHeadingSelected" class="result-view-section result-view-section__content" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
             <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
             <h2>{{ contentPageName }}</h2>
             <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
           </PerformanceContentSelectionFrame>
-          <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
-        </section>
+        <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
+        </template>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <template v-else-if="isResultReconsiderationFill">
           <PerformanceTemplateSectionCard :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="[]" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" />
@@ -845,8 +845,6 @@ onMounted(async () => {
 .result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
 .result-view-section{position:relative;width:var(--performance-content-width);max-width:100%;overflow:hidden;border-radius:var(--radius-sm);background:var(--color-bg-card)}
 .result-view-section__content{position:relative}
-.result-view-section__content::after{position:absolute;inset:0;border:var(--performance-content-hover-outline);border-radius:var(--radius-sm);box-sizing:border-box;outline-offset:var(--performance-content-hover-outline-offset);opacity:0;pointer-events:none;content:''}
-.result-view-section__content:hover::after{opacity:1}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}
 .result-view-section__drag{position:absolute;top:0;right:calc(50% - 20px);display:flex;justify-content:center;width:40px;height:24px;color:var(--color-text-secondary)}

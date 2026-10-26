@@ -1002,7 +1002,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('.result-view-section__content').classes()).toContain('is-selected')
     expect(wrapper.get('.page-name-settings').text()).toContain('页面名称')
     expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('绩效结果')
-    await wrapper.get('.result-view-section .template-operate__button').trigger('click')
+    await wrapper.get('.template-operate__button').trigger('click')
     await flushPromises()
     const layer = wrapper.getComponent(PerformanceAssessmentContentLayers)
     expect(layer.props('open')).toBe(true)
