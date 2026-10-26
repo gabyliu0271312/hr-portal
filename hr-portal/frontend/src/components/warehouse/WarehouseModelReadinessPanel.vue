@@ -2,10 +2,10 @@
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
+import WarehouseAuthorizationContractForm from './WarehouseAuthorizationContractForm.vue'
 import {
   approveAuthorizationContract,
   approveConversion,
-  createAuthorizationContract,
   getAuthorizationExecutionReadiness,
   getConversionReadiness,
   getModel,
@@ -18,6 +18,7 @@ import {
   type DatasetReleaseReadiness,
   type ModelStandardFieldBinding,
   type ProductAuthorizationContract,
+  type ModelTable,
 } from '@/api/warehouse'
 
 const props = defineProps<{ modelId: number; modelVersion: number; modelName: string }>()
@@ -33,9 +34,7 @@ const authorization = ref<AuthorizationExecutionReadiness | null>(null)
 const contracts = ref<ProductAuthorizationContract[]>([])
 const modelOutputFields = ref<Array<{ output_code: string; agg_role: string; is_sensitive: boolean }>>([])
 const standardFields = ref<ModelStandardFieldBinding[]>([])
-const useStandardContract = ref(true)
-const contractForm = ref({ alias: 'current', tableName: '', factKey: '', employeeKey: '', costCenterKey: '', role: 'allocation_fact', allowEmployeeCount: false })
-const createContractSaving = ref(false)
+const modelTables = ref<ModelTable[]>([])
 const conversionReason = ref('')
 const contractReason = ref('')
 const conversionApproving = ref(false)
@@ -61,7 +60,7 @@ async function load() {
     contracts.value = contractResult
     standardFields.value = standardFieldResult
     modelOutputFields.value = model.output_fields.map(field => ({ output_code: field.output_code, agg_role: field.agg_role, is_sensitive: field.is_sensitive }))
-    if (!contractForm.value.tableName && model.tables.length === 1) contractForm.value.tableName = model.tables[0].table_name
+    modelTables.value = model.tables
   } catch (cause: any) {
     error.value = cause?.response?.status === 403 ? '无权查看模型准入状态。' : detail(cause, '模型准入状态加载失败，请重试。')
   } finally {
@@ -84,35 +83,6 @@ async function release(): Promise<boolean> {
     releaseMessage.value = detail(cause, '发布未完成；请重新检查阻断原因。')
     return false
   } finally { releasing.value = false }
-}
-async function createContract() {
-  const form = contractForm.value
-  if (!form.tableName.trim() || !form.factKey.trim() || !form.employeeKey.trim() || createContractSaving.value) return
-  createContractSaving.value = true
-  try {
-    const latestContractVersion = contracts.value.reduce((max, item) => Math.max(max, item.contract_version), 0)
-    const visible = modelOutputFields.value.filter(field => !field.is_sensitive)
-    const fact = { alias: form.alias, table_name: form.tableName.trim(), fact_key: form.factKey.trim(), employee_key: form.employeeKey.trim(), cost_center_key: form.costCenterKey.trim() || null, allow_cost_center_summary: Boolean(form.costCenterKey.trim()), allow_employee_count: Boolean(form.allowEmployeeCount), missing_assignment: 'reject', role: form.role }
-    if (useStandardContract.value) {
-      await createAuthorizationContract(props.modelId, {
-        schema_version: 3,
-        expected_version: latestContractVersion,
-        facts: [fact],
-      })
-      ElMessage.success('schema3事实与路径合同草稿已创建')
-    } else {
-      const outputs = visible.map(field => field.output_code)
-      const dimensions = visible.filter(field => field.agg_role !== 'measure').map(field => field.output_code)
-      const measures = visible.filter(field => field.agg_role === 'measure').map(field => field.output_code)
-      await createAuthorizationContract(props.modelId, {
-        expected_version: latestContractVersion, facts: [fact],
-        output_fields: outputs.length ? outputs : ['__none__'], dimensions, measures, internal_fields: [],
-      })
-      ElMessage.success('授权合同草稿已创建')
-    }
-    await load()
-  } catch (cause: any) { ElMessage.error(detail(cause, '授权合同创建失败，请核对模型来源与输出字段。')) }
-  finally { createContractSaving.value = false }
 }
 async function approveConversionAction() {
   if (!conversion.value?.run_id || !conversion.value.contract_id || !conversionReason.value.trim() || conversionApproving.value) return
@@ -173,18 +143,7 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
       <section class="readiness-section"><strong>转换批准</strong><div v-if="conversion && !conversion.eligible" class="reason-form"><el-input v-model="conversionReason" placeholder="批准原因（必填）" maxlength="1000" /><PermissionButton menu="warehouse.assets" op="U" size="small" :disabled="conversionApproving || !conversionReason.trim() || !conversion.run_id || !conversion.contract_id" @click="approveConversionAction">批准转换</PermissionButton></div></section>
       <section class="readiness-section">
         <strong>授权合同状态</strong>
-        <div class="reason-form">
-          <el-switch v-model="useStandardContract" active-text="schema3标准字段合同" />
-          <span class="readiness-panel__note">{{ useStandardContract ? '合同只声明事实与路径；字段面、D/S和筛选能力由数据集输出与标准字段语义推导。' : '旧合同模式：字段填写物理/输出编码。' }}</span>
-        </div>
-        <div class="reason-form">
-          <el-input v-model="contractForm.tableName" placeholder="事实表名" maxlength="64" />
-          <el-input v-model="contractForm.factKey" placeholder="事实主键（物理）" maxlength="128" />
-          <el-input v-model="contractForm.employeeKey" :placeholder="useStandardContract ? '人员锚点（标准字段编码）' : '人员键'" maxlength="128" />
-          <el-input v-model="contractForm.costCenterKey" :placeholder="useStandardContract ? '中心锚点（物理字段编码，可选）' : '中心键（可选）'" maxlength="128" />
-          <el-checkbox v-if="useStandardContract" v-model="contractForm.allowEmployeeCount">批准人数指标（COUNT DISTINCT 人员键）</el-checkbox>
-          <PermissionButton menu="warehouse.assets" op="U" size="small" :disabled="createContractSaving || !contractForm.tableName.trim() || !contractForm.factKey.trim() || !contractForm.employeeKey.trim()" @click="createContract">创建合同草稿</PermissionButton>
-        </div>
+        <WarehouseAuthorizationContractForm :model-id="modelId" :tables="modelTables" :outputs="modelOutputFields" :latest-version="contracts.reduce((max, item) => Math.max(max, item.contract_version), 0)" @created="load" />
         <el-empty v-if="!contracts.length" description="暂无授权合同" :image-size="48" />
         <div v-for="contract in contracts" :key="contract.id" class="contract-row">
           <span>合同 v{{ contract.contract_version }}</span>

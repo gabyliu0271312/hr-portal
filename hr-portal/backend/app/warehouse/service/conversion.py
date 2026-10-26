@@ -149,6 +149,65 @@ def model_fingerprint(dataset, tables, relations, outputs, contract, run):
     })
 
 
+async def _evaluate_target(db, target_table, outputs, context, expected_run_id=None):
+    def issue(code, message):
+        context["issues"].append({"code": code, "message": message})
+    run = await db.scalar(select(WarehouseConversionRun).where(
+        WarehouseConversionRun.target_table == target_table,
+    ).order_by(WarehouseConversionRun.id.desc()).limit(1))
+    if run is None:
+        issue("conversion_run_missing", "没有成功的服务端转换证据")
+        return None
+    if expected_run_id is not None and run.id != expected_run_id:
+        issue("conversion_run_mismatch", "指定运行不是当前最新成功运行")
+    evidence = run.evidence if isinstance(run.evidence, dict) else {}
+    if (evidence.get("status") != "success" or evidence.get("version") != 1
+            or evidence.get("kind") != "same_name_full_refresh"
+            or not isinstance(evidence.get("projection"), list)
+            or any(output.source_column not in evidence["projection"] for output in outputs)):
+        issue("conversion_evidence_invalid", "转换证据或批准投影无效")
+        return run
+    latest_lineage = await db.scalar(select(WarehouseLineageEdge).where(
+        WarehouseLineageEdge.target_asset == target_table,
+    ).order_by(WarehouseLineageEdge.id.desc()).limit(1))
+    if (latest_lineage is None or latest_lineage.id != run.lineage_id or latest_lineage.run_id != run.id
+            or latest_lineage.source_asset != run.source_table or latest_lineage.operation != "standardize"):
+        issue("conversion_lineage_stale", "目标已重新加工，须重新生成和批准证据")
+    for table, layer in ((run.source_table, "ODS"), (run.target_table, "DWD")):
+        registered = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table))
+        if registered is None or registered.warehouse_layer != layer:
+            issue("conversion_layer_invalid", "转换来源或目标分层已变化")
+    source_schema = await schema_fingerprint(db, run.source_table)
+    target_schema = await schema_fingerprint(db, run.target_table)
+    if not source_schema or source_schema != evidence.get("source_schema_fingerprint"):
+        issue("conversion_source_schema_drift", "转换来源结构或身份已漂移")
+    if not target_schema or target_schema != evidence.get("target_schema_fingerprint"):
+        issue("conversion_target_schema_drift", "转换目标结构或身份已漂移")
+    if context["issues"]:
+        return run
+    await db.execute(text(f"LOCK TABLE {_quote_ident(run.source_table)}, {_quote_ident(run.target_table)} IN SHARE MODE"))
+    latest_run_id = await db.scalar(select(WarehouseConversionRun.id).where(
+        WarehouseConversionRun.target_table == target_table,
+    ).order_by(WarehouseConversionRun.id.desc()).limit(1))
+    latest_lineage_id = await db.scalar(select(WarehouseLineageEdge.id).where(
+        WarehouseLineageEdge.target_asset == target_table,
+    ).order_by(WarehouseLineageEdge.id.desc()).limit(1))
+    if latest_run_id != run.id or latest_lineage_id != run.lineage_id:
+        issue("conversion_run_mismatch", "目标已重新加工，请重新检查最新证据")
+    if (await schema_fingerprint(db, run.source_table) != source_schema
+            or await schema_fingerprint(db, run.target_table) != target_schema):
+        issue("conversion_schema_changed", "转换结构在校验期间发生变化")
+    source_digest, source_count = await _data_fingerprint(db, run.source_table)
+    target_digest, target_count = await _data_fingerprint(db, run.target_table)
+    if source_digest != evidence.get("source_data_fingerprint") or source_count != evidence.get("input_rows"):
+        issue("conversion_source_data_drift", "来源数据已变化，须重新转换")
+    if target_digest != evidence.get("target_data_fingerprint") or target_count != evidence.get("output_rows"):
+        issue("conversion_target_data_drift", "目标数据已变化，须重新转换")
+    if await _rule_fingerprint(db, run.source_table) != evidence.get("rules_fingerprint"):
+        issue("conversion_rules_drift", "转换规则已变化，须重新转换")
+    return run
+
+
 async def _evaluate(db, dataset_id, user=None, expected_run_id=None, expected_contract_id=None):
     from app.datasets.router import _can_access
     dataset = await db.get(DataSet, dataset_id)
@@ -167,8 +226,8 @@ async def _evaluate(db, dataset_id, user=None, expected_run_id=None, expected_co
     relations = (await db.execute(select(DataSetRelation).where(DataSetRelation.dataset_id == dataset_id))).scalars().all()
     calculated = await db.scalar(select(DatasetCalculatedField.id).where(DatasetCalculatedField.dataset_id == dataset_id).limit(1))
     outputs = (await db.execute(select(DatasetOutputField).where(DatasetOutputField.dataset_id == dataset_id))).scalars().all()
-    if len(tables) != 1 or relations or calculated or not outputs:
-        issue("conversion_scope_not_supported", "转换批准仅支持有业务输出、无关联或计算字段的单表数据集")
+    if len(tables) not in {1, 2} or calculated or not outputs or (len(tables) == 1 and relations):
+        issue("conversion_scope_not_supported", "转换批准仅支持有业务输出的受控单事实或双事实数据集")
         return context
     contracts = (await db.execute(select(DataProductAuthorizationContract).where(
         DataProductAuthorizationContract.dataset_id == dataset_id, DataProductAuthorizationContract.status == "active",
@@ -190,68 +249,33 @@ async def _evaluate(db, dataset_id, user=None, expected_run_id=None, expected_co
         # schema 3 以数据集输出为可输出面，不再要求合同逐项覆盖
         covers_outputs = ((set(definition.output_fields) | set(definition.detail_output_fields))
                           == {output.output_code for output in outputs})
-    if (len(definition.facts) != 1 or definition.facts[0].role not in {"person_fact", "allocation_fact"}
-            or definition.facts[0].table_name != tables[0].table_name or definition.facts[0].alias != tables[0].alias
+    if len(tables) == 2:
+        from app.datasets.multifact_execution import validate_multifact_shape
+        from app.datasets.authorization_contract import _snapshot, _validate_relation_cardinality_constraints
+        shape_issues = validate_multifact_shape(definition, _snapshot(tables, relations, outputs))
+        context["issues"].extend(shape_issues)
+        if not shape_issues:
+            context["issues"].extend(await _validate_relation_cardinality_constraints(db, tables, relations))
+    if ({(fact.alias, fact.table_name) for fact in definition.facts}
+            != {(table.alias, table.table_name) for table in tables}
+            or any(fact.role not in {"person_fact", "allocation_fact"} for fact in definition.facts)
             or not covers_outputs
             or contract.approved_by is None or contract.approved_at is None or not (contract.approval_reason or "").strip()):
         issue("authorization_contract_invalid", "事实、输出白名单或批准信息不完整")
     if expected_contract_id is not None and contract.id != expected_contract_id:
         issue("authorization_contract_mismatch", "授权合同版本已变化")
-    target_table = tables[0].table_name
-    run = context["run"] = await db.scalar(select(WarehouseConversionRun).where(
-        WarehouseConversionRun.target_table == target_table,
-    ).order_by(WarehouseConversionRun.id.desc()).limit(1))
-    if run is None:
-        issue("conversion_run_missing", "没有成功的服务端转换证据")
-        return context
-    if expected_run_id is not None and run.id != expected_run_id:
-        issue("conversion_run_mismatch", "指定运行不是当前最新成功运行")
-    evidence = run.evidence if isinstance(run.evidence, dict) else {}
-    if (evidence.get("status") != "success" or evidence.get("version") != 1
-            or evidence.get("kind") != "same_name_full_refresh"
-            or not isinstance(evidence.get("projection"), list)
-            or any(output.source_column not in evidence["projection"] for output in outputs)):
-        issue("conversion_evidence_invalid", "转换证据或批准投影无效")
-        return context
-    latest_lineage = await db.scalar(select(WarehouseLineageEdge).where(
-        WarehouseLineageEdge.target_asset == target_table,
-    ).order_by(WarehouseLineageEdge.id.desc()).limit(1))
-    if (latest_lineage is None or latest_lineage.id != run.lineage_id or latest_lineage.run_id != run.id
-            or latest_lineage.source_asset != run.source_table or latest_lineage.operation != "standardize"):
-        issue("conversion_lineage_stale", "目标已重新加工，须重新生成和批准证据")
-    for table, layer in ((run.source_table, "ODS"), (run.target_table, "DWD")):
-        registered = await db.scalar(select(RegisteredTable).where(RegisteredTable.table_name == table))
-        if registered is None or registered.warehouse_layer != layer:
-            issue("conversion_layer_invalid", "转换来源或目标分层已变化")
-    source_schema = await schema_fingerprint(db, run.source_table)
-    target_schema = await schema_fingerprint(db, run.target_table)
-    if not source_schema or source_schema != evidence.get("source_schema_fingerprint"):
-        issue("conversion_source_schema_drift", "转换来源结构或身份已漂移")
-    if not target_schema or target_schema != evidence.get("target_schema_fingerprint"):
-        issue("conversion_target_schema_drift", "转换目标结构或身份已漂移")
-    if context["issues"]:
-        return context
-    await db.execute(text(f"LOCK TABLE {_quote_ident(run.source_table)}, {_quote_ident(run.target_table)} IN SHARE MODE"))
-    latest_run_id = await db.scalar(select(WarehouseConversionRun.id).where(
-        WarehouseConversionRun.target_table == target_table,
-    ).order_by(WarehouseConversionRun.id.desc()).limit(1))
-    latest_lineage_id = await db.scalar(select(WarehouseLineageEdge.id).where(
-        WarehouseLineageEdge.target_asset == target_table,
-    ).order_by(WarehouseLineageEdge.id.desc()).limit(1))
-    if latest_run_id != run.id or latest_lineage_id != run.lineage_id:
-        issue("conversion_run_mismatch", "目标已重新加工，请重新检查最新证据")
-    if (await schema_fingerprint(db, run.source_table) != source_schema
-            or await schema_fingerprint(db, run.target_table) != target_schema):
-        issue("conversion_schema_changed", "转换结构在校验期间发生变化")
-    source_digest, source_count = await _data_fingerprint(db, run.source_table)
-    target_digest, target_count = await _data_fingerprint(db, run.target_table)
-    if source_digest != evidence.get("source_data_fingerprint") or source_count != evidence.get("input_rows"):
-        issue("conversion_source_data_drift", "来源数据已变化，须重新转换")
-    if target_digest != evidence.get("target_data_fingerprint") or target_count != evidence.get("output_rows"):
-        issue("conversion_target_data_drift", "目标数据已变化，须重新转换")
-    if await _rule_fingerprint(db, run.source_table) != evidence.get("rules_fingerprint"):
-        issue("conversion_rules_drift", "转换规则已变化，须重新转换")
-    context["fingerprint"] = model_fingerprint(dataset, tables, relations, outputs, contract, run)
+    runs = []
+    for index, table in enumerate(sorted(tables, key=lambda table: table.id)):
+        run = await _evaluate_target(db, table.table_name,
+            [output for output in outputs if output.source_alias == table.alias], context,
+            expected_run_id if index == 0 else None)
+        if run is not None:
+            runs.append(run)
+    context["run"] = runs[0] if runs else None
+    if len(runs) == len(tables):
+        fingerprint = model_fingerprint(dataset, tables, relations, outputs, contract, runs[0])
+        context["fingerprint"] = (fingerprint if len(runs) == 1 else _fingerprint({
+            "model": fingerprint, "runs": [{"id": run.id, "evidence": run.evidence} for run in runs]}))
     return context
 
 

@@ -114,13 +114,23 @@ def validate_allocation_fact_s_execution(contract, request):
     if bound_request.contract_version != bound_contract.contract_version:
         issues.append(_s_issue("execution_contract_version_mismatch", "执行计划未绑定当前授权合同版本"))
     definition = bound_contract.definition
+    if len(definition.facts) > 1 and definition.schema_version == 3:
+        from app.datasets.multifact_execution import validate_multifact_plan
+        issues.extend(validate_multifact_plan(definition, bound_contract.model_snapshot, bound_request.plan))
+        return SExecutionValidationOut(
+            dataset_id=bound_request.dataset_id, contract_id=bound_request.contract_id,
+            contract_version=bound_request.contract_version, shape="blocked" if issues else "summary",
+            summary_path="not_allowed" if issues else "person_or_cost_center_scope", eligible=not issues,
+            output_fields=list(bound_request.plan.output_fields), group_by=list(bound_request.plan.group_by),
+            aggregations=dict(bound_request.plan.aggregations), issues=issues)
     if len(definition.facts) != 1:
         issues.append(_s_issue("s_execution_requires_one_fact", "S执行切片只允许一个事实来源"))
     else:
         fact = definition.facts[0]
-        if fact.role != "allocation_fact":
-            issues.append(_s_issue("s_execution_allocation_fact_required", "S执行切片只允许allocation_fact"))
-        if not fact.allow_cost_center_summary or not fact.cost_center_key:
+        person_summary = definition.schema_version == 3 and fact.role == "person_fact" and not fact.allow_cost_center_summary and not fact.cost_center_key
+        if fact.role != "allocation_fact" and not person_summary:
+            issues.append(_s_issue("s_execution_allocation_fact_required", "S执行要求获准人员或分摊事实"))
+        if not person_summary and (not fact.allow_cost_center_summary or not fact.cost_center_key):
             issues.append(_s_issue("s_execution_cost_center_path_required", "S执行切片必须声明获准成本中心汇总路径"))
         if not fact.employee_key:
             issues.append(_s_issue("s_execution_employee_key_required", "allocation_fact必须声明人员键"))
@@ -159,7 +169,7 @@ def validate_allocation_fact_s_execution(contract, request):
         if definition.schema_version == 3:
             # schema 3 不声明内部字段白名单；锚点由合同事实声明并在建/批时核对物理列与类型
             bound_keys |= {fact.fact_key, fact.employee_key, fact.cost_center_key} - {None}
-        if not {fact.fact_key, fact.employee_key, fact.cost_center_key} <= bound_keys:
+        if not {key for key in (fact.fact_key, fact.employee_key, fact.cost_center_key) if key} <= bound_keys:
             issues.append(_s_issue("s_execution_anchor_unbound", "S执行授权锚点未绑定批准事实"))
         identifying = {code for code, item in output_by_code.items()
                        if item["source_column"] in {fact.employee_key, fact.fact_key}}
@@ -287,13 +297,18 @@ async def compile_allocation_fact_s_scope(*, user, fact, model, db, table_alias=
     return or_(person_scope, center_scope), []
 
 
-async def compile_allocation_fact_s_select_for_user(*, contract, request, user, db):
+async def compile_allocation_fact_s_select_for_user(*, contract, request, user, db, _row_keys=None):
     """Compile S aggregation from a server-bound contract with current field and scope checks."""
     from app.data.column_roles import is_technical_column
     from app.data.models import DATA_TABLES, TableColumn
     from app.permissions.masker import get_hidden_columns
     from app.reports.sql_builder import _entity_column
 
+    if len(_as_contract(contract).definition.facts) > 1:
+        if _row_keys is not None:
+            return None, [_s_issue("multi_fact_plan_unsupported", "多事实内部投影不可递归")]
+        from app.datasets.multifact_execution import compile_multifact_summary
+        return await compile_multifact_summary(contract=contract, request=request, user=user, db=db)
     validation = validate_allocation_fact_s_execution(contract, request)
     if not validation.eligible:
         return None, validation.issues
@@ -316,7 +331,8 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         [SimpleNamespace(**item) for item in outputs.values()])
     if physical_issues:
         return None, physical_issues
-    required = {fact.fact_key, fact.employee_key, fact.cost_center_key}
+    required = {key for key in (fact.fact_key, fact.employee_key, fact.cost_center_key) if key}
+    required |= set(_row_keys or ())
     required |= {outputs[code]["source_column"] for code in request.plan.output_fields}
     if not required <= set(current_columns) or not required <= set(model.__table__.columns.keys()):
         return None, [_s_issue("s_execution_source_column_missing", "事实字段物理来源不存在")]
@@ -448,8 +464,10 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         if aggregate is None:
             return None, [_s_issue("s_execution_aggregation_unsupported", "S汇总聚合函数未通过服务端校验")]
         projected.append(aggregate(expression).label(output_code))
-    scope, issues = await compile_allocation_fact_s_scope(
-        user=user, fact=fact, model=model, db=db)
+    if fact.allow_cost_center_summary:
+        scope, issues = await compile_allocation_fact_s_scope(user=user, fact=fact, model=model, db=db)
+    else:
+        scope, issues = await compile_person_scope_membership(user=user, fact=fact, db=db)
     if issues or scope is None:
         return None, issues or [_s_issue("s_execution_scope_denied", "当前用户没有可解析的汇总范围")]
     # 业务筛选在授权范围之后叠加：先生成D/S范围，再AND合同批准的条件，不改变授权集合
@@ -481,6 +499,9 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
             clauses.append(column.between(condition.value[0], condition.value[1]))
         else:
             return None, [_s_issue("s_execution_filter_not_approved", "筛选操作符未获批准")]
+    if _row_keys is not None:
+        fields = {outputs[code]["source_column"] for code in request.plan.output_fields} | set(_row_keys)
+        return select(*(_entity_column(model, code).label(code) for code in sorted(fields))).where(scope, *clauses), []
     return select(*projected).where(scope, *clauses).group_by(*group_columns), []
 
 
@@ -634,11 +655,12 @@ async def compile_person_fact_d_select_for_user(*, contract: DExecutionContractS
         return None, [_scope_issue("d_execution_field_access_unresolved", "字段授权尚未完成裁决")]
     protected = set(hidden) | {column.column_code for column in columns if column.is_sensitive}
     from app.reports.sql_builder import _entity_column
+    from app.data.column_roles import is_technical_column
     projected = []
     for output_code in request.plan.output_fields:
         output = outputs[output_code]
         source_column = output["source_column"]
-        if (output.get("is_sensitive") is not False or source_column in technical
+        if (output.get("is_sensitive") is not False or is_technical_column(source_column)
                 or source_column in protected or output_code in protected):
             return None, [_scope_issue("d_execution_hidden_field_forbidden", "执行计划包含当前用户不可见字段")]
         if source_column not in model.__table__.columns:

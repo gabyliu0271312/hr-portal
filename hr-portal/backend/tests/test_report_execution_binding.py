@@ -619,7 +619,118 @@ def test_report_output_exposes_version_but_never_binding_metadata():
     assert "execution_binding" not in fields and "fingerprint" not in fields
 
 
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_postgres_multifact_real_admission_run_count_and_exports(multifact, monkeypatch):
+    import csv
+    import io
+    import httpx
+    from fastapi import FastAPI
+    from openpyxl import load_workbook
+    from sqlalchemy import MetaData, Table, inspect, select, text
+    from app.core.db import get_session
+    from app.core.deps import current_user
+    from app.data import dynamic_loader, models
+    from app.datasets.models import DataSet, DataSetAcl, DatasetCalculatedField
+    from app.reports.models import Report
+    from app.reports.router import router
+    from app.users.models import Menu, RoleMenu
+    from app.warehouse.models import StandardizationRule, WarehouseQualityRule, WarehouseQualityStatus
+    from app.warehouse.router import router as warehouse_router
+    from app.warehouse.service.standardization import StandardizationRuleService
+    engine, factory, _ = multifact
+    async with engine.begin() as conn:
+        for model in (DatasetCalculatedField, WarehouseQualityRule, WarehouseQualityStatus):
+            await conn.run_sync(lambda sync, model=model: model.__table__.create(sync, checkfirst=True))
+        for index, target in enumerate(("allocation_fact", "person_fact"), 34):
+            source = "source_" + target
+            await conn.execute(text(f'CREATE TABLE "{source}" AS SELECT * FROM "{target}"'))
+            await conn.execute(models.RegisteredTable.__table__.insert().values(id=index, table_name=source, table_label=source, warehouse_layer="ODS"))
+            columns = (await conn.execute(select(models.TableColumn.__table__).where(models.TableColumn.table_name == target))).mappings().all()
+            for column in columns:
+                await conn.execute(models.TableColumn.__table__.insert().values(table_name=source,
+                    column_code=column["column_code"], column_label=column["column_label"], data_type=column["data_type"], scope_role=column["scope_role"]))
+            await conn.execute(models.TableColumn.__table__.insert().values(table_name=target, column_code="id", column_label="Identity", data_type="number"))
+            await conn.execute(StandardizationRule.__table__.insert().values(asset_type="table", asset_code=source,
+                rule_type="rename", source_field="amount", target_field="amount", rule_config={}, enabled=True))
+        await conn.execute(Menu.__table__.insert().values(id=8, code="report.list", label="Reports"))
+        await conn.execute(RoleMenu.__table__.insert().values(id=8, role_id=1, menu_id=8, can_view=True, can_update=True, can_export=True))
+        await conn.execute(DataSetAcl.__table__.insert().values(id=7, dataset_id=7, user_id=7))
+        await conn.execute(Report.__table__.insert().values(id=1, name="multifact summary", table_name="", dataset_id=7, owner_id=7,
+            config={"columns": ["allocation.amount", "salary.amount"], "aggregate": True,
+                    "aggregations": {"allocation.amount": "sum", "salary.amount": "sum"}}))
+
+    async def reflect_in_schema(db, table_name):
+        table = await db.run_sync(lambda sync: Table(table_name, MetaData(), autoload_with=sync.connection()))
+        return dynamic_loader._make_model_from_table(table_name, table)
+    monkeypatch.setattr(dynamic_loader, "reflect_source_table_model", reflect_in_schema)
+    async with factory() as db:
+        for target in ("allocation_fact", "person_fact"):
+            refreshed = await StandardizationRuleService(db).execute_full(asset_code="source_" + target, target_table=target)
+            assert "error" not in refreshed, refreshed
+        await db.execute(DataSet.__table__.update().where(DataSet.id == 7).values(status="draft", warehouse_layer="DWD"))
+        await db.commit()
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS salary_employee_identity ON person_fact (employee_no)"))
+        primary_keys = {target: await conn.run_sync(lambda sync, target=target: inspect(sync).get_pk_constraint(target)["constrained_columns"][0])
+                        for target in ("allocation_fact", "person_fact")}
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.include_router(warehouse_router, prefix="/api/v1")
+    async def session():
+        async with factory() as db:
+            yield db
+    app.dependency_overrides[get_session] = session
+    app.dependency_overrides[current_user] = lambda: SimpleNamespace(id=7)
+    monkeypatch.setattr("app.core.db.get_session_factory", lambda: factory)
+    monkeypatch.setattr("app.reports.audit.get_session_factory", lambda: factory)
+    monkeypatch.setattr("app.reports.router.record_report_audit", AsyncMock())
+    monkeypatch.setattr("app.automation.events.publish_event", AsyncMock())
+    legacy = AsyncMock(side_effect=AssertionError("no legacy fallback"))
+    monkeypatch.setattr("app.reports.sql_builder.run_dataset_query", legacy)
+    base = "/api/v1/warehouse/models/7"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        payload = {"schema_version": 3, "expected_version": 0, "facts": [
+            {"alias": "allocation", "table_name": "allocation_fact", "fact_key": primary_keys["allocation_fact"], "employee_key": "employee_no", "cost_center_key": "cc_code", "role": "allocation_fact", "allow_cost_center_summary": True},
+            {"alias": "salary", "table_name": "person_fact", "fact_key": primary_keys["person_fact"], "employee_key": "employee_no", "role": "person_fact"}]}
+        created = await client.post(base + "/authorization-contracts", json=payload)
+        assert created.status_code == 201, created.text
+        contract_id = created.json()["id"]
+        approved = await client.post(f"{base}/authorization-contracts/{contract_id}/approve", json={"expected_revision": 0, "reason": "isolated multifact review"})
+        assert approved.status_code == 200, approved.text
+        conversion = await client.get(base + "/conversion-readiness")
+        assert conversion.status_code == 200, conversion.text
+        conversion_approval = await client.post(base + "/conversion-readiness/approve", json={
+            "expected_run_id": conversion.json()["run_id"], "expected_contract_id": contract_id,
+            "expected_dataset_version": 1, "reason": "both actual conversion runs reviewed"})
+        assert conversion_approval.status_code == 200, conversion_approval.text
+        released = await client.post(base + "/release", json={"expected_version": 1})
+        assert released.status_code == 200, released.text
+        state = await client.get("/api/v1/reports/1/execution-binding")
+        bound = await client.post("/api/v1/reports/1/execution-binding", json={"expected_fingerprint": state.json()["fingerprint"], "contract_id": contract_id, "contract_version": 1, "reason": "multifact isolated pilot"})
+        assert bound.status_code == 200, bound.text
+        response = await client.post("/api/v1/reports/1/run?page=1&page_size=1")
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == 1
+        assert [float(value) for value in response.json()["items"][0].values()] == [810, 200]
+        exported = await client.get("/api/v1/reports/1/export.csv")
+        assert exported.status_code == 200, exported.text
+        rows = list(csv.reader(io.StringIO(exported.content.decode("utf-8-sig"))))
+        assert [float(value) for value in rows[1]] == [810, 200]
+        exported = await client.get("/api/v1/reports/1/export.xlsx")
+        assert exported.status_code == 200, exported.text
+        rows = list(load_workbook(io.BytesIO(exported.content)).active.values)
+        assert list(rows[1]) == [810, 200]
+        async with engine.begin() as conn:
+            await conn.execute(text("UPDATE source_person_fact SET amount=amount+1"))
+        for method, path in (("POST", "/api/v1/reports/1/run"), ("GET", "/api/v1/reports/1/export.csv"), ("GET", "/api/v1/reports/1/export.xlsx")):
+            denied = await client.request(method, path)
+            assert denied.status_code == 409, denied.text
+        legacy.assert_not_awaited()
+
+
 from tests.test_d_execution import postgres_d_fact
+from tests.test_multifact_execution import multifact
 from tests.test_scope_classification import postgres_classification_schema
 from tests.test_standard_field_catalog import postgres_standard_catalog, standard_catalog_api
 

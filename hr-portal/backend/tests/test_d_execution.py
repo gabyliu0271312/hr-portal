@@ -701,6 +701,8 @@ async def postgres_d_fact(postgres_standard_catalog, monkeypatch):
             {"id": 2, "tag_id": 2, "node_id": 1, "include_descendants": False},
         ])
         await conn.execute(UserScopeTag.__table__.insert(), [{"user_id": 7, "tag_id": 1}, {"user_id": 7, "tag_id": 2}])
+        from sqlalchemy import text
+        await conn.execute(text("SELECT setval(pg_get_serial_sequence('table_columns','id'), (SELECT max(id) FROM table_columns))"))
         await conn.execute(models.TableColumn.__table__.insert(), [
             {"table_name": "emp_realtime_roster", "column_code": "employee_no", "column_label": "Employee", "data_type": "string", "scope_role": None},
             {"table_name": "emp_realtime_roster", "column_code": "org_node_code", "column_label": "Org", "data_type": "string", "scope_role": "org_node_code"},
@@ -740,7 +742,7 @@ async def postgres_d_fact(postgres_standard_catalog, monkeypatch):
             output_id = index - 69
             await conn.execute(DatasetOutputField.__table__.insert().values(
                 id=output_id, dataset_id=7, source_alias="allocation", source_column=code,
-                output_code=code, output_label=code, data_type=column["data_type"], is_visible=True, is_sensitive=False))
+                output_code=code, output_label=code, data_type=column["data_type"], is_sensitive=False))
             await conn.execute(models.StandardField.__table__.insert().values(
                 id=index + 100, field_code=f"output_{code}", created_by=7))
             await conn.execute(models.StandardFieldVersion.__table__.insert().values(

@@ -69,12 +69,13 @@ def derived_summary_fields(definition, outputs) -> dict:
     outputs 支持 ORM 对象或 dict（需含 output_code / source_column / agg_role）。
     """
     # 人员/事实键属于识别字段；成本中心键是批准的汇总分组维度，不属于识别字段
-    anchors: set[str] = set()
-    for fact in definition.facts:
-        anchors |= {fact.fact_key, fact.employee_key} - {None}
+    anchors = {(fact.alias, key) for fact in definition.facts
+               for key in (fact.fact_key, fact.employee_key) if key}
     all_codes = [_item(output, "output_code") for output in outputs]
     identifying = {_item(output, "output_code") for output in outputs
-                   if _item(output, "source_column") in anchors}
+                   if (_item(output, "source_alias"), _item(output, "source_column")) in anchors
+                   or (len(definition.facts) == 1 and _item(output, "source_alias") is None
+                       and _item(output, "source_column") in {key for _, key in anchors})}
     summary = [output for output in outputs if _item(output, "output_code") not in identifying]
     dimensions = [_item(output, "output_code") for output in summary
                   if (_item(output, "agg_role") or "dimension") != "measure"]
@@ -274,6 +275,37 @@ def _validate_relation_metadata(relations, aliases: set[str]) -> list[dict[str, 
         for key in relation.keys:
             if not isinstance(key, dict) or not key.get("left") or not key.get("right"):
                 issues.append({"code": "authorization_relation_key_invalid", "message": "关联连接键未通过授权合同校验"})
+    return issues
+
+
+async def _validate_relation_cardinality_constraints(db, tables, relations):
+    aliases = {table.alias: table.table_name for table in tables}
+    unique_by_table = {}
+    from app.warehouse.service.standardization import _quote_ident
+    for table_name in sorted(set(aliases.values())):
+        await db.execute(text(f"LOCK TABLE {_quote_ident(table_name)} IN ACCESS SHARE MODE"))
+        rows = (await db.execute(text(
+            "SELECT array_agg(a.attname ORDER BY k.ordinality) "
+            "FROM pg_index i JOIN pg_class t ON t.oid=i.indrelid "
+            "JOIN pg_namespace n ON n.oid=t.relnamespace "
+            "CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ordinality) "
+            "JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=k.attnum "
+            "WHERE n.nspname=current_schema() AND t.relname=:table_name "
+            "AND i.indisunique AND i.indisvalid AND i.indisready AND i.indimmediate "
+            "AND i.indpred IS NULL AND i.indexprs IS NULL AND k.ordinality<=i.indnkeyatts "
+            "GROUP BY i.indexrelid"
+        ), {"table_name": table_name})).scalars().all()
+        unique_by_table[table_name] = [set(row) for row in rows]
+    issues = []
+    for relation in relations:
+        required = []
+        if relation.cardinality in {"1:1", "1:N"}:
+            required.append((relation.left_alias, {key["left"] for key in relation.keys}))
+        if relation.cardinality in {"1:1", "N:1"}:
+            required.append((relation.right_alias, {key["right"] for key in relation.keys}))
+        if any(not any(unique <= keys for unique in unique_by_table.get(aliases.get(alias), []))
+               for alias, keys in required):
+            issues.append({"code": "authorization_relation_cardinality_unverified", "message": "关联唯一侧缺少有效的即时非部分唯一约束"})
     return issues
 
 
@@ -668,13 +700,19 @@ async def approve_contract(db, dataset_id, contract_id, payload, user):
         _, tables, relations, outputs = await _validate_definition(db, dataset_id, current)
         await _validate_resolution(db, dataset_id, current)
         if len(current.facts) != 1:
-            raise HTTPException(409, detail={"code": "multi_fact_not_implemented", "message": "多事实授权执行尚未完成一对多基数与金额去重验证，当前合同不可批准"})
-        if (relations
+            from app.datasets.multifact_execution import validate_multifact_shape
+            shape_issues = validate_multifact_shape(current, _snapshot(tables, relations, outputs))
+            if shape_issues:
+                raise HTTPException(409, detail={"code": "multi_fact_not_implemented", "message": "该多事实形态尚未通过受控执行校验", "issues": shape_issues})
+            cardinality_issues = await _validate_relation_cardinality_constraints(db, tables, relations)
+            if cardinality_issues:
+                raise HTTPException(409, detail=cardinality_issues[0])
+        if len(current.facts) == 1 and (relations
                 or any(f.role not in {"person_fact", "allocation_fact"} for f in current.facts)
                 or (current.facts[0].role == "person_fact" and (current.facts[0].allow_cost_center_summary or current.facts[0].cost_center_key))
                 or (current.facts[0].role == "allocation_fact" and (not current.facts[0].allow_cost_center_summary or not current.facts[0].cost_center_key))):
             raise HTTPException(409, detail={"code": "contract_execution_validation_required", "message": "当前执行切片仅允许单一person_fact或已批准成本中心汇总的allocation_fact且不含JOIN"})
-        if current.facts[0].role == "allocation_fact":
+        if len(current.facts) == 1 and current.facts[0].role == "allocation_fact":
             from app.datasets.d_execution import SExecutionBindingIn, validate_allocation_fact_s_execution
             from app.warehouse.schemas import ExecutionPlanIn
             if current.schema_version == 3:
@@ -851,12 +889,20 @@ async def execution_readiness(db, dataset_id, user=None):
                           "person_scope" if fact.role in {"person_fact", "allocation_fact"} else "not_allowed"),
             employee_key=fact.employee_key, cost_center_key=fact.cost_center_key,
         ))
+    is_multifact = False
+    if len(definition.facts) > 1:
+        from app.datasets.multifact_execution import validate_multifact_shape
+        shape_issues = validate_multifact_shape(definition, snapshot)
+        issues.extend(shape_issues)
+        if not shape_issues and not issues:
+            issues.extend(await _validate_relation_cardinality_constraints(db, tables, relations))
+            is_multifact = True
     is_limited_allocation = (len(definition.facts) == 1 and len(tables) == 1 and not relations
                             and definition.facts[0].role == "allocation_fact"
                             and definition.facts[0].allow_cost_center_summary
                             and bool(definition.facts[0].cost_center_key))
     checked = ["contract_snapshot", "fact_roles", "current_user_acl", "contract_physical_schema", "tree_health"]
-    if is_limited_allocation:
+    if is_limited_allocation or is_multifact:
         if dataset.status != "published":
             issues.append({"code": "dataset_not_published", "message": "数据集尚未发布，不可运行"})
         for path in paths:
@@ -884,7 +930,10 @@ async def execution_readiness(db, dataset_id, user=None):
                 runtime_dimensions = definition.dimensions
                 runtime_measures = definition.measures
                 runtime_outputs = definition.output_fields
-            if (not runtime_measures or not runtime_dimensions
+            if is_multifact:
+                runtime_dimensions = []
+                runtime_outputs = runtime_measures
+            if (not runtime_measures or (not runtime_dimensions and not is_multifact)
                     or not set(runtime_outputs) <= set(by_code)
                     or set(runtime_outputs) != set(runtime_dimensions) | set(runtime_measures)
                     or any(_normalized_metadata_type(by_code[code].data_type) != "number"
@@ -908,7 +957,7 @@ async def execution_readiness(db, dataset_id, user=None):
             {"code": "tree_validation_required", "message": "当前路径尚未接入运行时权限树展开"},
             {"code": "sql_compiler_not_integrated", "message": "当前路径尚未接入查询执行器"},
         ])
-    enabled = is_limited_allocation and not issues
+    enabled = (is_limited_allocation or is_multifact) and not issues
     return AuthorizationExecutionReadinessOut(
         dataset_id=dataset_id, contract_id=row.id, contract_version=row.contract_version,
         eligible=enabled, runtime_enabled=enabled, paths=paths, issues=issues, checked_areas=checked,

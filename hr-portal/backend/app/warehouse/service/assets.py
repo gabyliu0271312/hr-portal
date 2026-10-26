@@ -493,7 +493,7 @@ class WarehouseService:
                 return single_ds.label
             if rt and not is_code_like_label(rt.table_label, table_name):
                 return rt.table_label
-            return single_ds.label or (rt.table_label if rt else table_name)
+            return (single_ds.label if single_ds else None) or (rt.table_label if rt else table_name)
 
         def model_table_payload(t: DataSetTable) -> dict:
             rt = registered_map.get(t.table_name)
