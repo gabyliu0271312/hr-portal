@@ -77,6 +77,43 @@
         </section>
           </section>
           <PerformanceTemplateOperateBar v-if="summaryActions.length" class="result-view-content-footer" :actions="summaryActions" @action="handleContentAction" />
+        <template v-if="isResultView">
+          <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
+          <PerformanceReferenceEntryBar class="result-view-reference-entry" label="添加其他参考内容" @select="handleContentAction('add-reference')" />
+        </template>
+        </template>
+        <template v-else-if="isReferenceTab && referenceRelations.length">
+          <section v-for="group in referenceGroups" :key="group.id" class="result-view-section reference-content-group">
+            <h2>{{ group.name }}</h2>
+            <div v-if="!group.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
+            <div v-for="content in group.contents" :key="content.id" class="configured-content-panel result-view-section__configured-content">
+              <PerformanceConfiguredContentBlock
+                :content="content"
+                :active="selectedConfiguredId === content.id"
+                :expanded="configuredExpandedIds.has(content.id)"
+                :dragging="false"
+
+                :index="configuredContents.findIndex(item => item.id === content.id)"
+                :count="configuredContents.length"
+                :structure-editable="false"
+                :toolbar-visible="false"
+                :root-settings="rootSettingFor(content.id)"
+                :item-settings="itemSettingsForContent(content.id)"
+                :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
+                :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
+                :settings-disabled="pageNameLocked"
+                :root-settings-variant="activeStageContentRule.rootSettingsVariant"
+                :item-settings-variant="activeStageContentRule.itemSettingsVariant"
+                @activate="selectConfiguredContent"
+                @settings-visibility="visible => { if (selectedConfiguredId === content.id) configuredSettingsVisible = visible }"
+                @update:expanded="setConfiguredExpanded(content.id, $event)"
+                @update:content="updateConfiguredContent(configuredContents.findIndex(item => item.id === content.id), $event)"
+                @update:root-settings="setRootSettingsForContent(content.id, $event)"
+                @update:item-settings="setItemSettingsForContent(content.id, $event)"
+              />
+            </div>
+          </section>
+          <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
         </template>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <template v-else-if="isResultReconsiderationFill">
@@ -95,7 +132,7 @@
           </section>
         </template>
         <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
-        <section v-if="configuredContents.length && !isResultView" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
+        <section v-if="configuredContents.length && !isResultView && !isReferenceTab" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
@@ -130,10 +167,6 @@
           </PerformanceSortableList>
           <PerformanceTemplateOperateBar v-if="summaryActions.length" class="configured-content-footer" :actions="summaryActions" @action="handleContentAction" />
         </section>
-        <template v-if="isResultView">
-          <div v-if="resultReferences.length" class="result-view-references" aria-label="其他参考内容"><div v-for="content in resultReferences" :key="content.content_id" class="result-view-reference"><span>{{ content.name }}</span><button type="button" :aria-label="`移除${content.name}`" @click="removeResultReference(contentIdentity(content))">移除</button></div></div>
-          <PerformanceReferenceEntryBar class="result-view-reference-entry" label="添加其他参考内容" @select="handleContentAction('add-reference')" />
-        </template>
       </PerformanceContentWorkspace>
       <PerformanceContentWorkspace v-if="referenceTabEmpty" class="reference-entry-pane">
         <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
@@ -154,7 +187,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformancePromptValue, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
+import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformancePromptValue, type PerformanceReferenceDisplaySettings, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
 import PerformanceTemplateSectionCard from '@/components/performance/PerformanceTemplateSectionCard.vue'
 import PerformanceAssessmentPreviewHeader from '@/components/performance/PerformanceAssessmentPreviewHeader.vue'
@@ -252,6 +285,7 @@ const contentPageName = computed({
   },
 })
 const isResultView = computed(() => selectedStageData.value?.nodeType === 'result_view')
+const isReferenceTab = computed(() => activeTab.value === 'reference' && !isResultView.value)
 const isCalibration = computed(() => selectedStageData.value?.nodeType === 'calibration')
 const isResultReconsiderationFill = computed(() => selectedStageData.value?.nodeType === 'result_reconsideration' && activeTab.value === 'fill')
 const isReviewer360Fill = computed(() => ['reviewer_360_invite', 'reviewer_360_confirm'].includes(selectedStageData.value?.nodeType || '') && activeTab.value === 'fill')
@@ -289,6 +323,7 @@ const resultReferences = computed(() => workflowNodes.value.find(node => node.no
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
   if (isCalibration.value) return []
+  if (isReferenceTab.value) return [{ key: 'add-reference', label: '选择参考内容' }]
   if (isReviewer360Fill.value) {
     return [{ key: 'add-prompt', label: '添加提示' }]
   }
@@ -343,6 +378,7 @@ function selectResultReconsiderationPreview() {
 watch([selectedStage, activeTab], () => { clearContentSelection(); pageNameError.value = ''; promptModalOpen.value = false; editingPrompt.value = null })
 const rootSettings = ref<Record<string, WorkSummaryRootSettings>>({})
 const itemSettings = ref<Record<string, WorkSummaryItemSettings>>({})
+const referenceContentMeta = ref<Record<string, { relationId: string; sourceContentId: string }>>({})
 const contentIdentity = (content: PerformanceTemplateContent) => content.content_id || content.id || `${content.type}-${content.name}`
 const cloneContent = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T): T {
@@ -368,11 +404,12 @@ const contentLayerRef = ref<InstanceType<typeof PerformanceAssessmentContentLaye
 const evaluationExecutorKind = computed(() => getEvaluationExecutorKind(selectedStageData.value?.executor, selectedStageData.value?.executorTypes))
 const availableTabs = computed(() => getStageContentTabs(selectedStageData.value?.nodeType, evaluationExecutorKind.value))
 const activeTabLabel = computed(() => availableTabs.value.find((tab) => tab.key === activeTab.value)?.label || availableTabs.value[0].label)
-const referenceTabEmpty = computed(() => activeTab.value === 'reference' && !configuredContents.value.length)
+const referenceTabEmpty = computed(() => isReferenceTab.value && !configuredContents.value.length && !referenceRelations.value.length)
+const referenceSourceNodeTypes = new Set(['work_summary', 'evaluation', 'calibration', 'result_communication', 'result_reconsideration'])
 const referenceNodeCandidates = computed(() => {
   const currentId = selectedStage.value
   return workflowNodes.value
-    .filter((node) => node.node_id !== currentId && !node.system)
+    .filter((node) => node.node_id !== currentId && !node.system && referenceSourceNodeTypes.has(node.node_type))
     .map((node) => ({ value: node.node_id || '', label: node.name }))
 })
 const referenceMoreOptions: ReferenceOption[] = [
@@ -380,15 +417,67 @@ const referenceMoreOptions: ReferenceOption[] = [
   { value: 'more_reference', label: '更多参考', description: '支持展示绩效信息、异动信息、补充信息等其他信息' },
   { value: 'team_stats', label: '团队统计', description: '有对应权限的用户可查看被评估人下级同周期的绩效结果分布（如被评估人无下级，则不展示此参考内容）' },
 ]
+const referenceRelations = computed(() => selectedWorkflowNode.value?.content?.filter(content => (content.content_slot || 'fill') === 'reference') || [])
 const referenceSelectedValues = computed(() => {
-  const contents: PerformanceTemplateContent[] = isResultView.value ? resultReferences.value : configuredContents.value
+  const contents: PerformanceTemplateContent[] = isResultView.value ? resultReferences.value : referenceRelations.value
   return contents.map(content => content.reference_value || content.content_id || content.id || content.name)
 })
+function referenceRelationId(relation: PerformanceTemplateContent) { return relation.content_id || relation.id || `reference-${relation.reference_value}` }
+function referenceDisplaySettings(value: { allowView?: boolean; hideName?: boolean; hideDescription?: boolean; onlyWhenFilling?: boolean } = {}): PerformanceReferenceDisplaySettings {
+  return Object.fromEntries(['allowView', 'hideName', 'hideDescription', 'onlyWhenFilling'].filter(key => typeof value[key as keyof typeof value] === 'boolean').map(key => [key, value[key as keyof typeof value]]))
+}
+function resolveReferenceContents(): PerformanceTemplateContent[] {
+  const meta: Record<string, { relationId: string; sourceContentId: string }> = {}
+  const resolved: PerformanceTemplateContent[] = []
+  for (const relation of referenceRelations.value) {
+    if (relation.reference_kind !== 'node' || !relation.reference_value) { resolved.push(cloneContent(relation)); continue }
+    const source = workflowNodes.value.find(node => node.node_id === relation.reference_value && !node.system && referenceSourceNodeTypes.has(node.node_type) && node.node_id !== selectedStage.value)
+    if (!source) continue
+    const relationId = referenceRelationId(relation)
+    const settings = relation.reference_settings?.content_settings || {}
+    const contents = source.node_type === 'calibration'
+      ? resolveCalibrationContents(finalFillContents.value, source.calibration_settings)
+      : (source.content || []).filter(content => (content.content_slot || 'fill') === 'fill' && content.type !== 'reference')
+    for (const sourceContent of contents) {
+      const sourceContentId = contentIdentity(sourceContent)
+      const id = `${relation.reference_value}:${sourceContentId}`
+      const local = settings[sourceContentId] || {}
+      meta[id] = { relationId, sourceContentId }
+      resolved.push({ ...cloneContent(sourceContent), id, content_id: id, content_slot: 'reference', reference_source_content_id: sourceContentId,
+        settings: { allowMultiple: false, allowUnknown: false, allowView: local.root?.allowView !== false, hideDescription: local.root?.hideDescription === true },
+        ...(sourceContent.prompt ? { prompt: { ...sourceContent.prompt, ...local.root } } : {}),
+        items: sourceContent.items.map(item => ({ ...cloneContent(item), settings: { mode: 'view', required: false, allowView: local.items?.[item.id]?.allowView !== false, hideName: local.items?.[item.id]?.hideName === true, hideDescription: local.items?.[item.id]?.hideDescription === true }, ...(item.prompt ? { prompt: { ...item.prompt, ...local.items?.[item.id] } } : {}) })) })
+    }
+  }
+  referenceContentMeta.value = meta
+  return resolved
+}
+function serializeReferenceRelations(): PerformanceTemplateContent[] {
+  return referenceRelations.value.map(relation => {
+    if (relation.reference_kind !== 'node') return cloneContent(relation)
+    const relationId = referenceRelationId(relation)
+    const contentSettings = cloneContent(relation.reference_settings?.content_settings || {})
+    configuredContents.value.forEach(content => {
+      const meta = referenceContentMeta.value[content.id]
+      if (!meta || meta.relationId !== relationId) return
+      const previous = contentSettings[meta.sourceContentId] || {}
+      contentSettings[meta.sourceContentId] = { ...previous, root: { ...previous.root, ...(content.type === 'prompt' ? referenceDisplaySettings(content.prompt) : referenceDisplaySettings(rootSettingFor(content.id))) }, items: { ...previous.items, ...Object.fromEntries(content.items.map(item => [item.id, { ...previous.items?.[item.id], ...referenceDisplaySettings(itemSettingsForContent(content.id)[item.id]) }])) } }
+    })
+    const source = workflowNodes.value.find(item => item.node_id === relation.reference_value)
+    return { ...cloneContent(relation), name: source?.name ?? relation.name, description: source?.description ?? relation.description, items: [], content_slot: 'reference' as const, reference_settings: { ...relation.reference_settings, content_settings: contentSettings } }
+  })
+}
+const referenceGroups = computed(() => referenceRelations.value.map(relation => {
+  const source = workflowNodes.value.find(node => node.node_id === relation.reference_value)
+  const contents = configuredContents.value.filter(content => relation.reference_kind === 'node' ? referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation) : contentIdentity(content) === contentIdentity(relation))
+  return { id: referenceRelationId(relation), name: source?.name || relation.name, contents }
+}))
 const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => content.type !== 'prompt' && (content.type as string) !== 'reference').map(content => {
   const source = isResultView.value ? finalContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
 }) as Array<AssessmentContentDraft & { id: string }>)
 const activeStageContentRule = computed(() => {
+  if (isReferenceTab.value) return getStageContentRule('result_view')
   const rule = getStageContentRule(selectedStageData.value?.nodeType, evaluationExecutorKind.value)
   return selectedStageData.value?.nodeType === 'evaluation' && activeTab.value !== 'fill' ? { ...rule, itemSettingsEnabled: false } : rule
 })
@@ -416,10 +505,12 @@ function normalizeItemSettings(value: unknown, allowView = false): WorkSummaryIt
   return { ...settings, mode, required: settings.required !== false, hideName: settings.hideName === true }
 }
 function rootSettingFor(contentId: string): WorkSummaryRootSettings {
+  if (isReferenceTab.value) return rootSettings.value[contentId] || { ...defaultRootSettings(true), allowView: true }
   const allowView = activeStageContentRule.value.rootSettingsVariant === 'result-view-root'
   return rootSettings.value[contentId] || defaultRootSettings(allowView)
 }
 function itemSettingsForContent(contentId: string): Record<string, WorkSummaryItemSettings> {
+  if (isReferenceTab.value) return Object.fromEntries((configuredContents.value.find(item => item.id === contentId)?.items || []).map(item => [item.id, itemSettings.value[`${contentId}:${item.id}`] || { mode: 'view', required: false, allowView: true, hideName: false, hideDescription: false }]))
   const content = configuredContents.value.find((item) => item.id === contentId)
   return Object.fromEntries((content?.items || []).map((item) => [item.id, itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()]))
 }
@@ -526,7 +617,10 @@ function setConfiguredContents(contents: PerformanceTemplateContent[]) {
   configuredContents.value = [...unique.values()] as Array<AssessmentContentDraft & { id: string }>
   configuredExpandedIds.value = new Set(configuredContents.value.map((item) => item.id))
   rootSettings.value = Object.fromEntries(configuredContents.value.map((content) => [content.id, normalizeRootSettings(content.settings, activeStageContentRule.value.rootSettingsVariant === 'result-view-root')]))
-  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, (activeTab.value === 'fill' || isCalibration.value) && supportsStageItemView(selectedStageData.value?.nodeType, content, item))])))
+  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => {
+    const allowView = isReferenceTab.value ? supportsResultViewSettings(content, item) : (activeTab.value === 'fill' || isCalibration.value) && supportsStageItemView(selectedStageData.value?.nodeType, content, item)
+    return [`${content.id}:${item.id}`, isReferenceTab.value ? { ...normalizeItemSettings(item.settings, true), mode: 'view' as const, required: false } : normalizeItemSettings(item.settings, allowView)]
+  })))
 }
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
   const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
@@ -562,10 +656,19 @@ function replaceNodeContentSlot(node: PerformanceWorkflowNode, slot: string, con
 function syncSelectedStageContents() {
   if (!selectedStage.value || isCalibration.value) return
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
-  if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
+  if (!node) return
+  if (isReferenceTab.value) {
+    replaceNodeContentSlot(node, 'reference', serializeReferenceRelations())
+    return
+  }
+  replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
 }
 function loadSelectedStageContents() {
   const node = selectedWorkflowNode.value
+  if (isReferenceTab.value) {
+    setConfiguredContents(resolveReferenceContents())
+    return
+  }
   setConfiguredContents(node?.node_type === 'calibration' ? calibrationContents.value : node?.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
 }
 function selectStage(id: string) {
@@ -579,6 +682,7 @@ function selectStage(id: string) {
   configuredHoverKey.value = null
 }
 function handleContentConfirm(contents: AssessmentContentDraft[]) {
+  if (isReferenceTab.value) return
   if (isResultView.value && contents.some(content => !finalContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
   const localContents = serializeConfiguredContents()
   const nextContents = isResultView.value ? contents.map(content => {
@@ -605,6 +709,7 @@ function handleContentConfirm(contents: AssessmentContentDraft[]) {
   contentDrawerOpen.value = false
 }
 function handleReferenceConfirm(selected: string[]) {
+  syncSelectedStageContents()
   const pool = new Map<string, ReferenceOption & { kind: 'node' | 'more' }>()
   referenceNodeCandidates.value.forEach((option) => pool.set(option.value, { ...option, kind: 'node' }))
   referenceMoreOptions.forEach((option) => pool.set(option.value, { ...option, kind: 'more' }))
@@ -617,8 +722,15 @@ function handleReferenceConfirm(selected: string[]) {
   if (isResultView.value) {
     if (node) replaceNodeContentSlot(node, 'reference', contents.map(content => ({ ...content, content_slot: 'reference' })))
   } else {
-    setConfiguredContents(contents)
-    if (node) replaceNodeContentSlot(node, 'reference', serializeConfiguredContents('reference'))
+    const existing = new Map(referenceRelations.value.map(content => [content.reference_value, content]))
+    const relations = contents.map(content => ({
+      ...content,
+      content_slot: 'reference' as const,
+      name: pool.get(content.reference_value || '')?.label || content.name,
+      reference_settings: existing.get(content.reference_value || '')?.reference_settings || { content_settings: {} },
+    }))
+    if (node) replaceNodeContentSlot(node, 'reference', relations)
+    loadSelectedStageContents()
   }
   selectedConfiguredId.value = null
   configuredHoverKey.value = null

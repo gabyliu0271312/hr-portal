@@ -362,6 +362,120 @@ async def test_service_rejects_zero_or_multiple_final_result_nodes_before_writin
             await service.save_nodes(77, nodes, actor_type="PORTAL_USER", actor_ref="9")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('source_type', ['reviewer_360_invite', 'reviewer_360_confirm', 'result_view', 'missing', 'self'])
+async def test_service_rejects_invalid_reference_source_before_writing(workflow_save_setup, source_type):
+    service, db = workflow_save_setup
+    source = {**_evaluation('source', '实线上级'), 'include_final_result': True}
+    target = _evaluation('target', '360°评估人')
+    source_id = 'target' if source_type == 'self' else 'missing' if source_type == 'missing' else 'excluded'
+    target['content'] = [{
+        'content_id': 'reference-source', 'content_slot': 'reference', 'type': 'reference',
+        'name': '来源', 'items': [], 'reference_kind': 'node', 'reference_value': source_id,
+    }]
+    nodes = [source, target]
+    if source_type not in {'self', 'missing'}:
+        nodes.append({**_evaluation('excluded', '实线上级'), 'node_type': source_type})
+    with pytest.raises(TemplateWorkflowValidationError, match='参考内容来源环节不合法'):
+        await service.save_nodes(77, nodes, actor_type='PORTAL_USER', actor_ref='9')
+    assert db.commits == 0
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('bad_settings', [[], {'content_settings': []}, {'content_settings': {'c': {'items': []}}}, {'content_settings': {'c': {'root': {'allowView': 'false'}}}}, {'content_settings': {'c': {'items': {'i': {'mode': 'fill'}}}}}])
+async def test_service_rejects_invalid_reference_display_settings(workflow_save_setup, bad_settings):
+    service, db = workflow_save_setup
+    source = {**_evaluation('source', '实线上级'), 'include_final_result': True}
+    target = {**_evaluation('target', '实线上级'), 'content': [{
+        'content_id': 'ref', 'content_slot': 'reference', 'type': 'reference', 'items': [],
+        'reference_kind': 'node', 'reference_value': 'source', 'reference_settings': bad_settings,
+    }]}
+    with pytest.raises(TemplateWorkflowValidationError):
+        await service.save_nodes(77, [source, target], actor_type='PORTAL_USER', actor_ref='9')
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_workflow_reference_patch_get_preserves_relation_overrides_and_source(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
+    monkeypatch.setattr(templates_router, 'PerformanceTemplateWorkflowService', lambda _db: service)
+    content = _view_source_content(content_type='custom', name='当前局部内容')
+    overrides = {'content_settings': {content['content_id']: {'root': {'allowView': True, 'hideDescription': True}, 'items': {'item-1': {'allowView': False, 'hideName': True}}}}, 'future': {'keep': True}}
+    source = {**_evaluation('source', '实线上级'), 'include_final_result': True, 'name': '真实流程名称', 'content': [content]}
+    target = {**_evaluation('target', '360°评估人'), 'content': [{
+        'content_id': 'ref', 'content_slot': 'reference', 'type': 'reference', 'name': '旧名称', 'items': [],
+        'reference_kind': 'node', 'reference_value': 'source', 'reference_settings': overrides,
+    }]}
+    payload = WorkflowUpdate.model_validate({'nodes': [source, target]})
+    response = await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    record = db.workflow
+    assert isinstance(record, PerformanceTemplateWorkflow)
+    record.cycle_count = 0
+    record.project_count = 0
+    db.workflow = record
+    reopened = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+    relation = reopened.nodes[1].content[0]
+    assert relation['name'] == '真实流程名称'
+    assert relation['reference_settings'] == overrides
+    assert relation['items'] == []
+    assert reopened.nodes[0].content[0] == content
+    assert response.nodes[1].content == reopened.nodes[1].content
+    assert db.commits == 1
+    audit = next(value for value in db.added if isinstance(value, templates_router.PerformanceAuditEvent))
+    assert audit.after_state['nodes'][1]['content'][0]['reference_settings'] == overrides
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('item_type', ['work_summary', 'custom', 'rating'])
+async def test_reference_relation_roundtrips_only_display_settings_and_keeps_source_unchanged(workflow_save_setup, monkeypatch, item_type):
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
+    monkeypatch.setattr(templates_router, 'PerformanceTemplateWorkflowService', lambda _db: service)
+    source_content = _view_source_content('source-content', item_type, items=[{
+        'id': 'source-item', 'label': 'Source question', 'hint': 'Source hint',
+        'settings': {'mode': 'hidden', 'required': True, 'hideName': False},
+    }])
+    original = __import__('copy').deepcopy(source_content)
+    source = {**_evaluation('source', '实线上级'), 'include_final_result': True, 'name': 'Source stage', 'content': [source_content]}
+    reference_settings = {'content_settings': {'source-content': {'root': {'allowView': False, 'hideDescription': True}, 'items': {'source-item': {'allowView': True, 'hideName': True, 'hideDescription': False}}}}, 'future': {'preserve': True}}
+    target = {**_evaluation('target', '直属上级'), 'content': [{
+        'content_id': 'source-link', 'content_slot': 'reference', 'type': 'reference', 'name': 'Old label', 'description': '', 'items': [],
+        'reference_kind': 'node', 'reference_value': 'source', 'reference_settings': reference_settings,
+    }]}
+    payload = WorkflowUpdate.model_validate({'nodes': [source, target]})
+    patched = await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    fetched = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+    for response in (patched, fetched):
+        relation = response.nodes[1].content[0]
+        assert relation['type'] == 'reference'
+        assert relation['name'] == 'Source stage'
+        assert relation['items'] == []
+        assert relation['reference_value'] == 'source'
+        assert relation['reference_settings'] == reference_settings
+        assert response.nodes[0].content == [original]
+        assert response.content_library == [original]
+    assert db.commits == 1
+    assert db.added[0].after_state['nodes'][1]['content'][0]['reference_settings'] == reference_settings
+
+
+@pytest.mark.asyncio
+async def test_reference_patch_rejects_used_template_before_mutation(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=1, project_count=0)
+    monkeypatch.setattr(templates_router, 'PerformanceTemplateWorkflowService', lambda _db: service)
+    payload = WorkflowUpdate.model_validate({'nodes': [
+        {**_evaluation('source', '实线上级'), 'include_final_result': True},
+        {**_evaluation('target', '直属上级'), 'content': [{'content_id': 'r', 'content_slot': 'reference', 'type': 'reference', 'name': 'Source', 'items': [], 'reference_kind': 'node', 'reference_value': 'source'}]},
+    ]})
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    assert exc.value.status_code == status.HTTP_409_CONFLICT
+    assert exc.value.detail['code'] == 'TEMPLATE_WORKFLOW_LOCKED'
+    assert db.commits == 0
+
+
 @pytest.fixture
 def workflow_save_setup(monkeypatch):
     from app.performance.template_workflow_service import PerformanceTemplateWorkflowService

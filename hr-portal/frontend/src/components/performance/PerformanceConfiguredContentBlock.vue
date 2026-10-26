@@ -14,7 +14,7 @@ import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from
 import { getItemSettingsVariant, getRootSettingsCapabilities, supportsCalibrationItemSettings, supportsEvaluationItemSettings, supportsEvaluationView, supportsResultViewSettings } from './performanceContentSettingsRules'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   content: AssessmentContentDraft & { id: string }
   active: boolean
   expanded: boolean
@@ -23,6 +23,7 @@ const props = defineProps<{
   index: number
   count: number
   toolbarVisible: boolean
+  structureEditable?: boolean
   rootSettings: WorkSummaryRootSettings
   itemSettings: Record<string, WorkSummaryItemSettings>
   rootSettingsEnabled?: boolean
@@ -30,7 +31,7 @@ const props = defineProps<{
   settingsDisabled?: boolean
   rootSettingsVariant: string
   itemSettingsVariant: string
-}>()
+}>(), { structureEditable: true })
 
 const emit = defineEmits<{
   activate: [contentId: string]
@@ -151,8 +152,9 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     @mouseenter="emit('hover-change', true)"
     @mouseleave="emit('hover-change', false)"
   >
-    <PerformanceDragHandle v-if="!isCalibration" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
+    <PerformanceDragHandle v-if="!isCalibration && structureEditable" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
     <PerformanceConfiguredCardActionToolbar
+      v-if="structureEditable"
       :visible="toolbarVisible || dragging"
       :index="index"
       :count="count"

@@ -527,3 +527,16 @@
   - Validation boundaries: 浏览器使用内存API夹具，非生产/数据库联调；本轮仅绩效配置及对应规格/测试文件，未纳入其他warehouse/datasets变更；未部署、未commit/push。仅完成F30，不勾T05整体。
   - Non-scope: 不改item设置、运行时答案、权限模型、历史快照、UCP、生产部署、commit/push；不纳入warehouse/datasets未提交变更。
   - Definition of done: root配置测试、构建、实际UI和截图证据齐备后勾选，仅完成本局部任务。
+
+
+- [ ] PM-T004-T05-F31 参考环节真实填写内容解析与独立查看设置（2026-10-26 用户确认）
+  - Goal: 选择真实流程环节后完整显示其配置内容，复用result-view渲染及右侧设置，不保存来源内容副本。
+  - Reading/prerequisites: Spec002基线/T05/F07/F13、Spec012 UI规范、execution-contract/task-card-template/acceptance-evidence；沿T05已确认布局做局部接入。
+  - Allowed modifications: frontend/src/api/performance.ts、PerformanceTemplateContentSettings.vue及既有spec、PerformanceConfiguredContentBlock.vue及既有spec；backend/app/performance/template_workflow_service.py和既有workflow测试；本功能现有任务/交互文件及独立F31 PNG。
+  - Frozen contract: reference slot保留type=reference/reference_kind=node/reference_value=node_id/items=[]；reference_settings.content_settings[content_id]={root:{allowView?,hideDescription?},items:{item_id:{allowView?,hideName?,hideDescription?,onlyWhenFilling?}}}只保存查看覆盖。来源inline fill优先，旧binding补齐沿既有逻辑；校准来源复用唯一终评解析及calibration_settings，不新造填写副本。缺省展示字段继承来源，mode统一view/required=false；source/target/content/item四层隔离，未知配置保留；来源删除项不显示、不复活。
+  - UI: 候选使用node.name，排除自身/系统起止/360邀请/360确认/result_view；包括result_reconsideration。按来源环节分组，空来源明确提示；重选可取消引用；工作总结/文本/标签/评级/两层提示共用ConfiguredContentBlock及result-view能力；只关参考结构操作，普通环节不变。原API错误/权限态沿用，未解锁模板仍遵循409。
+  - API/database/permission: 原workflow GET/PATCH/JSONB和审计事务；服务端在写入前校验非法/不存在/自身来源及查看配置类型，422 TEMPLATE_WORKFLOW_INVALID；不新增表/迁移/权限。
+  - Given/When/Then: 多来源同ID、局部定义与种子冲突、binding、prompt、四题型、校准、空源/删除/更新/重命名；选择/改查看设置/切换/保存/重开后来源不污染、设置不串值、只读无工具栏和拖拽、存引用而非复制定义。已有workflow测试验证成功/拒绝/审计及PATCH->GET。
+  - Evidence: 待最终测试/build/真实Chromium组件截图结果填入。PNG目标../../ui-blueprints/PM-T004-T05-F31-implemented-reference-content.png。
+  - Non-scope: 员工实际参考答案读取、周期历史快照/生效策略、结果查看独立reference入口、更多参考外部系统接入、权限模型、UCP、部署和提交推送；不新增脚本或测试文档，保护无关工作区变更。
+  - DoD: 代码、定向测试、build、浏览器UI和记录齐备后方可勾选；真实数据库联调单独标记，不以夹具冒充生产。

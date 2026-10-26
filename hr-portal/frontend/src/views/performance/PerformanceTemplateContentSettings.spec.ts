@@ -1270,7 +1270,7 @@ describe('PerformanceTemplateContentSettings', () => {
     const groupTitles = [...document.body.querySelectorAll('.reference-drawer__group-title')].map((node) => node.textContent)
     expect(groupTitles).toEqual(['评估环节内容', '更多参考内容'])
     const nodeCards = [...document.body.querySelectorAll('.reference-drawer__group:nth-of-type(1) .reference-option-card__text')].map((node) => node.textContent)
-    expect(nodeCards).toEqual(['工作总结环节', '360°邀请环节', '360°确认环节', '校准环节', '结果沟通', '评估型环节', '绩效结果查看环节', '结果复议处理'])
+    expect(nodeCards).toEqual(['工作总结环节', '校准环节', '结果沟通', '评估型环节', '结果复议处理'])
     const moreCards = [...document.body.querySelectorAll('.reference-drawer__group:nth-of-type(2) .reference-option-card__text')].map((node) => node.textContent)
     expect(moreCards).toEqual(['OKR', '更多参考', '团队统计'])
 
@@ -1281,7 +1281,101 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
 
     expect(document.body.querySelector('.reference-drawer')).toBeNull()
-    expect(wrapper.get('.configured-content-panel').text()).toContain('OKR')
+    expect(wrapper.get('.reference-content-group').text()).toContain('OKR')
+  })
+
+  it('loads live reference content and persists isolated display overrides without source copies', async () => {
+    const prompt = { title: '来源提示', content: '完整提示正文', color: '#3370ff', scope: 'all' }
+    const sourceContent = { content_id: 'shared', type: 'custom', name: '真实来源内容', description: '局部描述', items: [
+      { id: 'item', label: '局部标签题', hint: '标签描述', questionType: 'tag', options: [{ id: 'a', label: '协作' }], settings: { mode: 'hidden', required: true } },
+      { id: 'notice', kind: 'prompt', label: '', hint: '', prompt },
+    ] }
+    const target = { ...mockNodes[3], node_id: 'target', content: [] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
+      { ...mockNodes[0], name: '真实流程名称', content_page_name: '不是流程名称', content: [sourceContent, { content_id: 'page-prompt', type: 'prompt', name: '来源提示', items: [], prompt }] },
+      { ...mockNodes[6], content: [{ ...sourceContent, name: '第二来源内容' }] }, target,
+    ], content_library: [{ ...sourceContent, name: '旧公共种子' }] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' }).vm.$emit('confirm', ['n1', 'n7'])
+    await wrapper.vm.$nextTick()
+    const blocks = () => wrapper.findAllComponents(PerformanceConfiguredContentBlock)
+    expect(blocks()).toHaveLength(3)
+    expect(wrapper.findAll('.reference-content-group h2').map(h => h.text())).toEqual(['真实流程名称', '评估型环节'])
+    expect(wrapper.text()).not.toContain('旧公共种子')
+    expect(wrapper.text()).toContain('完整提示正文')
+    expect(wrapper.find('.performance-rich-toolbar, .performance-rich-text-box, [contenteditable="true"], [data-drag-handle], .configured-card-action-toolbar').exists()).toBe(false)
+    expect(blocks()[0].props('itemSettings').item).toMatchObject({ mode: 'view', required: false })
+    await blocks()[0].get('.configured-content-card__row').trigger('click')
+    await wrapper.get('.content-settings-detail--root .work-summary-view-options input').setValue(true)
+    await blocks()[0].get('[data-content-item-id="item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input').setValue(false)
+    expect(blocks()[2].props('itemSettings').item.allowView).not.toBe(false)
+    await blocks()[1].get('.configured-content-card__row').trigger('click')
+    await wrapper.get('.content-settings-detail--prompt input').setValue(false)
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    const relations = saved.nodes[2].content!
+    expect(relations).toHaveLength(2)
+    expect(relations.every(content => content.type === 'reference' && content.items.length === 0)).toBe(true)
+    expect(relations[0].reference_settings?.content_settings?.shared).toMatchObject({ root: { hideDescription: true }, items: { item: { allowView: false } } })
+    expect(relations[0].reference_settings?.content_settings?.['page-prompt']?.root?.allowView).toBe(false)
+    expect(JSON.stringify(relations)).not.toContain('局部标签题')
+    expect(JSON.stringify(relations[0].reference_settings)).not.toMatch(/"mode"|"required"|"allowMultiple"/)
+    expect(saved.nodes[0].content![0]).toEqual(sourceContent)
+    wrapper.unmount()
+    const payload = structuredClone(saved)
+    payload.nodes[0].name = '重命名流程'
+    payload.nodes[0].content![0].name = '更新后的来源内容'
+    payload.nodes[0].content![0].items[0].label = '更新后的来源题'
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    expect(wrapper.get('.reference-content-group h2').text()).toBe('重命名流程')
+    expect(wrapper.text()).toContain('更新后的来源内容')
+    expect(blocks()[0].props('content').items[0].label).toBe('更新后的来源题')
+    expect(blocks()[0].props('itemSettings').item.allowView).toBe(false)
+    expect(blocks()[1].props('content').prompt?.allowView).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('loads binding-only and calibration reference sources and preserves overrides when reselecting or removing', async () => {
+    const content = { content_id: 'bound', type: 'custom', name: '绑定文本', description: '', items: [{ id: 'bound-item', label: '绑定题', hint: '' }] }
+    const nodes = [
+      { ...mockNodes[6], include_final_result: true, content_bindings: { fill: ['bound'] } },
+      { ...mockNodes[4], calibration_settings: { bound: { settings: { hideDescription: true } } } },
+      { ...mockNodes[3], content: [{ content_id: 'own', type: 'custom', name: '独立填写内容', description: '', items: [] }] },
+      { ...mockNodes[5], content: [] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes, content_library: [content] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    const drawer = wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' })
+    drawer.vm.$emit('confirm', ['n7', 'n5', 'n6'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAllComponents(PerformanceConfiguredContentBlock)).toHaveLength(2)
+    expect(wrapper.text()).toContain('该环节尚未配置内容')
+    expect(wrapper.text()).toContain('绑定题')
+    await wrapper.findAllComponents(PerformanceConfiguredContentBlock)[0].get('[data-content-item-id="bound-item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input').setValue(false)
+    await wrapper.get('.reference-entry-bar button').trigger('click')
+    drawer.vm.$emit('confirm', ['n7'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('itemSettings')['bound-item'].allowView).toBe(false)
+    drawer.vm.$emit('confirm', [])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.reference-content-group').exists()).toBe(false)
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls.at(-1)![1].nodes[2].content).toEqual([expect.objectContaining({ name: '独立填写内容', content_slot: 'fill' })])
+    wrapper.unmount()
   })
 
   it('keeps same-id node definitions and nested settings independent from library seeds through save and reopen', async () => {
@@ -1347,7 +1441,7 @@ describe('PerformanceTemplateContentSettings', () => {
     reopened.unmount()
   })
 
-  it('hides the reference entry bar once reference content is configured', async () => {
+  it('keeps reference selection accessible for existing legacy content', async () => {
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
       nodes: [{ ...mockNodes[3], content: [{ content_id: 'ref-1', content_slot: 'reference', type: 'custom', name: '参考材料', description: '', items: [] }] }],
       content_library: [],
@@ -1356,7 +1450,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     await wrapper.findAll('.stage-card')[0].trigger('click')
     await wrapper.findAll('.content-tab')[1].trigger('click')
-    expect(wrapper.find('.reference-entry-bar').exists()).toBe(false)
+    expect(wrapper.find('.reference-entry-bar').exists()).toBe(true)
     expect(wrapper.find('.configured-content-panel').exists()).toBe(true)
   })
 
@@ -1595,10 +1689,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.get('[data-content-item-id="view"]').trigger('click')
     expect((wrapper.get('.content-settings-detail--item input[value="view"]').element as HTMLInputElement).checked).toBe(true)
     await wrapper.findAll('.content-tab')[1].trigger('click')
-    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ content_id: 'reference-view', type, name: '参考', description: '', items: [{ id: 'reference', label: '参考题', hint: '', questionType: 'tag' }] }])
-    await wrapper.vm.$nextTick()
-    await wrapper.get('[data-content-item-id="reference"]').trigger('click')
-    expect(wrapper.find('.content-settings-detail--item').exists()).toBe(false)
+    expect(wrapper.find('.reference-entry-bar').exists()).toBe(true)
     await (wrapper.vm as any).save()
     const payload = update.mock.calls[0][1]
     const saved = payload.nodes.find(node => node.node_id === 'n4')!.content!.find(content => content.content_slot === 'fill')!

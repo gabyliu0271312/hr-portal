@@ -29,6 +29,7 @@ REVIEWER_360_LABEL = "360°评估人"
 SHARED_MANAGER_EXECUTOR_NODE_TYPES = {"result_communication", "reviewer_360_confirm"}
 SHARED_MANAGER_EXECUTOR_LABELS = {"实线上级", "虚线上级"}
 REVIEWER_360_CONFIRM_MANAGER_TYPES = {"DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER"}
+REFERENCE_SOURCE_NODE_TYPES = {"work_summary", "evaluation", "calibration", "result_communication", "result_reconsideration"}
 CALIBRATION_EXECUTOR_TYPE = "PROJECT_CONFIGURED"
 CALIBRATION_EXECUTOR_LABEL = "在项目配置时指定"
 DEFAULT_APPEAL_PROMPT = "如果你不认可本次绩效结果，请详细说明复议原因并提供事实依据"
@@ -127,6 +128,8 @@ def normalize_content_library(contents: list[dict]) -> list[dict]:
     normalized: list[dict] = []
     seen_ids: set[str] = set()
     for index, raw in enumerate(contents):
+        if raw.get("type") == "reference" and raw.get("reference_kind") == "node":
+            continue
         content = _normalize_content(raw)
         base_id = _content_id(content)
         content_id = base_id
@@ -144,6 +147,8 @@ def normalize_content_library(contents: list[dict]) -> list[dict]:
 def _merge_content_library(library: list[dict], contents: list[dict]) -> list[dict]:
     merged = {content["content_id"]: content for content in normalize_content_library(library)}
     for raw in contents:
+        if raw.get("type") == "reference" and raw.get("reference_kind") == "node":
+            continue
         content = _normalize_content(raw)
         content["content_id"] = _content_id(content)
         content.pop("content_slot", None)
@@ -305,6 +310,30 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
     return normalized
 
 
+def _validate_reference_contents(nodes: list[dict]) -> None:
+    nodes_by_id = {str(node["node_id"]): node for node in nodes}
+    for node in nodes:
+        for content in node.get("content") or []:
+            if (content.get("content_slot") or "fill") != "reference" or content.get("reference_kind") != "node":
+                continue
+            source_id = str(content.get("reference_value") or "")
+            source = nodes_by_id.get(source_id)
+            if source is None or source_id == node["node_id"] or source["node_type"] not in REFERENCE_SOURCE_NODE_TYPES or source.get("system"):
+                raise TemplateWorkflowValidationError("参考内容来源环节不合法", node_id=node["node_id"])
+            settings = content.get("reference_settings", {})
+            if not isinstance(settings, dict) or not isinstance(settings.get("content_settings", {}), dict):
+                raise TemplateWorkflowValidationError("参考内容查看设置不合法", node_id=node["node_id"])
+            for override in settings.get("content_settings", {}).values():
+                if not isinstance(override, dict) or not isinstance(override.get("root", {}), dict) or not isinstance(override.get("items", {}), dict):
+                    raise TemplateWorkflowValidationError("参考内容查看设置不合法", node_id=node["node_id"])
+                for display in [override.get("root", {}), *override.get("items", {}).values()]:
+                    if not isinstance(display, dict) or any(type(display[key]) is not bool for key in ("allowView", "hideName", "hideDescription", "onlyWhenFilling") if key in display):
+                        raise TemplateWorkflowValidationError("参考内容查看设置不合法", node_id=node["node_id"])
+                    if any(key in display for key in ("mode", "required", "allowModify", "levelRulesEnabled", "allowMultiple", "allowUnknown")):
+                        raise TemplateWorkflowValidationError("参考内容只能保存查看设置", node_id=node["node_id"])
+            content.update(type="reference", name=source["name"], description=source.get("description") or "", items=[], reference_value=source_id)
+
+
 def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> None:
     final_node = next(node for node in nodes if node["include_final_result"])
     contents_by_id = {content["content_id"]: content for content in library}
@@ -440,8 +469,9 @@ class PerformanceTemplateWorkflowService:
             node["content_bindings"] = bindings
         _validate_result_view_contents(normalized, source_library)
         normalized = [_materialize_node_contents(node, source_library) for node in normalized]
+        _validate_reference_contents(normalized)
         for node in normalized:
-            library = _merge_content_library(library, node.get("content") or [])
+            library = _merge_content_library(library, [content for content in (node.get("content") or []) if not ((content.get("content_slot") or "fill") == "reference" and content.get("type") == "reference" and content.get("reference_kind") == "node")])
         before = deepcopy(record.nodes) if record is not None else []
         if record is None:
             record = PerformanceTemplateWorkflow(template_id=template_id, nodes=normalized, content_library=library)

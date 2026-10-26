@@ -1113,11 +1113,18 @@ export interface PerformanceTemplateContentItem {
     required?: boolean
     hideName?: boolean
     hideDescription?: boolean
-    allowView?: boolean
     levelRulesEnabled?: boolean
     allowMultiple?: boolean
+    allowView?: boolean
   }
   options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
+}
+
+export interface PerformanceReferenceDisplaySettings {
+  allowView?: boolean
+  hideName?: boolean
+  hideDescription?: boolean
+  onlyWhenFilling?: boolean
 }
 
 export interface PerformanceTemplateContent {
@@ -1131,9 +1138,14 @@ export interface PerformanceTemplateContent {
   content_slot?: 'fill' | 'reference' | 'adjustment' | 'view'
   reference_kind?: 'node' | 'more'
   reference_value?: string
+  reference_source_content_id?: string
+  reference_settings?: {
+    content_settings?: Record<string, { root?: PerformanceReferenceDisplaySettings; items?: Record<string, PerformanceReferenceDisplaySettings> }>
+  }
   settings?: {
     hideDescription?: boolean
     allowMultiple?: boolean
+    allowView?: boolean
     allowUnknown?: boolean
     mode?: string
     required?: boolean
