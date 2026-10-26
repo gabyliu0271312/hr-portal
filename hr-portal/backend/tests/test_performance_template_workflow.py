@@ -1392,3 +1392,72 @@ async def test_content_page_name_patch_keeps_cycle_used_workflow_locked(workflow
     assert db.workflow.nodes == [old]
     assert db.added == []
     assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow_modify", [False, True])
+async def test_calibration_settings_patch_get_roundtrip_without_copying_final_content(workflow_save_setup, monkeypatch, allow_modify):
+    from copy import deepcopy
+
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    source = _view_source_content(content_type="work_summary", items=[{"id": "item", "settings": {"mode": "view", "required": False}}])
+    original = deepcopy(source)
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [source]}
+    overrides = {source["content_id"]: {"items": {"item": {"allowModify": allow_modify}}}}
+    calibration = {**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration", "content": [], "calibration_settings": overrides}
+    payload = WorkflowUpdate.model_validate({"nodes": [final, calibration]})
+    patched = await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    fetched = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+    for response in (patched, fetched):
+        assert response.nodes[1].model_dump()["calibration_settings"] == overrides
+        assert response.nodes[1].content == []
+        assert response.nodes[0].content == [original]
+        assert response.content_library == [original]
+    assert db.commits == 1
+    assert db.added[0].after_state["nodes"][1]["calibration_settings"] == overrides
+    assert source == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("clear", [False, True])
+async def test_calibration_settings_omission_preserves_and_empty_resets(workflow_save_setup, clear):
+    service, db = workflow_save_setup
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True}
+    overrides = {"summary": {"items": {"item": {"allowModify": False}}}}
+    calibration = {**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration", "calibration_settings": overrides}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[final, calibration], content_library=[], cycle_count=0, project_count=0)
+    incoming = {key: value for key, value in calibration.items() if key != "calibration_settings"}
+    if clear:
+        incoming["calibration_settings"] = {}
+    record = await service.save_nodes(77, [final, incoming], actor_type="PORTAL_USER", actor_ref="9")
+    reopened, _, _ = await service.get_nodes(77)
+    assert record.nodes[1]["calibration_settings"] == ({} if clear else overrides)
+    assert reopened[1]["calibration_settings"] == ({} if clear else overrides)
+
+
+@pytest.mark.parametrize("settings", [
+    {"summary": {"items": {"item": {"allowModify": "false"}}}},
+    {"summary": {"items": {"item": {"mode": "fill"}}}},
+    {"summary": {"items": {"item": {"required": True}}}},
+])
+def test_calibration_settings_contract_rejects_inherited_fields_and_non_boolean(settings):
+    with pytest.raises(ValidationError):
+        WorkflowNode.model_validate({**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration", "calibration_settings": settings})
+
+
+@pytest.mark.asyncio
+async def test_calibration_settings_patch_keeps_cycle_used_workflow_locked(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True}
+    calibration = {**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration"}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[final, calibration], content_library=[], cycle_count=1, project_count=0)
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    payload = WorkflowUpdate.model_validate({"nodes": [final, {**calibration, "calibration_settings": {"summary": {"items": {"item": {"allowModify": False}}}}}]})
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "TEMPLATE_WORKFLOW_LOCKED"
+    assert db.commits == 0
+    assert db.added == []

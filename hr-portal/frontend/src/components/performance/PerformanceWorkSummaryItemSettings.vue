@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { itemSettingsCapabilities, type ItemSettingsVariant } from './performanceContentSettingsRules'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSettings.vue'
 
 export interface WorkSummaryItemSettings {
@@ -13,9 +14,10 @@ export interface WorkSummaryItemSettings {
   allowView?: boolean
   onlyWhenFilling?: boolean
   levelRulesEnabled?: boolean
+  allowModify?: boolean
 }
 
-const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant }>(), {
+const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant; disabled?: boolean }>(), {
   variant: 'work-summary',
 })
 const capabilities = computed(() => itemSettingsCapabilities[props.variant])
@@ -28,7 +30,9 @@ const options = computed(() => [
 const checkedColor = '#336df4'
 
 function update(patch: Partial<WorkSummaryItemSettings>) {
-  emit('update:modelValue', { ...props.modelValue, ...patch })
+  if (props.disabled) return
+  const { mode, required, ...editable } = patch
+  emit('update:modelValue', { ...props.modelValue, ...editable, ...(!capabilities.value.modeDisabled && mode !== undefined ? { mode } : {}), ...(!capabilities.value.requiredDisabled && required !== undefined ? { required } : {}) })
 }
 </script>
 
@@ -49,11 +53,13 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
     </fieldset>
     <fieldset v-if="!capabilities.allowView && (capabilities.viewResults || capabilities.mode)" class="work-summary-setting-group work-summary-view-setting">
       <legend>填写设置</legend>
-      <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
+      <div v-if="capabilities.modeDisabled" class="work-summary-inherited-setting-help"><PerformanceInfoPopover content="填写方式及必填项设置与终评环节保持一致" :width="272" /></div>
+      <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" :disabled="disabled || capabilities.modeDisabled" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
+      <PerformanceCheckbox v-if="capabilities.allowModify" class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ allowModify: $event })" />
     </fieldset>
     <fieldset v-if="capabilities.required && (!capabilities.mode || modelValue.mode === 'fill')" class="work-summary-setting-group work-summary-required-setting">
       <legend>必填项设置</legend>
-      <PerformanceCheckbox :model-value="modelValue.required" label="必填" :checked-color="checkedColor" @update:model-value="update({ required: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.required" label="必填" :checked-color="checkedColor" :disabled="disabled || capabilities.requiredDisabled" @update:model-value="update({ required: $event })" />
     </fieldset>
     <PerformanceRatingLevelRuleSettings v-if="capabilities.levelRules" class="work-summary-level-rules" :model-value="modelValue.levelRulesEnabled === true" @update:model-value="update({ levelRulesEnabled: $event })" />
   </div>
@@ -62,5 +68,7 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 <style scoped>
 .work-summary-item-settings{display:flex;flex-direction:column;color:var(--color-text-primary);font:400 var(--font-size-md)/22px var(--font-sans)}.work-summary-setting-group{display:flex;flex-direction:column;width:272px;margin:0;padding:0;border:0}.work-summary-setting-group+ .work-summary-setting-group{margin-top:24px}.work-summary-setting-group legend{width:272px;height:22px;margin:0 0 8px;padding:0;color:var(--color-text-primary);font-size:var(--font-size-md);font-weight:600;line-height:22px}.work-summary-setting-group :deep(.performance-radio-group){display:flex;flex-direction:column;align-items:flex-start;gap:8px!important}.work-summary-setting-group :deep(.performance-checkbox){width:auto}.work-summary-setting-group :deep(.performance-checkbox + .performance-checkbox){margin-top:8px}
 .work-summary-view-options{display:flex;flex-direction:column;width:100%;margin-top:var(--spacing-2);padding:var(--spacing-4);box-sizing:border-box;background:var(--performance-review-readonly-surface);border-radius:6px}
+.work-summary-inherited-setting-help{height:16px;margin-bottom:12px}
+.work-summary-allow-modify-setting{margin-top:8px}
 .work-summary-level-rules{margin-top:var(--spacing-6)}
 </style>

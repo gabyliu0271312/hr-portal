@@ -431,3 +431,31 @@
   - Acceptance: focused Vitest、`vue-tsc --noEmit`、生产构建；目标参考图已归档为 `../../ui-blueprints/PM-T004-T05-content-settings-reference.png`；实现截图 `../../ui-blueprints/PM-T004-T05-content-settings-implemented.png` 待浏览器截图工具可用后补齐。
   - Non-scope: 添加内容/提示/参考内容弹层，右侧节点编辑表单，真实内容保存接口。
   - Definition of done: development、UI、tests、build、screenshot and evidence complete; only then mark `[x]`.
+
+
+- [x] PM-T004-T05-F24 校准工作总结 item 继承规则与独立修改权限（2026-10-26）
+  - Goal/confirmation: 用户确认实施；填写方式、必填值及必填区显隐联动与终评一致并禁用，校准仅独立设置允许修改。默认勾选允许修改，三种模式均展示，不引入未采集联动。
+  - Prerequisites/reading: Spec002 START_HERE/基线、T05既有蓝图及交互、Spec012 UI守则/N000/N00、共享rules/item设置/内容块/全局Radio/Checkbox、工作流GET/PATCH及测试；小范围原面板扩展，无新信息架构，不新增完整蓝图。
+  - Allowed modifications: frontend/src/components/performance/{performanceContentSettingsRules.ts,PerformanceWorkSummaryItemSettings.vue,PerformanceConfiguredContentBlock.vue,PerformanceRadioGroup.vue,PerformanceConfiguredContentBlock.spec.ts}、views/performance/PerformanceTemplateContentSettings.vue及同名spec、api/performance.ts及既有运行JS镜像；backend/app/performance/{templates_router.py,template_workflow_service.py}、tests/test_performance_template_workflow.py；本任务/交互文件及独立F24 PNG。
+  - Shared contract: nodes[].calibration_settings[content_id].items[item_id].allowModify:boolean，缺省true；只保存校准覆盖，不回存派生内容；mode/required从唯一终评fill来源读取。节点结构不存来源副本；旧调用省略字段时保留已有覆盖，显式{}清空。其他三块后续按同一能力分派/覆盖结构扩展，本轮不启用。
+  - UI/API impact: 现有内容设置路由；仅工作总结普通item启用校准设置，root/评级/自定义/提示不开放。全局Radio补灰色禁用态；校准禁拖拽；页面名称继续可选。既有工作流API新增可选JSON字段，沿原配置权限、锁定409和审计，不新增API/迁移，不改周期快照或运行时答案。
+  - Given/When/Then: Given唯一终评、fill/hidden/view及required真假、多校准/同名item；When选择item、Tab/节点切换、异步选项刷新、保存重开和来源变更；Then继承正确、必填区仅fill显示、控件锁定、allowModify隔离且持久化、不污染来源/内容库；非本轮类型仍无面板；已有周期禁止修改。
+  - Tests/evidence: `npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/PerformanceTemplateWorkflowSettings.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts`：6文件205/205通过；`hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_template_workflow.py -q`：191/191通过（既有python_multipart弃用提示）；最终`npm --prefix hr-portal/frontend run build`类型检查和生产构建通过（既有VueUse PURE注释提示），`git diff --check`通过。
+  - UI evidence: 本机Vite 5178启动实际应用路由`/performance/settings/templates/create?template_id=77&step=content`，Chromium + 内存接口夹具验证三项禁用、fill必填显示、view必填隐藏、Tab不清空、关闭允许修改、真实前端PATCH载荷不复制来源及刷新重开；无pageerror。独立截图`../../ui-blueprints/PM-T004-T05-F24-implemented-calibration-summary-settings.png`已查看，禁用Radio边框rgb(187,191,196)，取消勾选白底。截图关闭动画以避免过渡中间态。
+  - Validation boundaries: 后端服务测试使用ORM记录/提交审计夹具，不是实连数据库；浏览器API拦截不是实连后端联调。真实业务数据/生产环境/运行时校准未运行。沿原JSONB保存，无数据库迁移。仅勾本原子任务，不勾T05整体；未部署、未commit/push。
+  - Non-scope/protected: 其他三块配置、root配置、校准答案修改、数据迁移、生产部署、commit/push、UCP、权限模型、历史周期数据；不新增脚本或测试文档。
+  - Definition of done: 实现、前后端测试、UI截图检查及证据完整后勾选，缺失如实保留未完成。
+
+
+- [x] PM-T004-T05-F25 校准继承终评显示规则与配置权限解耦（2026-10-26）
+  - Goal/confirmation: 用户确认修复已定位的显示不一致；继承终评块级隐藏描述/允许多条及全部普通item显示规则，不开放另外三块配置。
+  - Reading/prerequisites: Spec002/012已读基线及UI规范、T05既有蓝图/F24交互与验收、共享内容块/renderer/rules、页面归一化/序列化和既有测试。原页面Bug修复，无新信息架构，不新增整页蓝图。
+  - Allowed modifications: frontend/src/components/performance/{PerformanceConfiguredContentBlock.vue,PerformanceConfiguredContentBlock.spec.ts,performanceContentSettingsRules.ts及.js镜像}、views/performance/PerformanceTemplateContentSettings.spec.ts；本任务及ui-interaction.md；独立PNG ui-blueprints/PM-T004-T05-F25-implemented-calibration-display-inheritance.png。
+  - Contracts: root显示取当前可配置值或校准继承来源；renderer接收全部校准普通item状态，不以设置面板可用性筛选；校准view归一化支持与终评一致的工作总结/文本/标签及混合评级填写项。root/item编辑能力仍沿原能力表，校准仅工作总结可配置allowModify。
+  - UI/side-effect boundary: 同一内容配置区，仅恢复应有描述显隐、多条预览入口、隐藏/查看/名称/描述/必填显示；不新增真实填写或结构编辑。沿F24覆盖持久化，其他类型不产生覆盖配置；不改API、后端、权限模型、数据库迁移、历史周期或UCP。
+  - Given/When/Then: Given终评四类内容含块级设置和混合item状态；When终评/校准切换、Tab、保存重开；Then显示快照一致，其他三类/root不出现设置面板，工作总结允许修改隔离保存，原普通环节不回归。
+  - Tests/evidence: 新增终评/校准对照用例先确认原缺陷失败，修复后通过；`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/PerformanceTemplateWorkflowSettings.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts`：6文件210/210通过；`npm --prefix hr-portal/frontend run build`：完整vue-tsc及vite生产构建通过，仅既有VueUse PURE注释提示；`git diff --check`通过。
+  - UI evidence: Chromium访问本地实际应用路由`/performance/settings/templates/create?template_id=77&step=content`，使用内存API夹具对比四类内容/7个item的描述、多条入口、hidden/view、名称/标签描述/评级必填状态，终评/校准相同；逐项确认其他三类无面板，关闭允许修改后Tab/前端PATCH/刷新重开仍一致且不污染来源。无pageerror；独立PNG `../../ui-blueprints/PM-T004-T05-F25-implemented-calibration-display-inheritance.png`已生成并查看，不覆盖F24截图。
+  - Validation boundaries: 本轮未改API/后端/数据库，后端测试未重跑；浏览器为实际前端+拦截接口夹具，不是实连后端/数据库联调。无迁移、未改运行时校准答案或历史快照，未部署/commit/push。仅勾F25，不勾T05整体。
+  - Protected/non-scope: 保留F24及用户未提交改动，不改另外三块配置功能、后端/DTO/运行时校准答案、生产部署、commit/push；不新建脚本或测试文档。
+  - Definition of done: 对照回归、类型构建、实际页面验证和独立截图证据齐备后勾选，仅完成本局部任务。

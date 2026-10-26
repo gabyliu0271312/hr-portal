@@ -23,6 +23,16 @@ from app.performance.template_workflow_service import (
 router = APIRouter(prefix="/performance/templates", tags=["performance-templates"])
 
 
+class CalibrationItemSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    allowModify: bool = Field(default=True, strict=True)
+
+
+class CalibrationContentSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: dict[str, CalibrationItemSettings] = Field(default_factory=dict)
+
+
 class WorkflowNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -44,6 +54,7 @@ class WorkflowNode(BaseModel):
     subject_confirm_required: bool = False
     calibration_reason_enabled: bool = False
     calibration_reason_required: bool = False
+    calibration_settings: dict[str, CalibrationContentSettings] = Field(default_factory=dict)
     appeal_prompt_content: str = Field(default="", max_length=1500)
     appeal_reason_instruction: str = Field(default="", max_length=1000)
     executor_config: dict | None = None

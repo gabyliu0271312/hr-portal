@@ -370,3 +370,22 @@
 - 验证：5文件179/179通过（renderer29/block24/TemplateRenderer15/Layers54/page57），员工填写/结果/Checkbox另42/42；完整vue-tsc+vite及diff检查通过，有既有VueUse PURE提示。初次静态CSS测试因Vitest CSS raw处理读空失败，改用项目已有readFileSync方式后全组通过。
 - 真实Chromium挂载完整ConfiguredContentBlock，四类item的fontFamily相同、14px/600/22px/#1F2329，details仍#646A73；临时仅在浏览器覆盖五项token为monospace/18px/500/28px/#AA2266，四类标题全部同步，内容块主标题和描述的计算样式完全不变。恢复token后独立PNG `../../ui-blueprints/PM-T004-T05-F23-implemented-global-item-title-tokens.png`已查看，无pageerror；为真实组件隔离证据，不是登录态页面/数据库验收。
 - UI合规N0001/N0002/N0004/N0005/N1102-N1104，沿已确认T05蓝图，无新组件体系或禁止项；同步frontend/docs/design-system.md。无API/JSONB/权限/迁移/周期快照/UCP变化，后端/数据库验收不适用；未替换容器、部署、commit或push。
+
+
+## 校准工作总结 item 内容设置（PM-T004-T05-F24，2026-10-26 用户确认）
+
+- 校准沿唯一终评节点fill内容及绑定补全加载；保留来源结构，叠加当前校准节点独立权限。无唯一终评/可用内容时不回退其他节点。
+- 复用PerformanceConfiguredContentBlock、PerformanceWorkSummaryItemSettings及能力表；calibration-item分派目前仅开放工作总结普通item，其他三块与提示/root不开放；不复制面板、控件或整份来源内容。
+- 三个填写方式均显示且禁用，选中值与对应终评item一致；必填值与终评一致且禁用，必填区仅fill模式显示；hidden/view仅隐藏必填区，不清除required。允许修改独立展示且默认勾选，不改变继承值或显隐。
+- calibration_settings按校准节点/content_id/item_id保存allowModify覆盖。省略字段兼容旧工作流调用，显式空对象清空；刷新/Tab/节点切换/保存重开统一重新解析来源并叠加覆盖。来源和内容库不写校准权限；来源删除项不再参与渲染，保留覆盖不产生孤立内容。
+- 继续隐藏新增/编辑/删除/移动入口，并禁用拖拽；item选择和页面名称设置继续可用。已使用模板沿原workflow锁定禁用允许修改，服务端沿原409/权限校验。
+- 样式复用320px面板及全局16px控件/token；全局Radio补禁用灰色选中态，不使用蓝色选中禁用态。复用PerformanceInfoPopover显示信息图标，说明文案仅表达已确认规则“填写方式及必填项设置与终评环节保持一致”，不声称为来源tooltip原文。
+- 本轮仅配置持久化，不声称运行时校准答案修改已实现；无需迁移、不修改历史周期快照。独立实现截图及测试结果记录在F24任务。
+
+
+## 校准继承显示与配置权限分离（PM-T004-T05-F25）
+
+- 校准不开放某类设置面板，不代表忽略其终评显示配置。显示解析与编辑能力判断分开：块级hideDescription/allowMultiple及所有非提示item的mode/required/hideName/hideDescription均按终评内容设置区呈现。
+- 复用原内容块/renderer；校准root设置继续不可配置，评级/自定义文本/标签继续不出现右侧设置面板，仅工作总结普通item沿F24配置允许修改。允许多条恢复既有预览入口，不新增实际答案或结构编辑行为。
+- 校准工作总结/自定义文本/标签及评级块内填写项保留view模式，不再因未开放编辑权限归一化成fill；提示沿既有逻辑，不改变源内容筛选、终评来源权威及覆盖持久化。
+- 验收须比较终评与校准相同内容的预览状态，覆盖隐藏描述开关、多个入口、hidden/view、隐藏名称和描述、评级选填星号、Tab切换/保存重开；同时确认其他三类无设置面板。独立实现截图与测试证据见F25任务。

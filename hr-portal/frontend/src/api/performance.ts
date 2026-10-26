@@ -1146,6 +1146,10 @@ export interface PerformanceTemplateContent {
   options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
 }
 
+export type PerformanceCalibrationSettings = Record<string, {
+  items?: Record<string, { allowModify?: boolean }>
+}>
+
 export interface PerformanceWorkflowNode {
   node_id: string | null
   content_page_name?: string | null
@@ -1165,6 +1169,7 @@ export interface PerformanceWorkflowNode {
   subject_confirm_required?: boolean
   calibration_reason_enabled?: boolean
   calibration_reason_required?: boolean
+  calibration_settings?: PerformanceCalibrationSettings
   appeal_prompt_content?: string
   appeal_reason_instruction?: string
   executor_config?: PerformanceExecutorConfig | null

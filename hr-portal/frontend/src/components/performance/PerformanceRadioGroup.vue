@@ -46,7 +46,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 .radio-wallpaper { flex: 0 0 var(--performance-workbench-editor-radio-size); width: var(--performance-workbench-editor-radio-size); height: var(--performance-workbench-editor-radio-size); margin-right: var(--performance-field-label-gap); box-sizing: border-box; border: 1px solid #8f959e; border-radius: 50%; background: var(--color-bg-card); }
 .performance-radio-option.checked .radio-wallpaper { border: 5px solid var(--color-primary-hover); }
 .performance-radio-option input:focus-visible + .radio-wallpaper { outline: 2px solid var(--color-primary-hover); outline-offset: 2px; }
-.performance-radio-option.disabled { color: #8f959e; cursor: not-allowed; }
+.performance-radio-option.disabled { color: var(--color-border); cursor: not-allowed; }
+.performance-radio-option.disabled .radio-wallpaper { border: 1px solid var(--color-border); background: var(--color-surface-disabled); }
+.performance-radio-option.disabled.checked .radio-wallpaper { border: 5px solid var(--color-border); }
 .performance-radio-option.disabled input { cursor: not-allowed; }
 .radio-label { white-space: nowrap; }
 .info-icon { flex: 0 0 16px; width: 16px; height: 16px; margin-left: 2px; color: #646a73; }

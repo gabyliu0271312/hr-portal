@@ -254,6 +254,8 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
                 "content_bindings": deepcopy(node.get("content_bindings") or {}),
             }
         )
+        if node_type == "calibration" and "calibration_settings" in node:
+            normalized[-1]["calibration_settings"] = deepcopy(node["calibration_settings"])
         if node.get("content") is not None:
             normalized[-1]["content"] = [_normalize_content(content, node_id) for content in node["content"]]
 
@@ -421,6 +423,8 @@ class PerformanceTemplateWorkflowService:
             existing_node = existing_nodes.get(node["node_id"])
             if "content_page_name" not in raw_node and existing_node is not None:
                 node["content_page_name"] = _normalize_content_page_name(existing_node, node["node_id"])
+            if node["node_type"] == "calibration" and "calibration_settings" not in raw_node and existing_node is not None:
+                node["calibration_settings"] = deepcopy(existing_node.get("calibration_settings") or {})
         existing_library = getattr(record, "content_library", None) if record is not None else []
         library = normalize_content_library(content_library or [])
         source_library = _merge_content_library(library, existing_library or [])

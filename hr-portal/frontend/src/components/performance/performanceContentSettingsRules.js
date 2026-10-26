@@ -1,4 +1,5 @@
 const itemSettingsCapabilities = {
+  "calibration-work-summary": { hideName: false, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
   "work-summary": { hideName: false, mode: true, required: true },
   "custom-text": { hideName: true, mode: true, required: true },
   "custom-tag": { hideName: true, hideDescription: true, mode: true, required: true },
@@ -15,11 +16,11 @@ const itemSettingsCapabilities = {
   "result-view-work-summary": { hideName: false, mode: false, required: false, allowView: true },
   "result-view-rating": { hideName: true, mode: false, required: false, allowView: true },
   "result-view-custom-text": { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
-  "result-view-tag": { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
+  "result-view-tag": { hideName: true, hideDescription: true, mode: false, required: false, allowView: true }
 };
 function getItemSettingsVariant(content, item) {
   if (content.type === "prompt" || item?.kind === "prompt") return "prompt";
-  if (item?.kind === "rating" || content.type === "rating" && item?.kind === undefined) return "rating";
+  if (item?.kind === "rating" || content.type === "rating" && item?.kind === void 0) return "rating";
   if (content.type === "custom" || content.type === "rating" && item?.kind === "fill") return (item?.questionType || content.questionType || "text") === "tag" ? "custom-tag" : "custom-text";
   return "work-summary";
 }
@@ -30,17 +31,18 @@ function supportsEvaluationView(content, item) {
 function supportsEvaluationItemSettings(content, item) {
   return supportsEvaluationView(content, item) || getItemSettingsVariant(content, item) === "rating";
 }
+function supportsResultViewSettings(content, item) {
+  return ["work-summary", "rating", "custom-text", "custom-tag"].includes(getItemSettingsVariant(content, item));
+}
 function supportsStageItemView(nodeType, content, item) {
+  if (nodeType === "calibration") return supportsEvaluationView(content, item);
   if (nodeType === "evaluation") return supportsEvaluationView(content, item);
   if (nodeType === "result_communication") return ["work-summary", "custom-text", "custom-tag"].includes(getItemSettingsVariant(content, item));
   return false;
 }
-function supportsResultViewSettings(content, item) {
-  return ["work-summary", "rating", "custom-text", "custom-tag"].includes(getItemSettingsVariant(content, item));
-}
 function getEvaluationExecutorKind(executorLabel, executorTypes = []) {
   if (executorLabel?.includes("360") || executorTypes.some((type) => /360|REVIEWER/i.test(type))) return "reviewer_360";
-  if (executorLabel?.includes("直属") || executorLabel?.includes("直接") || executorLabel?.includes("实线") || executorTypes.includes("DIRECT_MANAGER")) return "direct_manager";
+  if (executorLabel?.includes("\u76F4\u5C5E") || executorLabel?.includes("\u76F4\u63A5") || executorLabel?.includes("\u5B9E\u7EBF") || executorTypes.includes("DIRECT_MANAGER")) return "direct_manager";
   return "other";
 }
 function getRootSettingsCapabilities(content, variant = "") {
@@ -80,6 +82,8 @@ const stageContentRules = {
   calibration: {
     ...genericRule,
     visibleSlots: ["adjustment"],
+    itemSettingsEnabled: true,
+    itemSettingsVariant: "calibration-item",
     forbiddenSlots: ["fill", "reference", "view"]
   },
   result_communication: {
@@ -124,6 +128,19 @@ function getStageContentRule(nodeType, evaluationExecutorKind = "other") {
 function getStageContentTabs(nodeType, evaluationExecutorKind = "other") {
   return getStageContentRule(nodeType, evaluationExecutorKind).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }));
 }
+function supportsCalibrationItemSettings(content, item) {
+  return content.type === "work_summary" && getItemSettingsVariant(content, item) === "work-summary";
+}
+function resolveCalibrationContents(contents, settings = {}) {
+  return contents.map((content) => ({
+    ...content,
+    content_slot: "adjustment",
+    items: content.items.map((item) => supportsCalibrationItemSettings(content, item) ? {
+      ...item,
+      settings: { ...item.settings, allowModify: settings[content.content_id || content.id || `${content.type}-${content.name}`]?.items?.[item.id]?.allowModify !== false }
+    } : item)
+  }));
+}
 export {
   contentSlotLabels,
   getEvaluationExecutorKind,
@@ -132,9 +149,11 @@ export {
   getStageContentRule,
   getStageContentTabs,
   itemSettingsCapabilities,
+  resolveCalibrationContents,
+  stageContentRules,
+  supportsCalibrationItemSettings,
   supportsEvaluationItemSettings,
   supportsEvaluationView,
-  supportsStageItemView,
   supportsResultViewSettings,
-  stageContentRules
+  supportsStageItemView
 };

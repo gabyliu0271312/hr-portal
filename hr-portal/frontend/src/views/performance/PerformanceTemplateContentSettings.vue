@@ -59,7 +59,7 @@
         </template>
         <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
-          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :content="content"
@@ -74,6 +74,7 @@
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
+                :settings-disabled="isCalibration && pageNameLocked"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
@@ -135,7 +136,7 @@ import ContentSettingsStageRenderer from '@/components/performance/ContentSettin
 import PerformanceContentWorkspace from '@/components/performance/PerformanceContentWorkspace.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
-import { getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
+import { resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -244,7 +245,7 @@ const finalContents = computed(() => {
   return [...contents.values()].filter(content => content.type !== 'reference' && content.type !== 'prompt' && content.items?.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden'))
 })
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
-const calibrationContents = computed(() => finalContents.value.map(content => ({ ...content, content_slot: 'adjustment' as const })))
+const calibrationContents = computed(() => resolveCalibrationContents(finalContents.value, selectedWorkflowNode.value?.calibration_settings))
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const resultReferences = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value)?.content?.filter(content => content.content_slot === 'reference') || [])
 const summaryActions = computed(() => {
@@ -384,6 +385,21 @@ function itemSettingsForContent(contentId: string): Record<string, WorkSummaryIt
   return Object.fromEntries((content?.items || []).map((item) => [item.id, itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()]))
 }
 function setItemSettingsForContent(contentId: string, settings: Record<string, WorkSummaryItemSettings>) {
+  if (isCalibration.value) {
+    const node = selectedWorkflowNode.value
+    const content = configuredContents.value.find(content => content.id === contentId)
+    if (!node || !content || pageNameLocked.value) return
+    const overrides = node.calibration_settings || {}
+    const items = { ...overrides[contentId]?.items }
+    content.items.filter(item => supportsCalibrationItemSettings(content, item)).forEach(item => {
+      const current = itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()
+      const allowModify = settings[item.id]?.allowModify !== false
+      items[item.id] = { ...items[item.id], allowModify }
+      itemSettings.value[`${contentId}:${item.id}`] = { ...current, allowModify }
+    })
+    node.calibration_settings = { ...overrides, [contentId]: { ...overrides[contentId], items } }
+    return
+  }
   Object.entries(settings).forEach(([itemId, value]) => { itemSettings.value[`${contentId}:${itemId}`] = value })
 }
 function updateConfiguredContent(index: number, content: AssessmentContentDraft & { id: string }) {
@@ -421,8 +437,7 @@ function handleContentAction(key: string) {
 function handleTabChange(tab: string) {
   syncSelectedStageContents()
   activeTab.value = tab
-  const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
-  setConfiguredContents(node?.content?.filter((content) => (content.content_slot || 'fill') === tab) || [])
+  loadSelectedStageContents()
 }
 function handlePromptSave(value: PerformancePromptValue) {
   if (!selectedStage.value || !value.content.trim()) return
@@ -454,7 +469,7 @@ function setConfiguredContents(contents: PerformanceTemplateContent[]) {
   configuredContents.value = [...unique.values()] as Array<AssessmentContentDraft & { id: string }>
   configuredExpandedIds.value = new Set(configuredContents.value.map((item) => item.id))
   rootSettings.value = Object.fromEntries(configuredContents.value.map((content) => [content.id, normalizeRootSettings(content.settings, activeStageContentRule.value.rootSettingsVariant === 'result-view-root')]))
-  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, activeTab.value === 'fill' && supportsStageItemView(selectedStageData.value?.nodeType, content, item))])))
+  itemSettings.value = Object.fromEntries(configuredContents.value.flatMap((content) => content.items.map((item) => [`${content.id}:${item.id}`, normalizeItemSettings(item.settings, (activeTab.value === 'fill' || isCalibration.value) && supportsStageItemView(selectedStageData.value?.nodeType, content, item))])))
 }
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
   const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
@@ -492,14 +507,17 @@ function syncSelectedStageContents() {
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
 }
+function loadSelectedStageContents() {
+  const node = selectedWorkflowNode.value
+  setConfiguredContents(node?.node_type === 'calibration' ? calibrationContents.value : node?.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
+}
 function selectStage(id: string) {
   clearContentSelection()
   syncSelectedStageContents()
   selectedStage.value = id
   const node = workflowNodes.value.find((item) => item.node_id === id)
   activeTab.value = getStageContentTabs(node?.node_type, getEvaluationExecutorKind(node?.executor_label, node?.executor_types))[0]?.key || 'fill'
-  const contents = node?.node_type === 'calibration' ? calibrationContents.value : node?.content?.filter((content) => (content.content_slot || 'fill') === activeTab.value) || []
-  setConfiguredContents(contents)
+  loadSelectedStageContents()
   selectedConfiguredId.value = null
   configuredHoverKey.value = null
 }
@@ -591,8 +609,7 @@ function refreshRatingSnapshots() {
   syncSelectedStageContents()
   workflowNodes.value = workflowNodes.value.map(node => ({ ...node, content: node.content?.map(content => normalizeRatingContent(content)) }))
   contentLibrary.value = contentLibrary.value.map(content => normalizeRatingContent(content))
-  const node = workflowNodes.value.find(item => item.node_id === selectedStage.value)
-  if (node) setConfiguredContents(node.node_type === 'calibration' ? calibrationContents.value : node.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
+  loadSelectedStageContents()
 }
 function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: PerformanceTemplateContent[] = []) {
   workflowNodes.value = cloneContent(nodes).map(node => {
@@ -630,6 +647,7 @@ async function save() {
   const nodes = cloneContent(workflowNodes.value.map((node) => ({ ...node, ...(node.content_page_name != null ? { content_page_name: node.content_page_name.trim() } : {}), content: node.content ? node.content.map((content) => ({ ...content, items: content.items || [] })) : [] })))
   const response = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes, content_library: cloneContent(contentLibrary.value) })
   applyWorkflowNodes(response.nodes || [], response.content_library || [])
+  loadSelectedStageContents()
   pageNameLocked.value = (response.usage_summary?.cycle_count || 0) > 0 || response.editable_scope?.workflow === false
 }
 defineExpose({ save })

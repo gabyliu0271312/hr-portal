@@ -96,6 +96,72 @@ describe('PerformanceConfiguredContentBlock', () => {
   })
 
 
+  it.each([
+    ['fill', true], ['fill', false], ['hidden', true], ['hidden', false], ['view', true], ['view', false],
+  ] as const)('inherits calibration %s/required=%s with locked controls', async (mode, required) => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'work_summary' }, active: true, expanded: true, dragging: false,
+      index: 0, count: 1, toolbarVisible: false, rootSettings: { hideDescription: false, allowMultiple: false },
+      itemSettings: { 'item-1': { mode, required, allowModify: true } },
+      rootSettingsEnabled: false, itemSettingsEnabled: true, rootSettingsVariant: 'generic-root', itemSettingsVariant: 'calibration-item',
+    } })
+    expect(wrapper.find('.performance-drag-handle').exists()).toBe(false)
+    expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+    await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    const radios = wrapper.findAll('.content-settings-detail input[type="radio"]')
+    expect(radios).toHaveLength(3)
+    expect(radios.every(radio => (radio.element as HTMLInputElement).disabled)).toBe(true)
+    expect((radios.find(radio => (radio.element as HTMLInputElement).checked)!.element as HTMLInputElement).value).toBe(mode)
+    expect(wrapper.find('.work-summary-required-setting').exists()).toBe(mode === 'fill')
+    if (mode === 'fill') {
+      const checkbox = wrapper.get('.work-summary-required-setting input').element as HTMLInputElement
+      expect(checkbox.checked).toBe(required)
+      expect(checkbox.disabled).toBe(true)
+    }
+    await wrapper.get('.work-summary-allow-modify-setting input').setValue(false)
+    expect(wrapper.emitted('update:item-settings')!.at(-1)).toEqual([{ 'item-1': { mode, required, allowModify: false } }])
+    await wrapper.setProps({ settingsDisabled: true })
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it.each(['rating', 'custom', 'prompt'] as const)('does not open future calibration %s settings', async type => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type, prompt: type === 'prompt' ? { title: '提示', content: '正文', color: '#3370ff', scope: 'all' } : undefined },
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: {},
+      rootSettingsEnabled: false, itemSettingsEnabled: true, rootSettingsVariant: 'generic-root', itemSettingsVariant: 'calibration-item',
+    } })
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    if (type !== 'prompt') await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['evaluation-item', true, true],
+    ['calibration-item', false, true],
+    ['generic-item', false, false],
+  ] as const)('separates %s root display from configuration availability', async (variant, enabled, appliesDisplay) => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'work_summary', settings: { hideDescription: true, allowMultiple: true } },
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: true, allowMultiple: true }, itemSettings: {},
+      rootSettingsEnabled: enabled, itemSettingsEnabled: true,
+      rootSettingsVariant: enabled ? 'evaluation-direct-root' : 'generic-root', itemSettingsVariant: variant,
+    } })
+    expect(wrapper.find('.configured-content-card__description').exists()).toBe(!appliesDisplay)
+    expect(wrapper.find('.configured-content-card__add-item').exists()).toBe(appliesDisplay)
+    expect(wrapper.get('.configured-content-card').classes('hides-description')).toBe(appliesDisplay)
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(enabled)
+    if (variant === 'calibration-item') {
+      await wrapper.get('.configured-content-card__add-item').trigger('click')
+      expect(wrapper.emitted('update:content')).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
+
   it('starts work-summary item settings with fill settings and preserves the root flow', async () => {
     const wrapper = mount(PerformanceConfiguredContentBlock, {
       props: {
@@ -387,9 +453,10 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getEvaluationExecutorKind('', ['DIRECT_MANAGER'])).toBe('direct_manager')
     expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-view-root', itemSettingsEnabled: true })
     expect(getStageContentRule('result_communication')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-communication-root', itemSettingsEnabled: true, itemSettingsVariant: 'result-communication-item' })
-    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'calibration', 'result_reconsideration', 'unknown', undefined]) {
+    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'result_reconsideration', 'unknown', undefined]) {
       expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
     }
+    expect(getStageContentRule('calibration')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true, itemSettingsVariant: 'calibration-item', visibleSlots: ['adjustment'] })
     expect(itemSettingsCapabilities).toMatchObject({
       'work-summary': { hideName: false, mode: true, required: true },
       'custom-text': { hideName: true, mode: true, required: true },

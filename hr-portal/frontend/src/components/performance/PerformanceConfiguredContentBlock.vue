@@ -11,7 +11,7 @@ import PerformanceDragHandle from './PerformanceDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
-import { getItemSettingsVariant, getRootSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView, supportsResultViewSettings } from './performanceContentSettingsRules'
+import { getItemSettingsVariant, getRootSettingsCapabilities, supportsCalibrationItemSettings, supportsEvaluationItemSettings, supportsEvaluationView, supportsResultViewSettings } from './performanceContentSettingsRules'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 
 const props = defineProps<{
@@ -27,6 +27,7 @@ const props = defineProps<{
   itemSettings: Record<string, WorkSummaryItemSettings>
   rootSettingsEnabled?: boolean
   itemSettingsEnabled?: boolean
+  settingsDisabled?: boolean
   rootSettingsVariant: string
   itemSettingsVariant: string
 }>()
@@ -45,6 +46,8 @@ const emit = defineEmits<{
   'settings-visibility': [visible: boolean]
 }>()
 
+const isCalibration = computed(() => props.itemSettingsVariant === 'calibration-item')
+const rootDisplaySettings = computed(() => props.rootSettingsEnabled ? props.rootSettings : isCalibration.value ? props.content.settings : undefined)
 const previewContent = computed(() => ({ ...props.content, settings: { ...props.content.settings, ...(props.rootSettingsEnabled ? props.rootSettings : {}) } }))
 const rootCapabilities = computed(() => getRootSettingsCapabilities(props.content, props.rootSettingsVariant))
 const isPromptContent = computed(() => props.content.type === 'prompt')
@@ -53,8 +56,9 @@ const owner = ref<'root' | 'item'>('root')
 const selectedItemId = ref<string | null>(null)
 const selectedPrompt = computed(() => owner.value === 'root' ? (isPromptContent.value ? props.content.prompt : undefined) : props.content.items.find(item => item.id === selectedItemId.value && item.kind === 'prompt')?.prompt)
 const promptSettings = computed<WorkSummaryItemSettings>(() => ({ mode: 'fill', required: false, allowView: selectedPrompt.value?.allowView !== false, onlyWhenFilling: selectedPrompt.value?.onlyWhenFilling === true }))
-const settingsAvailable = computed(() => Boolean(selectedPrompt.value) || (owner.value === 'root' ? rootSettingsAvailable.value : selectedItemSettingsEnabled.value))
+const settingsAvailable = computed(() => Boolean(selectedPrompt.value && !isCalibration.value) || (owner.value === 'root' ? rootSettingsAvailable.value : selectedItemSettingsEnabled.value))
 const itemSettingsVariant = computed(() => {
+  if (isCalibration.value) return 'calibration-work-summary'
   if (props.itemSettingsVariant === 'evaluation-item') {
     const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
     const variant = getItemSettingsVariant(props.content, item)
@@ -86,10 +90,11 @@ const selectedItemKey = computed(() => props.active && owner.value === 'item' &&
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
 const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) => Boolean(props.itemSettingsEnabled)
   && item?.kind !== 'prompt'
+  && (!isCalibration.value || supportsCalibrationItemSettings(props.content, item))
   && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationItemSettings(props.content, item))
   && (props.itemSettingsVariant !== 'result-view-item' || supportsResultViewSettings(props.content, item))
 const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value)))
-const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => itemSettingsAvailable(item)).map((item) => {
+const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings>>(() => Object.fromEntries(props.content.items.filter(item => item.kind !== 'prompt' && (isCalibration.value || itemSettingsAvailable(item))).map((item) => {
   const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
   return [item.id, props.itemSettingsVariant === 'result-view-item' ? { ...settings, mode: 'view', required: false } : settings]
 })))
@@ -132,13 +137,13 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     variant="root"
     :selected="active && owner === 'root'"
     class="configured-content-card"
-    :class="{ 'rating-content-card': content.type === 'rating', 'is-result-readonly': props.itemSettingsVariant === 'result-view-item', 'is-result-tag': props.itemSettingsVariant === 'result-view-item' && content.type === 'custom' && content.items.some(item => (item.questionType || content.questionType || 'text') === 'tag'), 'is-dragging': dragging, 'hides-description': rootSettingsAvailable && rootSettings.hideDescription, 'allows-multiple': rootSettingsAvailable && rootSettings.allowMultiple }"
+    :class="{ 'rating-content-card': content.type === 'rating', 'is-result-readonly': props.itemSettingsVariant === 'result-view-item', 'is-result-tag': props.itemSettingsVariant === 'result-view-item' && content.type === 'custom' && content.items.some(item => (item.questionType || content.questionType || 'text') === 'tag'), 'is-dragging': dragging, 'hides-description': !isPromptContent && rootDisplaySettings?.hideDescription, 'allows-multiple': !isPromptContent && rootDisplaySettings?.allowMultiple }"
     :data-sortable-index="index"
     :style="itemStyle"
     @mouseenter="emit('hover-change', true)"
     @mouseleave="emit('hover-change', false)"
   >
-    <PerformanceDragHandle variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
+    <PerformanceDragHandle v-if="!isCalibration" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
     <PerformanceConfiguredCardActionToolbar
       :visible="toolbarVisible || dragging"
       :index="index"
@@ -154,7 +159,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
           <PerformancePromptDisplay v-if="content.prompt" :value="content.prompt" />
           <strong v-else>{{ content.name }}</strong>
         </template>
-        <PerformanceAssessmentPreviewHeader v-else :name="content.name" :description="rootSettingsEnabled && rootSettings.hideDescription ? '' : content.description" description-class="configured-content-card__description" />
+        <PerformanceAssessmentPreviewHeader v-else :name="content.name" :description="rootDisplaySettings?.hideDescription ? '' : content.description" description-class="configured-content-card__description" />
       </div>
       <PerformanceExpandButton v-if="!isPromptContent" :expanded="expanded" :hover-only="true" icon-variant="regular" label="Toggle content" @toggle="emit('update:expanded', !expanded)" @click.stop />
     </div>
@@ -164,11 +169,11 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       :interactive="true"
       :selected-item-id="selectedItemKey"
       :item-settings="rendererItemSettings"
-      :readonly-empty-answer-text="props.itemSettingsVariant === 'result-view-item' || props.itemSettingsVariant === 'evaluation-item' || props.itemSettingsVariant === 'result-communication-item' ? '这里展示用户填写内容' : ''"
+      :readonly-empty-answer-text="props.itemSettingsVariant === 'result-view-item' || props.itemSettingsVariant === 'evaluation-item' || props.itemSettingsVariant === 'result-communication-item' || isCalibration ? '这里展示用户填写内容' : ''"
       class="configured-content-card__details"
       @select-item="selectItem"
     />
-    <PerformanceAddAnotherButton v-if="rootSettingsAvailable && rootSettings.allowMultiple" class="configured-content-card__add-item" />
+    <PerformanceAddAnotherButton v-if="!isPromptContent && rootDisplaySettings?.allowMultiple" class="configured-content-card__add-item" />
   </PerformanceContentSelectionFrame>
 
   <div v-if="active && settingsAvailable" class="configured-content-settings">
@@ -179,7 +184,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" :allow-view-enabled="rootCapabilities.allowView === true" @update:model-value="emit('update:root-settings', $event)" />
     </div>
     <div v-else class="content-settings-detail content-settings-detail--item" aria-label="Selected content item settings">
-      <PerformanceWorkSummaryItemSettings :model-value="selectedItemSettings" :variant="itemSettingsVariant" @update:model-value="updateItemSettings" />
+      <PerformanceWorkSummaryItemSettings :model-value="selectedItemSettings" :variant="itemSettingsVariant" :disabled="settingsDisabled" @update:model-value="updateItemSettings" />
     </div>
   </div>
 </template>

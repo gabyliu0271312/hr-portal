@@ -1,8 +1,9 @@
+import type { PerformanceCalibrationSettings, PerformanceTemplateContent } from '@/api/performance'
 import type { AssessmentContentType } from './PerformanceAssessmentContentLayers.vue'
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-communication-work-summary' | 'result-communication-custom-text' | 'result-communication-custom-tag' | 'result-communication-rating' | 'result-view-work-summary' | 'result-view-rating' | 'result-view-custom-text' | 'result-view-tag'
+export type ItemSettingsVariant = 'calibration-work-summary' | 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-communication-work-summary' | 'result-communication-custom-text' | 'result-communication-custom-tag' | 'result-communication-rating' | 'result-view-work-summary' | 'result-view-rating' | 'result-view-custom-text' | 'result-view-tag'
 export type EvaluationExecutorKind = 'reviewer_360' | 'direct_manager' | 'other'
 export interface ItemSettingsCapabilities {
   hideName: boolean
@@ -13,8 +14,12 @@ export interface ItemSettingsCapabilities {
   required: boolean
   levelRules?: boolean
   viewResults?: boolean
+  modeDisabled?: boolean
+  requiredDisabled?: boolean
+  allowModify?: boolean
 }
 export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsCapabilities> = {
+  'calibration-work-summary': { hideName: false, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
   'work-summary': { hideName: false, mode: true, required: true },
   'custom-text': { hideName: true, mode: true, required: true },
   'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
@@ -54,6 +59,7 @@ export function supportsResultViewSettings(content: { type: string; questionType
 }
 
 export function supportsStageItemView(nodeType: string | undefined, content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
+  if (nodeType === 'calibration') return supportsEvaluationView(content, item)
   if (nodeType === 'evaluation') return supportsEvaluationView(content, item)
   if (nodeType === 'result_communication') return ['work-summary', 'custom-text', 'custom-tag'].includes(getItemSettingsVariant(content, item))
   return false
@@ -114,6 +120,8 @@ export const stageContentRules: Record<string, StageContentRule> = {
   calibration: {
     ...genericRule,
     visibleSlots: ['adjustment'],
+    itemSettingsEnabled: true,
+    itemSettingsVariant: 'calibration-item',
     forbiddenSlots: ['fill', 'reference', 'view'],
   },
   result_communication: {
@@ -160,4 +168,19 @@ export function getStageContentRule(nodeType?: string, evaluationExecutorKind: E
 
 export function getStageContentTabs(nodeType?: string, evaluationExecutorKind: EvaluationExecutorKind = 'other') {
   return getStageContentRule(nodeType, evaluationExecutorKind).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }))
+}
+
+export function supportsCalibrationItemSettings(content: { type: string }, item?: { kind?: 'rating' | 'fill' | 'prompt' }) {
+  return content.type === 'work_summary' && getItemSettingsVariant(content, item) === 'work-summary'
+}
+
+export function resolveCalibrationContents(contents: PerformanceTemplateContent[], settings: PerformanceCalibrationSettings = {}): PerformanceTemplateContent[] {
+  return contents.map(content => ({
+    ...content,
+    content_slot: 'adjustment',
+    items: content.items.map(item => supportsCalibrationItemSettings(content, item) ? {
+      ...item,
+      settings: { ...item.settings, allowModify: settings[content.content_id || content.id || `${content.type}-${content.name}`]?.items?.[item.id]?.allowModify !== false },
+    } : item),
+  }))
 }
