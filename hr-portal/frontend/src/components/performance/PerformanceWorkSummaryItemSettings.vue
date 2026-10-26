@@ -29,6 +29,7 @@ const options = computed(() => [
 ])
 const checkedColor = '#336df4'
 const allowModifyDisabled = computed(() => props.disabled || props.modelValue.mode !== 'fill')
+const isCalibrationRating = computed(() => props.variant === 'calibration-rating')
 
 function update(patch: Partial<WorkSummaryItemSettings>) {
   if (props.disabled || (patch.allowModify !== undefined && allowModifyDisabled.value)) return
@@ -38,7 +39,7 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 </script>
 
 <template>
-  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' || variant === 'evaluation-rating' || variant === 'result-view-rating' || variant === 'result-communication-rating' }" :aria-label="variant === 'rating' || variant === 'evaluation-rating' || variant === 'result-view-rating' || variant === 'result-communication-rating' ? '评分评级设置' : variant === 'custom-text' || variant === 'evaluation-custom-text' || variant === 'result-view-custom-text' || variant === 'result-communication-custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' || variant === 'evaluation-custom-tag' || variant === 'result-view-tag' || variant === 'result-communication-custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
+  <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' || variant === 'calibration-rating' || variant === 'evaluation-rating' || variant === 'result-view-rating' || variant === 'result-communication-rating' }" :aria-label="variant === 'rating' || variant === 'calibration-rating' || variant === 'evaluation-rating' || variant === 'result-view-rating' || variant === 'result-communication-rating' ? '评分评级设置' : variant === 'custom-text' || variant === 'calibration-custom-text' || variant === 'evaluation-custom-text' || variant === 'result-view-custom-text' || variant === 'result-communication-custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' || variant === 'calibration-custom-tag' || variant === 'evaluation-custom-tag' || variant === 'result-view-tag' || variant === 'result-communication-custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
     <fieldset v-if="capabilities.allowView" class="work-summary-setting-group work-summary-view-setting">
       <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" :checked-color="checkedColor" @update:model-value="update({ allowView: $event })" />
       <div v-if="modelValue.allowView !== false && (capabilities.hideName || capabilities.hideDescription || capabilities.onlyWhenFilling)" class="work-summary-view-options">
@@ -62,7 +63,12 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
       <legend>必填项设置</legend>
       <PerformanceCheckbox :model-value="modelValue.required" label="必填" :checked-color="checkedColor" :disabled="disabled || capabilities.requiredDisabled" @update:model-value="update({ required: $event })" />
     </fieldset>
-    <PerformanceRatingLevelRuleSettings v-if="capabilities.levelRules" class="work-summary-level-rules" :model-value="modelValue.levelRulesEnabled === true" @update:model-value="update({ levelRulesEnabled: $event })" />
+    <fieldset v-if="isCalibrationRating" class="work-summary-setting-group work-summary-rating-setting">
+      <legend>评级设置</legend>
+      <PerformanceCheckbox class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="props.disabled" @update:model-value="update({ allowModify: $event })" />
+      <PerformanceRatingLevelRuleSettings :model-value="modelValue.levelRulesEnabled === true" :disabled="props.disabled" @update:model-value="update({ levelRulesEnabled: $event })" />
+    </fieldset>
+    <PerformanceRatingLevelRuleSettings v-if="capabilities.levelRules && !isCalibrationRating" class="work-summary-level-rules" :model-value="modelValue.levelRulesEnabled === true" @update:model-value="update({ levelRulesEnabled: $event })" />
   </div>
 </template>
 
@@ -71,5 +77,6 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 .work-summary-view-options{display:flex;flex-direction:column;width:100%;margin-top:var(--spacing-2);padding:var(--spacing-4);box-sizing:border-box;background:var(--performance-review-readonly-surface);border-radius:6px}
 .work-summary-inherited-setting-title{display:flex;align-items:center;gap:4px}
 .work-summary-allow-modify-setting{margin-top:8px}
+.work-summary-rating-setting :deep(.rating-level-rule-settings){margin-top:var(--spacing-4)}
 .work-summary-level-rules{margin-top:var(--spacing-6)}
 </style>

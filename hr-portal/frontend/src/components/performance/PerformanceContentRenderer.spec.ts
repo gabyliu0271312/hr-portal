@@ -53,7 +53,12 @@ describe('performance content shared primitives', () => {
     expect(item.find('.performance-rich-text-box').exists()).toBe(false)
     expect(item.find('.performance-rich-toolbar').exists()).toBe(false)
     expect(item.find('.content-renderer-view-preview').exists()).toBe(true)
-    expect(contentRendererSource).toContain('.content-renderer-item--readonly-surface :deep(.performance-rich-text-box){background:var(--performance-review-readonly-surface)}')
+    expect(contentRendererSource).toContain('.content-renderer-item--readonly-surface :deep(.performance-rich-text-box),.content-renderer-item--readonly-surface :deep(.tag-rich-text-input),.content-renderer-item--readonly-surface :deep(.tag-options){background:var(--performance-review-readonly-surface)}')
+    const surfaceTag = mount(PerformanceContentRenderer, { props: { content: { type: 'custom', items: [{ id: 'tag', label: '标签题', questionType: 'tag', options: [{ id: 'a', label: '选项A' }] }] } as any, itemSettings: { tag: { mode: 'fill', required: true, readonlySurface: true } } } })
+    expect(surfaceTag.get('[data-content-item-id="tag"]').classes()).toContain('content-renderer-item--readonly-surface')
+    expect(contentRendererSource).toContain(':deep(.tag-rich-text-input)')
+    expect(contentRendererSource).toContain(':deep(.tag-options)')
+    surfaceTag.unmount()
     wrapper.unmount()
   })
 
@@ -175,7 +180,7 @@ describe('performance content shared primitives', () => {
     await wrapper.get('.tag-options input').trigger('change')
     expect(renderer.emitted('update:value')).toBeUndefined()
     expect(wrapper.emitted('update-answer')).toBeUndefined()
-    expect(contentRendererSource).not.toMatch(/:deep\(\.(?:tag-options|tag-followup|template-field-description)\)/)
+    expect(contentRendererSource).toContain('.content-renderer-item--readonly-surface :deep(.tag-options)')
     wrapper.unmount()
   })
 

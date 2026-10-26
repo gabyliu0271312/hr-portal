@@ -412,3 +412,11 @@
 - 校准工作总结item的allowModify=false时，富文本框（工具栏及内容区）整体使用performance-review-readonly-surface，与“在此环节查看被评估人的填写结果”同底色；仍显示填写题富文本结构、工具栏、hint/richText，不改成readonly结果占位，不改变mode/required或隐藏标识。
 - 仅由内容块派生readonlySurface渲染标识，经既有preview/itemSettings链路传给共享renderer，标识不参与配置保存；其他环节和内容类型不启用该灰底。恢复勾选后按原显示状态恢复底色，view模式沿原查看结构，hidden的F27禁用联动不变。
 - 验证标题/图标实际同行、工具栏与内容区背景等于查看结果token、结构仍不同、切换/保存重开保持及源内容不污染；独立截图和证据见F28。
+
+
+## 校准三类内容设置（PM-T004-T05-F29，2026-10-26 用户确认）
+
+- 自定义标签型：显示设置隐藏名称/隐藏描述；填写设置含引用设置、三态填写方式、必填和允许修改；mode/required只读继承终评，hidden/view时允许修改按F27禁用；allowModify=false时标签填写框及标签选项容器均使用performance-review-readonly-surface。
+- 自定义文本型：显示设置隐藏名称；填写设置含引用设置、三态填写方式、必填和允许修改；mode/required只读继承终评；allowModify=false时富文本填写框使用同一灰底，保留富文本结构。
+- 评分评级：显示设置隐藏名称；必填项设置从终评继承且禁用；评级设置含允许修改和按规则配置可选等级，二者可在校准独立配置，模板锁定时沿既有锁定规则禁用。评级不显示填写方式引用单选。
+- 三类覆盖均按content_id/item_id隔离，进入校准时复用终评来源，不将readonlySurface等本地预览标识写入终评或API；其他阶段和内容类型保持既有能力。

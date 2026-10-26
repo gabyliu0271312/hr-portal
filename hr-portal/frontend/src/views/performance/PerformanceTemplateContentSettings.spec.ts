@@ -617,6 +617,7 @@ describe('PerformanceTemplateContentSettings', () => {
       { content_id: 'text', type: 'custom', name: '文本', description: '文本描述', settings: { hideDescription }, items: [
         { id: 'text-hidden', label: '隐藏题', hint: '', settings: { mode: 'hidden', required: true, hideName: true } },
         { id: 'text-view', label: '查看题', hint: '', settings: { mode: 'view', required: true, hideName: true } },
+        { id: 'text-fill', label: '填写题', hint: '', settings: { mode: 'fill', required: true, hideName: true } },
       ] },
       { content_id: 'rating', type: 'rating', name: '评级', description: '评级描述', settings: { hideDescription }, ratingOptionId: 'rating-item', options: [{ id: 'A', label: 'A' }], items: [
         { id: 'rating-item', kind: 'rating', label: '选填评级', hint: '', settings: { mode: 'fill', required: false, hideName: true } },
@@ -656,10 +657,11 @@ describe('PerformanceTemplateContentSettings', () => {
       expect(wrapper.find('.content-settings-detail--root').exists()).toBe(false)
     }
     for (const block of blocks.slice(1)) {
-      for (const item of block.findAll('[data-content-item-id]')) {
-        await item.trigger('click')
-        expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
-      }
+      const targetId = block.props('content').content_id === 'text' ? 'text-fill' : block.props('content').content_id === 'rating' ? 'rating-item' : block.props('content').content_id === 'tag' ? 'tag-fill' : ''
+      await block.get(targetId ? `[data-content-item-id="${targetId}"]` : '[data-content-item-id]').trigger('click')
+      expect(wrapper.find('.content-settings-detail--item').exists()).toBe(true)
+      expect(wrapper.get('.content-settings-detail--item').text()).toContain('允许修改')
+      await wrapper.get('.work-summary-allow-modify-setting input').setValue(false)
     }
     await blocks[0].get('[data-content-item-id="summary-fill"]').trigger('click')
     await wrapper.get('.work-summary-allow-modify-setting input').setValue(false)
@@ -671,6 +673,7 @@ describe('PerformanceTemplateContentSettings', () => {
     const saved = update.mock.calls.at(-1)![1]
     expect(saved.nodes[1].content).toEqual([])
     expect(saved.nodes[1].calibration_settings?.summary.items?.['summary-fill'].allowModify).toBe(false)
+    for (const contentId of ['text', 'rating', 'tag']) expect(saved.nodes[1].calibration_settings?.[contentId]?.items?.[contentId === 'text' ? 'text-fill' : contentId === 'rating' ? 'rating-item' : 'tag-fill']?.allowModify).toBe(false)
     expect(saved.nodes[0].content?.[1].items[1].settings?.mode).toBe('view')
     expect(saved.nodes[0].content?.[3].items[1].settings?.mode).toBe('view')
     wrapper.unmount()

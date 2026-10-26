@@ -58,7 +58,14 @@ const selectedPrompt = computed(() => owner.value === 'root' ? (isPromptContent.
 const promptSettings = computed<WorkSummaryItemSettings>(() => ({ mode: 'fill', required: false, allowView: selectedPrompt.value?.allowView !== false, onlyWhenFilling: selectedPrompt.value?.onlyWhenFilling === true }))
 const settingsAvailable = computed(() => Boolean(selectedPrompt.value && !isCalibration.value) || (owner.value === 'root' ? rootSettingsAvailable.value : selectedItemSettingsEnabled.value))
 const itemSettingsVariant = computed(() => {
-  if (isCalibration.value) return 'calibration-work-summary'
+  if (isCalibration.value) {
+    const variant = getItemSettingsVariant(props.content, props.content.items.find((candidate) => candidate.id === selectedItemId.value))
+    if (variant === 'work-summary') return 'calibration-work-summary'
+    if (variant === 'custom-text') return 'calibration-custom-text'
+    if (variant === 'custom-tag') return 'calibration-custom-tag'
+    if (variant === 'rating') return 'calibration-rating'
+    return variant
+  }
   if (props.itemSettingsVariant === 'evaluation-item') {
     const item = props.content.items.find((candidate) => candidate.id === selectedItemId.value)
     const variant = getItemSettingsVariant(props.content, item)

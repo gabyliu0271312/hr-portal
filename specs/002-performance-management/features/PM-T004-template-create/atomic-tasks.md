@@ -500,3 +500,17 @@
   - Validation boundaries: 未实连生产/数据库，本轮未改API/后端，后端测试未重跑；无迁移、部署、commit/push。仅勾F28，不勾T05整体。
   - Non-scope: 不改API/后端/数据库、其他三块配置权限、员工运行时答案、生产/部署、commit/push；不新增脚本或测试文档。
   - Definition of done: 回归、构建、实际UI和独立截图证据齐备后勾选，仅完成本局部任务。
+
+
+- [x] PM-T004-T05-F29 校准自定义文本/标签及评分评级内容设置（2026-10-26）
+  - Goal/confirmation: 用户确认校准三类item配置：自定义标签显示隐藏名称/描述、引用填写/必填/允许修改且未允许修改时填写框及选项同灰底；评级隐藏名称、终评必填只读、允许修改和按规则配置可选等级；自定义文本隐藏名称、引用填写/必填/允许修改且未允许修改时填写框灰底。
+  - Reading/prerequisites: Spec002/012、T05/F24-F28、共享rules/ConfiguredContentBlock/ItemSettings/ContentRenderer/TemplateFieldRenderer/TagInput/RatingControl/RatingLevelRuleSettings及现有回归；同一页既有组件扩展，不新增蓝图。
+  - Allowed modifications: performanceContentSettingsRules.ts及.js、PerformanceConfiguredContentBlock.vue及spec、PerformanceWorkSummaryItemSettings.vue、PerformanceRatingLevelRuleSettings.vue、PerformanceContentRenderer.vue及spec、PerformanceAssessmentConfiguredPreview.vue、PerformanceTemplateContentSettings.spec.ts、本任务/交互文件；独立PNG F29。
+  - Contract: calibration variants按item类型分派；calibration_settings[content_id].items[item_id].allowModify覆盖三类；mode/required/display按终评只读继承。评分评级allowModify及levelRulesEnabled独立可配置，requiredDisabled；渲染readonlySurface仅作为本地预览标识，不入保存载荷。
+  - UI/side-effect boundary: 复用全局禁用token、InfoPopover、PerformanceCheckbox/Radio/Switch；不复制面板、不改后端/API/数据库。标签灰底同时覆盖填写框与选项容器；评级不强制套用富文本灰底。
+  - Given/When/Then: Given四类内容及混合rating fill item；When校准选择item、切换allowModify/规则开关、保存重开；Then三类面板字段准确、终评必填/显示规则锁定、覆盖按内容/item隔离、灰底/标签选项正确、rating规则开关可用且模板锁定禁用、原工作总结/其他阶段回归。
+  - Tests/evidence: focused及完整回归共6文件220/220通过；`npm --prefix hr-portal/frontend run build`完成vue-tsc及vite生产构建（既有VueUse PURE注释提示），`git diff --check`通过。运行镜像`performanceContentSettingsRules.js`已由TS同步生成。
+  - UI evidence: 本地实际应用路由+Chromium内存API夹具验证4类内容；自定义文本/标签展示引用填写与必填并禁用，allowModify=false分别让富文本框、标签选项容器和标签填写框采用#f5f6f7；评级显示隐藏名称、必填禁用、允许修改和“按规则配置可选等级”；PATCH保存只写三类allowModify/评级规则配置，不写readonlySurface，刷新重开保持。无pageerror。独立PNG `../../ui-blueprints/PM-T004-T05-F29-implemented-calibration-three-content-settings.png`已生成并查看。
+  - Validation boundaries: 浏览器使用内存API夹具，非生产/数据库联调；本轮仅前端和规格/测试文件，后端未改未重跑；未部署、未commit/push。工作区另有warehouse/datasets未相关变更，未触碰、未纳入本任务。
+  - Non-scope: 不改运行时答案、数据库迁移、权限模型、其他三块未来业务、生产部署、commit/push；不新增脚本或测试文档。
+  - Definition of done: 三类配置测试、构建、实际UI和截图证据齐备后勾选，仅完成本局部任务。

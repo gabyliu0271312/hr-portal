@@ -131,6 +131,6 @@ const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? cont
 .content-renderer-item--name-hidden :deep(.performance-assessment-rich-text-field__label){display:none}
 .content-renderer-item--hidden :deep(.performance-rich-text-box){border-color:#dee0e3;background:#fff;pointer-events:none}
 .content-renderer-item--hidden :deep(.performance-rich-toolbar){color:#bbbfc4}
-.content-renderer-item--readonly-surface :deep(.performance-rich-text-box){background:var(--performance-review-readonly-surface)}
+.content-renderer-item--readonly-surface :deep(.performance-rich-text-box),.content-renderer-item--readonly-surface :deep(.tag-rich-text-input),.content-renderer-item--readonly-surface :deep(.tag-options){background:var(--performance-review-readonly-surface)}
 .content-renderer-editor__body{min-height:90px;padding:6px 10px;color:#646a73;font-size:14px;line-height:22px;white-space:pre-wrap}
 </style>

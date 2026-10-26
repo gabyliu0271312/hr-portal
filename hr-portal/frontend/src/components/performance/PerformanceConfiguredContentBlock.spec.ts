@@ -9,7 +9,7 @@ import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
-import { getEvaluationExecutorKind, getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView } from './performanceContentSettingsRules'
+import { getEvaluationExecutorKind, getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsCalibrationItemSettings, supportsEvaluationItemSettings, supportsEvaluationView } from './performanceContentSettingsRules'
 
 const content = {
   id: 'content-1',
@@ -145,7 +145,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     wrapper.unmount()
   })
 
-  it.each(['rating', 'custom', 'prompt'] as const)('does not open future calibration %s settings', async type => {
+  it.each(['rating', 'custom', 'prompt'] as const)('opens supported calibration %s settings', async type => {
     const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
       content: { ...content, type, prompt: type === 'prompt' ? { title: '提示', content: '正文', color: '#3370ff', scope: 'all' } : undefined },
       active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
@@ -154,7 +154,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     } })
     await wrapper.get('.configured-content-card__row').trigger('click')
     if (type !== 'prompt') await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
-    expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
+    expect(wrapper.find('.content-settings-detail').exists()).toBe(type !== 'prompt')
     wrapper.unmount()
   })
 
@@ -185,7 +185,7 @@ describe('PerformanceConfiguredContentBlock', () => {
   it.each([
     ['calibration-item', 'work_summary', true],
     ['evaluation-item', 'work_summary', false],
-    ['calibration-item', 'custom', false],
+    ['calibration-item', 'custom', true],
   ] as const)('derives the readonly surface only for %s/%s', async (variant, type, muted) => {
     const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
       content: { ...content, type }, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
@@ -198,6 +198,30 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.find('.content-renderer-view-preview').exists()).toBe(false)
     await wrapper.setProps({ itemSettings: { 'item-1': { mode: 'fill', required: true, allowModify: true } } })
     expect(wrapper.get('[data-content-item-id="item-1"]').classes('content-renderer-item--readonly-surface')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['custom-text', { type: 'custom', questionType: 'text' }, ['显示设置', '填写设置', '必填项设置']],
+    ['custom-tag', { type: 'custom', questionType: 'tag' }, ['显示设置', '填写设置', '必填项设置']],
+    ['rating', { type: 'rating', items: [{ id: 'item-1', kind: 'rating', label: '评级', hint: '' }] }, ['显示设置', '必填项设置', '评级设置']],
+  ] as const)('uses calibration settings for %s', async (kind, contentOverride, groups) => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, ...contentOverride, items: [...(('items' in contentOverride ? contentOverride.items : content.items))] as any, type: contentOverride.type as any } as any, active: true, expanded: true, dragging: false,
+      index: 0, count: 1, toolbarVisible: false, rootSettings: { hideDescription: false, allowMultiple: false },
+      itemSettings: { 'item-1': { mode: 'fill', required: true, allowModify: false, hideName: false, hideDescription: false } },
+      rootSettingsEnabled: false, itemSettingsEnabled: true, rootSettingsVariant: 'generic-root', itemSettingsVariant: 'calibration-item',
+    } })
+    await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(groups)
+    expect(wrapper.get('.content-settings-detail--item').text()).toContain('允许修改')
+    if (kind === 'rating') {
+      expect(wrapper.get('.content-settings-detail--item').text()).toContain('按规则配置可选等级')
+      expect(wrapper.findAll('.content-settings-detail--item input[type="radio"]')).toHaveLength(0)
+    } else {
+      expect(wrapper.findAll('.content-settings-detail--item input[type="radio"]')).toHaveLength(3)
+      expect(wrapper.find('.work-summary-inherited-setting-title').exists()).toBe(true)
+    }
     wrapper.unmount()
   })
 

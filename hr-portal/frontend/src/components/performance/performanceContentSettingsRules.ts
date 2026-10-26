@@ -3,7 +3,7 @@ import type { AssessmentContentType } from './PerformanceAssessmentContentLayers
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
-export type ItemSettingsVariant = 'calibration-work-summary' | 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-communication-work-summary' | 'result-communication-custom-text' | 'result-communication-custom-tag' | 'result-communication-rating' | 'result-view-work-summary' | 'result-view-rating' | 'result-view-custom-text' | 'result-view-tag'
+export type ItemSettingsVariant = 'calibration-work-summary' | 'calibration-custom-text' | 'calibration-custom-tag' | 'calibration-rating' | 'work-summary' | 'custom-text' | 'custom-tag' | 'rating' | 'prompt' | 'evaluation-work-summary' | 'evaluation-custom-text' | 'evaluation-custom-tag' | 'evaluation-rating' | 'result-communication-work-summary' | 'result-communication-custom-text' | 'result-communication-custom-tag' | 'result-communication-rating' | 'result-view-work-summary' | 'result-view-rating' | 'result-view-custom-text' | 'result-view-tag'
 export type EvaluationExecutorKind = 'reviewer_360' | 'direct_manager' | 'other'
 export interface ItemSettingsCapabilities {
   hideName: boolean
@@ -20,6 +20,9 @@ export interface ItemSettingsCapabilities {
 }
 export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsCapabilities> = {
   'calibration-work-summary': { hideName: false, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
+  'calibration-custom-text': { hideName: true, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
+  'calibration-custom-tag': { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
+  'calibration-rating': { hideName: true, mode: false, required: true, levelRules: true, requiredDisabled: true, allowModify: true },
   'work-summary': { hideName: false, mode: true, required: true },
   'custom-text': { hideName: true, mode: true, required: true },
   'custom-tag': { hideName: true, hideDescription: true, mode: true, required: true },
@@ -171,7 +174,7 @@ export function getStageContentTabs(nodeType?: string, evaluationExecutorKind: E
 }
 
 export function supportsCalibrationItemSettings(content: { type: string }, item?: { kind?: 'rating' | 'fill' | 'prompt' }) {
-  return content.type === 'work_summary' && getItemSettingsVariant(content, item) === 'work-summary'
+  return ['work-summary', 'custom-text', 'custom-tag', 'rating'].includes(getItemSettingsVariant(content, item))
 }
 
 export function resolveCalibrationContents(contents: PerformanceTemplateContent[], settings: PerformanceCalibrationSettings = {}): PerformanceTemplateContent[] {

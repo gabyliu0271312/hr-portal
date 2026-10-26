@@ -1,5 +1,8 @@
 const itemSettingsCapabilities = {
   "calibration-work-summary": { hideName: false, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
+  "calibration-custom-text": { hideName: true, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
+  "calibration-custom-tag": { hideName: true, hideDescription: true, mode: true, required: true, viewResults: true, modeDisabled: true, requiredDisabled: true, allowModify: true },
+  "calibration-rating": { hideName: true, mode: false, required: true, levelRules: true, requiredDisabled: true, allowModify: true },
   "work-summary": { hideName: false, mode: true, required: true },
   "custom-text": { hideName: true, mode: true, required: true },
   "custom-tag": { hideName: true, hideDescription: true, mode: true, required: true },
@@ -129,7 +132,7 @@ function getStageContentTabs(nodeType, evaluationExecutorKind = "other") {
   return getStageContentRule(nodeType, evaluationExecutorKind).visibleSlots.map((key) => ({ key, label: contentSlotLabels[key] }));
 }
 function supportsCalibrationItemSettings(content, item) {
-  return content.type === "work_summary" && getItemSettingsVariant(content, item) === "work-summary";
+  return ["work-summary", "custom-text", "custom-tag", "rating"].includes(getItemSettingsVariant(content, item));
 }
 function resolveCalibrationContents(contents, settings = {}) {
   return contents.map((content) => ({
