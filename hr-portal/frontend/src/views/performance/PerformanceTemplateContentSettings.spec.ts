@@ -516,13 +516,16 @@ describe('PerformanceTemplateContentSettings', () => {
     expect((selected.element as HTMLInputElement).value).toBe(mode)
     expect(wrapper.find('.work-summary-required-setting').exists()).toBe(mode === 'fill')
     if (mode === 'fill') expect((wrapper.get('.work-summary-required-setting input').element as HTMLInputElement).checked).toBe(required)
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(mode !== 'fill')
     expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(false)
     await wrapper.get('.work-summary-allow-modify-setting input').setValue(true)
     await (wrapper.vm as any).save()
     const saved = update.mock.calls.at(-1)![1]
     expect(saved.nodes[0].content).toEqual([source])
     expect(saved.nodes[1].content).toEqual([])
-    expect(saved.nodes[1].calibration_settings).toEqual({ summary: { items: { target: { allowModify: true }, visible: { allowModify: true } } } })
+    expect(saved.nodes[1].calibration_settings).toEqual(mode === 'fill'
+      ? { summary: { items: { target: { allowModify: true }, visible: { allowModify: true } } } }
+      : { summary: { items: { target: { allowModify: false } } } })
     expect(saved.content_library?.find(content => content.content_id === 'summary')?.items[0].settings).toEqual({ mode, required })
     wrapper.unmount()
   })
@@ -675,6 +678,60 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(reopened.findAll('.content-renderer-item--view')).toHaveLength(4)
     expect(reopened.find('.configured-content-card__add-item').exists()).toBe(true)
     reopened.unmount()
+  })
+
+  it.each(['inline', 'binding'])('keeps all-hidden %s final content in calibration without widening result-view selection', async sourceForm => {
+    const hidden = (id: string, type = 'work_summary', questionType = 'text') => ({ content_id: id, type, name: id, description: '', content_slot: 'fill', items: [
+      { id: 'hidden', kind: type === 'rating' ? 'rating' : 'fill', label: '隐藏题', hint: '', questionType, options: [{ id: 'a', label: '协作' }], settings: { mode: 'hidden', required: false } },
+    ] })
+    const sources = [hidden('summary'), hidden('rating', 'rating'), hidden('text', 'custom'), hidden('tag', 'custom', 'tag')]
+    const visible = { ...hidden('visible'), items: [{ id: 'visible', kind: 'fill', label: '可见题', hint: '', settings: { mode: 'fill', required: true } }] }
+    const prompt = { title: '提示', content: '说明', color: '#3370ff', scope: 'all' }
+    const excluded = [
+      { content_id: 'prompt', type: 'prompt', name: '提示', description: '', content_slot: 'fill', items: [], prompt },
+      { content_id: 'prompt-only', type: 'work_summary', name: '纯提示块', description: '', content_slot: 'fill', items: [{ id: 'inline', kind: 'prompt', label: '', hint: '', prompt }] },
+      { content_id: 'reference', type: 'reference', name: '参考', description: '', content_slot: 'fill', items: [] },
+    ]
+    const library = [...sources, visible, ...excluded]
+    const final = { ...mockNodes[6], include_final_result: true, ...(sourceForm === 'inline' ? { content: library } : { content_bindings: { fill: library.map(content => content.content_id) } }) }
+    const nodes = [final, { ...mockNodes[4], content: [], calibration_settings: { summary: { items: { hidden: { allowModify: false } } } } }, { ...mockNodes[7], content: [] }]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes, content_library: library } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.findAllComponents(PerformanceConfiguredContentBlock).map(block => block.props('content').content_id)).toEqual(['summary', 'rating', 'text', 'tag', 'visible'])
+    expect(wrapper.findAll('.content-renderer-item--hidden')).toHaveLength(4)
+    const selectHidden = async () => { await wrapper.findAllComponents(PerformanceConfiguredContentBlock)[0].get('[data-content-item-id="hidden"]').trigger('click') }
+    await selectHidden()
+    expect((wrapper.get('.content-settings-detail input[value="hidden"]').element as HTMLInputElement).checked).toBe(true)
+    expect(wrapper.find('.work-summary-required-setting').exists()).toBe(false)
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(true)
+    wrapper.findAllComponents({ name: 'PerformanceCheckbox' }).find(checkbox => checkbox.props('label') === '允许修改')!.vm.$emit('update:modelValue', true)
+    await wrapper.vm.$nextTick()
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('.content-tab').trigger('click')
+    await selectHidden()
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('selectableContentIds')).toEqual(['visible'])
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[1].content).toEqual([])
+    expect(saved.nodes[1].calibration_settings?.summary.items?.hidden.allowModify).toBe(false)
+    expect(saved.nodes[0].content!.find(content => content.content_id === 'summary')!.items[0].settings).toMatchObject({ mode: 'hidden', required: false })
+    expect(saved.nodes[0].content!.find(content => content.content_id === 'summary')!.items[0].settings).not.toHaveProperty('allowModify')
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(structuredClone(saved) as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.findAll('.content-renderer-item--hidden')).toHaveLength(4)
+    await selectHidden()
+    expect((wrapper.get('.content-settings-detail input[value="hidden"]').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(false)
+    wrapper.unmount()
   })
 
   it('exposes page-name selection in calibration after switching from a fill stage', async () => {

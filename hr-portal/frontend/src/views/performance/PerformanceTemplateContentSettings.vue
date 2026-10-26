@@ -231,7 +231,7 @@ const finalExecutorLabel = computed(() => {
   }
   return node.executor_label || '未配置'
 })
-const finalContents = computed(() => {
+const finalFillContents = computed(() => {
   const node = finalNode.value
   if (!node) return []
   const contents = new Map<string, PerformanceTemplateContent>()
@@ -242,10 +242,11 @@ const finalContents = computed(() => {
       if (content) contents.set(id, content)
     }
   })
-  return [...contents.values()].filter(content => content.type !== 'reference' && content.type !== 'prompt' && content.items?.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden'))
+  return [...contents.values()].filter(content => content.type !== 'reference' && content.type !== 'prompt' && content.items?.some(item => item.kind !== 'prompt'))
 })
+const finalContents = computed(() => finalFillContents.value.filter(content => content.items.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')))
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
-const calibrationContents = computed(() => resolveCalibrationContents(finalContents.value, selectedWorkflowNode.value?.calibration_settings))
+const calibrationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const resultReferences = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value)?.content?.filter(content => content.content_slot === 'reference') || [])
 const summaryActions = computed(() => {

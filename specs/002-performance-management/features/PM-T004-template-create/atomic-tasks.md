@@ -459,3 +459,30 @@
   - Validation boundaries: 本轮未改API/后端/数据库，后端测试未重跑；浏览器为实际前端+拦截接口夹具，不是实连后端/数据库联调。无迁移、未改运行时校准答案或历史快照，未部署/commit/push。仅勾F25，不勾T05整体。
   - Protected/non-scope: 保留F24及用户未提交改动，不改另外三块配置功能、后端/DTO/运行时校准答案、生产部署、commit/push；不新建脚本或测试文档。
   - Definition of done: 对照回归、类型构建、实际页面验证和独立截图证据齐备后勾选，仅完成本局部任务。
+
+
+- [x] PM-T004-T05-F26 校准引用设置标题提示及隐藏内容保留（2026-10-26）
+  - Goal/confirmation: 用户确认增加“引用设置”行，字体与“填写设置”相同；信息图标提示精确为“以下配置为在上级评估环节中的对应设置，不可修改”；终评隐藏项仍出现在校准配置区。
+  - Reading/prerequisites: Spec002/012已读入口及UI规范、T05蓝图/F24-F25交互、共享item设置/InfoPopover/终评来源解析及既有回归。现有面板小范围调整，无新信息架构，不新增完整蓝图。
+  - Allowed modifications: frontend/src/components/performance/PerformanceWorkSummaryItemSettings.vue、PerformanceConfiguredContentBlock.spec.ts；views/performance/PerformanceTemplateContentSettings.vue及同名spec；本任务及ui-interaction.md；独立PNG ui-blueprints/PM-T004-T05-F26-implemented-calibration-reference-settings.png及PM-T004-T05-F26-implemented-calibration-reference-tooltip.png。
+  - Contract: 统一解析终评fill源内容及绑定补全，校准保留含有效非提示item的隐藏内容；结果查看仍排除全部item隐藏的来源，不扩大公开范围。隐藏item在校准仍可选择/配置allowModify，mode只读继承hidden，required值不清除，必填区仍随mode隐藏。
+  - UI: “填写设置”→“引用设置”→信息图标→三项禁用单选→“允许修改”，共享同一14px/600/22px标题规则；精确tooltip文案复用InfoPopover。
+  - Given/When/Then: Given终评inline或binding来源且所有item隐藏；When进入校准、点选、Tab切换和保存重开；Then内容/item可见可选且回显hidden、提示正确、allowModify独立保存、终评不被改写；When进入结果查看；Then全部隐藏内容仍不可选，提示/参考内容不被纳入。
+  - Tests/evidence: 组件/页面2文件114项通过；最终`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/PerformanceTemplateWorkflowSettings.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts`：6文件212/212通过；`npm --prefix hr-portal/frontend run build`：完整vue-tsc及vite构建通过（既有VueUse PURE注释提示），`git diff --check`通过。
+  - UI evidence: 本地Vite实际路由+Chromium接口夹具确认2个全隐藏工作总结item可见可选、回显hidden且必填区隐藏、关闭allowModify后Tab/前端PATCH/刷新重开保持且终评不变；字体计算“填写设置”与“引用设置”均14px/600/22px、字体族相同，标题均可见且未被遮挡；tooltip逐字一致，无pageerror。两张独立F26 PNG（标题全貌/tooltip）均已查看，不覆盖F24/F25。
+  - Validation boundaries: 浏览器API使用内存夹具，非实连生产；本轮无后端/API/数据库改动，后端测试未重跑；结果查看限制经inline/binding两种来源单测验证未放宽。不涉及迁移、未部署、未commit/push；仅完成F26，不勾T05整体。
+  - Protected/non-scope: 不改其他三块配置权限、后端/API/数据库、员工实际答案、历史快照、生产配置/部署、commit/push；不新增脚本或测试文档。
+  - Definition of done: 测试、构建、实际UI和独立截图证据齐备后勾选，仅完成本局部任务。
+
+
+- [x] PM-T004-T05-F27 校准允许修改随填写方式禁用（2026-10-26）
+  - Goal/confirmation: 用户确认继承mode为hidden/view时“允许修改”置灰禁用，fill时可操作；整模板锁定继续优先禁用；保留原勾选值，不清空配置。
+  - Reading/UI: 沿已确认T05/F24-F26面板及Spec002/012 UI规则，小范围状态联动，不新增蓝图。复用PerformanceCheckbox disabled分支的color-border/performance-checkbox-disabled/color-surface-disabled token，不新增颜色或覆盖样式。
+  - Allowed modifications: PerformanceWorkSummaryItemSettings.vue、PerformanceConfiguredContentBlock.spec.ts、PerformanceTemplateContentSettings.spec.ts、本任务及ui-interaction.md；独立PNG ui-blueprints/PM-T004-T05-F27-implemented-calibration-modify-disabled.png及PM-T004-T05-F27-implemented-calibration-modify-view-disabled.png。
+  - Contract/boundary: 同一禁用判断用于原生checkbox和更新事件保护；禁用状态不emit更新，不改mode/required或已有allowModify；来源恢复fill后重新启用，模板锁定时不启用。不改API/后端/持久化结构、其他三块配置权限、结果查看筛选、运行时答案、历史快照或UCP。
+  - Given/When/Then: Given fill/hidden/view、allowModify真假及锁定状态；When点击/键盘/组件事件或来源mode切换；Then仅fill且未锁定可改，其他保持值且全局禁用灰态一致，Tab/保存重开保持。
+  - Tests/evidence: 已更新三态/required真假、禁用组件事件不emit、恢复fill重新启用及allowModify真假保留用例；`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceCheckbox.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/PerformanceTemplateWorkflowSettings.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts`：6文件212/212通过；`npm --prefix hr-portal/frontend run build`完整类型检查与构建通过（既有VueUse PURE注释提示），diff检查通过。
+  - UI evidence: 本地实际路由+Chromium内存API夹具验证hidden已选禁用、view未选禁用、fill可操作及保存重开保持，无pageerror。文字/边框与禁用Radio均rgb(187,191,196)，选中禁用背景同色，未选禁用背景rgb(239,240,241)，沿全局color-border/performance-checkbox-disabled/color-surface-disabled，无新增CSS。两张独立F27 PNG均已查看，未覆盖F26。
+  - Validation boundaries: 未实连生产或数据库，本轮无API/后端改动、后端测试未重跑，无迁移、部署、commit/push；仅勾F27，不勾T05整体。
+  - Non-scope: 不部署、不commit/push，不新增脚本或测试文档；保留F26未提交变更。
+  - Definition of done: 测试、构建、真实前端夹具验证和独立截图证据齐备后勾选，仅完成本局部任务。

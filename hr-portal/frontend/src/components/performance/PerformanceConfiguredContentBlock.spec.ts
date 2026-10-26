@@ -8,6 +8,7 @@ import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSett
 import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import { getEvaluationExecutorKind, getItemSettingsVariant, getRootSettingsCapabilities, getStageContentRule, itemSettingsCapabilities, supportsEvaluationItemSettings, supportsEvaluationView } from './performanceContentSettingsRules'
 
 const content = {
@@ -108,6 +109,8 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(wrapper.find('.performance-drag-handle').exists()).toBe(false)
     expect(wrapper.find('.content-settings-detail').exists()).toBe(false)
     await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    expect(wrapper.get('.work-summary-inherited-setting-title').text()).toBe('引用设置')
+    expect(wrapper.getComponent(PerformanceInfoPopover).props('content')).toBe('以下配置为在上级评估环节中的对应设置，不可修改')
     const radios = wrapper.findAll('.content-settings-detail input[type="radio"]')
     expect(radios).toHaveLength(3)
     expect(radios.every(radio => (radio.element as HTMLInputElement).disabled)).toBe(true)
@@ -118,8 +121,23 @@ describe('PerformanceConfiguredContentBlock', () => {
       expect(checkbox.checked).toBe(required)
       expect(checkbox.disabled).toBe(true)
     }
-    await wrapper.get('.work-summary-allow-modify-setting input').setValue(false)
-    expect(wrapper.emitted('update:item-settings')!.at(-1)).toEqual([{ 'item-1': { mode, required, allowModify: false } }])
+    expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(mode !== 'fill')
+    const modifyControl = wrapper.findAllComponents(PerformanceCheckbox).find(checkbox => checkbox.props('label') === '允许修改')!
+    modifyControl.vm.$emit('update:modelValue', false)
+    await wrapper.vm.$nextTick()
+    if (mode === 'fill') {
+      expect(wrapper.emitted('update:item-settings')!.at(-1)).toEqual([{ 'item-1': { mode, required, allowModify: false } }])
+    } else {
+      expect(wrapper.emitted('update:item-settings')).toBeUndefined()
+      expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(true)
+      await wrapper.setProps({ itemSettings: { 'item-1': { mode: 'fill', required, allowModify: true } } })
+      expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(false)
+      await wrapper.get('.work-summary-allow-modify-setting input').setValue(false)
+      expect(wrapper.emitted('update:item-settings')!.at(-1)).toEqual([{ 'item-1': { mode: 'fill', required, allowModify: false } }])
+      await wrapper.setProps({ itemSettings: { 'item-1': { mode, required, allowModify: false } } })
+      expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(true)
+      expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).checked).toBe(false)
+    }
     await wrapper.setProps({ settingsDisabled: true })
     expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(true)
     wrapper.unmount()
@@ -190,6 +208,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
     expect(wrapper.emitted('activate')).toHaveLength(1)
     expect(wrapper.get('[data-content-item-id="item-1"] .performance-assessment-rich-text-field__label i').text()).toBe('*')
+    expect(wrapper.find('.work-summary-inherited-setting-title').exists()).toBe(false)
     expect(wrapper.get('.content-settings-detail--item').text()).toContain('在此环节填写')
     expect(wrapper.get('.content-settings-detail--item').text()).toContain('必填项设置')
     expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['填写设置', '必填项设置'])

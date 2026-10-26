@@ -28,9 +28,10 @@ const options = computed(() => [
   ...(capabilities.value.viewResults ? [{ value: 'view', label: '在此环节查看被评估人的填写结果' }] : []),
 ])
 const checkedColor = '#336df4'
+const allowModifyDisabled = computed(() => props.disabled || props.modelValue.mode !== 'fill')
 
 function update(patch: Partial<WorkSummaryItemSettings>) {
-  if (props.disabled) return
+  if (props.disabled || (patch.allowModify !== undefined && allowModifyDisabled.value)) return
   const { mode, required, ...editable } = patch
   emit('update:modelValue', { ...props.modelValue, ...editable, ...(!capabilities.value.modeDisabled && mode !== undefined ? { mode } : {}), ...(!capabilities.value.requiredDisabled && required !== undefined ? { required } : {}) })
 }
@@ -53,9 +54,9 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
     </fieldset>
     <fieldset v-if="!capabilities.allowView && (capabilities.viewResults || capabilities.mode)" class="work-summary-setting-group work-summary-view-setting">
       <legend>填写设置</legend>
-      <div v-if="capabilities.modeDisabled" class="work-summary-inherited-setting-help"><PerformanceInfoPopover content="填写方式及必填项设置与终评环节保持一致" :width="272" /></div>
+      <div v-if="capabilities.modeDisabled" class="work-summary-inherited-setting"><div class="work-summary-inherited-setting-title">引用设置</div><div class="work-summary-inherited-setting-help"><PerformanceInfoPopover content="以下配置为在上级评估环节中的对应设置，不可修改" :width="272" /></div></div>
       <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" :disabled="disabled || capabilities.modeDisabled" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
-      <PerformanceCheckbox v-if="capabilities.allowModify" class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ allowModify: $event })" />
+      <PerformanceCheckbox v-if="capabilities.allowModify" class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="allowModifyDisabled" @update:model-value="update({ allowModify: $event })" />
     </fieldset>
     <fieldset v-if="capabilities.required && (!capabilities.mode || modelValue.mode === 'fill')" class="work-summary-setting-group work-summary-required-setting">
       <legend>必填项设置</legend>
@@ -66,7 +67,7 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 </template>
 
 <style scoped>
-.work-summary-item-settings{display:flex;flex-direction:column;color:var(--color-text-primary);font:400 var(--font-size-md)/22px var(--font-sans)}.work-summary-setting-group{display:flex;flex-direction:column;width:272px;margin:0;padding:0;border:0}.work-summary-setting-group+ .work-summary-setting-group{margin-top:24px}.work-summary-setting-group legend{width:272px;height:22px;margin:0 0 8px;padding:0;color:var(--color-text-primary);font-size:var(--font-size-md);font-weight:600;line-height:22px}.work-summary-setting-group :deep(.performance-radio-group){display:flex;flex-direction:column;align-items:flex-start;gap:8px!important}.work-summary-setting-group :deep(.performance-checkbox){width:auto}.work-summary-setting-group :deep(.performance-checkbox + .performance-checkbox){margin-top:8px}
+.work-summary-item-settings{display:flex;flex-direction:column;color:var(--color-text-primary);font:400 var(--font-size-md)/22px var(--font-sans)}.work-summary-setting-group{display:flex;flex-direction:column;width:272px;margin:0;padding:0;border:0}.work-summary-setting-group+ .work-summary-setting-group{margin-top:24px}.work-summary-setting-group legend,.work-summary-inherited-setting-title{width:272px;height:22px;margin:0 0 8px;padding:0;color:var(--color-text-primary);font-size:var(--font-size-md);font-weight:600;line-height:22px}.work-summary-setting-group :deep(.performance-radio-group){display:flex;flex-direction:column;align-items:flex-start;gap:8px!important}.work-summary-setting-group :deep(.performance-checkbox){width:auto}.work-summary-setting-group :deep(.performance-checkbox + .performance-checkbox){margin-top:8px}
 .work-summary-view-options{display:flex;flex-direction:column;width:100%;margin-top:var(--spacing-2);padding:var(--spacing-4);box-sizing:border-box;background:var(--performance-review-readonly-surface);border-radius:6px}
 .work-summary-inherited-setting-help{height:16px;margin-bottom:12px}
 .work-summary-allow-modify-setting{margin-top:8px}
