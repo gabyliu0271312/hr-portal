@@ -1148,6 +1148,7 @@ export interface PerformanceTemplateContent {
 
 export type PerformanceCalibrationItemSettings = { allowModify?: boolean; hideName?: boolean; hideDescription?: boolean; levelRulesEnabled?: boolean }
 export type PerformanceCalibrationSettings = Record<string, {
+  settings?: { hideDescription?: boolean }
   items?: Record<string, PerformanceCalibrationItemSettings>
 }>
 

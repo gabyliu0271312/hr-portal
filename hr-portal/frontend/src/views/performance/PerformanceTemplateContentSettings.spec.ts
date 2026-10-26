@@ -655,7 +655,7 @@ describe('PerformanceTemplateContentSettings', () => {
     const blocks = wrapper.findAllComponents(PerformanceConfiguredContentBlock)
     for (const block of blocks) {
       await block.get('.configured-content-card__row').trigger('click')
-      expect(wrapper.find('.content-settings-detail--root').exists()).toBe(false)
+      expect(wrapper.find('.content-settings-detail--root').exists()).toBe(true)
     }
     for (const block of blocks.slice(1)) {
       const targetId = block.props('content').content_id === 'text' ? 'text-fill' : block.props('content').content_id === 'rating' ? 'rating-item' : block.props('content').content_id === 'tag' ? 'tag-fill' : ''
@@ -776,6 +776,38 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(saved.nodes[0].content?.[1].items[0].settings).toEqual(tag.items[0].settings)
     expect(saved.nodes[0].content?.[2].items[0].settings).toEqual(rating.items[0].settings)
     wrapper.unmount()
+  })
+
+  it('persists calibration root hide-description settings independently for all content types', async () => {
+    const contents = [
+      { content_id: 'summary', content_slot: 'fill', type: 'work_summary', name: '总结', description: '总结描述', items: [{ id: 'summary-item', kind: 'fill', label: '总结题', hint: '' }] },
+      { content_id: 'text', content_slot: 'fill', type: 'custom', name: '文本', description: '文本描述', items: [{ id: 'text-item', kind: 'fill', questionType: 'text', label: '文本题', hint: '' }] },
+      { content_id: 'tag', content_slot: 'fill', type: 'custom', questionType: 'tag', name: '标签', description: '标签描述', items: [{ id: 'tag-item', kind: 'fill', questionType: 'tag', label: '标签题', hint: '', options: [{ id: 'a', label: '协作' }] }] },
+      { content_id: 'rating', content_slot: 'fill', type: 'rating', name: '评级', description: '评级描述', options: [{ id: 'a', label: 'A' }], items: [{ id: 'rating-item', kind: 'rating', label: '评级题', hint: '' }] },
+    ]
+    const final = { ...mockNodes[6], include_final_result: true, content: contents }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [final, { ...mockNodes[4], content: [] }] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    const blocks = wrapper.findAllComponents(PerformanceConfiguredContentBlock)
+    for (const block of blocks) {
+      await block.get('.configured-content-card__row').trigger('click')
+      await wrapper.get('.content-settings-detail--root input').setValue(true)
+      expect(block.find('.configured-content-card__description').exists()).toBe(false)
+    }
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    for (const content of contents) expect(saved.nodes[1].calibration_settings?.[content.content_id]?.settings).toEqual({ hideDescription: true })
+    expect(saved.nodes[0].content?.map(content => content.description)).toEqual(contents.map(content => content.description))
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(structuredClone(saved) as any)
+    const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await reopened.findAll('.stage-card')[1].trigger('click')
+    expect(reopened.findAll('.configured-content-card__description')).toHaveLength(0)
+    reopened.unmount()
   })
 
   it('exposes page-name selection in calibration after switching from a fill stage', async () => {

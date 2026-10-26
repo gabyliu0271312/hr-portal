@@ -514,3 +514,16 @@
   - Validation boundaries: 浏览器使用内存API夹具，非生产/数据库联调；本轮仅前端和规格/测试文件，后端未改未重跑；未部署、未commit/push。工作区另有warehouse/datasets未相关变更，未触碰、未纳入本任务。
   - Non-scope: 不改运行时答案、数据库迁移、权限模型、其他三块未来业务、生产部署、commit/push；不新增脚本或测试文档。
   - Definition of done: 三类配置测试、构建、实际UI和截图证据齐备后勾选，仅完成本局部任务。
+
+
+- [x] PM-T004-T05-F30 校准四类内容root显示设置（2026-10-26）
+  - Goal/confirmation: 用户确认校准环节四类评估内容root均可配置，且仅显示“显示设置/隐藏描述”。
+  - Reading/prerequisites: Spec002/012、T05/F24-F29、共享root设置/内容块/规则/工作流保存协议及现有回归；既有内容配置页局部扩展，无新页面。
+  - Allowed modifications: performanceContentSettingsRules.ts及.js、PerformanceTemplateContentSettings.vue及spec、PerformanceWorkSummaryRootSettings相关调用、api/performance.ts、backend/app/performance/templates_router.py、backend/tests/test_performance_template_workflow.py、F30规格及独立PNG。
+  - Contract: calibration rootSettingsEnabled=true、variant=calibration-root，capabilities仅allowMultiple=false/allowUnknown=false；calibration_settings[content_id].settings.hideDescription保存root覆盖，mode/required/item覆盖独立保留；旧allowModify数据兼容，终评源内容不写回。
+  - Given/When/Then: Given工作总结/自定义文本/标签/评级四类终评内容；When进入校准选择root、切换隐藏描述、保存重开；Then四类均出现root面板且只有隐藏描述，预览描述即时显隐、覆盖按content_id隔离，其他root能力不出现，终评内容不变。
+  - Tests/evidence: 页面/组件/renderer完整回归6文件222/222通过；后端`test_performance_template_workflow.py` 191/191通过；`npm --prefix hr-portal/frontend run build`完成vue-tsc及vite生产构建（既有VueUse PURE注释提示）；`git diff --check`通过。运行镜像rules.js已同步。
+  - UI evidence: 本地实际路由+Chromium内存API夹具验证四类root均显示唯一“显示设置/隐藏描述”checkbox，切换后四块描述隐藏，PATCH按content_id保存，刷新重开保持，无pageerror。独立PNG `../../ui-blueprints/PM-T004-T05-F30-implemented-calibration-root-settings.png`已生成并查看。
+  - Validation boundaries: 浏览器使用内存API夹具，非生产/数据库联调；本轮仅绩效配置及对应规格/测试文件，未纳入其他warehouse/datasets变更；未部署、未commit/push。仅完成F30，不勾T05整体。
+  - Non-scope: 不改item设置、运行时答案、权限模型、历史快照、UCP、生产部署、commit/push；不纳入warehouse/datasets未提交变更。
+  - Definition of done: root配置测试、构建、实际UI和截图证据齐备后勾选，仅完成本局部任务。

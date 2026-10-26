@@ -520,7 +520,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'result_reconsideration', 'unknown', undefined]) {
       expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
     }
-    expect(getStageContentRule('calibration')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true, itemSettingsVariant: 'calibration-item', visibleSlots: ['adjustment'] })
+    expect(getStageContentRule('calibration')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'calibration-root', itemSettingsEnabled: true, itemSettingsVariant: 'calibration-item', visibleSlots: ['adjustment'] })
     expect(itemSettingsCapabilities).toMatchObject({
       'work-summary': { hideName: false, mode: true, required: true },
       'custom-text': { hideName: true, mode: true, required: true },

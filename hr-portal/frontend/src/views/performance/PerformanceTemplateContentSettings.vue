@@ -81,7 +81,7 @@
                 @settings-visibility="visible => { if (selectedConfiguredId === content.id) configuredSettingsVisible = visible }"
                 @update:expanded="setConfiguredExpanded(content.id, $event)"
                 @update:content="updateConfiguredContent(index, $event)"
-                @update:root-settings="rootSettings[content.id] = $event"
+                @update:root-settings="setRootSettingsForContent(content.id, $event)"
                 @update:item-settings="setItemSettingsForContent(content.id, $event)"
                 @hover-change="configuredHoverKey = $event ? configuredCardKey(content) : null"
                 @move-up="moveConfigured(index, -1)"
@@ -384,6 +384,18 @@ function rootSettingFor(contentId: string): WorkSummaryRootSettings {
 function itemSettingsForContent(contentId: string): Record<string, WorkSummaryItemSettings> {
   const content = configuredContents.value.find((item) => item.id === contentId)
   return Object.fromEntries((content?.items || []).map((item) => [item.id, itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()]))
+}
+function setRootSettingsForContent(contentId: string, settings: WorkSummaryRootSettings) {
+  rootSettings.value[contentId] = settings
+  if (!isCalibration.value || !selectedWorkflowNode.value || pageNameLocked.value) return
+  const overrides = selectedWorkflowNode.value.calibration_settings || {}
+  selectedWorkflowNode.value.calibration_settings = {
+    ...overrides,
+    [contentId]: {
+      ...overrides[contentId],
+      settings: { hideDescription: settings.hideDescription === true },
+    },
+  }
 }
 function setItemSettingsForContent(contentId: string, settings: Record<string, WorkSummaryItemSettings>) {
   if (isCalibration.value) {

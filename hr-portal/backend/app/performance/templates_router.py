@@ -31,8 +31,14 @@ class CalibrationItemSettings(BaseModel):
     levelRulesEnabled: bool | None = Field(default=None, strict=True)
 
 
+class CalibrationRootSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    hideDescription: bool | None = Field(default=None, strict=True)
+
+
 class CalibrationContentSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    settings: CalibrationRootSettings | None = None
     items: dict[str, CalibrationItemSettings] = Field(default_factory=dict)
 
 
