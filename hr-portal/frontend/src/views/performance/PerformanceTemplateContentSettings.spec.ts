@@ -1118,6 +1118,137 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(update.mock.calls[0][1].content_library?.find(content => content.content_id === 'same')?.name).toBe('旧终评意见')
   })
 
+  it('renders result-view references with the shared grouped readonly content and persists isolated settings', async () => {
+    const sourceContent = { content_id: 'source-content', type: 'custom', name: '来源填写内容', description: '来源描述', items: [{ id: 'source-item', label: '来源题目', hint: '' }] }
+    const secondContent = { content_id: 'second-content', type: 'work_summary', name: '第二来源内容', description: '', items: [] }
+    const relations = [
+      { type: 'reference', name: '工作总结环节', content_id: 'reference-n1', content_slot: 'reference', reference_kind: 'node', reference_value: 'n1', items: [] },
+      { type: 'reference', name: '结果沟通', content_id: 'reference-n6', content_slot: 'reference', reference_kind: 'node', reference_value: 'n6', items: [] },
+    ]
+    const nodes = [
+      { ...mockNodes[0], content: [sourceContent] },
+      { ...mockNodes[5], content: [secondContent] },
+      { ...mockNodes[7], content: relations },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+
+    expect(wrapper.get('.result-view-reference-entry button').text()).toBe('添加其他参考内容')
+    expect(wrapper.find('.result-view-references').exists()).toBe(false)
+    expect(wrapper.findAll('.reference-content-group h2').map(header => header.text())).toEqual(['工作总结环节', '结果沟通'])
+    expect(wrapper.findAll('.reference-content-group')).toHaveLength(2)
+    expect(contentSettingsSource.replace(/\r\n/g, '\n')).toContain('.reference-content-group+.reference-content-group{margin-top:var(--spacing-4)}')
+    expect(wrapper.text()).toContain('来源题目')
+
+    const sourceBlock = wrapper.findAllComponents(PerformanceConfiguredContentBlock).find(block => block.props('content').name === '来源填写内容')!
+    sourceBlock.vm.$emit('update:root-settings', { allowView: false, hideDescription: true })
+    sourceBlock.vm.$emit('update:item-settings', { 'source-item': { mode: 'view', required: false, allowView: false, hideName: true, hideDescription: true } })
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+
+    const saved = update.mock.calls.at(-1)![1]
+    const savedView = saved.nodes[2]
+    const savedRelations = savedView.content!.filter(content => content.content_slot === 'reference')
+    expect(savedRelations).toHaveLength(2)
+    expect(savedRelations[0].reference_settings?.content_settings?.['source-content']).toMatchObject({
+      root: { allowView: false, hideDescription: true },
+      items: { 'source-item': { allowView: false, hideName: true, hideDescription: true } },
+    })
+    expect(savedRelations[0].items).toEqual([])
+    expect(JSON.stringify(savedRelations)).not.toContain('来源题目')
+    expect(saved.nodes[0].content![0]).toEqual(sourceContent)
+
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    const reopenedBlock = wrapper.findAllComponents(PerformanceConfiguredContentBlock).find(block => block.props('content').name === '来源填写内容')!
+    expect(reopenedBlock.props('rootSettings')).toMatchObject({ allowView: false, hideDescription: true })
+    expect(reopenedBlock.props('itemSettings')['source-item']).toMatchObject({ mode: 'view', required: false, allowView: false, hideName: true, hideDescription: true })
+    wrapper.unmount()
+  })
+
+  it('keeps result references isolated through selection, main-content changes, save and a fresh reopen', async () => {
+    const prompt = { title: '参考提示', content: '提示正文', color: '#3B82F6', scope: 'all' }
+    const source = { content_id: 'shared', type: 'custom', name: '来源内容', description: '来源说明', items: [
+      { id: 'item', label: '来源题目', hint: '' },
+      { id: 'inline', kind: 'prompt', label: '', hint: '', prompt },
+    ] }
+    const main = { content_id: 'shared', type: 'custom', name: '终评主内容', description: '', items: [{ id: 'item', label: '终评题目', hint: '' }] }
+    const nodes = [
+      { ...mockNodes[0], content: [source, { content_id: 'prompt', type: 'prompt', name: '来源提示', items: [], prompt }] },
+      { ...mockNodes[5], content: [{ ...source, name: '第二来源内容' }] },
+      { ...mockNodes[6], include_final_result: true, content: [main] },
+      { ...mockNodes[7], content: [{ ...main, content_slot: 'view' }] },
+      { ...mockNodes[8], content: [] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    const blocks = () => wrapper.findAllComponents(PerformanceConfiguredContentBlock)
+    const sourceBlock = () => blocks().find(block => block.props('content').id === 'n1:shared')!
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    await wrapper.get('.result-view-reference-entry button').trigger('click')
+    wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' }).vm.$emit('confirm', ['n1', 'n6', 'n9'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.reference-content-group h2').map(h => h.text())).toEqual(['工作总结环节', '结果沟通', '结果复议处理'])
+    expect(wrapper.findAll('.reference-content-group')[2].text()).toContain('该环节尚未配置内容')
+    expect(wrapper.findAll('.reference-content-group').every(group => !group.find('[contenteditable="true"], [data-drag-handle], .configured-card-action-toolbar').exists())).toBe(true)
+    await sourceBlock().get('.configured-content-card__row').trigger('click')
+    await wrapper.get('.content-settings-detail--root .work-summary-view-options input').setValue(true)
+    await sourceBlock().get('[data-content-item-id="item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input').setValue(false)
+    await sourceBlock().get('[data-content-item-id="inline"]').trigger('click')
+    await wrapper.get('.content-settings-detail--prompt input').setValue(false)
+    await blocks().find(block => block.props('content').id === 'n1:prompt')!.get('.configured-content-card__row').trigger('click')
+    await wrapper.get('.content-settings-detail--prompt input').setValue(false)
+    expect(blocks().find(block => block.props('content').id === 'n6:shared')!.props('itemSettings').item.allowView).toBe(true)
+
+    wrapper.getComponent(PerformanceTemplateOperateBar).vm.$emit('action', 'add-final-content')
+    await wrapper.vm.$nextTick()
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [main])
+    await wrapper.vm.$nextTick()
+    expect(sourceBlock().props('rootSettings').hideDescription).toBe(true)
+    expect(sourceBlock().props('itemSettings').item.allowView).toBe(false)
+    await wrapper.get('.result-view-reference-entry button').trigger('click')
+    const drawer = wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' })
+    expect(drawer.props('selected')).toEqual(['n1', 'n6', 'n9'])
+    drawer.vm.$emit('confirm', ['n1', 'n6'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('.reference-content-group')).toHaveLength(2)
+    expect(sourceBlock().props('rootSettings').hideDescription).toBe(true)
+    expect(sourceBlock().props('itemSettings').item.allowView).toBe(false)
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[0].content).toEqual(nodes[0].content)
+    expect(saved.nodes[1].content).toEqual(nodes[1].content)
+    expect(saved.nodes[3].content!.filter(content => content.content_slot === 'view')).toMatchObject([{ ...main, content_slot: 'view', settings: { hideDescription: false } }])
+    const relation = saved.nodes[3].content!.find(content => content.reference_value === 'n1')!
+    expect(relation.items).toEqual([])
+    expect(relation.reference_settings?.content_settings).toMatchObject({
+      shared: { root: { hideDescription: true }, items: { item: { allowView: false }, inline: { allowView: false, onlyWhenFilling: false } } },
+      prompt: { root: { allowView: false, onlyWhenFilling: false } },
+    })
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(structuredClone(saved) as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    expect(sourceBlock().props('rootSettings').hideDescription).toBe(true)
+    expect(sourceBlock().props('itemSettings').item.allowView).toBe(false)
+    expect(sourceBlock().props('content').items[1].prompt?.allowView).toBe(false)
+    expect(blocks().find(block => block.props('content').id === 'n1:prompt')!.props('content').prompt?.allowView).toBe(false)
+    wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' }).vm.$emit('confirm', [])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.reference-content-group').exists()).toBe(false)
+    expect(wrapper.findAll('.result-view-reference-entry')).toHaveLength(1)
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls.at(-1)![1].nodes[3].content!.map(content => content.content_slot)).toEqual(['view'])
+    wrapper.unmount()
+  })
+
   it('persists result view and other references independently and reopens binding-only content', async () => {
     const content = { content_id: 'final', type: 'custom', name: '终评意见', description: '', items: [{ id: 'item', label: '意见', hint: '' }] }
     const nodes = [{ ...mockNodes[6], include_final_result: true, content_bindings: { fill: ['final'] } }, { ...mockNodes[7], content_bindings: { view: ['final'] } }]
@@ -1134,14 +1265,14 @@ describe('PerformanceTemplateContentSettings', () => {
     ;([...document.body.querySelectorAll('.reference-drawer__footer button')].find(node => node.textContent === '确认') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
-    expect(wrapper.get('.result-view-references').text()).toContain('OKR')
+    expect(wrapper.get('.reference-content-group').text()).toContain('OKR')
     await (wrapper.vm as any).save()
     const view = update.mock.calls[0][1].nodes[1]
     expect(view.content_bindings).toEqual({ view: ['final'], reference: ['reference-okr'] })
     await wrapper.findAll('.stage-card')[0].trigger('click')
     await wrapper.findAll('.stage-card')[1].trigger('click')
     expect(wrapper.get('.configured-content-panel').text()).toContain('终评意见')
-    expect(wrapper.get('.result-view-references').text()).toContain('OKR')
+    expect(wrapper.get('.reference-content-group').text()).toContain('OKR')
   })
 
   it('loads tag fill questions from assessment management for the custom tag selector', async () => {

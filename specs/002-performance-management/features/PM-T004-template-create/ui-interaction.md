@@ -427,3 +427,12 @@
 - 校准工作总结、评分评级、自定义文本、自定义标签四类内容均支持选中root，右侧仅显示“显示设置/隐藏描述”。不显示允许添加多个、不了解或允许查看等其他root设置。
 - root隐藏描述初始继承终评，修改仅写入校准节点`calibration_settings[content_id].settings.hideDescription`，保存/重开恢复，终评源内容与item配置不改变。
 - root与item选择互斥，root修改即时影响中间内容块描述；继续复用PerformanceWorkSummaryRootSettings、共享tokens和既有内容块选择框。
+
+## 结果查看参考内容展示统一（PM-T004-T05-F32，2026-10-27 用户确认）
+
+- 绩效结果查看的“添加其他参考内容”与普通环节“配置参考内容”继续使用同一个“选择参考内容”抽屉；确认后统一按来源环节分组展示，复用只读 `PerformanceConfiguredContentBlock` 和既有查看设置。结果主内容 `view` 与参考 `reference` 保持独立。
+- 来源环节引用只保存既有引用关系及 `reference_settings.content_settings` 的本地显示覆盖；来源表单内容由现有来源解析读取，不复制到结果查看节点。重新打开后按来源关系及局部覆盖重建展示。取消已选项仍通过同一抽屉完成。
+- 相邻来源环节卡片之间使用 `var(--spacing-4)`（16px）留白；单个来源组内部继续沿用现有内容卡片结构。空来源沿用“该环节尚未配置内容”提示。
+- 仅调整现有模板内容设置页；无 API、数据库、权限、审计、周期快照、UCP 或新蓝图改动。沿用 T05 已确认蓝图和 Spec 012 N0001/N0002/N0004/N0005/N1102-N1104；不引入禁止项。
+
+- F32 实现验收（2026-10-27）：真实 Chrome / 1920×1080 已验证两个入口相同来源分组及只读内容块，相邻来源卡片 bounding-box 间距均为 16px；root/item 显示设置经重选、实际前端 PATCH 和页面重载 GET 后保持，来源与主结果独立。页面错误及控制台错误均为 0。独立截图：[PM-T004-T05-F32-implemented-reference-content.png](../../ui-blueprints/PM-T004-T05-F32-implemented-reference-content.png)，已打开核对。API 均为本地拦截夹具，不代表真实后端/数据库或生产验收。

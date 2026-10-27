@@ -540,3 +540,34 @@
   - Evidence: 待最终测试/build/真实Chromium组件截图结果填入。PNG目标../../ui-blueprints/PM-T004-T05-F31-implemented-reference-content.png。
   - Non-scope: 员工实际参考答案读取、周期历史快照/生效策略、结果查看独立reference入口、更多参考外部系统接入、权限模型、UCP、部署和提交推送；不新增脚本或测试文档，保护无关工作区变更。
   - DoD: 代码、定向测试、build、浏览器UI和记录齐备后方可勾选；真实数据库联调单独标记，不以夹具冒充生产。
+
+- [x] PM-T004-T05-F32 统一结果查看参考内容展示与来源环节间距（2026-10-27 用户确认）
+  - Goal: 结果查看的其他参考内容与普通环节参考内容共用来源分组、只读内容块及独立查看设置；多个来源环节卡片之间保持 16px 间距。
+  - Type: frontend / UI regression
+  - Prerequisites: PM-T004-T05-F31 的来源解析、reference slot 与 reference_settings 合同；依赖同一现有内容设置页面和已确认 T05 蓝图。
+  - Required reading: PM-T004 基线、F31、T05 蓝图、ui-interaction.md、Spec 012 UI 交互与实施守则、N0001/N0002/N0004/N0005/N1102-N1104。
+  - Allowed modifications: `hr-portal/frontend/src/views/performance/PerformanceTemplateContentSettings.vue`、该页面既有 `.spec.ts`、本 `atomic-tasks.md`、本功能 `ui-interaction.md`。
+  - Allowed new files: implemented-UI evidence only: `../../ui-blueprints/PM-T004-T05-F32-implemented-reference-content.png`; no new scripts, test documents, or business components.
+  - Forbidden modifications: API/backend/database/migrations/permissions/cycle snapshots/UCP/deployment; shared component contracts; new pages or design system.
+  - Shared files and merge rule: only the existing content settings page and focused test; preserve independent `view` and `reference` slots and unrelated workflow changes.
+  - Input contract: existing shared reference drawer returns selected source node IDs or fixed reference values; source content remains owned by its source node.
+  - Output contract: both entry points render the selected references as source groups and readonly configured-content blocks; only per-reference display overrides persist in `reference_settings.content_settings`; never copy source content into the result-view reference slot.
+  - UI: existing route `/performance/settings/templates/create?step=content`; reuse confirmed three-column T05 layout, `PerformanceReferenceContentDrawer`, `PerformanceConfiguredContentBlock`, result-view settings, and tokens. No new page, information architecture, or full blueprint. Apply `var(--spacing-4)` (16px) between adjacent `.reference-content-group` cards. Preserve empty-source state and selectable/removable drawer behavior.
+  - API/database/permission/external-system impact: none; existing workflow GET/PATCH JSONB, permission, audit, and template lock behavior unchanged.
+  - Test contract:
+    - Given a result-view node with multiple source references, including displayed item content and saved local view overrides.
+    - When opening either reference entry, changing a display option, saving, switching stages, and reopening.
+    - Then the same groups/readonly blocks render with a 16px inter-group token gap, selection values remain checked, settings persist only on their corresponding reference relation, source definitions and view content remain unchanged, and no resolved source copy enters the reference slot.
+    - Test files: existing `PerformanceTemplateContentSettings.spec.ts`.
+    - Commands: focused Vitest for `PerformanceTemplateContentSettings.spec.ts`; `npm run build` from `hr-portal/frontend`; `git diff --check`.
+    - skipped/not-run rule: browser screenshot or real database/API checks not run must be reported as not run; do not claim them from jsdom fixtures.
+  - Acceptance: verify multiple groups and empty groups; shared dialog selection and deselection; result-view main content remains independent; save/reopen preserves per-content/item settings; source nodes are unchanged; adjacent group spacing uses the shared token; no permission, empty-state, or existing reference-tab regressions.
+  - Evidence (2026-10-27):
+    - Automated regression: from `hr-portal/frontend`, `npm test -- src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/PerformanceConfiguredContentBlock.spec.ts src/components/performance/PerformanceReferenceContentDrawer.spec.ts` — 3 files / 131 tests passed (76 page + 50 block + 5 drawer). Covers multiple/empty sources, shared drawer add/remove/reselect, same-ID isolation, root/item/page/inline-prompt overrides, main-content changes without reference-setting loss, stage switch and fresh-mount reopen, source definitions unchanged and no resolved source copy.
+    - Build: `npm run build` — vue-tsc + Vite passed; Vite build 45.19s. `git diff --check` passed with LF/CRLF warnings only.
+    - Browser: actual production build served only at `127.0.0.1:5194`, driven with installed Chrome headless at 1920×1080 and existing playwright-core; no driver file/package was created or installed. Both reference entries selected the same two source nodes; readonly groups rendered; bounding-box gaps measured 16px for both. Changed root/item view flags, reselected, saved via the real frontend PATCH request, reloaded through GET, and verified restoration and unchanged source/main content; ordinary reference deselection also passed. Page errors / console errors: 0 / 0. Browser and temporary local server closed after verification.
+    - Independent implementation PNG: `../../ui-blueprints/PM-T004-T05-F32-implemented-reference-content.png`; opened and visually checked for the implemented grouped result-view references, spacing, independent main content and reference entry. Uses synthetic fixture content, not employee data.
+    - Boundary: all `/api/v1/**` requests intercepted by local in-memory fixtures; this verifies actual frontend request/response handling, not real service/database persistence, production permissions or deployment. Live backend/database/production acceptance not run.
+  - Blockers: none for the local UI change.
+  - Non-scope: employee runtime answers, additional reference integrations, backend validation, snapshot timing, permissions, deployment, commit/push.
+  - Definition of done: scoped frontend implementation, focused regression, build, real-browser UI interaction/geometry, independent screenshot, diff check and evidence are complete. No database migration or API contract change; real backend/database and production acceptance remain explicitly not run.
