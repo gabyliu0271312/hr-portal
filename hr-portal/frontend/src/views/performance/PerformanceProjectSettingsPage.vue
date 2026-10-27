@@ -30,7 +30,7 @@
         @retry="loadTemplates"
       />
 
-      <section v-if="currentStep === 0" class="settings-card" aria-labelledby="people-title">
+      <section v-if="currentStep === 0 && form.template_id" class="settings-card" aria-labelledby="people-title">
         <h2 id="people-title">被评估人<span class="required">*</span></h2>
         <p class="hint">可圈定被评估人范围。同一评估周期中，每名被评估人只能参与 1 次「绩效评估」。</p>
         <PerformanceAudienceRuleEditor
@@ -43,8 +43,8 @@
           :disabled="saving"
           @open-options="loadEvaluatorOptions"
         />
-        <p v-if="validationError" class="error" role="alert">{{ validationError }}</p>
       </section>
+      <p v-if="currentStep === 0 && validationError" class="error" role="alert">{{ validationError }}</p>
 
       <section v-if="currentStep === 1" class="settings-card flow-card" aria-labelledby="flow-title">
         <h1 id="flow-title">流程设置</h1>
@@ -151,7 +151,7 @@ async function loadManualOpeningSetting() {
   }
 }
 async function loadTemplates() { templateLoading.value = true; templateError.value = ''; try { templates.value = cycleId.value ? await performanceProjectApi.listTemplates(cycleId.value) : [] } catch { templateError.value = '绩效模板加载失败，请稍后重试' } finally { templateLoading.value = false } }
-function selectTemplate(templateId: number) { if (form.template_id === templateId) return; form.template_id = templateId; form.flow_settings = { node_settings: {}, node_times: {} }; savedNodeTimeKeys.value = new Set(); void loadTemplateWorkflow() }
+function selectTemplate(templateId: number) { if (form.template_id === templateId) return; if (validationError.value === '请选择绩效模板') validationError.value = ''; form.template_id = templateId; form.flow_settings = { node_settings: {}, node_times: {} }; savedNodeTimeKeys.value = new Set(); void loadTemplateWorkflow() }
 async function loadTemplateWorkflow() {
   const requestedTemplateId = form.template_id
   if (!form.template_id || !cycleId.value) { workflowNodes.value = []; flowError.value = ''; openingError.value = false; return }

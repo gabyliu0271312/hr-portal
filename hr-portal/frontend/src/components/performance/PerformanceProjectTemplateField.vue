@@ -28,7 +28,7 @@ const selected = computed(() => props.templates.find(item => item.template_id ==
       </div>
       <div class="template-actions">
         <PerformanceTemplatePreviewButton :name="selected?.name || '绩效模板'" />
-        <PerformanceTextButton aria-label="切换绩效模板" title="切换绩效模板" :disabled="disabled" @click="open = true">
+        <PerformanceTextButton label="切换模板" aria-label="切换模板" title="切换模板" :disabled="disabled" @click="open = true">
           <template #icon><svg viewBox="0 0 24 24" fill="none" data-icon="SwitchOutlined" aria-hidden="true"><path d="M2.5 7.958c0 .528.428.956.955.956H21.25c.904 0 1.344-1.104.688-1.726L17.18 2.665a.974.974 0 0 0-1.382.028l-.035.037a1.001 1.001 0 0 0 .032 1.403l2.945 2.87H3.455a.956.956 0 0 0-.955.955ZM2.75 15c-.904 0-1.344 1.104-.688 1.726l4.752 4.518a.986.986 0 0 0 1.394-.029l.032-.033a.98.98 0 0 0-.044-1.385L5.26 17H20.5a1 1 0 1 0 0-2H2.75Z" fill="currentColor" /></svg></template>
         </PerformanceTextButton>
       </div>
@@ -48,6 +48,7 @@ h2 { margin: 0; color: var(--color-text-primary); font-size: var(--font-size-lg)
 h2 + .template-description { line-height: 22px; }
 .template-empty { display: flex; justify-content: center; align-items: center; height: 80px; margin-top: var(--spacing-2); border: 1px dashed var(--performance-template-selected-border); border-radius: var(--radius-lg); }
 .selected-template { display: flex; align-items: center; min-width: 0; margin-top: var(--spacing-2); padding: var(--spacing-4) var(--spacing-5); border: 1px solid var(--performance-template-selected-border); border-radius: var(--radius-lg); }
+.selected-template::before { content: ''; display: block; flex: 0 0 var(--performance-template-icon-size); width: var(--performance-template-icon-size); height: var(--performance-template-icon-size); margin-right: var(--performance-template-icon-gap); background: var(--performance-template-icon-image) center / contain no-repeat; }
 .selected-content { flex: 1; min-width: 0; margin-right: var(--spacing-4); }
 .selected-title { display: flex; align-items: center; min-width: 0; gap: var(--spacing-2); }
 .template-name { overflow: hidden; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }

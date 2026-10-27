@@ -208,6 +208,17 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
 - 同步Spec002 overview/workflow-design中周期单模板旧表述为用户确认的“周期多模板、项目单选”；未改变其他流程规则。
 - 任务状态：本轮代码完成，专项通过；保留扩展回归失败记录，PM-T003-I11不标记全体验收完成。未commit/push/部署/升级公共数据库。
 
+### PM-T003-I11 按钮文案/被评估人显隐补充验收（2026-10-27）
+
+- 用户补充明确“预览”“切换模板”可见文字，未选择模板时不显示被评估人；继续在本卡局部组件修正，不触及后端、权限、迁移或其他会话共享选择器改动。
+- 修改PerformanceTemplatePreviewButton/PerformanceProjectTemplateField/PerformanceProjectSettingsPage及对应测试，新增PerformanceProjectSettingsPage.spec.ts；同步ui-interaction.md。模板前图标采集缺失，已说明无法准确解析，不自行补图。
+- 本卡专项：`npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectTemplateField.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts`，2文件10/10通过。覆盖共享预览可见文字、切换文字、初始不挂载、临时选择不显示、取消不显示、确认后挂载、已有模板重开、无模板校验仍可见及确认后清除过期提示。
+- 扩展周期回归：加跑CycleManagement.spec.ts时37通过1失败；周期多模板标签断言读到4项而非2项。已核对工作区正在调整的PerformanceSelectShell新增aria-hidden/inert测量节点复用标签类，原断言同时采集可见标签和隐藏测量标签；本轮未改该共享组件或周期测试，不把扩展回归标为通过。
+- `npm --prefix hr-portal/frontend run build`：vue-tsc+Vite通过（2m25s，既有VueUse PURE注释提示）；`git diff --check`本轮目标通过。
+- 实际Chrome项目页面使用隔离网络夹具：初始无被评估人模块/无候选人请求，临时选择/取消保持隐藏，确定后显示；预览文字可见且禁用，切换回显原值/取消保留；选择后旧校验提示消失；0个pageerror。未宣称本轮真实后端或生产验收。
+- 独立实际截图已查看：`../../ui-blueprints/PM-T003-I11-template-unselected-audience-hidden.png`、`../../ui-blueprints/PM-T003-I11-template-selected-actions.png`；临时Vite进程已停。未commit/push/部署；不更改原有未完成标记。
+
+
 ### PM-T003-I11-F01 项目基本信息局部展示调整（2026-10-27）
 
 - [ ] PM-T003-I11-F01：用户本轮明确授权三项 UI 调整，关联现有项目设置页，前置为现有项目 GET/PATCH 与基本信息编辑弹窗。
@@ -221,3 +232,17 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
   - 验收限制：尚未执行浏览器视觉/点击编辑回填验收，无本轮截图，不以现有回归测试冒充三项视觉验证；本任务保持 `[ ]`。本轮无后端、SQL、迁移与生产操作，未 commit/push/部署。
 
   - 后续授权：用户明确要求本次相关改动在 main commit 并推送；仅提交本卡及共享标签必要依赖，其他工作区修改不纳入。浏览器验收状态保持待完成。
+
+### PM-T003-I11-F02 已选模板前置图标（2026-10-27）
+
+- [x] PM-T003-I11-F02：用户提供浏览器采集补齐此前缺失图标，按同一已选卡片局部还原，不扩展其他 UI 或业务功能。
+  - 证据/契约：ancestors[0].before 为36×36px、margin-right 12px、background-size contain、center/no-repeat，内嵌SVG viewBox 0 0 32 32，5条path，颜色#3370FF/#245BDB/white。已解码查看原图，仅SVG path，无脚本/外部资源。
+  - 修改范围：PerformanceProjectTemplateField.vue增加::before；tokens.css仅新增performance-template-icon-size/gap/image，不覆盖其他会话选择器token；同组件spec测试及本功能交互/任务记录。新增独立实际截图PM-T003-I11-F02-selected-template-icon.png，不覆盖其他任务证据。
+  - 保护范围：不改候选列表、预览组件、按钮、被评估人显隐、页面基本信息（并行F01）、API/权限/数据库/历史快照；不自动commit/push/部署。
+  - 专项测试：`npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectTemplateField.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts`，2文件11/11通过。测试SVG原图坐标系/5条path/配色、token尺寸及间距、图标仅选后卡片显示，并回归按钮/选择/取消/被评估人显隐。
+  - 实际Chrome：独立Vite与隔离网络夹具，图像decode成功；伪元素宽高36px、右间距12px、flex-shrink 0、contain/no-repeat，原图viewBox与path一致；未选/临时选择不显示，确认后显示，切换取消保留原值，预览禁用，0 pageerror。不将夹具冒充真实API或生产验收。
+  - 独立PNG已查看：`../../ui-blueprints/PM-T003-I11-F02-selected-template-icon.png`；临时Vite进程已停止。
+  - UI门禁：沿用PM-T003-I11与Spec012通用规则，已有采集确认的局部样式，无新页面或完整蓝图；本轮无后端/迁移/生产验收适用项。停止方式为仅撤销本轮图标局部修改，不触碰共享工作区其他差异。
+  - 构建：`npm --prefix hr-portal/frontend run build` 的vue-tsc+Vite通过（退出码0）；相关前端回归4文件26/26通过（图标卡片8、显隐3、共享按钮4、项目管理11）；图标资源安全检查仅SVG/path，无脚本/外部引用，3个新token无重复。`git diff --check`通过，仅LF/CRLF提示。本局部图标任务完成，不改变父任务/并行F01其他未完成项；未commit/push/部署。
+
+- 本部分提交授权：用户明确要求在main完成并推送；仅纳入按钮可见文案、模板前置图标、被评估人显隐、对应测试/截图/记录。tokens.css仅暂存3个图标token，其他并行选择器、通知与数仓改动不纳入；不包含部署或数据库操作。
