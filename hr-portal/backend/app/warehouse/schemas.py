@@ -1769,6 +1769,8 @@ class StandardFieldDefinitionIn(BaseModel):
 
 class StandardFieldCreateIn(StandardFieldDefinitionIn):
     field_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    permission_domain: Literal["public", "org", "cost_center", "salary", "personal"] = "public"
+    owner_user_id: int | None = Field(default=None, gt=0, strict=True)
 
 
 class StandardFieldVersionCreateIn(StandardFieldDefinitionIn):

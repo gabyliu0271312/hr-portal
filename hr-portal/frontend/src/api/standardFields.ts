@@ -111,11 +111,11 @@ export interface StandardFieldDefinitionPayload {
   business_definition: string
   data_type: string
   grain_level?: string | null
-  permission_domain: string
-  is_permission_anchor: boolean
-  owner_user_id: number
+  permission_domain?: string
+  is_permission_anchor?: boolean
+  owner_user_id?: number
   value_domain?: StandardFieldValueDomain | null
-  category_ids: number[]
+  category_ids?: number[]
   expected_version?: number
   expected_revision?: number
 }

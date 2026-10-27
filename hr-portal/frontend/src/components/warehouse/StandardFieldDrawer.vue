@@ -28,7 +28,7 @@ const form = reactive<StandardFieldDefinitionPayload>({
 })
 const displayName = ref('')
 const writable = () => mode.value !== 'view' && canWrite.value
-const migrationRequired = computed(() => [form.value_domain, detail.value?.latest_version.value_domain].some(domain => domain != null && !Array.isArray(domain.items)))
+const migrationRequired = computed(() => [form.value_domain, detail.value?.latest_version?.value_domain].some(domain => domain != null && !Array.isArray(domain.items)))
 
 function message(cause: any, fallback: string) {
   let value = cause?.response?.data?.detail
@@ -96,18 +96,24 @@ async function saveDisplayName() {
 
 function cancel() { if (detail.value) { fill(detail.value.latest_version); mode.value = 'view' } else close() }
 function normalizedForm(): StandardFieldDefinitionPayload {
+  const valueDomain = form.value_domain ? { items: (form.value_domain.items || []).map(item => ({ code: item.code.trim(), name: item.name.trim(), enabled: item.enabled, sort_order: item.sort_order })) } : null
+  if (mode.value === 'create') {
+    return {
+      field_name: form.field_name.trim(), business_definition: form.business_definition.trim(),
+      data_type: form.data_type, value_domain: valueDomain,
+    }
+  }
   return {
     field_name: form.field_name.trim(), business_definition: form.business_definition.trim(),
     data_type: form.data_type, grain_level: form.grain_level || null,
     permission_domain: form.permission_domain, is_permission_anchor: form.is_permission_anchor,
-    owner_user_id: form.owner_user_id, category_ids: form.category_ids,
-    value_domain: form.value_domain ? { items: (form.value_domain.items || []).map(item => ({ code: item.code.trim(), name: item.name.trim(), enabled: item.enabled, sort_order: item.sort_order })) } : null,
+    owner_user_id: form.owner_user_id, category_ids: form.category_ids, value_domain: valueDomain,
   }
 }
 async function save() {
   if (migrationRequired.value || saving.value || loading.value || !writable() || (mode.value === 'edit' && detail.value?.latest_version.status !== 'draft')) return
-  if (!form.field_name.trim() || !form.business_definition.trim() || !form.owner_user_id || (mode.value === 'create' && !form.field_code?.trim())) {
-    ElMessage.warning('请填写字段编码、名称、业务定义与负责人')
+  if (!form.field_name.trim() || !form.business_definition.trim() || (mode.value === 'create' && !form.field_code?.trim()) || (mode.value !== 'create' && !form.owner_user_id)) {
+    ElMessage.warning(mode.value === 'create' ? '请填写字段编码、名称与业务定义' : '请填写字段名称、业务定义与负责人')
     return
   }
   const items = form.data_type === 'enum' ? form.value_domain?.items || [] : []

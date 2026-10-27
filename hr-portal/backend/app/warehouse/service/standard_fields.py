@@ -208,6 +208,7 @@ async def update_standard_field_display_name(db, field_id, payload, user):
 
 async def create_standard_field(db, payload, user):
     async with _transaction(db):
+        payload = payload.model_copy(update={"owner_user_id": payload.owner_user_id or user.id})
         await _validate_definition(db, payload)
         if await db.scalar(select(StandardField.id).where(StandardField.field_code == payload.field_code)):
             _error(409, "standard_field_code_exists", "标准字段编码已存在")

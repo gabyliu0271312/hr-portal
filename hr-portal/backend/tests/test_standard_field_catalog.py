@@ -169,6 +169,7 @@ async def postgres_standard_catalog(postgres_classification_schema):
         await conn.execute(categories.insert().values(id=9, name="existing_sensitive", is_sensitive=True))
         await conn.execute(RoleVisibleCategory.__table__.insert().values(role_id=1, category_id=9))
         await conn.run_sync(install)
+        await conn.execute(text("ALTER TABLE standard_fields ADD COLUMN display_name varchar(128)"))
         await conn.execute(models.StandardField.__table__.insert().values(id=1, field_code="employee_no", created_by=7))
         await conn.execute(models.StandardFieldVersion.__table__.insert().values(
             id=11, standard_field_id=1, version=1, field_name="Employee number",
@@ -369,6 +370,27 @@ async def standard_catalog_api(postgres_standard_catalog):
     app.dependency_overrides[current_user] = user
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         yield client, engine, factory, app
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_catalog_create_accepts_basic_definition_and_applies_safe_governance_defaults(standard_catalog_api):
+    client, _, _, _ = standard_catalog_api
+    response = await client.post("/api/v1/warehouse/standard-fields", json={
+        "field_code": "basic_field", "field_name": "基础字段",
+        "business_definition": "只维护字段业务定义", "data_type": "string",
+    })
+    assert response.status_code == 201, response.text
+    version = response.json()["latest_version"]
+    assert version["status"] == "draft"
+    assert version["approved_by"] is None
+    assert version["approved_at"] is None
+    assert version["permission_domain"] == "public"
+    assert version["owner_user_id"] == 7
+    assert version["is_permission_anchor"] is False
+    assert version["category_ids"] == []
+    assert response.json()["current_active_version_id"] is None
+    assert response.json()["bindings"] == []
 
 
 @pytest.mark.postgres_acceptance
