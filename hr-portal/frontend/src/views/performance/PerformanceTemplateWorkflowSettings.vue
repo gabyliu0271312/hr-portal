@@ -395,6 +395,12 @@ const selectedExecutorMode = computed({
   set: (value: string) => {
     if (!selectedNode.value || !selectableExecutorNodeTypes.includes(selectedNode.value.node_type)) return
     selectedNode.value.executor_label = value
+    const option = executorModeOptions.find(option => option.label === value)
+    selectedNode.value.executor_role_code = option?.roleCode
+    selectedNode.value.executor_types = option?.type === 'REAL_LINE_MANAGER'
+      ? selectedNode.value.executor_types.filter(type => executorOptions.some(level => level.type === type))
+      : option ? [option.type] : []
+    if (option?.type === 'REAL_LINE_MANAGER' && !selectedNode.value.executor_types.length) selectedNode.value.executor_types = ['DIRECT_MANAGER']
     if (['result_communication', 'reviewer_360_confirm'].includes(selectedNode.value.node_type)) {
       if (value === '实线上级' && selectedNode.value.executor_types.length === 0) selectedNode.value.executor_types = ['DIRECT_MANAGER']
       return
@@ -441,9 +447,10 @@ function invalidInviteNodeId() {
 function normalizeRestrictedExecutor(node: PerformanceWorkflowNode) {
   if (node.node_type !== 'evaluation') return
   if (node.executor_label === '被评估人') { node.executor_types = ['SUBJECT']; node.evaluation_type = 'SINGLE' }
-  else if (node.executor_label === '360°评估人') node.evaluation_type = 'MULTI'
+  else if (node.executor_label === '360°评估人') { node.executor_types = ['REVIEWER_360']; node.evaluation_type = 'MULTI' }
   else if (node.executor_label === '实线上级') { node.evaluation_type = 'SINGLE'; return }
-  else if (node.executor_label === '虚线上级') { node.include_final_result = false; return }
+  else if (node.executor_label === '虚线上级') { node.executor_types = ['VIRTUAL_LINE_MANAGER']; node.include_final_result = false; return }
+  else if (node.executor_label === '指标评价人') { node.executor_types = ['INDICATOR_EVALUATOR']; return }
   else return
   node.include_final_result = false
 }
@@ -485,6 +492,8 @@ function normalizePreviousNodeRequirement(node: PerformanceWorkflowNode, index: 
 }
 function normalizeNode(node: PerformanceWorkflowNode, index: number) {
   ensureInviteDefaults(node)
+  const option = fixedExecutorOptionByNodeType[node.node_type] || executorModeOptions.find(option => option.label === node.executor_label)
+  node.executor_role_code = option?.roleCode || null
   normalizeRestrictedExecutor(node)
   normalizeSharedManagerExecutor(node)
   normalizeFixedSubjectExecutor(node)

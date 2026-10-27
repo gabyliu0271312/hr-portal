@@ -880,3 +880,19 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     updateSpy.mockRestore()
   })
 })
+
+it('switches stable identity and executor types together without changing the available role list', async () => {
+  const wrapper = mount(PerformanceTemplateWorkflowSettings)
+  await wrapper.findAll('.stage-node')[0].trigger('click')
+  await wrapper.get('.ud__select__selector').trigger('mouseenter')
+  expect(wrapper.findAll('.executor-option').map(option => option.text())).toEqual(['被评估人', '360°评估人', '实线上级', '虚线上级', '指标评价人'])
+  await wrapper.findAll('.executor-option').find(option => option.text() === '360°评估人')!.trigger('click')
+  const state = (wrapper.vm as any).$?.setupState
+  expect(state.businessNodes[0].executor_types).toEqual(['REVIEWER_360'])
+  expect(state.businessNodes[0].executor_role_code).toBe('assessment.reviewer_360')
+  await wrapper.get('.ud__select__selector').trigger('mouseenter')
+  await wrapper.findAll('.executor-option').find(option => option.text() === '指标评价人')!.trigger('click')
+  expect(state.businessNodes[0].executor_types).toEqual(['INDICATOR_EVALUATOR'])
+  expect(state.businessNodes[0].executor_role_code).toBe('assessment.metric_evaluator')
+  wrapper.unmount()
+})

@@ -106,6 +106,8 @@ export interface PerformanceReviewNode {
   task_kind?: string
   entry_mode?: 'template_task' | 'route' | 'none'
   executor_label: string
+  executor_role_code?: string | null
+  phase_id?: string | null
   status: 'pending' | 'not_started' | 'overdue' | 'completed'
   start_at: string | null
   end_at: string | null
@@ -1173,6 +1175,7 @@ export interface PerformanceWorkflowNode {
   order: number
   executor_types: string[]
   executor_label: string
+  executor_role_code?: string | null
   evaluation_type: 'SINGLE' | 'MULTI' | null
   include_final_result: boolean
   system: boolean
@@ -1276,6 +1279,14 @@ export interface PerformanceProjectNodeTime {
   end_at: string
   appeal_deadline?: string
   phase_times?: Record<string, { start_at: string; end_at: string }>
+}
+
+export interface PerformanceCalibrationAssignment {
+  role_code: 'assessment.calibrator'
+  evaluated_count: number
+  assigned_count: number
+  unassigned_count: number
+  phases: Array<{ phase_id: string; assignments: Array<{ handler_ref: string; employee_no: string; allow_authorize: boolean }> }>
 }
 
 export interface PerformanceProjectFlowSettings {
@@ -1497,6 +1508,10 @@ export interface PerformanceEvaluatorOptions {
 }
 
 export const performanceProjectApi = {
+  async calibrationPreview(id: number, payload: PerformanceProjectPayload): Promise<Record<string, PerformanceCalibrationAssignment | null>> {
+    const { data } = await api.post(`/performance/projects/${id}/calibration-preview`, payload)
+    return data
+  },
   async list(cycleId: number, keyword?: string, page = 1, pageSize = 20): Promise<PerformanceProjectPage> {
     const { data } = await api.get<PerformanceProjectPage>(`/performance/cycles/${cycleId}/projects`, {
       params: { ...(keyword ? { keyword } : {}), page, page_size: pageSize },

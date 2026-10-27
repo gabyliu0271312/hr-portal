@@ -56,6 +56,9 @@ const rootCapabilities = computed(() => getRootSettingsCapabilities(props.conten
 const isPromptContent = computed(() => props.content.type === 'prompt')
 const rootSettingsAvailable = computed(() => Boolean(props.rootSettingsEnabled && !isPromptContent.value))
 const owner = ref<'root' | 'item'>('root')
+const rootHovered = ref(false)
+const rootSelected = computed(() => props.active && owner.value === 'root')
+const horizontalHandleVisible = computed(() => !props.horizontalHandle || rootHovered.value || rootSelected.value || props.dragging)
 const selectedItemId = ref<string | null>(null)
 const selectedPrompt = computed(() => owner.value === 'root' ? (isPromptContent.value ? props.content.prompt : undefined) : props.content.items.find(item => item.id === selectedItemId.value && item.kind === 'prompt')?.prompt)
 const promptSettings = computed<WorkSummaryItemSettings>(() => ({ mode: 'fill', required: false, allowView: selectedPrompt.value?.allowView !== false, onlyWhenFilling: selectedPrompt.value?.onlyWhenFilling === true }))
@@ -151,14 +154,15 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     :class="{ 'rating-content-card': content.type === 'rating', 'is-result-readonly': props.itemSettingsVariant === 'result-view-item', 'is-result-tag': props.itemSettingsVariant === 'result-view-item' && content.type === 'custom' && content.items.some(item => (item.questionType || content.questionType || 'text') === 'tag'), 'is-dragging': dragging, 'hides-description': !isPromptContent && rootDisplaySettings?.hideDescription, 'allows-multiple': !isPromptContent && rootDisplaySettings?.allowMultiple }"
     :data-sortable-index="structureEditable ? index : undefined"
     :style="itemStyle"
-    @mouseenter="emit('hover-change', true)"
-    @mouseleave="emit('hover-change', false)"
+    @mouseenter="rootHovered = true; emit('hover-change', true)"
+    @mouseleave="rootHovered = false; emit('hover-change', false)"
+    @click="horizontalHandle && $event.stopPropagation()"
   >
-    <PerformanceHorizontalDragHandle v-if="!isCalibration && structureEditable && horizontalHandle" :label="`拖拽${content.name}`" :dragging="dragging" :disabled="settingsDisabled" />
+    <PerformanceHorizontalDragHandle v-if="!isCalibration && structureEditable && horizontalHandle" :label="`拖拽${content.name}`" :dragging="dragging" :disabled="settingsDisabled" :visible="horizontalHandleVisible" />
     <PerformanceDragHandle v-else-if="!isCalibration && structureEditable" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
     <PerformanceConfiguredCardActionToolbar
       v-if="structureEditable"
-      :visible="toolbarVisible || dragging"
+      :visible="toolbarVisible || dragging || (horizontalHandle === true && rootSelected)"
       :index="index"
       :count="count"
       @move-up="emit('move-up')"
@@ -203,6 +207,9 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
 </template>
 
 <style scoped>
+.configured-content-card.has-horizontal-handle:not(.is-selected):not(.is-dragging):has(.performance-content-selection-frame--item:hover)>.performance-horizontal-drag-handle:not(:focus-visible){opacity:0;pointer-events:none}
+.configured-content-card.has-horizontal-handle:not(.is-selected):not(.is-dragging):has(.performance-content-selection-frame--item:hover)>.configured-card-action-toolbar{display:none}
+
 .configured-content-card{position:relative;width:var(--performance-content-width);max-width:100%;margin:0;box-sizing:border-box;border:0;border-bottom:1px solid #dee0e3;border-radius:0;color:#1f2329;overflow:visible;background:#fff}.configured-content-card> :deep(.performance-drag-handle.is-strip),.configured-content-card> :deep(.performance-horizontal-drag-handle){position:absolute;top:0;right:0;left:0;z-index:21;width:100%;height:24px;margin:0}.configured-content-card:focus-within{z-index:20;border-bottom-color:#dee0e3}.configured-content-card:hover{z-index:20}.configured-content-card.is-dragging{opacity:.72}.configured-content-card__row{display:grid;grid-template-columns:minmax(0,1fr) 24px;align-items:start;min-height:0;gap:var(--spacing-2);padding:var(--spacing-4) var(--spacing-6) var(--spacing-2);box-sizing:border-box}.configured-content-card.hides-description .configured-content-card__row{min-height:0}.configured-content-card__header{min-width:0}.configured-content-card__row :deep(.performance-assessment-preview-header){margin:0}.configured-content-card__row> :deep(.performance-expand-button){grid-column:2}.configured-content-card__details{max-width:792px;margin:0 auto;padding:0 0 8.667px;color:#646a73}.configured-content-card :deep(.performance-expand-button.is-hover-only){opacity:1;pointer-events:auto}.configured-content-card.rating-content-card{padding-bottom:8px}.configured-content-card.rating-content-card .configured-content-card__row{min-height:0;height:auto;margin-top:0;padding:var(--spacing-4) var(--spacing-6) var(--spacing-2)}.configured-content-card.rating-content-card .configured-content-card__details{padding:0 0 8px}.configured-content-card.allows-multiple .configured-content-card__details{padding-bottom:0}.configured-content-card__add-item{margin:0 0 20px 24px}.content-settings-detail{position:fixed;top:104px;right:0;z-index:30;width:320px;height:calc(100vh - 104px);padding:24px 20px;box-sizing:border-box;overflow:auto;background:#fff;color:#1f2329}
 .configured-content-card.is-result-readonly .configured-content-card__row{min-height:0}.configured-content-card.is-result-readonly.rating-content-card .configured-content-card__row{height:auto;min-height:0;margin-top:0}.configured-content-card.is-result-readonly.rating-content-card .configured-content-card__details{padding-bottom:var(--spacing-2)}.configured-content-card.is-result-readonly.rating-content-card{padding-bottom:0}
 .configured-content-card.is-result-tag .configured-content-card__details{padding-bottom:var(--performance-result-view-tag-inset-block)}

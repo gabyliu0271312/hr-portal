@@ -26,6 +26,9 @@ from app.performance.models import (
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceObjectAuthorizationState,
+    PerformanceNodeTask,
+    PerformanceProject,
+    PerformanceProjectNodeSnapshot,
     PerformancePublicationTransfer,
 )
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
@@ -72,6 +75,9 @@ class ObjectAuthorizationRequest:
     cycle_status: str
     node_status: str
     record_status: str
+    project_id: int | None = None
+    node_id: str | None = None
+    phase_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -267,6 +273,10 @@ class PerformanceObjectAuthorizationService:
         if snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
             raise PerformanceObjectAuthorizationDenied("周期授权快照尚未锁定")
 
+        if request.action == OBJECT_ACTION_CALIBRATE and any(value is not None for value in (request.project_id, request.node_id, request.phase_id)):
+            await self._authorize_project_calibration(request)
+            return
+
         scopes_by_identity = await self._resolve_employee_scopes(request)
         active_transfer = None
         if request.action == OBJECT_ACTION_PUBLISH:
@@ -311,6 +321,25 @@ class PerformanceObjectAuthorizationService:
         )
         await self.authorize(request)
         return request
+
+    async def _authorize_project_calibration(self, request):
+        from app.performance.calibration_service import calibration_task_scope
+
+        if request.actor_type != "EMPLOYEE" or not request.project_id or not request.node_id or not request.phase_id:
+            raise PerformanceObjectAuthorizationDenied("校准身份缺少项目节点或阶段范围")
+        row = (await self.db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(
+            PerformanceProject.id == request.project_id,
+            PerformanceProject.status == "STARTED",
+            PerformanceProject.cycle_ref == request.cycle_ref,
+            PerformanceNodeTask.task_kind == "calibration",
+            PerformanceNodeTask.target_employee_no == request.employee_no,
+            PerformanceNodeTask.handler_ref == request.actor_ref,
+            PerformanceNodeTask.phase_id == request.phase_id,
+            PerformanceProjectNodeSnapshot.node_id == request.node_id,
+        ))).first()
+        if row is None or not calibration_task_scope(*row):
+            raise PerformanceObjectAuthorizationDenied("无权操作该项目校准阶段范围")
+        _assert_process_state(request)
 
     async def authorize_dynamic_scope(
         self,

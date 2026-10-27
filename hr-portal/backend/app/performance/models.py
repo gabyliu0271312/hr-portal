@@ -972,7 +972,7 @@ class PerformanceProjectNodeSnapshot(Base):
 class PerformanceNodeTask(Base):
     __tablename__ = "performance_node_tasks"
     __table_args__ = (
-        UniqueConstraint("project_id", "member_snapshot_id", "node_snapshot_id", "target_employee_no", "handler_ref", "task_kind", name="uq_performance_node_task_generation"),
+        UniqueConstraint("project_id", "member_snapshot_id", "node_snapshot_id", "target_employee_no", "handler_ref", "task_kind", "phase_id", name="uq_performance_node_task_generation"),
         Index("ix_performance_node_tasks_handler_state", "handler_ref", "status"),
         Index("ix_performance_node_tasks_project_node", "project_id", "node_snapshot_id"),
     )
@@ -984,6 +984,7 @@ class PerformanceNodeTask(Base):
     node_snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_project_node_snapshots.id", ondelete="RESTRICT"), nullable=False)
     target_employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
     handler_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    phase_id: Mapped[str] = mapped_column(String(96), nullable=False, default="", server_default="")
     task_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

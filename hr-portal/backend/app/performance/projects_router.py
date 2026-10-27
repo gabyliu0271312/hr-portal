@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
-from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
+from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
+from app.performance.calibration_service import calibration_task_scope
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
@@ -76,19 +77,30 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
     if str(row[0].handler_ref) != trusted.actor_ref:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-    if row[0].task_kind != task_kind:
+    allowed_kinds = {"evaluation", "calibration"} if task_kind == "evaluation" else {task_kind}
+    if row[0].task_kind not in allowed_kinds:
         raise HTTPException(status_code=422, detail="TASK_TYPE_NOT_SUPPORTED")
     if target_employee_no and target_employee_no != row[0].target_employee_no:
         target_query = select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id).where(
             PerformanceNodeTask.node_snapshot_id == row[0].node_snapshot_id,
             PerformanceNodeTask.handler_ref == row[0].handler_ref,
             PerformanceNodeTask.target_employee_no == target_employee_no,
-            PerformanceNodeTask.task_kind == task_kind,
+            PerformanceNodeTask.task_kind == row[0].task_kind,
+            PerformanceNodeTask.project_id == row[0].project_id,
+            PerformanceNodeTask.member_snapshot_id == row[0].member_snapshot_id,
+            PerformanceNodeTask.phase_id == (getattr(row[0], "phase_id", "") or ""),
         )
         target_row = (await db.execute(target_query)).first()
         if not target_row:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
         row = target_row
+    if row[0].task_kind == "calibration":
+        if not calibration_task_scope(row[0], row[1]):
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+        try:
+            await PerformanceObjectAuthorizationService(db).authorize(ObjectAuthorizationRequest(cycle_ref=row[0].cycle_ref, employee_no=row[0].target_employee_no, actor_type="EMPLOYEE", actor_ref=trusted.actor_ref, action="CALIBRATE", cycle_status="ACTIVE", node_status="OPEN", record_status="DRAFT", project_id=row[0].project_id, node_id=row[1].node_id, phase_id=row[0].phase_id))
+        except PerformanceObjectAuthorizationDenied:
+            raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
     return row[0], row[1]
 
 
@@ -100,6 +112,12 @@ def _node_timing(project: PerformanceProject | None, node: PerformanceProjectNod
 
 
 def _task_window(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject | None) -> tuple[datetime | None, datetime | None]:
+    if getattr(task, "task_kind", None) == "calibration":
+        timing = _node_timing(project, node) or {}
+        phase = (timing.get("phase_times") or {}).get(task.phase_id)
+        if phase is not None:
+            return _parse_time(phase.get("start_at")), _parse_time(phase.get("end_at"))
+        return task.available_at, task.due_at
     timing = _node_timing(project, node)
     if timing is None:
         return task.available_at, task.due_at
@@ -142,7 +160,7 @@ async def _overdue_submission_allowed(task: PerformanceNodeTask, node: Performan
 
 async def _self_summary_template(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> dict:
     template = (node.config or {}).get("template") or {}
-    if not template.get("content"):
+    if not template.get("content") and getattr(node, "node_type", None) != "calibration":
         project = await db.get(PerformanceProject, task.project_id)
         template_id = (project.settings or {}).get("template_id") if project else None
         workflow = await db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
@@ -314,7 +332,7 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
 async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     schema, answers = await _task_visible_content(task, node, db)
     member = await db.scalar(select(PerformanceProjectMember).where(
@@ -337,6 +355,8 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     return {
         "task_id": task.id,
         "task_kind": task.task_kind,
+        "executor_role_code": ((node.config or {}).get("template") or {}).get("executor_role_code"),
+        "phase_id": getattr(task, "phase_id", "") or None,
         "entry_mode": _task_entry_mode(task),
         "node_name": node.name,
         "deadline_at": due_at,
@@ -385,7 +405,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     if not editable or (submit and not submit_allowed):
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
@@ -402,7 +422,10 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
             if self_summary_field_requires_value(field, value) and self_summary_value_empty(field, value):
                 raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
     writable_ids = {field["id"] for section in schema for field in section["fields"] if not field.get("readonly")}
+    before_answers = dict(task.answers or {})
     task.answers = {**{key: value for key, value in (task.answers or {}).items() if key not in writable_ids}, **answers}
+    if getattr(task, "task_kind", None) == "calibration":
+        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type="EMPLOYEE", actor_ref=task.handler_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"answers": before_answers}, after_state={"answers": task.answers, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
     task.answer_version += 1
     if submit:
         task.submitted_at = datetime.now(UTC)
@@ -1358,6 +1381,17 @@ async def update_project(
     return ProjectResponse(**PerformanceProjectService.serialize(project))
 
 
+@router.post("/projects/{project_id}/calibration-preview")
+async def calibration_preview(project_id: int, payload: ProjectPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    project = await _get_project(db, project_id)
+    if not _can_manage_project(context, project):
+        raise HTTPException(status_code=403, detail="无权查看当前项目校准范围")
+    try:
+        return await PerformanceProjectService(db).calibration_preview(project, payload.model_dump(exclude_unset=True))
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/projects/{project_id}/workflow-nodes/backfill")
 async def backfill_project_workflow_nodes(
     project_id: int,
@@ -1758,6 +1792,7 @@ async def project_management_statistics(
 _TASK_ENTRY_MODES = {
     "work_summary": "template_task",
     "evaluation": "template_task",
+    "calibration": "template_task",
 }
 
 
@@ -1916,7 +1951,14 @@ async def review_overview(
             continue
         start_at = timing.get("start_at")
         end_at = timing.get("end_at") or timing.get("appeal_deadline")
-        selected_task = _select_review_task(tasks_by_node.get(node.id, []), task_id)
+        node_tasks = tasks_by_node.get(node.id, [])
+        if node.node_type == "calibration" and task_id is None:
+            actionable = [task for task in node_tasks if not _task_completed(task) and _task_is_available(task, node, project, now)]
+            node_tasks = actionable or [task for task in node_tasks if not _task_completed(task)] or node_tasks
+        selected_task = _select_review_task(node_tasks, task_id)
+        if selected_task is not None and getattr(selected_task, "task_kind", None) == "calibration":
+            start, end = _task_window(selected_task, node, project)
+            start_at, end_at = start.isoformat() if start else None, end.isoformat() if end else None
         selected_task_kind = getattr(selected_task, "task_kind", None) if selected_task else None
         is_template_task = selected_task_kind in _TASK_ENTRY_MODES
         node_payload = {
@@ -1926,6 +1968,8 @@ async def review_overview(
             "task_kind": selected_task_kind,
             "entry_mode": _task_entry_mode(selected_task),
             "executor_label": raw_node.get("executor_label") or "",
+            "executor_role_code": raw_node.get("executor_role_code"),
+            "phase_id": getattr(selected_task, "phase_id", "") or None,
             "status": _review_tasks_status(tasks_by_node.get(node.id, []), start_at, end_at, now) if is_template_task and node.node_type == "evaluation" else (_review_task_status(selected_task, start_at, end_at, now) if is_template_task else _review_node_status(start_at, end_at, now)),
             "start_at": start_at,
             "end_at": end_at,
@@ -1934,7 +1978,7 @@ async def review_overview(
         }
         if is_template_task and selected_task is not None:
             available_at, due_at = _task_window(selected_task, node, project)
-            editable, _ = _self_summary_state(selected_task, available_at, due_at)
+            editable, _ = _self_summary_state(selected_task, available_at, due_at, getattr(selected_task, "task_kind", None) != "calibration")
             node_payload["editable"] = editable
             node_payload["submitted_at"] = selected_task.submitted_at
             if selected_task.submitted_at is not None:

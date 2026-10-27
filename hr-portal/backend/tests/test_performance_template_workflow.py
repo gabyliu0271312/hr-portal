@@ -246,7 +246,7 @@ def test_360_confirmation_preserves_virtual_manager_and_defaults_empty_real_line
     real = normalize_workflow_nodes([_evaluation("evaluation-1", "实线上级"), {**base, "executor_label": "实线上级"}])[1]
 
     assert virtual["executor_label"] == "虚线上级"
-    assert virtual["executor_types"] == []
+    assert virtual["executor_types"] == ["VIRTUAL_LINE_MANAGER"]
     assert real["executor_types"] == ["DIRECT_MANAGER"]
 
 
@@ -853,7 +853,7 @@ async def test_service_rejects_invalid_result_view_before_mutating_or_committing
     ("实线上级", ["LEVEL_2_MANAGER"], "隔 2 级上级"),
     ("实线上级", ["LEVEL_3_MANAGER_PLUS"], "隔 3 级上级及以上"),
     ("实线上级", ["DIRECT_MANAGER", "LEVEL_2_MANAGER", "DIRECT_MANAGER"], "直属上级、隔 2 级上级"),
-    ("实线上级", [], "实线上级"),
+    ("实线上级", [], "直属上级"),
     ("指标评价人", [], "指标评价人"),
 ])
 async def test_service_result_view_error_uses_final_executor_label(
@@ -1588,3 +1588,44 @@ async def test_result_view_content_region_order_round_trips_and_rejects_invalid_
     assert record.nodes[1]["content_region_order"] == view["content_region_order"]
     with pytest.raises(TemplateWorkflowValidationError, match="内容区域顺序不合法"):
         await service.save_nodes(77, [final, {**view, "content_region_order": ["result", "result", "reference:reference-one"]}], actor_type="PORTAL_USER", actor_ref="9")
+
+
+@pytest.mark.parametrize(("label", "role_code", "executor_type"), [("360°评估人", "assessment.reviewer_360", "REVIEWER_360"), ("指标评价人", "assessment.metric_evaluator", "INDICATOR_EVALUATOR"), ("虚线上级", "assessment.dotted_manager", "VIRTUAL_LINE_MANAGER"), ("被评估人", "assessment.reviewee", "SUBJECT")])
+def test_executor_identity_repairs_stale_manager_type(label, role_code, executor_type):
+    node = {**_evaluation("evaluation-1", label), "executor_types": ["DIRECT_MANAGER"]}
+    normalized = normalize_workflow_nodes([node])[0]
+    assert normalized["executor_role_code"] == role_code
+    assert normalized["executor_types"] == [executor_type]
+
+
+def test_calibration_identity_is_the_directory_calibrator_not_a_new_role():
+    normalized = normalize_workflow_nodes([_evaluation("evaluation-1", "实线上级"), {"node_type": "calibration", "node_id": "calibration-1", "name": "校准", "order": 2}])[1]
+    assert normalized["executor_role_code"] == "assessment.calibrator"
+    assert normalized["executor_types"] == ["PROJECT_CONFIGURED"]
+    assert normalized["executor_label"] == "在项目配置时指定"
+
+
+def test_workflow_rejects_unknown_role_code_and_uses_stable_identity_over_label():
+    node = {**_evaluation("evaluation-1", "实线上级"), "executor_role_code": "custom.unknown"}
+    with pytest.raises(TemplateWorkflowValidationError, match="角色编码"):
+        normalize_workflow_nodes([node])
+    node["executor_role_code"] = "assessment.reviewer_360"
+    normalized = normalize_workflow_nodes([node])[0]
+    assert normalized["executor_label"] == "360°评估人"
+    assert normalized["executor_types"] == ["REVIEWER_360"]
+
+
+@pytest.mark.asyncio
+async def test_executor_directory_must_contain_active_system_assessment_roles():
+    from app.performance.assessment_roles import validate_executor_roles
+    class Db:
+        def __init__(self, role):
+            self.role = role
+        async def execute(self, _query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [self.role]))
+    role = SimpleNamespace(code="assessment.calibrator", is_system=True, is_active=True, role_type="ASSESSMENT")
+    nodes = [{"executor_role_code": role.code}]
+    await validate_executor_roles(Db(role), nodes)
+    for changes in ({"is_active": False}, {"is_system": False}, {"role_type": "MANAGEMENT"}):
+        with pytest.raises(ValueError, match="角色目录"):
+            await validate_executor_roles(Db(SimpleNamespace(**{**vars(role), **changes})), nodes)

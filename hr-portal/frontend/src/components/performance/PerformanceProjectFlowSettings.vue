@@ -27,7 +27,7 @@
       <section v-else-if="node.node_type === 'calibration'" class="node-settings calibration-settings" aria-label="校准规则设置">
         <div class="calibration-switch-row"><div><strong>绩效结果强制 / 建议分布</strong><p>开启后，可以选择一个评估项，针对评估项的等级设置强制分布和建议分布规则</p></div><PerformanceSwitch :model-value="calibrationSettings(node).force_distribution_enabled" aria-label="绩效结果强制建议分布" @update:model-value="calibrationSettings(node).force_distribution_enabled = $event" /></div>
         <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><span class="info-mark" aria-label="校准规则说明">i</span></h3></div></div>
-        <div class="calibration-summary"><span class="info-circle">i</span><span>当前共 {{ evaluatedCount }} 个被评估人，{{ assignedCount(node) }} 人已分配校准，{{ Math.max(0, evaluatedCount - assignedCount(node)) }} 人未分配校准人。</span><PerformanceTextButton label="查看校准详情" /></div>
+        <div class="calibration-summary"><span class="info-circle">i</span><span v-if="assignmentStats[nodeKey(node)]">当前共 {{ assignmentStats[nodeKey(node)]!.evaluated_count }} 个被评估人，{{ assignmentStats[nodeKey(node)]!.assigned_count }} 人已分配校准，{{ assignmentStats[nodeKey(node)]!.unassigned_count }} 人未分配校准人。</span><span v-else>{{ assignmentError || (assignmentLoading ? '正在计算校准分配…' : '校准分配尚未计算') }}</span><PerformanceTextButton label="查看校准详情" /></div>
         <div v-for="(phase, phaseIndex) in calibrationSettings(node).phases" :key="phase.phase_id || phaseIndex" class="calibration-phase">
           <div class="phase-heading"><div class="phase-title">第 {{ phaseIndex + 1 }} 阶段</div><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除第 ${phaseIndex + 1} 阶段`" :disabled="calibrationSettings(node).phases.length <= 1" @click="removePhase(node, phaseIndex)" /></div>
           <div class="rule-table">
@@ -106,9 +106,9 @@
 </template>
 
 <script setup lang="ts">
-import { ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
-import { computed, ref, watch } from 'vue'
-import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
+import { createCalibrationPhaseId, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import type { PerformanceCalibrationAssignment, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
 import { performanceProjectApi } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
@@ -272,10 +272,9 @@ async function saveRuleEditor(rule: PerformanceProjectFlowRule) {
 }
 function setInviteDefault(node: PerformanceWorkflowNode, event: Event) { inviteSettings(node).default_invite = (event.target as HTMLSelectElement).value as 'DIRECT_SUBORDINATES' | 'NONE' }
 function setMinimumInviteCount(node: PerformanceWorkflowNode, event: Event) { inviteSettings(node).minimum_invited_count = Number((event.target as HTMLInputElement).value) }
-function assignedCount(node: PerformanceWorkflowNode) { return calibrationSettings(node).phases.reduce((sum, phase) => sum + phase.rules.length, 0) ? props.evaluatedCount : 0 }
 function removeRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { const rules = calibrationSettings(node).phases[phaseIndex].rules; if (rules.length > 1) rules.splice(ruleIndex, 1) }
 function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const phases = calibrationSettings(node).phases; if (phases.length > 1) phases.splice(phaseIndex, 1) }
-function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ phase_id: crypto.randomUUID(), rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
+function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ phase_id: createCalibrationPhaseId(), rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
 function setReconsiderationHandler(node: PerformanceWorkflowNode, event: Event) { reconsiderationSettings(node).handler = (event.target as HTMLSelectElement).value || null }
 function openingInvalid(node: PerformanceWorkflowNode) { const view = resultViewSettings(node); return props.showOpeningError && !view.automatic_enabled && !view.manual_enabled }
 function manualOpeningDisabled(node: PerformanceWorkflowNode) {
@@ -297,6 +296,31 @@ function setOpeningMode(node: PerformanceWorkflowNode, field: 'automatic_enabled
   resultViewSettings(node)[field] = enabled
 }
 function setAutomaticRule(node: PerformanceWorkflowNode, value: string) { resultViewSettings(node).automatic_rule = value as 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE' }
+const assignmentStats = ref<Record<string, PerformanceCalibrationAssignment | null>>({})
+const assignmentLoading = ref(false)
+const assignmentError = ref('')
+let assignmentRequest = 0
+let assignmentTimer: ReturnType<typeof setTimeout> | undefined
+watch(() => JSON.stringify({ projectId: props.projectId, payload: props.projectPayload, settings: draft.value }), () => {
+  const request = ++assignmentRequest
+  clearTimeout(assignmentTimer)
+  assignmentStats.value = {}
+  assignmentError.value = ''
+  assignmentLoading.value = false
+  if (!props.projectId || !props.projectPayload || !props.nodes.some(node => node.node_type === 'calibration')) return
+  assignmentLoading.value = true
+  assignmentTimer = setTimeout(async () => {
+    try {
+      const stats = await performanceProjectApi.calibrationPreview(props.projectId!, { ...props.projectPayload!, flow_settings: cloneSettings(draft.value) })
+      if (request === assignmentRequest) assignmentStats.value = stats
+    } catch {
+      if (request === assignmentRequest) assignmentError.value = '校准分配计算失败，请检查规则或重新加载项目'
+    } finally {
+      if (request === assignmentRequest) assignmentLoading.value = false
+    }
+  }, 150)
+}, { immediate: true })
+onBeforeUnmount(() => { assignmentRequest++; clearTimeout(assignmentTimer) })
 watch(() => props.modelValue, value => { const next = JSON.stringify(value || { node_settings: {}, node_times: {} }); if (next !== lastEmitted.value) { draft.value = cloneSettings(value); ensureAllNodes(); lastEmitted.value = JSON.stringify(draft.value) } }, { deep: true })
 watch(() => props.nodes, ensureAllNodes, { deep: true, immediate: true })
 watch(draft, value => { ensureCalibrationPhaseIds(value.node_settings); syncCalibrationPhaseTimes(value.node_settings, value.node_times); const next = JSON.stringify(value); if (next === lastEmitted.value) return; lastEmitted.value = next; emit('update:modelValue', cloneSettings(value)) }, { deep: true })

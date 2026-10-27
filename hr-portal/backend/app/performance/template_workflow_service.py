@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.models import PerformanceTemplateWorkflow
+from app.performance.assessment_roles import normalize_executor_identity
 from app.performance.executor_config import normalize_result_reconsideration_executor
 
 
@@ -265,6 +266,11 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
             normalized[-1]["calibration_settings"] = deepcopy(node["calibration_settings"])
         if node.get("content") is not None:
             normalized[-1]["content"] = [_normalize_content(content, node_id) for content in node["content"]]
+
+        try:
+            normalized[-1] = normalize_executor_identity({**normalized[-1], "executor_role_code": node.get("executor_role_code")})
+        except ValueError as exc:
+            raise TemplateWorkflowValidationError(str(exc), node_id=node_id) from exc
 
         if node_type == "result_reconsideration":
             try:

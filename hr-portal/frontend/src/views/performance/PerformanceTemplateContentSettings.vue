@@ -34,10 +34,10 @@
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <PerformanceContentWorkspace v-if="selectedStageData" class="content-pane">
         <template v-if="isResultView || (isReferenceTab && referenceRelations.length)">
-          <PerformanceContentRegionList :regions="contentRegions" :disabled="pageNameLocked" @reorder="reorderContentRegions">
+          <PerformanceContentRegionList :regions="contentRegions" :disabled="pageNameLocked" :selected-region-id="selectedRegionId" @reorder="reorderContentRegions" @activate="selectContentRegion">
             <template #result>
-            <div class="result-view-section__overlay" :class="{ 'is-hovered': resultViewTitleHovered, 'is-selected': pageHeadingSelected }" aria-hidden="true"></div>
-            <div class="result-view-section__content result-view-section__title" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @mouseenter="resultViewTitleHovered = true" @mouseleave="resultViewTitleHovered = false" @focusin="resultViewTitleHovered = true" @focusout="resultViewTitleHovered = false" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
+            <div class="result-view-section__overlay" :class="{ 'is-hovered': resultViewTitleHovered, 'is-selected': selectedRegionId === 'result' }" aria-hidden="true"></div>
+            <div class="result-view-section__content result-view-section__title" role="button" tabindex="0" :aria-pressed="selectedRegionId === 'result'" aria-label="选择页面标题" @mouseenter="resultViewTitleHovered = true" @mouseleave="resultViewTitleHovered = false" @focusin="resultViewTitleHovered = true" @focusout="resultViewTitleHovered = false" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
               <h2>{{ contentPageName }}</h2>
               <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
             </div>
@@ -53,7 +53,7 @@
                 :item-style="itemStyle"
                 :index="index"
                 :count="configuredContents.length"
-                :toolbar-visible="false"
+                :toolbar-visible="!isCalibration && configuredHoverKey === configuredCardKey(content)"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
@@ -352,15 +352,23 @@ const reviewer360PreviewSelected = ref(false)
 const resultReconsiderationPreviewSelected = ref(false)
 const resultReconsiderationExpanded = ref(true)
 const pageHeadingSelected = ref(false)
+const selectedRegionId = ref<string | null>(null)
 const resultViewTitleHovered = ref(false)
 function clearContentSelection() {
   selectedConfiguredId.value = null
+  selectedRegionId.value = null
   reviewer360PreviewSelected.value = false
   resultReconsiderationPreviewSelected.value = false
   pageHeadingSelected.value = false
 }
 function selectPageHeading() {
   clearContentSelection()
+  selectedRegionId.value = 'result'
+  pageHeadingSelected.value = true
+}
+function selectContentRegion(regionId: string) {
+  clearContentSelection()
+  selectedRegionId.value = regionId
   pageHeadingSelected.value = true
 }
 function selectConfiguredContent(contentId: string) {
@@ -1039,14 +1047,13 @@ onMounted(async () => {
 .result-reconsideration-section__collapse{flex:0 0 24px;margin-left:auto}
 .result-reconsideration-section__body{height:102px;padding:12px 24px;box-sizing:border-box}
 .result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
-.result-view-section{position:relative;width:800px;max-width:100%;overflow:hidden;border-radius:4px;background:var(--color-bg-card)}
+.result-view-section{position:relative;width:800px;max-width:100%;overflow:visible;border-radius:4px;background:var(--color-bg-card)}
 .result-view-section__overlay{position:absolute;inset:0;z-index:30;box-sizing:border-box;border:1px dashed transparent;border-radius:4px;opacity:0;pointer-events:none}
 .result-view-section__overlay.is-hovered{border-color:#3370ff;opacity:1}
 .result-view-section__overlay.is-selected{border:2px solid #3370ff;opacity:1}
 .result-view-section__content{position:relative;z-index:1}
 .result-view-section__title{cursor:pointer}
 .result-view-section__configured-content{position:relative;z-index:1;width:100%;max-width:none}
-.result-view-section__configured-content :deep(.configured-card-action-toolbar){display:none!important}
 .result-view-content-footer{margin-top:var(--spacing-3)}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}

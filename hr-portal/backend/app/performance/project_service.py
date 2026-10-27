@@ -19,6 +19,8 @@ from app.data.employee_roster_contract import (
     normalize_roster_text,
     require_employee_roster_columns,
 )
+from app.performance.assessment_roles import normalize_executor_identity, validate_executor_roles
+from app.performance.calibration_service import calibration_template, resolve_calibration
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
 from app.performance.scope_options import build_organization_tree
@@ -118,8 +120,10 @@ def _parse_time(value: Any) -> datetime | None:
 
 
 def _resolve_node_handlers(node: dict, person: Any, people_by_employee: dict[str, Any]) -> set[str]:
+    if node.get("executor_role_code") or node.get("executor_label") in {"被评估人", "实线上级", "虚线上级", "360°评估人", "指标评价人"}:
+        node = normalize_executor_identity(node)
     types = set(node.get("executor_types") or [])
-    if node.get("executor_label") == "虚线上级" or "VIRTUAL_LINE_MANAGER" in types:
+    if "VIRTUAL_LINE_MANAGER" in types:
         return set()
     handlers: set[str] = set()
     if "SUBJECT" in types or node.get("node_type") in {"work_summary", "reviewer_360_invite"}:
@@ -713,6 +717,9 @@ class PerformanceProjectService:
             previous_flow = (project.settings or {}).get("flow_settings") or {}
             previous_opening = previous_flow.get("node_settings") or {}
             new_opening = (settings.get("flow_settings") or {}).get("node_settings") or {}
+            for node_id in previous_opening.keys() | new_opening.keys():
+                if (previous_opening.get(node_id) or {}).get("calibration") != (new_opening.get(node_id) or {}).get("calibration"):
+                    raise ProjectValidationError("已启动项目不能修改校准规则或阶段，请保留历史任务范围")
             for node_id, node_settings in previous_opening.items():
                 if "result_view" in node_settings and node_settings.get("result_view") != new_opening.get(node_id, {}).get("result_view"):
                     raise ProjectValidationError("已启动项目不能修改结果开通方式")
@@ -743,6 +750,49 @@ class PerformanceProjectService:
             )
         return project
 
+    @staticmethod
+    def _select_people(people, settings):
+        groups = (settings.get("evaluator_rules") or {}).get("groups") or []
+        scope_groups = (settings.get("scope_rules") or {}).get("groups") or []
+        selected = []
+        for person in people:
+            values = {"department": organization_path(person) or "", "employee_type": person.employee_type or "", "employee": person.employee_no, "hire_date": person.hire_date}
+            if scope_groups and not any(_matches_scope_condition(values, condition) for group in scope_groups for condition in group.get("conditions", [])):
+                continue
+            if any(all(_matches_start_project_condition(values, condition) for condition in group.get("conditions", [])) for group in groups):
+                selected.append(person)
+        return selected
+
+    async def calibration_preview(self, project, payload):
+        from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+
+        _, _, _, settings = self._validate_payload({**self.serialize(project), **payload}, project.settings or {})
+        if project.status == PROJECT_STATUS_STARTED:
+            snapshots = (await self.db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id, PerformanceProjectNodeSnapshot.node_type == "calibration"))).scalars().all()
+            return {node.node_id: (node.config or {}).get("calibration") for node in snapshots}
+        snapshot = await self.db.scalar(select(PerformanceAuthorizationSnapshot).where(PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref, PerformanceAuthorizationSnapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED))
+        if snapshot is not None:
+            people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id))).scalars().all())
+        else:
+            rows = await _canonical_roster_rows(self.db)
+            people = list(build_snapshot_people(RosterAuthorizationInput(employee_no=normalize_employee_no(row["employee_no"]), display_name=normalize_roster_text(row.get("display_name") or row.get("full_name")) or normalize_employee_no(row["employee_no"]), direct_supervisor_source_value=normalize_roster_text(row.get("direct_supervisor")), employee_type=row.get("employee_type"), hire_date=normalize_roster_date(row.get("hire_date")), **{field: row.get(field) for field in ORGANIZATION_FIELDS}) for row in rows if normalize_roster_text(row.get("employment_status")) != "离职" and normalize_employee_no(row.get("employee_no"))))
+        members = self._select_people(people, settings)
+        workflow = await self.db.get(PerformanceTemplateWorkflow, settings.get("template_id"))
+        nodes = [node for node in (workflow.nodes if workflow else []) if node.get("node_type") == "calibration"]
+        try:
+            await validate_executor_roles(self.db, [normalize_executor_identity(node) for node in nodes])
+            return {node["node_id"]: resolve_calibration(node, settings.get("flow_settings") or {}, {person.employee_no: person for person in people}, [person.employee_no for person in members]) for node in nodes}
+        except ValueError as exc:
+            raise ProjectValidationError(str(exc)) from exc
+
+    def _add_calibration_tasks(self, project, member_snapshot, node_snapshot, calibration, timing):
+        for phase in calibration["phases"]:
+            window = (timing.get("phase_times") or {}).get(phase["phase_id"]) or {}
+            if not window.get("start_at") or not window.get("end_at"):
+                raise ProjectValidationError("请配置每个校准阶段的开始与截止时间")
+            for assignment in phase["assignments"]:
+                self.db.add(PerformanceNodeTask(project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id, node_snapshot_id=node_snapshot.id, target_employee_no=assignment["employee_no"], handler_ref=assignment["handler_ref"], task_kind="calibration", phase_id=phase["phase_id"], available_at=_parse_time(window["start_at"]), due_at=_parse_time(window["end_at"]), status="pending"))
+
     async def start_project(self, project: PerformanceProject, *, actor_type: str, actor_id: int) -> PerformanceProject:
         if project.status == PROJECT_STATUS_STARTED:
             return project
@@ -771,30 +821,7 @@ class PerformanceProjectService:
         people_by_employee = {person.employee_no: person for person in people}
         project_manager_rows = (await self.db.execute(select(PerformanceCycleProjectManager).where(PerformanceCycleProjectManager.cycle_ref == project.cycle_ref))).scalars().all()
         project_managers = {row.target_employee_no: row.manager_employee_no for row in project_manager_rows}
-        selected = []
-        for person in people:
-            values = {
-                "department": organization_path(person) or "",
-                "employee_type": person.employee_type or "",
-                "employee": person.employee_no,
-                "hire_date": person.hire_date,
-            }
-            scope_rules = (project.settings or {}).get("scope_rules") or {}
-            scope_groups = scope_rules.get("groups") or []
-            if scope_groups:
-                in_scope = any(
-                    _matches_scope_condition(values, condition)
-                    for group in scope_groups
-                    for condition in group.get("conditions", [])
-                )
-                if not in_scope:
-                    continue
-            matched = any(
-                all(_matches_start_project_condition(values, condition) for condition in group.get("conditions", []))
-                for group in groups
-            )
-            if matched:
-                selected.append(person)
+        selected = self._select_people(people, project.settings or {})
         if not selected:
             raise ProjectValidationError("项目没有可用的被评估人")
         owned_elsewhere = await self.db.scalar(
@@ -817,6 +844,10 @@ class PerformanceProjectService:
         nodes = list((workflow.nodes if workflow else []) or [])
         if not nodes:
             raise ProjectValidationError("项目未配置流程节点")
+        try:
+            nodes = [normalize_executor_identity(node) for node in nodes]
+        except ValueError as exc:
+            raise ProjectValidationError(str(exc)) from exc
         if any("PROJECT_MANAGER" in (node.get("executor_types") or []) for node in nodes):
             missing = [person.employee_no for person in selected if person.employee_no not in project_managers]
             if missing:
@@ -830,6 +861,12 @@ class PerformanceProjectService:
             raise ProjectValidationError("请至少选择一种方式")
         if sum(bool(node.get("include_final_result")) for node in nodes) != 1:
             raise ProjectValidationError("请且仅请选择一个环节作为最终结果")
+        try:
+            await validate_executor_roles(self.db, nodes)
+            flow = (project.settings or {}).get("flow_settings") or {}
+            calibration = {node["node_id"]: resolve_calibration(node, flow, people_by_employee, [person.employee_no for person in selected], require_complete=True) for node in nodes if node.get("node_type") == "calibration"}
+        except ValueError as exc:
+            raise ProjectValidationError(str(exc)) from exc
         content_library = list((workflow.content_library if workflow else []) or [])
         before = self.serialize(project)
         member_snapshot = PerformanceProjectMemberSnapshot(
@@ -863,8 +900,12 @@ class PerformanceProjectService:
         node_times = flow_settings.get("node_times") or {}
         for index, source_node in enumerate(nodes):
             node_type = source_node.get("node_type")
-            raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation"} else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation"} else raw_node
+            if node_type == "calibration":
+                final_node = next(node for node in nodes if node.get("include_final_result"))
+                raw_node = calibration_template(source_node, final_node, content_library)
+            else:
+                raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "calibration"} else raw_node
             node_id = str(raw_node.get("node_id") or f"node-{index + 1}")
             node_snapshot = PerformanceProjectNodeSnapshot(
                 project_id=project.id,
@@ -874,8 +915,13 @@ class PerformanceProjectService:
                 node_order=int(raw_node.get("order") or index + 1),
                 config={"template": raw_node, "time": node_times.get(node_id) or {}},
             )
+            if node_type == "calibration":
+                node_snapshot.config = {**node_snapshot.config, "calibration": calibration[node_id]}
             self.db.add(node_snapshot)
             await self.db.flush()
+            if node_type == "calibration":
+                self._add_calibration_tasks(project, member_snapshot, node_snapshot, calibration[node_id], node_times.get(node_id) or {})
+                continue
             if node_type == "result_view":
                 continue
             for person in selected:
@@ -928,6 +974,8 @@ class PerformanceProjectService:
         existing = list((await self.db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id))).scalars())
         existing_ids = {node.node_id for node in existing}
         pending = [node for node in (workflow.nodes or []) if str(node.get("node_id")) not in existing_ids]
+        if any(node.get("node_type") == "calibration" for node in pending):
+            raise ProjectValidationError("已启动项目不能补建校准范围，请为新项目配置校准阶段")
         pending_ids = {str(node.get("node_id")) for node in pending}
         normalized_times = self._validate_flow_settings({"node_settings": {}, "node_times": node_times})["node_times"]
         if not pending:

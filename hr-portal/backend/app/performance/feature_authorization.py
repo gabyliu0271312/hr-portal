@@ -177,4 +177,7 @@ def _with_action(
         cycle_status=request.cycle_status,
         node_status=request.node_status,
         record_status=request.record_status,
+        project_id=request.project_id,
+        node_id=request.node_id,
+        phase_id=request.phase_id,
     )

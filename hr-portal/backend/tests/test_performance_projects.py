@@ -3480,3 +3480,266 @@ def test_calibration_phase_times_derive_window_instead_of_trusting_stale_node_da
     normalized = PerformanceProjectService._validate_flow_settings(flow)["node_times"]["calibration-1"]
     assert normalized["start_at"] == flow["node_times"]["calibration-1"]["phase_times"]["first"]["start_at"]
     assert normalized["end_at"] == flow["node_times"]["calibration-1"]["phase_times"]["second"]["end_at"]
+
+
+def _calibration_people():
+    return {key: SimpleNamespace(employee_no=key, direct_supervisor_employee_no=manager) for key, manager in [("C1", None), ("M1", "C1"), ("E1", "M1"), ("E2", "C1"), ("E3", None)]}
+
+
+def _calibration_rules(scope="RULE", values=None):
+    return {"node_settings": {"calibration-1": {"calibration": {"phases": [{"phase_id": "first", "rules": [{"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["C1"]}]}], "scope": scope, "scope_groups": [{"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": values or ["ALL_SUBORDINATES"]}]}], "allow_authorize": False}]}]}}}}
+
+
+@pytest.mark.parametrize(("relations", "expected"), [(["ALL_SUBORDINATES"], {"E1", "E2"}), (["DIRECT_SUBORDINATES"], {"E2"}), (["INDIRECT_SUBORDINATES"], {"E1"})])
+def test_calibration_scope_uses_selected_project_members_and_snapshot_relationships(relations, expected):
+    from app.performance.calibration_service import resolve_calibration
+    result = resolve_calibration({"node_id": "calibration-1"}, _calibration_rules(values=relations), _calibration_people(), ["E1", "E2", "E3"])
+    assert result["role_code"] == "assessment.calibrator"
+    assert {item["employee_no"] for item in result["phases"][0]["assignments"]} == expected
+    assert result["assigned_count"] == len(expected)
+    assert result["unassigned_count"] == 3 - len(expected)
+
+
+def test_calibration_project_all_deduplicates_overlapping_rules_and_phases():
+    from copy import deepcopy
+    from app.performance.calibration_service import resolve_calibration
+    config = _calibration_rules("PROJECT_ALL")
+    phases = config["node_settings"]["calibration-1"]["calibration"]["phases"]
+    phases[0]["rules"].append(deepcopy(phases[0]["rules"][0]))
+    phases.append({**deepcopy(phases[0]), "phase_id": "second"})
+    result = resolve_calibration({"node_id": "calibration-1"}, config, _calibration_people(), ["E1", "E3"])
+    assert [len(phase["assignments"]) for phase in result["phases"]] == [2, 2]
+    assert result["assigned_count"] == 2
+
+
+def test_calibration_empty_default_is_unassigned_and_cannot_start():
+    from app.performance.calibration_service import resolve_calibration
+    config = _calibration_rules()
+    config["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0].pop("subject_groups")
+    result = resolve_calibration({"node_id": "calibration-1"}, config, _calibration_people(), ["E1"])
+    assert result["assigned_count"] == 0
+    with pytest.raises(ValueError, match="明确指定校准人"):
+        resolve_calibration({"node_id": "calibration-1"}, config, _calibration_people(), ["E1"], require_complete=True)
+
+
+def test_calibration_rejects_unknown_employee_and_cycles_do_not_expand_scope():
+    from app.performance.calibration_service import resolve_calibration
+    people = _calibration_people()
+    people["C1"].direct_supervisor_employee_no = "M1"
+    result = resolve_calibration({"node_id": "calibration-1"}, _calibration_rules(), people, ["E3"])
+    assert result["assigned_count"] == 0
+    del people["C1"]
+    with pytest.raises(ValueError, match="周期人员快照"):
+        resolve_calibration({"node_id": "calibration-1"}, _calibration_rules(), people, ["E1"])
+
+
+def test_calibration_task_creation_preserves_each_phase_and_frozen_scope():
+    from datetime import UTC, datetime
+    from app.performance.calibration_service import resolve_calibration, calibration_task_scope
+    from app.performance.models import PerformanceNodeTask
+    from copy import deepcopy
+    config = _calibration_rules("PROJECT_ALL")
+    phases = config["node_settings"]["calibration-1"]["calibration"]["phases"]
+    phases.append({**deepcopy(phases[0]), "phase_id": "second"})
+    resolved = resolve_calibration({"node_id": "calibration-1"}, config, _calibration_people(), ["E1"])
+    added = []
+    node = SimpleNamespace(id=12, project_id=1, node_type="calibration", config={"calibration": resolved})
+    timing = {"phase_times": {phase: {"start_at": "2026-10-01T00:00:00Z", "end_at": "2026-10-05T00:00:00Z"} for phase in ("first", "second")}}
+    PerformanceProjectService(SimpleNamespace(add=added.append))._add_calibration_tasks(project(), SimpleNamespace(id=4), node, resolved, timing)
+    assert len(added) == 2
+    assert all(isinstance(task, PerformanceNodeTask) and calibration_task_scope(task, node) for task in added)
+    assert {task.phase_id for task in added} == {"first", "second"}
+    assert added[0].due_at == datetime(2026, 10, 5, tzinfo=UTC)
+    added[0].project_id = 2
+    assert not calibration_task_scope(added[0], node)
+    added[0].project_id = 1
+    added[0].phase_id = "forged"
+    assert not calibration_task_scope(added[0], node)
+    added[0].phase_id = "first"
+    added[0].target_employee_no = "E3"
+    assert not calibration_task_scope(added[0], node)
+
+
+@pytest.mark.asyncio
+async def test_started_calibration_rules_cannot_be_changed(monkeypatch):
+    target = project("STARTED")
+    target.settings = {"flow_settings": _calibration_rules()}
+    async def allow(*args):
+        return None
+    service = PerformanceProjectService(object())
+    monkeypatch.setattr(service, "_validate_manual_opening_policy", allow)
+    with pytest.raises(ProjectValidationError, match="不能修改校准规则"):
+        await service.update_project(target, {"flow_settings": {"node_settings": {}}}, actor_type="PORTAL_USER", actor_id=1)
+
+
+@pytest.mark.asyncio
+async def test_calibration_preview_denies_other_project(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    async def get_project(*args):
+        return project()
+    monkeypatch.setattr(projects_router, "_get_project", get_project)
+    with pytest.raises(HTTPException) as error:
+        await projects_router.calibration_preview(1, ProjectPayload(name="项目一"), context(refs=("project:other",)), object())
+    assert error.value.status_code == 403
+
+
+def test_calibration_window_never_uses_other_phase_envelope():
+    from datetime import UTC, datetime
+    from app.performance.projects_router import _task_window, _self_summary_state
+    task = SimpleNamespace(task_kind="calibration", phase_id="first", available_at=datetime(2026, 10, 1, tzinfo=UTC), due_at=datetime(2026, 10, 2, tzinfo=UTC))
+    target = project("STARTED")
+    target.settings = {"flow_settings": {"node_times": {"calibration-1": {"start_at": "2026-01-01T00:00:00Z", "end_at": "2026-12-31T00:00:00Z"}}}}
+    node = SimpleNamespace(node_id="calibration-1", config={})
+    assert _task_window(task, node, target) == (task.available_at, task.due_at)
+    task.submitted_at = None
+    assert _self_summary_state(task, task.available_at, task.due_at, False) == (False, False)
+
+
+def test_calibration_template_inherits_final_content_and_respects_readonly_fields():
+    from app.performance.calibration_service import calibration_template
+    from app.performance.self_summary_service import build_self_summary_schema, sanitize_self_summary_answers
+    final = {"content": [{"content_id": "content", "type": "custom", "items": [{"id": "readonly", "kind": "fill", "questionType": "text", "label": "只读"}, {"id": "editable", "kind": "fill", "questionType": "text", "label": "可改"}]}]}
+    node = {"node_id": "calibration-1", "calibration_settings": {"content": {"items": {"readonly": {"allowModify": False}}}}}
+    resolved = calibration_template(node, final, [])
+    schema = build_self_summary_schema(resolved)
+    assert schema[0]["fields"][0]["readonly"]
+    assert sanitize_self_summary_answers(schema, {"readonly": "forged", "editable": "allowed"}) == {"editable": "allowed"}
+    assert "settings" not in final["content"][0]["items"][0]
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_calibration_postgres_preview_start_scope_and_reopen(monkeypatch):
+    import os
+    from copy import deepcopy
+    from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from app.performance import models, projects_router
+    from app.performance.assessment_roles import ASSESSMENT_ROLES
+    from app.performance.calibration_service import calibration_task_scope
+    from app.core.config import settings
+
+    if not settings.DB_NAME.startswith("pm_calibration_acceptance_"):
+        pytest.skip("isolated calibration acceptance database required")
+    engine = create_async_engine(settings.db_url_async)
+    async with engine.connect() as conn:
+        outer = await conn.begin()
+        async with AsyncSession(bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint") as db:
+            suffix = uuid4().hex[:10]
+            now = datetime.now(UTC)
+            cycle = models.PerformanceCycle(cycle_ref=f"cal:{suffix}", name="校准验收", period_year=2026, period_type="YEAR", start_at=now-timedelta(days=5), end_at=now+timedelta(days=5), lock_rule="IMMEDIATE", status="LOCKED", created_by_type="PORTAL_USER", created_by_ref="1")
+            template = models.PerformanceTemplate(name=f"cal-template:{suffix}", created_by_type="PORTAL_USER", created_by_ref="1")
+            snapshot = models.PerformanceAuthorizationSnapshot(cycle_ref=cycle.cycle_ref, status="DRAFT")
+            db.add_all([cycle, template, snapshot])
+            for code, name, source, _ in ASSESSMENT_ROLES:
+                if await db.scalar(select(models.PerformanceRole.id).where(models.PerformanceRole.code == code)) is None:
+                    db.add(models.PerformanceRole(code=code, name=name, role_type="ASSESSMENT", is_system=True, is_active=True, member_source=source))
+            await db.flush()
+            for employee, manager in [("C1", None), ("E1", "C1"), ("E2", None)]:
+                db.add(models.PerformanceAuthorizationSnapshotPerson(snapshot_id=snapshot.id, employee_no=employee, display_name=employee, direct_supervisor_employee_no=manager))
+            await db.flush()
+            snapshot.status = "LOCKED"
+            await db.flush()
+            nodes = [
+                {"node_id": "eval", "node_type": "evaluation", "name": "终评", "order": 1, "executor_label": "实线上级", "executor_types": ["DIRECT_MANAGER"], "include_final_result": True, "content": [{"content_id": "summary", "type": "custom", "items": [{"id": "assessment-text", "kind": "fill", "questionType": "text", "label": "评价"}]}]},
+                {"node_id": "calibration-1", "node_type": "calibration", "name": "校准", "order": 2},
+                {"node_id": "view", "node_type": "result_view", "name": "结果", "order": 3},
+            ]
+            db.add(models.PerformanceTemplateWorkflow(template_id=template.id, nodes=nodes))
+            flow = _calibration_rules()
+            phases = flow["node_settings"]["calibration-1"]["calibration"]["phases"]
+            phases.append({**deepcopy(phases[0]), "phase_id": "second"})
+            flow["node_settings"]["view"] = {"result_view": {"automatic_enabled": True, "manual_enabled": False, "automatic_rule": "PREVIOUS_AND_START"}}
+            flow["node_times"] = {"calibration-1": {"phase_times": {key: {"start_at": (now-timedelta(hours=1)).isoformat(), "end_at": (now+timedelta(hours=1)).isoformat()} for key in ("first", "second")}}}
+            target = models.PerformanceProject(project_ref=f"cal-project:{suffix}", cycle_ref=cycle.cycle_ref, name="校准项目", settings={"template_id": template.id, "flow_settings": flow, "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1", "E2"]}]}]}})
+            db.add(target)
+            await db.flush()
+            service = PerformanceProjectService(db)
+            preview = await service.calibration_preview(target, {})
+            assert preview["calibration-1"]["assigned_count"] == 1
+            assert preview["calibration-1"]["unassigned_count"] == 1
+            await service.start_project(target, actor_type="PORTAL_USER", actor_id=1)
+            tasks = list((await db.execute(select(models.PerformanceNodeTask).where(models.PerformanceNodeTask.project_id == target.id, models.PerformanceNodeTask.task_kind == "calibration"))).scalars().all())
+            assert len(tasks) == 2
+            assert {task.phase_id for task in tasks} == {"first", "second"}
+            node = await db.get(models.PerformanceProjectNodeSnapshot, tasks[0].node_snapshot_id)
+            assert all(calibration_task_scope(task, node) for task in tasks)
+            assert all(task.target_employee_no == "E1" and task.handler_ref == "C1" for task in tasks)
+            from alembic.migration import MigrationContext
+            from alembic.operations import Operations
+            from importlib.util import spec_from_file_location, module_from_spec
+            from pathlib import Path
+            spec = spec_from_file_location("calibration_phase_migration", Path(__file__).parents[1] / "alembic/versions/0274_performance_calibration_task_phase.py")
+            migration = module_from_spec(spec)
+            spec.loader.exec_module(migration)
+            def downgrade_with_existing_phases(connection):
+                with Operations.context(MigrationContext.configure(connection.connection())):
+                    migration.downgrade()
+            with pytest.raises(RuntimeError, match="禁止降级"):
+                await db.run_sync(downgrade_with_existing_phases)
+            assert await service.calibration_preview(target, {}) == preview
+            async def trusted(*args, **kwargs):
+                return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="C1")
+            monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", trusted)
+            own, _ = await projects_router._self_summary_task(tasks[0].id, context(), db, "evaluation")
+            assert own.id == tasks[0].id
+            from fastapi import HTTPException
+            with pytest.raises(HTTPException) as cross_employee:
+                await projects_router._self_summary_task(tasks[0].id, context(), db, "evaluation", "E2")
+            assert cross_employee.value.status_code == 404
+            async def outsider(*args, **kwargs):
+                return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="OTHER")
+            monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", outsider)
+            with pytest.raises(HTTPException) as denied:
+                await projects_router._self_summary_task(tasks[0].id, context(), db, "evaluation")
+            assert denied.value.status_code == 404
+            count = await db.scalar(select(models.PerformanceAuditEvent.id).where(models.PerformanceAuditEvent.event_type == "PERFORMANCE_PROJECT_STARTED", models.PerformanceAuditEvent.subject_ref == target.project_ref))
+            assert count is not None
+            from fastapi import FastAPI
+            from httpx import ASGITransport, AsyncClient
+            from app.core.db import get_session
+            from app.performance.auth_context import get_performance_access_context
+            app = FastAPI()
+            app.include_router(projects_router.router, prefix="/api/v1")
+            app.dependency_overrides[get_session] = lambda: db
+            app.dependency_overrides[get_performance_access_context] = lambda: context("performance.cycles.manage")
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://calibration.test") as client:
+                response = await client.post(f"/api/v1/performance/projects/{target.id}/calibration-preview", json={"name": target.name})
+                assert response.status_code == 200, response.text
+                assert response.json()["calibration-1"]["assigned_count"] == 1
+                response = await client.get(f"/api/v1/performance/projects/{target.id}")
+                assert response.status_code == 200, response.text
+                assert response.json()["flow_settings"]["node_settings"]["calibration-1"]["calibration"]["phases"][1]["phase_id"] == "second"
+                response = await client.get(f"/api/v1/performance/tasks/{tasks[0].id}/template-task")
+                assert response.status_code == 404
+                monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", trusted)
+                response = await client.get(f"/api/v1/performance/tasks/{tasks[0].id}/template-task")
+                assert response.status_code == 200, response.text
+                assert response.json()["task_kind"] == "calibration"
+                response = await client.patch(f"/api/v1/performance/tasks/{tasks[0].id}/template-task/draft", json={"answers": {"assessment-text": "校准调整内容"}, "version": tasks[0].answer_version})
+                assert response.status_code == 200, response.text
+                stored = await db.get(models.PerformanceNodeTask, tasks[0].id)
+                assert stored.answers["assessment-text"] == "校准调整内容"
+                audit = await db.scalar(select(models.PerformanceAuditEvent.id).where(models.PerformanceAuditEvent.event_type == "CALIBRATION_DRAFT_SAVED", models.PerformanceAuditEvent.subject_ref == str(stored.id)))
+                assert audit is not None
+                app.dependency_overrides[get_performance_access_context] = lambda: context(refs=("project:other",))
+                response = await client.post(f"/api/v1/performance/projects/{target.id}/calibration-preview", json={"name": target.name})
+                assert response.status_code == 403
+        await outer.rollback()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_project_calibration_authorization_never_falls_back_to_cycle_scope():
+    from app.performance.authorization_service import ObjectAuthorizationRequest, PerformanceObjectAuthorizationService, PerformanceObjectAuthorizationDenied
+    request = ObjectAuthorizationRequest(cycle_ref="cycle:one", employee_no="E1", actor_type="EMPLOYEE", actor_ref="C1", action="CALIBRATE", cycle_status="ACTIVE", node_status="OPEN", record_status="DRAFT", project_id=1, node_id="calibration-1")
+    with pytest.raises(PerformanceObjectAuthorizationDenied, match="阶段范围"):
+        await PerformanceObjectAuthorizationService(object())._authorize_project_calibration(request)
+    from app.performance.feature_authorization import _with_action
+    from dataclasses import replace
+    request = replace(request, phase_id="first")
+    forwarded = _with_action(request, "CALIBRATE")
+    assert (forwarded.project_id, forwarded.node_id, forwarded.phase_id) == (1, "calibration-1", "first")

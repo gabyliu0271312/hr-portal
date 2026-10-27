@@ -10,7 +10,7 @@
 
 <script setup lang="ts">
 withDefaults(defineProps<{
-  tag?: 'div' | 'article'
+  tag?: 'div' | 'article' | 'section'
   variant: 'root' | 'item'
   selected?: boolean
 }>(), {

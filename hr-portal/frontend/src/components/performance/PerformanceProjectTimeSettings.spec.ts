@@ -5,7 +5,7 @@ import type { PerformanceProjectFlowSettings, PerformanceWorkflowNode } from '@/
 import PerformanceProjectFlowSettingsComponent from './PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from './PerformanceProjectTimeSettings.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
-import { initializeCalibrationNodes, ensureCalibrationPhaseIds, projectNodeTimeError, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
+import { createCalibrationPhaseId, initializeCalibrationNodes, ensureCalibrationPhaseIds, projectNodeTimeError, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 
 const node = { node_id: 'calibration', node_type: 'calibration', name: '校准环节', order: 1 } as PerformanceWorkflowNode
 const first = { start_at: '2026-10-01T09:00', end_at: '2026-10-05T18:00' }
@@ -23,6 +23,11 @@ function timeComponent(value = settings()) {
 }
 
 describe('calibration phase time linkage', () => {
+  it('creates stable IDs without requiring crypto.randomUUID', () => {
+    expect(createCalibrationPhaseId(() => 'native-id')).toBe('native-id')
+    expect(createCalibrationPhaseId(undefined)).toMatch(/^phase-[a-z0-9]+-[a-z0-9]+$/)
+  })
+
   it('initializes one phase for an unconfigured project without changing unrelated nodes', () => {
     const value: PerformanceProjectFlowSettings = { node_settings: {}, node_times: {} }
     initializeCalibrationNodes([node, { ...node, node_id: 'invite', node_type: 'reviewer_360_invite' }], value)

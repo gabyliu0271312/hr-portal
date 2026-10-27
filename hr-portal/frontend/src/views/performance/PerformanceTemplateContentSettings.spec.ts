@@ -1278,6 +1278,44 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
+  it('shows template handles and result/reference root selection only on root hover or selection', async () => {
+    const source = { content_id: 'source', type: 'custom', name: '来源内容', description: '', items: [{ id: 'item', label: '来源题目', hint: '' }] }
+    const refs = [
+      { type: 'reference', name: '工作总结环节', content_id: 'reference-n1', content_slot: 'reference', reference_kind: 'node', reference_value: 'n1', items: [] },
+      { type: 'reference', name: '结果沟通', content_id: 'reference-n6', content_slot: 'reference', reference_kind: 'node', reference_value: 'n6', items: [] },
+    ]
+    const nodes = [
+      { ...mockNodes[0], content: [source] },
+      { ...mockNodes[5], content: [{ ...source, name: '沟通内容' }] },
+      { ...mockNodes[6], include_final_result: true, content: [{ ...source, content_id: 'final', name: '终评内容' }] },
+      { ...mockNodes[7], content: [{ ...source, content_id: 'final', name: '终评内容', content_slot: 'view' }, ...refs] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    const regions = () => wrapper.findAll('[data-region-id]')
+    expect(wrapper.findAll('.content-region > .performance-horizontal-drag-handle').every(handle => handle.classes().includes('is-concealed'))).toBe(true)
+    const referenceRegion = regions().find(region => region.attributes('data-region-id') === 'reference:reference-n1')!
+    await referenceRegion.trigger('mouseenter')
+    expect(referenceRegion.get('.performance-horizontal-drag-handle').classes()).not.toContain('is-concealed')
+    await referenceRegion.trigger('click')
+    expect(referenceRegion.classes()).toContain('is-selected')
+    expect(wrapper.get('.result-view-section__overlay').classes()).not.toContain('is-selected')
+    expect(wrapper.findAll('.content-region.is-selected')).toHaveLength(1)
+    await referenceRegion.trigger('mouseleave')
+    expect(referenceRegion.get('.performance-horizontal-drag-handle').classes()).not.toContain('is-concealed')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(true)
+    const resultRegion = regions().find(region => region.attributes('data-region-id') === 'result')!
+    await resultRegion.find('.configured-content-card').trigger('mouseenter')
+    expect(resultRegion.find('.configured-card-action-toolbar').exists()).toBe(true)
+    await resultRegion.find('.configured-content-card__row').trigger('click')
+    expect(wrapper.find('.page-name-settings').exists()).toBe(false)
+    expect(wrapper.find('.content-settings-detail--root').exists()).toBe(true)
+    expect(resultRegion.find('.performance-horizontal-drag-handle').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('persists result view and other references independently and reopens binding-only content', async () => {
     const content = { content_id: 'final', type: 'custom', name: '终评意见', description: '', items: [{ id: 'item', label: '意见', hint: '' }] }
     const nodes = [{ ...mockNodes[6], include_final_result: true, content_bindings: { fill: ['final'] } }, { ...mockNodes[7], content_bindings: { view: ['final'] } }]
@@ -1934,6 +1972,7 @@ describe('PerformanceTemplateContentSettings', () => {
       } as DOMRect)
     })
 
+    await cards[0].trigger('mouseenter')
     await cards[0].find('[data-drag-handle]').trigger('pointerdown', { button: 0, pointerId: 10, clientX: 20, clientY: 20 })
     window.dispatchEvent(pointerEvent('pointermove', { pointerId: 10, clientX: 20, clientY: 100 }))
     await wrapper.vm.$nextTick()

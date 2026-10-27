@@ -447,3 +447,12 @@
 
 
 - F33 实现验收（2026-10-27）：新增 `PerformanceHorizontalDragHandle`，只在绩效模板内容设置页及内容抽屉启用；原 `PerformanceDragHandle` 和其他调用不变。结果主区、参考来源组及普通参考配置均使用真实横向手柄，结果与参考组可混排，顺序写入 `result_view.content_region_order`，view/reference 内容归属保持独立。Chrome 实测拖动、PATCH、GET 重开、普通参考入口及嵌套拖动隔离通过；截图：[PM-T004-T05-F33-implemented-horizontal-drag.png](../../ui-blueprints/PM-T004-T05-F33-implemented-horizontal-drag.png)。
+
+## 模板root悬浮与选中统一（PM-T004-T05-F34，用户确认）
+
+- 仅模板内容设置及其内容编辑抽屉的横向手柄调整显隐：默认隐藏，对应root hover/selected显示，键盘聚焦和拖动期间保持可达；原纵向组件与非模板调用不变。内层root/item悬浮不激活祖先手柄；已选root可保持手柄。
+- 结果查看内部内容块恢复既有hover四按钮操作栏，禁用首末移动边界；编辑继续走受限终评内容选择、删除只移除本地view内容，不改变源定义。参考内部仍不开放编辑结构；锁定不新增可写权限。
+- 主结果与两入口的参考来源组外层复用公共root虚线hover/实线selected。点击区域标题/空白激活外层并显示当前节点页面名称（同一content_page_name）；不新增参考独立标题覆盖或修改来源环节名称。点击内部内容root/item只显示对应查看设置，区域/内容互斥；按钮和手柄不冒泡改选。
+- 沿用F33区域顺序与view/reference保存链；无API/数据库/权限/周期/UCP变化。独立实现截图PM-T004-T05-F34-implemented-root-hover-selection.png；真实API/数据库验收需与本地浏览器夹具区分。
+
+- F34 实现验收：6文件147项定向测试、vue-tsc/Vite构建通过；真实Chrome验证默认隐藏/hover/选中/focus手柄、单区域完整边框、结果hover操作栏实际移动/编辑选择/移除、参考两入口页面名称切换，以及键盘/鼠标排序和PATCH→GET重开，源定义不变、页面及控制台错误0。截图：[PM-T004-T05-F34-implemented-root-hover-selection.png](../../ui-blueprints/PM-T004-T05-F34-implemented-root-hover-selection.png)，已打开核对。浏览器API为本地内存夹具，真实服务/数据库/生产未验收；不新增API或独立参考名称字段。

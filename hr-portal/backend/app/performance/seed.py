@@ -20,6 +20,8 @@ from app.performance.models import (
     SYSTEM_ACCOUNT_TYPE_SUPER_ADMIN,
 )
 
+from app.performance.assessment_roles import ASSESSMENT_ROLES
+
 logger = logging.getLogger("hr-portal")
 
 PERFORMANCE_SUPER_ADMIN_ROLE_CODE = "performance.super_admin"
@@ -100,62 +102,7 @@ ROLE_DEFAULTS = (
         "permissions": (),
         "role_type": "MANAGEMENT",
     },
-    {
-        "code": "assessment.reviewee",
-        "name": "被评估人",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "员工本人",
-        "permissions": (),
-    },
-    {
-        "code": "assessment.line_manager",
-        "name": "实线上级",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "从组织架构中获取",
-        "permissions": (),
-    },
-    {
-        "code": "assessment.dotted_manager",
-        "name": "虚线上级",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "从组织架构中获取",
-        "permissions": (),
-    },
-    {
-        "code": "assessment.project_manager",
-        "name": "直属项目上级",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "在周期中导入",
-        "permissions": (),
-    },
-    {
-        "code": "assessment.reviewer_360",
-        "name": "360°评估人",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "通过 360 邀请添加",
-        "permissions": (),
-    },
-    {
-        "code": "assessment.calibrator",
-        "name": "校准人",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "在项目配置中指定",
-        "permissions": (),
-    },
-    {
-        "code": "assessment.metric_evaluator",
-        "name": "指标评价人",
-        "description": "系统预置角色",
-        "role_type": "ASSESSMENT",
-        "member_source": "在添加指标时指定",
-        "permissions": (),
-    },
+    *({"code": code, "name": name, "description": "系统预置角色", "role_type": "ASSESSMENT", "member_source": source, "permissions": ()} for code, name, source, _ in ASSESSMENT_ROLES),
 )
 
 PERMISSION_DEFAULTS = (

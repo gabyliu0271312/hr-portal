@@ -53,6 +53,7 @@ class WorkflowNode(BaseModel):
     order: int = Field(..., ge=1)
     executor_types: list[str] = Field(default_factory=list, max_length=32)
     executor_label: str = Field(default="", max_length=64)
+    executor_role_code: str | None = Field(default=None, max_length=64)
     evaluation_type: Literal["SINGLE", "MULTI"] | None = None
     include_final_result: bool = False
     system: bool = False

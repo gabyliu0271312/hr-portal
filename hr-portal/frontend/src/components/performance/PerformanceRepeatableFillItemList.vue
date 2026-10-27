@@ -16,6 +16,8 @@
       <div
         class="config-box item-card saved-item"
         :class="{ 'is-dragging': dragging, 'has-horizontal-handle': horizontalHandle && controlsVisible }"
+        @mouseenter="hoveredItemId = item.id"
+        @mouseleave="leaveItem(item.id)"
         :style="itemStyle"
         :data-item-index="index"
         :data-sortable-index="index"
@@ -30,7 +32,7 @@
           :aria-describedby="controlsVisible ? 'rbd-hidden-text-0-hidden-text-0' : undefined"
         >
           <span class="item-card__title">{{ itemTitle(item) }}</span>
-          <PerformanceHorizontalDragHandle v-if="controlsVisible && horizontalHandle" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
+          <PerformanceHorizontalDragHandle v-if="controlsVisible && horizontalHandle" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" :visible="hoveredItemId === item.id || dragging" @pointerdown="startPointerDrag" />
           <PerformanceDragHandle v-else-if="controlsVisible" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
           <span class="item-card__actions"><button v-if="controlsVisible" type="button" :aria-label="`删除${item.label?.trim() || itemTitle(item)}`" @pointerdown.stop @mousedown.stop @click.stop="emit('remove', index)"><Delete /></button></span>
         </div>
@@ -99,6 +101,8 @@ const emit = defineEmits<{
 
 const sortableListRef = ref<InstanceType<typeof PerformanceSortableList> | null>(null)
 const dragAnnouncement = ref('')
+const hoveredItemId = ref<string | null>(null)
+function leaveItem(itemId: string) { if (hoveredItemId.value === itemId) hoveredItemId.value = null }
 const controlsVisible = computed(() => props.items.length >= 2)
 const questionTypeOptions = [{ value: 'text', label: '文本型填写题' }, { value: 'tag', label: '标签型填写题' }]
 function itemTitle(item: FillItem) { return item.kind === 'prompt' ? '提示' : item.kind === 'rating' ? '评估项' : '填写项' }
@@ -111,6 +115,7 @@ function selectRating(item: FillItem, value: string) { const option = props.rati
 
 <style scoped>
 .has-horizontal-handle{position:relative}
+.has-horizontal-handle:focus-within .performance-horizontal-drag-handle{opacity:1;pointer-events:auto}
 .has-horizontal-handle .performance-horizontal-drag-handle{position:absolute;top:0;left:0}
 .has-horizontal-handle .config-box__heading{padding-top:24px}
 .repeatable-fill-item-list { display: flex; flex-direction: column; }

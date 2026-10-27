@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceProjectApi } from '@/api/performance'
 import type { PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
@@ -32,7 +32,8 @@ const node = (node_type: string, order: number): PerformanceWorkflowNode => ({
 })
 
 describe('PerformanceProjectFlowSettings', () => {
-  afterEach(() => { document.body.innerHTML = '' })
+  beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
+  afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
   it('renders template nodes in order and reuses the stage icon for every node', () => {
     const types = ['work_summary', 'reviewer_360_invite', 'reviewer_360_confirm', 'evaluation', 'calibration', 'result_communication', 'result_view', 'result_reconsideration']
     const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: types.map((type, index) => node(type, index + 1)) } })
@@ -444,5 +445,24 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(latest.node_settings['reviewer_360_invite-1'].invite).toMatchObject({ minimum_invited_count: 7, maximum_invited_count: null, second_prompt_enabled: false, second_prompt_count: null })
     expect(latest.node_settings['result_view-2'].result_view).toMatchObject({ automatic_enabled: true, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' })
     expect(wrapper.findAll('.flow-node-card h2').map(item => item.text())).toEqual(['360°邀请环节', '绩效结果查看环节'])
+  })
+})
+
+describe('calibration assignment counts', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+  it('uses the backend resolved coverage instead of assuming every rule covers the project', async () => {
+    vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({ 'calibration-1': { role_code: 'assessment.calibrator', evaluated_count: 3, assigned_count: 1, unassigned_count: 2, phases: [] } })
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], evaluatedCount: 3, projectId: 1, projectPayload: { name: '项目一', description: null, administrators: [] } } })
+    expect(wrapper.get('.calibration-summary').text()).not.toContain('3 人已分配')
+    await vi.waitFor(() => expect(wrapper.get('.calibration-summary').text()).toContain('1 人已分配校准'))
+    expect(wrapper.get('.calibration-summary').text()).toContain('2 人未分配校准人')
+    wrapper.unmount()
+  })
+  it('never displays fabricated counts when assignment resolution fails', async () => {
+    vi.spyOn(performanceProjectApi, 'calibrationPreview').mockRejectedValue(new Error('network'))
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], evaluatedCount: 3, projectId: 1, projectPayload: { name: '项目一', description: null, administrators: [] } } })
+    await vi.waitFor(() => expect(wrapper.get('.calibration-summary').text()).toContain('校准分配计算失败'))
+    expect(wrapper.get('.calibration-summary').text()).not.toContain('人已分配校准')
+    wrapper.unmount()
   })
 })
