@@ -1,7 +1,9 @@
 import asyncio
 import io
+import json
 
 import openpyxl
+import pytest
 
 from app.table_tools import engine
 from app.table_tools import router as table_routes
@@ -74,3 +76,67 @@ def test_rows_to_xlsx_uses_codes_for_values_and_labels_for_headers():
 
     assert [cell.value for cell in sheet[1]] == ["企业邮箱", "个人邮箱"]
     assert [cell.value for cell in sheet[2]] == ["work@example.com", "personal@example.com"]
+
+
+@pytest.mark.parametrize(("values", "expected"), [
+    ([0.1, 0.2], 0.3),
+    ([100.1, 200.2], 300.3),
+    ([0.1] * 100, 10.0),
+    ([0.3, -0.1, -0.2], 0.0),
+    ([0.000001, 0.000002], 0.000003),
+    ([9007199254740993, 2], 9007199254740995),
+    (["100.10", "200.20"], 300.3),
+    ([True, 0.2], 1.2),
+])
+def test_aggregate_records_preserves_decimal_sum(values, expected):
+    rows, anomalies = engine.aggregate_records(
+        [({"员工": "E001", "金额": value}, "来源") for value in values],
+        ["员工"], ["金额"],
+    )
+
+    assert anomalies == []
+    assert rows[0]["金额"] == expected
+    if isinstance(expected, int):
+        assert isinstance(rows[0]["金额"], int)
+    assert json.loads(json.dumps(rows))[0]["金额"] == expected
+
+
+@pytest.mark.parametrize("separate_sources", [False, True])
+def test_merge_decimal_preview_matches_export(separate_sources):
+    files = []
+    mappings = []
+    for index, values in enumerate(([100.1, 0.2], [200.2])):
+        source = f"来源{index}" if separate_sources else "来源"
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = source
+        sheet.append(["员工", "金额", "备注"])
+        for value in values:
+            sheet.append(["E001", value, "-"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        files.append((f"{index}.xlsx", buffer.getvalue()))
+        if separate_sources or not mappings:
+            mappings.append({
+                "name": source,
+                "sheet_kw": source,
+                "header": [1, 1],
+                "match": ["员工", "金额", "备注"],
+                "key_map": {"员工": "员工"},
+                "column_map": {"金额": "金额"},
+                "derived_fields": [],
+            })
+
+    result = engine.run_merge(
+        files,
+        {"merge_keys": ["员工"], "std_fields": ["金额"], "aggregate": "sum"},
+        mappings,
+    )
+    preview = json.loads(json.dumps(result))["rows"][0]
+    exported = openpyxl.load_workbook(io.BytesIO(
+        engine.rows_to_xlsx(result["columns"], result["rows"])
+    ), data_only=True)
+
+    assert result["anomalies"] == []
+    assert preview["金额"] == 300.5
+    assert exported.active.cell(2, 2).value == preview["金额"]

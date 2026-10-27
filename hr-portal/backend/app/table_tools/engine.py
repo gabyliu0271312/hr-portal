@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections import defaultdict
+from decimal import Decimal
 from typing import Any, Callable
 
 import openpyxl
@@ -138,6 +139,16 @@ def _coerce_numeric_value(value: Any) -> Any:
     if is_parenthesized:
         number = -number
     return number / 100 if is_percent else number
+
+
+def _sum_numeric_values(left: int | float, right: int | float) -> int | float:
+    """用十进制累加数值，避免二进制浮点尾数进入预览结果。"""
+    total = Decimal(str(int(left) if isinstance(left, bool) else left)) + Decimal(
+        str(int(right) if isinstance(right, bool) else right)
+    )
+    if isinstance(left, float) or isinstance(right, float) or total != total.to_integral_value():
+        return float(total)
+    return int(total)
 
 
 # ── 行级工具 ────────────────────────────────────────────────
@@ -307,7 +318,7 @@ def aggregate_records(
                         anomalies.append({"type": "金额冲突", "key": dict(zip(merge_keys, pk)),
                                           "detail": f"{f}: {prev} vs {val}"})
                     else:
-                        cur[f] = prev + val
+                        cur[f] = _sum_numeric_values(prev, val)
                 else:
                     cur[f] = val
             else:
