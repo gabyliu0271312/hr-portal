@@ -67,6 +67,7 @@ class WorkflowNode(BaseModel):
     appeal_prompt_content: str = Field(default="", max_length=1500)
     appeal_reason_instruction: str = Field(default="", max_length=1000)
     executor_config: dict | None = None
+    content_region_order: list[str] | None = Field(default=None, max_length=101)
     content_bindings: dict[str, list[str]] | None = None
     content: list[dict] | None = Field(default=None, max_length=100)
 

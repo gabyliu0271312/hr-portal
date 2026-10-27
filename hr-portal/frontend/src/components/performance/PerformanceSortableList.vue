@@ -148,6 +148,7 @@ function translatedRect(rect: RectSnapshot, offsetX: number, offsetY: number): R
 function rowFromTarget(target: EventTarget | null) {
   const element = target as Element | null
   if (!element || typeof element.closest !== 'function') return null
+  if (element.closest('.performance-sortable-list') !== rootRef.value) return null
   return element.closest<HTMLElement>('[data-sortable-index]')
 }
 
@@ -163,7 +164,7 @@ function indexFromRow(row: HTMLElement | null) {
 }
 
 function rows() {
-  return rootRef.value ? Array.from(rootRef.value.querySelectorAll<HTMLElement>('[data-sortable-index]')) : []
+  return rootRef.value ? Array.from(rootRef.value.querySelectorAll<HTMLElement>('[data-sortable-index]')).filter(row => row.closest('.performance-sortable-list') === rootRef.value) : []
 }
 
 function captureScrollSnapshots(row: HTMLElement) {

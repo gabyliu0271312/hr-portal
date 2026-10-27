@@ -1575,3 +1575,16 @@ async def test_calibration_settings_patch_keeps_cycle_used_workflow_locked(workf
     assert exc.value.detail["code"] == "TEMPLATE_WORKFLOW_LOCKED"
     assert db.commits == 0
     assert db.added == []
+
+@pytest.mark.asyncio
+async def test_result_view_content_region_order_round_trips_and_rejects_invalid_order(workflow_save_setup):
+    service, db = workflow_save_setup
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": []}
+    reference_one = {"content_id": "reference-one", "type": "reference", "name": "来源一", "description": "", "items": [], "content_slot": "reference", "reference_kind": "more", "reference_value": "okr"}
+    reference_two = {"content_id": "reference-two", "type": "reference", "name": "来源二", "description": "", "items": [], "content_slot": "reference", "reference_kind": "more", "reference_value": "more_reference"}
+    view = {**default_workflow_nodes()[1], "content": [reference_one, reference_two], "content_region_order": ["reference:reference-two", "result", "reference:reference-one"]}
+
+    record = await service.save_nodes(77, [final, view], actor_type="PORTAL_USER", actor_ref="9")
+    assert record.nodes[1]["content_region_order"] == view["content_region_order"]
+    with pytest.raises(TemplateWorkflowValidationError, match="内容区域顺序不合法"):
+        await service.save_nodes(77, [final, {**view, "content_region_order": ["result", "result", "reference:reference-one"]}], actor_type="PORTAL_USER", actor_ref="9")

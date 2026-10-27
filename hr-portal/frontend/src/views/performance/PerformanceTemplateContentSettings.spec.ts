@@ -1140,7 +1140,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.find('.result-view-references').exists()).toBe(false)
     expect(wrapper.findAll('.reference-content-group h2').map(header => header.text())).toEqual(['工作总结环节', '结果沟通'])
     expect(wrapper.findAll('.reference-content-group')).toHaveLength(2)
-    expect(contentSettingsSource.replace(/\r\n/g, '\n')).toContain('.reference-content-group+.reference-content-group{margin-top:var(--spacing-4)}')
+    expect(wrapper.find('.content-region-list').exists()).toBe(true)
     expect(wrapper.text()).toContain('来源题目')
 
     const sourceBlock = wrapper.findAllComponents(PerformanceConfiguredContentBlock).find(block => block.props('content').name === '来源填写内容')!
@@ -1195,7 +1195,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.findAll('.reference-content-group h2').map(h => h.text())).toEqual(['工作总结环节', '结果沟通', '结果复议处理'])
     expect(wrapper.findAll('.reference-content-group')[2].text()).toContain('该环节尚未配置内容')
-    expect(wrapper.findAll('.reference-content-group').every(group => !group.find('[contenteditable="true"], [data-drag-handle], .configured-card-action-toolbar').exists())).toBe(true)
+    expect(wrapper.findAll('.reference-content-group').every(group => !group.find('[contenteditable="true"], .configured-card-action-toolbar').exists())).toBe(true)
     await sourceBlock().get('.configured-content-card__row').trigger('click')
     await wrapper.get('.content-settings-detail--root .work-summary-view-options input').setValue(true)
     await sourceBlock().get('[data-content-item-id="item"]').trigger('click')
@@ -1246,6 +1246,35 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.findAll('.result-view-reference-entry')).toHaveLength(1)
     await (wrapper.vm as any).save()
     expect(update.mock.calls.at(-1)![1].nodes[3].content!.map(content => content.content_slot)).toEqual(['view'])
+    wrapper.unmount()
+  })
+
+  it('reorders result and reference regions together and persists the independent region order', async () => {
+    const source = { content_id: 'source', type: 'custom', name: '来源内容', description: '', items: [] }
+    const relations = [
+      { type: 'reference', name: '工作总结环节', content_id: 'reference-n1', content_slot: 'reference', reference_kind: 'node', reference_value: 'n1', items: [] },
+      { type: 'reference', name: '结果沟通', content_id: 'reference-n6', content_slot: 'reference', reference_kind: 'node', reference_value: 'n6', items: [] },
+    ]
+    const nodes = [
+      { ...mockNodes[0], content: [source] },
+      { ...mockNodes[5], content: [{ ...source, name: '沟通内容' }] },
+      { ...mockNodes[6], include_final_result: true, content: [{ ...source, content_id: 'final', name: '终评内容' }] },
+      { ...mockNodes[7], content: [{ ...source, content_id: 'final', name: '终评内容', content_slot: 'view' }, ...relations] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    expect(wrapper.findAll('[data-region-id]').map(region => region.attributes('data-region-id'))).toEqual(['result', 'reference:reference-n1', 'reference:reference-n6'])
+    wrapper.getComponent({ name: 'PerformanceContentRegionList' }).vm.$emit('reorder', 2, 0)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findAll('[data-region-id]').map(region => region.attributes('data-region-id'))).toEqual(['reference:reference-n6', 'result', 'reference:reference-n1'])
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[3].content_region_order).toEqual(['reference:reference-n6', 'result', 'reference:reference-n1'])
+    expect(saved.nodes[3].content!.filter(content => content.content_slot === 'view')).toHaveLength(1)
+    expect(saved.nodes[3].content!.filter(content => content.content_slot === 'reference')).toHaveLength(2)
     wrapper.unmount()
   })
 
@@ -1438,7 +1467,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.findAll('.reference-content-group h2').map(h => h.text())).toEqual(['真实流程名称', '评估型环节'])
     expect(wrapper.text()).not.toContain('旧公共种子')
     expect(wrapper.text()).toContain('完整提示正文')
-    expect(wrapper.find('.performance-rich-toolbar, .performance-rich-text-box, [contenteditable="true"], [data-drag-handle], .configured-card-action-toolbar').exists()).toBe(false)
+    expect(wrapper.find('.performance-rich-toolbar, .performance-rich-text-box, [contenteditable="true"], .configured-card-action-toolbar').exists()).toBe(false)
     expect(blocks()[0].props('itemSettings').item).toMatchObject({ mode: 'view', required: false })
     await blocks()[0].get('.configured-content-card__row').trigger('click')
     await wrapper.get('.content-settings-detail--root .work-summary-view-options input').setValue(true)
@@ -1871,7 +1900,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(actions[0].attributes('disabled')).toBeDefined()
     expect(actions[1].attributes('disabled')).toBeUndefined()
     expect(cards()[0].find('.performance-expand-button').exists()).toBe(true)
-    expect(cards()[0].find('[data-icon="DragOutlined"]').exists()).toBe(true)
+    expect(cards()[0].find('[data-drag-handle]').exists()).toBe(true)
 
     await actions[1].trigger('click')
     expect(cards().map((card) => card.find('strong').text())).toEqual(['Second', 'First'])

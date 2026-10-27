@@ -15,7 +15,7 @@
     <template #default="{ item, index, dragging, itemStyle }">
       <div
         class="config-box item-card saved-item"
-        :class="{ 'is-dragging': dragging }"
+        :class="{ 'is-dragging': dragging, 'has-horizontal-handle': horizontalHandle && controlsVisible }"
         :style="itemStyle"
         :data-item-index="index"
         :data-sortable-index="index"
@@ -30,7 +30,8 @@
           :aria-describedby="controlsVisible ? 'rbd-hidden-text-0-hidden-text-0' : undefined"
         >
           <span class="item-card__title">{{ itemTitle(item) }}</span>
-          <PerformanceDragHandle v-if="controlsVisible" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
+          <PerformanceHorizontalDragHandle v-if="controlsVisible && horizontalHandle" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
+          <PerformanceDragHandle v-else-if="controlsVisible" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
           <span class="item-card__actions"><button v-if="controlsVisible" type="button" :aria-label="`删除${item.label?.trim() || itemTitle(item)}`" @pointerdown.stop @mousedown.stop @click.stop="emit('remove', index)"><Delete /></button></span>
         </div>
 
@@ -74,6 +75,7 @@ import { Delete, Plus } from '@element-plus/icons-vue'
 import type { PerformancePromptValue } from '@/api/performance'
 import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
 import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import PerformanceHorizontalDragHandle from './PerformanceHorizontalDragHandle.vue'
 import PerformanceFormField from './PerformanceFormField.vue'
 import PerformanceItemAddMenu from './PerformanceItemAddMenu.vue'
 import PerformancePromptForm from './PerformancePromptForm.vue'
@@ -84,7 +86,7 @@ type TagOption = { id: string; label: string; description?: string; defaultField
 type RatingOption = { id: string; label: string; description?: string; disabled?: boolean; disabledReason?: string; levels?: string[]; levelOptions?: Array<{ id: string; label: string; color?: string }>; displayMode?: '标签样式' | '下拉样式' }
 export type FillItem = { id: string; label: string; hint: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PerformancePromptValue; ratingOptionId?: string; ratingDisplayMode?: '标签样式' | '下拉样式'; questionType?: 'text' | 'tag'; tagOptionId?: string; defaultAll?: boolean; options?: Array<{ id: string; label: string; placeholder?: string; color?: string }> }
 
-const props = withDefaults(defineProps<{ items: FillItem[]; invalid?: boolean; showQuestionType?: boolean; tagOptions?: TagOption[]; mixed?: boolean; ratingOptions?: RatingOption[] }>(), { invalid: false, showQuestionType: false, tagOptions: () => [], mixed: false, ratingOptions: () => [] })
+const props = withDefaults(defineProps<{ items: FillItem[]; horizontalHandle?: boolean; invalid?: boolean; showQuestionType?: boolean; tagOptions?: TagOption[]; mixed?: boolean; ratingOptions?: RatingOption[] }>(), { invalid: false, showQuestionType: false, tagOptions: () => [], mixed: false, ratingOptions: () => [] })
 const emit = defineEmits<{
   add: [kind?: 'fill' | 'prompt']
   remove: [index: number]
@@ -108,6 +110,9 @@ function selectRating(item: FillItem, value: string) { const option = props.rati
 </script>
 
 <style scoped>
+.has-horizontal-handle{position:relative}
+.has-horizontal-handle .performance-horizontal-drag-handle{position:absolute;top:0;left:0}
+.has-horizontal-handle .config-box__heading{padding-top:24px}
 .repeatable-fill-item-list { display: flex; flex-direction: column; }
 .config-box { border: 1px solid #dee0e3; border-radius: 6px; }
 .saved-item { overflow: hidden; }

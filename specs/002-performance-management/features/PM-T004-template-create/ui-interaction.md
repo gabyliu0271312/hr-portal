@@ -436,3 +436,14 @@
 - 仅调整现有模板内容设置页；无 API、数据库、权限、审计、周期快照、UCP 或新蓝图改动。沿用 T05 已确认蓝图和 Spec 012 N0001/N0002/N0004/N0005/N1102-N1104；不引入禁止项。
 
 - F32 实现验收（2026-10-27）：真实 Chrome / 1920×1080 已验证两个入口相同来源分组及只读内容块，相邻来源卡片 bounding-box 间距均为 16px；root/item 显示设置经重选、实际前端 PATCH 和页面重载 GET 后保持，来源与主结果独立。页面错误及控制台错误均为 0。独立截图：[PM-T004-T05-F32-implemented-reference-content.png](../../ui-blueprints/PM-T004-T05-F32-implemented-reference-content.png)，已打开核对。API 均为本地拦截夹具，不代表真实后端/数据库或生产验收。
+
+## 模板内容横向手柄与区域排序（PM-T004-T05-F33，2026-10-27 用户确认）
+
+- 保留原PerformanceDragHandle及非模板调用，新PerformanceHorizontalDragHandle统一顶部横向六点；仅模板内容块及其内容编辑抽屉替换。横向指手柄外观，排序方向仍上下。
+- 结果主区与来源参考组可上下混排；普通参考组可排序；主区内部内容及抽屉题目沿既有排序。参考来源内部不重排、不编辑；校准继承结构仍不可拖。取代F01“主结果固定且不新增排序协议”的旧约定。
+- content_region_order仅保存result_view外层展示顺序；result与reference:<引用content_id>分离标识。view/reference内容仍独立，旧数据默认result在前；新增参考末尾，取消删除对应key，重选保留当前顺序。显式数组必须完整、不重复且仅包含当前区域，错误沿422 TEMPLATE_WORKFLOW_INVALID；旧客户端省略时服务端保留有效现有顺序并追加新区域。
+- 复用PerformanceSortableList，不新增拖动引擎。父/子列表只处理所属手柄和所属行，鼠标抓取与键盘排序均隔离；拖动不触发标题选择、展开或内容编辑。保持参考卡片16px间距、只读灰态与现有查看设置，已使用模板沿原锁定。
+- 沿用已确认PM-T004-T05三栏蓝图和Spec012 N0001/N0002/N0004/N0005/N1102-N1104；实际实现独立截图为../../ui-blueprints/PM-T004-T05-F33-implemented-horizontal-drag.png。不改菜单、权限、周期、UCP或生产。
+
+
+- F33 实现验收（2026-10-27）：新增 `PerformanceHorizontalDragHandle`，只在绩效模板内容设置页及内容抽屉启用；原 `PerformanceDragHandle` 和其他调用不变。结果主区、参考来源组及普通参考配置均使用真实横向手柄，结果与参考组可混排，顺序写入 `result_view.content_region_order`，view/reference 内容归属保持独立。Chrome 实测拖动、PATCH、GET 重开、普通参考入口及嵌套拖动隔离通过；截图：[PM-T004-T05-F33-implemented-horizontal-drag.png](../../ui-blueprints/PM-T004-T05-F33-implemented-horizontal-drag.png)。

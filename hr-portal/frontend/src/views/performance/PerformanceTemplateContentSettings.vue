@@ -33,18 +33,19 @@
 
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <PerformanceContentWorkspace v-if="selectedStageData" class="content-pane">
-        <template v-if="isResultView">
-          <section class="result-view-section" aria-label="绩效结果">
+        <template v-if="isResultView || (isReferenceTab && referenceRelations.length)">
+          <PerformanceContentRegionList :regions="contentRegions" :disabled="pageNameLocked" @reorder="reorderContentRegions">
+            <template #result>
             <div class="result-view-section__overlay" :class="{ 'is-hovered': resultViewTitleHovered, 'is-selected': pageHeadingSelected }" aria-hidden="true"></div>
             <div class="result-view-section__content result-view-section__title" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="选择页面标题" @mouseenter="resultViewTitleHovered = true" @mouseleave="resultViewTitleHovered = false" @focusin="resultViewTitleHovered = true" @focusout="resultViewTitleHovered = false" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
-              <div class="result-view-section__drag" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" data-icon="DragOutlined"><path d="M8.25 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm0 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Zm1.75 5.5a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0ZM14.753 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5ZM16.5 12a1.75 1.75 0 1 1-3.5 0 1.75 1.75 0 0 1 3.5 0Zm-1.747 9a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5Z" /></svg></div>
               <h2>{{ contentPageName }}</h2>
               <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
             </div>
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel result-view-section__configured-content" aria-label="配置填写内容">
-          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
+                :horizontal-handle="true"
                 :content="content"
                 :active="selectedConfiguredId === content.id"
                 :expanded="configuredExpandedIds.has(content.id)"
@@ -57,7 +58,7 @@
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
-                :settings-disabled="isCalibration && pageNameLocked"
+                :settings-disabled="pageNameLocked"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
@@ -75,15 +76,15 @@
             </template>
           </PerformanceSortableList>
         </section>
-          </section>
-          <PerformanceTemplateOperateBar v-if="summaryActions.length" class="result-view-content-footer" :actions="summaryActions" @action="handleContentAction" />
-        </template>
-        <template v-if="isResultView || (isReferenceTab && referenceRelations.length)">
-          <section v-for="group in referenceGroups" :key="group.id" class="result-view-section reference-content-group">
+
+              <PerformanceTemplateOperateBar v-if="summaryActions.length" class="result-view-content-footer" :actions="summaryActions" @action="handleContentAction" />
+            </template>
+            <template #reference="{ group }">
             <h2>{{ group.name }}</h2>
-            <div v-if="!group.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
-            <div v-for="content in group.contents" :key="content.id" class="configured-content-panel result-view-section__configured-content">
+            <div v-if="!referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
+            <div v-for="content in referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents" :key="content.id" class="configured-content-panel result-view-section__configured-content">
               <PerformanceConfiguredContentBlock
+                :horizontal-handle="true"
                 :content="content"
                 :active="selectedConfiguredId === content.id"
                 :expanded="configuredExpandedIds.has(content.id)"
@@ -107,7 +108,9 @@
                 @update:item-settings="setItemSettingsForContent(content.id, $event)"
               />
             </div>
-          </section>
+
+            </template>
+          </PerformanceContentRegionList>
           <PerformanceReferenceEntryBar :class="{ 'result-view-reference-entry': isResultView }" :label="isResultView ? '添加其他参考内容' : undefined" @select="handleContentAction('add-reference')" />
         </template>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
@@ -128,9 +131,10 @@
         </template>
         <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         <section v-if="configuredContents.length && !isResultView && !isReferenceTab" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
-          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
+                :horizontal-handle="true"
                 :content="content"
                 :active="selectedConfiguredId === content.id"
                 :expanded="configuredExpandedIds.has(content.id)"
@@ -143,7 +147,7 @@
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
-                :settings-disabled="isCalibration && pageNameLocked"
+                :settings-disabled="pageNameLocked"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
@@ -176,7 +180,7 @@
     </aside>
     <PerformancePromptModal v-model:open="promptModalOpen" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
-    <PerformanceAssessmentContentLayers ref="contentLayerRef" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
+    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
   </div>
 </template>
 
@@ -199,6 +203,7 @@ import type { WorkSummaryRootSettings } from '@/components/performance/Performan
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
 import PerformanceContentWorkspace from '@/components/performance/PerformanceContentWorkspace.vue'
+import PerformanceContentRegionList from '@/components/performance/PerformanceContentRegionList.vue'
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getItemSettingsVariant, resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
@@ -466,6 +471,24 @@ const referenceGroups = computed(() => referenceRelations.value.map(relation => 
   const contents = referencePreviewContents.value.filter(content => relation.reference_kind === 'node' ? referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation) : contentIdentity(content) === contentIdentity(relation))
   return { id: referenceRelationId(relation), name: source?.name || relation.name, contents }
 }))
+const contentRegions = computed(() => {
+  const regions = referenceGroups.value.map(group => ({ id: `reference:${group.id}`, kind: 'reference', name: group.name }))
+  if (!isResultView.value) return regions
+  const all = [{ id: 'result', kind: 'result', name: contentPageName.value }, ...regions]
+  const order = selectedWorkflowNode.value?.content_region_order || []
+  return [...order.flatMap(id => all.filter(region => region.id === id)), ...all.filter(region => !order.includes(region.id))]
+})
+function reorderContentRegions(from: number, to: number) {
+  const node = selectedWorkflowNode.value
+  if (!node || pageNameLocked.value || from === to) return
+  syncSelectedStageContents()
+  const regions = contentRegions.value.slice()
+  const [moved] = regions.splice(from, 1)
+  regions.splice(to, 0, moved)
+  if (isResultView.value) node.content_region_order = regions.map(region => region.id)
+  const relations = serializeReferenceRelations()
+  replaceNodeContentSlot(node, 'reference', regions.flatMap(region => relations.filter(relation => `reference:${referenceRelationId(relation)}` === region.id)))
+}
 const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => content.type !== 'prompt' && (content.type as string) !== 'reference').map(content => {
   const source = isResultView.value ? finalContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
@@ -729,13 +752,17 @@ function handleReferenceConfirm(selected: string[]) {
   })
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   const existing = new Map(referenceRelations.value.map(content => [content.reference_value, content]))
-  const relations = contents.map(content => ({
+  const selectedContents = [...referenceRelations.value.filter(content => selected.includes(content.reference_value || '')), ...contents.filter(content => !existing.has(content.reference_value || ''))]
+  const relations = selectedContents.map(content => ({
     ...existing.get(content.reference_value || ''),
     ...content,
     content_slot: 'reference' as const,
     reference_settings: existing.get(content.reference_value || '')?.reference_settings || { content_settings: {} },
   }))
-  if (node) replaceNodeContentSlot(node, 'reference', relations)
+  if (node) {
+    replaceNodeContentSlot(node, 'reference', relations)
+    if (isResultView.value && node.content_region_order) node.content_region_order = contentRegions.value.map(region => region.id)
+  }
   loadSelectedStageContents()
   selectedConfiguredId.value = null
   configuredHoverKey.value = null
@@ -1019,14 +1046,11 @@ onMounted(async () => {
 .result-view-section__content{position:relative;z-index:1}
 .result-view-section__title{cursor:pointer}
 .result-view-section__configured-content{position:relative;z-index:1;width:100%;max-width:none}
-.result-view-section__configured-content :deep(.performance-drag-handle),.result-view-section__configured-content :deep(.configured-card-action-toolbar){display:none!important}
+.result-view-section__configured-content :deep(.configured-card-action-toolbar){display:none!important}
 .result-view-content-footer{margin-top:var(--spacing-3)}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}
-.result-view-section__drag{position:absolute;top:0;right:calc(50% - 20px);display:flex;justify-content:center;width:40px;height:24px;color:var(--color-text-secondary)}
-.result-view-section__drag svg{transform:rotate(90deg)}
 .result-view-reference-entry{margin-top:var(--spacing-3);border-radius:var(--radius-sm)}
-.reference-content-group+.reference-content-group{margin-top:var(--spacing-4)}
 .content-stage-renderer{grid-column:2;grid-row:1}
 .text-normal {
   grid-column: 3;

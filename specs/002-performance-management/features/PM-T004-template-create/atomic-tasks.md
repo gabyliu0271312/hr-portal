@@ -571,3 +571,20 @@
   - Blockers: none for the local UI change.
   - Non-scope: employee runtime answers, additional reference integrations, backend validation, snapshot timing, permissions, deployment, commit/push.
   - Definition of done: scoped frontend implementation, focused regression, build, real-browser UI interaction/geometry, independent screenshot, diff check and evidence are complete. No database migration or API contract change; real backend/database and production acceptance remain explicitly not run.
+
+- [x] PM-T004-T05-F33 模板内容横向手柄及区域真实排序（2026-10-27 用户确认）
+  - Goal: 原纵向组件及其他页面不变，新横向组件用于模板内容主区与编辑抽屉；结果主区/参考来源组可混排，普通参考组可排序，保存重开恢复。
+  - Prerequisites/reading: F32/T05确认布局、当前交互、Spec002基线、Spec012 UI门禁、execution-contract/acceptance-evidence；用户明确允许参考组排在结果之前。本次不新增页面或改变三栏信息架构。
+  - Allowed modifications: PerformanceTemplateContentSettings.vue及测试；PerformanceConfiguredContentBlock/PerformanceRepeatableFillItemList/PerformanceAssessmentContentLayers及测试；PerformanceSortableList及测试；frontend/src/api/performance.ts；backend/app/performance/templates_router.py、template_workflow_service.py及既有workflow测试；本任务和ui-interaction.md。
+  - Allowed new files: components/performance/PerformanceHorizontalDragHandle.vue、PerformanceContentRegionList.vue及对应组件测试；ui-blueprints/PM-T004-T05-F33-implemented-horizontal-drag.png。禁止新增脚本、调研或测试文档。
+  - Protected: PerformanceDragHandle.vue不改；非模板调用保留默认纵向；无周期快照、权限、UCP、数据库schema/迁移、部署、commit/push。
+  - Frozen DTO: WorkflowNode.content_region_order?: string[] | null，仅result_view；区域key为result及reference:<reference content_id>，显式值须是当前区域完整不重复排列。保存在原nodes JSONB，GET/PATCH原路径、权限/事务/审计不变；非法排列422 TEMPLATE_WORKFLOW_INVALID。缺省旧数据主区在前；旧客户端省略字段保留现有相对次序、过滤取消项并追加新项。参考组自身顺序继续沿reference数组与bindings。
+  - UI contract: 新横向六点手柄与现有SortableList接线；主区/参考组外层、主区内容内层、普通参考组、编辑抽屉题目。禁止跨来源移动内容和修改参考结构；嵌套仅所属列表响应；锁定禁拖；新增末尾、重选保序、取消不留残项；间距16px。已确认T05蓝图局部增强，不要求新全页蓝图。
+  - Given/When/Then: Given多主内容/多来源且同ID，When鼠标/键盘移动外层和内层、重选、切换、PATCH/GET重开，Then顺序一致、设置与源数据不污染、父子列表互斥、旧纵向调用不变；非法顺序/重复/未知区域拒绝，锁定/权限沿原拒绝覆盖。
+  - Commands/evidence (2026-10-27):
+    - Frontend focused Vitest: 5 files / 142 tests passed (`PerformanceHorizontalDragHandle`, `PerformanceTemplateContentSettings`, `PerformanceSortableList`, `PerformanceConfiguredContentBlock`, `PerformanceRepeatableContent`). Includes nested parent/child drag scope, horizontal handle contract, main/reference mixed region reorder and save payload, existing content/reference regressions.
+    - Backend workflow pytest: `207 passed, 1 warning`; targeted F33 contract test covers round-trip and duplicate/invalid region order rejection.
+    - Frontend `npm run build`: vue-tsc + Vite passed, `✓ built in 1m 6s`; `git diff --check` passed with existing LF/CRLF warnings only.
+    - Browser: actual Chrome at 1920×1080 dragged the third result-view region before the result region through the new horizontal handle, verified order `reference:reference-c -> result -> reference:reference-s`, real frontend PATCH, GET/reopen restoration, ordinary reference entry two horizontal handles, and zero page/console errors. Legacy vertical handles in the template scope: 0. Independent screenshot: `../../ui-blueprints/PM-T004-T05-F33-implemented-horizontal-drag.png`, opened and visually checked.
+    - Boundary: browser API requests were local in-memory fixtures only; real backend/database/production acceptance was not run. No migration or deployment.
+  - DoD: 代码、接口校验、回归、构建、实际拖拽与保存重开、截图及证据齐备后勾选；无额外业务扩展。

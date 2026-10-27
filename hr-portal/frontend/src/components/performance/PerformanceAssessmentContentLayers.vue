@@ -72,11 +72,11 @@
             <PerformanceFormField v-model="draft.description" label="描述" textarea placeholder="请输入描述" />
             <h3 class="section-title">配置详情</h3>
             <template v-if="activeType === 'work_summary'">
-              <PerformanceRepeatableFillItemList :items="workSummaryItems" :invalid="submitted" @add="addWorkSummaryItem" @remove="removeWorkSummaryItem" @reorder="reorderWorkSummary" @drag-start="startSummarySort" @drag-end="finishSummarySort" @drag-cancel="cancelSummarySort" />
+              <PerformanceRepeatableFillItemList :horizontal-handle="horizontalHandle" :items="workSummaryItems" :invalid="submitted" @add="addWorkSummaryItem" @remove="removeWorkSummaryItem" @reorder="reorderWorkSummary" @drag-start="startSummarySort" @drag-end="finishSummarySort" @drag-cancel="cancelSummarySort" />
             </template>
 
             <template v-else-if="activeType === 'custom' || activeType === 'rating'">
-              <PerformanceRepeatableFillItemList v-model:items="items" :invalid="submitted" :mixed="true" :show-question-type="true" :tag-options="tagOptions" :rating-options="ratingOptions" @add="addMixedItem" @remove="removeCustomItem" @reorder="reorderCustomItems" @drag-start="startCustomSort" @drag-end="finishCustomSort" @drag-cancel="cancelCustomSort" />
+              <PerformanceRepeatableFillItemList :horizontal-handle="horizontalHandle" v-model:items="items" :invalid="submitted" :mixed="true" :show-question-type="true" :tag-options="tagOptions" :rating-options="ratingOptions" @add="addMixedItem" @remove="removeCustomItem" @reorder="reorderCustomItems" @drag-start="startCustomSort" @drag-end="finishCustomSort" @drag-cancel="cancelCustomSort" />
             </template>
           </div>
 
@@ -130,7 +130,7 @@ export interface AssessmentContentDraft { type:AssessmentContentType|'prompt'; n
 interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
 interface FillItem { id:string; label:string; hint:string; richText?:string; kind?:'rating'|'fill'|'prompt'; prompt?:PerformancePromptValue; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
 
-const props=withDefaults(defineProps<{open:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
+const props=withDefaults(defineProps<{open:boolean;horizontalHandle?:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
 const drawerRef=ref<HTMLElement|null>(null), modalRef=ref<HTMLElement|null>(null), modalCloseRef=ref<HTMLButtonElement|null>(null), createMenuRef=ref<{focus:()=>void}|null>(null)
 const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), submitted=ref(false), itemSubmitted=ref(false), success=ref(false), draggedIndex=ref<number|null>(null), dragAnnouncement=ref(''), editingCreatedId=ref<string|null>(null), expandedIds=ref<Set<string>>(new Set())

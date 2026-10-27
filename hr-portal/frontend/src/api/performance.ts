@@ -1188,6 +1188,7 @@ export interface PerformanceWorkflowNode {
   appeal_reason_instruction?: string
   executor_config?: PerformanceExecutorConfig | null
   content?: PerformanceTemplateContent[]
+  content_region_order?: string[] | null
   content_bindings?: Record<string, string[]>
 }
 

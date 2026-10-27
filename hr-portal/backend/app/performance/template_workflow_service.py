@@ -259,6 +259,8 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
                 "content_bindings": deepcopy(node.get("content_bindings") or {}),
             }
         )
+        if node.get("content_region_order") is not None:
+            normalized[-1]["content_region_order"] = deepcopy(node["content_region_order"])
         if node_type == "calibration" and "calibration_settings" in node:
             normalized[-1]["calibration_settings"] = deepcopy(node["calibration_settings"])
         if node.get("content") is not None:
@@ -332,6 +334,30 @@ def _validate_reference_contents(nodes: list[dict]) -> None:
                     if any(key in display for key in ("mode", "required", "allowModify", "levelRulesEnabled", "allowMultiple", "allowUnknown")):
                         raise TemplateWorkflowValidationError("参考内容只能保存查看设置", node_id=node["node_id"])
             content.update(type="reference", name=source["name"], description=source.get("description") or "", items=[], reference_value=source_id)
+
+
+def _content_region_ids(node: dict) -> list[str]:
+    return ["result", *[
+        f"reference:{_content_id(content)}"
+        for content in node.get("content") or []
+        if content.get("content_slot") == "reference"
+    ]]
+
+
+def _validate_content_region_order(node: dict) -> None:
+    order = node.get("content_region_order")
+    if order is None:
+        return
+    expected = _content_region_ids(node)
+    if (
+        node["node_type"] != "result_view"
+        or not isinstance(order, list)
+        or any(not isinstance(value, str) for value in order)
+        or len(order) != len(expected)
+        or len(set(order)) != len(order)
+        or set(order) != set(expected)
+    ):
+        raise TemplateWorkflowValidationError("内容区域顺序不合法", node_id=node["node_id"])
 
 
 def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> None:
@@ -470,6 +496,13 @@ class PerformanceTemplateWorkflowService:
         _validate_result_view_contents(normalized, source_library)
         normalized = [_materialize_node_contents(node, source_library) for node in normalized]
         _validate_reference_contents(normalized)
+        for raw_node, node in zip(nodes, normalized):
+            existing_node = existing_nodes.get(node["node_id"]) or {}
+            if raw_node.get("content_region_order") is None and node["node_type"] == "result_view" and existing_node.get("content_region_order"):
+                expected = _content_region_ids(node)
+                previous = existing_node["content_region_order"]
+                node["content_region_order"] = [value for value in previous if value in expected] + [value for value in expected if value not in previous]
+            _validate_content_region_order(node)
         for node in normalized:
             library = _merge_content_library(library, [content for content in (node.get("content") or []) if not ((content.get("content_slot") or "fill") == "reference" and content.get("type") == "reference" and content.get("reference_kind") == "node")])
         before = deepcopy(record.nodes) if record is not None else []
