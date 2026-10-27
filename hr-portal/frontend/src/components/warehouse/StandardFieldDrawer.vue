@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
 import { standardFieldsApi, type StandardFieldDefinitionPayload, type StandardFieldDetail, type StandardFieldVersion } from '@/api/standardFields'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
 import { useUserStore } from '@/stores/user'
 import StandardFieldBindingPanel from './StandardFieldBindingPanel.vue'
 import StandardFieldDefinitionForm from './StandardFieldDefinitionForm.vue'
-import StandardFieldVersions from './StandardFieldVersions.vue'
+import StandardFieldValueDomain from './StandardFieldValueDomain.vue'
 
-const props = defineProps<{ modelValue: boolean; fieldId: number | null; datasetId?: number | null; tableName?: string | null }>()
+const props = defineProps<{ modelValue: boolean; fieldId: number | null; datasetId?: number | null; tableName?: string | null; governanceMode?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
 const userStore = useUserStore()
 const detail = ref<StandardFieldDetail | null>(null)
@@ -28,6 +28,8 @@ const form = reactive<StandardFieldDefinitionPayload>({
 })
 const displayName = ref('')
 const writable = () => mode.value !== 'view' && canWrite.value
+const categoryNames = computed(() => (detail.value?.latest_version.category_ids || []).map(id => categories.value.find(category => category.id === id)?.name || `分类 #${id}`))
+const referenceCount = computed(() => detail.value?.bindings.length || 0)
 const migrationRequired = computed(() => [form.value_domain, detail.value?.latest_version?.value_domain].some(domain => domain != null && !Array.isArray(domain.items)))
 
 function message(cause: any, fallback: string) {
@@ -74,8 +76,15 @@ async function load() {
 }
 
 function close() { if (!saving.value) { ++contextId; ++requestId; emit('update:modelValue', false) } }
-function beginVersion() { if (migrationRequired.value || saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'C')) return; if (detail.value?.versions.some(version => version.status === 'draft')) { ElMessage.warning('请先处理已有草稿'); return }; fill(detail.value?.latest_version); mode.value = 'version' }
-function beginEdit() { if (saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U') || detail.value?.latest_version.status !== 'draft') return; fill(detail.value.latest_version); mode.value = 'edit' }
+function beginEdit() {
+  if (saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U') || !detail.value) return
+  const latest = detail.value.latest_version
+  if (latest.status === 'draft') {
+    fill(latest); mode.value = 'edit'
+  } else if (!migrationRequired.value && latest.status === 'active' && !detail.value.versions.some(version => version.status === 'draft')) {
+    fill(latest); mode.value = 'version'
+  }
+}
 async function saveDisplayName() {
   if (!detail.value || !displayName.value.trim() || saving.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U')) return
   saving.value = true
@@ -133,34 +142,11 @@ async function save() {
       await standardFieldsApi.updateVersion(detail.value.id, detail.value.latest_version.id, { ...payload, expected_revision: detail.value.latest_version.revision })
     }
     if (context !== contextId || !canWrite.value) return
-    ElMessage.success('草稿已保存，不会自动发布或授权')
+    ElMessage.success('字段定义已保存；发布和查询权限仍由服务端统一校验')
     emit('changed')
     emit('update:modelValue', false)
   } catch (cause: any) {
     if (context === contextId) error.value = message(cause, '保存失败，请核对目录版本后重试')
-  } finally {
-    if (context === contextId) saving.value = false
-  }
-}
-async function transition(version: StandardFieldVersion, action: 'approve' | 'deprecate' | 'archive') {
-  const op = action === 'archive' ? 'D' : 'U'
-  if (!detail.value || saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', op)) return
-  const context = contextId
-  const fieldId = detail.value.id
-  saving.value = true
-  try {
-    const result = await ElMessageBox.prompt('请填写本次操作原因，操作后不能自动恢复旧版本', '确认字段版本变更', {
-      inputValidator: value => Boolean(value.trim()) || '请填写原因', confirmButtonText: '确认', cancelButtonText: '取消',
-    })
-    if (context !== contextId || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', op)) return
-    await standardFieldsApi[action](fieldId, version.id, version.revision, result.value.trim())
-    if (context !== contextId) return
-    ElMessage.success('状态已更新；当前查询权限未改变')
-    await load()
-    if (context === contextId) emit('changed')
-  } catch (cause: any) {
-    if (cause === 'cancel' || cause === 'close') return
-    if (context === contextId) error.value = message(cause, '操作未完成，请主动重新加载并核对版本')
   } finally {
     if (context === contextId) saving.value = false
   }
@@ -179,26 +165,35 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
   <el-drawer :model-value="modelValue" :title="mode === 'create' ? '新建标准字段' : '标准字段详情'" size="min(680px, 90vw)" @close="close">
     <div v-loading="loading" class="standard-field-drawer">
       <el-alert v-if="error" :title="String(error)" type="error" :closable="false" show-icon />
-      <p class="standard-field-drawer__note">此处维护业务字段语义，不创建物理列；草稿和建议绑定不会开放业务查询。</p>
+      <p class="standard-field-drawer__note">此处维护字段定义和敏感分类；来源映射由资产/Mapping流程负责，发布和查询权限由服务端统一校验。</p>
       <p v-if="!canView" role="alert">无权限查看标准字段目录。</p>
-      <p v-else-if="migrationRequired" role="status">旧格式值域仅支持读取，请先完成值域格式迁移；保存草稿和新建版本暂不可用。</p>
+      <p v-else-if="migrationRequired" role="status">旧格式值域仅支持读取，请先完成值域格式迁移；定义暂不可保存。</p>
       <template v-if="canView && !loading">
-        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" @update:model-value="Object.assign(form, $event)" @submit="save" />
+        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" :governance-mode="props.governanceMode" @update:model-value="Object.assign(form, $event)" @submit="save" />
         <template v-else-if="detail">
-          <section class="display-name-editor">
-            <div><strong>展示名称</strong><p>名称修改不创建语义版本，不影响授权合同和报表绑定。</p></div>
+          <section class="field-summary">
+            <div><span>字段编码</span><strong>{{ detail.field_code }}</strong></div>
+            <div><span>字段名称</span><strong>{{ detail.latest_version.field_name }}</strong></div>
+            <div><span>数据类型</span><strong>{{ detail.latest_version.data_type }}</strong></div>
+            <div class="field-summary__definition"><span>业务定义</span><p>{{ detail.latest_version.business_definition }}</p></div>
+            <div><span>敏感字段分类</span><strong>{{ categoryNames.length ? categoryNames.join('、') : '未分类' }}</strong></div>
+            <div><span>引用关系</span><strong>{{ referenceCount }} 个已登记引用</strong></div>
+          </section>
+          <section v-if="props.governanceMode" class="display-name-editor">
+            <div><strong>展示名称</strong><p>兼容历史治理数据的展示名称维护。</p></div>
             <div class="display-name-editor__row">
               <el-input v-model="displayName" maxlength="128" :disabled="saving || !userStore.hasOp('warehouse.standard_fields.catalog', 'U')" />
               <PermissionButton menu="warehouse.standard_fields.catalog" op="U" :loading="saving" @click="saveDisplayName">更新</PermissionButton>
             </div>
           </section>
-          <StandardFieldVersions :detail="detail" :saving="saving" :migration-required="migrationRequired" @create-version="beginVersion" @edit="beginEdit" @transition="transition" />
-          <StandardFieldBindingPanel :field-id="detail.id" :active-version-id="detail.current_active_version_id" :bindings="detail.bindings" :dataset-id="datasetId" :table-name="tableName" @changed="load(); emit('changed')" />
+          <StandardFieldValueDomain v-if="detail.latest_version.data_type === 'enum'" :model-value="detail.latest_version.value_domain" readonly />
+          <StandardFieldBindingPanel v-if="props.governanceMode" :field-id="detail.id" :active-version-id="detail.current_active_version_id" :bindings="detail.bindings" :dataset-id="datasetId" :table-name="tableName" @changed="load(); emit('changed')" />
         </template>
       </template>
     </div>
     <template #footer>
       <el-button @click="close">关闭</el-button>
+      <PermissionButton v-if="detail && mode === 'view'" menu="warehouse.standard_fields.catalog" op="U" :disabled="saving" @click="beginEdit">编辑</PermissionButton>
       <el-button v-if="writable()" @click="cancel">取消</el-button>
       <PermissionButton v-if="writable()" menu="warehouse.standard_fields.catalog" :op="mode === 'edit' ? 'U' : 'C'" type="primary" :disabled="saving || migrationRequired" @click="save">{{ saving ? '保存中…' : '保存草稿' }}</PermissionButton>
     </template>
@@ -206,6 +201,11 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
 </template>
 
 <style scoped>
+.field-summary { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-subtle); }
+.field-summary > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; align-items: start; }
+.field-summary span { color: var(--color-text-secondary); font-size: 12px; }
+.field-summary strong, .field-summary p { margin: 0; overflow-wrap: anywhere; }
+.field-summary__definition p { color: var(--color-text-regular); line-height: 1.6; }
 .standard-field-drawer { display: grid; gap: 16px; color: var(--color-text-primary); }
 .standard-field-drawer__note { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
 .display-name-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-border-light); border-radius: var(--radius-md); background: var(--color-bg-subtle); }

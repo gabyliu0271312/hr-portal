@@ -976,19 +976,14 @@ async def publish_model(
     user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ):
-    """发布数据模型。
+    """通过原发布按钮执行统一服务端准入并发布模型。"""
+    from app.datasets.models import DataSet
+    from app.warehouse.service.release_gate import request_dataset_release
 
-    校验：至少一张表；多表时至少一条关联。
-    权限要求：warehouse.assets:U
-    """
-    try:
-        result = await _svc(db).publish_model(model_id, user.id)
-        if result is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"模型不存在: {model_id}")
-        await db.commit()
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    dataset = await db.get(DataSet, model_id)
+    if dataset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"模型不存在: {model_id}")
+    return await request_dataset_release(db, model_id, dataset.version, user)
 
 
 @router.post(

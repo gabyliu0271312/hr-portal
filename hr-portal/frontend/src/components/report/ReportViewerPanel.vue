@@ -7,7 +7,6 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { formatDateTime } from '@/utils/datetime'
 import ReportPreviewTable from '@/components/report/ReportPreviewTable.vue'
 import ReportRuntimeFilters from '@/components/report/ReportRuntimeFilters.vue'
-import ReportExecutionAuthorization from '@/components/report/ReportExecutionAuthorization.vue'
 import { REPORT_VISIBILITY_LABELS, reportsApi, type RunResult } from '@/api/reports'
 import { useReportViewer } from './useReportViewer'
 
@@ -82,7 +81,6 @@ defineExpose({ run })
     </template>
     <template v-if="report" #actions>
       <slot v-if="!authorizedExecution" name="toolbar-extra" />
-      <ReportExecutionAuthorization :report="report" @approved="retryLoadReport" />
       <PermissionButton menu="report.list" op="V" :disabled="loading || loadingReport" @click="run">
         <el-icon><Refresh /></el-icon>刷新
       </PermissionButton>

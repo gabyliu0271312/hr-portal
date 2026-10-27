@@ -71,14 +71,13 @@ onMounted(load)
         </el-form>
         <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon style="margin-bottom: 16px" />
         <div style="overflow-x: auto">
-          <el-table v-loading="loading" :data="rows" stripe style="width: 100%" max-height="600" empty-text="暂无标准字段；可先新建草稿并提交审核">
+          <el-table v-loading="loading" :data="rows" stripe style="width: 100%" max-height="600" empty-text="暂无标准字段，可新建字段定义">
             <el-table-column prop="field_code" label="字段编码" min-width="160" />
             <el-table-column prop="latest_version.field_name" label="字段名称" min-width="170" />
             <el-table-column label="数据类型" min-width="105"><template #default="{ row }">{{ types[row.latest_version.data_type] || row.latest_version.data_type }}</template></el-table-column>
-            <el-table-column label="当前版本" min-width="105"><template #default="{ row }">v{{ row.latest_version.version }}</template></el-table-column>
-            <el-table-column label="状态" min-width="105"><template #default="{ row }"><el-tag size="small">{{ statuses[row.latest_version.status] || row.latest_version.status }}</el-tag></template></el-table-column>
-            <el-table-column prop="latest_version.owner_user_id" label="负责人 ID" min-width="105" />
-            <el-table-column label="操作" width="280" fixed="right"><template #default="{ row }"><PermissionButton menu="warehouse.standard_fields.catalog" op="V" size="small" @click="openDetail(row.id)">查看版本与引用</PermissionButton></template></el-table-column>
+            <el-table-column prop="latest_version.business_definition" label="业务定义" min-width="260" show-overflow-tooltip />
+            <el-table-column label="敏感分类" min-width="110"><template #default="{ row }">{{ row.latest_version.category_ids?.length ? `${row.latest_version.category_ids.length} 个` : '未分类' }}</template></el-table-column>
+            <el-table-column label="操作" width="160" fixed="right"><template #default="{ row }"><PermissionButton menu="warehouse.standard_fields.catalog" op="U" size="small" @click="openDetail(row.id)">编辑</PermissionButton></template></el-table-column>
           </el-table>
         </div>
         <div class="standard-fields-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" /></div>

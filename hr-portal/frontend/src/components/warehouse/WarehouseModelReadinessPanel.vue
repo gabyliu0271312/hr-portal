@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
 import WarehouseAuthorizationContractForm from './WarehouseAuthorizationContractForm.vue'
@@ -12,7 +12,6 @@ import {
   getReleaseReadiness,
   listAuthorizationContracts,
   listModelStandardFields,
-  releaseModel,
   type AuthorizationExecutionReadiness,
   type ConversionReadiness,
   type DatasetReleaseReadiness,
@@ -22,15 +21,18 @@ import {
 } from '@/api/warehouse'
 
 const props = defineProps<{ modelId: number; modelVersion: number; modelName: string }>()
-const emit = defineEmits<{ ready: [eligible: boolean]; published: [] }>()
-defineExpose({ refresh: load, publish: release })
+const emit = defineEmits<{ ready: [eligible: boolean | null] }>()
+defineExpose({ refresh: load })
 const loading = ref(false)
-const releasing = ref(false)
 const error = ref('')
-const releaseMessage = ref('')
 const releaseReadiness = ref<DatasetReleaseReadiness | null>(null)
 const conversion = ref<ConversionReadiness | null>(null)
 const authorization = ref<AuthorizationExecutionReadiness | null>(null)
+const checkIssues = computed(() => [
+  ...(releaseReadiness.value?.issues || []),
+  ...(conversion.value?.issues || []),
+  ...(authorization.value?.issues || []),
+])
 const contracts = ref<ProductAuthorizationContract[]>([])
 const modelOutputFields = ref<Array<{ output_code: string; agg_role: string; is_sensitive: boolean }>>([])
 const standardFields = ref<ModelStandardFieldBinding[]>([])
@@ -47,7 +49,10 @@ function statusText(eligible: boolean) { return eligible ? '通过' : '阻断' }
 async function load() {
   loading.value = true
   error.value = ''
-  releaseMessage.value = ''
+  releaseReadiness.value = null
+  conversion.value = null
+  authorization.value = null
+  emit('ready', null)
   try {
     const [release, conversionResult, authorizationResult, contractResult, model, standardFieldResult] = await Promise.all([
       getReleaseReadiness(props.modelId), getConversionReadiness(props.modelId),
@@ -62,27 +67,12 @@ async function load() {
     modelOutputFields.value = model.output_fields.map(field => ({ output_code: field.output_code, agg_role: field.agg_role, is_sensitive: field.is_sensitive }))
     modelTables.value = model.tables
   } catch (cause: any) {
-    error.value = cause?.response?.status === 403 ? '无权查看模型准入状态。' : detail(cause, '模型准入状态加载失败，请重试。')
+    error.value = cause?.response?.status === 403 ? '无权查看建模校验结果。' : detail(cause, '建模校验结果加载失败，请重试。')
   } finally {
     loading.value = false
-    emit('ready', releaseReadiness.value?.eligible === true)
+    emit('ready', releaseReadiness.value?.eligible === true && conversion.value?.eligible === true
+      && authorization.value?.eligible === true && authorization.value.runtime_enabled === true)
   }
-}
-async function release(): Promise<boolean> {
-  if (releasing.value || !releaseReadiness.value?.eligible) return false
-  releasing.value = true
-  releaseMessage.value = ''
-  try {
-    await releaseModel(props.modelId, props.modelVersion)
-    releaseMessage.value = '发布成功，模型已进入已发布状态。'
-    ElMessage.success('模型发布成功')
-    await load()
-    emit('published')
-    return true
-  } catch (cause: any) {
-    releaseMessage.value = detail(cause, '发布未完成；请重新检查阻断原因。')
-    return false
-  } finally { releasing.value = false }
 }
 async function approveConversionAction() {
   if (!conversion.value?.run_id || !conversion.value.contract_id || !conversionReason.value.trim() || conversionApproving.value) return
@@ -92,7 +82,7 @@ async function approveConversionAction() {
     conversionReason.value = ''
     ElMessage.success('转换已批准')
     await load()
-  } catch (cause: any) { ElMessage.error(detail(cause, '转换批准失败，请重新加载准入状态。')) }
+  } catch (cause: any) { ElMessage.error(detail(cause, '转换批准失败，请重新检查。')) }
   finally { conversionApproving.value = false }
 }
 async function approve(contract: ProductAuthorizationContract) {
@@ -116,14 +106,13 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
       <el-button size="small" :loading="loading" @click="load">重新检查</el-button>
     </div>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-      <p class="readiness-panel__note">这里仅展示服务端准入判断。客户端不传运行时开关，也不会展示员工、金额、SQL 或来源敏感值。</p>
+      <p class="readiness-panel__note">这里展示服务端检查结果，不单独批准执行资格；发布时会重新复核。检查失败请在下方对应治理入口修复，不会自动批准或开放数据。</p>
       <div class="readiness-grid">
-        <div class="readiness-card"><div><strong>发布准入</strong><el-tag size="small" :type="releaseReadiness?.eligible ? 'success' : 'danger'">{{ releaseReadiness ? statusText(releaseReadiness.eligible) : '未检查' }}</el-tag></div><p>字段 {{ releaseReadiness?.confirmed_output_count ?? '—' }}/{{ releaseReadiness?.checked_output_count ?? '—' }} 已确认</p></div>
-        <div class="readiness-card"><div><strong>转换准入</strong><el-tag size="small" :type="conversion?.eligible ? 'success' : 'danger'">{{ conversion ? statusText(conversion.eligible) : '未检查' }}</el-tag></div><p>仅展示当前验证结果，不显示转换内容。</p></div>
-        <div class="readiness-card"><div><strong>授权执行准入</strong><el-tag size="small" :type="authorization?.eligible ? 'success' : 'danger'">{{ authorization ? statusText(authorization.eligible) : '未检查' }}</el-tag></div><p>{{ authorization?.runtime_enabled ? '服务端已判定可执行' : '运行开关由服务端控制' }}</p></div>
+        <div class="readiness-card"><div><strong>字段与结构</strong><el-tag size="small" :type="releaseReadiness?.eligible ? 'success' : 'danger'">{{ releaseReadiness ? statusText(releaseReadiness.eligible) : '未检查' }}</el-tag></div><p>字段 {{ releaseReadiness?.confirmed_output_count ?? '—' }}/{{ releaseReadiness?.checked_output_count ?? '—' }} 已确认</p></div>
+        <div class="readiness-card"><div><strong>来源转换</strong><el-tag size="small" :type="conversion?.eligible ? 'success' : 'danger'">{{ conversion ? statusText(conversion.eligible) : '未检查' }}</el-tag></div><p>仅展示当前验证结果，不显示转换内容。</p></div>
+        <div class="readiness-card"><div><strong>权限与运行检查</strong><el-tag size="small" :type="authorization?.eligible ? 'success' : 'danger'">{{ authorization ? statusText(authorization.eligible) : '未检查' }}</el-tag></div><p>{{ authorization?.runtime_enabled ? '当前运行检查通过' : '运行条件由服务端检查' }}</p></div>
       </div>
-      <el-alert v-if="releaseMessage" :title="releaseMessage" :type="releaseReadiness?.eligible ? 'success' : 'warning'" :closable="false" />
-      <section class="readiness-section"><strong>阻断原因</strong><el-empty v-if="!releaseReadiness?.issues.length" description="当前没有发布阻断原因" :image-size="48" /><ul v-else><li v-for="issue in releaseReadiness.issues" :key="`${issue.code}-${issue.target_id || ''}`">{{ issue.message }}</li></ul></section>
+      <section class="readiness-section"><strong>检查问题</strong><el-empty v-if="!releaseReadiness" description="尚未取得检查结果，请重新检查" :image-size="48" /><el-empty v-else-if="!checkIssues.length" description="当前没有发布阻断原因" :image-size="48" /><ul v-else><li v-for="(issue, index) in checkIssues" :key="`${issue.code}-${index}`">{{ issue.message }}</li></ul></section>
       <section class="readiness-section">
         <div class="isolation-head">
           <strong>隔离证明</strong>

@@ -31,15 +31,6 @@ const standardFieldsApi = {
   updateVersion(fieldId, versionId, payload) {
     return api.put(`/warehouse/standard-fields/${fieldId}/versions/${versionId}`, payload).then((r) => r.data);
   },
-  approve(fieldId, versionId, expected_revision, reason) {
-    return api.post(`/warehouse/standard-fields/${fieldId}/versions/${versionId}/approve`, { expected_revision, reason }).then((r) => r.data);
-  },
-  deprecate(fieldId, versionId, expected_revision, reason) {
-    return api.post(`/warehouse/standard-fields/${fieldId}/versions/${versionId}/deprecate`, { expected_revision, reason }).then((r) => r.data);
-  },
-  archive(fieldId, versionId, expected_revision, reason) {
-    return api.post(`/warehouse/standard-fields/${fieldId}/versions/${versionId}/archive`, { expected_revision, reason }).then((r) => r.data);
-  },
   remove(fieldId, expected_version, expected_revision) {
     return api.delete(`/warehouse/standard-fields/${fieldId}`, { params: { expected_version, expected_revision } });
   }

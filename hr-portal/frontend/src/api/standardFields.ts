@@ -152,15 +152,6 @@ export const standardFieldsApi = {
   updateVersion(fieldId: number, versionId: number, payload: StandardFieldDefinitionPayload) {
     return api.put<StandardFieldVersion>(`/warehouse/standard-fields/${fieldId}/versions/${versionId}`, payload).then(r => r.data)
   },
-  approve(fieldId: number, versionId: number, expected_revision: number, reason: string) {
-    return api.post<StandardFieldVersion>(`/warehouse/standard-fields/${fieldId}/versions/${versionId}/approve`, { expected_revision, reason }).then(r => r.data)
-  },
-  deprecate(fieldId: number, versionId: number, expected_revision: number, reason: string) {
-    return api.post<StandardFieldVersion>(`/warehouse/standard-fields/${fieldId}/versions/${versionId}/deprecate`, { expected_revision, reason }).then(r => r.data)
-  },
-  archive(fieldId: number, versionId: number, expected_revision: number, reason: string) {
-    return api.post<StandardFieldVersion>(`/warehouse/standard-fields/${fieldId}/versions/${versionId}/archive`, { expected_revision, reason }).then(r => r.data)
-  },
   remove(fieldId: number, expected_version: number, expected_revision: number) {
     return api.delete(`/warehouse/standard-fields/${fieldId}`, { params: { expected_version, expected_revision } })
   },

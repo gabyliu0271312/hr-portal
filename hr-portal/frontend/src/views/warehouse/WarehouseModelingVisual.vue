@@ -7,10 +7,11 @@ import { useUserStore } from '@/stores/user'
 import dagre from 'dagre'
 import {
   getModel, updateModel, createModel, previewModel, saveOutputFields,
-  previewModelV2,
+  previewModelV2, releaseModel,
   type OutputFieldPayload, type PreviewResult,
   type ModelPreviewV2,
 } from '@/api/warehouse'
+import PermissionButton from '@/components/PermissionButton.vue'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelReadinessPanel.vue'
 import FullScreenModal from '@/components/performance/FullScreenModal.vue'
@@ -29,13 +30,15 @@ const stepItems = [
   { key: 'build', label: '数据建模' },
   { key: 'fields', label: '输出字段' },
   { key: 'preview', label: '数据预览' },
-  { key: 'admission', label: '模型准入' },
+  { key: 'validation', label: '建模校验' },
 ]
 const pageTitle = computed(() => (form.value.label ? `数据模型 · ${form.value.label}` : '新建数据模型'))
 
 const modelMeta = ref({ status: 'draft', version: 1, release_version: 0, published_at: null as string | null })
 const readinessRef = ref<InstanceType<typeof WarehouseModelReadinessPanel> | null>(null)
-const admissionReady = ref(false)
+const validationReady = ref<boolean | null>(null)
+const publishError = ref('')
+const publishIssues = ref<Array<{ code: string; message: string }>>([])
 const publishing = ref(false)
 const savedSignature = ref('')
 const currentSignature = computed(() => JSON.stringify({
@@ -401,23 +404,29 @@ async function saveDraft(): Promise<boolean> {
 }
 
 async function doPublish() {
-  if (!modelId.value || !canEdit.value) return
-  if (!admissionReady.value) { ElMessage.warning('准入尚未通过，请先补齐阻断项'); return }
-  try {
-    await ElMessageBox.confirm('发布后模型将对授权消费方生效。确定发布？', '确认发布', { type: 'warning' })
-  } catch { return }
+  if (!modelId.value || !canEdit.value || saving.value || publishing.value) return
   publishing.value = true
+  publishError.value = ''
+  publishIssues.value = []
   try {
+    try {
+      await ElMessageBox.confirm('发布时将重新校验当前模型与权限，校验通过后对授权消费方生效。确定发布？', '确认发布', { type: 'warning' })
+    } catch { return }
+    if (!canEdit.value) return
+    if (dirty.value && !(await saveDraft())) return
     const latest = await getModel(modelId.value)
-    modelMeta.value = { status: latest.status, version: latest.version, release_version: latest.release_version ?? 0, published_at: latest.published_at }
-    await nextTick()
-    const released = await readinessRef.value?.publish()
-    if (!released) return
-    ElMessage.success('发布成功')
+    await releaseModel(modelId.value, latest.version)
     const refreshed = await getModel(modelId.value)
     modelMeta.value = { status: refreshed.status, version: refreshed.version, release_version: refreshed.release_version ?? 0, published_at: refreshed.published_at }
+    await readinessRef.value?.refresh()
+    ElMessage.success('发布成功')
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '发布失败')
+    let detail = e?.response?.data?.detail
+    if (typeof detail === 'string') { try { detail = JSON.parse(detail) } catch {} }
+    publishError.value = typeof detail === 'string' ? detail : detail?.message || '发布失败，请重新检查当前模型'
+    publishIssues.value = Array.isArray(detail?.issues) ? detail.issues : []
+    ElMessage.error(publishError.value)
+    await readinessRef.value?.refresh()
   } finally {
     publishing.value = false
   }
@@ -507,13 +516,16 @@ onBeforeUnmount(() => {
       <span class="save-state">{{ saving ? '保存中…' : dirty ? '未保存' : (modelId ? '已保存' : '') }}</span>
       <el-button v-if="step > 0" :disabled="saving || publishing" @click="step -= 1">上一步</el-button>
       <el-button v-if="step < stepItems.length - 1" type="primary" :loading="saving" @click="nextStep">下一步</el-button>
-      <el-button
+      <PermissionButton
         v-else
+        menu="warehouse.assets"
+        op="U"
+        mode="disable"
         type="primary"
         :loading="publishing"
-        :disabled="!modelId || !canEdit || saving || !admissionReady"
+        :disabled="!modelId || !canEdit || loading || saving || publishing"
         @click="doPublish"
-      >{{ modelMeta.status === 'published' ? '重新发布' : '发布' }}</el-button>
+      >{{ modelMeta.status === 'published' ? '重新发布' : '发布' }}</PermissionButton>
     </template>
 
     <div v-loading="loading" class="wizard-body">
@@ -756,27 +768,29 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <!-- 5. 模型准入 -->
+      <!-- 5. 建模校验 -->
       <section v-else class="wizard-panel wizard-panel--wide">
         <header class="panel-head panel-head--row">
           <div>
-            <h2>模型准入</h2>
-            <p>准入通过后才能发布；发布会写入模型状态并记录发布序号。</p>
+            <h2>建模校验</h2>
+            <p>查看模型检查结果并修复问题；点击发布时服务端会重新校验，无需另行批准执行资格。</p>
           </div>
           <div class="panel-actions">
-            <el-tag :type="admissionReady ? 'success' : 'danger'">
-              {{ admissionReady ? '准入通过' : '存在阻断项' }}
+            <el-tag :type="validationReady === null ? 'info' : validationReady ? 'success' : 'warning'">
+              {{ validationReady === null ? '待校验' : validationReady ? '校验通过' : '需检查' }}
             </el-tag>
           </div>
         </header>
         <div class="panel-body">
+          <el-alert v-if="publishError" :title="publishError" type="error" show-icon :closable="false" />
+          <ul v-if="publishIssues.length" aria-label="发布检查问题"><li v-for="(issue, index) in publishIssues" :key="`${issue.code}-${index}`">{{ issue.message }}</li></ul>
           <WarehouseModelReadinessPanel
             v-if="modelId"
             ref="readinessRef"
             :model-id="modelId"
             :model-version="modelMeta.version"
             :model-name="form.label || '当前模型'"
-            @ready="admissionReady = $event"
+            @ready="validationReady = $event"
           />
           <el-empty v-else description="请先完成并保存前面的步骤" :image-size="60" />
         </div>

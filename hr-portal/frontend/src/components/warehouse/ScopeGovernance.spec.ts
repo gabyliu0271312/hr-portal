@@ -327,7 +327,7 @@ function standardSetup(item = version()) {
 }
 function standardDrawer(item = version()) {
   standardSetup(item)
-  return mount(StandardFieldDrawer, { props: { modelValue: true, fieldId: item.standard_field_id, datasetId: 10 }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
+  return mount(StandardFieldDrawer, { props: { modelValue: true, fieldId: item.standard_field_id, datasetId: 10, governanceMode: true }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
 }
 function bindingPanel(datasetId?: number) {
   standardSetup()
@@ -442,14 +442,41 @@ describe('standard field scoped binding candidates', () => {
 })
 
 describe('standard field enum value domain', () => {
+  it('keeps the catalog drawer focused on definition, classification and references', async () => {
+    standardSetup()
+    const wrapper = mount(StandardFieldDrawer, { props: { modelValue: true, fieldId: 1, datasetId: 10 }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('引用关系')
+    expect(wrapper.text()).toContain('敏感字段分类')
+    expect(wrapper.text()).not.toContain('语义版本')
+    expect(wrapper.findComponent(StandardFieldBindingPanel).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not restore retired version controls even in the former governance mode', async () => {
+    for (const status of ['draft', 'active', 'deprecated', 'archived'] as const) {
+      const wrapper = standardDrawer(version({ status }))
+      await flushPromises()
+      expect(wrapper.find('.standard-field-versions').exists()).toBe(false)
+      for (const label of ['新建版本', '审核启用', '弃用', '归档']) {
+        expect(button(wrapper, label)).toBeUndefined()
+      }
+      expect(mocks.post).not.toHaveBeenCalled()
+      expect(mocks.prompt).not.toHaveBeenCalled()
+      wrapper.unmount()
+    }
+    for (const method of ['approve', 'deprecate', 'archive']) {
+      expect(standardFieldsApi).not.toHaveProperty(method)
+    }
+  })
+
   it('keeps legacy domain definitions readonly without creating empty replacement items', async () => {
     const legacy = { values: ['org', 'company'], description: '历史定义' }
     const wrapper = standardDrawer(version({ value_domain: legacy }))
     await flushPromises()
     expect(wrapper.text()).toContain('旧格式值域')
-    expect(wrapper.text()).toContain('草稿可编辑')
-    expect(button(wrapper, '新建版本').attributes('disabled')).toBeDefined()
-    await button(wrapper, '编辑草稿').trigger('click')
+    expect(button(wrapper, '新建版本')).toBeUndefined()
+    await button(wrapper, '编辑').trigger('click')
     expect(wrapper.text()).toContain('当前不能添加或覆盖枚举项')
     expect(button(wrapper, '添加枚举值')).toBeUndefined()
     expect(wrapper.find('input[aria-label="枚举编码"]').exists()).toBe(false)
@@ -462,8 +489,8 @@ describe('standard field enum value domain', () => {
     wrapper.unmount()
     const activeWrapper = standardDrawer(version({ status: 'active', value_domain: legacy }))
     await flushPromises()
-    expect(button(activeWrapper, '新建版本').attributes('disabled')).toBeDefined()
-    await button(activeWrapper, '新建版本').trigger('click')
+    expect(button(activeWrapper, '新建版本')).toBeUndefined()
+    await button(activeWrapper, '编辑').trigger('click')
     expect(button(activeWrapper, '保存草稿')).toBeUndefined()
     expect(mocks.post).not.toHaveBeenCalled()
     activeWrapper.unmount()
@@ -472,7 +499,7 @@ describe('standard field enum value domain', () => {
   it('projects edited value domains onto the strict write schema without extra keys', async () => {
     const wrapper = standardDrawer(version({ value_domain: { note: '旧附加属性', items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0, legacy_key: '旧项属性' }] } }))
     await flushPromises()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     await button(wrapper, '保存草稿').trigger('click')
     await flushPromises()
     expect(mocks.put.mock.calls[0][1].value_domain).toEqual({ items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] })
@@ -482,7 +509,7 @@ describe('standard field enum value domain', () => {
   it('discards unsaved input on update permission revocation even if permission later returns', async () => {
     const wrapper = standardDrawer()
     await flushPromises()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     await wrapper.find('input[aria-label="枚举名称"]').setValue('撤权前未保存内容')
     editable.value = false
     await flushPromises()
@@ -491,7 +518,7 @@ describe('standard field enum value domain', () => {
     editable.value = true
     await flushPromises()
     expect(button(wrapper, '保存草稿')).toBeUndefined()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     expect((wrapper.find('input[aria-label="枚举名称"]').element as HTMLInputElement).value).toBe('组织')
     wrapper.unmount()
   })
@@ -499,7 +526,7 @@ describe('standard field enum value domain', () => {
   it('renders only the message from serialized detail errors in the drawer and candidate panel', async () => {
     const wrapper = standardDrawer()
     await flushPromises()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     mocks.put.mockRejectedValueOnce({ response: { data: { detail: JSON.stringify({ code: 'revision_conflict', message: '请重新加载当前版本' }) } } })
     await button(wrapper, '保存草稿').trigger('click')
     await flushPromises()
@@ -544,7 +571,7 @@ describe('standard field enum value domain', () => {
     const wrapper = standardDrawer()
     await flushPromises()
     expect(wrapper.findComponent(StandardFieldBindingPanel).props('datasetId')).toBe(10)
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     const domain = wrapper.findComponent(StandardFieldValueDomain)
     await domain.find('input[aria-label="枚举名称"]').setValue('组织编码')
     await domain.find('input[aria-label="枚举启用"]').setValue(false)
@@ -555,17 +582,16 @@ describe('standard field enum value domain', () => {
     wrapper.unmount()
   })
 
-  it('keeps active versions readonly and clones the value domain only into a new version', async () => {
+  it('preserves active field editing without exposing a version-management workflow', async () => {
     const item = version({ status: 'active' })
     const wrapper = standardDrawer(item)
     await flushPromises()
     expect(button(wrapper, '编辑草稿')).toBeUndefined()
     expect(wrapper.findComponent(StandardFieldValueDomain).props('readonly')).toBe(true)
     expect(wrapper.find('input[aria-label="枚举编码"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('通过新建版本调整')
-    expect(wrapper.text()).toContain('已启用版本不可原地改')
-    expect(wrapper.text()).toContain('旧绑定不会自动切换')
-    await button(wrapper, '新建版本').trigger('click')
+    expect(button(wrapper, '新建版本')).toBeUndefined()
+    expect(button(wrapper, '审核启用')).toBeUndefined()
+    await button(wrapper, '编辑').trigger('click')
     await wrapper.find('input[aria-label="枚举名称"]').setValue('新组织定义')
     await button(wrapper, '保存草稿').trigger('click')
     await flushPromises()
@@ -578,7 +604,7 @@ describe('standard field enum value domain', () => {
   it('validates blank or duplicate codes and supports removing draft entries', async () => {
     const wrapper = standardDrawer()
     await flushPromises()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     await button(wrapper, '添加枚举值').trigger('click')
     await button(wrapper, '保存草稿').trigger('click')
     expect(mocks.put).not.toHaveBeenCalled()
@@ -600,7 +626,7 @@ describe('standard field enum value domain', () => {
     const wrapper = standardDrawer(version({ data_type: 'number', value_domain: null }))
     await flushPromises()
     expect(wrapper.findComponent(StandardFieldValueDomain).exists()).toBe(false)
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     expect(wrapper.findComponent(StandardFieldValueDomain).exists()).toBe(false)
     await button(wrapper, '保存草稿').trigger('click')
     await flushPromises()
@@ -608,7 +634,7 @@ describe('standard field enum value domain', () => {
     wrapper.unmount()
     const enumWrapper = standardDrawer()
     await flushPromises()
-    await button(enumWrapper, '编辑草稿').trigger('click')
+    await button(enumWrapper, '编辑').trigger('click')
     await enumWrapper.findAll('select')[0].setValue('string')
     await button(enumWrapper, '保存草稿').trigger('click')
     await flushPromises()
@@ -628,7 +654,7 @@ describe('standard field enum value domain', () => {
   it('retains draft input after 409 and never retries or closes automatically', async () => {
     const wrapper = standardDrawer()
     await flushPromises()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     await wrapper.find('input[aria-label="枚举名称"]').setValue('待保存')
     mocks.put.mockRejectedValueOnce({ response: { status: 409, data: { detail: { message: '版本冲突，请重新加载' } } } })
     await button(wrapper, '保存草稿').trigger('click')
@@ -643,7 +669,7 @@ describe('standard field enum value domain', () => {
   it('does not restore a closed or replaced field from late fetch/save responses', async () => {
     const wrapper = standardDrawer()
     await flushPromises()
-    await button(wrapper, '编辑草稿').trigger('click')
+    await button(wrapper, '编辑').trigger('click')
     const pendingSave = deferred<{ data: object }>()
     mocks.put.mockReturnValueOnce(pendingSave.promise)
     await button(wrapper, '保存草稿').trigger('click')

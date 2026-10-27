@@ -23,7 +23,7 @@ export function useReportViewer(reportId: () => number) {
   const runtimeFilters = ref<FilterCond[]>([])
   const columnLabels = ref<Record<string, string>>({})
   const datasetTables = ref<DatasetItem['tables']>([])
-  const authorizedExecution = computed(() => report.value?.execution_version === 'authorized_v1')
+  const authorizedExecution = computed(() => false)
   let generation = 0
   let runSequence = 0
   let exportSequence = 0
@@ -49,7 +49,6 @@ export function useReportViewer(reportId: () => number) {
       const result = await reportsApi.get(reportId())
       if (request !== generation) return
       report.value = result
-      if (result.execution_version === 'authorized_v1') return
       try {
         const [health, ds] = await Promise.all([datasetsApi.integrity(result.dataset_id), datasetsApi.get(result.dataset_id)])
         if (request !== generation) return
@@ -80,7 +79,7 @@ export function useReportViewer(reportId: () => number) {
     }
     loading.value = true
     try {
-      const result = await reportsApi.run(reportId(), page.value, pageSize.value, authorizedExecution.value ? [] : runtimeFilters.value)
+      const result = await reportsApi.run(reportId(), page.value, pageSize.value, runtimeFilters.value)
       if (current !== generation || request !== runSequence) return
       columns.value = result.columns; items.value = result.items; total.value = result.total
       runWarnings.value = result.warnings || []
@@ -102,7 +101,7 @@ export function useReportViewer(reportId: () => number) {
     if (!report.value || loading.value || loadingReport.value || runError.value || !user.hasOp('report.list', 'E')) return
     const current = generation
     const request = ++exportSequence
-    const filters = authorizedExecution.value ? [] : runtimeFilters.value
+    const filters = runtimeFilters.value
     const url = format === 'xlsx' ? reportsApi.exportXlsxUrl(reportId(), filters) : reportsApi.exportCsvUrl(reportId(), filters)
     try {
       const response = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })

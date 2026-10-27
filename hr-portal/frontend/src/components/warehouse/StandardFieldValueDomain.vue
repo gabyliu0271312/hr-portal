@@ -25,7 +25,7 @@ function remove(index: number) {
 <template>
   <section class="value-domain">
     <div class="value-domain__heading"><strong>枚举值域</strong><PermissionButton v-if="!locked" menu="warehouse.standard_fields.catalog" :op="op || 'U'" size="small" @click="add">添加枚举值</PermissionButton></div>
-    <p>仅维护人工定义的编码与名称，不读取业务数据或自动推断值。{{ readonly ? '已保存版本只读；已启用值域请通过新建版本调整。' : '保存草稿不会自动启用或转换业务值。' }}</p>
+    <p>仅维护人工定义的编码与名称，不读取业务数据或自动推断值。{{ readonly ? '当前仅展示已保存值域；维护请使用字段编辑入口。' : '保存草稿不会自动启用或转换业务值。' }}</p>
     <p v-if="legacy" role="status">此版本使用旧格式值域，仅只读保留原定义；请先完成格式迁移，当前不能添加或覆盖枚举项。</p>
     <div v-else style="overflow-x: auto">
       <el-table :data="items" stripe style="width: 100%" max-height="600" empty-text="尚未维护枚举值域">

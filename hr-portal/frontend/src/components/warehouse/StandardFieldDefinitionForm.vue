@@ -4,9 +4,9 @@ import type { StandardFieldDefinitionPayload } from '@/api/standardFields'
 import type { FieldCategory } from '@/api/field_categories'
 import StandardFieldValueDomain from './StandardFieldValueDomain.vue'
 
-const props = defineProps<{ modelValue: StandardFieldDefinitionPayload; mode: 'create' | 'version' | 'edit'; saving: boolean; categories: FieldCategory[] }>()
+const props = defineProps<{ modelValue: StandardFieldDefinitionPayload; mode: 'create' | 'version' | 'edit'; saving: boolean; categories: FieldCategory[]; governanceMode?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: StandardFieldDefinitionPayload]; submit: [] }>()
-const showGovernance = computed(() => props.mode !== 'create')
+const showGovernance = computed(() => props.governanceMode === true)
 function update(key: keyof StandardFieldDefinitionPayload, value: unknown) { emit('update:modelValue', { ...props.modelValue, [key]: value }) }
 const dataTypes = [{ value: 'string', label: '字符串' }, { value: 'number', label: '数值' }, { value: 'date', label: '日期' }, { value: 'datetime', label: '日期时间' }, { value: 'bool', label: '布尔' }, { value: 'enum', label: '枚举' }]
 const grains = [{ value: 'coarse', label: '粗粒度' }, { value: 'fine', label: '细粒度' }, { value: 'identifying', label: '个人标识' }]
@@ -23,7 +23,7 @@ const domains = [{ value: 'public', label: '通用' }, { value: 'org', label: '�
     <el-form-item v-if="showGovernance" label="识别粒度"><el-select :model-value="modelValue.grain_level" clearable placeholder="请选择" style="width: 100%" @update:model-value="update('grain_level', $event)"><el-option v-for="item in grains" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
     <el-form-item v-if="showGovernance" label="语义域" required><el-select :model-value="modelValue.permission_domain" style="width: 100%" @update:model-value="update('permission_domain', $event)"><el-option v-for="item in domains" :key="item.value" :label="item.label" :value="item.value" /></el-select></el-form-item>
     <el-form-item v-if="showGovernance" label="负责人用户 ID" required><el-input-number :model-value="modelValue.owner_user_id" :min="1" :precision="0" controls-position="right" @update:model-value="update('owner_user_id', $event)" /></el-form-item>
-    <el-form-item v-if="showGovernance" label="字段分类"><el-select :model-value="modelValue.category_ids" multiple clearable placeholder="可选已有分类" style="width: 100%" @update:model-value="update('category_ids', $event)"><el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" /></el-select></el-form-item>
+    <el-form-item label="敏感字段分类"><el-select :model-value="modelValue.category_ids" multiple clearable placeholder="可选已有敏感分类" style="width: 100%" @update:model-value="update('category_ids', $event)"><el-option v-for="category in categories" :key="category.id" :label="category.is_sensitive ? `${category.name}（敏感）` : category.name" :value="category.id" /></el-select></el-form-item>
     <el-form-item v-if="showGovernance" label="权限锚点候选"><el-switch :model-value="modelValue.is_permission_anchor" @update:model-value="update('is_permission_anchor', $event)" /></el-form-item>
   </el-form>
 </template>

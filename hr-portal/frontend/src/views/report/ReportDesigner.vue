@@ -272,11 +272,6 @@ async function loadReport() {
   try {
     const r = await reportsApi.get(id!)
     if (id !== reportId.value) return
-    if (r.execution_version === 'authorized_v1') {
-      ElMessage.info('该报表仅开放授权汇总运行与导出，设计器、AI解释和推送等渠道未开放')
-      await router.replace({ path: `/report/run/${r.id}`, query: { returnTo: reportListTarget.value } })
-      return
-    }
     executionBlocked.value = false
     copySourceId.value = r.can_edit ? null : r.id
     form.name = r.can_edit ? r.name : `${r.name} - 副本`
