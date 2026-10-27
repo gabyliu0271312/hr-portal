@@ -16,13 +16,14 @@ vi.mock('@/api/performance', async () => {
 
 import PerformanceProjectSettingsPage from './PerformanceProjectSettingsPage.vue'
 
-function page() {
+function page(realDialog = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
       teleport: true,
       PageHeader: { template: '<header><slot name="actions" /></header>' },
       PerformanceAudienceRuleEditor: { template: '<div data-testid="audience-editor" />' },
-      PerformanceProjectDialog: true,
+      PerformanceProjectDialog: !realDialog,
+      PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
       PerformanceProjectFlowSettings: true,
       PerformanceProjectTimeSettings: true,
     } },
@@ -35,7 +36,7 @@ function button(wrapper: ReturnType<typeof page>, label: string) {
 beforeEach(() => {
   Object.values(mocks).forEach(mock => mock.mockReset())
   mocks.get.mockResolvedValue({
-    id: 2, name: '新疆项目', description: '', administrators: [], template_id: null,
+    id: 2, name: '新疆项目', description: '', administrators: [], data_managers: ['HRBP'], template_id: null,
     start_at: null, end_at: null, evaluated_count: 0, status: 'DRAFT',
     flow_settings: { node_settings: {}, node_times: {} },
     evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }] }] },
@@ -101,6 +102,82 @@ describe('project audience visibility', () => {
     await flushPromises()
     expect(wrapper.find('#people-title').exists()).toBe(true)
     expect(wrapper.get('.selected-template').text()).toContain('全年度绩效评估')
+    wrapper.unmount()
+  })
+})
+
+describe('project data manager display and editor', () => {
+  it.each([
+    { selected: ['HRBP'], labels: ['HRBP'] },
+    { selected: ['PROJECT_ADMIN'], labels: ['项目管理员'] },
+    { selected: ['HRBP', 'PROJECT_ADMIN'], labels: ['HRBP', '项目管理员'] },
+    { selected: [], labels: [] },
+  ])('shows only saved role labels for $selected', async ({ selected, labels }) => {
+    const project = await mocks.get()
+    mocks.get.mockResolvedValue({ ...project, administrators: ['张三', '李四'], data_managers: selected })
+    const wrapper = page()
+    await flushPromises()
+    const tags = wrapper.get('.administrator-tags')
+    expect(tags.findAll('.performance-select-shell__tag').map(tag => tag.text())).toEqual(labels)
+    expect(tags.text()).not.toContain('张三')
+    expect(tags.find('input').exists()).toBe(false)
+    expect(tags.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reopens checked roles, saves changes, and refreshes labels from the project response', async () => {
+    const project = { ...await mocks.get(), administrators: ['张三'], data_managers: ['PROJECT_ADMIN'], scope_limited: true, scope_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }] }] } }
+    mocks.get.mockResolvedValue(project)
+    mocks.update.mockImplementationOnce(async (_id, payload) => {
+      mocks.get.mockResolvedValue({ ...project, ...payload })
+    })
+    const wrapper = page(true)
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    expect((wrapper.get('input[aria-label="项目管理员"]').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.get('input[aria-label="HRBP"]').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('input[aria-label="HRBP"]').setValue(true)
+    await wrapper.get('input[aria-label="项目管理员"]').setValue(false)
+    expect(wrapper.get('.administrator-tags').text()).toBe('项目管理员')
+    await button(wrapper, '确定').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({
+      administrators: ['张三'], data_managers: ['HRBP'], scope_limited: true, scope_rules: project.scope_rules,
+    }))
+    expect(wrapper.get('.administrator-tags').text()).toBe('HRBP')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    expect((wrapper.get('input[aria-label="项目管理员"]').element as HTMLInputElement).checked).toBe(false)
+    expect((wrapper.get('input[aria-label="HRBP"]').element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps saved tags and checkbox values when edits are cancelled', async () => {
+    const project = { ...await mocks.get(), data_managers: ['HRBP', 'PROJECT_ADMIN'] }
+    mocks.get.mockResolvedValue(project)
+    const wrapper = page(true)
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    await wrapper.get('input[aria-label="HRBP"]').setValue(false)
+    await button(wrapper, '取消').trigger('click')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.get('.administrator-tags').text()).toBe('HRBP项目管理员')
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    expect((wrapper.get('input[aria-label="HRBP"]').element as HTMLInputElement).checked).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('retains saved tags if updating the checked roles fails', async () => {
+    mocks.update.mockRejectedValueOnce(new Error('save failed'))
+    const wrapper = page(true)
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    await wrapper.get('input[aria-label="项目管理员"]').setValue(true)
+    await button(wrapper, '确定').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.administrator-tags').text()).toBe('HRBP')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    expect(wrapper.get('.page-notice').text()).toBe('基本信息保存失败')
     wrapper.unmount()
   })
 })

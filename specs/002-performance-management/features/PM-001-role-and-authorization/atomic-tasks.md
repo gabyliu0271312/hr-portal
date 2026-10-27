@@ -72,3 +72,26 @@ PM-001-T01 -> PM-001-T02
 PM-001-T01 -> PM-001-T03
 PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
 ```
+
+
+## PM-001-T08 项目数据管理身份与真实来源统一
+
+- [x] PM-001-T08：项目只选PROJECT_ADMIN/HRBP。用户确认项目管理员来自项目编辑administrators，HRBP来自所属周期HRBP权限管理PerformanceHrbpPermission，不增加自定义角色选项。
+  - Required reading：Spec002入口/权限基线/PM001规格矩阵、PM003项目规格交互、Spec012通用UI门禁、execution-contract/task-card-template/acceptance-evidence、projects_router/auth_context/seed/role_configuration及现有项目测试。
+  - Allowed：backend/app/performance/projects_router.py、backend/tests/test_performance_projects.py、PM001 spec/atomic-tasks。串行局部编辑，保留其他会话工作树；不新建脚本/报告/测试文档。
+  - Contracts：沿用data_managers枚举（缺失默认HRBP，空数组不授权）、administrators现有姓名名单、周期HRBP人员/组织路径/不可见人员、最新项目成员快照；performance.project_admin/performance.hrbp内置管理角色启用态及function_permission_keys决定功能权限。项目勾选、人员来源和角色功能权限取交集，双角色合法范围取并集。cycle.manage管理员全局权限维持原边界。
+  - Scope：进度performance.frontend.progress；成员列表/矩阵/周期统计performance.frontend.data-view；总览项目入口取上述已授权功能并集，仅有data-view时仍可发现项目但不返回进度。直连接口与列表统一。HRBP子部门按完整路径匹配，不可见人员在计数、分页、聚合前排除。次请求读取最新配置以兑现撤权。
+  - Non-scope：项目配置、结果发布、催办、评价任务、授权配置壳、自定义角色授予、其他评估执行人；不宣称所有角色均完成。不做迁移、生产、快照重写或姓名到员工号迁移。
+  - UI/API：无新页面/蓝图，既有响应契约与403/404拒绝语义；勾选回填沿用PM003-F01修复。后台读取角色数据库，不接受客户端身份声明。
+  - Tests：允许/拒绝与单选/双选/空、撤权、角色停用/关闭功能、跨周期/越范围、不可见与子部门、管理员例外；现有项目后端回归和前端页面回归。真实API/SQL未运行不得记通过。
+  - Stop：仅撤销本任务局部差异，不整包回滚。本卡限定后端数据读取闭环已完成，其他角色/动作不随本卡完成。
+
+  - 已实现：统一项目data_managers、项目维护名单、周期HRBP范围和内置角色功能权限判断，覆盖总览/进度、成员列表、矩阵/周期统计。双来源合法范围并集，静态PROJECT授权不能替代项目勾选与人员来源；计数/分页/聚合前过滤HRBP范围。
+  - 普通后端回归：backend目录 `.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py tests/test_performance_auth_context.py tests/test_performance_role_configuration.py tests/test_performance_subject_visibility.py -q --tb=short`，285通过4个显式数据库项跳过；既有python_multipart弃用提示。
+  - 独立真实SQL/API：backend目录 `DB_HOST=127.0.0.1 RUN_PERFORMANCE_DB_TEST=1 .venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -k project_data_managers_isolated -q --tb=short`，1通过。认证访问上下文用依赖覆盖，可信员工映射/角色/周期/项目/成员/权限查询真实执行PostgreSQL；PATCH项目勾选→SQL读回→GET成员分页/矩阵/统计/总览，4人项目管理员切HRBP为2人；角色关闭数据功能后403/404、停用后总览不可见、调整组织范围/删除HRBP记录后即时撤权。使用隔离schema、隔离序列和外层事务，回滚后确认schema不存在；无生产/公共业务数据写入。
+  - SQL环境限制：本地public仍缺既有template_ids/phase_id，首次验收在phase_id查询失败后回滚；后续仅在临时schema中补齐这两个既有模型列，再验收通过。未运行公共库迁移，不能据此宣称生产数据库已具备前置结构。
+  - 前端回归：`npm --prefix ../frontend run test -- src/views/performance/PerformanceProjectSettingsPage.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/ProjectPerformanceMatrix.spec.ts`，3文件27通过；PM003-F01先前构建通过，T08本身无前端业务样式新增。目标git diff --check通过。
+  - 验收状态：T08限定后端读取闭环完成，代码/单元/实际API-SQL及最终复核通过。未执行真实用户登录浏览器/生产验收，不代表所有绩效角色动作完成；本轮未提交推送或部署。PM003-F01视觉待验收标记不变。
+  - 其他角色已核查但未纳入：员工/实线上级/校准人在当前项目任务链有实际授权；自定义管理角色function_permission_keys到通用permission_codes转换及人员授予配置仍未闭环；虚线上级/360评估人/指标评价人当前项目启动任务生成链未完整覆盖。不以角色目录或基础授权服务存在视为业务已完成，后续按独立任务接入。
+
+  - 最终复核修复两项：周期管理员成员字段按真实actor解析，不冒充每行成员本人；仅data-view无progress仍可从总览发现项目，completion_nodes为空防止进度泄漏。独立SQL/API专项增加管理员入职日期可见、仅数据权限项目可发现/进度不返回的断言后再次1通过；普通后端整合285通过4跳过。无其他指定读取路径的已确认越权/人员范围泄漏。

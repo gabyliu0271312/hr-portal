@@ -332,7 +332,7 @@ def _pm_project(project_id, name, cycle_id, *, administrators=("张三",), statu
         name=name,
         administrators=list(administrators),
         status=status,
-        settings={},
+        settings={"data_managers": ["PROJECT_ADMIN", "HRBP"]},
     )
 
 
@@ -369,6 +369,8 @@ async def test_project_management_overview_filters_cycles_and_projects_by_involv
             # SQL 层已按 status=STARTED 过滤，这里忠实返回启动项目
             model = query.column_descriptions[0].get("entity")
             from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot
+            if model is projects_router.PerformanceRole:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [SimpleNamespace(code="performance.project_admin", function_permission_keys=["performance.frontend.progress"])]))
             if model in {PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot}:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             return SimpleNamespace(all=lambda: rows)
@@ -1983,7 +1985,7 @@ def _statistics_task(employee_no, value="five", *, task_id=101, node_id=31, snap
 @pytest.fixture
 def statistics_db(monkeypatch):
     from app.performance import projects_router
-    from app.performance.models import PerformanceProject, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask
+    from app.performance.models import PerformanceProject, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceRole, PerformanceHrbpPermission
 
     monkeypatch.setattr(settings, "APP_ENV", "prod")
     monkeypatch.setattr(settings, "PERFORMANCE_DEV_ADMIN_DEBUG", False)
@@ -1997,6 +1999,8 @@ def statistics_db(monkeypatch):
             self.nodes = [_statistics_node()]
             self.tasks = [_statistics_task("E001")]
             self.queries = []
+            self.roles = [SimpleNamespace(code=code, is_active=True, role_type="MANAGEMENT", function_permission_keys=["performance.frontend.progress", "performance.frontend.data-view"]) for code in ["performance.project_admin", "performance.hrbp"]]
+            self.hrbp_permissions = []
 
         async def scalar(self, statement):
             self.queries.append(statement)
@@ -2010,7 +2014,11 @@ def statistics_db(monkeypatch):
             self.queries.append(statement)
             params = statement.compile().params
             model = statement.column_descriptions[0]["entity"]
-            if model is PerformanceProject:
+            if model is PerformanceRole:
+                rows = [item for item in self.roles if item.is_active and item.code in params["code_1"] and item.role_type == params["role_type_1"]]
+            elif model is PerformanceHrbpPermission:
+                rows = [item for item in self.hrbp_permissions if item.cycle_ref == params["cycle_ref_1"] and item.hrbp_employee_no == params["hrbp_employee_no_1"]]
+            elif model is PerformanceProject:
                 rows = [item for item in self.projects if item.cycle_ref == params["cycle_ref_1"] and item.status == params["status_1"]]
             elif model is PerformanceProjectMember:
                 snapshot_id = params.get("snapshot_id_1", self.snapshots.get(params.get("project_id_1")))
@@ -2032,8 +2040,8 @@ def statistics_db(monkeypatch):
 
     db = Db()
 
-    async def actor(_db, _context):
-        return SimpleNamespace(actor_ref="MANAGER")
+    async def actor(_db, _context, **kwargs):
+        return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="MANAGER")
 
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
     return db
@@ -2074,13 +2082,14 @@ async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(stati
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("account", [context(), context("performance.projects.manage"), context("performance.projects.manage", refs=("project:other",))])
-async def test_level_statistics_visible_cycle_without_scope_is_forbidden(statistics_db, account):
+async def test_level_statistics_unselected_project_admin_is_not_visible(statistics_db, account):
     from fastapi import HTTPException
     from app.performance.projects_router import project_management_statistics
 
+    statistics_db.projects[0].settings["data_managers"] = ["HRBP"]
     with pytest.raises(HTTPException) as error:
         await project_management_statistics(1, "level", account, statistics_db)
-    assert error.value.status_code == 403
+    assert error.value.status_code == 404
     assert not any("performance_project_members" in str(query) for query in statistics_db.queries)
 
 
@@ -2093,13 +2102,8 @@ async def test_level_statistics_cycle_manager_keeps_overview_visibility(statisti
     statistics_db.projects[0].administrators = ["其他人"]
     monkeypatch.setattr(settings, "APP_ENV", "dev")
     monkeypatch.setattr(settings, "PERFORMANCE_DEV_ADMIN_DEBUG", preview)
-    if preview:
-        result = await project_management_statistics(1, "level", context("performance.cycles.manage"), statistics_db)
-        assert result.totalParticipants == 1
-    else:
-        with pytest.raises(HTTPException) as error:
-            await project_management_statistics(1, "level", context("performance.cycles.manage"), statistics_db)
-        assert (error.value.status_code, error.value.detail) == (404, "CYCLE_NOT_FOUND")
+    result = await project_management_statistics(1, "level", context("performance.cycles.manage"), statistics_db)
+    assert result.totalParticipants == 1
 
 
 @pytest.mark.asyncio
@@ -2116,7 +2120,7 @@ async def test_level_statistics_missing_or_invisible_cycle_is_not_found(statisti
 
 
 @pytest.mark.asyncio
-async def test_level_statistics_only_reads_visible_manageable_started_projects(statistics_db):
+async def test_level_statistics_only_reads_selected_source_started_projects(statistics_db):
     from app.performance.projects_router import project_management_statistics
 
     db = statistics_db
@@ -2126,6 +2130,7 @@ async def test_level_statistics_only_reads_visible_manageable_started_projects(s
         _pm_project(4, "草稿", 1, administrators=["管理员"], status="DRAFT"),
         _pm_project(5, "其他周期", 2, administrators=["管理员"]),
     ]
+    db.projects[1].settings["data_managers"] = ["HRBP"]
     for project_id in [2, 3, 4, 5]:
         db.snapshots[project_id] = 20 + project_id
         db.members.append(_statistics_member("E001", 20 + project_id))
@@ -2338,10 +2343,11 @@ async def test_matrix_refuses_unscoped_access(statistics_db):
     from fastapi import HTTPException
     from app.performance.projects_router import project_matrix
 
+    statistics_db.projects[0].administrators = ["其他人"]
     with pytest.raises(HTTPException) as error:
         await project_matrix(1, context(), statistics_db)
     assert error.value.status_code == 403
-    assert statistics_db.queries == []
+    assert not any("FROM performance_project_members" in str(query) for query in statistics_db.queries)
 
 
 def test_tenure_bucket_uses_completed_calendar_month_boundaries():
@@ -2407,7 +2413,10 @@ async def test_level_statistics_http_contract_and_dimension_validation(statistic
             assert response.status_code == 422
         app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
         response = await client.get(url, params={"cycle_id": 1})
-        assert response.status_code == 403
+        assert response.status_code == 200
+        statistics_db.projects[0].settings["data_managers"] = []
+        response = await client.get(url, params={"cycle_id": 1})
+        assert response.status_code == 404
         app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
         statistics_db.projects.append(_pm_project(2, "项目二", 1, administrators=["管理员"]))
         statistics_db.snapshots[2] = 22
@@ -3899,3 +3908,256 @@ async def test_cycle_templates_isolated_postgres_migration_api_round_trip():
             await transaction.rollback()
         assert (await connection.execute(text("SELECT 1 FROM pg_namespace WHERE nspname=:schema"), {"schema": schema})).first() is None
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected,expected", [(["PROJECT_ADMIN"], True), (["PROJECT_ADMIN", "HRBP"], True), (["HRBP"], False), ([], False)])
+async def test_project_data_manager_selection_uses_project_administrators(statistics_db, selected, expected):
+    from fastapi import HTTPException
+    from app.performance.projects_router import _project_data_scope
+
+    target = statistics_db.projects[0]
+    target.settings["data_managers"] = selected
+    if expected:
+        assert await _project_data_scope(context(), target, statistics_db, "performance.frontend.data-view") is None
+        target.administrators = []
+    with pytest.raises(HTTPException) as error:
+        await _project_data_scope(context("performance.projects.manage", refs=(target.project_ref,)), target, statistics_db, "performance.frontend.data-view")
+    assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["inactive", "function", "custom"])
+async def test_project_data_manager_role_config_is_enforced_per_request(statistics_db, change):
+    from fastapi import HTTPException
+    from app.performance.projects_router import _project_data_scope
+
+    target = statistics_db.projects[0]
+    assert await _project_data_scope(context(), target, statistics_db, "performance.frontend.data-view") is None
+    if change == "inactive":
+        statistics_db.roles[0].is_active = False
+    elif change == "function":
+        statistics_db.roles[0].function_permission_keys = ["performance.frontend.progress"]
+        assert await _project_data_scope(context(), target, statistics_db, "performance.frontend.progress") is None
+    else:
+        statistics_db.roles[0].code = "custom.same-name"
+    with pytest.raises(HTTPException) as error:
+        await _project_data_scope(context(), target, statistics_db, "performance.frontend.data-view")
+    assert error.value.status_code == 403
+
+
+def _configure_data_manager_hrbp(db):
+    db.projects[0].administrators = []
+    db.projects[0].settings["data_managers"] = ["HRBP"]
+    db.hrbp_permissions = [SimpleNamespace(cycle_ref="cycle:1", hrbp_employee_no="MANAGER", scope=["集团/研发"], invisible_people=["HIDDEN"])]
+    db.members = [_statistics_member(no) for no in ["VISIBLE", "CHILD", "HIDDEN", "SIBLING", "PARENT"]]
+    for member, org in zip(db.members, ["集团/研发", "集团/研发/平台", "集团/研发", "集团/研发二部", "集团"]):
+        member.organization_ref = org
+    db.tasks = [_statistics_task(member.employee_no, task_id=100+i) for i, member in enumerate(db.members)]
+
+
+@pytest.mark.asyncio
+async def test_project_data_manager_hrbp_uses_cycle_scope_and_hidden_people(statistics_db):
+    from fastapi import HTTPException
+    from app.performance.projects_router import _project_data_scope
+
+    db = statistics_db
+    _configure_data_manager_hrbp(db)
+    target = db.projects[0]
+    target.settings.pop("data_managers")
+    db.members.append(SimpleNamespace(employee_no="OLD", snapshot_id=20, organization_ref="集团/研发"))
+    assert await _project_data_scope(context(), target, db, "performance.frontend.data-view") == {"VISIBLE", "CHILD"}
+    target.settings["data_managers"] = ["PROJECT_ADMIN"]
+    with pytest.raises(HTTPException):
+        await _project_data_scope(context(), target, db, "performance.frontend.data-view")
+    target.settings["data_managers"] = ["HRBP"]
+    db.hrbp_permissions[0].cycle_ref = "cycle:other"
+    with pytest.raises(HTTPException):
+        await _project_data_scope(context(), target, db, "performance.frontend.data-view")
+    db.hrbp_permissions[0].cycle_ref = "cycle:1"
+    db.hrbp_permissions[0].invisible_people += ["VISIBLE", "CHILD"]
+    with pytest.raises(HTTPException):
+        await _project_data_scope(context(), target, db, "performance.frontend.data-view")
+
+
+@pytest.mark.asyncio
+async def test_project_data_manager_hrbp_does_not_accept_unmapped_portal_id(statistics_db, monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+
+    _configure_data_manager_hrbp(statistics_db)
+    async def actor(*args, **kwargs):
+        return SimpleNamespace(actor_type="PORTAL_USER", actor_ref="MANAGER")
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    with pytest.raises(HTTPException):
+        await projects_router._project_data_scope(context(), statistics_db.projects[0], statistics_db, "performance.frontend.data-view")
+
+
+@pytest.mark.asyncio
+async def test_project_data_manager_dual_identity_combines_eligible_sources(statistics_db):
+    from app.performance.projects_router import _project_data_scope
+
+    _configure_data_manager_hrbp(statistics_db)
+    target = statistics_db.projects[0]
+    target.settings["data_managers"] = ["HRBP", "PROJECT_ADMIN"]
+    target.administrators = ["管理员"]
+    assert await _project_data_scope(context(), target, statistics_db, "performance.frontend.data-view") is None
+    statistics_db.roles[0].is_active = False
+    assert await _project_data_scope(context(), target, statistics_db, "performance.frontend.data-view") == {"VISIBLE", "CHILD"}
+
+
+@pytest.mark.asyncio
+async def test_project_data_manager_hrbp_statistics_and_matrix_share_visible_counts(statistics_db):
+    from app.performance.projects_router import project_management_statistics, project_matrix
+
+    _configure_data_manager_hrbp(statistics_db)
+    report = await project_management_statistics(1, "level", context(), statistics_db)
+    matrix = await project_matrix(1, context(), statistics_db)
+    assert report.totalParticipants == matrix.total == 2
+    assert report.distribution == {"one": 0, "five": 2}
+    names = [person.employee_no for row in matrix.completed_rows for cell in row.cells.values() for person in cell.people]
+    assert set(names) == {"VISIBLE", "CHILD"}
+
+
+@pytest.mark.asyncio
+async def test_project_data_manager_scope_filters_progress_before_counting(monkeypatch):
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceResultOpening
+
+    node = SimpleNamespace(id=31, node_id="review", node_type="evaluation", config={"template": {"executor_types": ["SUBJECT"]}})
+    values = {
+        PerformanceProjectMember: [SimpleNamespace(employee_no=no) for no in ["VISIBLE", "HIDDEN"]],
+        PerformanceProjectNodeSnapshot: [node],
+        PerformanceNodeTask: [SimpleNamespace(node_snapshot_id=31, target_employee_no="VISIBLE", status="pending", submitted_at=None), SimpleNamespace(node_snapshot_id=31, target_employee_no="HIDDEN", status="completed", submitted_at=True)],
+        PerformanceResultOpening: [],
+    }
+    class Db:
+        async def scalar(self, query):
+            return 21
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    result = await projects_router._project_completion_nodes([_pm_project(1, "项目", 1)], Db(), scopes={1: {"VISIBLE"}})
+    review = next(item for item in result if item["key"] == "self-review")
+    assert (review["total_count"], review["completed_count"], review["completion_rate"]) == (1, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_project_data_managers_isolated_postgres_api_scope_and_revocation(monkeypatch):
+    import os
+    if os.getenv("RUN_PERFORMANCE_DB_TEST") != "1":
+        pytest.skip("需显式启用本地隔离数据库验收")
+    from datetime import UTC, datetime
+    from uuid import uuid4
+    import httpx
+    from fastapi import FastAPI
+    from sqlalchemy import text, select
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.pool import NullPool
+    from app.performance import projects_router
+    from app.performance.models import PerformanceRole, PerformanceProject, PerformanceCycle, PerformanceHrbpPermission, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceProjectMemberSnapshot, PerformanceProjectMember
+
+    assert make_url(settings.db_url_async).host in {"localhost", "127.0.0.1"}
+    monkeypatch.setattr(settings, "APP_ENV", "prod")
+    monkeypatch.setattr(settings, "PERFORMANCE_DEV_ADMIN_DEBUG", False)
+    schema = f"pm_data_managers_{uuid4().hex}"
+    engine = create_async_engine(settings.db_url_async, poolclass=NullPool)
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+                tables = (await connection.execute(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'performance_%'"))).scalars().all()
+                for table in tables:
+                    await connection.execute(text(f'CREATE TABLE "{schema}"."{table}" (LIKE public."{table}" INCLUDING ALL)'))
+                serial_columns = (await connection.execute(text("SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=:schema AND column_default LIKE 'nextval(%'"), {"schema": schema})).all()
+                for index, (table, column) in enumerate(serial_columns):
+                    sequence = f'"{schema}"."fixture_seq_{index}"'
+                    await connection.execute(text(f'CREATE SEQUENCE {sequence}'))
+                    await connection.execute(text(f"ALTER TABLE \"{schema}\".\"{table}\" ALTER COLUMN \"{column}\" SET DEFAULT nextval('{sequence}')"))
+                await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+                await connection.execute(text("ALTER TABLE performance_cycles ADD COLUMN IF NOT EXISTS template_ids JSONB NOT NULL DEFAULT '[]'"))
+                await connection.execute(text("ALTER TABLE performance_node_tasks ADD COLUMN IF NOT EXISTS phase_id VARCHAR(96) NOT NULL DEFAULT ''"))
+                session = AsyncSession(bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False)
+                try:
+                    session.add(PerformanceCycle(id=901, cycle_ref="cycle:data", name="权限隔离验收", period_year=2026, period_type="CUSTOM", start_at=datetime(2026,1,1,tzinfo=UTC), end_at=datetime(2026,12,31,tzinfo=UTC), lock_rule="IMMEDIATE", created_by_type="PORTAL_USER", created_by_ref="1"))
+                    session.add(PerformanceAuthorizationSnapshot(id=902, cycle_ref="cycle:data", status="LOCKED"))
+                    session.add(PerformanceAuthorizationSnapshotPerson(id=903, snapshot_id=902, employee_no="HRBP1", portal_user_id=1, display_name="HRBP本人"))
+                    for i, code in enumerate(["performance.project_admin", "performance.hrbp"]):
+                        session.add(PerformanceRole(id=910+i, code=code, name="项目管理员" if i == 0 else "HRBP", role_type="MANAGEMENT", is_active=True, is_system=True, function_permission_keys=["performance.frontend.progress", "performance.frontend.data-view"]))
+                    session.add(PerformanceProject(id=920, project_ref="project:data", cycle_ref="cycle:data", name="权限测试项目", status="STARTED", administrators=["管理员"], settings={"data_managers": ["PROJECT_ADMIN", "HRBP"]}))
+                    session.add(PerformanceProjectMemberSnapshot(id=930, project_id=920, cycle_ref="cycle:data", snapshot_version=1, source_snapshot_id=902))
+                    session.add(PerformanceProjectMember(id=940, snapshot_id=930, employee_no="OLD", display_name="旧快照", organization_ref="集团/研发"))
+                    session.add(PerformanceProjectMemberSnapshot(id=931, project_id=920, cycle_ref="cycle:data", snapshot_version=2, source_snapshot_id=902))
+                    for i, (no, org) in enumerate([("VISIBLE", "集团/研发"), ("CHILD", "集团/研发/平台"), ("HIDDEN", "集团/研发"), ("OUTSIDE", "集团/研发二部")]):
+                        session.add(PerformanceProjectMember(id=950+i, snapshot_id=931, employee_no=no, display_name=no, organization_ref=org, position_level="J6", hire_date=datetime(2020,1,1).date()))
+                    session.add(PerformanceHrbpPermission(id=960, cycle_ref="cycle:data", hrbp_employee_no="HRBP1", scope=["集团/研发"], invisible_people=["HIDDEN"]))
+                    await session.commit()
+                    app = FastAPI()
+                    app.include_router(projects_router.router, prefix="/api/v1")
+                    app.dependency_overrides[projects_router.get_session] = lambda: session
+                    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+                    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                        members_url = "/api/v1/performance/projects/920/members"
+                        matrix_url = "/api/v1/performance/projects/920/matrix"
+                        report_url = "/api/v1/performance/project-management/statistics?cycle_id=901"
+                        overview_url = "/api/v1/performance/project-management/overview"
+                        response = await client.get(members_url)
+                        assert response.status_code == 200, response.text
+                        assert response.json()["total"] == 4
+                        app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+                        response = await client.get(members_url)
+                        assert "direct_supervisor" in response.json()["items"][0]["visible_profile_fields"]
+                        assert response.json()["items"][0]["hire_date"] == "2020-01-01"
+                        app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+                        assert (await client.get(matrix_url)).json()["total"] == 4
+                        assert (await client.get(report_url)).json()["totalParticipants"] == 4
+                        app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+                        response = await client.patch("/api/v1/performance/projects/920", json={"name": "权限测试项目", "data_managers": ["HRBP"]})
+                        assert response.status_code == 200, response.text
+                        session.expunge_all()
+                        assert (await session.scalar(select(PerformanceProject.settings).where(PerformanceProject.id == 920)))["data_managers"] == ["HRBP"]
+                        app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+                        response = await client.get(members_url + "?page_size=1")
+                        assert response.status_code == 200, response.text
+                        assert response.json()["total"] == 2
+                        assert len(response.json()["items"]) == 1
+                        assert (await client.get(matrix_url)).json()["total"] == 2
+                        assert (await client.get(report_url)).json()["totalParticipants"] == 2
+                        assert (await client.get(overview_url)).json()["projects"][0]["project_id"] == 920
+                        role = await session.get(PerformanceRole, 911)
+                        role.function_permission_keys = ["performance.frontend.progress"]
+                        await session.commit()
+                        assert (await client.get(members_url)).status_code == 403
+                        assert (await client.get(matrix_url)).status_code == 403
+                        assert (await client.get(report_url)).status_code == 404
+                        assert (await client.get(overview_url)).json()["projects"]
+                        role.function_permission_keys = ["performance.frontend.data-view"]
+                        await session.commit()
+                        overview = (await client.get(overview_url)).json()
+                        assert overview["projects"][0]["project_id"] == 920
+                        assert overview["completion_nodes"] == []
+                        assert (await client.get(members_url)).json()["total"] == 2
+                        role.is_active = False
+                        await session.commit()
+                        assert (await client.get(overview_url)).json()["projects"] == []
+                        role.is_active = True
+                        role.function_permission_keys = ["performance.frontend.progress", "performance.frontend.data-view"]
+                        permission = await session.get(PerformanceHrbpPermission, 960)
+                        permission.scope = ["其他部门"]
+                        await session.commit()
+                        assert (await client.get(members_url)).status_code == 403
+                        assert (await client.get(overview_url)).json()["projects"] == []
+                        permission.scope = ["集团/研发"]
+                        await session.commit()
+                        assert (await client.get(members_url)).json()["total"] == 2
+                        await session.delete(permission)
+                        await session.commit()
+                        assert (await client.get(members_url)).status_code == 403
+                finally:
+                    await session.close()
+            finally:
+                await transaction.rollback()
+            assert (await connection.execute(text("SELECT 1 FROM pg_namespace WHERE nspname=:schema"), {"schema": schema})).first() is None
+    finally:
+        await engine.dispose()

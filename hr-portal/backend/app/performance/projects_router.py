@@ -767,17 +767,14 @@ async def project_matrix(
     db: AsyncSession = Depends(get_session),
 ):
     project = await _get_project(db, project_id)
-    if not _can_manage_project(context, project):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看当前项目矩阵")
+    scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
 
     snapshot_id = _latest_member_snapshot_statement(project_id)
     members = list((await db.execute(
         select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
     )).scalars().all())
-    if not _is_admin_preview(context):
-        actor = await resolve_trusted_performance_actor(db, context)
-        hidden_people = await _person_hrbp_invisible_people(db, actor.actor_ref, project.cycle_ref)
-        members = [member for member in members if member.employee_no not in hidden_people]
+    if scope is not None:
+        members = [member for member in members if member.employee_no in scope]
     levels = {
         member.employee_no: _matrix_level(member.position_level)
         for member in members
@@ -1148,21 +1145,16 @@ async def list_project_members(
     db: AsyncSession = Depends(get_session),
 ):
     project = await _get_project(db, project_id)
-    if not _can_manage_project(context, project):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看当前项目成员")
+    scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
 
     snapshot_id = _latest_member_snapshot_statement(project_id)
     statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
     count_statement = select(func.count(PerformanceProjectMember.id)).where(PerformanceProjectMember.snapshot_id == snapshot_id)
-    hidden_people = set()
     actor_ref = None
-    if not _is_admin_preview(context):
-        actor = await resolve_trusted_performance_actor(db, context)
-        actor_ref = str(actor.actor_ref)
-        hidden_people = await _person_hrbp_invisible_people(db, actor.actor_ref, project.cycle_ref)
-    if hidden_people:
-        statement = statement.where(PerformanceProjectMember.employee_no.not_in(hidden_people))
-        count_statement = count_statement.where(PerformanceProjectMember.employee_no.not_in(hidden_people))
+    if scope is not None:
+        statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+    actor_ref = str(actor.actor_ref)
     if isinstance(keyword, str) and keyword.strip():
         pattern = f"%{keyword.strip()}%"
         condition = or_(
@@ -1178,14 +1170,12 @@ async def list_project_members(
     visibility_rules = await load_subject_visibility_rules(db)
     visible_fields_by_member: dict[int, list[str]] = {}
     for member in members:
-        role = await resolve_subject_visibility_role(
-            db,
-            context,
-            actor_ref or str(member.employee_no),
-            member,
-            SimpleNamespace(node_type="", config={}),
-            project,
-        )
+        role = "hrbp" if scope is not None else "activity_manager"
+        if _is_cycle_manager(context):
+            role = await resolve_subject_visibility_role(
+                db, context, actor_ref, member,
+                SimpleNamespace(node_type="", config={}), project,
+            )
         visible_fields_by_member[member.id] = visibility_rules[role]
 
     items = []
@@ -1237,6 +1227,37 @@ def _can_manage_project(context: PerformanceAccessContext, project: PerformanceP
         "performance.projects.manage" in context.permission_codes
         and project.project_ref in _project_scope_refs(context)
     )
+
+
+async def _project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
+    if _is_cycle_manager(context):
+        return None
+    selected = (project.settings or {}).get("data_managers", ["HRBP"])
+    roles = list((await db.execute(select(PerformanceRole).where(
+        PerformanceRole.code.in_(("performance.project_admin", "performance.hrbp")),
+        PerformanceRole.role_type == "MANAGEMENT",
+        PerformanceRole.is_active.is_(True),
+    ))).scalars().all())
+    enabled = {role.code for role in roles if function_key in (role.function_permission_keys or [])}
+    if "PROJECT_ADMIN" in selected and "performance.project_admin" in enabled and _person_in_project_administrators(project, context.display_name):
+        return None
+    if "HRBP" in selected and "performance.hrbp" in enabled:
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        if actor.actor_type == "EMPLOYEE":
+            permissions = await _person_hrbp_permissions(db, actor.actor_ref, project.cycle_ref)
+            if permissions:
+                snapshot_id = _latest_member_snapshot_statement(project.id)
+                members = (await db.execute(select(PerformanceProjectMember).where(
+                    PerformanceProjectMember.snapshot_id == snapshot_id,
+                ))).scalars().all()
+                visible = {member.employee_no for member in members if any(
+                    _organization_in_scope(member.organization_ref, permission.scope or [])
+                    and member.employee_no not in (permission.invisible_people or [])
+                    for permission in permissions
+                )}
+                if visible:
+                    return visible
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="PROJECT_DATA_FORBIDDEN")
 
 
 async def _template_node_names(db: AsyncSession, project: PerformanceProject) -> dict[str, str]:
@@ -1539,7 +1560,7 @@ def _completion_node_status(starts: list[datetime], deadlines: list[datetime], c
     return "active"
 
 
-async def _project_completion_nodes(projects: list[PerformanceProject], db: AsyncSession, now: datetime | None = None) -> list[dict]:
+async def _project_completion_nodes(projects: list[PerformanceProject], db: AsyncSession, now: datetime | None = None, scopes: dict[int, set[str] | None] | None = None) -> list[dict]:
     current = now or datetime.now(UTC)
     states = {
         key: {"configured": 0, "starts": [], "deadlines": [], "completed": 0, "total": 0}
@@ -1562,6 +1583,11 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         opened_people = set((await db.execute(select(PerformanceResultOpening.employee_no).where(
             PerformanceResultOpening.project_id == project.id,
         ))).scalars().all())
+        scope = scopes.get(project.id) if scopes is not None else None
+        if scope is not None:
+            members = [member for member in members if member.employee_no in scope]
+            tasks = [task for task in tasks if task.target_employee_no in scope]
+            opened_people.intersection_update(scope)
         tasks_by_node: dict[int, list[PerformanceNodeTask]] = {}
         for task in tasks:
             tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
@@ -1681,21 +1707,32 @@ async def project_management_overview(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    actor = await resolve_trusted_performance_actor(db, context)
-    is_admin_preview = _is_admin_preview(context)
-    display_name = context.display_name
-    hrbp_refs = await _person_hrbp_project_refs(db, str(actor.actor_ref))
-
-    def involved(project: PerformanceProject) -> bool:
-        return _person_in_project_administrators(project, display_name) or project.project_ref in hrbp_refs
-
+    hrbp_refs = set()
+    scopes = {}
     project_statement = (
         select(PerformanceProject, PerformanceCycle)
         .join(PerformanceCycle, PerformanceCycle.cycle_ref == PerformanceProject.cycle_ref)
         .where(PerformanceProject.status == PROJECT_STATUS_STARTED)
     )
     project_rows = (await db.execute(project_statement.order_by(PerformanceCycle.start_at.desc(), PerformanceProject.id))).all()
-    visible_rows = project_rows if is_admin_preview else [row for row in project_rows if involved(row[0])]
+    visible_rows = []
+    for project, cycle in project_rows:
+        try:
+            scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_403_FORBIDDEN:
+                raise
+            try:
+                scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as data_exc:
+                if data_exc.status_code != status.HTTP_403_FORBIDDEN:
+                    raise
+                continue
+        else:
+            scopes[project.id] = scope
+        if scope is not None:
+            hrbp_refs.add(project.project_ref)
+        visible_rows.append((project, cycle))
 
     cycles: dict[int, dict] = {}
     projects_by_cycle: dict[int, list[dict]] = {}
@@ -1729,9 +1766,9 @@ async def project_management_overview(
 
     active_projects = [
         project for project, cycle in visible_rows
-        if active_cycle is not None and cycle.id == active_cycle["cycle_id"]
+        if active_cycle is not None and cycle.id == active_cycle["cycle_id"] and project.id in scopes
     ]
-    completion_nodes = await _project_completion_nodes(active_projects, db) if active_projects else []
+    completion_nodes = await _project_completion_nodes(active_projects, db, scopes=scopes) if active_projects else []
     return {
         "cycles": list(cycles.values()),
         "active_cycle": active_cycle,
@@ -1749,7 +1786,6 @@ async def project_management_statistics(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    actor = await resolve_trusted_performance_actor(db, context)
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
@@ -1758,14 +1794,19 @@ async def project_management_statistics(
         PerformanceProject.status == PROJECT_STATUS_STARTED,
     ).order_by(PerformanceProject.id))).scalars().all())
     empty_cycle_allowed = not projects and _is_cycle_manager(context)
-    if not _is_admin_preview(context):
-        hrbp_refs = await _person_hrbp_project_refs(db, str(actor.actor_ref))
-        projects = [project for project in projects if _person_in_project_administrators(project, context.display_name) or project.project_ref in hrbp_refs]
+    scopes = {}
+    visible_projects = []
+    for project in projects:
+        try:
+            scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_403_FORBIDDEN:
+                raise
+            continue
+        visible_projects.append(project)
+    projects = visible_projects
     if not projects and not empty_cycle_allowed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
-    projects = [project for project in projects if _can_manage_project(context, project)]
-    if not projects and not empty_cycle_allowed:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权查看当前周期统计")
 
     rows: dict[str, dict[str, int]] = {}
     if dimension == "tenure":
@@ -1780,9 +1821,9 @@ async def project_management_statistics(
         members = list((await db.execute(select(PerformanceProjectMember).where(
             PerformanceProjectMember.snapshot_id == snapshot_id,
         ))).scalars().all())
-        if not _is_admin_preview(context):
-            hidden_people = await _person_hrbp_invisible_people(db, str(actor.actor_ref), project.cycle_ref)
-            members = [member for member in members if member.employee_no not in hidden_people]
+        scope = scopes[project.id]
+        if scope is not None:
+            members = [member for member in members if member.employee_no in scope]
         project_employee_nos = {member.employee_no for member in members}
         if employee_nos.intersection(project_employee_nos):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_MEMBER_OVERLAP_UNRESOLVED")
