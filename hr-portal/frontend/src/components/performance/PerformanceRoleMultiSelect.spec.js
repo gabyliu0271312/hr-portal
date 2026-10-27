@@ -1,39 +1,33 @@
-import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
-import PerformanceRoleMultiSelect from './PerformanceRoleMultiSelect.vue';
-describe('PerformanceRoleMultiSelect', () => {
-    it('opens on click and toggles node-role values', async () => {
-        const wrapper = mount(PerformanceRoleMultiSelect, {
-            attachTo: document.body,
-            props: { modelValue: [], options: ['实线上级', '虚线上级'] },
-        });
-        await wrapper.get('.role-select-trigger').trigger('click');
-        const option = document.body.querySelectorAll('.role-select-option')[1];
-        option.click();
-        expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([['虚线上级']]);
-        wrapper.unmount();
+import { mount } from "@vue/test-utils";
+import { describe, expect, it } from "vitest";
+import PerformanceRoleMultiSelect from "./PerformanceRoleMultiSelect.vue";
+describe("PerformanceRoleMultiSelect", () => {
+  it("opens on click and toggles node-role values", async () => {
+    const wrapper = mount(PerformanceRoleMultiSelect, {
+      attachTo: document.body,
+      props: { modelValue: [], options: ["\u5B9E\u7EBF\u4E0A\u7EA7", "\u865A\u7EBF\u4E0A\u7EA7"] }
     });
-    it('renders selected values as removable tags', async () => {
-        const wrapper = mount(PerformanceRoleMultiSelect, {
-            props: { modelValue: ['实线上级'], options: ['实线上级'] },
-        });
-        expect(wrapper.get('.role-select-tag').text()).toContain('实线上级');
-        await wrapper.get('.role-select-tag-close').trigger('click');
-        expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([[]]);
+    await wrapper.get(".performance-select-shell__selector").trigger("click");
+    const option = document.body.querySelectorAll(".performance-flat-option-list__option")[1];
+    option.click();
+    expect(wrapper.emitted("update:modelValue")?.[0]).toEqual([["\u865A\u7EBF\u4E0A\u7EA7"]]);
+    wrapper.unmount();
+  });
+  it("renders selected values as removable tags", async () => {
+    const wrapper = mount(PerformanceRoleMultiSelect, {
+      props: { modelValue: ["\u5B9E\u7EBF\u4E0A\u7EA7"], options: ["\u5B9E\u7EBF\u4E0A\u7EA7"] }
     });
-    it('keeps the trigger interactive without rendering an empty popup when no roles are available', async () => {
-        const wrapper = mount(PerformanceRoleMultiSelect, {
-            attachTo: document.body,
-            props: { modelValue: [], options: [] },
-        });
-        await wrapper.get('.role-select-trigger').trigger('click');
-        expect(wrapper.classes()).toContain('open');
-        expect(wrapper.classes()).not.toContain('has-options');
-        expect(wrapper.get('.role-select-trigger').attributes('disabled')).toBeUndefined();
-        expect(wrapper.get('.role-select-trigger').attributes('aria-expanded')).toBeUndefined();
-        expect(document.body.querySelector('.role-select-dropdown')).toBeNull();
-        expect(document.body.querySelectorAll('.role-select-option')).toHaveLength(0);
-        expect(wrapper.emitted('update:modelValue')).toBeUndefined();
-        wrapper.unmount();
-    });
+    expect(wrapper.get(".performance-select-shell__content .performance-select-shell__tag").text()).toContain("\u5B9E\u7EBF\u4E0A\u7EA7");
+    await wrapper.get(".performance-select-shell__content .performance-select-shell__tag-close").trigger("click");
+    expect(wrapper.emitted("update:modelValue")?.[0]).toEqual([[]]);
+  });
+  it("uses the shared empty state without fabricating candidate roles", async () => {
+    const wrapper = mount(PerformanceRoleMultiSelect, { props: { modelValue: [], options: [] }, global: { stubs: { Teleport: true } } });
+    await wrapper.get(".performance-select-shell__selector").trigger("click");
+    expect(wrapper.get('[role="combobox"]').attributes("aria-expanded")).toBe("true");
+    expect(wrapper.findAll('[role="option"]')).toHaveLength(0);
+    expect(wrapper.get(".performance-flat-option-list__empty").text()).toBe("\u6682\u65E0\u53EF\u9009\u9879");
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+    wrapper.unmount();
+  });
 });

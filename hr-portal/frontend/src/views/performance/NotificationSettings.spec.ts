@@ -271,12 +271,12 @@ describe('NotificationSettings', () => {
     await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
     expect(api.update).not.toHaveBeenCalled()
     const dialog = wrapper.getComponent({ name: 'PerformanceTodoNotificationDialog' })
-    const rule = { ...defaultTodoNotificationRule(), frequency: 'weekly' as const, interval: 2, weekdays: [1, 5], time: '09:30' }
+    const rule = { ...defaultTodoNotificationRule(), frequency: 'weekly' as const, interval: 2, weekdays: [5, 1], time: '09:30' }
     dialog.vm.$emit('confirm', rule)
     await flushPromises()
     expect(api.update).toHaveBeenCalledWith({ todo_task_rule: rule })
     expect(wrapper.find('[aria-labelledby="todo-notification-title"]').exists()).toBe(false)
-    expect(wrapper.findAll('.notification-rule-summary')[0].text()).toContain('星期一、星期五')
+    expect(wrapper.findAll('.notification-rule-summary')[0].text()).toContain('周五、周一')
     wrapper.unmount()
     const reopened = mount(NotificationSettings, { global: { stubs } })
     await flushPromises()
@@ -353,7 +353,7 @@ describe('NotificationSettings', () => {
     await flushPromises()
     expect(api.update).toHaveBeenCalledWith({ progress_daily_rule: rule })
     expect(persisted.todo_task_rule).toEqual(defaultTodoNotificationRule())
-    expect(wrapper.findAll('.notification-rule-summary')[1].text()).toContain('星期一、星期五')
+    expect(wrapper.findAll('.notification-rule-summary')[1].text()).toContain('周一、周五')
     await wrapper.get('button[aria-label="编辑待办任务通知"]').trigger('click')
     expect(dialog.props('title')).toBe('编辑待办任务通知')
     expect(dialog.props('rule')).toEqual(defaultTodoNotificationRule())

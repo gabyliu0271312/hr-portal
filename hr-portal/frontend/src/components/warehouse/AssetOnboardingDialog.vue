@@ -69,8 +69,8 @@ const currentType = computed(() => types.value.find(item => item.code === source
 const fieldItems = computed<any[]>(() => currentType.value?.groups?.flatMap((group: any) => group.fields || []) || [])
 const typeGroups = computed<any[]>(() => (currentType.value?.groups || []).filter((group: any) => (group.fields || []).length))
 const previewAvailable = computed(() => currentType.value?.supports_discovery === true)
-const activeFields = computed(() => standardFields.value.filter(item => item.current_active_version_id))
-const inactiveFields = computed(() => standardFields.value.filter(item => !item.current_active_version_id))
+const activeFields = computed(() => standardFields.value.filter(item => item.is_active))
+const inactiveFields = computed(() => standardFields.value.filter(item => !item.is_active))
 const selectedBusinessKeys = computed(() => matchFields.value
   .filter(field => businessKeys[field.code])
   .map(field => field.code))
@@ -436,13 +436,12 @@ async function bindFields(columns: Array<{ id: number; column_code: string }>) {
     const fieldId = fieldChoice[field.code]
     if (!fieldId) continue
     const summary = standardFields.value.find(item => item.id === fieldId)
-    const versionId = summary?.current_active_version_id
+    const fieldActive = summary?.is_active
     const column = byCode.get(field.code)
-    if (!versionId || !column) continue
+    if (!fieldActive || !column) continue
     const binding = await standardFieldsApi.createBinding(fieldId, {
       target_kind: 'table_column',
       target_id: column.id,
-      standard_field_version_id: versionId,
     })
     await standardFieldsApi.confirmBinding(fieldId, binding.id, {
       expected_revision: binding.revision,
@@ -457,7 +456,6 @@ async function bindFields(columns: Array<{ id: number; column_code: string }>) {
         const outputBinding = await standardFieldsApi.createBinding(fieldId, {
           target_kind: 'dataset_output_field',
           target_id: output.target_id,
-          standard_field_version_id: versionId,
           dataset_id: output.dataset_id || undefined,
         })
         await standardFieldsApi.confirmBinding(fieldId, outputBinding.id, {
@@ -729,7 +727,7 @@ defineExpose({ open })
                     <el-option
                       v-for="field in activeFields"
                       :key="field.id"
-                      :label="`${field.field_code} · ${field.latest_version.field_name}`"
+                      :label="`${field.field_code} · ${field.field_name}`"
                       :value="field.id"
                     />
                   </el-option-group>
@@ -737,7 +735,7 @@ defineExpose({ open })
                     <el-option
                       v-for="field in inactiveFields"
                       :key="field.id"
-                      :label="`${field.field_code} · ${field.latest_version.field_name}`"
+                      :label="`${field.field_code} · ${field.field_name}`"
                       :value="field.id"
                       disabled
                     />

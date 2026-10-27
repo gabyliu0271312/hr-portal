@@ -91,8 +91,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 .performance-metric-select__trigger .is-placeholder { color: var(--color-text-placeholder); }
 .performance-metric-select__arrow { flex: 0 0 12px; margin-left: var(--spacing-2); color: var(--color-text-secondary); }
 .performance-metric-select__menu { position: absolute; top: calc(100% + var(--spacing-1)); right: 0; left: 0; z-index: 10; max-height: 220px; overflow: auto; padding: var(--spacing-1) 0; box-sizing: border-box; border: 1px solid var(--color-border-light); border-radius: var(--performance-control-radius); background: var(--color-bg-card); box-shadow: var(--shadow-popover); }
-.performance-metric-select__option { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: var(--performance-input-height); padding: 5px var(--performance-input-padding-x); border: 0; background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/var(--performance-input-line-height) var(--font-sans); text-align: left; cursor: pointer; }
-.performance-metric-select__option:hover, .performance-metric-select__option.is-selected { background: var(--color-surface-disabled); }
-.performance-metric-select__option svg { color: var(--color-primary-hover); }
+.performance-metric-select__option { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: var(--performance-select-option-height); padding: 0 var(--performance-select-option-padding-x); border: 0; background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/var(--performance-input-line-height) var(--font-sans); text-align: left; cursor: pointer; }
+.performance-metric-select__option:hover { background: var(--performance-select-option-hover); }
+.performance-metric-select__option.is-selected { background: var(--performance-select-option-selected); color: var(--performance-select-check-color); }
+.performance-metric-select__option svg { width: var(--performance-select-check-size); height: var(--performance-select-check-size); color: var(--performance-select-check-color); }
 .performance-metric-select__empty { margin: 0; padding: var(--spacing-2) var(--performance-input-padding-x); color: var(--color-text-placeholder); font: 400 var(--font-size-md)/var(--performance-input-line-height) var(--font-sans); }
 </style>

@@ -238,7 +238,8 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
 
     expect(wrapper.find('.performance-rating-control__labels').exists()).toBe(false)
-    await wrapper.get('.performance-rating-control__select').setValue('five')
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'five')
+    await wrapper.vm.$nextTick()
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
 

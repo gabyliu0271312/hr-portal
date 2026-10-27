@@ -91,7 +91,7 @@ function confirm() {
     ...draft.value,
     interval: frequency.value === 'specified' ? 1 : interval,
     days_before: frequency.value === 'specified' ? [...new Set(selectedDays.value.map(Number))].sort((a, b) => a - b) : [],
-    weekdays: frequency.value === 'weekly' ? [...new Set(selectedWeekdays.value.map(Number))].sort((a, b) => a - b) : [],
+    weekdays: frequency.value === 'weekly' ? [...new Set(selectedWeekdays.value.map(Number))] : [],
   })
 }
 </script>

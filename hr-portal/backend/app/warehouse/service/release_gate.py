@@ -2,7 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.data.models import StandardFieldBinding, StandardFieldVersion, TableColumn
+from app.data.models import StandardFieldBinding, StandardField, TableColumn
 from app.datasets.models import DataSet, DataSetTable, DatasetOutputField, DataProductAuthorizationContract
 from app.warehouse.schemas import DatasetIsolationOut, DatasetReleaseIssueOut, DatasetReleaseReadinessOut
 from app.warehouse.service.standard_fields import _physical_source_identity
@@ -39,10 +39,10 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
         "WHERE table_schema=current_schema() AND table_name = ANY(:table_names)"
     ), {"table_names": list(set(aliases.values()))})).all()
     physical_types = {(table, code): _physical_metadata_type(kind) for table, code, kind in physical_rows}
-    bindings = (await db.execute(select(StandardFieldBinding, StandardFieldVersion).outerjoin(
-        StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id,
+    bindings = (await db.execute(select(StandardFieldBinding, StandardField).outerjoin(
+        StandardField, StandardField.id == StandardFieldBinding.standard_field_id,
     ).where(StandardFieldBinding.dataset_output_field_id.in_([output.id for output in outputs])))).all()
-    binding_map = {binding.dataset_output_field_id: (binding, version) for binding, version in bindings}
+    binding_map = {binding.dataset_output_field_id: (binding, field) for binding, field in bindings}
     if not tables:
         issue("dataset_no_source", "数据集没有来源表")
     if not outputs:
@@ -67,20 +67,19 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
         if match is None:
             issue("output_binding_missing", "输出字段没有标准字段确认绑定", output)
             continue
-        binding, version = match
+        binding, field = match
         if (binding.status != "confirmed" or binding.binding_version <= 0
                 or binding.confirmed_by is None or binding.confirmed_at is None):
             issue("output_binding_not_confirmed", "输出字段绑定缺少完整确认", output)
             continue
-        if (version is None or version.status != "active" or version.approved_by is None
-                or version.approved_at is None or not (version.approval_reason or "").strip()):
-            issue("output_semantic_version_invalid", "新发布要求active且批准证据完整的语义版本", output)
+        if field is None or not field.is_active:
+            issue("output_standard_field_invalid", "新发布要求有效标准字段定义", output)
             continue
         identity = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
         if binding.observed_source_field_id != identity:
             issue("output_source_identity_drift", "输出字段来源身份已漂移", output)
         if (_normalized_metadata_type(binding.observed_data_type) != _normalized_metadata_type(column.data_type)
-                or _normalized_metadata_type(version.data_type) != _normalized_metadata_type(column.data_type)):
+                or _normalized_metadata_type(field.data_type) != _normalized_metadata_type(column.data_type)):
             issue("output_type_invalid", "绑定快照、物理字段与标准语义类型不兼容", output)
         if len(issues) == previous_issue_count:
             confirmed += 1

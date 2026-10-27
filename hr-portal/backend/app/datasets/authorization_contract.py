@@ -9,7 +9,6 @@ from sqlalchemy import select, text
 from app.data.models import (
     StandardField,
     StandardFieldBinding,
-    StandardFieldVersion,
     TableColumn,
 )
 from app.datasets.models import (
@@ -417,49 +416,44 @@ async def _collect_contract_physical_drift(db, definition, tables, relations, ou
     return issues
 
 
-def _usable_binding(binding, version) -> bool:
+def _usable_binding(binding, field) -> bool:
     return (
         binding.status == "confirmed"
         and binding.binding_version > 0
         and binding.confirmed_by is not None
         and binding.confirmed_at is not None
-        and version is not None
-        and version.status == "active"
-        and version.approved_by is not None
-        and version.approved_at is not None
-        and bool((version.approval_reason or "").strip())
+        and field is not None
+        and field.is_active
     )
 
 
 async def _confirmed_output_bindings(db, dataset_id):
     rows = (await db.execute(
-        select(DatasetOutputField, StandardFieldBinding, StandardField, StandardFieldVersion)
+        select(DatasetOutputField, StandardFieldBinding, StandardField)
         .select_from(DatasetOutputField)
         .join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id)
-        .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
-        .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+        .join(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
         .where(DatasetOutputField.dataset_id == dataset_id)
     )).all()
     by_code: dict[str, list] = {}
-    for output, binding, field, version in rows:
-        if _usable_binding(binding, version):
-            by_code.setdefault(field.field_code, []).append((output, binding, version))
+    for output, binding, field in rows:
+        if _usable_binding(binding, field):
+            by_code.setdefault(field.field_code, []).append((output, binding, field))
     return by_code
 
 
 async def _confirmed_column_bindings(db, table_name):
     rows = (await db.execute(
-        select(TableColumn, StandardFieldBinding, StandardField, StandardFieldVersion)
+        select(TableColumn, StandardFieldBinding, StandardField)
         .select_from(TableColumn)
         .join(StandardFieldBinding, StandardFieldBinding.table_column_id == TableColumn.id)
-        .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
-        .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+        .join(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
         .where(TableColumn.table_name == table_name)
     )).all()
     by_code: dict[str, list] = {}
-    for column, binding, field, version in rows:
-        if _usable_binding(binding, version):
-            by_code.setdefault(field.field_code, []).append((column, binding, version))
+    for column, binding, field in rows:
+        if _usable_binding(binding, field):
+            by_code.setdefault(field.field_code, []).append((column, binding, field))
     return by_code
 
 
@@ -490,14 +484,14 @@ async def _resolve_standard_definition(db, dataset_id, payload):
             raise _resolution_error("standard_field_not_bound", f"标准字段未绑定到数据集输出: {code}")
         if len(candidates) != 1:
             raise _resolution_error("standard_field_ambiguous", f"标准字段绑定了多个数据集输出: {code}")
-        output, _binding, version = candidates[0]
-        if _normalized_metadata_type(version.data_type) != _normalized_metadata_type(output.data_type):
+        output, _binding, field = candidates[0]
+        if _normalized_metadata_type(field.data_type) != _normalized_metadata_type(output.data_type):
             raise _resolution_error("standard_field_type_mismatch", f"标准字段与输出类型不一致: {code}")
-        if require_dimension and version.grain_level not in {"coarse", "fine"}:
+        if require_dimension and field.grain_level not in {"coarse", "fine"}:
             raise _resolution_error("standard_field_grain_invalid", f"标准字段不能作为分组维度: {code}")
         resolved["outputs"].setdefault(code, {
             "output_code": output.output_code, "output_id": output.id,
-            "version_id": version.id, "standard_field_id": version.standard_field_id,
+            "standard_field_id": field.id,
         })
         return output.output_code
 
@@ -517,15 +511,15 @@ async def _resolve_standard_definition(db, dataset_id, payload):
             candidates = column_bindings.get(code, [])
             if len(candidates) != 1:
                 raise _resolution_error("standard_field_anchor_invalid", f"授权锚点必须唯一绑定到事实列: {code}")
-            column, _binding, version = candidates[0]
-            if (not version.is_permission_anchor or version.permission_domain != domain
-                    or version.grain_level not in {"coarse", "fine"}):
+            column, _binding, field = candidates[0]
+            if (not field.is_permission_anchor or field.permission_domain != domain
+                    or field.grain_level not in {"coarse", "fine"}):
                 raise _resolution_error("standard_field_anchor_invalid", f"授权锚点语义无效: {code}")
-            if _normalized_metadata_type(version.data_type) != _normalized_metadata_type(column.data_type):
+            if _normalized_metadata_type(field.data_type) != _normalized_metadata_type(column.data_type):
                 raise _resolution_error("standard_field_anchor_invalid", f"授权锚点与事实列类型不一致: {code}")
             resolved["columns"][code] = {
                 "column_code": column.column_code, "column_id": column.id,
-                "version_id": version.id, "standard_field_id": version.standard_field_id,
+                "standard_field_id": field.id,
             }
             return column.column_code
 
@@ -543,10 +537,10 @@ async def _resolve_standard_definition(db, dataset_id, payload):
             column_bindings = column_cache.setdefault(fact.table_name, await _confirmed_column_bindings(db, fact.table_name))
             candidates = column_bindings.get(code, [])
             if len(candidates) == 1:
-                column, _binding, version = candidates[0]
+                column, _binding, field = candidates[0]
                 resolved["columns"][code] = {
                     "column_code": column.column_code, "column_id": column.id,
-                    "version_id": version.id, "standard_field_id": version.standard_field_id,
+                    "standard_field_id": field.id,
                 }
                 internal_fields.append(f"{fact.alias}.{column.column_code}")
                 found = True
@@ -571,28 +565,28 @@ async def _resolve_standard_definition(db, dataset_id, payload):
 
 
 async def _validate_resolution(db, dataset_id, payload):
-    """批准前复核：已解析的标准字段绑定仍指向同一 active 版本。"""
+    """批准前复核：确认映射仍指向同一有效标准字段身份。"""
     if payload.schema_version != 2 or not payload.resolved_standard_fields:
         return
 
-    async def check(field, code: str, target_id, version_id):
+    async def check(field, code: str, target_id, standard_field_id):
         rows = (await db.execute(
-            select(StandardFieldVersion.id)
+            select(StandardField.id)
             .select_from(StandardFieldBinding)
-            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .join(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
             .where(field == target_id, StandardFieldBinding.status == "confirmed",
-                   StandardFieldVersion.status == "active")
+                   StandardField.is_active.is_(True))
         )).scalars().all()
-        if len(rows) != 1 or rows[0] != version_id:
+        if len(rows) != 1 or rows[0] != standard_field_id:
             raise HTTPException(409, detail={
                 "code": "standard_field_binding_drift",
                 "message": f"标准字段绑定已漂移，请重新检查合同: {code}",
             })
 
     for code, item in (payload.resolved_standard_fields.get("outputs") or {}).items():
-        await check(StandardFieldBinding.dataset_output_field_id, code, item.get("output_id"), item.get("version_id"))
+        await check(StandardFieldBinding.dataset_output_field_id, code, item.get("output_id"), item.get("standard_field_id"))
     for code, item in (payload.resolved_standard_fields.get("columns") or {}).items():
-        await check(StandardFieldBinding.table_column_id, code, item.get("column_id"), item.get("version_id"))
+        await check(StandardFieldBinding.table_column_id, code, item.get("column_id"), item.get("standard_field_id"))
 
 
 async def _validate_definition(db, dataset_id, payload):

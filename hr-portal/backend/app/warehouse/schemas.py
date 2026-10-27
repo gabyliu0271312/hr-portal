@@ -1692,9 +1692,6 @@ class FormulaDecomposeOut(BaseModel):
 
 # ==================== 标准字段语义目录 ====================
 
-StandardFieldStatus = Literal["draft", "active", "deprecated", "archived"]
-
-
 class StandardFieldValueDomainItemIn(BaseModel):
     model_config = {"extra": "forbid"}
     code: str = Field(min_length=1, max_length=128)
@@ -1724,30 +1721,11 @@ class StandardFieldValueDomainIn(BaseModel):
         return value
 
 
-class StandardFieldValueDomainUpdateIn(BaseModel):
-    model_config = {"extra": "forbid"}
-    value_domain: StandardFieldValueDomainIn | None = Field(...)
-    expected_revision: int = Field(ge=0, strict=True)
-    reason: str = Field(min_length=1, max_length=1000)
-
-    @field_validator("reason")
-    @classmethod
-    def value_domain_reason(cls, value):
-        value = value.strip()
-        if not value:
-            raise ValueError("操作原因不能为空")
-        return value
-
-
 class StandardFieldDefinitionIn(BaseModel):
     model_config = {"extra": "forbid"}
     field_name: str = Field(min_length=1, max_length=128)
     business_definition: str = Field(min_length=1, max_length=4000)
     data_type: Literal["string", "number", "date", "datetime", "bool", "enum"]
-    grain_level: Literal["coarse", "fine", "identifying"] | None = None
-    permission_domain: Literal["public", "org", "cost_center", "salary", "personal"]
-    is_permission_anchor: bool = Field(default=False, strict=True)
-    owner_user_id: int = Field(gt=0, strict=True)
     value_domain: StandardFieldValueDomainIn | None = None
     category_ids: list[int] = Field(default_factory=list, max_length=100)
 
@@ -1769,85 +1747,35 @@ class StandardFieldDefinitionIn(BaseModel):
 
 class StandardFieldCreateIn(StandardFieldDefinitionIn):
     field_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
-    permission_domain: Literal["public", "org", "cost_center", "salary", "personal"] = "public"
-    owner_user_id: int | None = Field(default=None, gt=0, strict=True)
 
 
-class StandardFieldVersionCreateIn(StandardFieldDefinitionIn):
-    expected_version: int = Field(ge=1, strict=True)
-
-
-class StandardFieldVersionUpdateIn(StandardFieldDefinitionIn):
+class StandardFieldUpdateIn(StandardFieldDefinitionIn):
     expected_revision: int = Field(ge=0, strict=True)
 
 
-class StandardFieldActionIn(BaseModel):
-    model_config = {"extra": "forbid"}
-    expected_revision: int = Field(ge=0, strict=True)
-    reason: str = Field(min_length=1, max_length=1000)
-
-    @field_validator("reason")
-    @classmethod
-    def nonempty_reason(cls, value):
-        value = value.strip()
-        if not value:
-            raise ValueError("操作原因不能为空")
-        return value
-
-
-class StandardFieldDisplayUpdateIn(BaseModel):
-    model_config = {"extra": "forbid"}
-    display_name: str = Field(min_length=1, max_length=128)
-    expected_version: int = Field(ge=1, strict=True)
-    reason: str = Field(min_length=1, max_length=1000)
-
-    @field_validator("display_name", "reason")
-    @classmethod
-    def nonempty_text(cls, value):
-        value = value.strip()
-        if not value:
-            raise ValueError("展示名称和原因不能为空")
-        return value
-
-
-class StandardFieldVersionOut(StandardFieldDefinitionIn):
-    model_config = {"from_attributes": True}
-    value_domain: dict | None = None
+class StandardFieldSummaryOut(BaseModel):
     id: int
-    standard_field_id: int
-    version: int
+    field_code: str
+    field_name: str
+    business_definition: str
+    data_type: str
+    value_domain: dict | None = None
+    category_ids: list[int] = Field(default_factory=list)
     revision: int
-    status: StandardFieldStatus
-    created_by: int
-    approved_by: int | None = None
-    approved_at: datetime | None = None
-    approval_reason: str | None = None
-    status_reason: str | None = None
-    status_changed_by: int | None = None
-    status_changed_at: datetime | None = None
-    created_at: datetime
-    updated_at: datetime
+    is_active: bool
 
 
 class StandardFieldBindingRefOut(BaseModel):
     model_config = {"from_attributes": True}
     id: int
-    standard_field_version_id: int | None
+    standard_field_id: int | None
     table_column_id: int | None
     dataset_output_field_id: int | None
     status: Literal["unmapped", "suggested", "confirmed", "invalid"]
     binding_version: int
 
 
-class StandardFieldSummaryOut(BaseModel):
-    id: int
-    field_code: str
-    current_active_version_id: int | None
-    latest_version: StandardFieldVersionOut
-
-
 class StandardFieldDetailOut(StandardFieldSummaryOut):
-    versions: list[StandardFieldVersionOut]
     bindings: list[StandardFieldBindingRefOut]
 
 
@@ -1876,7 +1804,6 @@ class StandardFieldBindingCreateIn(BaseModel):
     model_config = {"extra": "forbid"}
     target_kind: Literal["table_column", "dataset_output_field"]
     target_id: int = Field(gt=0, strict=True)
-    standard_field_version_id: int = Field(gt=0, strict=True)
     dataset_id: int | None = Field(default=None, gt=0, strict=True)
 
 
@@ -1896,7 +1823,6 @@ class StandardFieldBindingActionIn(BaseModel):
 
 class StandardFieldBindingOut(StandardFieldBindingRefOut):
     standard_field_id: int
-    standard_field_version_status: StandardFieldStatus | None = None
     observed_source_field_id: str | None = None
     observed_data_type: str | None = None
     revision: int

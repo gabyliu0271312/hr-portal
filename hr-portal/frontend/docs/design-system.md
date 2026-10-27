@@ -190,6 +190,20 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 ## 组件约定
 
+### 绩效选择框（CR-005-T07，2026-10-27）
+
+- 通用入口为 `PerformanceSearchSelect`，内部复用 `PerformanceSelectShell` 与 `PerformanceSelectTag`；人员、角色、原MultiSelect和组织树入口复用同一壳/标签。业务页面不自行实现标签折叠与删除。
+- 下拉列表无左侧复选框，单/多选均在右侧显示选中勾。真正的权限树复选框、布尔选项、表格行选择不属于该规则。
+- 多选按值数组顺序单行展示，放不下的连续后缀折叠为 `+N`；悬停仅显示隐藏标签，同一标签组件支持删除和补位，无`+0`。计数先预留宽度，不能固定显示前两项。选择、删除、搜索和重新打开测量，窗口resize只更新浮层位置，不主动重排标签。
+- Token唯一源为 `tokens.css` 的 `--performance-select-*`：主框32px、内容28px、标签24px；选项高度/内边距、hover/selected背景、右勾尺寸/色、标签间距/底色/删除图标、溢出浮层尺寸与padding集中配置。边框/禁用沿用field token，浮层沿用popover token。无效/禁用、旧值回显、空态保留。
+- 描述丰富、数值类型或已有专用hover交互的选择器保留业务结构，但消费同一token。Element选择器同时声明 `class="performance-token-select"` 和 `popper-class="performance-token-select-popper"`（可合并既有class），由绩效专用适配层统一；非绩效选择器不受影响。
+- 选择框只承诺按调用方值数组显示。通知`weekdays`前后端保序去重并持久化；`days_before`仍沿用排序契约，其他业务API不被组件静默重写。
+
+```vue
+<PerformanceSearchSelect v-model="selectedValues" :options="options" multiple aria-label="选择人员" />
+<PerformanceSearchSelect v-model="selectedValue" :options="options" selection-style="plain" aria-label="选择类型" />
+```
+
 ### PermissionButton
 
 [src/components/PermissionButton.vue](../src/components/PermissionButton.vue) 是按钮级权限封装。

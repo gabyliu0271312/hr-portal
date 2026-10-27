@@ -80,7 +80,7 @@ function handleSubmit() {
         <ReviewQuestionFormType v-model="form.type" />
       </el-form-item>
       <el-form-item label="评估规则">
-        <el-select v-model="form.rule_id" placeholder="请选择" style="width: 100%">
+        <el-select popper-class="performance-token-select-popper" class="performance-token-select" v-model="form.rule_id" placeholder="请选择" style="width: 100%">
           <el-option v-for="option in options" :key="option.id" :label="option.name" :value="option.id" />
         </el-select>
       </el-form-item>

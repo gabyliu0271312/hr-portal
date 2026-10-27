@@ -55,15 +55,15 @@ def test_semantic_locator_codes_use_standard_field_identity():
 
     outputs = {"employee_no": {"id": 1}, "department": {"id": 2}, "amount": {"id": 3}}
     semantics = {
-        1: (None, SimpleNamespace(grain_level="coarse", permission_domain="public", standard_field_id=5)),
-        2: (None, SimpleNamespace(grain_level="coarse", permission_domain="personal", standard_field_id=6)),
-        3: (None, SimpleNamespace(grain_level="coarse", permission_domain="public", standard_field_id=5)),
+        1: (None, SimpleNamespace(grain_level="coarse", permission_domain="public", id=5)),
+        2: (None, SimpleNamespace(grain_level="coarse", permission_domain="personal", id=6)),
+        3: (None, SimpleNamespace(grain_level="coarse", permission_domain="public", id=5)),
     }
     # 与员工锚点同一标准字段、或 personal 权限域，都算人员定位；不看物理列名。
     assert _semantic_locator_codes(outputs, semantics, 5) == {"employee_no", "department", "amount"}
     assert _semantic_locator_codes(outputs, semantics, None) == {"department"}
     identifying = {
-        1: (None, SimpleNamespace(grain_level="identifying", permission_domain="public", standard_field_id=7)),
+        1: (None, SimpleNamespace(grain_level="identifying", permission_domain="public", id=7)),
     }
     assert _semantic_locator_codes(outputs, identifying, None) == {"employee_no"}
 

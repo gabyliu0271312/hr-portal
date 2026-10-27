@@ -14,12 +14,12 @@ const selectedOption = computed(() => props.options.find((option) => String(opti
 
 <template>
   <el-select
-    class="review-sub-question-select"
+    class="review-sub-question-select performance-token-select"
     :model-value="modelValue"
     placeholder="请选择"
     :loading="loading"
     :disabled="loading"
-    popper-class="review-sub-question-select-popper"
+    popper-class="review-sub-question-select-popper performance-token-select-popper"
     style="width: 100%"
     @update:model-value="emit('update:modelValue', $event)"
   >

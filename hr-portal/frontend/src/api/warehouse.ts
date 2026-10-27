@@ -607,7 +607,6 @@ export function listAuthorizationContracts(id: number): Promise<ProductAuthoriza
 export interface ModelStandardFieldBinding {
   standard_field_code: string
   standard_field_id: number
-  version_id: number
   output_code: string
   output_label: string
   data_type: string

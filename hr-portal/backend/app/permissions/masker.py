@@ -115,7 +115,7 @@ async def _table_sensitive_category_map(
     table: str, db: AsyncSession
 ) -> dict[str, set[int]]:
     """该表每个列 → 命中的敏感分类 id 集合。
-    来源:field_category_assignments 直接给 (table, column) 打的敏感分类。
+    来源：物理列分类与标准字段直接确认映射的敏感分类。
     """
     by_col: dict[str, set[int]] = {}
 
@@ -133,6 +133,24 @@ async def _table_sensitive_category_map(
         )
     ).all()
     for col_name, cat_id in rows:
+        by_col.setdefault(col_name, set()).add(cat_id)
+
+    from app.data.models import StandardFieldBinding, StandardFieldCategory, TableColumn
+    from app.datasets.models import DataSetTable, DatasetOutputField
+    direct = select(TableColumn.column_code, StandardFieldCategory.field_category_id).select_from(TableColumn).join(
+        StandardFieldBinding, StandardFieldBinding.table_column_id == TableColumn.id,
+    ).join(StandardFieldCategory, StandardFieldCategory.standard_field_id == StandardFieldBinding.standard_field_id).join(
+        FieldCategory, FieldCategory.id == StandardFieldCategory.field_category_id,
+    ).where(TableColumn.table_name == table, FieldCategory.is_sensitive.is_(True))
+    outputs = select(DatasetOutputField.source_column, StandardFieldCategory.field_category_id).select_from(DatasetOutputField).join(
+        DataSetTable, (DataSetTable.dataset_id == DatasetOutputField.dataset_id)
+        & (DataSetTable.alias == DatasetOutputField.source_alias),
+    ).join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id).join(
+        StandardFieldCategory, StandardFieldCategory.standard_field_id == StandardFieldBinding.standard_field_id,
+    ).join(FieldCategory, FieldCategory.id == StandardFieldCategory.field_category_id).where(
+        DataSetTable.table_name == table, FieldCategory.is_sensitive.is_(True),
+    )
+    for col_name, cat_id in (await db.execute(direct.union(outputs))).all():
         by_col.setdefault(col_name, set()).add(cat_id)
 
     return by_col

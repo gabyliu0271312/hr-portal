@@ -73,3 +73,21 @@ PerformanceDialogShell，680px 宽，标题区72px，内边距24px，圆角8px�
 8个聚焦spec共39项通过；vue-tsc+vite build通过，仅现有@vueuse PURE注释警告。首次后端19项通过时尚未部署。
 
 后续用户授权在容器内构建替换：已在本机 desktop-linux 开发容器构建并替换 frontend/backend，运行库升级至0261；隔离事务Schema验证迁移升降级、旧行默认值与JSONB回读通过（验证后回滚）。容器内19项通过（2个依赖弃用警告），/api/v1/health返回200、DB正常，nginx配置通过，部署后的SPA资源及OpenAPI均包含todo_task_rule，匿名API返回401。完整登录UI→真实API→DB→重开尚未验收，T01仍未勾选。未部署远程生产，未发送消息。
+
+## 绩效选择框统一 v6（2026-10-27，CR-005-T07）
+
+用户依据 screenshot-20261027-165526.png、Overflow DOM采集和7项交互确认，授权开发。此版本替代v2/v5保留换行及默认左方框的限制，不改变页面信息架构，不新增完整蓝图。入口涵盖绩效前后台所有选择框；通知路由仍为 /performance/settings/system/notifications。主框32px、标签24px、内容28px，复用现有 token 并提炼 select 语义 token。右侧对勾；多选按值数组顺序单行 +N；悬停浮层仅隐藏项，同一标签组件可删除、补位。选择、删除、重开测量；窗口变化仅更新下拉位置，不重排标签。周标签短文案“周一”等，保存及重开保序。指定日期仍按原接口规则排序。禁用禁止改值；空态/搜索/失效旧值/取消/忙碌/失败/权限边界保留。
+
+独立验收PNG：../../ui-blueprints/CR-005-T07-implemented-select-overflow.png；通用合规参照Spec012 N000/N00/U00。真实数据库链路与fixture单独记录，不以组件测试或fixture代替真实持久化。
+
+### v6实施与验收（2026-10-27）
+
+T07已完成开发和专项验收，详细命令/边界见atomic-tasks.md的T07证据。真实桌面主选择框“周五、周一、+5”，悬停浮层仅后续隐藏标签；不换行、32px、可直接删除与补位。390px无页面横溢；工作台Element状态下拉另验同一token的右勾。主标签/浮层标签复用PerformanceSelectTag；测量副本独立class、无交互按钮，不污染键盘焦点或标签查询。Role/MultiSelect复用SearchSelect，原生选择入口迁入共用组件，描述型/数值型Element入口保留内容与值类型并统一token。
+
+本机真实认证UI→PATCH→PostgreSQL JSONB→GET→刷新/重开：待办[5,1,3,7,2,4,6]、日报[3,1,6]均保序；原配置恢复、审计保留。503/保存忙碌另用受控失败验收，不冒充真实后端失败。无发送、迁移或部署。核心6spec54通过、后端44通过、最终类型检查及构建通过；全量938通过/10失败，10项用HEAD选择器只读替换对照复现相同失败，未擅自修复范围外问题。
+
+实际PNG（均为实现截图，已读取）：
+- ../../ui-blueprints/CR-005-T07-implemented-select-overflow.png
+- ../../ui-blueprints/CR-005-T07-implemented-select-checkmarks.png
+- ../../ui-blueprints/CR-005-T07-implemented-select-mobile.png
+- ../../ui-blueprints/CR-005-T07-implemented-select-element-adapter.png

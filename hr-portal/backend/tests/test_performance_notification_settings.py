@@ -194,7 +194,7 @@ def test_todo_rule_three_modes_normalize_and_reopen(monkeypatch, day_kind, field
         saved = response.json()[field]
         assert saved["day_kind"] == rule.get("day_kind", "calendar_day")
         assert saved["days_before"] == sorted(set(rule.get("days_before", []))) if rule["frequency"] == "specified" else saved["days_before"] == []
-        assert saved["weekdays"] == sorted(set(rule.get("weekdays", []))) if rule["frequency"] == "weekly" else saved["weekdays"] == []
+        assert saved["weekdays"] == list(dict.fromkeys(rule.get("weekdays", []))) if rule["frequency"] == "weekly" else saved["weekdays"] == []
         assert client.get("/api/v1/performance/system-settings/notifications").json()[field] == saved
 
 
@@ -248,7 +248,7 @@ def test_progress_rule_is_independent_audited_and_preserved_by_switches(monkeypa
     before = client.get(url).json()
     rule = {"frequency": "weekly", "interval": 2, "weekdays": [5, 1, 5], "time": "09:05"}
     saved = client.patch(url, json={"progress_daily_rule": rule}).json()
-    assert saved["progress_daily_rule"]["weekdays"] == [1, 5]
+    assert saved["progress_daily_rule"]["weekdays"] == [5, 1]
     assert saved["todo_task_rule"] == before["todo_task_rule"]
     assert saved["progress_daily_notification_enabled"] is False
     assert events[-1].before_state["progress_daily_rule"]["time"] == "18:00"
@@ -310,3 +310,33 @@ def test_todo_rule_patch_does_not_overwrite_sibling_fields(monkeypatch):
 def test_todo_rule_invalid_values_are_rejected(rule, field):
     with pytest.raises(ValidationError):
         NotificationSettingsPatch(**{field: rule})
+
+
+@pytest.mark.parametrize("field", ["todo_task_rule", "progress_daily_rule"])
+def test_weekday_order_survives_reopen_and_reordering_is_audited(monkeypatch, field):
+    db = MemoryNotificationDb()
+    events = []
+
+    class Audit:
+        def __init__(self, _db):
+            pass
+
+        def append_event(self, event):
+            events.append(event)
+
+    monkeypatch.setattr(notification_settings_router, "PerformanceAuditService", Audit)
+    client = _client(allowed=True, db=db)
+    url = "/api/v1/performance/system-settings/notifications"
+    rule = {"frequency": "weekly", "weekdays": [5, 1, 5, 3, 7]}
+    saved = client.patch(url, json={field: rule})
+    assert saved.status_code == 200
+    assert saved.json()[field]["weekdays"] == [5, 1, 3, 7]
+    assert client.get(url).json()[field]["weekdays"] == [5, 1, 3, 7]
+    assert client.patch(url, json={field: rule}).status_code == 200
+    assert len(events) == 1
+    reordered = {**rule, "weekdays": [7, 3, 1, 5]}
+    assert client.patch(url, json={field: reordered}).json()[field]["weekdays"] == [7, 3, 1, 5]
+    assert len(events) == 2
+    assert events[-1].before_state[field]["weekdays"] == [5, 1, 3, 7]
+    assert events[-1].after_state[field]["weekdays"] == [7, 3, 1, 5]
+    assert client.get(url).json()[field]["weekdays"] == [7, 3, 1, 5]

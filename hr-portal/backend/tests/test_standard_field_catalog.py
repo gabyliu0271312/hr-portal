@@ -7,18 +7,19 @@ from app.data import models
 from tests.test_scope_classification import postgres_classification_schema
 
 
-def test_standard_identity_version_and_binding_models_are_separate():
+def test_standard_identity_definition_and_binding_models_are_direct():
     assert models.StandardField.__tablename__ == "standard_fields"
     assert models.StandardFieldVersion.__tablename__ == "standard_field_versions"
     assert models.StandardFieldBinding.__tablename__ == "standard_field_bindings"
-    assert "data_type" not in models.StandardField.__table__.columns
+    assert "data_type" in models.StandardField.__table__.columns
     assert "transformation_rule" not in models.StandardFieldBinding.__table__.columns
-    assert "field_category_id" in models.StandardFieldVersionCategory.__table__.columns
+    assert "field_category_id" in models.StandardFieldCategory.__table__.columns
 
 
-def test_binding_identity_targets_are_unique_and_version_pinned():
+def test_binding_identity_targets_are_unique_and_field_pinned():
     table = models.StandardFieldBinding.__table__
-    assert "standard_field_version_id" in table.columns
+    assert "standard_field_id" in table.columns
+    assert "standard_field_version_id" not in table.columns
     assert "table_column_id" in table.columns and "dataset_output_field_id" in table.columns
     names = {constraint.name for constraint in table.constraints}
     assert {"ck_standard_binding_target", "ck_standard_binding_confirmation",
@@ -170,7 +171,7 @@ async def postgres_standard_catalog(postgres_classification_schema):
         await conn.execute(RoleVisibleCategory.__table__.insert().values(role_id=1, category_id=9))
         await conn.run_sync(install)
         await conn.execute(text("ALTER TABLE standard_fields ADD COLUMN display_name varchar(128)"))
-        await conn.execute(models.StandardField.__table__.insert().values(id=1, field_code="employee_no", created_by=7))
+        await conn.execute(text("INSERT INTO standard_fields(id,field_code,created_by) VALUES(1,'employee_no',7)"))
         await conn.execute(models.StandardFieldVersion.__table__.insert().values(
             id=11, standard_field_id=1, version=1, field_name="Employee number",
             business_definition="Business employee number, not physical/master ID", data_type="string",
@@ -330,8 +331,7 @@ async def test_empty_catalog_upgrade_downgrade_preserves_existing_metadata(postg
 
 def _definition_payload(**changes):
     return {"field_name": "Employee number", "business_definition": "Business identity, not master ID",
-            "data_type": "string", "grain_level": "identifying", "permission_domain": "public",
-            "owner_user_id": 7, "category_ids": [9], **changes}
+            "data_type": "string", "category_ids": [9], **changes}
 
 
 @pytest.mark.parametrize("changes", [
@@ -2473,48 +2473,39 @@ async def test_dwd_output_binding_uses_real_source_acl_and_current_fields(monkey
 ])
 def test_value_domain_schema_rejects_blank_duplicate_and_extra(domain):
     from pydantic import ValidationError
-    from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldValueDomainUpdateIn
+    from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldUpdateIn
     with pytest.raises(ValidationError):
-        StandardFieldValueDomainUpdateIn(value_domain=domain, expected_revision=0, reason="review")
+        StandardFieldUpdateIn(**_definition_payload(data_type="enum", value_domain=domain), expected_revision=0)
     with pytest.raises(ValidationError):
         StandardFieldCreateIn(**_definition_payload(field_code="enum_test", data_type="enum", value_domain=domain))
 
 
 def test_value_domain_schema_normalizes_manual_enum_items():
-    from app.warehouse.schemas import StandardFieldValueDomainUpdateIn
-    payload = StandardFieldValueDomainUpdateIn(value_domain={"items": [
+    from app.warehouse.schemas import StandardFieldUpdateIn
+    payload = StandardFieldUpdateIn(**_definition_payload(data_type="enum", value_domain={"items": [
         {"code": " manual-code ", "name": " Manual name ", "enabled": False, "sort_order": 2},
-    ]}, expected_revision=0, reason=" review ")
+    ]}), expected_revision=0)
     assert payload.value_domain.model_dump() == {"items": [
         {"code": "manual-code", "name": "Manual name", "enabled": False, "sort_order": 2},
     ]}
-    assert payload.reason == "review"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["create", "update", "version"])
-async def test_value_domain_non_enum_cannot_bypass_dedicated_api(monkeypatch, operation):
+@pytest.mark.parametrize("operation", ["create", "update"])
+async def test_value_domain_non_enum_cannot_bypass_direct_api(monkeypatch, operation):
     from types import SimpleNamespace
-    from unittest.mock import AsyncMock, Mock
+    from unittest.mock import AsyncMock
     from fastapi import HTTPException
-    from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldVersionCreateIn, StandardFieldVersionUpdateIn
+    from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldUpdateIn
     from app.warehouse.service import standard_fields as service
-    result = Mock()
-    result.scalar_one.return_value = SimpleNamespace(version=1)
-    db = SimpleNamespace(execute=AsyncMock(return_value=result), scalar=AsyncMock(return_value=None),
-                         commit=AsyncMock(), rollback=AsyncMock())
-    monkeypatch.setattr(service, "_field", AsyncMock(return_value=SimpleNamespace(id=1)))
-    monkeypatch.setattr(service, "_version", AsyncMock(return_value=SimpleNamespace(revision=0, status="draft")))
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    monkeypatch.setattr(service, "_field", AsyncMock(return_value=SimpleNamespace(id=1, revision=0, is_active=True)))
     data = _definition_payload(value_domain={"items": [{"code": "a", "name": "Manual"}]})
     with pytest.raises(HTTPException) as error:
         if operation == "create":
             await service.create_standard_field(db, StandardFieldCreateIn(**data, field_code="test"), SimpleNamespace(id=7))
-        elif operation == "update":
-            await service.update_standard_field_version(db, 1, 11,
-                StandardFieldVersionUpdateIn(**data, expected_revision=0), SimpleNamespace(id=7))
         else:
-            await service.create_standard_field_version(db, 1,
-                StandardFieldVersionCreateIn(**data, expected_version=1), SimpleNamespace(id=7))
+            await service.update_standard_field(db, 1, StandardFieldUpdateIn(**data, expected_revision=0), SimpleNamespace(id=7))
     assert error.value.status_code == 422
     assert error.value.detail["code"] == "standard_field_value_domain_requires_enum"
     db.commit.assert_not_awaited()

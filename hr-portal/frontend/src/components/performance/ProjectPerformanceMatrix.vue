@@ -38,12 +38,9 @@
           <h3 class="matrix-title">已完成评估 <span>（{{ matrix.completed_count }} 人）</span></h3>
           <div class="matrix-selects">
             <label class="matrix-select">评估维度：绩效评级</label>
-            <label class="matrix-select">
+            <label class="matrix-display-select">
               <span class="sr-only">展示方式</span>
-              <select v-model="displayMode" aria-label="展示方式">
-                <option value="name">展示方式：人员姓名</option>
-                <option value="count">展示方式：人员数量</option>
-              </select>
+              <PerformanceSearchSelect :model-value="displayMode" :options="[{ value: 'name', label: '展示方式：人员姓名' }, { value: 'count', label: '展示方式：人员数量' }]" selection-style="plain" aria-label="展示方式" @update:model-value="displayMode = $event === 'count' ? 'count' : 'name'" />
             </label>
           </div>
         </div>
@@ -78,6 +75,7 @@
 </template>
 
 <script setup lang="ts">
+import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import { onMounted, ref, watch } from 'vue'
 import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
@@ -195,4 +193,5 @@ export default { components: { PeopleCell } }
 .matrix-state-error button { padding: 6px 18px; border: 0; border-radius: 6px; background: #3370ff; color: #fff; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (max-width: 900px) { .completed-heading { align-items: flex-start; flex-direction: column; } .matrix-selects { width: 100%; } }
+.matrix-display-select { width: 200px; min-width: 0; }
 </style>

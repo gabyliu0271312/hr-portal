@@ -9,20 +9,8 @@
       <template #default="{ index }">
       <div class="calibration-condition-group__row">
         <div class="calibration-condition-group__fields">
-        <label class="calibration-select">
-          <span class="sr-only">{{ fieldLabel }}类型</span>
-          <select :value="modelValue.conditions[index].field" @change="updateField(index, ($event.target as HTMLSelectElement).value)">
-            <option v-for="option in optionFields" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
-        </label>
-        <label class="calibration-select calibration-select--operator">
-          <span class="sr-only">操作</span>
-          <select :value="modelValue.conditions[index].operator" @change="updateOperator(index, ($event.target as HTMLSelectElement).value)">
-            <option v-for="option in operatorOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3.414 7.086-.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor" /></svg>
-        </label>
+        <div class="calibration-select"><PerformanceSearchSelect :model-value="modelValue.conditions[index].field" :options="optionFields" selection-style="plain" :aria-label="`${fieldLabel}类型`" @update:model-value="updateField(index, $event)" /></div>
+        <div class="calibration-select calibration-select--operator"><PerformanceSearchSelect :model-value="modelValue.conditions[index].operator" :options="operatorOptions" selection-style="plain" aria-label="操作" @update:model-value="updateOperator(index, $event)" /></div>
         <div class="calibration-value-select">
           <PerformanceSearchSelect
             v-if="modelValue.conditions[index].field === 'calibrator_relation'"
@@ -104,5 +92,5 @@ function addCondition() {
 </script>
 
 <style scoped>
-.calibration-condition-group{display:flex;flex-direction:column;min-width:0;padding:16px 20px;border-radius:8px;background:#f5f6f7;box-sizing:border-box;color:#1f2329}.calibration-condition-group__heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font:600 14px/22px var(--font-sans)}.calibration-condition-group__count{color:#646a73;font-weight:400}.calibration-condition-group__row>.performance-icon-button{flex:0 0 24px;margin-top:4px}.calibration-condition-group__row:first-child{margin-top:0}.calibration-condition-group__row{display:flex;align-items:flex-start;margin-top:8px}.calibration-condition-group__fields{display:flex;flex:1;min-width:0;align-items:center}.calibration-select,.calibration-value-select{position:relative;display:flex;align-items:center;min-width:0;height:32px;margin:0 8px;box-sizing:border-box}.calibration-select{flex:0 0 112px}.calibration-select--operator{flex:0 0 96px}.calibration-select select{width:100%;height:32px;padding:1px 28px 1px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;font:400 14px/22px var(--font-sans);appearance:none}.calibration-select svg{position:absolute;right:10px;width:12px;height:12px;color:#646a73;pointer-events:none}.calibration-value-select{flex:1;margin-right:0}.calibration-value-select :deep(.performance-select-shell){width:100%}.calibration-condition-group__add{display:inline-flex;align-items:center;width:max-content;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-condition-group__add svg{width:16px;height:16px;margin-right:4px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.calibration-condition-group{display:flex;flex-direction:column;min-width:0;padding:16px 20px;border-radius:8px;background:#f5f6f7;box-sizing:border-box;color:#1f2329}.calibration-condition-group__heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font:600 14px/22px var(--font-sans)}.calibration-condition-group__count{color:#646a73;font-weight:400}.calibration-condition-group__row>.performance-icon-button{flex:0 0 24px;margin-top:4px}.calibration-condition-group__row:first-child{margin-top:0}.calibration-condition-group__row{display:flex;align-items:flex-start;margin-top:8px}.calibration-condition-group__fields{display:flex;flex:1;min-width:0;align-items:center}.calibration-select,.calibration-value-select{position:relative;display:flex;align-items:center;min-width:0;height:32px;margin:0 8px;box-sizing:border-box}.calibration-select{flex:0 0 112px}.calibration-select--operator{flex:0 0 96px}.calibration-value-select{flex:1;margin-right:0}.calibration-value-select :deep(.performance-select-shell){width:100%}.calibration-condition-group__add{display:inline-flex;align-items:center;width:max-content;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-condition-group__add svg{width:16px;height:16px;margin-right:4px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>

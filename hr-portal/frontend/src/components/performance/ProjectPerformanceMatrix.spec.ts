@@ -115,7 +115,8 @@ describe('ProjectPerformanceMatrix', () => {
     const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7 } })
     await flushPromises()
 
-    await wrapper.get('select[aria-label="展示方式"]').setValue('count')
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+    await wrapper.vm.$nextTick()
     expect(wrapper.findAll('.count-value').map(item => item.text())).toEqual(['1', '1'])
     expect(wrapper.findAll('.completed-table .person-name')).toHaveLength(0)
   })

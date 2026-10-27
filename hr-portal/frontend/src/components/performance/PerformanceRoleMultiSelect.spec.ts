@@ -9,8 +9,8 @@ describe('PerformanceRoleMultiSelect', () => {
       props: { modelValue: [], options: ['实线上级', '虚线上级'] },
     })
 
-    await wrapper.get('.role-select-trigger').trigger('click')
-    const option = document.body.querySelectorAll<HTMLButtonElement>('.role-select-option')[1]
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    const option = document.body.querySelectorAll<HTMLButtonElement>('.performance-flat-option-list__option')[1]
     option.click()
 
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([['虚线上级']])
@@ -22,25 +22,17 @@ describe('PerformanceRoleMultiSelect', () => {
       props: { modelValue: ['实线上级'], options: ['实线上级'] },
     })
 
-    expect(wrapper.get('.role-select-tag').text()).toContain('实线上级')
-    await wrapper.get('.role-select-tag-close').trigger('click')
+    expect(wrapper.get('.performance-select-shell__content .performance-select-shell__tag').text()).toContain('实线上级')
+    await wrapper.get('.performance-select-shell__content .performance-select-shell__tag-close').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([[]])
   })
 
-  it('keeps the trigger interactive without rendering an empty popup when no roles are available', async () => {
-    const wrapper = mount(PerformanceRoleMultiSelect, {
-      attachTo: document.body,
-      props: { modelValue: [], options: [] },
-    })
-
-    await wrapper.get('.role-select-trigger').trigger('click')
-
-    expect(wrapper.classes()).toContain('open')
-    expect(wrapper.classes()).not.toContain('has-options')
-    expect(wrapper.get('.role-select-trigger').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('.role-select-trigger').attributes('aria-expanded')).toBeUndefined()
-    expect(document.body.querySelector('.role-select-dropdown')).toBeNull()
-    expect(document.body.querySelectorAll('.role-select-option')).toHaveLength(0)
+  it('uses the shared empty state without fabricating candidate roles', async () => {
+    const wrapper = mount(PerformanceRoleMultiSelect, { props: { modelValue: [], options: [] }, global: { stubs: { Teleport: true } } })
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    expect(wrapper.get('[role="combobox"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('[role="option"]')).toHaveLength(0)
+    expect(wrapper.get('.performance-flat-option-list__empty').text()).toBe('暂无可选项')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
   })

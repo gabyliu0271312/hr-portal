@@ -6,9 +6,6 @@ const standardFieldsApi = {
   get(id) {
     return api.get(`/warehouse/standard-fields/${id}`).then((r) => r.data);
   },
-  updateDisplayName(fieldId, payload) {
-    return api.patch(`/warehouse/standard-fields/${fieldId}/display-name`, payload).then((r) => r.data);
-  },
   bindingCandidates(fieldId, params = {}) {
     if (!params.dataset_id && !params.table_name?.trim()) return Promise.resolve([]);
     return api.get(`/warehouse/standard-fields/${fieldId}/binding-candidates`, { params }).then((r) => r.data);
@@ -25,14 +22,11 @@ const standardFieldsApi = {
   create(payload) {
     return api.post("/warehouse/standard-fields", payload).then((r) => r.data);
   },
-  createVersion(fieldId, payload) {
-    return api.post(`/warehouse/standard-fields/${fieldId}/versions`, payload).then((r) => r.data);
+  update(fieldId, payload) {
+    return api.put(`/warehouse/standard-fields/${fieldId}`, payload).then((r) => r.data);
   },
-  updateVersion(fieldId, versionId, payload) {
-    return api.put(`/warehouse/standard-fields/${fieldId}/versions/${versionId}`, payload).then((r) => r.data);
-  },
-  remove(fieldId, expected_version, expected_revision) {
-    return api.delete(`/warehouse/standard-fields/${fieldId}`, { params: { expected_version, expected_revision } });
+  remove(fieldId, expected_revision) {
+    return api.delete(`/warehouse/standard-fields/${fieldId}`, { params: { expected_revision } });
   }
 };
 export {

@@ -44,7 +44,7 @@ class TodoTaskRule(BaseModel):
         lower = 0 if info.field_name == "days_before" else 1
         if any(item < lower or item > upper for item in value):
             raise ValueError(f"{info.field_name} 超出有效范围")
-        return sorted(set(value))
+        return sorted(set(value)) if info.field_name == "days_before" else list(dict.fromkeys(value))
 
     @field_validator("time")
     @classmethod

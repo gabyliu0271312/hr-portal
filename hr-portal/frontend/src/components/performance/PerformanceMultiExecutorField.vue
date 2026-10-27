@@ -17,15 +17,10 @@
           </label>
         </div>
         <div v-if="role === 'DEPARTMENT_HEAD' && hasRole(role)" class="nested-select">
-          <select :value="departmentLevel" :disabled="disabled" aria-label="部门负责人层级" @change="setDepartmentLevel(($event.target as HTMLSelectElement).value)">
-            <option v-for="level in departmentLevels" :key="level.value" :value="level.value">{{ level.label }}</option>
-          </select>
+          <PerformanceSearchSelect :model-value="departmentLevel" :options="[...departmentLevels]" :disabled="disabled" selection-style="plain" aria-label="部门负责人层级" @update:model-value="setDepartmentLevel(String($event || ''))" />
         </div>
         <div v-if="role === 'SPECIFIED_PERSON' && hasRole(role)" class="nested-select">
-          <select :value="selectedPersonNo" :disabled="disabled || peopleOptions.length === 0" aria-label="指定人员" @change="setPerson(($event.target as HTMLSelectElement).value)">
-            <option value="">请选择</option>
-            <option v-for="person in peopleOptions" :key="person.employee_no" :value="person.employee_no">{{ person.display_name }}</option>
-          </select>
+          <PerformanceSearchSelect :model-value="selectedPersonNo || null" :options="peopleOptions.map(person => ({ value: person.employee_no, label: person.display_name }))" :disabled="disabled || peopleOptions.length === 0" selection-style="plain" aria-label="指定人员" @update:model-value="setPerson(String($event || ''))" />
           <span v-if="people.length" class="selected-people">{{ people.map((person) => person.display_name).join('、') }}</span>
         </div>
       </div>
@@ -35,6 +30,7 @@
 </template>
 
 <script setup lang="ts">
+import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import { computed } from 'vue'
 import type { PerformanceExecutorConfig, PerformanceExecutorPerson, PerformanceExecutorRole, PerformanceExecutorRoleType } from '@/api/performance'
 

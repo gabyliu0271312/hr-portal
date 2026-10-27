@@ -4,7 +4,7 @@ import { defaultProgressDailyNotificationRule, defaultTodoNotificationRule, todo
 describe('todoNotificationSummary', () => {
   it('formats daily, weekly and specified rules without dropping selections', () => {
     expect(todoNotificationSummary().time).toContain('每 1 天的 10:00')
-    expect(todoNotificationSummary({ ...defaultTodoNotificationRule(), frequency: 'weekly', interval: 2, weekdays: [1, 5] }).time).toContain('每 2 周的星期一、星期五')
+    expect(todoNotificationSummary({ ...defaultTodoNotificationRule(), frequency: 'weekly', interval: 2, weekdays: [1, 5] }).time).toContain('每 2 周的周一、周五')
     const summary = todoNotificationSummary({ ...defaultTodoNotificationRule(), frequency: 'specified', days_before: [0, 3], suppress_non_working_days: true })
     expect(summary.time).toContain('截止当天、第 3 个自然日')
     expect(summary.holidayPolicy).toBe('屏蔽')

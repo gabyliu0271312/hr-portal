@@ -167,7 +167,6 @@ async def ensure_valid_report_field_references(
     from app.data.models import (
         StandardField,
         StandardFieldBinding,
-        StandardFieldVersion,
         TableColumn,
     )
     from app.datasets.calculated_fields import active_calculated_fields
@@ -201,11 +200,10 @@ async def ensure_valid_report_field_references(
             select(DatasetOutputField.id, StandardField.field_code)
             .select_from(DatasetOutputField)
             .join(StandardFieldBinding, StandardFieldBinding.dataset_output_field_id == DatasetOutputField.id)
-            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
-            .join(StandardField, StandardField.id == StandardFieldVersion.standard_field_id)
+            .join(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
             .where(DatasetOutputField.dataset_id == dataset_id,
                    StandardFieldBinding.status == "confirmed",
-                   StandardFieldVersion.status == "active")
+                   StandardField.is_active.is_(True))
         )).all()
         for output_id, field_code in semantic_rows:
             output = outputs_by_id.get(output_id)

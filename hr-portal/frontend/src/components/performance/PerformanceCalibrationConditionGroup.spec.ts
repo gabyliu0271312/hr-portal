@@ -42,7 +42,7 @@ describe('PerformanceCalibrationConditionGroup', () => {
     expect(options).not.toContain('员工 E1')
     ;(document.body.querySelectorAll('.performance-flat-option-list__option')[2] as HTMLButtonElement).click()
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation', ['INDIRECT_SUBORDINATES'])] })
-    wrapper.findComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', ['HRBP', 'DIRECT_SUBORDINATES'])
+    wrapper.findAllComponents({ name: 'PerformanceSearchSelect' }).find(select => select.props('multiple'))!.vm.$emit('update:modelValue', ['HRBP', 'DIRECT_SUBORDINATES'])
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation', ['DIRECT_SUBORDINATES'])] })
     wrapper.unmount()
   })
@@ -51,7 +51,8 @@ describe('PerformanceCalibrationConditionGroup', () => {
     const wrapper = mount(PerformanceCalibrationConditionGroup, {
       props: { modelValue: { conditions: [condition('employee', ['E1'])] }, title: '条件组 1', fieldLabel: '校准人', fieldOptions: [{ value: 'employee', label: '人员' }, { value: 'calibrator_relation', label: '与校准人关系' }] },
     })
-    await wrapper.get('.calibration-select select').setValue('calibrator_relation')
+    wrapper.findAllComponents({ name: 'PerformanceSearchSelect' })[0].vm.$emit('update:modelValue', 'calibrator_relation')
+    await wrapper.vm.$nextTick()
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation')] })
   })
 })

@@ -2097,17 +2097,16 @@ async def list_model_standard_fields(model_id: int, db: AsyncSession = Depends(g
     for code, entries in sorted(bindings.items()):
         if len(entries) != 1:
             continue
-        output, _binding, version = entries[0]
+        output, _binding, field = entries[0]
         result.append({
             "standard_field_code": code,
-            "standard_field_id": version.standard_field_id,
-            "version_id": version.id,
+            "standard_field_id": field.id,
             "output_code": output.output_code,
             "output_label": output.output_label,
             "data_type": output.data_type,
-            "grain_level": version.grain_level,
-            "permission_domain": version.permission_domain,
-            "is_permission_anchor": version.is_permission_anchor,
+            "grain_level": field.grain_level,
+            "permission_domain": field.permission_domain,
+            "is_permission_anchor": field.is_permission_anchor,
         })
     return result
 

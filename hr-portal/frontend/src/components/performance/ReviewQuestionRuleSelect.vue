@@ -24,13 +24,13 @@ function ruleSummary(option: ReviewRuleOption): string {
 <template>
   <div class="review-rule-select-wrap">
     <el-select
-      class="review-rule-select"
+      class="review-rule-select performance-token-select"
       :model-value="modelValue"
       placeholder="请选择"
       style="width: 100%"
       :loading="loading"
       :disabled="loading"
-      popper-class="review-rule-select-popper"
+      popper-class="review-rule-select-popper performance-token-select-popper"
       @update:model-value="emit('update:modelValue', $event)"
     >
       <template v-if="selectedOption" #label>

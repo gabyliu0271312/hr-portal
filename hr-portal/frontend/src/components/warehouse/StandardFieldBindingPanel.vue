@@ -9,7 +9,7 @@ import { isTechnicalColumn } from '@/utils/columnRoles'
 
 const props = defineProps<{
   fieldId: number
-  activeVersionId: number | null
+  fieldActive?: boolean
   bindings: StandardFieldBindingRef[]
   datasetId?: number | null
   tableName?: string | null
@@ -80,12 +80,12 @@ function targetLabel(row: StandardFieldBindingCandidate) {
   return row.target_kind === 'dataset_output_field' ? `数据集输出 · ${row.dataset_name || row.dataset_id}` : `物理字段 · ${row.table_name}`
 }
 async function suggest(row: StandardFieldBindingCandidate) {
-  if (!canUpdate() || !props.activeVersionId || row.existing_binding_id || savingKey.value || !visibleRows.value.includes(row)) return
+  if (!canUpdate() || props.fieldActive === false || row.existing_binding_id || savingKey.value || !visibleRows.value.includes(row)) return
   const context = contextId
   const fieldId = props.fieldId
   savingKey.value = `${row.target_kind}:${row.target_id}`
   try {
-    await standardFieldsApi.createBinding(fieldId, { target_kind: row.target_kind, target_id: row.target_id, standard_field_version_id: props.activeVersionId, ...(scope.value.dataset_id ? { dataset_id: scope.value.dataset_id } : {}) })
+    await standardFieldsApi.createBinding(fieldId, { target_kind: row.target_kind, target_id: row.target_id, ...(scope.value.dataset_id ? { dataset_id: scope.value.dataset_id } : {}) })
     if (context !== contextId || !canUpdate()) return
     ElMessage.success('已创建待确认绑定')
     await load()
@@ -128,7 +128,7 @@ watch(() => [props.fieldId, props.datasetId, props.tableName, canView.value], ()
   keyword.value = ''
   void loadScopes()
 }, { immediate: true, flush: 'sync' })
-watch(() => [props.fieldId, props.activeVersionId, scopeKind.value, selectedDataset.value, selectedTable.value, canView.value], () => {
+watch(() => [props.fieldId, props.fieldActive, scopeKind.value, selectedDataset.value, selectedTable.value, canView.value], () => {
   ++contextId; savingKey.value = ''; void load()
 }, { immediate: true, flush: 'sync' })
 onBeforeUnmount(() => { ++requestId; ++contextId; ++optionsId })
@@ -138,7 +138,7 @@ onBeforeUnmount(() => { ++requestId; ++contextId; ++optionsId })
   <section class="binding-panel">
     <div class="binding-panel__heading">
       <div><strong>绑定候选</strong><p>先选择数据集或来源物理表；仅展示该范围内的非敏感、可见字段元数据。</p></div>
-      <el-tag v-if="!activeVersionId" size="small" type="warning">需先启用语义版本</el-tag>
+      <el-tag v-if="fieldActive === false" size="small" type="warning">标准字段已停用</el-tag>
     </div>
     <p v-if="!canView" role="alert">无权读取绑定候选。</p>
     <template v-else>
@@ -158,7 +158,7 @@ onBeforeUnmount(() => { ++requestId; ++contextId; ++optionsId })
           <el-table-column prop="data_type" label="类型" min-width="90" />
           <el-table-column label="绑定状态" min-width="100"><template #default="{ row }"><el-tag size="small">{{ statusLabel(row.existing_binding_status) }}</el-tag></template></el-table-column>
           <el-table-column label="操作" width="280" fixed="right"><template #default="{ row }">
-            <PermissionButton v-if="!row.existing_binding_id" menu="warehouse.standard_fields.catalog" op="U" size="small" :disabled="!activeVersionId || savingKey !== '' || loading" @click="suggest(row)">建议绑定</PermissionButton>
+            <PermissionButton v-if="!row.existing_binding_id" menu="warehouse.standard_fields.catalog" op="U" size="small" :disabled="fieldActive === false || savingKey !== '' || loading" @click="suggest(row)">建议绑定</PermissionButton>
             <PermissionButton v-else-if="row.existing_binding_status === 'suggested'" menu="warehouse.standard_fields.catalog" op="U" size="small" :disabled="savingKey !== '' || loading" @click="confirm(row)">确认绑定</PermissionButton>
             <span v-else class="binding-panel__muted">无需操作</span>
           </template></el-table-column>

@@ -5,7 +5,7 @@ export const notificationFrequencyOptions = [
   { value: 'daily', label: '以天为单位重复' },
   { value: 'weekly', label: '以周为单位重复' },
 ]
-export const notificationWeekdayOptions = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+export const notificationWeekdayOptions = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
   .map((label, index) => ({ value: String(index + 1), label }))
 export const notificationTimezoneOptions = [
   { value: 'person', label: '人员所在时区' },

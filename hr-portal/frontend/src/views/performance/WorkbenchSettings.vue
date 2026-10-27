@@ -25,7 +25,7 @@
       </PerformanceListToolbar>
       <div v-if="entryFilterOpen" class="filter-row" aria-label="入口状态筛选">
         <span>状态</span>
-        <el-select v-model="entryStatus" size="small" aria-label="入口状态" @change="refreshEntries">
+        <el-select popper-class="performance-token-select-popper" class="performance-token-select" v-model="entryStatus" size="small" aria-label="入口状态" @change="refreshEntries">
           <el-option label="全部" value="" />
           <el-option label="已启用" value="active" />
           <el-option label="已停用" value="inactive" />
@@ -97,7 +97,7 @@
       </PerformanceListToolbar>
       <div v-if="announcementFilterOpen" class="filter-row" aria-label="公告状态筛选">
         <span>状态</span>
-        <el-select v-model="announcementStatus" size="small" aria-label="公告状态" @change="refreshAnnouncements">
+        <el-select popper-class="performance-token-select-popper" class="performance-token-select" v-model="announcementStatus" size="small" aria-label="公告状态" @change="refreshAnnouncements">
           <el-option label="全部" value="" />
           <el-option label="已启用" value="active" />
           <el-option label="已停用" value="inactive" />

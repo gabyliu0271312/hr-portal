@@ -81,3 +81,24 @@
   - 允许：本目录文档及 CR-005 独立 PNG。
   - 校验：复用壳/单选/下拉/数字/按钮；无新主色；10px 用 spacing-25；浮层高于弹窗；错误定位字段；窄屏不溢出；来源选项与暂定选项区分；无凭证/UCP/发送副作用。
   - 2026-10-20 证据：主会话已读取五张实际UI截图，修正纯时间宽度300px/右侧时钟与2201浮层；修正选择后残留必填错误。布局复用统一壳，新增2个语义token；未改全局主色/路由/权限/UCP/PM-T007。39项聚焦测试、构建及真实前端+模拟API浏览器走查通过。403加载、Portal无U按钮隐藏在组件测试覆盖；生产与实际DB未验收，不属于本次UI通过结论。
+
+- [x] CR-005-T07 绩效选择框统一及周选择顺序持久化
+  - 前置/权威：2026-10-27用户确认7项源交互、全绩效统一组件/token及刷新重开保序，明确要求开发验收；spec v3 / UI v6；Spec002基线/ADR001、Spec012 A01/A02/A05/N000/N00/U00/UI守则。
+  - 允许：components/performance/*Select*.vue及共用标签、相关选择框调用与样式；tokens.css；通知Dialog/rule与backend/app/performance/notification_settings_router.py；现有前后端测试和必要新增组件测试；本目录现有文档及T07独立PNG。共享文件局部串行编辑，保留其他会话改动。
+  - 禁止：生产/部署/提交推送、迁移、路由/权限/通知发送、普通checkbox和非绩效选择器、周期快照/API规则变更；days_before继续排序。
+  - 契约：现有GET/PATCH和200/403/422、审计事务不变；仅weekdays改为保序去重；所有选择器保持业务值类型、禁用和搜索，普通列表右勾，组织树保留层级；单行 +N悬停可删除补位。
+  - Given非自然顺序选择且超宽；When选择/删除/悬停/保存/刷新/重开；Then右勾、无左方框、单行、隐藏项计数和补位正确、周数组经UI→API→DB→GET→重开不重排。失败不写/不丢草稿、权限拒绝、旧值不丢、单选不回归。
+  - 测试：新增共享选择器组件spec并回归绩效相关spec、后端通知pytest、vue-tsc+Vite；真实浏览器截图及本机开发PostgreSQL持久化验证（验后恢复原配置，不改结构）。独立PNG：../../ui-blueprints/CR-005-T07-implemented-select-overflow.png。
+  - 停止：不部署；只撤销本任务局部变更，不整体回滚工作区或删除历史配置。完成定义：开发、组件/API、构建、真实UI与数据库链路及证据全部完成后勾选；未跑单列。
+
+  - 2026-10-27完成证据：共享壳 `PerformanceSelectShell` 测量实际标签与计数宽度；`PerformanceSelectTag` 统一主框/悬停浮层/非交互测量副本；`PerformanceSearchSelect` 按值数组取标签，默认统一右勾。RoleMultiSelect/MultiSelect迁入共享组件，组织树选中标签保序，原生部门/人员/校准条件/复议/评级/矩阵下拉迁入共享入口；描述型/数值型Element选择器添加绩效专用token适配类，保留原值类型/描述和交互。执行人/指标/评估项/组织节点的专用样式消费同一选项token。普通checkbox与非绩效选择器未改。共享文档更新 frontend/docs/design-system.md 的“绩效选择框”章节。
+  - 后端：`cd hr-portal/backend && DB_HOST=127.0.0.1 python -m pytest tests/test_performance_notification_settings.py -q` → **44 passed**，1条既有python_multipart弃用警告。覆盖待办/日报保序去重、GET重开、仅换序写审计、同值幂等、days_before仍排序、非法值/无权限拒绝；无需迁移。
+  - 前端最终核心验收：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceSearchSelect.spec.ts src/components/performance/PerformanceTodoNotificationDialog.spec.ts src/views/performance/NotificationSettings.spec.ts src/components/performance/PerformanceRoleMultiSelect.spec.ts src/components/performance/PerformanceRatingControl.spec.ts src/components/performance/PerformanceHrbpPermissionDialog.spec.ts --maxWorkers=2 --minWorkers=1` → **6 files / 54 passed**。宽度测量、+N预留、无+0、隐藏项/主项删除补位、resize不主动重排、旧值显示、禁用、单/多选、右勾、失败与重开均覆盖。
+  - 扩展回归：通知/时间/校准条件/复议多执行人/评级/矩阵/人员范围/工作台/规则选择共**14 files / 90 passed**；流程模板TS+已有JS测试镜像、角色TS+JS、评级最终复跑**5 files / 111 passed**；选择器/HRBP/周期多模板/通知卡片复跑**4 files / 47 passed**。各组有重叠，不累计冒充独立用例数。同步的JS测试镜像只限本次受影响的角色、流程模板；SelfSummaryTask原有JS测试改用共享选择器事件，9文件集成复跑**208 passed**。
+  - 构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc + Vite退出0**，最终构建53.01s，仅@vueuse现有PURE注释警告。指定文件 `git diff --check` 通过。
+  - 真实链路：现有Vite5175 + 临时本机API8013（当前源码，lifespan off，不执行startup/迁移）+ 本机APP_ENV=dev PostgreSQL127.0.0.1:5432，真实admin认证，浏览器仅转发/API传输，不mock成功响应。待办UI依次选[5,1,3,7,2,4,6]，日报选[3,1,6]；真实PATCH请求、服务返回、独立SQL查询JSONB数组、GET、刷新及重开均保持相同顺序；两条规则独立。验收finally通过API恢复原始两条配置，并GET逐字段比较一致；保留真实审计，未删证据。临时API进程已停止，既有服务不重启。
+  - 实际浏览器：桌面1440×960与390×844主框32px、单行；桌面可见周五/周一/+5，悬停仅显示其余5项；隐藏项可删除、可见项删除后补位；窗口变大不主动重排。右侧选项勾选，无左方框；工作台Element状态筛选另验右侧16px勾选、12px右距及共享token。保存中取消/确定/关闭均禁用；503失败为刻意模拟，草稿保留且取消不写；成功持久化链路为真实API/DB。上述浏览器无pageerror。
+  - 独立PNG（均已读取检查）：../../ui-blueprints/CR-005-T07-implemented-select-{overflow,checkmarks,mobile,element-adapter}.png。范围为组件及代表入口验收，不宣称每个绩效页面均完成手工穷举。
+  - 全量回归限制：`npm --prefix hr-portal/frontend test -- src/components/performance src/views/performance src/layouts/PerformanceAdminLayout.spec.ts src/layouts/PerformanceLayout.spec.ts --exclude '**/*.spec.js' --maxWorkers=3 --minWorkers=1` → **119 files通过/10 files失败，938 tests通过/10失败**。10项用Vite pre-load插件在内存替换本次相关选择器为HEAD版本进行只读对照，工作区不改；**同样37通过/10失败**，确认不是本次选择器变更引入。保留不修范围外问题，不宣称全量全绿。
+  - 对照复现的失败：AuthorizationManagementPanel（surface-card硬编码CSS断言）、LevelConfigEditor（负数归一化期望）、PerformanceHrbpScopeSummary（测试缺Pinia）、PerformanceListToolbar（filter事件次数）、PerformanceMetricDimensionCreateDialog（规则节点结构）、PerformanceMetricFieldCreateDialog（按钮计数）、PerformanceProjectTimeSettings（UUID fallback期望）、WorkflowNodeBasicFields（字段数量）、OtherPermissionSettings（旧保存按钮class）、SubjectVisibilitySettings（硬编码字体断言）。早期含旧JS镜像全量运行53失败，不能以该历史结果或排除JS后的结果互相替代；最终受影响JS镜像另有专项通过证据。
+  - 边界：仅T07标记完成，T01/T06的历史整卡状态不借此次周选择链路补验整体勾选。未部署远程/本机容器、未commit/push、无新migration、未改权限/周期快照或发送；已有无关工作区变更保留。生产与逐页完整人工验收未运行，不属于本次通过结论。

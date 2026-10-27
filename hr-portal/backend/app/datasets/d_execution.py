@@ -83,9 +83,9 @@ def _semantic_locator_codes(outputs, semantics_by_output, anchor_field_id):
         semantic = semantics_by_output.get(item["id"])
         if semantic is None:
             continue
-        _binding, version = semantic
-        if (version.grain_level == "identifying" or version.permission_domain == "personal"
-                or (anchor_field_id is not None and version.standard_field_id == anchor_field_id)):
+        _binding, field = semantic
+        if (field.grain_level == "identifying" or field.permission_domain == "personal"
+                or (anchor_field_id is not None and field.id == anchor_field_id)):
             codes.add(code)
     return codes
 
@@ -340,7 +340,7 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         type_issue = _type_issue_for_column(model, current_columns[code], code)
         if type_issue:
             return None, [type_issue]
-    from app.data.models import StandardFieldBinding, StandardFieldVersion
+    from app.data.models import StandardFieldBinding, StandardField
     from app.datasets.models import DatasetOutputField
     current_outputs = (await db.execute(select(DatasetOutputField).where(
         DatasetOutputField.dataset_id == bound_contract.dataset_id,
@@ -351,27 +351,27 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         if current is None or any(getattr(current, key) != expected[key] for key in (
                 "source_alias", "source_column", "output_code", "data_type", "is_sensitive")):
             return None, [_s_issue("s_execution_output_drift", "当前数据集输出已偏离批准快照")]
-    semantics = (await db.execute(select(StandardFieldBinding, StandardFieldVersion).join(
-        StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id
+    semantics = (await db.execute(select(StandardFieldBinding, StandardField).join(
+        StandardField, StandardField.id == StandardFieldBinding.standard_field_id
     ).where(or_(
         StandardFieldBinding.table_column_id.in_([current_columns[code].id for code in required]),
         StandardFieldBinding.dataset_output_field_id.in_([output["id"] for output in outputs.values()])
     )))).all()
-    semantics_by_column = {binding.table_column_id: (binding, version) for binding, version in semantics
+    semantics_by_column = {binding.table_column_id: (binding, field) for binding, field in semantics
                            if binding.table_column_id is not None}
-    semantics_by_output = {binding.dataset_output_field_id: (binding, version) for binding, version in semantics
+    semantics_by_output = {binding.dataset_output_field_id: (binding, field) for binding, field in semantics
                            if binding.dataset_output_field_id is not None}
     anchor_field_id = None
     if fact.employee_key:
         anchor_field_id = await db.scalar(
-            select(StandardFieldVersion.standard_field_id)
+            select(StandardField.id)
             .select_from(TableColumn)
             .join(StandardFieldBinding, StandardFieldBinding.table_column_id == TableColumn.id)
-            .join(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            .join(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
             .where(TableColumn.table_name == fact.table_name,
                    TableColumn.column_code == fact.employee_key,
                    StandardFieldBinding.status == "confirmed",
-                   StandardFieldVersion.status == "active")
+                   StandardField.is_active.is_(True))
             .limit(1)
         )
     semantic_locators = _semantic_locator_codes(outputs, semantics_by_output, anchor_field_id)
@@ -381,7 +381,7 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
                     | {condition.field for condition in conditions}) & semantic_locators
     if locator_refs:
         return None, [_s_issue("s_execution_personal_locator_forbidden", "人员定位字段不能通过汇总路径使用")]
-    checked_versions = set()
+    checked_fields = set()
     from app.warehouse.service.standard_fields import _physical_source_identity
     for code in request.plan.output_fields:
         output = outputs[code]
@@ -389,24 +389,23 @@ async def compile_allocation_fact_s_select_for_user(*, contract, request, user, 
         identity = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
         for semantic in (semantics_by_column.get(column.id), semantics_by_output.get(output["id"])):
             if semantic is None:
-                return None, [_s_issue("s_execution_semantic_unverified", "汇总来源或输出缺少批准语义绑定")]
-            binding, version = semantic
+                return None, [_s_issue("s_execution_semantic_unverified", "汇总来源或输出缺少已确认标准字段映射")]
+            binding, field = semantic
             if (binding.status != "confirmed" or binding.confirmed_by is None or binding.confirmed_at is None
                     or binding.binding_version <= 0 or binding.observed_source_field_id != identity
                     or binding.observed_data_type != column.data_type
-                    or version.status != "active" or version.approved_by is None or version.approved_at is None
-                    or not (version.approval_reason or "").strip() or version.data_type != column.data_type
-                    or version.grain_level == "identifying"
-                    or (code in request.plan.group_by and version.grain_level not in {"coarse", "fine"})):
+                    or not field.is_active or field.data_type != column.data_type
+                    or field.grain_level == "identifying"
+                    or (code in request.plan.group_by and field.grain_level not in {"coarse", "fine"})):
                 return None, [_s_issue("s_execution_semantic_unverified", "汇总来源或输出语义未通过检查")]
-            checked_versions.add(version.id)
-    from app.data.models import StandardFieldVersionCategory
+            checked_fields.add(field.id)
+    from app.data.models import StandardFieldCategory
     from app.field_category.models import FieldCategory
     from app.permissions.masker import _user_allowed_categories
-    semantic_categories = (await db.execute(select(StandardFieldVersionCategory.field_category_id).join(
-        FieldCategory, FieldCategory.id == StandardFieldVersionCategory.field_category_id
-    ).where(StandardFieldVersionCategory.standard_field_version_id.in_(
-        checked_versions), FieldCategory.is_sensitive.is_(True)))).scalars().all()
+    semantic_categories = (await db.execute(select(StandardFieldCategory.field_category_id).join(
+        FieldCategory, FieldCategory.id == StandardFieldCategory.field_category_id
+    ).where(StandardFieldCategory.standard_field_id.in_(
+        checked_fields), FieldCategory.is_sensitive.is_(True)))).scalars().all()
     if set(semantic_categories) - await _user_allowed_categories(user, db):
         return None, [_s_issue("s_execution_hidden_field_forbidden", "当前用户没有汇总字段的敏感分类权限")]
     from sqlalchemy import inspect

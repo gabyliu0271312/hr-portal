@@ -258,9 +258,27 @@ class StandardField(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     field_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    has_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    business_definition: Mapped[str] = mapped_column(Text, nullable=False)
+    data_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    value_domain: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    grain_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    permission_domain: Mapped[str] = mapped_column(String(32), nullable=False, default="public", server_default="public")
+    is_permission_anchor: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     created_by: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class StandardFieldCategory(Base):
+    __tablename__ = "standard_field_categories"
+
+    standard_field_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("standard_fields.id", ondelete="RESTRICT"), primary_key=True)
+    field_category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("field_categories.id", ondelete="RESTRICT"), primary_key=True)
 
 
 class StandardFieldVersion(Base):
@@ -328,13 +346,13 @@ class StandardFieldBinding(Base):
         CheckConstraint("binding_version >= 0", name="ck_standard_binding_version"),
         CheckConstraint("status IN ('unmapped','suggested','confirmed','invalid')", name="ck_standard_binding_status"),
         CheckConstraint(
-            "(status='unmapped' AND standard_field_version_id IS NULL AND confirmed_by IS NULL AND confirmed_at IS NULL) "
-            "OR (status='suggested' AND standard_field_version_id IS NOT NULL AND confirmed_by IS NULL AND confirmed_at IS NULL) "
-            "OR (status='confirmed' AND standard_field_version_id IS NOT NULL AND binding_version > 0 "
+            "(status='unmapped' AND standard_field_id IS NULL AND confirmed_by IS NULL AND confirmed_at IS NULL) "
+            "OR (status='suggested' AND standard_field_id IS NOT NULL AND confirmed_by IS NULL AND confirmed_at IS NULL) "
+            "OR (status='confirmed' AND standard_field_id IS NOT NULL AND binding_version > 0 "
             "AND confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL AND observed_data_type IS NOT NULL "
             "AND length(trim(observed_data_type)) > 0) "
             "OR (status='invalid' AND ((confirmed_by IS NULL AND confirmed_at IS NULL) OR "
-            "(standard_field_version_id IS NOT NULL AND binding_version > 0 AND confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL)))",
+            "(standard_field_id IS NOT NULL AND binding_version > 0 AND confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL)))",
             name="ck_standard_binding_confirmation"
         ),
     )
@@ -342,7 +360,7 @@ class StandardFieldBinding(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     table_column_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("table_columns.id", ondelete="RESTRICT"), nullable=True)
     dataset_output_field_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("dataset_output_fields.id", ondelete="RESTRICT"), nullable=True)
-    standard_field_version_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_field_versions.id", ondelete="RESTRICT"), nullable=True)
+    standard_field_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("standard_fields.id", ondelete="RESTRICT"), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="unmapped", server_default="unmapped")
     binding_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     observed_source_field_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

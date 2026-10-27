@@ -245,6 +245,11 @@
   --performance-button-danger-outline-hover-background: #fdc6c4;
   --performance-button-danger-text: var(--color-bg-card);
 
+  /* Shared performance selectors: shell, options and overflow tags. */
+  --performance-select-height: var(--performance-control-height);
+  --performance-select-content-height: 28px;
+  --performance-select-padding-x: 11px;
+  --performance-select-padding-value-left: 3px;
   --performance-select-tag-height: 24px;
   --performance-select-tag-padding-x: 6px;
   --performance-select-tag-gap: var(--spacing-1);
@@ -254,6 +259,15 @@
   --performance-select-tag-content-max-width: 144px;
   --performance-select-tag-close-size: 12px;
   --performance-select-icon-color: #646a73;
+  --performance-select-option-height: var(--performance-control-height);
+  --performance-select-option-padding-x: var(--spacing-3);
+  --performance-select-option-hover: var(--color-bg-hover);
+  --performance-select-option-selected: var(--color-primary-subtle);
+  --performance-select-check-size: var(--spacing-4);
+  --performance-select-check-color: var(--color-primary-hover);
+  --performance-select-popup-max-height: 240px;
+  --performance-select-overflow-popup-max-width: 320px;
+  --performance-select-overflow-popup-padding: var(--spacing-3);
 
   /* Shared field states: the field shell owns visual state, business controls own value logic. */
   --performance-field-border: var(--performance-control-border);

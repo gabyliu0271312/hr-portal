@@ -54,7 +54,7 @@ describe('PerformanceNotificationSettingsCard', () => {
   it('routes edits independently and reads the progress rule for its summary', async () => {
     const wrapper = mountCard({ progress_daily_rule: { frequency: 'weekly', interval: 2, days_before: [], day_kind: 'calendar_day', weekdays: [2, 4], time: '09:30', timezone: 'person', suppress_non_working_days: true } })
     const rows = wrapper.findAll('.notification-rule-summary')
-    expect(rows[1].text()).toContain('每 2 周的星期二、星期四的 09:30')
+    expect(rows[1].text()).toContain('每 2 周的周二、周四的 09:30')
     expect(rows[1].text()).toContain('屏蔽')
     expect(rows[0].text()).toContain('10:00')
     await rows[1].get('button').trigger('click')

@@ -685,26 +685,25 @@ class StandardizationRuleService:
             raise
 
     async def _validate_refresh_binding(self, *, column, output_id=None):
-        from app.data.models import StandardFieldBinding, StandardFieldVersion
+        from app.data.models import StandardFieldBinding, StandardField
 
         target = (StandardFieldBinding.dataset_output_field_id == output_id
                   if output_id is not None
                   else StandardFieldBinding.table_column_id == column.id)
         rows = (await self.session.execute(
-            select(StandardFieldBinding, StandardFieldVersion)
-            .outerjoin(StandardFieldVersion, StandardFieldVersion.id == StandardFieldBinding.standard_field_version_id)
+            select(StandardFieldBinding, StandardField)
+            .outerjoin(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
             .where(target)
         )).all()
         from app.warehouse.service.standard_fields import _physical_source_identity
-        for binding, version in rows:
+        for binding, field in rows:
             source_identity = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
-            if (binding.status != "confirmed" or version is None
-                    or version.status not in {"active", "deprecated"}
-                    or version.approved_by is None
+            if (binding.status != "confirmed" or field is None
+                    or not field.is_active
                     or binding.observed_source_field_id != source_identity
                     or _normalized_metadata_type(binding.observed_data_type) != _normalized_metadata_type(column.data_type)
-                    or _normalized_metadata_type(version.data_type) != _normalized_metadata_type(column.data_type)):
-                raise ValueError("DWD_REFRESH_BINDING_INVALID: 字段确认或语义版本已失效")
+                    or _normalized_metadata_type(field.data_type) != _normalized_metadata_type(column.data_type)):
+                raise ValueError("DWD_REFRESH_BINDING_INVALID: 字段确认映射或标准定义已失效")
 
     async def _prepare_dwd_refresh(self, target, columns, column_types, source_field_map, source_columns):
         from app.data.models import RegisteredTable, TableColumn

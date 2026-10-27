@@ -76,10 +76,7 @@
 
       <section v-else-if="node.node_type === 'result_reconsideration'" class="node-settings reconsideration-settings" aria-label="结果复议处理设置">
         <h3>无法找到复议处理人时，由以下人员处理</h3>
-        <select :value="reconsiderationSettings(node).handler" class="field-control" aria-label="结果复议处理人" @change="setReconsiderationHandler(node, $event)">
-          <option :value="null">请选择</option>
-          <option v-for="option in handlerOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-        </select>
+        <PerformanceSearchSelect :model-value="reconsiderationSettings(node).handler" :options="handlerOptions" class="reconsideration-handler-select" selection-style="plain" aria-label="结果复议处理人" @update:model-value="setReconsiderationHandler(node, $event)" />
       </section>
     </article>
     <PerformanceProject360InviteSettingsDrawer
@@ -106,6 +103,7 @@
 </template>
 
 <script setup lang="ts">
+import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import { createCalibrationPhaseId, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { PerformanceCalibrationAssignment, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
@@ -275,7 +273,7 @@ function setMinimumInviteCount(node: PerformanceWorkflowNode, event: Event) { in
 function removeRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { const rules = calibrationSettings(node).phases[phaseIndex].rules; if (rules.length > 1) rules.splice(ruleIndex, 1) }
 function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const phases = calibrationSettings(node).phases; if (phases.length > 1) phases.splice(phaseIndex, 1) }
 function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ phase_id: createCalibrationPhaseId(), rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
-function setReconsiderationHandler(node: PerformanceWorkflowNode, event: Event) { reconsiderationSettings(node).handler = (event.target as HTMLSelectElement).value || null }
+function setReconsiderationHandler(node: PerformanceWorkflowNode, value: string | string[] | null) { reconsiderationSettings(node).handler = typeof value === 'string' ? value || null : null }
 function openingInvalid(node: PerformanceWorkflowNode) { const view = resultViewSettings(node); return props.showOpeningError && !view.automatic_enabled && !view.manual_enabled }
 function manualOpeningDisabled(node: PerformanceWorkflowNode) {
   if (node.node_type !== 'result_view') return false

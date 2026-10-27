@@ -719,7 +719,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect((wrapper.get('.invite-scope-panel input[value="PARTIAL"]').element as HTMLInputElement).checked).toBe(true)
   })
 
-  it('does not render a role popup when partial invitation has no candidate roles', async () => {
+  it('shows shared empty options when partial invitation has no candidate roles', async () => {
     const wrapper = mount(PerformanceTemplateWorkflowSettings, { attachTo: document.body })
     await wrapper.findAll('.stage-node')[0].trigger('click')
     await wrapper.get('.ud__select__selector').trigger('mouseenter')
@@ -729,9 +729,9 @@ describe('PerformanceTemplateWorkflowSettings', () => {
 
     const roleSelector = wrapper.get('.performance-role-multi-select')
     expect(roleSelector.classes()).not.toContain('has-options')
-    await roleSelector.get('.role-select-trigger').trigger('click')
+    await roleSelector.get('.performance-select-shell__selector').trigger('click')
 
-    expect(roleSelector.classes()).toContain('open')
+    expect(document.body.querySelector('.performance-flat-option-list__empty')?.textContent).toContain('暂无可选项')
     expect(document.body.querySelector('.role-select-dropdown')).toBeNull()
     expect(document.body.querySelectorAll('.role-select-option')).toHaveLength(0)
     wrapper.unmount()

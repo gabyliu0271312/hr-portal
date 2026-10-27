@@ -41,7 +41,7 @@ const selectedItems = computed<PerformanceSelectItem[]>(() => {
     visit(node.children)
   })
   visit(props.nodes)
-  return items
+  return props.modelValue.map(value => items.find(item => item.value === value) || { value, label: value })
 })
 const filteredNodes = computed(() => {
   const keyword = query.value.trim().toLowerCase()

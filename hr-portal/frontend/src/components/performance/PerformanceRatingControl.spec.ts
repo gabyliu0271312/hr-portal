@@ -16,20 +16,23 @@ describe('PerformanceRatingControl', () => {
   it('renders and updates dropdown-style ratings', async () => {
     const wrapper = mount(PerformanceRatingControl, { props: { options, displayMode: '下拉样式', interactive: true } })
     expect(wrapper.find('.performance-rating-control__labels').exists()).toBe(false)
-    await wrapper.get('select').setValue('s')
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 's')
+    await wrapper.vm.$nextTick()
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['s'])
   })
 
   it.each(['标签样式', '下拉样式'] as const)('derives unknown from the shared configuration in %s without mutating options', async displayMode => {
     const source = [...options, { id: '__unknown__', label: '旧值' }]
-    const wrapper = mount(PerformanceRatingControl, { props: { options: source, displayMode, interactive: true, allowUnknown: true } })
-    const selector = displayMode === '标签样式' ? '.rating-option' : 'select option:not([disabled])'
+    const wrapper = mount(PerformanceRatingControl, { props: { options: source, displayMode, interactive: true, allowUnknown: true }, global: { stubs: { Teleport: true } } })
+    if (displayMode === '下拉样式') await wrapper.get('.performance-select-shell__selector').trigger('click')
+    const selector = displayMode === '标签样式' ? '.rating-option' : '[role="option"]'
     expect(wrapper.findAll(selector).map(option => option.text())).toEqual(['卓越', '符合预期', '不了解'])
     if (displayMode === '标签样式') await wrapper.findAll(selector)[2].trigger('click')
-    else await wrapper.get('select').setValue('__unknown__')
+    else await wrapper.findAll(selector)[2].trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['__unknown__'])
     expect(source[2].label).toBe('旧值')
     await wrapper.setProps({ allowUnknown: false, options })
+    if (displayMode === '下拉样式') await wrapper.get('.performance-select-shell__selector').trigger('click')
     expect(wrapper.findAll(selector).map(option => option.text())).toEqual(['卓越', '符合预期'])
     wrapper.unmount()
   })

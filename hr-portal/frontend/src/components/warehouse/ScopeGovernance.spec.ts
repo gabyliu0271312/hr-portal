@@ -4,7 +4,7 @@ import { computed, defineComponent, inject, provide, reactive, ref } from 'vue'
 import StandardFieldBindingPanel from './StandardFieldBindingPanel.vue'
 import StandardFieldDrawer from './StandardFieldDrawer.vue'
 import StandardFieldValueDomain from './StandardFieldValueDomain.vue'
-import { standardFieldsApi, type StandardFieldBindingCandidate, type StandardFieldDetail, type StandardFieldVersion } from '@/api/standardFields'
+import { standardFieldsApi, type StandardFieldBindingCandidate, type StandardFieldDetail, type StandardFieldSummary } from '@/api/standardFields'
 import ScopeGovernancePanel from './ScopeGovernancePanel.vue'
 import ScopeClassificationDrawer from './ScopeClassificationDrawer.vue'
 import ScopeHealthTable from './ScopeHealthTable.vue'
@@ -307,16 +307,16 @@ const standardStubs = {
   'el-input-number': { props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="number" :value="modelValue" @input="$emit(\'update:modelValue\', Number($event.target.value))" />' },
   'el-switch': { props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />' },
 }
-function version(overrides: Partial<StandardFieldVersion> = {}): StandardFieldVersion {
-  return { id: 11, standard_field_id: 1, version: 1, revision: 4, field_name: '匹配类型', business_definition: '来源匹配字段类型', data_type: 'enum', grain_level: 'coarse', permission_domain: 'public', is_permission_anchor: false, owner_user_id: 1, category_ids: [], value_domain: { items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] }, status: 'draft', created_by: 1, approved_by: null, approved_at: null, approval_reason: null, status_reason: null, status_changed_by: null, status_changed_at: null, created_at: '', updated_at: '', ...overrides }
+function definition(overrides: Partial<StandardFieldSummary> = {}): StandardFieldSummary {
+  return { id: 1, field_code: 'field_type', revision: 4, field_name: '匹配类型', business_definition: '来源匹配字段类型', data_type: 'enum', category_ids: [], value_domain: { items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] }, is_active: true, ...overrides }
 }
-function standardDetail(item = version()): StandardFieldDetail {
-  return { id: item.standard_field_id, field_code: 'field_type', current_active_version_id: item.status === 'active' ? item.id : null, latest_version: item, versions: [item], bindings: [] }
+function standardDetail(item = definition()): StandardFieldDetail {
+  return { ...item, bindings: [] }
 }
 function candidate(overrides: Partial<StandardFieldBindingCandidate> = {}): StandardFieldBindingCandidate {
   return { target_kind: 'dataset_output_field', target_id: 647, table_name: null, dataset_id: 10, dataset_name: '费用分类', alias: 'current', column_code: 'field_type', display_name: '匹配类型', source_field_id: 'source-type', data_type: 'enum', is_sensitive: false, existing_binding_id: null, existing_binding_status: null, ...overrides }
 }
-function standardSetup(item = version()) {
+function standardSetup(item = definition()) {
   store.menus = [{ code: 'warehouse.standard_fields.catalog' }]
   mocks.get.mockImplementation((url: string) => Promise.resolve({ data:
     url === '/datasets' ? [{ id: 10, name: '费用分类' }, { id: 15, name: '分摊' }]
@@ -325,13 +325,13 @@ function standardSetup(item = version()) {
           : url === '/field-categories' ? [] : standardDetail(item),
   }))
 }
-function standardDrawer(item = version()) {
+function standardDrawer(item = definition()) {
   standardSetup(item)
-  return mount(StandardFieldDrawer, { props: { modelValue: true, fieldId: item.standard_field_id, datasetId: 10, governanceMode: true }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
+  return mount(StandardFieldDrawer, { props: { modelValue: true, fieldId: item.id }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
 }
 function bindingPanel(datasetId?: number) {
   standardSetup()
-  return mount(StandardFieldBindingPanel, { props: { fieldId: 1, activeVersionId: 11, bindings: [], datasetId }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
+  return mount(StandardFieldBindingPanel, { props: { fieldId: 1, fieldActive: true, bindings: [], datasetId }, global: { stubs: standardStubs, directives: { loading: () => {} } } })
 }
 const candidateCalls = () => mocks.get.mock.calls.filter(([url]) => String(url).endsWith('binding-candidates'))
 
@@ -403,7 +403,7 @@ describe('standard field scoped binding candidates', () => {
     await flushPromises()
     await button(wrapper, '建议绑定').trigger('click')
     await flushPromises()
-    expect(mocks.post).toHaveBeenCalledWith('/warehouse/standard-fields/1/bindings', { target_kind: 'dataset_output_field', target_id: 647, standard_field_version_id: 11, dataset_id: 10 })
+    expect(mocks.post).toHaveBeenCalledWith('/warehouse/standard-fields/1/bindings', { target_kind: 'dataset_output_field', target_id: 647, dataset_id: 10 })
     wrapper.unmount()
   })
 
@@ -411,7 +411,7 @@ describe('standard field scoped binding candidates', () => {
     const wrapper = bindingPanel(10)
     const suggested = candidate({ existing_binding_id: 71, existing_binding_status: 'suggested' })
     mocks.get.mockResolvedValue({ data: [suggested] })
-    await wrapper.setProps({ bindings: [{ id: 71, binding_version: 8, status: 'suggested', standard_field_version_id: 11, table_column_id: null, dataset_output_field_id: 647 }] })
+    await wrapper.setProps({ bindings: [{ id: 71, binding_version: 8, status: 'suggested', standard_field_id: 1, table_column_id: null, dataset_output_field_id: 647 }] })
     await button(wrapper, '查询').trigger('click')
     await flushPromises()
     const pending = deferred<{ value: string }>()
@@ -454,8 +454,8 @@ describe('standard field enum value domain', () => {
   })
 
   it('does not restore retired version controls even in the former governance mode', async () => {
-    for (const status of ['draft', 'active', 'deprecated', 'archived'] as const) {
-      const wrapper = standardDrawer(version({ status }))
+    for (const is_active of [true, false]) {
+      const wrapper = standardDrawer(definition({ is_active }))
       await flushPromises()
       expect(wrapper.find('.standard-field-versions').exists()).toBe(false)
       for (const label of ['新建版本', '审核启用', '弃用', '归档']) {
@@ -465,14 +465,14 @@ describe('standard field enum value domain', () => {
       expect(mocks.prompt).not.toHaveBeenCalled()
       wrapper.unmount()
     }
-    for (const method of ['approve', 'deprecate', 'archive']) {
+    for (const method of ['createVersion', 'updateVersion', 'approve', 'deprecate', 'archive']) {
       expect(standardFieldsApi).not.toHaveProperty(method)
     }
   })
 
   it('keeps legacy domain definitions readonly without creating empty replacement items', async () => {
     const legacy = { values: ['org', 'company'], description: '历史定义' }
-    const wrapper = standardDrawer(version({ value_domain: legacy }))
+    const wrapper = standardDrawer(definition({ value_domain: legacy }))
     await flushPromises()
     expect(wrapper.text()).toContain('旧格式值域')
     expect(button(wrapper, '新建版本')).toBeUndefined()
@@ -480,27 +480,26 @@ describe('standard field enum value domain', () => {
     expect(wrapper.text()).toContain('当前不能添加或覆盖枚举项')
     expect(button(wrapper, '添加枚举值')).toBeUndefined()
     expect(wrapper.find('input[aria-label="枚举编码"]').exists()).toBe(false)
-    expect(button(wrapper, '保存草稿').attributes('disabled')).toBeDefined()
+    expect(button(wrapper, '保存字段')).toBeUndefined()
     expect(wrapper.text()).toContain('请先完成值域格式迁移')
-    await button(wrapper, '保存草稿').trigger('click')
     await flushPromises()
     expect(mocks.put).not.toHaveBeenCalled()
     expect(mocks.post).not.toHaveBeenCalled()
     wrapper.unmount()
-    const activeWrapper = standardDrawer(version({ status: 'active', value_domain: legacy }))
+    const activeWrapper = standardDrawer(definition({ value_domain: legacy }))
     await flushPromises()
     expect(button(activeWrapper, '新建版本')).toBeUndefined()
     await button(activeWrapper, '编辑').trigger('click')
-    expect(button(activeWrapper, '保存草稿')).toBeUndefined()
+    expect(button(activeWrapper, '保存字段')).toBeUndefined()
     expect(mocks.post).not.toHaveBeenCalled()
     activeWrapper.unmount()
   })
 
   it('projects edited value domains onto the strict write schema without extra keys', async () => {
-    const wrapper = standardDrawer(version({ value_domain: { note: '旧附加属性', items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0, legacy_key: '旧项属性' }] } }))
+    const wrapper = standardDrawer(definition({ value_domain: { note: '旧附加属性', items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0, legacy_key: '旧项属性' }] } }))
     await flushPromises()
     await button(wrapper, '编辑').trigger('click')
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(mocks.put.mock.calls[0][1].value_domain).toEqual({ items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] })
     wrapper.unmount()
@@ -514,10 +513,10 @@ describe('standard field enum value domain', () => {
     editable.value = false
     await flushPromises()
     expect(wrapper.text()).not.toContain('撤权前未保存内容')
-    expect(button(wrapper, '保存草稿')).toBeUndefined()
+    expect(button(wrapper, '保存字段')).toBeUndefined()
     editable.value = true
     await flushPromises()
-    expect(button(wrapper, '保存草稿')).toBeUndefined()
+    expect(button(wrapper, '保存字段')).toBeUndefined()
     await button(wrapper, '编辑').trigger('click')
     expect((wrapper.find('input[aria-label="枚举名称"]').element as HTMLInputElement).value).toBe('组织')
     wrapper.unmount()
@@ -528,7 +527,7 @@ describe('standard field enum value domain', () => {
     await flushPromises()
     await button(wrapper, '编辑').trigger('click')
     mocks.put.mockRejectedValueOnce({ response: { data: { detail: JSON.stringify({ code: 'revision_conflict', message: '请重新加载当前版本' }) } } })
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('请重新加载当前版本')
     expect(wrapper.text()).not.toContain('revision_conflict')
@@ -557,12 +556,12 @@ describe('standard field enum value domain', () => {
     await button(wrapper, '添加枚举值').trigger('click')
     await wrapper.find('input[aria-label="枚举编码"]').setValue(' direct ')
     await wrapper.find('input[aria-label="枚举名称"]').setValue(' 直接费用 ')
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(mocks.post).toHaveBeenCalledWith('/warehouse/standard-fields', expect.objectContaining({ field_code: 'cost_type', data_type: 'enum', value_domain: { items: [{ code: 'direct', name: '直接费用', enabled: true, sort_order: 0 }] } }))
     expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('owner_user_id')
     expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('permission_domain')
-    expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('category_ids')
+    expect(mocks.post.mock.calls[0][1].category_ids).toEqual([])
     expect(candidateCalls()).toHaveLength(0)
     wrapper.unmount()
   })
@@ -570,20 +569,20 @@ describe('standard field enum value domain', () => {
   it('edits draft items and persists the complete value domain with the loaded revision', async () => {
     const wrapper = standardDrawer()
     await flushPromises()
-    expect(wrapper.findComponent(StandardFieldBindingPanel).props('datasetId')).toBe(10)
+    expect(wrapper.findComponent(StandardFieldBindingPanel).exists()).toBe(false)
     await button(wrapper, '编辑').trigger('click')
     const domain = wrapper.findComponent(StandardFieldValueDomain)
     await domain.find('input[aria-label="枚举名称"]').setValue('组织编码')
     await domain.find('input[aria-label="枚举启用"]').setValue(false)
     await domain.find('input[aria-label="枚举排序"]').setValue(2)
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
-    expect(mocks.put).toHaveBeenCalledWith('/warehouse/standard-fields/1/versions/11', expect.objectContaining({ expected_revision: 4, value_domain: { items: [{ code: 'org', name: '组织编码', enabled: false, sort_order: 2 }] } }))
+    expect(mocks.put).toHaveBeenCalledWith('/warehouse/standard-fields/1', expect.objectContaining({ expected_revision: 4, value_domain: { items: [{ code: 'org', name: '组织编码', enabled: false, sort_order: 2 }] } }))
     wrapper.unmount()
   })
 
   it('preserves active field editing without exposing a version-management workflow', async () => {
-    const item = version({ status: 'active' })
+    const item = definition()
     const wrapper = standardDrawer(item)
     await flushPromises()
     expect(button(wrapper, '编辑草稿')).toBeUndefined()
@@ -593,11 +592,11 @@ describe('standard field enum value domain', () => {
     expect(button(wrapper, '审核启用')).toBeUndefined()
     await button(wrapper, '编辑').trigger('click')
     await wrapper.find('input[aria-label="枚举名称"]').setValue('新组织定义')
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
-    expect(mocks.post).toHaveBeenCalledWith('/warehouse/standard-fields/1/versions', expect.objectContaining({ expected_version: 1, value_domain: { items: [{ code: 'org', name: '新组织定义', enabled: true, sort_order: 0 }] } }))
+    expect(mocks.put).toHaveBeenCalledWith('/warehouse/standard-fields/1', expect.objectContaining({ expected_revision: 4, value_domain: { items: [{ code: 'org', name: '新组织定义', enabled: true, sort_order: 0 }] } }))
     expect(item.value_domain?.items?.[0]?.name).toBe('组织')
-    expect(mocks.put).not.toHaveBeenCalled()
+    expect(mocks.post).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -606,29 +605,29 @@ describe('standard field enum value domain', () => {
     await flushPromises()
     await button(wrapper, '编辑').trigger('click')
     await button(wrapper, '添加枚举值').trigger('click')
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     expect(mocks.put).not.toHaveBeenCalled()
     const codes = wrapper.findAll('input[aria-label="枚举编码"]')
     const names = wrapper.findAll('input[aria-label="枚举名称"]')
     await codes[1].setValue(' org ')
     await names[1].setValue('重复编码')
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     expect(mocks.put).not.toHaveBeenCalled()
     await codes[1].setValue('company')
     await button(wrapper, '移除').trigger('click')
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(mocks.put.mock.calls[0][1].value_domain.items).toEqual([{ code: 'company', name: '重复编码', enabled: true, sort_order: 1 }])
     wrapper.unmount()
   })
 
   it('does not show enum controls for non-enum fields and clears enum items after a type change', async () => {
-    const wrapper = standardDrawer(version({ data_type: 'number', value_domain: null }))
+    const wrapper = standardDrawer(definition({ data_type: 'number', value_domain: null }))
     await flushPromises()
     expect(wrapper.findComponent(StandardFieldValueDomain).exists()).toBe(false)
     await button(wrapper, '编辑').trigger('click')
     expect(wrapper.findComponent(StandardFieldValueDomain).exists()).toBe(false)
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(mocks.put.mock.calls[0][1].value_domain).toBeNull()
     wrapper.unmount()
@@ -636,14 +635,14 @@ describe('standard field enum value domain', () => {
     await flushPromises()
     await button(enumWrapper, '编辑').trigger('click')
     await enumWrapper.findAll('select')[0].setValue('string')
-    await button(enumWrapper, '保存草稿').trigger('click')
+    await button(enumWrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(mocks.put.mock.calls.at(-1)?.[1].value_domain).toBeNull()
     enumWrapper.unmount()
   })
 
   it('keeps null enum domains empty rather than discovering business values', async () => {
-    const wrapper = standardDrawer(version({ value_domain: null }))
+    const wrapper = standardDrawer(definition({ value_domain: null }))
     await flushPromises()
     expect(wrapper.text()).toContain('不读取业务数据')
     expect(wrapper.find('input[aria-label="枚举编码"]').exists()).toBe(false)
@@ -657,7 +656,7 @@ describe('standard field enum value domain', () => {
     await button(wrapper, '编辑').trigger('click')
     await wrapper.find('input[aria-label="枚举名称"]').setValue('待保存')
     mocks.put.mockRejectedValueOnce({ response: { status: 409, data: { detail: { message: '版本冲突，请重新加载' } } } })
-    await button(wrapper, '保存草稿').trigger('click')
+    await button(wrapper, '保存字段').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('版本冲突')
     expect((wrapper.find('input[aria-label="枚举名称"]').element as HTMLInputElement).value).toBe('待保存')
@@ -672,8 +671,8 @@ describe('standard field enum value domain', () => {
     await button(wrapper, '编辑').trigger('click')
     const pendingSave = deferred<{ data: object }>()
     mocks.put.mockReturnValueOnce(pendingSave.promise)
-    await button(wrapper, '保存草稿').trigger('click')
-    mocks.get.mockImplementation((url: string) => Promise.resolve({ data: url.includes('/warehouse/standard-fields/') && !url.endsWith('binding-candidates') ? standardDetail(version({ id: 22, standard_field_id: 2, field_name: '新字段' })) : [] }))
+    await button(wrapper, '保存字段').trigger('click')
+    mocks.get.mockImplementation((url: string) => Promise.resolve({ data: url.includes('/warehouse/standard-fields/') && !url.endsWith('binding-candidates') ? standardDetail(definition({ id: 2, field_name: '新字段' })) : [] }))
     await wrapper.setProps({ fieldId: 2 })
     await flushPromises()
     pendingSave.resolve({ data: {} })
