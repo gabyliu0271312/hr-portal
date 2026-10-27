@@ -242,6 +242,16 @@
   --performance-button-danger-outline-hover-background: #fdc6c4;
   --performance-button-danger-text: var(--color-bg-card);
 
+  --performance-select-tag-height: 24px;
+  --performance-select-tag-padding-x: 6px;
+  --performance-select-tag-gap: var(--spacing-1);
+  --performance-select-tag-background: rgba(31, 35, 41, 0.1);
+  --performance-select-tag-text: var(--color-text-primary);
+  --performance-select-tag-radius: var(--radius-sm);
+  --performance-select-tag-content-max-width: 144px;
+  --performance-select-tag-close-size: 12px;
+  --performance-select-icon-color: #646a73;
+
   /* Shared field states: the field shell owns visual state, business controls own value logic. */
   --performance-field-border: var(--performance-control-border);
   --performance-field-border-hover: var(--color-text-placeholder);

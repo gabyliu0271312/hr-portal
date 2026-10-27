@@ -207,3 +207,17 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
 - 最终前端专项：`npm run test -- src/components/performance/PerformanceProjectTemplateField.spec.ts src/components/performance/PerformanceProjectFlowSettings.spec.ts src/components/performance/PerformanceButton.spec.ts src/views/performance/CycleManagement.spec.ts src/views/performance/ProjectManagement.spec.ts`，5文件69/69通过；`npm run build` 的vue-tsc与Vite通过（52.17s，既有VueUse PURE注释提示）。最终后端普通回归278通过3跳过，隔离schema专项单独启用1通过。
 - 同步Spec002 overview/workflow-design中周期单模板旧表述为用户确认的“周期多模板、项目单选”；未改变其他流程规则。
 - 任务状态：本轮代码完成，专项通过；保留扩展回归失败记录，PM-T003-I11不标记全体验收完成。未commit/push/部署/升级公共数据库。
+
+### PM-T003-I11-F01 项目基本信息局部展示调整（2026-10-27）
+
+- [ ] PM-T003-I11-F01：用户本轮明确授权三项 UI 调整，关联现有项目设置页，前置为现有项目 GET/PATCH 与基本信息编辑弹窗。
+  - 范围/允许文件：`PerformanceProjectSettingsPage.vue`、必要共享依赖 `PerformanceSelectTag.vue` 及其 `tokens.css` 标签 token、本功能交互与任务文件；保留共享工作树现有模板/被评估人和其他选择器调整。
+  - UI：见 `ui-interaction.md` 同编号小节及用户 SnapSpec；原基本信息两列结构、全局编辑图标按钮、纯文本名称、无边框中性角色标签、隐藏描述。无新路由/复杂交互，不要求新完整蓝图。
+  - 契约/禁止项：保持名称/角色/描述原数据、编辑弹窗、PATCH/GET；不改后端/迁移/权限/角色来源/全局样式，不部署或提交推送。停止方式为仅撤销本轮局部修改。
+  - 验收：已保存项目显示无输入框的名称和逐项角色标签；描述不显示；点击编辑仍回填原弹窗；空角色不补默认值；名称超长省略。原页面错误提示和入口权限保持。
+  - 检查：运行现有页面测试和前端构建；Spec012 N0001/N0002/N0004/N0005、N1102-N1106；无数据库变化，API/SQL/迁移验证不适用。未执行检查不得记通过，真实浏览器结果单独记录。
+
+  - 本轮验证：`npm run test -- src/views/performance/PerformanceProjectSettingsPage.spec.ts src/components/performance/PerformanceButton.spec.ts`，2 文件 7/7 通过；`npm run build`（vue-tsc + Vite）通过；目标文件 `git diff --check` 通过。现有 5173 开发服务能正常转换该页面模块，包含全局编辑组件、纯文本名称和角色标签。
+  - 验收限制：尚未执行浏览器视觉/点击编辑回填验收，无本轮截图，不以现有回归测试冒充三项视觉验证；本任务保持 `[ ]`。本轮无后端、SQL、迁移与生产操作，未 commit/push/部署。
+
+  - 后续授权：用户明确要求本次相关改动在 main commit 并推送；仅提交本卡及共享标签必要依赖，其他工作区修改不纳入。浏览器验收状态保持待完成。
