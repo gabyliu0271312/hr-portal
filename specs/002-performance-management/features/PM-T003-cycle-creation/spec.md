@@ -144,3 +144,14 @@
 周期记录保存 `overdue_submission_enabled: bool`（true=仍有逾期机会）及 `overdue_submission_scope: EVALUATION|ALL`。GET/POST/PATCH `/api/v1/performance/cycles` 回显/更新；单次 PATCH 只包含这两个字段，服务端核验 `performance.cycles.manage` 与全局设置开关，不能单靠入口隐藏。已启动项目/已锁定人员快照不阻断此项，保存成功后当前周期下一次任务提交校验立即读取最新策略，不修改历史提交、任务完成记录或已固化人员快照；全局第三项关闭时不允许周期变更，旧周期值保留并按全局第一项默认行为执行。仅未提交、已逾期的任务受此限制；已提交内容不因策略更改重写。业务缺少可运行的环节分类或提交入口时不得声称策略已实际生效。
 
 迁移 0263 仅新增周期两列及有效范围约束，旧周期使用允许逾期/评估型默认；downgrade 删除新列。测试必须覆盖权限 403、全局开关变化、两种范围、已启动项目立即生效、接口非法参数 422、旧周期回显、审计、提交前再读策略；真实数据库升降级与浏览器回归后才能宣称完成。
+
+## 11. 周期多模板与项目单选（2026-10-27 用户确认）
+
+- 周期可保存多个绩效模板，项目仅能从本周期已保存的模板中选择一个。新候选必须为启用的绩效模板，禁用/删除的模板不可新选；项目原值仍可读取，不改历史快照。
+- 周期DTO新增template_ids正整数数组，去重保序，作为唯一配置来源；旧template_id输入转换为数组，输出保留首项投影以兼容现有调用方。新旧同时传入时必须一致。
+- 数据：新增performance_cycles.template_ids JSONB列，旧template_id回填为单元素数组；迁移降级遇到多模板时拒绝，避免静默丢失。
+- PATCH未传模板字段时保持原值；传空数组清空。已被项目使用的周期模板不可移除；已启动项目不可更换模板。校验在原事务内执行，原有审计记录包含数组。
+- GET /api/v1/performance/cycles/{cycle_id}/project-templates：沿用项目列表范围授权，返回template_id/name/description/status等列表元数据，仅返回周期已选模板。非法模板归属返回422，无权限403，周期不存在404。
+- 项目仍保存单值template_id，沿用原有POST/PATCH/GET及审计；不实现模板预览、不改变人员快照/流程计算/生产部署。
+
+- 项目模板流程GET /api/v1/performance/cycles/{cycle_id}/project-templates/{template_id}/workflow：同一项目范围授权，校验周期归属后复用模板流程service，仅返回template_id/nodes；避免项目管理员被迫拥有全局模板配置权限。周期外422，缺失404，无权限403。

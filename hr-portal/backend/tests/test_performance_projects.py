@@ -3743,3 +3743,159 @@ async def test_project_calibration_authorization_never_falls_back_to_cycle_scope
     request = replace(request, phase_id="first")
     forwarded = _with_action(request, "CALIBRATE")
     assert (forwarded.project_id, forwarded.node_id, forwarded.phase_id) == (1, "calibration-1", "first")
+
+
+@pytest.mark.asyncio
+async def test_project_template_requires_cycle_membership_and_active_status():
+    class Db:
+        async def scalar(self, _statement):
+            return SimpleNamespace(template_ids=[11, 12])
+
+        async def get(self, _model, key):
+            return SimpleNamespace(template_kind="performance", status="active" if key == 11 else "inactive")
+
+    service = PerformanceProjectService(Db())
+    await service.validate_template("cycle:one", 11)
+    with pytest.raises(ProjectValidationError, match="当前绩效周期"):
+        await service.validate_template("cycle:one", 99)
+    with pytest.raises(ProjectValidationError, match="已启用"):
+        await service.validate_template("cycle:one", 12)
+
+
+@pytest.mark.asyncio
+async def test_project_template_candidates_scope_and_order(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    cycle = SimpleNamespace(cycle_ref="cycle:one", template_ids=[12, 11])
+    async def get_cycle(*_args):
+        return cycle
+    monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
+
+    class Db:
+        async def scalar(self, _statement):
+            return 1
+
+        async def execute(self, _statement):
+            rows = [SimpleNamespace(id=key, name=f"模板{key}", description="描述", status="active") for key in [11, 12]]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+
+    allowed = await projects_router.project_templates(1, context("performance.cycles.manage"), Db())
+    assert [row["template_id"] for row in allowed] == [12, 11]
+    allowed = await projects_router.project_templates(1, context("performance.projects.manage", refs=("project:one",)), Db())
+    assert len(allowed) == 2
+    for actor in [context(), context("performance.projects.manage")]:
+        with pytest.raises(HTTPException) as error:
+            await projects_router.project_templates(1, actor, Db())
+        assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_started_project_cannot_change_template():
+    target = project(status="STARTED")
+    target.settings["template_id"] = 11
+    with pytest.raises(ProjectValidationError, match="已启动项目不能更换"):
+        await PerformanceProjectService(SimpleNamespace()).update_project(target, {"name": target.name, "template_id": 12}, actor_type="PORTAL_USER", actor_id=1)
+
+
+@pytest.mark.asyncio
+async def test_cycle_templates_isolated_postgres_migration_api_round_trip():
+    import os
+    if os.getenv("RUN_PERFORMANCE_DB_TEST") != "1":
+        pytest.skip("需显式启用本地隔离数据库验收")
+    from uuid import uuid4
+    import importlib.util
+    from pathlib import Path
+    import httpx
+    from fastapi import FastAPI
+    from sqlalchemy import text, select
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.pool import NullPool
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from app.performance import projects_router, cycles_router
+    from app.performance.models import PerformanceAuditEvent, PerformanceProject, PerformanceTemplate
+
+    assert make_url(settings.db_url_async).host in {"localhost", "127.0.0.1"}
+    schema = f"pm_template_{uuid4().hex}"
+    engine = create_async_engine(settings.db_url_async, poolclass=NullPool)
+    migration_path = Path(__file__).resolve().parents[1] / "alembic/versions/0275_performance_cycle_templates.py"
+    spec = importlib.util.spec_from_file_location("cycle_templates_migration", migration_path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            tables = (await connection.execute(text("SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'performance_%'"))).scalars().all()
+            for table in tables:
+                await connection.execute(text(f'CREATE TABLE "{schema}"."{table}" (LIKE public."{table}" INCLUDING ALL)'))
+            serial_columns = (await connection.execute(text("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema=:schema AND column_default LIKE 'nextval(%'"), {"schema": schema})).all()
+            for index, (table, column) in enumerate(serial_columns):
+                sequence = f'"{schema}"."fixture_seq_{index}"'
+                await connection.execute(text(f'CREATE SEQUENCE {sequence}'))
+                await connection.execute(text(f"ALTER TABLE \"{schema}\".\"{table}\" ALTER COLUMN \"{column}\" SET DEFAULT nextval('{sequence}')"))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}", public'))
+            existing = (await connection.execute(text("SELECT column_name FROM information_schema.columns WHERE table_schema=:schema AND table_name='performance_cycles'"), {"schema": schema})).scalars().all()
+            if "template_ids" in existing:
+                await connection.execute(text("ALTER TABLE performance_cycles DROP COLUMN template_ids"))
+            def apply(sync, method):
+                with Operations.context(MigrationContext.configure(sync)):
+                    getattr(migration, method)()
+            await connection.run_sync(lambda sync: apply(sync, "upgrade"))
+            await connection.run_sync(lambda sync: apply(sync, "downgrade"))
+            await connection.execute(text("INSERT INTO performance_cycles (id,cycle_ref,name,language,period_year,period_type,template_id,start_at,end_at,lock_rule,pre_lock_sync_mode,leaver_enabled,leaver_participation_mode,status,created_by_type,created_by_ref) VALUES (910001,'cycle:templates','模板验收','zh-CN',2026,'CUSTOM',910011,'2026-01-01T00:00:00Z','2026-12-31T00:00:00Z','IMMEDIATE','MANUAL',false,'CREATE_TASK','DRAFT','PORTAL_USER','1')"))
+            await connection.run_sync(lambda sync: apply(sync, "upgrade"))
+            assert (await connection.execute(text("SELECT template_ids FROM performance_cycles WHERE id=910001"))).scalar_one() == [910011]
+            await connection.execute(text("UPDATE performance_cycles SET template_ids='[910011,910012]'::jsonb"))
+            with pytest.raises(RuntimeError, match="多模板"):
+                await connection.run_sync(lambda sync: apply(sync, "downgrade"))
+            await connection.execute(text("UPDATE performance_cycles SET template_ids='[910011]'::jsonb"))
+            await connection.run_sync(lambda sync: apply(sync, "downgrade"))
+            await connection.run_sync(lambda sync: apply(sync, "upgrade"))
+            session = AsyncSession(bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False)
+            try:
+                for key in [910011, 910012, 910099]:
+                    session.add(PerformanceTemplate(id=key, name=f"模板{key}", description="验收描述", template_kind="performance", status="active", created_by_type="PORTAL_USER", created_by_ref="1"))
+                target = PerformanceProject(id=910002, project_ref="project:templates", cycle_ref="cycle:templates", name="新疆项目", status="DRAFT", administrators=[], settings={"template_id": 910011})
+                session.add(target)
+                await session.commit()
+                app = FastAPI()
+                app.include_router(cycles_router.router, prefix="/api/v1")
+                app.include_router(projects_router.router, prefix="/api/v1")
+                app.dependency_overrides[projects_router.get_session] = lambda: session
+                app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                    response = await client.patch("/api/v1/performance/cycles/910001", json={"template_ids": [910011, 910012, 910011]})
+                    assert response.status_code == 200, response.text
+                    assert response.json()["template_ids"] == [910011, 910012]
+                    assert (await client.get("/api/v1/performance/cycles/910001")).json()["template_ids"] == [910011, 910012]
+                    url = "/api/v1/performance/cycles/910001/project-templates"
+                    assert [row["template_id"] for row in (await client.get(url)).json()] == [910011, 910012]
+                    assert (await client.get(url + "/910011/workflow")).status_code == 200
+                    assert (await client.get(url + "/910099/workflow")).status_code == 422
+                    project_url = "/api/v1/performance/projects/910002"
+                    assert (await client.patch(project_url, json={"name": "新疆项目", "template_id": 910012})).status_code == 200
+                    session.expunge_all()
+                    assert (await session.scalar(select(PerformanceProject.settings).where(PerformanceProject.id == 910002)))["template_id"] == 910012
+                    assert (await client.get(project_url)).json()["template_id"] == 910012
+                    assert (await client.patch(project_url, json={"name": "新疆项目", "template_id": 910099})).status_code == 422
+                    assert (await client.patch("/api/v1/performance/cycles/910001", json={"template_ids": [910011]})).status_code == 422
+                    assert (await client.get(project_url)).json()["template_id"] == 910012
+                    audit = (await session.execute(select(PerformanceAuditEvent).where(PerformanceAuditEvent.event_type == "PERFORMANCE_CYCLE_UPDATED"))).scalars().first()
+                    assert audit.after_state["template_ids"] == [910011, 910012]
+                    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.projects.manage", refs=("project:templates",))
+                    assert (await client.get(url)).status_code == 200
+                    assert (await client.get(url + "/910012/workflow")).status_code == 200
+                    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.projects.manage", refs=("project:elsewhere",))
+                    assert (await client.get(url)).status_code == 403
+                    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+                    assert (await client.get(url)).status_code == 403
+                    assert (await client.get(url + "/910012/workflow")).status_code == 403
+                    assert (await client.patch(project_url, json={"name": "拒绝"})).status_code == 403
+            finally:
+                await session.close()
+        finally:
+            await transaction.rollback()
+        assert (await connection.execute(text("SELECT 1 FROM pg_namespace WHERE nspname=:schema"), {"schema": schema})).first() is None
+    await engine.dispose()

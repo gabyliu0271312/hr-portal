@@ -1416,6 +1416,7 @@ export interface PerformanceCycle {
   period_type: PerformanceCyclePeriodType
   period_subtype: PerformanceCyclePeriodSubtype | null
   template_id: number | null
+  template_ids?: number[]
   start_at: string
   end_at: string
   lock_rule: PerformanceCycleLockRule
@@ -1507,7 +1508,17 @@ export interface PerformanceEvaluatorOptions {
   hire_date_range?: { min: string | null; max: string | null }
 }
 
+export type PerformanceProjectTemplate = Pick<PerformanceTemplateListItem, 'template_id' | 'name' | 'description' | 'status'>
+
 export const performanceProjectApi = {
+  async getTemplateWorkflow(cycleId: number, templateId: number): Promise<Pick<PerformanceWorkflowResponse, 'template_id' | 'nodes'>> {
+    const { data } = await api.get(`/performance/cycles/${cycleId}/project-templates/${templateId}/workflow`)
+    return data
+  },
+  async listTemplates(cycleId: number): Promise<PerformanceProjectTemplate[]> {
+    const { data } = await api.get<PerformanceProjectTemplate[]>(`/performance/cycles/${cycleId}/project-templates`)
+    return data
+  },
   async calibrationPreview(id: number, payload: PerformanceProjectPayload): Promise<Record<string, PerformanceCalibrationAssignment | null>> {
     const { data } = await api.post(`/performance/projects/${id}/calibration-preview`, payload)
     return data

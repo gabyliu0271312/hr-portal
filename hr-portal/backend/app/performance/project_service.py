@@ -680,8 +680,22 @@ class PerformanceProjectService:
                 continue
             raise ProjectValidationError("组织内暂不允许手动开通绩效结果")
 
+    async def validate_template(self, cycle_ref: str, template_id: int | None) -> None:
+        if template_id is None:
+            return
+        from app.performance.cycle_service import PerformanceCycleService
+        from app.performance.models import PerformanceTemplate
+
+        cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref).with_for_update().execution_options(populate_existing=True))
+        if cycle is None or template_id not in PerformanceCycleService.template_ids(cycle):
+            raise ProjectValidationError("只能选择当前绩效周期已配置的模板")
+        template = await self.db.get(PerformanceTemplate, template_id)
+        if template is None or template.template_kind != "performance" or template.status != "active":
+            raise ProjectValidationError("只能选择已启用的绩效模板")
+
     async def create_project(self, cycle_ref: str, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceProject:
         name, description, administrators, settings = self._validate_payload(payload)
+        await self.validate_template(cycle_ref, settings.get("template_id"))
         await self._validate_manual_opening_policy(settings["flow_settings"])
         project = PerformanceProject(
             project_ref=f"project:{uuid4().hex}",
@@ -712,6 +726,10 @@ class PerformanceProjectService:
         before = self.serialize(project)
         values = {**before, **payload}
         name, description, administrators, settings = self._validate_payload(values, project.settings or {})
+        if settings.get("template_id") != (project.settings or {}).get("template_id"):
+            if project.status == PROJECT_STATUS_STARTED:
+                raise ProjectValidationError("已启动项目不能更换绩效模板")
+            await self.validate_template(project.cycle_ref, settings.get("template_id"))
         await self._validate_manual_opening_policy(settings["flow_settings"], project.settings or {})
         if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
             previous_flow = (project.settings or {}).get("flow_settings") or {}

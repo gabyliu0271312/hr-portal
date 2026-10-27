@@ -1313,6 +1313,43 @@ async def list_projects(
     )
 
 
+@router.get("/cycles/{cycle_id}/project-templates")
+async def project_templates(
+    cycle_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle = await _get_cycle(db, cycle_id)
+    await _assert_cycle_project_view(db, cycle, context)
+    ids = PerformanceCycleService.template_ids(cycle)
+    if not ids:
+        return []
+    rows = (await db.execute(select(PerformanceTemplate).where(PerformanceTemplate.id.in_(ids), PerformanceTemplate.template_kind == "performance"))).scalars().all()
+    by_id = {row.id: row for row in rows}
+    return [{"template_id": template_id, "name": by_id[template_id].name, "description": by_id[template_id].description,
+             "status": by_id[template_id].status} for template_id in ids if template_id in by_id]
+
+
+@router.get("/cycles/{cycle_id}/project-templates/{template_id}/workflow")
+async def project_template_workflow(
+    cycle_id: int,
+    template_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.template_workflow_service import PerformanceTemplateWorkflowService
+
+    cycle = await _get_cycle(db, cycle_id)
+    await _assert_cycle_project_view(db, cycle, context)
+    if template_id not in PerformanceCycleService.template_ids(cycle):
+        raise HTTPException(status_code=422, detail="只能选择当前绩效周期已配置的模板")
+    template = await db.get(PerformanceTemplate, template_id)
+    if template is None or template.template_kind != "performance":
+        raise HTTPException(status_code=404, detail="绩效模板不存在")
+    nodes, _, _ = await PerformanceTemplateWorkflowService(db).get_nodes(template_id)
+    return {"template_id": template_id, "nodes": nodes}
+
+
 @router.get("/cycles/{cycle_id}/evaluator-options")
 async def evaluator_options(
     cycle_id: int,
@@ -1368,7 +1405,7 @@ async def update_project(
     if not _can_manage_project(context, project):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
-    data = payload.model_dump()
+    data = payload.model_dump(exclude_unset=True)
     try:
         if data.get("evaluator_rules") is not None:
             data["evaluator_rules"] = PerformanceProjectService._validate_rules(data.get("evaluator_rules"))

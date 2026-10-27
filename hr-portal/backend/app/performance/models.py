@@ -721,6 +721,7 @@ class PerformanceCycle(Base):
         ForeignKey("performance_templates.id", ondelete="SET NULL"),
         nullable=True,
     )
+    template_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lock_rule: Mapped[str] = mapped_column(String(16), nullable=False)

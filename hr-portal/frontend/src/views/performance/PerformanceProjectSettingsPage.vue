@@ -20,26 +20,16 @@
         </div>
       </section>
 
-      <section v-if="currentStep === 0" class="settings-card template-card" aria-labelledby="template-title">
-        <div class="template-heading">
-          <h2 id="template-title">绩效模板</h2>
-          <p class="template-description">先选择绩效模板，再根据模板中的评估内容为该项目圈选合适的被评估人</p>
-        </div>
-        <div class="template-choice" :class="{ 'has-selection': Boolean(selectedTemplate) }">
-          <PerformanceAssessmentSelect
-            label=""
-            aria-label="选择绩效模板"
-            :model-value="form.template_id ? String(form.template_id) : ''"
-            :options="templateOptions"
-            placeholder="选择绩效模板"
-            empty-text="暂无已启用绩效模板，请先在绩效模板模块完成配置。"
-            :disabled="saving"
-            @update:model-value="selectTemplate"
-          />
-        </div>
-        <p v-if="templateLoading" class="muted template-state">正在加载绩效模板...</p>
-        <p v-else-if="!templates.length" class="muted template-state">暂无已启用绩效模板，请先在绩效模板模块完成配置。</p>
-      </section>
+      <PerformanceProjectTemplateField
+        v-if="currentStep === 0"
+        :model-value="form.template_id"
+        :templates="templates"
+        :loading="templateLoading"
+        :error="templateError"
+        :disabled="saving || projectStatus === 'STARTED'"
+        @update:model-value="selectTemplate"
+        @retry="loadTemplates"
+      />
 
       <section v-if="currentStep === 0" class="settings-card" aria-labelledby="people-title">
         <h2 id="people-title">被评估人<span class="required">*</span></h2>
@@ -119,9 +109,9 @@ import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vu
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
-import PerformanceAssessmentSelect from '@/components/performance/PerformanceAssessmentSelect.vue'
+import PerformanceProjectTemplateField from '@/components/performance/PerformanceProjectTemplateField.vue'
 import { validHireDateCondition } from '@/components/performance/performanceConditionFields'
-import { performanceOtherSettingsApi, performanceProjectApi, performanceTemplateApi, type PerformanceCycleProjectShell, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions } from '@/api/performance'
+import { performanceOtherSettingsApi, performanceProjectApi, type PerformanceCycleProjectShell, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceProjectTemplate, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions } from '@/api/performance'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
 import { initializeCalibrationNodes, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError } from '@/components/performance/performanceProjectCalibration'
@@ -134,16 +124,12 @@ const cycleId = computed(() => Number(route.params.cycleId || 0) || null)
 const evaluatorOptions = ref<PerformanceEvaluatorOptions>({ organization_tree: [], people: [], employee_types: [] })
 const evaluatorOptionsLoaded = ref(false)
 const evaluatorOptionsLoading = ref(false)
-const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceTemplateListItem[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
+const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceProjectTemplate[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
+const templateError = ref('')
 const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const flowLoading = ref(false); const flowError = ref(''); const openingError = ref(false); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>()); const manualResultOpeningEnabled = ref(true); const manualOpeningSettingLoaded = ref(false); const manualOpeningError = ref('')
 const steps = [{ key: 'info', label: '项目信息' }, { key: 'flow', label: '流程设置' }, { key: 'time', label: '起止时间' }]
 const form = reactive<{ name: string; description: string; administrators: string[]; template_id: number | null; start_at: string; end_at: string; evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>; flow_settings: ProjectFlowSettings }>({ name: '', description: '', administrators: [], template_id: null, start_at: '', end_at: '', evaluator_rules: { groups: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] }, flow_settings: { node_settings: {}, node_times: {} } })
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
-const selectedTemplate = computed(() => templates.value.find(template => template.template_id === form.template_id))
-const templateOptions = computed(() => [
-  ...(templates.value.length ? [{ id: '0', label: '请选择绩效模板' }] : []),
-  ...templates.value.map(template => ({ id: String(template.template_id), label: template.name, description: template.description })),
-])
 const projectName = computed(() => form.name)
 const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at))
 function workflowNodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
@@ -164,19 +150,22 @@ async function loadManualOpeningSetting() {
     manualOpeningError.value = '组织设置加载失败，暂时无法选择手动开通'
   }
 }
-async function loadTemplates() { templateLoading.value = true; try { templates.value = (await performanceTemplateApi.list()).filter(template => template.status === 'active') } catch { notice.value = '绩效模板加载失败，请稍后重试' } finally { templateLoading.value = false } }
-function selectTemplate(templateId: string) { form.template_id = Number(templateId) || null; void loadTemplateWorkflow() }
+async function loadTemplates() { templateLoading.value = true; templateError.value = ''; try { templates.value = cycleId.value ? await performanceProjectApi.listTemplates(cycleId.value) : [] } catch { templateError.value = '绩效模板加载失败，请稍后重试' } finally { templateLoading.value = false } }
+function selectTemplate(templateId: number) { if (form.template_id === templateId) return; form.template_id = templateId; form.flow_settings = { node_settings: {}, node_times: {} }; savedNodeTimeKeys.value = new Set(); void loadTemplateWorkflow() }
 async function loadTemplateWorkflow() {
-  if (!form.template_id) { workflowNodes.value = []; flowError.value = ''; openingError.value = false; return }
+  const requestedTemplateId = form.template_id
+  if (!form.template_id || !cycleId.value) { workflowNodes.value = []; flowError.value = ''; openingError.value = false; return }
   flowLoading.value = true; flowError.value = ''; openingError.value = false
   try {
-    const workflow = await performanceTemplateApi.getWorkflow(form.template_id)
+    const workflow = await performanceProjectApi.getTemplateWorkflow(cycleId.value, form.template_id)
+    if (requestedTemplateId !== form.template_id) return
     workflowNodes.value = workflow.nodes
     initializeCalibrationNodes(workflowNodes.value, form.flow_settings)
   } catch (error: any) {
+    if (requestedTemplateId !== form.template_id) return
     workflowNodes.value = []
     flowError.value = error?.response?.data?.detail?.message || '绩效模板流程加载失败，请稍后重试'
-  } finally { flowLoading.value = false }
+  } finally { if (requestedTemplateId === form.template_id) flowLoading.value = false }
 }
 async function loadEvaluatorOptions() { if (!cycleId.value || evaluatorOptionsLoaded.value || evaluatorOptionsLoading.value) return; evaluatorOptionsLoading.value = true; try { evaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(cycleId.value); evaluatorOptionsLoaded.value = true; notice.value = '' } catch { notice.value = '被评估人名单加载失败，请稍后重试' } finally { evaluatorOptionsLoading.value = false } }
 async function loadProject() { if (!projectId.value) return; try { const project = await performanceProjectApi.get(projectId.value); form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]; form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at); evaluatedCount.value = project.evaluated_count; const savedFlowSettings = project.flow_settings || { node_settings: {}, node_times: {} }; form.flow_settings = { node_settings: savedFlowSettings.node_settings || {}, node_times: savedFlowSettings.node_times || {} }; savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times)); projectStatus.value = project.status; if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules)); savedView.value = true } catch (error: any) { notice.value = error?.response?.data?.detail || '项目加载失败' } }
@@ -212,22 +201,4 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .project-settings-page :deep(.full-screen-modal-header) { position: sticky; top: 0; }
 .project-status-badge { padding: 4px 8px; border-radius: 4px; background: var(--color-bg-card)1e8; color: #ff7d00; font-size: 14px; }
 .project-settings-content { display: block; width: var(--performance-form-surface-width); max-width: calc(100% - 2 * var(--performance-form-surface-page-gap)); margin: var(--performance-form-surface-page-gap) auto; padding: 0; box-sizing: border-box; }.project-settings-content :deep(.settings-surface) { display: grid; gap: 16px; padding: 0; background: transparent; box-shadow: none; }.settings-card { width: 100%; box-sizing: border-box; padding: 24px 32px; border-radius: 8px; background: var(--color-bg-card); box-shadow: 0 1px 4px rgba(31,35,41,.05); }.settings-card.flow-card,.settings-card.time-card { padding: 0; background: transparent; box-shadow: none; }.card-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }.card-heading h1 { margin: 0; }.rule-group-heading :deep(.performance-icon-button),.rule-row :deep(.performance-icon-button) { --performance-icon-button-size: 24px; width: 24px; height: 24px; }.settings-card h1,.settings-card h2 { margin: 0 0 10px; font-size: 20px; line-height: 28px; }.settings-card h2 { font-size: 18px; }.hint,.muted { margin: 0 0 18px; color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }.basic-grid,.date-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 48px; }.basic-grid label,.date-grid label { display: grid; gap: 8px; color: var(--color-text-secondary); font-size: 14px; }.basic-grid label span,.date-grid label span { color: var(--color-text-secondary); }.basic-grid .wide { grid-column: 1 / -1; }.basic-grid input,.basic-grid textarea,.date-grid input { box-sizing: border-box; width: 100%; padding: 7px 10px; border: 1px solid var(--color-line-control); border-radius: 6px; color: var(--color-text-primary); background: var(--color-bg-card); font: inherit; }.basic-grid textarea { min-height: 66px; field-sizing: content; resize: none; overflow-y: hidden; }.rule-group { margin-top: 16px; padding: 16px; border-radius: 8px; background: var(--color-bg-page); }.rule-group-heading { display: flex; justify-content: space-between; margin-bottom: 12px; font-weight: 600; }.rule-group-heading button,.rule-row button { border: 0; background: transparent; color: var(--color-text-secondary); cursor: pointer; }.rule-row { display: grid; grid-template-columns: 140px 120px 1fr 32px; gap: 8px; margin-top: 8px; }.rule-row select,.rule-row input { min-width: 0; height: 32px; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--color-line-control); border-radius: 6px; background: var(--color-bg-card); font: inherit; }.rule-row .condition-values { height: 32px; }.or-divider { margin: 16px -16px 0; padding-top: 12px; border-top: 1px solid #dee0e3; color: var(--color-text-secondary); }.add-group { margin-top: 16px; }.required { color: var(--color-danger); }.error { margin: 12px 0 0; color: var(--color-danger); }.flow-summary { display: grid; gap: 8px; padding: 20px; border: 1px solid #e5e6eb; border-radius: 8px; }.flow-summary span { color: var(--color-text-secondary); }.flow-setting-error { display: flex; align-items: center; gap: var(--spacing-3); margin: 12px 0 0 52px; color: var(--color-danger); font-size: var(--font-size-md); }.page-notice { position: fixed; right: 24px; bottom: 24px; z-index: 10; padding: 12px 16px; border: 1px solid #ffccc7; border-radius: 6px; background: var(--color-bg-card)2f0; color: #f54a45; }
-.settings-card.template-card { padding: 20px; border: 0; border-radius: 8px; background: #fff; box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px 0, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
-.template-heading { display: flex; flex-direction: column; }
-.settings-card.template-card h2 { margin: 0; color: #1f2329; font-size: 16px; font-weight: 600; line-height: 24px; }
-.template-description { max-width: 600px; margin: 0; color: #646a73; font-size: 14px; font-weight: 400; line-height: 22px; }
-.template-choice { height: 80px; margin-top: 8px; }
-.template-choice :deep(.performance-assessment-select) { height: 100%; }
-.template-choice :deep(.select-shell) { height: 100%; box-sizing: border-box; border: 1px dashed #dee0e3; border-radius: 8px; background: #fff; box-shadow: none; transition: background-color .1s ease-in, border-color .1s ease-in; }
-.template-choice:hover :deep(.select-shell), .template-choice:focus-within :deep(.select-shell), .template-choice :deep(.select-shell.open) { border-color: #dee0e3; background: #f0f4ff; box-shadow: none; }
-.template-choice :deep(.select-shell > button) { display: flex; height: 100%; justify-content: center; gap: 4px; padding: 2px 4px; border-radius: 8px; color: #1456f0; background: transparent; font: 400 14px/18px var(--font-sans); transition: background-color .1s ease-in; }
-.template-choice:hover :deep(.select-shell > button), .template-choice :deep(.select-shell.open > button) { background: rgba(20, 86, 240, .2); }
-.template-choice:not(.has-selection) :deep(.select-shell > button::before) { content: ''; display: inline-block; flex: 0 0 14px; width: 14px; height: 14px; background: currentColor; -webkit-mask: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJhMSAxIDAgMCAwLTEgMXY4SDNhMSAxIDAgMSAwIDAgMmg4djhhMSAxIDAgMCAwIDIgMHYtOGg4YTEgMSAwIDEgMCAwLTJoLThWM2ExIDEgMCAwIDAtMS0xWiIvPjwvc3ZnPg==") center / 14px 14px no-repeat; mask: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJhMSAxIDAgMCAwLTEgMXY4SDNhMSAxIDAgMSAwIDAgMmg4djhhMSAxIDAgMCAwIDIgMHYtOGg4YTEgMSAwIDEgMCAwLTJoLThWM2ExIDEgMCAwIDAtMS0xWiIvPjwvc3ZnPg==") center / 14px 14px no-repeat; }
-.template-choice:not(.has-selection) :deep(.select-shell > button > svg) { display: none; }
-.template-choice :deep(.select-shell > button:focus-visible) { outline: 0; box-shadow: inset 0 0 0 2px rgba(51, 112, 255, .2); }
-.template-choice :deep(.option-menu) { top: calc(100% + 4px); right: -1px; left: -1px; max-height: 240px; border-color: #dee0e3; border-radius: 6px; box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px 0, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
-.template-choice :deep(.option-menu > button) { color: #1f2329; }
-.template-choice :deep(.option-menu > button:hover:not(:disabled)), .template-choice :deep(.option-menu > button.selected) { background: #f0f4ff; }
-.template-choice :deep(.option-menu small) { color: #646a73; }
-.settings-card.template-card .template-state { margin: 8px 0 0; color: #646a73; font-size: 14px; line-height: 22px; }
 </style>

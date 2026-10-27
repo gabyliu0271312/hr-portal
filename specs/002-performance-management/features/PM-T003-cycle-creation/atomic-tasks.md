@@ -182,3 +182,28 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
     - `npm --prefix hr-portal/frontend run build` 曾通过 vue-tsc + Vite（既有 VueUse PURE 注释警告）；最新整体构建因同期模板流程页新增 executor_role_code 而 WorkflowNode 类型尚未补齐失败，已联系对应会话，不覆盖其修改；整体构建阻塞解除后须再次回填。`git diff --check` 本卡文件通过，仅 LF/CRLF 提示。
   - Current status: 本卡联动实现、定向/全文件后端与前端回归、真实 API/SQL、UI 截图已验证；最新整体构建暂被并行模板类型修改阻塞，因此暂不勾选。无本卡 migration、commit、push、容器替换或生产部署。
   - Definition of done: 代码、联动/拒绝/旧数据测试、真实保存回读、UI 截图及构建均验证后才勾选；缺证据保持未完成并注明原因。
+
+## PM-T003-I11 周期多模板与项目模板选择
+
+- [ ] PM-T003-I11：用户已确认上述采集交互并授权实施；前置为现有周期/项目配置与全局组件。
+  - Required reading：本功能spec/ui-interaction、Spec002基线、Spec012通用UI守则、execution-contract/migration-coordination/acceptance-evidence/task-card-template。
+  - Allowed files：绩效cycles_router/cycle_service/projects_router/project_service/models；新迁移0275_performance_cycle_templates；performance.ts及JS镜像；CycleManagement、PerformanceProjectSettingsPage、PerformanceRadioGroup；绩效模板选择相关新组件、tokens.css；对应现有测试及必要组件测试；本功能规格/任务/交互和独立UI截图。串行修改共享文件。
+  - Forbidden：021与其他工作区改动、旧迁移、生产、权限扩大、模板预览、历史快照重写；不commit/push。
+  - Contracts：spec第11节，周期template_ids为事实来源，项目template_id单选；GET project-templates仅元数据，原有项目范围权限；422/403/404沿用现有错误语义；审计与写入同事务，无外部系统。
+  - Acceptance：周期多模板保存重开；仅显示本周期候选；弹窗确定/取消/切换/原值回显；预览共享禁用；拒绝跨周期模板、移除在用模板、已启动项目换模板；允许/拒绝权限覆盖；迁移回填与无损降级；前后端定向回归、构建、实际UI截图、真实API/SQL分别记录。
+  - UI evidence：计划../../ui-blueprints/PM-T003-I11-implemented-project-template-selection.png；以实际组件为准。
+  - Stop/rollback：停止未发布代码；生产不执行迁移或回滚；本地迁移测试隔离且回滚。完成所有必要证据后才勾选。
+
+### PM-T003-I11 本地验收记录（2026-10-27）
+
+- 已实现周期template_ids持久化/原值回填、项目范围候选及流程读取API、项目单选保存校验、全局组件复用、已选卡片和原弹窗切换；预览按用户要求不实现，共用禁用按钮。新迁移0275依赖唯一head0274；未执行公共开发库或生产迁移。
+- 后端普通回归：backend目录 `.venv/Scripts/python.exe -m pytest tests/test_performance_cycles.py tests/test_performance_projects.py -q --tb=short`，278通过、3个opt-in跳过。
+- 本卡真实数据库：`RUN_PERFORMANCE_DB_TEST=1 .venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -k cycle_templates_isolated -q --tb=short`，1通过；localhost独立schema/独立序列/外层回滚。验证空表升级降级、旧单值回填、多值拒绝降级、周期PATCH→GET、项目PATCH→真实SQL→GET、数组去重、审计、周期外模板422、移除在用模板422、授权项目管理员200、越范围/无权403（含模板流程接口）；清理后schema不存在。未更改公共业务记录/快照。
+- 浏览器：独立Vite+Chrome实际项目路由，隔离网络夹具验证三候选、单选、确认、取消保留、切换原值回显、PATCH payload、reload回显、无全局模板库请求，0个pageerror。夹具不冒充真实后端，API/SQL证据为上一项。实际PNG已查看：`../../ui-blueprints/PM-T003-I11-implemented-project-template-selection.png`、`../../ui-blueprints/PM-T003-I11-implemented-selected-template-card.png`。
+- 扩展回归已知失败：PerformanceProjectTimeSettings.spec.ts 的“creates stable IDs without requiring crypto.randomUUID”断言期望phase-*，实际原有helper返回原生UUID；该测试及helper均未修改，82项中81通过1失败，不覆盖或绕过该失败。另一次全量开启RUN_PERFORMANCE_DB_TEST时，原有校准数据库测试因公共开发库仍为0273、缺少template_ids而失败；本卡在隔离schema升级后通过，不擅自升级公共库掩盖环境问题。
+- 当前任务保持未勾选：本卡实现与专项验收完成，扩展回归存在上述失败，需独立处理；不以本轮宣称全部绩效回归/生产验收通过。生产部署须先批准并运行迁移，旧周期单模板自动回填，禁止多模板配置下有损降级。
+- UI合规：已读Spec012交互/守则及N000/N00；仅绩效现有页面局部调整，无UCP、无菜单/权限扩大，无历史快照重写。
+
+- 最终前端专项：`npm run test -- src/components/performance/PerformanceProjectTemplateField.spec.ts src/components/performance/PerformanceProjectFlowSettings.spec.ts src/components/performance/PerformanceButton.spec.ts src/views/performance/CycleManagement.spec.ts src/views/performance/ProjectManagement.spec.ts`，5文件69/69通过；`npm run build` 的vue-tsc与Vite通过（52.17s，既有VueUse PURE注释提示）。最终后端普通回归278通过3跳过，隔离schema专项单独启用1通过。
+- 同步Spec002 overview/workflow-design中周期单模板旧表述为用户确认的“周期多模板、项目单选”；未改变其他流程规则。
+- 任务状态：本轮代码完成，专项通过；保留扩展回归失败记录，PM-T003-I11不标记全体验收完成。未commit/push/部署/升级公共数据库。

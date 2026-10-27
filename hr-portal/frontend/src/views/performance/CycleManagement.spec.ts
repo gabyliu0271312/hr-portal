@@ -123,6 +123,18 @@ describe('CycleManagement', () => {
     mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [{ value: '集团/研发', label: '研发', level: 2, children: [] }], people: [{ value: 'E001', label: '员工（E001）' }], employee_types: [] })
   })
 
+  it('reopens multiple cycle templates and saves the complete selection', async () => {
+    const second = { template_id: 102, name: '第二模板', description: '第二描述', status: 'active' }
+    mocks.templateList.mockResolvedValue([{ template_id: 101, name: '已启用模板', description: '模板说明', status: 'active' }, second])
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101, 102] })
+    mocks.update.mockResolvedValue({ ...cycle, template_ids: [101, 102] })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    expect(wrapper.findAll('.evaluation-template-field .performance-select-shell__tag-content').map(item => item.text())).toEqual(['已启用模板', '第二模板'])
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ template_ids: [101, 102] }))
+  })
+
   it('allows overdue settings after a project has started and submits only the policy fields', async () => {
     const startedCycle = { ...cycle, status: 'LOCKED', projects: [{ ...project, status: 'STARTED' }] }
     mocks.list.mockResolvedValue({ items: [startedCycle], total: 1, page: 1, page_size: 20 })

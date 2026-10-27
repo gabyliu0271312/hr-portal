@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -31,7 +31,6 @@ from app.performance.models import (
     PerformanceCycle,
     PerformanceHrbpPermission,
     PerformanceProject,
-    PerformanceTemplate,
 )
 
 router = APIRouter(prefix="/performance/cycles", tags=["performance-cycles"])
@@ -48,6 +47,7 @@ class CyclePayload(BaseModel):
     period_type: CyclePeriodType = Field(...)
     period_subtype: str | None = Field(default=None, max_length=16)
     template_id: int | None = Field(default=None, ge=1)
+    template_ids: list[Annotated[int, Field(ge=1)]] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -91,6 +91,7 @@ class CyclePatch(BaseModel):
     period_type: CyclePeriodType | None = None
     period_subtype: str | None = Field(default=None, max_length=16)
     template_id: int | None = Field(default=None, ge=1)
+    template_ids: list[Annotated[int, Field(ge=1)]] | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
     leaver_enabled: bool | None = None
@@ -292,6 +293,7 @@ class CycleSummary(BaseModel):
     period_type: str
     period_subtype: str | None
     template_id: int | None
+    template_ids: list[int]
     start_at: datetime
     end_at: datetime
     lock_rule: str
@@ -446,10 +448,6 @@ async def create_cycle(
     context: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
     db: AsyncSession = Depends(get_session),
 ):
-    if payload.template_id is not None:
-        template = await db.get(PerformanceTemplate, payload.template_id)
-        if template is None or template.template_kind != "performance" or template.status != "active":
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="只能选择已启用的绩效模板")
     try:
         cycle = await PerformanceCycleService(db).create_cycle(payload.model_dump(), actor_type=context.subject_type, actor_id=context.subject_id)
     except CycleValidationError as exc:
@@ -643,10 +641,6 @@ async def update_cycle(
 ):
     service = PerformanceCycleService(db)
     cycle = await service.get_cycle(cycle_id)
-    if payload.template_id is not None:
-        template = await db.get(PerformanceTemplate, payload.template_id)
-        if template is None or template.template_kind != "performance" or template.status != "active":
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="只能选择已启用的绩效模板")
     try:
         cycle = await service.update_cycle(cycle, payload.model_dump(exclude_unset=True), actor_type=context.subject_type, actor_id=context.subject_id)
     except CycleValidationError as exc:

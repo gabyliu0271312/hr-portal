@@ -36,6 +36,7 @@ from app.performance.models import (
     PerformanceCycleProjectManager,
     PerformanceOtherSetting,
     PerformanceProject,
+    PerformanceTemplate,
     PROJECT_STATUS_STARTED,
 )
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService, RosterAuthorizationInput
@@ -222,9 +223,34 @@ class PerformanceCycleService:
             )
         return summaries
 
+    @staticmethod
+    def template_ids(cycle) -> list[int]:
+        values = getattr(cycle, "template_ids", None)
+        if values is not None:
+            return list(values)
+        return [cycle.template_id] if getattr(cycle, "template_id", None) else []
+
+    async def validate_templates(self, payload: dict, cycle=None) -> None:
+        ids = payload.get("template_ids")
+        if ids is None:
+            return
+        if cycle is not None:
+            await self.db.execute(select(PerformanceCycle.id).where(PerformanceCycle.id == cycle.id).with_for_update())
+        previous = self.template_ids(cycle) if cycle is not None else []
+        for template_id in ids:
+            template = await self.db.get(PerformanceTemplate, template_id)
+            if template is None or template.template_kind != "performance" or (template.status != "active" and template_id not in previous):
+                raise CycleValidationError("只能选择已启用的绩效模板")
+        removed = set(previous) - set(ids)
+        if removed:
+            projects = (await self.db.execute(select(PerformanceProject).where(PerformanceProject.cycle_ref == cycle.cycle_ref))).scalars().all()
+            if any((project.settings or {}).get("template_id") in removed for project in projects):
+                raise CycleValidationError("模板已被项目使用，不能从周期中移除")
+
     async def create_cycle(self, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceCycle:
         payload = self._normalize_payload(payload)
         self._validate_payload(payload)
+        await self.validate_templates(payload)
         cycle = PerformanceCycle(
             cycle_ref=f"cycle:{uuid4().hex}",
             name=payload["name"].strip(),
@@ -233,6 +259,7 @@ class PerformanceCycleService:
             period_type=payload["period_type"],
             period_subtype=payload.get("period_subtype"),
             template_id=payload.get("template_id"),
+            template_ids=payload.get("template_ids") or [],
             start_at=payload["start_at"],
             end_at=payload["end_at"],
             lock_rule=payload["lock_rule"],
@@ -270,8 +297,9 @@ class PerformanceCycleService:
             setting = await self.db.get(PerformanceOtherSetting, 1)
             if setting is None or not setting.overdue_single_submission_enabled or not setting.cycle_overdue_submission_override_enabled:
                 raise CycleValidationError("未开启按周期关闭逾期任务提交机会")
+        await self.validate_templates(payload, cycle)
         before = self.serialize(cycle)
-        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "overdue_submission_enabled", "overdue_submission_scope"):
+        for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "template_ids", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "overdue_submission_enabled", "overdue_submission_scope"):
             if field in payload:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
@@ -502,7 +530,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
+        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any]) -> None:
@@ -522,6 +550,16 @@ class PerformanceCycleService:
     @staticmethod
     def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(payload)
+        if normalized.get("template_ids") is not None:
+            ids = list(dict.fromkeys(normalized["template_ids"]))
+            if normalized.get("template_id") is not None and normalized["template_id"] != (ids[0] if ids else None):
+                raise CycleValidationError("模板单值与多选配置不一致")
+            normalized["template_ids"] = ids
+            normalized["template_id"] = ids[0] if ids else None
+        elif "template_id" in normalized:
+            normalized["template_ids"] = [normalized["template_id"]] if normalized["template_id"] else []
+        else:
+            normalized.pop("template_ids", None)
         for field in ("start_at", "end_at", "lock_at"):
             value = normalized.get(field)
             if value is not None:

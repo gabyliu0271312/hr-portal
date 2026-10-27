@@ -730,3 +730,35 @@ async def test_cycle_manual_organization_edit_recomputes_path(monkeypatch):
     )
     assert person.organization_ref == "集团/研发/新平台/小组"
     assert person.is_manually_maintained is True
+
+
+def test_cycle_template_array_normalizes_legacy_deduplicates_and_rejects_conflicts():
+    normalize = PerformanceCycleService._normalize_payload
+    assert normalize({"template_ids": [2, 1, 2]}) == {"template_ids": [2, 1], "template_id": 2}
+    assert normalize({"template_id": 3})["template_ids"] == [3]
+    assert normalize({"name": "unchanged"}) == {"name": "unchanged"}
+    assert normalize({"template_ids": []})["template_id"] is None
+    with pytest.raises(CycleValidationError):
+        normalize({"template_id": 1, "template_ids": [2]})
+    with pytest.raises(ValidationError):
+        CyclePatch(template_ids=[0])
+    with pytest.raises(ValidationError):
+        CyclePatch(template_ids=[-1])
+
+
+@pytest.mark.asyncio
+async def test_cycle_template_validation_preserves_inactive_existing_but_rejects_new_or_used_removal():
+    class Db:
+        async def get(self, _model, key):
+            return SimpleNamespace(id=key, template_kind="performance", status="active" if key == 2 else "inactive")
+
+        async def execute(self, _statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [SimpleNamespace(settings={"template_id": 1})]))
+
+    service = PerformanceCycleService(Db())
+    cycle = SimpleNamespace(id=1, cycle_ref="cycle:test", template_ids=[1], template_id=1)
+    await service.validate_templates({"template_ids": [1, 2]}, cycle)
+    with pytest.raises(CycleValidationError, match="已启用"):
+        await service.validate_templates({"template_ids": [3]}, cycle)
+    with pytest.raises(CycleValidationError, match="已被项目使用"):
+        await service.validate_templates({"template_ids": [2]}, cycle)
