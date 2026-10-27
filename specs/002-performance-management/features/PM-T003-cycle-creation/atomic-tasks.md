@@ -160,7 +160,7 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
 | 项目配置 | 不属于本规格 | 过早实现会混入项目权限和评价规则 | 建立下一项独立需求 |
 ## 项目校准阶段联动修复：2026-10-27
 
-- [ ] PM-T003-I10 校准阶段与起止时间一致
+- [x] PM-T003-I10 校准阶段与起止时间一致
   - Goal/confirmation: 用户先要求只读定位，随后明确“完成调整修复”；按本功能 ui-interaction.md 的 PM-T003-I10 修复现有项目设置页。
   - Type/prerequisites: 既有 UI/DTO/service Bug 修复，已有项目流程设置和项目 PATCH/GET；不以本卡宣称 PM-T003 所有项目能力完成。
   - Required reading: Spec 002 START_HERE/基线、PM-T003 和 PM-T004 规格/任务/交互、CR-004、CR-005 角色边界、performance-spec-development 的 execution-contract/task-card-template/acceptance-evidence；Spec 012 UI 通用 N000/N00/N11。
@@ -180,5 +180,5 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
     - Chrome 实际项目页面使用隔离 API 夹具测试默认单阶段、添加到三阶段、删除首阶段、两组日期、反向日期阻止 PATCH、保存 payload 和 reload 重开；5 次夹具 PATCH，0 个 pageerror。浏览器网络夹具不冒充真实后端验证；真实 API/SQL 为上一项独立验收。
     - 已查看实际截图 `../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times.png`；另有 `../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times-mobile.png`（真实日期组件 390px 宽夹具，单列且无横向溢出；不是整个桌面项目设置页的移动端适配声明）。临时 Vite 验收进程已停止。
     - `npm --prefix hr-portal/frontend run build` 曾通过 vue-tsc + Vite（既有 VueUse PURE 注释警告）；最新整体构建因同期模板流程页新增 executor_role_code 而 WorkflowNode 类型尚未补齐失败，已联系对应会话，不覆盖其修改；整体构建阻塞解除后须再次回填。`git diff --check` 本卡文件通过，仅 LF/CRLF 提示。
-  - Current status: 本卡联动实现、定向/全文件后端与前端回归、真实 API/SQL、UI 截图已验证；最新整体构建暂被并行模板类型修改阻塞，因此暂不勾选。无本卡 migration、commit、push、容器替换或生产部署。
+  - Final isolated verification（2026-10-27）: 提交前从 main 建立独立工作树，仅提取本卡变更，排除同期角色、校准运行时、分配预览及迁移改动。独立工作树前端上述五文件 72/72 通过；后端 `RUN_PERFORMANCE_DB_TEST=1 python -m pytest tests/test_performance_projects.py -q --tb=short` 228/228 通过（含真实本地 PostgreSQL 回滚验收）；`npm run build` 的 vue-tsc 与 Vite 全部通过。仅既有 VueUse PURE、python_multipart、旧迁移转义字符警告。本卡无需 migration，已满足本地完成定义；用户授权提交至 main 并推送仓库，不代表已部署生产。
   - Definition of done: 代码、联动/拒绝/旧数据测试、真实保存回读、UI 截图及构建均验证后才勾选；缺证据保持未完成并注明原因。
