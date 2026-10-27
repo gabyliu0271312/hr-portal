@@ -1,6 +1,7 @@
 """Project lifecycle services for cycle-scoped project configuration."""
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
@@ -401,7 +402,7 @@ class PerformanceProjectService:
         return normalized
 
     @classmethod
-    def _validate_flow_settings(cls, flow_settings: Any) -> dict[str, Any]:
+    def _validate_flow_settings(cls, flow_settings: Any, existing_flow_settings: dict[str, Any] | None = None) -> dict[str, Any]:
         if flow_settings is None:
             return {"node_settings": {}}
         if not isinstance(flow_settings, dict) or not isinstance(flow_settings.get("node_settings"), dict):
@@ -462,10 +463,17 @@ class PerformanceProjectService:
             if calibration is not None:
                 if not isinstance(calibration, dict) or not isinstance(calibration.get("phases", []), list):
                     raise ProjectValidationError("校准设置格式不正确")
+                if len(calibration.get("phases", [])) > MAX_PROJECT_FLOW_NODES:
+                    raise ProjectValidationError("校准阶段不能超过 100 个")
                 phases = []
-                for phase in calibration.get("phases", []):
+                phase_ids = set()
+                for index, phase in enumerate(calibration.get("phases", [])):
                     if not isinstance(phase, dict) or not isinstance(phase.get("rules", []), list):
                         raise ProjectValidationError("校准阶段设置格式不正确")
+                    phase_id = phase.get("phase_id", f"phase-{index + 1}")
+                    if not isinstance(phase_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", phase_id) or phase_id in {"constructor", "prototype"} or phase_id in phase_ids:
+                        raise ProjectValidationError("校准阶段标识不合法或重复")
+                    phase_ids.add(phase_id)
                     rules = []
                     for rule in phase.get("rules", []):
                         if (not isinstance(rule, dict) or not rule
@@ -498,7 +506,7 @@ class PerformanceProjectService:
                                 raise ProjectValidationError("校准规则说明不合法")
                             normalized_rule["description"] = description.strip()
                         rules.append(normalized_rule)
-                    phases.append({"rules": rules})
+                    phases.append({"rules": rules, **({"phase_id": phase_id} if "phase_id" in phase else {})})
                 normalized["calibration"] = {
                     "force_distribution_enabled": bool(calibration.get("force_distribution_enabled", False)),
                     "phases": phases,
@@ -527,12 +535,14 @@ class PerformanceProjectService:
             raise ProjectValidationError("节点时间设置格式不正确")
         if len(node_times) > MAX_PROJECT_FLOW_NODES:
             raise ProjectValidationError(f"节点时间设置不能超过 {MAX_PROJECT_FLOW_NODES} 个")
-        normalized_times: dict[str, dict[str, str]] = {}
+        normalized_times: dict[str, dict[str, Any]] = {}
         for node_id, raw in node_times.items():
             if not isinstance(node_id, str) or not node_id.strip() or len(node_id) > 96 or not isinstance(raw, dict):
                 raise ProjectValidationError("节点时间设置格式不正确")
             values: dict[str, str] = {}
             for field in ("start_at", "end_at", "appeal_deadline"):
+                if field != "appeal_deadline" and "phase_times" in raw:
+                    continue
                 value = raw.get(field)
                 if value is not None:
                     if not isinstance(value, str) or len(value) > 64:
@@ -544,6 +554,46 @@ class PerformanceProjectService:
             if start_at and end_at and end_at <= start_at:
                 raise ProjectValidationError("流程节点截止时间必须晚于开始时间")
             normalized_times[node_id] = values
+            if "phase_times" in raw and not normalized_nodes.get(node_id, {}).get("calibration"):
+                raise ProjectValidationError("阶段时间必须对应校准环节")
+        previous_times = (existing_flow_settings or {}).get("node_times") or {}
+        previous_nodes = (existing_flow_settings or {}).get("node_settings") or {}
+        for node_id, setting in normalized_nodes.items():
+            phases = (setting.get("calibration") or {}).get("phases") or []
+            raw = node_times.get(node_id) or {}
+            previous = previous_times.get(node_id) or {}
+            if "phase_times" not in raw and "phase_times" not in previous:
+                continue
+            previous_phases = ((previous_nodes.get(node_id) or {}).get("calibration") or {}).get("phases") or []
+            if any("phase_id" in phase for phase in previous_phases) and any("phase_id" not in phase for phase in phases):
+                raise ProjectValidationError("请刷新项目后再修改校准阶段，避免阶段时间错配")
+            ids = [phase.get("phase_id", f"phase-{index + 1}") for index, phase in enumerate(phases)]
+            phase_times = raw.get("phase_times", previous.get("phase_times", {}))
+            if not phases or not isinstance(phase_times, dict) or len(phase_times) > MAX_PROJECT_FLOW_NODES:
+                raise ProjectValidationError("校准阶段时间设置格式不正确")
+            if "phase_times" in raw and set(phase_times) - set(ids):
+                raise ProjectValidationError("校准阶段时间与阶段配置不一致")
+            ranges = {}
+            for index, phase_id in enumerate(ids):
+                value = phase_times.get(phase_id, {})
+                if not isinstance(value, dict) or set(value) - {"start_at", "end_at"}:
+                    raise ProjectValidationError("校准阶段时间设置格式不正确")
+                timing = {}
+                for field in ("start_at", "end_at"):
+                    timestamp = value.get(field, "")
+                    if not isinstance(timestamp, str) or len(timestamp) > 64:
+                        raise ProjectValidationError("校准阶段时间格式不正确")
+                    _parse_time(timestamp)
+                    timing[field] = timestamp
+                start, end = _parse_time(timing["start_at"]), _parse_time(timing["end_at"])
+                if start and end and end <= start:
+                    raise ProjectValidationError(f"校准第 {index + 1} 阶段截止时间必须晚于开始时间")
+                ranges[phase_id] = timing
+            values = normalized_times.setdefault(node_id, {})
+            values["phase_times"] = ranges
+            complete = all(timing["start_at"] and timing["end_at"] for timing in ranges.values())
+            values["start_at"] = min((timing["start_at"] for timing in ranges.values()), key=_parse_time) if complete else ""
+            values["end_at"] = max((timing["end_at"] for timing in ranges.values()), key=_parse_time) if complete else ""
         return {"node_settings": normalized_nodes, "node_times": normalized_times}
 
     @classmethod
@@ -602,7 +652,7 @@ class PerformanceProjectService:
         if "evaluator_rules" in payload and payload.get("evaluator_rules") is not None:
             settings["evaluator_rules"] = cls._validate_rules(payload.get("evaluator_rules"))
         if "flow_settings" in payload and payload.get("flow_settings") is not None:
-            settings["flow_settings"] = cls._validate_flow_settings(payload.get("flow_settings"))
+            settings["flow_settings"] = cls._validate_flow_settings(payload.get("flow_settings"), settings.get("flow_settings"))
         settings.setdefault("flow_settings", {"node_settings": {}})
         start_at = settings.get("start_at")
         end_at = settings.get("end_at")

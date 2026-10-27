@@ -158,3 +158,27 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
 |---|---|---|---|
 | I01-I05 | 周期人员维护本期仅限周期管理员；项目管理员仅可查看授权项目范围内的周期详情和项目壳 | 当前无项目成员归属模型，不能安全限制全局周期快照 | 项目成员范围模型落地后建立独立需求 |
 | 项目配置 | 不属于本规格 | 过早实现会混入项目权限和评价规则 | 建立下一项独立需求 |
+## 项目校准阶段联动修复：2026-10-27
+
+- [ ] PM-T003-I10 校准阶段与起止时间一致
+  - Goal/confirmation: 用户先要求只读定位，随后明确“完成调整修复”；按本功能 ui-interaction.md 的 PM-T003-I10 修复现有项目设置页。
+  - Type/prerequisites: 既有 UI/DTO/service Bug 修复，已有项目流程设置和项目 PATCH/GET；不以本卡宣称 PM-T003 所有项目能力完成。
+  - Required reading: Spec 002 START_HERE/基线、PM-T003 和 PM-T004 规格/任务/交互、CR-004、CR-005 角色边界、performance-spec-development 的 execution-contract/task-card-template/acceptance-evidence；Spec 012 UI 通用 N000/N00/N11。
+  - Allowed modifications: frontend/src/api/performance.ts 的项目配置类型；PerformanceProjectFlowSettings.vue、PerformanceProjectTimeSettings.vue、PerformanceProjectSettingsPage.vue；backend/app/performance/project_service.py、backend/tests/test_performance_projects.py；本功能 atomic-tasks.md/ui-interaction.md。
+  - Allowed new files: frontend/src/components/performance/performanceProjectCalibration.ts、PerformanceProjectTimeSettings.spec.ts；ui-blueprints/PM-T003-I10-implemented-calibration-phase-times*.png。
+  - Forbidden modifications: 既有迁移、模板业务代码、角色授权、历史周期/项目快照、其他未提交改动；不 commit/push/部署。
+  - Shared files: performance.ts 已存在其他任务改动，仅串行修改项目阶段/时间类型，不覆盖其他差异。
+  - Contract: phases 可选 phase_id；node_times[node_id].phase_times 按稳定 ID 保存日期；节点窗口由完整阶段范围派生；保留旧节点级日期读取，旧省略字段保护和草稿允许空日期；沿用 PATCH/GET URL、权限、422 和审计事务，无新外部副作用。
+  - UI: 用户 SnapSpec 为局部视觉依据，原信息架构不变，无需新完整蓝图；复用日期时间控件；阶段增删、时间校验、保存/重开和移动端显示需覆盖。独立 PNG 计划路径 ../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times.png。
+  - Test contract: Given 两个校准阶段；When 填写、增删、完成并重开；Then 两组日期与阶段稳定对应，删除第一阶段不串值，新阶段空值，反向日期拒绝，无权 403；旧时间仅带入第一阶段。测试文件为现有 backend/tests/test_performance_projects.py 和 frontend/src/components/performance/PerformanceProjectTimeSettings.spec.ts、PerformanceProjectFlowSettings.spec.ts；定向 Vitest/pytest、生产构建、真实 API/SQL 回读与实际 UI 截图分别记录，未执行不得标通过。
+  - Migration/permission/external impact: 仅既有项目 JSONB，新增迁移不适用；不改权限，补原接口 allow/deny；无 UCP 或外部系统。
+  - Non-scope/stop: 不实现校准阶段人员作用域物化、运行时阶段任务、历史重建、生产变更；停止本轮修改即可停用未发布代码，不回滚数据库或覆盖其他任务。
+  - Evidence（2026-10-27，本地）:
+    - 前端 `npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectTimeSettings.spec.ts src/components/performance/PerformanceProjectFlowSettings.spec.ts src/components/performance/PerformanceDateTimeField.spec.ts src/views/performance/CycleManagement.spec.ts src/views/performance/ProjectManagement.spec.ts` 最终 72/72 通过（新增联动 12 项）。曾因默认状态首次 emit 改变取消/失败语义导致 2 项失败，已改为父页面初始化校准阶段，原回归恢复通过。
+    - 后端在 backend 目录执行 `RUN_PERFORMANCE_DB_TEST=1 python -m pytest tests/test_performance_projects.py -q --tb=short` 最新 238/238 通过（包含同期其他任务新增测试）；本卡 `-k 'calibration_phase_times or project_calibration or project_flow_settings'` 定向 54/54 通过。只有既有 python_multipart 弃用警告。同期其他会话修改 task_kind 期间曾有 18 项失败，待其补兼容 guard 后复跑已通过。
+    - opt-in `test_calibration_phase_times_real_database_api_round_trip` 在本机 PostgreSQL 的外层回滚事务中执行真实项目 PATCH→SQL JSONB→GET 重开，验证稳定 ID、删除首阶段、聚合窗口、审计 after_state、非法时间 422、无权 GET/PATCH 403，以及拒绝后数据不变。最终 rollback，并查询证明临时周期/项目均未保留。不改生产数据或历史快照。
+    - Chrome 实际项目页面使用隔离 API 夹具测试默认单阶段、添加到三阶段、删除首阶段、两组日期、反向日期阻止 PATCH、保存 payload 和 reload 重开；5 次夹具 PATCH，0 个 pageerror。浏览器网络夹具不冒充真实后端验证；真实 API/SQL 为上一项独立验收。
+    - 已查看实际截图 `../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times.png`；另有 `../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times-mobile.png`（真实日期组件 390px 宽夹具，单列且无横向溢出；不是整个桌面项目设置页的移动端适配声明）。临时 Vite 验收进程已停止。
+    - `npm --prefix hr-portal/frontend run build` 曾通过 vue-tsc + Vite（既有 VueUse PURE 注释警告）；最新整体构建因同期模板流程页新增 executor_role_code 而 WorkflowNode 类型尚未补齐失败，已联系对应会话，不覆盖其修改；整体构建阻塞解除后须再次回填。`git diff --check` 本卡文件通过，仅 LF/CRLF 提示。
+  - Current status: 本卡联动实现、定向/全文件后端与前端回归、真实 API/SQL、UI 截图已验证；最新整体构建暂被并行模板类型修改阻塞，因此暂不勾选。无本卡 migration、commit、push、容器替换或生产部署。
+  - Definition of done: 代码、联动/拒绝/旧数据测试、真实保存回读、UI 截图及构建均验证后才勾选；缺证据保持未完成并注明原因。

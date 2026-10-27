@@ -28,7 +28,7 @@
         <div class="calibration-switch-row"><div><strong>绩效结果强制 / 建议分布</strong><p>开启后，可以选择一个评估项，针对评估项的等级设置强制分布和建议分布规则</p></div><PerformanceSwitch :model-value="calibrationSettings(node).force_distribution_enabled" aria-label="绩效结果强制建议分布" @update:model-value="calibrationSettings(node).force_distribution_enabled = $event" /></div>
         <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><span class="info-mark" aria-label="校准规则说明">i</span></h3></div></div>
         <div class="calibration-summary"><span class="info-circle">i</span><span>当前共 {{ evaluatedCount }} 个被评估人，{{ assignedCount(node) }} 人已分配校准，{{ Math.max(0, evaluatedCount - assignedCount(node)) }} 人未分配校准人。</span><PerformanceTextButton label="查看校准详情" /></div>
-        <div v-for="(phase, phaseIndex) in calibrationSettings(node).phases" :key="phaseIndex" class="calibration-phase">
+        <div v-for="(phase, phaseIndex) in calibrationSettings(node).phases" :key="phase.phase_id || phaseIndex" class="calibration-phase">
           <div class="phase-heading"><div class="phase-title">第 {{ phaseIndex + 1 }} 阶段</div><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除第 ${phaseIndex + 1} 阶段`" :disabled="calibrationSettings(node).phases.length <= 1" @click="removePhase(node, phaseIndex)" /></div>
           <div class="rule-table">
             <div class="rule-table-header"><span>校准人</span><span>校准范围</span><span>是否允许授权他人</span><span>操作</span></div>
@@ -106,6 +106,7 @@
 </template>
 
 <script setup lang="ts">
+import { ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import { computed, ref, watch } from 'vue'
 import type { PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
 import { performanceProjectApi } from '@/api/performance'
@@ -188,7 +189,7 @@ function ensureNode(node: PerformanceWorkflowNode) {
     calibration.phases.forEach(phase => { if (!phase.rules?.length) phase.rules = [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] })
   }
 }
-function ensureAllNodes() { props.nodes.forEach(ensureNode) }
+function ensureAllNodes() { props.nodes.forEach(ensureNode); ensureCalibrationPhaseIds(draft.value.node_settings); syncCalibrationPhaseTimes(draft.value.node_settings, draft.value.node_times) }
 function inviteSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].invite! }
 function calibrationSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].calibration! }
 function resultViewSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_view! }
@@ -274,7 +275,7 @@ function setMinimumInviteCount(node: PerformanceWorkflowNode, event: Event) { in
 function assignedCount(node: PerformanceWorkflowNode) { return calibrationSettings(node).phases.reduce((sum, phase) => sum + phase.rules.length, 0) ? props.evaluatedCount : 0 }
 function removeRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { const rules = calibrationSettings(node).phases[phaseIndex].rules; if (rules.length > 1) rules.splice(ruleIndex, 1) }
 function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const phases = calibrationSettings(node).phases; if (phases.length > 1) phases.splice(phaseIndex, 1) }
-function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
+function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ phase_id: crypto.randomUUID(), rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
 function setReconsiderationHandler(node: PerformanceWorkflowNode, event: Event) { reconsiderationSettings(node).handler = (event.target as HTMLSelectElement).value || null }
 function openingInvalid(node: PerformanceWorkflowNode) { const view = resultViewSettings(node); return props.showOpeningError && !view.automatic_enabled && !view.manual_enabled }
 function manualOpeningDisabled(node: PerformanceWorkflowNode) {
@@ -298,7 +299,7 @@ function setOpeningMode(node: PerformanceWorkflowNode, field: 'automatic_enabled
 function setAutomaticRule(node: PerformanceWorkflowNode, value: string) { resultViewSettings(node).automatic_rule = value as 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE' }
 watch(() => props.modelValue, value => { const next = JSON.stringify(value || { node_settings: {}, node_times: {} }); if (next !== lastEmitted.value) { draft.value = cloneSettings(value); ensureAllNodes(); lastEmitted.value = JSON.stringify(draft.value) } }, { deep: true })
 watch(() => props.nodes, ensureAllNodes, { deep: true, immediate: true })
-watch(draft, value => { const next = JSON.stringify(value); if (next === lastEmitted.value) return; lastEmitted.value = next; emit('update:modelValue', cloneSettings(value)) }, { deep: true })
+watch(draft, value => { ensureCalibrationPhaseIds(value.node_settings); syncCalibrationPhaseTimes(value.node_settings, value.node_times); const next = JSON.stringify(value); if (next === lastEmitted.value) return; lastEmitted.value = next; emit('update:modelValue', cloneSettings(value)) }, { deep: true })
 </script>
 
 <style scoped>

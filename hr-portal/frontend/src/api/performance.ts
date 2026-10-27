@@ -1275,6 +1275,7 @@ export interface PerformanceProjectNodeTime {
   start_at: string
   end_at: string
   appeal_deadline?: string
+  phase_times?: Record<string, { start_at: string; end_at: string }>
 }
 
 export interface PerformanceProjectFlowSettings {
@@ -1293,7 +1294,7 @@ export interface PerformanceProjectFlowSettings {
     }
     calibration?: {
       force_distribution_enabled: boolean
-      phases: Array<{ rules: PerformanceProjectFlowRule[] }>
+      phases: Array<{ phase_id?: string; rules: PerformanceProjectFlowRule[] }>
     }
     result_view?: {
       automatic_enabled: boolean

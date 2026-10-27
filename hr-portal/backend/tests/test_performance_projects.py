@@ -3307,3 +3307,176 @@ async def test_result_tag_route_preserves_result_access_denials(monkeypatch, den
 
 async def _resolved(value):
     return value
+
+
+def calibration_phase_time_settings():
+    return {
+        "node_settings": {"calibration-1": {"calibration": {"phases": [
+            {"phase_id": "first", "rules": []}, {"phase_id": "second", "rules": []},
+        ]}}},
+        "node_times": {"calibration-1": {"phase_times": {
+            "first": {"start_at": "2026-10-01T09:00+08:00", "end_at": "2026-10-05T18:00+08:00"},
+            "second": {"start_at": "2026-10-06T09:00+08:00", "end_at": "2026-10-10T18:00+08:00"},
+        }}},
+    }
+
+
+def test_calibration_phase_times_round_trip_through_payload_and_response():
+    from copy import deepcopy
+    original = calibration_phase_time_settings()
+    payload = deepcopy(original)
+    normalized = PerformanceProjectService._validate_flow_settings(payload)
+    timing = normalized["node_times"]["calibration-1"]
+    assert timing["start_at"] == original["node_times"]["calibration-1"]["phase_times"]["first"]["start_at"]
+    assert timing["end_at"] == original["node_times"]["calibration-1"]["phase_times"]["second"]["end_at"]
+    assert timing["phase_times"] == original["node_times"]["calibration-1"]["phase_times"]
+    assert payload == original
+    assert PerformanceProjectService._validate_flow_settings(normalized) == normalized
+    _, _, _, saved = PerformanceProjectService._validate_payload({"name": "校准项目", "flow_settings": normalized})
+    target = project()
+    target.settings = saved
+    assert PerformanceProjectService.serialize(target)["flow_settings"] == normalized
+
+
+@pytest.mark.parametrize("change,message", [
+    (lambda flow: flow["node_times"]["calibration-1"]["phase_times"]["second"].update(end_at="2026-10-06T08:00+08:00"), "第 2 阶段"),
+    (lambda flow: flow["node_times"]["calibration-1"]["phase_times"]["second"].update(start_at="invalid"), "时间格式"),
+    (lambda flow: flow["node_times"]["calibration-1"]["phase_times"].update(unknown={}), "不一致"),
+    (lambda flow: flow["node_times"]["calibration-1"].update(phase_times=[]), "格式不正确"),
+    (lambda flow: flow["node_times"]["calibration-1"]["phase_times"]["first"].update(unexpected="value"), "格式不正确"),
+    (lambda flow: flow["node_settings"]["calibration-1"]["calibration"]["phases"][1].update(phase_id="first"), "标识"),
+    (lambda flow: flow["node_settings"]["calibration-1"]["calibration"]["phases"][1].update(phase_id=""), "标识"),
+])
+def test_calibration_phase_times_reject_invalid_values(change, message):
+    flow = calibration_phase_time_settings()
+    change(flow)
+    with pytest.raises(ProjectValidationError, match=message):
+        PerformanceProjectService._validate_flow_settings(flow)
+
+
+def test_calibration_phase_times_allow_partial_drafts_without_inventing_an_envelope():
+    flow = calibration_phase_time_settings()
+    flow["node_times"]["calibration-1"]["phase_times"].pop("second")
+    timing = PerformanceProjectService._validate_flow_settings(flow)["node_times"]["calibration-1"]
+    assert timing["phase_times"]["second"] == {"start_at": "", "end_at": ""}
+    assert timing["start_at"] == timing["end_at"] == ""
+
+
+def test_calibration_phase_times_preserve_omitted_map_and_prune_deleted_phase_by_id():
+    saved = PerformanceProjectService._validate_flow_settings(calibration_phase_time_settings())
+    flow = calibration_phase_time_settings()
+    flow["node_times"]["calibration-1"] = {"start_at": "", "end_at": ""}
+    flow["node_settings"]["calibration-1"]["calibration"]["phases"].pop(0)
+    _, _, _, result = PerformanceProjectService._validate_payload({"name": "校准项目", "flow_settings": flow}, {"flow_settings": saved})
+    timing = result["flow_settings"]["node_times"]["calibration-1"]
+    assert list(timing["phase_times"]) == ["second"]
+    assert timing["start_at"] == saved["node_times"]["calibration-1"]["phase_times"]["second"]["start_at"]
+    assert list(saved["node_times"]["calibration-1"]["phase_times"]) == ["first", "second"]
+
+
+def test_calibration_phase_times_reject_legacy_client_dropping_stable_phase_ids():
+    saved = PerformanceProjectService._validate_flow_settings(calibration_phase_time_settings())
+    flow = calibration_phase_time_settings()
+    for phase in flow["node_settings"]["calibration-1"]["calibration"]["phases"]:
+        phase.pop("phase_id")
+    flow["node_times"]["calibration-1"].pop("phase_times")
+    with pytest.raises(ProjectValidationError, match="刷新项目"):
+        PerformanceProjectService._validate_payload({"name": "校准项目", "flow_settings": flow}, {"flow_settings": saved})
+
+
+def test_calibration_phase_times_use_actual_instants_for_aggregate_range():
+    flow = calibration_phase_time_settings()
+    times = flow["node_times"]["calibration-1"]["phase_times"]
+    times["second"] = {"start_at": "2026-10-01T01:30Z", "end_at": "2026-10-05T11:00Z"}
+    timing = PerformanceProjectService._validate_flow_settings(flow)["node_times"]["calibration-1"]
+    assert timing["start_at"] == times["first"]["start_at"]
+    assert timing["end_at"] == times["second"]["end_at"]
+
+
+@pytest.mark.asyncio
+async def test_calibration_phase_times_real_database_api_round_trip():
+    import os
+    if os.getenv("RUN_PERFORMANCE_DB_TEST") != "1":
+        pytest.skip("显式 RUN_PERFORMANCE_DB_TEST=1 才运行本地数据库回滚验收")
+    from datetime import UTC, datetime
+    from uuid import uuid4
+    import httpx
+    from fastapi import FastAPI
+    from sqlalchemy import select
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.pool import NullPool
+    from app.performance import projects_router
+    from app.performance.models import PerformanceAuditEvent, PerformanceCycle, PerformanceProject
+
+    assert make_url(settings.db_url_async).host in {"localhost", "127.0.0.1"}, "只允许本地开发数据库"
+    engine = create_async_engine(settings.db_url_async, poolclass=NullPool)
+    reference = f"test:phase-times:{uuid4().hex}"
+    try:
+        async with engine.connect() as connection:
+            transaction = await connection.begin()
+            session = AsyncSession(bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False)
+            try:
+                cycle = PerformanceCycle(cycle_ref=reference, name="阶段日期回滚验收", period_year=2026, period_type="CUSTOM", start_at=datetime(2026, 10, 1, tzinfo=UTC), end_at=datetime(2026, 11, 1, tzinfo=UTC), lock_rule="IMMEDIATE", created_by_type="PORTAL_USER", created_by_ref="1")
+                target = PerformanceProject(project_ref=reference, cycle_ref=reference, name="阶段日期回滚验收", status="DRAFT", administrators=[], settings={})
+                session.add(cycle)
+                await session.flush()
+                session.add(target)
+                await session.commit()
+                project_id = target.id
+                app = FastAPI()
+                app.include_router(projects_router.router, prefix="/api/v1")
+                app.dependency_overrides[projects_router.get_session] = lambda: session
+                app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                    url = f"/api/v1/performance/projects/{project_id}"
+                    response = await client.patch(url, json={"name": target.name, "flow_settings": calibration_phase_time_settings()})
+                    assert response.status_code == 200, response.text
+                    saved = response.json()["flow_settings"]
+                    session.expunge_all()
+                    persisted = await session.scalar(select(PerformanceProject.settings).where(PerformanceProject.id == project_id))
+                    assert persisted["flow_settings"] == saved
+                    audit = await session.scalar(select(PerformanceAuditEvent).where(PerformanceAuditEvent.subject_ref == reference))
+                    assert audit.event_type == "PERFORMANCE_PROJECT_UPDATED"
+                    assert audit.after_state["flow_settings"] == saved
+                    reopened = await client.get(url)
+                    assert reopened.status_code == 200
+                    assert reopened.json()["flow_settings"] == saved
+                    saved["node_settings"]["calibration-1"]["calibration"]["phases"].pop(0)
+                    saved["node_times"]["calibration-1"]["phase_times"].pop("first")
+                    response = await client.patch(url, json={"name": "阶段日期回滚验收", "flow_settings": saved})
+                    assert response.status_code == 200, response.text
+                    remaining = response.json()["flow_settings"]["node_times"]["calibration-1"]
+                    assert list(remaining["phase_times"]) == ["second"]
+                    assert remaining["start_at"] == remaining["phase_times"]["second"]["start_at"]
+                    invalid = calibration_phase_time_settings()
+                    invalid["node_times"]["calibration-1"]["phase_times"]["second"]["end_at"] = "2026-10-01T00:00"
+                    assert (await client.patch(url, json={"name": "阶段日期回滚验收", "flow_settings": invalid})).status_code == 422
+                    assert (await client.get(url)).json()["flow_settings"]["node_times"]["calibration-1"] == remaining
+                    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+                    assert (await client.get(url)).status_code == 403
+                    assert (await client.patch(url, json={"name": "无权", "flow_settings": saved})).status_code == 403
+            finally:
+                await session.close()
+                await transaction.rollback()
+        async with engine.connect() as connection:
+            assert await connection.scalar(select(PerformanceProject.id).where(PerformanceProject.project_ref == reference)) is None
+            assert await connection.scalar(select(PerformanceCycle.id).where(PerformanceCycle.cycle_ref == reference)) is None
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("phase_id", ["__proto__", "constructor", "prototype", "with space", "x" * 97])
+def test_calibration_phase_times_reject_unsafe_phase_ids(phase_id):
+    flow = calibration_phase_time_settings()
+    flow["node_settings"]["calibration-1"]["calibration"]["phases"][0]["phase_id"] = phase_id
+    with pytest.raises(ProjectValidationError, match="标识"):
+        PerformanceProjectService._validate_flow_settings(flow)
+
+
+def test_calibration_phase_times_derive_window_instead_of_trusting_stale_node_dates():
+    flow = calibration_phase_time_settings()
+    flow["node_times"]["calibration-1"].update(start_at="2026-11-30T00:00", end_at="2026-01-01T00:00")
+    normalized = PerformanceProjectService._validate_flow_settings(flow)["node_times"]["calibration-1"]
+    assert normalized["start_at"] == flow["node_times"]["calibration-1"]["phase_times"]["first"]["start_at"]
+    assert normalized["end_at"] == flow["node_times"]["calibration-1"]["phase_times"]["second"]["end_at"]

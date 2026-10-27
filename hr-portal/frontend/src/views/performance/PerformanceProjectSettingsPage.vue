@@ -77,6 +77,7 @@
         <p class="hint">针对每个环节，可以自定义设置各环节内任务开展与完成的起止时间</p>
         <PerformanceProjectTimeSettings
           v-model="form.flow_settings.node_times"
+          :node-settings="form.flow_settings.node_settings"
           :nodes="workflowNodes"
           :loading="flowLoading"
           :error="flowError"
@@ -100,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/performance/PageHeader.vue'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
@@ -112,6 +113,7 @@ import { validHireDateCondition } from '@/components/performance/performanceCond
 import { performanceOtherSettingsApi, performanceProjectApi, performanceTemplateApi, type PerformanceCycleProjectShell, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions } from '@/api/performance'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
+import { initializeCalibrationNodes, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError } from '@/components/performance/performanceProjectCalibration'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 
@@ -130,21 +132,8 @@ const selectedTemplate = computed(() => templates.value.find(template => templat
 const projectName = computed(() => form.name)
 const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at))
 function workflowNodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
-const nodeTimeError = computed(() => {
-  for (const node of workflowNodes.value) {
-    const time = form.flow_settings.node_times?.[workflowNodeKey(node)]
-    if (node.node_type === 'result_view') {
-      if (!time?.start_at || !time.appeal_deadline) return `${node.name}的开始时间和发起复议截止时间不能为空`
-      if (time.appeal_deadline <= time.start_at) return `${node.name}的发起复议截止时间必须晚于开始时间`
-    } else if (node.node_type === 'result_reconsideration') {
-      if (!time?.end_at) return `${node.name}的处理复议截止时间不能为空`
-    } else {
-      if (!time?.start_at || !time.end_at) return `${node.name}的开始时间和截止时间不能为空`
-      if (time.end_at <= time.start_at) return `${node.name}的截止时间必须晚于开始时间`
-    }
-  }
-  return ''
-})
+watch(() => form.flow_settings, settings => { ensureCalibrationPhaseIds(settings.node_settings); syncCalibrationPhaseTimes(settings.node_settings, settings.node_times) }, { deep: true })
+const nodeTimeError = computed(() => projectNodeTimeError(workflowNodes.value, form.flow_settings))
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { id: projectId.value, project_ref: '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: 'DRAFT', evaluated_count: 0 }; basicDialogOpen.value = true }
 async function saveBasicInfo(payload: PerformanceProjectPayload) { if (!projectId.value) return; basicDialogSaving.value = true; try { await performanceProjectApi.update(projectId.value, payload); basicDialogOpen.value = false; await loadProject() } catch (error: any) { notice.value = error?.response?.data?.detail || '基本信息保存失败' } finally { basicDialogSaving.value = false } }
 function toInputTime(value: string | null) { return value ? value.slice(0, 16) : '' }
@@ -167,6 +156,7 @@ async function loadTemplateWorkflow() {
   try {
     const workflow = await performanceTemplateApi.getWorkflow(form.template_id)
     workflowNodes.value = workflow.nodes
+    initializeCalibrationNodes(workflowNodes.value, form.flow_settings)
   } catch (error: any) {
     workflowNodes.value = []
     flowError.value = error?.response?.data?.detail?.message || '绩效模板流程加载失败，请稍后重试'
