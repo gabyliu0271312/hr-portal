@@ -73,7 +73,7 @@ describe('ReviewRuleTable', () => {
     expect(columns.map((column) => column.attributes('data-label'))).toEqual(['名称', '评估方式', '创建人', '创建时间', '备注', '操作'])
     expect(columns.map((column) => column.attributes('data-width'))).toEqual([undefined, undefined, undefined, undefined, undefined, undefined])
     expect(columns.map((column) => column.attributes('data-min-width'))).toEqual(['120', '120', '160', '160', '240', '128'])
-    expect(wrapper.get('table').attributes('data-max-height')).toBeUndefined()
+    expect(wrapper.get('table').attributes('data-max-height')).toBe('600')
   })
 
   it('pins the rendered colgroup to the captured header geometry', () => {

@@ -80,7 +80,7 @@ function statusLabel(status: string) {
           <template #default="{ row }"><span class="project-status"><i />{{ statusLabel(row.status) }}</span></template>
         </el-table-column>
         <el-table-column prop="evaluated_count" label="评估人数" min-width="148" />
-        <el-table-column label="操作" min-width="92" fixed="right" class-name="fixed-operation">
+        <el-table-column label="操作" width="180" fixed="right" class-name="fixed-operation">
           <template #default="{ row }">
             <PerformanceProjectActions
               :can-manage="canManage(projectRow(row))"

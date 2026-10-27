@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   page: 1,
   pageSize: 10,
+  maxHeight: 600,
   showPagination: true,
 })
 
