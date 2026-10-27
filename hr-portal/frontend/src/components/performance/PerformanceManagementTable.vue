@@ -61,7 +61,7 @@ function changePage(page: number) {
       <button class="pagination-arrow" type="button" aria-label="下一页" :disabled="page >= pageCount" @click="changePage(page + 1)">
         <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="RightBoldOutlined"><path d="m7.586 20.486.707.707a1 1 0 0 0 1.414 0l7.778-7.778a2 2 0 0 0 0-2.829L9.707 2.808a1 1 0 0 0-1.414 0l-.707.707a1 1 0 0 0 0 1.414l7.07 7.072-7.07 7.07a1 1 0 0 0 0 1.415Z" fill="currentColor" /></svg>
       </button>
-      <el-select class="page-size-select" :model-value="pageSize" :suffix-icon="DownBoldOutlinedIcon" size="small" aria-label="每页条数" @change="emit('page-size-change', $event)">
+      <el-select popper-class="performance-token-select-popper" class="page-size-select performance-token-select" :model-value="pageSize" :suffix-icon="DownBoldOutlinedIcon" size="small" aria-label="每页条数" @change="emit('page-size-change', $event)">
         <el-option v-for="size in [10, 20, 50, 100]" :key="size" :label="`${size} 条/页`" :value="size" />
       </el-select>
     </div>
