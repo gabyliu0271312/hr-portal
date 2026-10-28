@@ -1575,6 +1575,8 @@ export interface PerformanceEvaluatorPreviewPerson {
   job_family: string | null
   job_category: string | null
   standard_position: string | null
+  employment_status?: string | null
+  live_employment_status?: string | null
   status: 'task' | 'report_only'
   report_only: boolean
 }

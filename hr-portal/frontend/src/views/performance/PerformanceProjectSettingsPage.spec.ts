@@ -112,6 +112,28 @@ describe('project audience visibility', () => {
 
 
 describe('project audience preview', () => {
+  it.each([
+    { snapshot: '在职', live: '离职', displayed: '离职' },
+    { snapshot: '离职', live: '在职', displayed: '在职' },
+    { snapshot: '在职', live: null, displayed: '在职' },
+  ])('displays current status $displayed while filtering by snapshot $snapshot', async ({ snapshot, live, displayed }) => {
+    const rules = { groups: [{ conditions: [{ field: 'employment_status', operator: 'include', values: [snapshot] }] }] }
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, evaluator_rules: rules })
+    const result = await mocks.previewEvaluatorPeople()
+    mocks.previewEvaluatorPeople.mockResolvedValue({ ...result, items: [{ ...result.items[0], employment_status: snapshot, live_employment_status: live }] })
+    const wrapper = page()
+    await flushPromises()
+    await wrapper.get('.audience-summary h3 button').trigger('click')
+    await flushPromises()
+    const table = wrapper.get('.performance-task-table')
+    const statusIndex = table.findAll('th').findIndex(cell => cell.text() === '当前在职状态')
+    expect(statusIndex).toBeGreaterThan(-1)
+    expect(table.findAll('tbody td')[statusIndex].text()).toBe(displayed)
+    expect(mocks.previewEvaluatorPeople).toHaveBeenLastCalledWith(1, expect.objectContaining({ evaluator_rules: rules }), '', 1, 50)
+    expect(wrapper.get('.audience-summary').text()).toContain('共计 5人')
+    wrapper.unmount()
+  })
+
   it('shows task and report-only counts and opens the reused read-only people overlay', async () => {
     const original = await mocks.get()
     mocks.get.mockResolvedValue({ ...original, template_id: 11 })

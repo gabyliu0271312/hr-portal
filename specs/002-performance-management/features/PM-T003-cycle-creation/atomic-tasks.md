@@ -296,6 +296,9 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
   - 停止/回滚：只撤销本卡新增局部差异，不覆盖既有未提交文件；测试或迁移链冲突先报告并保留证据。所有必要证据齐备前不勾选完成。
   - 前端证据：公共字段目录、条件编辑器、项目设置页与校准条件回归共4文件41项通过；页面测试覆盖六字段原值加载、预览请求、保存重开、非法离职日期阻断、无快照明确错误、候选失败重试且草稿不变。真实 Chrome + 隔离接口验证六字段显示、首次打开值框才请求（1次）、六条规则 PATCH 后重开保持、0 pageerror；已查看独立 PNG `../../ui-blueprints/PM-T003-I07-F02-snapshot-reviewee-filters.png`。模拟 API 不作为真实数据库或生产证据。`npm --prefix hr-portal/frontend run build` 的 vue-tsc + Vite 通过，仅既有 @vueuse PURE 注释警告；早期数仓类型错误经并行工作树修正，未由本卡改动数仓文件。
   - UI 合规：沿用现有页面信息架构、公共组件和token，无新菜单或权限扩大；Spec012 N000/N00/N11 通用规则适用，数仓/UCP专属检查不适用。
+  - 后端证据：`python -m pytest tests/test_performance_projects.py tests/test_performance_snapshot_service.py -q -rs --tb=short` → 301 passed、5 skipped、1项既有弃用警告；覆盖候选/预览/实际启动六字段、日期边界、周期离职准入、API保存回读与422/403、实时状态不改变快照筛选及身份范围。API保存回读使用内存夹具，不代替真实SQL验收。
+  - 迁移证据/阻塞：新增0278_performance_live_employment_status.py，revision=0278_performance_live_status、down_revision=0277_performance_standard_position；仅新增live列并复制既有快照状态初始化，不查实时花名册。`python -m alembic heads` 为唯一0278_performance_live_status，SQL编译测试通过；实际启用隔离PostgreSQL升降级测试时连接TimeoutError，未执行到迁移。主线程确认本机Docker daemon未启动、127.0.0.1:5432不可连接；真实升级/降级与数据库持久化验收仍blocked，因此保持[ ]。
+  - 实时状态展示补齐：预览人员响应与前端DTO区分快照employment_status/live_employment_status；被评估人预览名单新增“当前在职状态”列，读取live值、缺失时回退快照，不修改规则或人数。三组快照/实时状态差异测试通过，最新前端4文件44项通过；最终 `npm --prefix hr-portal/frontend run build`（vue-tsc + Vite）通过，Vite built in 42.57s、exit 0，仅既有 @vueuse PURE 注释警告。本轮不新增实时同步调度或扩展其他前台接口。
 
 ### PM-T003-I11-F01 勾选值与角色标签一致性修正
 

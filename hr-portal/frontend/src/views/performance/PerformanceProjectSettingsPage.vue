@@ -196,10 +196,11 @@ const audiencePreviewProvider: ReminderProvider = async query => {
   if (!cycleId.value) return { items: [], total: 0, columns: [], capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: false } }
   const result = await performanceProjectApi.previewEvaluatorPeople(cycleId.value, previewPayload(audiencePreviewKind.value, audiencePreviewGroup.value), query.keyword.trim(), query.page, query.pageSize)
   return {
-    items: result.items.map(person => ({ ...person, task_id: person.employee_no, job_sequence: null, position_level: null, hire_date: null, department: person.department, employee_type: null, employment_status: person.report_only ? '离职（仅报表）' : null, due_at: null, selectable: false })),
+    items: result.items.map(person => ({ ...person, task_id: person.employee_no, job_sequence: null, position_level: null, hire_date: null, department: person.department, employee_type: null, employment_status: person.live_employment_status ?? person.employment_status ?? null, due_at: null, selectable: false })),
     total: result.total,
     columns: [
       { key: 'display_name', label: '姓名', locked: true, visibleByDefault: true, minWidth: 160 },
+      { key: 'employment_status', label: '当前在职状态', visibleByDefault: true, minWidth: 140 },
       { key: 'direct_supervisor', label: '直属上级', visibleByDefault: true, minWidth: 160 },
       { key: 'company_org', label: '公司级组织', visibleByDefault: true, minWidth: 160 },
       { key: 'department', label: '一级部门', visibleByDefault: true, minWidth: 160 },
