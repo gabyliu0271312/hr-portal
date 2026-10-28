@@ -160,6 +160,49 @@ describe('PerformanceCalibrationRuleDrawer', () => {
     wrapper.unmount()
   })
 
+  it('supports a two-step distribution draft with independently enabled execution scopes', async () => {
+    const rule: PerformanceProjectFlowRule = {
+      subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false,
+      subject_groups: [{ conditions: [condition('employee', ['E1'])] }],
+    }
+    const wrapper = mount(PerformanceCalibrationRuleDrawer, {
+      props: {
+        modelValue: true,
+        rule,
+        assessmentOptions: [{ id: 'grade', label: '综合评级', grade_options: [{ value: 'A', label: 'A' }] }],
+        organizationTree: [{ value: '集团', label: '集团', level: 1, children: [] }],
+        positionLevelOptions: [{ value: 'P6', label: 'P6' }],
+      },
+      attachTo: document.body,
+    })
+    const footer = () => document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement
+    expect(footer().textContent).toBe('下一步')
+    footer().click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.calibration-step-guide')?.textContent).toContain('分布规则')
+    expect((document.body.querySelector('.performance-drawer-footer__cancel') as HTMLButtonElement).textContent).toBe('上一步')
+    expect(document.body.textContent).toContain('暂无分布规则')
+    ;(document.body.querySelector('.calibration-distribution-empty button') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    const department = document.body.querySelector('input[aria-label="指定部门内执行分布"]') as HTMLInputElement
+    department.click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.textContent).toContain('部门等级')
+    expect(document.body.textContent).not.toContain('职级')
+    const other = document.body.querySelector('input[aria-label="指定其他维度内执行分布"]') as HTMLInputElement
+    other.click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.textContent).toContain('职级')
+    const whole = document.body.querySelector('input[aria-label="校准范围内整体执行"]') as HTMLInputElement
+    whole.click()
+    await wrapper.vm.$nextTick()
+    expect((document.body.querySelectorAll('input[aria-label="校准范围内整体执行"]')[0] as HTMLInputElement).checked).toBe(true)
+    ;(document.body.querySelector('.performance-drawer-footer__cancel') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.calibration-rule-section')?.textContent).toContain('校准人')
+    wrapper.unmount()
+  })
+
   it('keeps legacy rules without new groups on edit', async () => {
     const legacy: PerformanceProjectFlowRule = { subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }
     const wrapper = mount(PerformanceCalibrationRuleDrawer, { props: { modelValue: true, rule: legacy, mode: 'edit' }, attachTo: document.body })

@@ -526,6 +526,35 @@ def test_project_distribution_rules_round_trip_and_reject_duplicate_assessment_i
         PerformanceProjectService._validate_flow_settings({"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": duplicate, "phases": []}}}})
 
 
+def test_calibration_rule_distribution_accepts_multiple_execution_scopes_and_rejects_incomplete_scope():
+    rule = _distribution_rule()
+    rule["execution_scope"] = {
+        "calibration_scope": True,
+        "department": True,
+        "other_dimension": True,
+        "rules": [
+            {"type": "DEPARTMENT", "values": ["研发部"]},
+            {"type": "DEPARTMENT_LEVEL", "values": ["department_2"]},
+            {"type": "POSITION_LEVEL", "values": ["P6"]},
+        ],
+    }
+    calibration_rule = {
+        "subject_type": "PERSON",
+        "operator": "INCLUDE",
+        "scope": "PROJECT_ALL",
+        "allow_authorize": False,
+        "distribution_rules": [rule],
+    }
+    flow = {"node_settings": {"calibration-1": {"calibration": {"phases": [{"rules": [calibration_rule]}]}}}}
+    normalized = PerformanceProjectService._validate_flow_settings(flow)
+    saved = normalized["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0]
+    assert saved["distribution_rules"][0]["execution_scope"] == rule["execution_scope"]
+
+    incomplete = {**rule, "execution_scope": {**rule["execution_scope"], "department": True, "rules": [{"type": "POSITION_LEVEL", "values": ["P6"]}]}}
+    with pytest.raises(ProjectValidationError, match="指定部门"):
+        PerformanceProjectService._validate_flow_settings({"node_settings": {"calibration-1": {"calibration": {"phases": [{"rules": [{**calibration_rule, "distribution_rules": [incomplete]}]}]}}}})
+
+
 @pytest.mark.parametrize("distribution,error", [
     ({"mode": "UNIFIED", "rules": [], "scope_configured": False}, "请至少添加一条"),
     ({"mode": "BY_CALIBRATION_SCOPE", "rules": [], "scope_configured": False}, "请完善绩效结果强制 / 建议分布"),
@@ -557,6 +586,9 @@ async def test_project_distribution_template_options_reject_unknown_assessment_a
         await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["B"])))
     await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["A"])))
     await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["level-1"])))
+    nested = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "phases": [{"rules": [{"subject_type": "PERSON", "operator": "INCLUDE", "scope": "PROJECT_ALL", "allow_authorize": False, "distribution_rules": [_distribution_rule("missing")]}]}]}}}}
+    with pytest.raises(ProjectValidationError, match="评估项不属于当前模板"):
+        await service._validate_distribution_template_options(11, nested)
 
 
 def test_project_flow_settings_validate_supported_editable_variants():

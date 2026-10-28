@@ -1274,6 +1274,7 @@ export interface PerformanceProjectFlowRule {
   subject_groups?: PerformanceCalibrationConditionGroup[]
   scope_groups?: PerformanceCalibrationConditionGroup[]
   description?: string
+  distribution_rules?: PerformanceDistributionRule[]
 }
 
 export interface PerformanceProjectNodeTime {
@@ -1303,11 +1304,23 @@ export interface PerformanceDistributionCondition {
   value: number
   unit: PerformanceDistributionUnit
 }
+export type PerformanceDistributionScopeRuleType = 'DEPARTMENT' | 'DEPARTMENT_LEVEL' | 'POSITION_LEVEL'
+export interface PerformanceDistributionScopeRule {
+  type: PerformanceDistributionScopeRuleType
+  values: string[]
+}
+export interface PerformanceDistributionExecutionScope {
+  calibration_scope: boolean
+  department: boolean
+  other_dimension: boolean
+  rules: PerformanceDistributionScopeRule[]
+}
 export interface PerformanceDistributionRule {
   assessment_item_id: string
   min_people_count: number
   conditions: PerformanceDistributionCondition[]
   rounding_method: PerformanceDistributionRounding
+  execution_scope?: PerformanceDistributionExecutionScope
 }
 export interface PerformanceDistributionSettings {
   mode: PerformanceDistributionMode

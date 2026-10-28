@@ -66,6 +66,7 @@
           :people-options="evaluatorOptions.people"
           :organization-tree="evaluatorOptions.organization_tree"
           :hire-date-range="evaluatorOptions.hire_date_range"
+          :position-level-options="evaluatorOptions.position_levels"
           @open-options="loadEvaluatorOptions"
           :evaluated-count="evaluatedCount"
           :loading="flowLoading"

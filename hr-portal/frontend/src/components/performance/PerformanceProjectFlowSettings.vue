@@ -143,6 +143,8 @@
       :people-options="peopleOptions"
       :organization-tree="organizationTree"
       :hire-date-range="hireDateRange"
+      :assessment-options="distributionAssessmentOptions"
+      :position-level-options="positionLevelOptions"
       @open-options="emit('open-options')"
       :saving="calibrationSaving"
       :save-error="calibrationSaveError"
@@ -193,8 +195,9 @@ const props = withDefaults(defineProps<{
   manualResultOpeningEnabled?: boolean
   manualOpeningSettingLoaded?: boolean
   distributionAssessmentOptions?: PerformanceDistributionAssessmentOption[]
+  positionLevelOptions?: Array<{ value: string; label: string }>
   showOpeningError?: boolean
-}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], organizationTree: () => [], distributionAssessmentOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
+}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], organizationTree: () => [], distributionAssessmentOptions: () => [], positionLevelOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSettings]; 'open-options': [] }>()
 
 const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue))

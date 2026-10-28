@@ -424,12 +424,13 @@ class PerformanceProjectService:
         normalized_rules = []
         assessment_ids = set()
         for rule in rules:
-            if not isinstance(rule, dict) or set(rule) != {"assessment_item_id", "min_people_count", "conditions", "rounding_method"}:
+            if not isinstance(rule, dict) or set(rule) - {"assessment_item_id", "min_people_count", "conditions", "rounding_method", "execution_scope"}:
                 raise ProjectValidationError("分布规则格式不正确")
             assessment_item_id = rule.get("assessment_item_id")
             minimum = rule.get("min_people_count")
             conditions = rule.get("conditions")
             rounding = rule.get("rounding_method")
+            execution_scope = rule.get("execution_scope")
             if (not isinstance(assessment_item_id, str) or not assessment_item_id.strip() or len(assessment_item_id.strip()) > 128
                     or assessment_item_id.strip() in assessment_ids):
                 raise ProjectValidationError("同一评估项只能配置一套分布规则")
@@ -462,12 +463,38 @@ class PerformanceProjectService:
                     "unit": unit,
                 })
             assessment_ids.add(assessment_item_id.strip())
-            normalized_rules.append({
+            normalized_rule = {
                 "assessment_item_id": assessment_item_id.strip(),
                 "min_people_count": minimum,
                 "conditions": normalized_conditions,
                 "rounding_method": rounding,
-            })
+            }
+            if execution_scope is not None:
+                if not isinstance(execution_scope, dict) or set(execution_scope) != {"calibration_scope", "department", "other_dimension", "rules"}:
+                    raise ProjectValidationError("分布执行范围格式不正确")
+                if any(not isinstance(execution_scope.get(key), bool) for key in ("calibration_scope", "department", "other_dimension")) or not isinstance(execution_scope["rules"], list):
+                    raise ProjectValidationError("分布执行范围不合法")
+                if not any(execution_scope[key] for key in ("calibration_scope", "department", "other_dimension")):
+                    raise ProjectValidationError("至少选择一种分布执行范围")
+                normalized_scope_rules = []
+                for scope_rule in execution_scope["rules"]:
+                    if not isinstance(scope_rule, dict) or set(scope_rule) != {"type", "values"} or scope_rule["type"] not in {"DEPARTMENT", "DEPARTMENT_LEVEL", "POSITION_LEVEL"}:
+                        raise ProjectValidationError("分布执行范围规则不合法")
+                    values = scope_rule["values"]
+                    if not isinstance(values, list) or not values or any(not isinstance(value, str) or not value.strip() or len(value.strip()) > 128 for value in values):
+                        raise ProjectValidationError("分布执行范围条件值不能为空")
+                    normalized_scope_rules.append({"type": scope_rule["type"], "values": list(dict.fromkeys(value.strip() for value in values))})
+                if execution_scope["department"] and not all(any(item["type"] == scope_type for item in normalized_scope_rules) for scope_type in ("DEPARTMENT", "DEPARTMENT_LEVEL")):
+                    raise ProjectValidationError("请完善指定部门内执行分布规则")
+                if execution_scope["other_dimension"] and not any(item["type"] == "POSITION_LEVEL" for item in normalized_scope_rules):
+                    raise ProjectValidationError("请完善指定其他维度内执行分布规则")
+                normalized_rule["execution_scope"] = {
+                    "calibration_scope": execution_scope["calibration_scope"],
+                    "department": execution_scope["department"],
+                    "other_dimension": execution_scope["other_dimension"],
+                    "rules": normalized_scope_rules,
+                }
+            normalized_rules.append(normalized_rule)
         return {"mode": mode, "rules": normalized_rules, "scope_configured": scope_configured}
 
     @staticmethod
@@ -578,7 +605,7 @@ class PerformanceProjectService:
                     rules = []
                     for rule in phase.get("rules", []):
                         if (not isinstance(rule, dict) or not rule
-                                or set(rule) - {"subject_type", "operator", "scope", "allow_authorize", "subject_source", "subject_groups", "scope_groups", "description"}):
+                                or set(rule) - {"subject_type", "operator", "scope", "allow_authorize", "subject_source", "subject_groups", "scope_groups", "description", "distribution_rules"}):
                             raise ProjectValidationError("校准规则设置格式不正确")
                         subject_type = rule.get("subject_type", "PERSON")
                         operator = rule.get("operator", "INCLUDE")
@@ -606,6 +633,9 @@ class PerformanceProjectService:
                             if not isinstance(description, str) or len(description.strip()) > 500:
                                 raise ProjectValidationError("校准规则说明不合法")
                             normalized_rule["description"] = description.strip()
+                        if "distribution_rules" in rule:
+                            distribution = cls._validate_distribution({"mode": "UNIFIED", "rules": rule["distribution_rules"], "scope_configured": True})
+                            normalized_rule["distribution_rules"] = distribution["rules"]
                         rules.append(normalized_rule)
                     phases.append({"rules": rules, **({"phase_id": phase_id} if "phase_id" in phase else {})})
                 normalized["calibration"] = {
@@ -784,6 +814,9 @@ class PerformanceProjectService:
             calibration = node_settings.get("calibration") or {}
             if calibration.get("force_distribution_enabled"):
                 configured.extend((calibration.get("distribution") or {}).get("rules") or [])
+                for phase in calibration.get("phases") or []:
+                    for calibration_rule in phase.get("rules") or []:
+                        configured.extend(calibration_rule.get("distribution_rules") or [])
         if not configured:
             return
         workflow = await self.db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
