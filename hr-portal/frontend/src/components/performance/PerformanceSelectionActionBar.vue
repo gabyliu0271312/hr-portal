@@ -17,7 +17,7 @@
 import type { ReminderCapabilities } from './performanceReminder'
 import PerformanceButton from './PerformanceButton.vue'
 
-defineProps<{ selectedCount: number; capabilities: ReminderCapabilities; loading?: boolean; actionMode?: 'remind' | 'open-result' }>()
+defineProps<{ selectedCount: number; capabilities: ReminderCapabilities; loading?: boolean; actionMode?: 'remind' | 'open-result' | 'preview' }>()
 const emit = defineEmits<{ action: ['remind' | 'authorize' | 'transfer' | 'open-result']; clear: [] }>()
 </script>
 

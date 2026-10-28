@@ -25,6 +25,7 @@ from app.performance.authorization_service import AuditEventInput, PerformanceAu
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
 from app.performance.scope_options import build_organization_tree
 from app.performance.models import (
+    CYCLE_LEAVER_MODE_REPORT_ONLY,
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
@@ -81,7 +82,7 @@ def _matches_hire_date_condition(actual: Any, condition: dict[str, Any]) -> bool
 
 def _matches_scope_condition(values: dict[str, Any], condition: dict[str, Any]) -> bool:
     field = condition.get("field")
-    if field == "hire_date":
+    if field in {"hire_date", "departure_date"}:
         return _matches_hire_date_condition(values.get(field), condition)
     selected = {str(value).strip() for value in condition.get("values", []) if str(value).strip()}
     actual = values.get(field, "")
@@ -94,15 +95,48 @@ def _matches_scope_condition(values: dict[str, Any], condition: dict[str, Any]) 
 
 
 def _matches_start_project_condition(values: dict[str, Any], condition: dict[str, Any]) -> bool:
-    if condition.get("field") == "hire_date":
-        return _matches_scope_condition(values, condition)
-    actual = values.get(condition.get("field"), "")
-    matched = actual in condition.get("values", [])
-    return matched if condition.get("operator") == "include" else not matched
+    return _matches_scope_condition(values, condition)
 
 
 DEFAULT_FLOW_SETTINGS = {"node_settings": {}}
 MAX_PROJECT_FLOW_NODES = 100
+DISTRIBUTION_MODES = {"UNIFIED", "BY_CALIBRATION_SCOPE"}
+DISTRIBUTION_CONTROL_MODES = {"HARD", "SOFT"}
+DISTRIBUTION_OPERATORS = {"GTE", "LTE"}
+DISTRIBUTION_UNITS = {"PERCENT", "PEOPLE"}
+DISTRIBUTION_ROUNDING_METHODS = {"ROUND", "CEIL", "FLOOR"}
+
+
+def distribution_assessment_options(nodes: list[dict], content_library: list[dict]) -> list[dict[str, Any]]:
+    final_node = next((node for node in nodes if node.get("include_final_result")), None)
+    if final_node is None:
+        return []
+    resolved = resolve_self_summary_content(final_node, content_library)
+    options: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for content in resolved.get("content") or []:
+        if (content.get("content_slot") or "fill") != "fill" or content.get("type") in {"reference", "prompt"}:
+            continue
+        for item in content.get("items") or []:
+            if item.get("kind") != "rating" and content.get("type") != "rating":
+                continue
+            item_id = str(item.get("id") or "").strip()
+            grade_options = item.get("options") if isinstance(item.get("options"), list) else content.get("options")
+            grades = [
+                {"value": str(option.get("id")), "label": str(option.get("label") or option.get("id"))}
+                for option in (grade_options or [])
+                if isinstance(option, dict) and option.get("id") is not None
+            ]
+            if not item_id or not grades or item_id in seen:
+                continue
+            seen.add(item_id)
+            options.append({
+                "id": item_id,
+                "label": str(item.get("label") or content.get("name") or item_id),
+                "description": str(content.get("description") or ""),
+                "grade_options": grades,
+            })
+    return options
 
 
 def _actor_ref(actor_id: int) -> str:
@@ -165,101 +199,84 @@ class PerformanceProjectService:
         self.db = db
         self.audit = PerformanceAuditService(db)
 
-    async def evaluator_options(self, cycle: PerformanceCycle) -> dict[str, Any]:
-        locked_snapshot = await self.db.scalar(
+    async def _cycle_snapshot_people(self, cycle: PerformanceCycle) -> tuple[Any, list[Any]]:
+        snapshot = await self.db.scalar(
             select(PerformanceAuthorizationSnapshot).where(
                 PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref,
-                PerformanceAuthorizationSnapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
             )
         )
-        if locked_snapshot is not None:
-            people = list((await self.db.execute(
-                select(PerformanceAuthorizationSnapshotPerson).where(
-                    PerformanceAuthorizationSnapshotPerson.snapshot_id == locked_snapshot.id
-                )
-            )).scalars().all())
-            rows = [
-                {
-                    "employee_no": person.employee_no,
-                    "full_name": person.display_name,
-                    "employment_status": person.employment_status,
-                    "employee_type": person.employee_type,
-                    "hire_date": person.hire_date,
-                    **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
-                }
+        if snapshot is None:
+            raise ProjectValidationError("周期人员快照不存在，请先同步周期人员")
+        people = list((await self.db.execute(
+            select(PerformanceAuthorizationSnapshotPerson).where(
+                PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id
+            )
+        )).scalars().all())
+        return snapshot, people
+
+    async def evaluator_options(self, cycle: PerformanceCycle) -> dict[str, Any]:
+        _, people = await self._cycle_snapshot_people(cycle)
+        people = self._cycle_eligible_people(people, cycle)
+        rows = [
+            {"employee_no": person.employee_no, "full_name": person.display_name,
+             **{field: getattr(person, field, None) for field in ORGANIZATION_FIELDS}}
+            for person in people
+        ]
+        options = {
+            "organization_tree": build_organization_tree(rows),
+            "people": sorted([
+                {"value": person.employee_no, "label": f"{person.display_name}（{person.employee_no}）"}
                 for person in people
-                if person.employment_status == "在职"
-            ]
-        else:
-            rows = await _canonical_roster_rows(self.db)
-            rows = [row for row in rows if normalize_roster_text(row.get("employment_status")) != "离职"]
-        departments = build_organization_tree(rows)
-        employee_types: set[str] = set()
-        employees: list[dict[str, str]] = []
-        for row in rows:
-            employee_no_value = normalize_employee_no(row.get("employee_no"))
-            name_value = normalize_roster_text(row.get("display_name") or row.get("full_name"))
-            if not employee_no_value or not name_value:
-                continue
-            if employee_type := normalize_roster_text(row.get("employee_type")):
-                employee_types.add(employee_type)
-            employees.append({"value": employee_no_value, "label": f"{name_value}（{employee_no_value}）"})
-        hire_dates = [value for row in rows if (value := normalize_roster_date(row.get("hire_date"))) is not None]
-        return {
-            "organization_tree": departments,
-            "people": sorted(employees, key=lambda item: item["value"]),
-            "employee_types": [{"value": value, "label": value} for value in sorted(employee_types)],
-            "hire_date_range": {
-                "min": min_date.isoformat() if (min_date := min(hire_dates, default=None)) else None,
-                "max": max_date.isoformat() if (max_date := max(hire_dates, default=None)) else None,
-            },
+            ], key=lambda item: item["value"]),
         }
+        for field, key in (
+            ("employee_type", "employee_types"),
+            ("employment_status", "employment_statuses"),
+            ("job_family", "job_families"),
+            ("job_category", "job_categories"),
+            ("position_level", "position_levels"),
+            ("standard_position", "standard_positions"),
+        ):
+            values = {value for person in people if (value := normalize_roster_text(getattr(person, field, None)))}
+            options[key] = [{"value": value, "label": value} for value in sorted(values)]
+        for field in ("hire_date", "departure_date"):
+            dates = [value for person in people if (value := normalize_roster_date(getattr(person, field, None))) is not None]
+            options[f"{field}_range"] = {
+                "min": min(dates).isoformat() if dates else None,
+                "max": max(dates).isoformat() if dates else None,
+            }
+        return options
+
+    async def preview_people(self, cycle: PerformanceCycle, settings: dict[str, Any], *, group_index: int | None = None, project_id: int | None = None, exclude_occupied: bool = True) -> tuple[list[Any], list[Any], list[Any]]:
+        _, people = await self._cycle_snapshot_people(cycle)
+        task_people, report_only = self._classify_people(people, settings, cycle, group_index=group_index)
+        candidate_numbers = [person.employee_no for person in [*task_people, *report_only]]
+        if exclude_occupied and candidate_numbers:
+            occupied_statement = (
+                select(PerformanceProjectMember.employee_no)
+                .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+                .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
+                .where(
+                    PerformanceProject.cycle_ref == cycle.cycle_ref,
+                    PerformanceProject.status == PROJECT_STATUS_STARTED,
+                    PerformanceProjectMember.employee_no.in_(candidate_numbers),
+                )
+            )
+            if project_id is not None:
+                occupied_statement = occupied_statement.where(PerformanceProject.id != project_id)
+            occupied = set((await self.db.execute(occupied_statement)).scalars().all())
+            task_people = [person for person in task_people if person.employee_no not in occupied]
+            report_only = [person for person in report_only if person.employee_no not in occupied]
+        matched = sorted([*task_people, *report_only], key=lambda person: (person.display_name, person.employee_no))
+        return matched, task_people, report_only
 
     async def evaluator_count(self, cycle: PerformanceCycle, rules: dict[str, Any]) -> int:
-        locked_snapshot = await self.db.scalar(
-            select(PerformanceAuthorizationSnapshot).where(
-                PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref,
-                PerformanceAuthorizationSnapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
-            )
+        matched, _task_people, _report_only = await self.preview_people(
+            cycle,
+            {"evaluator_rules": rules, "scope_rules": {"groups": []}},
+            exclude_occupied=False,
         )
-        if locked_snapshot is not None:
-            snapshot_people = list((await self.db.execute(
-                select(PerformanceAuthorizationSnapshotPerson).where(
-                    PerformanceAuthorizationSnapshotPerson.snapshot_id == locked_snapshot.id
-                )
-            )).scalars().all())
-            rows = [
-                {
-                    "employee_no": person.employee_no,
-                    "department": organization_path(person) or "",
-                    "employee_type": person.employee_type,
-                    "hire_date": person.hire_date,
-                    "employment_status": person.employment_status,
-                    "departure_date": person.departure_date,
-                }
-                for person in snapshot_people
-            ]
-        else:
-            rows = await _canonical_roster_rows(self.db)
-        groups = (rules or {}).get("groups", [])
-        if not groups:
-            return 0
-        count = 0
-        for row in rows:
-            if normalize_roster_text(row.get("employment_status")) == "离职":
-                departure = normalize_roster_date(row.get("departure_date"))
-                if not cycle.leaver_enabled or departure is None or cycle.leaver_start_date is None or cycle.leaver_end_date is None or not (cycle.leaver_start_date <= departure <= cycle.leaver_end_date):
-                    continue
-            values = {
-                "department": row.get("organization_ref") or row.get("department") or "",
-                "employee_type": normalize_roster_text(row.get("employee_type")) or "",
-                "employee": normalize_employee_no(row.get("employee_no")) or "",
-                "hire_date": normalize_roster_date(row.get("hire_date")),
-            }
-            groups_match = any(all(_matches_scope_condition(values, condition) for condition in group.get("conditions", [])) for group in groups)
-            if groups_match:
-                count += 1
-        return count
+        return len(matched)
 
     async def list_projects(
         self,
@@ -353,7 +370,7 @@ class PerformanceProjectService:
             return {"groups": []}
         if not isinstance(rules, dict) or not isinstance(rules.get("groups"), list):
             raise ProjectValidationError("被评估人筛选规则格式不正确")
-        allowed_fields = {"department", "employee_type", "employee", "hire_date"}
+        allowed_fields = {"department", "employee_type", "employee", "hire_date", "employment_status", "departure_date", "job_family", "job_category", "position_level", "standard_position"}
         allowed_operators = {"include", "exclude", "before", "not_before", "after", "not_after"}
         groups = []
         for group in rules["groups"]:
@@ -362,24 +379,92 @@ class PerformanceProjectService:
                 raise ProjectValidationError("每个被评估人范围至少需要一个筛选条件")
             normalized_conditions = []
             for condition in conditions:
-                if not isinstance(condition, dict) or condition.get("field") not in allowed_fields or condition.get("operator") not in allowed_operators:
+                if (not isinstance(condition, dict) or not isinstance(condition.get("field"), str)
+                        or not isinstance(condition.get("operator"), str)
+                        or condition["field"] not in allowed_fields or condition["operator"] not in allowed_operators):
                     raise ProjectValidationError("被评估人筛选条件不合法")
-                if condition.get("field") == "hire_date":
+                if condition.get("field") in {"hire_date", "departure_date"}:
                     values = condition.get("values")
                     comparison = condition["operator"] in {"before", "not_before", "after", "not_after"}
                     if (not isinstance(values, list) or len(values) != (1 if comparison else 2)
+                            or (condition["field"] == "departure_date" and not comparison)
                             or any(not isinstance(value, str) or _parse_hire_date(value) is None for value in values)
                             or (not comparison and values[0] > values[1])):
-                        raise ProjectValidationError("入职日期条件不合法")
+                        raise ProjectValidationError("入职日期条件不合法" if condition["field"] == "hire_date" else "离职日期条件不合法")
                 else:
                     if condition["operator"] not in {"include", "exclude"}:
                         raise ProjectValidationError("被评估人筛选条件不合法")
-                    values = [str(value).strip() for value in condition.get("values", []) if str(value).strip()]
+                    raw_values = condition.get("values")
+                    if not isinstance(raw_values, list) or any(not isinstance(value, str) for value in raw_values):
+                        raise ProjectValidationError("被评估人筛选条件不合法")
+                    values = list(dict.fromkeys(value.strip() for value in raw_values if value.strip()))
                     if not values:
                         raise ProjectValidationError("被评估人筛选条件不能为空")
                 normalized_conditions.append({"field": condition["field"], "operator": condition["operator"], "values": values})
             groups.append({"conditions": normalized_conditions})
         return {"groups": groups}
+
+    @staticmethod
+    def _validate_distribution(distribution: Any) -> dict[str, Any]:
+        if distribution is None:
+            return {"mode": "UNIFIED", "rules": [], "scope_configured": False}
+        if not isinstance(distribution, dict) or set(distribution) - {"mode", "rules", "scope_configured"}:
+            raise ProjectValidationError("绩效结果分布设置格式不正确")
+        mode = distribution.get("mode", "UNIFIED")
+        rules = distribution.get("rules", [])
+        scope_configured = distribution.get("scope_configured", False)
+        if mode not in DISTRIBUTION_MODES or not isinstance(rules, list) or not isinstance(scope_configured, bool):
+            raise ProjectValidationError("绩效结果分布设置不合法")
+        if len(rules) > MAX_PROJECT_FLOW_NODES:
+            raise ProjectValidationError("分布规则不能超过 100 个")
+        normalized_rules = []
+        assessment_ids = set()
+        for rule in rules:
+            if not isinstance(rule, dict) or set(rule) != {"assessment_item_id", "min_people_count", "conditions", "rounding_method"}:
+                raise ProjectValidationError("分布规则格式不正确")
+            assessment_item_id = rule.get("assessment_item_id")
+            minimum = rule.get("min_people_count")
+            conditions = rule.get("conditions")
+            rounding = rule.get("rounding_method")
+            if (not isinstance(assessment_item_id, str) or not assessment_item_id.strip() or len(assessment_item_id.strip()) > 128
+                    or assessment_item_id.strip() in assessment_ids):
+                raise ProjectValidationError("同一评估项只能配置一套分布规则")
+            if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 0 or minimum > 100000:
+                raise ProjectValidationError("分布规则适用人数不合法")
+            if not isinstance(conditions, list) or not conditions or len(conditions) > MAX_PROJECT_FLOW_NODES:
+                raise ProjectValidationError("请至少配置一条分布条件")
+            if rounding not in DISTRIBUTION_ROUNDING_METHODS:
+                raise ProjectValidationError("分布规则取整方式不合法")
+            normalized_conditions = []
+            for condition in conditions:
+                if not isinstance(condition, dict) or set(condition) != {"control_mode", "grade_codes", "operator", "value", "unit"}:
+                    raise ProjectValidationError("分布条件格式不正确")
+                control_mode = condition.get("control_mode")
+                grade_codes = condition.get("grade_codes")
+                operator = condition.get("operator")
+                value = condition.get("value")
+                unit = condition.get("unit")
+                if control_mode not in DISTRIBUTION_CONTROL_MODES or operator not in DISTRIBUTION_OPERATORS or unit not in DISTRIBUTION_UNITS:
+                    raise ProjectValidationError("分布条件不合法")
+                if not isinstance(grade_codes, list) or not grade_codes or any(not isinstance(code, str) or not code.strip() or len(code.strip()) > 128 for code in grade_codes):
+                    raise ProjectValidationError("分布条件等级不能为空")
+                if not isinstance(value, int) or isinstance(value, bool) or value <= 0 or (unit == "PERCENT" and value > 100) or (unit == "PEOPLE" and value > 100000):
+                    raise ProjectValidationError("分布条件数值不合法")
+                normalized_conditions.append({
+                    "control_mode": control_mode,
+                    "grade_codes": list(dict.fromkeys(code.strip() for code in grade_codes)),
+                    "operator": operator,
+                    "value": value,
+                    "unit": unit,
+                })
+            assessment_ids.add(assessment_item_id.strip())
+            normalized_rules.append({
+                "assessment_item_id": assessment_item_id.strip(),
+                "min_people_count": minimum,
+                "conditions": normalized_conditions,
+                "rounding_method": rounding,
+            })
+        return {"mode": mode, "rules": normalized_rules, "scope_configured": scope_configured}
 
     @staticmethod
     def _validate_calibration_groups(groups: Any, *, allowed_fields: set[str]) -> list[dict[str, Any]]:
@@ -521,6 +606,7 @@ class PerformanceProjectService:
                     phases.append({"rules": rules, **({"phase_id": phase_id} if "phase_id" in phase else {})})
                 normalized["calibration"] = {
                     "force_distribution_enabled": bool(calibration.get("force_distribution_enabled", False)),
+                    **({"distribution": cls._validate_distribution(calibration.get("distribution"))} if "distribution" in calibration else {}),
                     "phases": phases,
                 }
             result_view = raw.get("result_view")
@@ -688,6 +774,26 @@ class PerformanceProjectService:
                 continue
             raise ProjectValidationError("组织内暂不允许手动开通绩效结果")
 
+    async def _validate_distribution_template_options(self, template_id: int | None, flow_settings: dict[str, Any]) -> None:
+        configured = []
+        for node_settings in (flow_settings.get("node_settings") or {}).values():
+            calibration = node_settings.get("calibration") or {}
+            if calibration.get("force_distribution_enabled"):
+                configured.extend((calibration.get("distribution") or {}).get("rules") or [])
+        if not configured:
+            return
+        workflow = await self.db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
+        if workflow is None:
+            raise ProjectValidationError("绩效结果分布规则缺少可用的绩效模板")
+        options = distribution_assessment_options(list(workflow.nodes or []), list(workflow.content_library or []))
+        allowed = {option["id"]: {grade["value"] for grade in option["grade_options"]} for option in options}
+        for rule in configured:
+            item_id = rule["assessment_item_id"]
+            if item_id not in allowed:
+                raise ProjectValidationError("绩效结果分布规则的评估项不属于当前模板")
+            if any(set(condition["grade_codes"]) - allowed[item_id] for condition in rule["conditions"]):
+                raise ProjectValidationError("绩效结果分布规则的等级不属于所选评估项")
+
     async def validate_template(self, cycle_ref: str, template_id: int | None) -> None:
         if template_id is None:
             return
@@ -704,6 +810,7 @@ class PerformanceProjectService:
     async def create_project(self, cycle_ref: str, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceProject:
         name, description, administrators, settings = self._validate_payload(payload)
         await self.validate_template(cycle_ref, settings.get("template_id"))
+        await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"])
         project = PerformanceProject(
             project_ref=f"project:{uuid4().hex}",
@@ -738,6 +845,7 @@ class PerformanceProjectService:
             if project.status == PROJECT_STATUS_STARTED:
                 raise ProjectValidationError("已启动项目不能更换绩效模板")
             await self.validate_template(project.cycle_ref, settings.get("template_id"))
+        await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"], project.settings or {})
         if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
             previous_flow = (project.settings or {}).get("flow_settings") or {}
@@ -777,37 +885,96 @@ class PerformanceProjectService:
         return project
 
     @staticmethod
-    def _select_people(people, settings):
+    def _validate_distribution_start_readiness(flow: dict[str, Any], nodes: list[dict]) -> None:
+        for node in nodes:
+            if node.get("node_type") != "calibration":
+                continue
+            calibration = (((flow.get("node_settings") or {}).get(node.get("node_id")) or {}).get("calibration") or {})
+            if not calibration.get("force_distribution_enabled", False):
+                continue
+            distribution = calibration.get("distribution") or {}
+            if distribution.get("mode") == "BY_CALIBRATION_SCOPE" and not distribution.get("scope_configured"):
+                raise ProjectValidationError("请完善绩效结果强制 / 建议分布的按校准范围配置规则")
+            if distribution.get("mode", "UNIFIED") == "UNIFIED" and not distribution.get("rules"):
+                raise ProjectValidationError("请至少添加一条绩效结果强制 / 建议分布规则")
+
+    @staticmethod
+    def _person_value(person: Any, key: str) -> Any:
+        return person.get(key) if isinstance(person, dict) else getattr(person, key, None)
+
+    @classmethod
+    def _person_values(cls, person: Any) -> dict[str, Any]:
+        return {
+            "department": organization_path(person) or "",
+            "employee_type": cls._person_value(person, "employee_type") or "",
+            "employee": cls._person_value(person, "employee_no") or "",
+            "hire_date": cls._person_value(person, "hire_date"),
+            **{field: cls._person_value(person, field) for field in (
+                "employment_status", "departure_date", "job_family", "job_category", "position_level", "standard_position"
+            )},
+        }
+
+    @classmethod
+    def _matching_people(cls, people, settings, *, group_index: int | None = None):
         groups = (settings.get("evaluator_rules") or {}).get("groups") or []
         scope_groups = (settings.get("scope_rules") or {}).get("groups") or []
+        if group_index is not None:
+            groups = [groups[group_index]] if 0 <= group_index < len(groups) else []
         selected = []
         for person in people:
-            values = {"department": organization_path(person) or "", "employee_type": person.employee_type or "", "employee": person.employee_no, "hire_date": person.hire_date}
-            if scope_groups and not any(_matches_scope_condition(values, condition) for group in scope_groups for condition in group.get("conditions", [])):
+            values = cls._person_values(person)
+            if scope_groups and not any(all(_matches_scope_condition(values, condition) for condition in group.get("conditions", [])) for group in scope_groups):
                 continue
             if any(all(_matches_start_project_condition(values, condition) for condition in group.get("conditions", [])) for group in groups):
                 selected.append(person)
         return selected
 
-    async def calibration_preview(self, project, payload):
-        from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+    @classmethod
+    def _is_report_only_leaver(cls, person: Any, cycle: PerformanceCycle) -> bool:
+        return (
+            cls._person_value(person, "employment_status") == "离职"
+            and cycle.leaver_participation_mode == CYCLE_LEAVER_MODE_REPORT_ONLY
+            and bool(cycle.leaver_enabled)
+        )
 
+    @classmethod
+    def _cycle_eligible_people(cls, people, cycle: PerformanceCycle) -> list[Any]:
+        eligible = []
+        for person in people:
+            if cls._person_value(person, "employment_status") == "离职":
+                departure = cls._person_value(person, "departure_date")
+                if (not cycle.leaver_enabled or departure is None
+                        or cycle.leaver_start_date is None or cycle.leaver_end_date is None
+                        or not (cycle.leaver_start_date <= departure <= cycle.leaver_end_date)):
+                    continue
+            eligible.append(person)
+        return eligible
+
+    @classmethod
+    def _classify_people(cls, people, settings, cycle: PerformanceCycle, *, group_index: int | None = None) -> tuple[list[Any], list[Any]]:
+        matched = cls._matching_people(cls._cycle_eligible_people(people, cycle), settings, group_index=group_index)
+        report_only = [person for person in matched if cls._is_report_only_leaver(person, cycle)]
+        report_only_numbers = {person.employee_no for person in report_only}
+        task_people = [person for person in matched if person.employee_no not in report_only_numbers]
+        return task_people, report_only
+
+    @classmethod
+    def _select_people(cls, people, settings):
+        return cls._matching_people(people, settings)
+
+    async def calibration_preview(self, project, payload):
         _, _, _, settings = self._validate_payload({**self.serialize(project), **payload}, project.settings or {})
         if project.status == PROJECT_STATUS_STARTED:
             snapshots = (await self.db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id, PerformanceProjectNodeSnapshot.node_type == "calibration"))).scalars().all()
             return {node.node_id: (node.config or {}).get("calibration") for node in snapshots}
-        snapshot = await self.db.scalar(select(PerformanceAuthorizationSnapshot).where(PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref, PerformanceAuthorizationSnapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED))
-        if snapshot is not None:
-            people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id))).scalars().all())
-        else:
-            rows = await _canonical_roster_rows(self.db)
-            people = list(build_snapshot_people(RosterAuthorizationInput(employee_no=normalize_employee_no(row["employee_no"]), display_name=normalize_roster_text(row.get("display_name") or row.get("full_name")) or normalize_employee_no(row["employee_no"]), direct_supervisor_source_value=normalize_roster_text(row.get("direct_supervisor")), employee_type=row.get("employee_type"), hire_date=normalize_roster_date(row.get("hire_date")), **{field: row.get(field) for field in ORGANIZATION_FIELDS}) for row in rows if normalize_roster_text(row.get("employment_status")) != "离职" and normalize_employee_no(row.get("employee_no"))))
-        members = self._select_people(people, settings)
+        cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+        _, people = await self._cycle_snapshot_people(cycle)
+        task_people, _report_only = self._classify_people(people, settings, cycle)
         workflow = await self.db.get(PerformanceTemplateWorkflow, settings.get("template_id"))
         nodes = [node for node in (workflow.nodes if workflow else []) if node.get("node_type") == "calibration"]
         try:
             await validate_executor_roles(self.db, [normalize_executor_identity(node) for node in nodes])
-            return {node["node_id"]: resolve_calibration(node, settings.get("flow_settings") or {}, {person.employee_no: person for person in people}, [person.employee_no for person in members]) for node in nodes}
+            return {node["node_id"]: resolve_calibration(node, settings.get("flow_settings") or {}, {person.employee_no: person for person in people}, [person.employee_no for person in task_people]) for node in nodes}
         except ValueError as exc:
             raise ProjectValidationError(str(exc)) from exc
 
@@ -827,27 +994,18 @@ class PerformanceProjectService:
         cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
         if cycle is None:
             raise ProjectValidationError("绩效周期不存在")
-        authorization_snapshot = await self.db.scalar(
-            select(PerformanceAuthorizationSnapshot).where(
-                PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref,
-                PerformanceAuthorizationSnapshot.status == AUTHORIZATION_SNAPSHOT_STATUS_LOCKED,
-            )
-        )
-        if authorization_snapshot is None:
+        authorization_snapshot, people = await self._cycle_snapshot_people(cycle)
+        if authorization_snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
             raise ProjectValidationError("周期人员快照尚未锁定")
         rules = (project.settings or {}).get("evaluator_rules") or {}
         groups = rules.get("groups") or []
         if not groups:
             raise ProjectValidationError("项目未配置被评估人")
-        people = list((await self.db.execute(
-            select(PerformanceAuthorizationSnapshotPerson).where(
-                PerformanceAuthorizationSnapshotPerson.snapshot_id == authorization_snapshot.id
-            )
-        )).scalars().all())
         people_by_employee = {person.employee_no: person for person in people}
         project_manager_rows = (await self.db.execute(select(PerformanceCycleProjectManager).where(PerformanceCycleProjectManager.cycle_ref == project.cycle_ref))).scalars().all()
         project_managers = {row.target_employee_no: row.manager_employee_no for row in project_manager_rows}
-        selected = self._select_people(people, project.settings or {})
+        task_people, report_only = self._classify_people(people, project.settings or {}, cycle)
+        selected = sorted([*task_people, *report_only], key=lambda person: (getattr(person, "display_name", ""), person.employee_no))
         if not selected:
             raise ProjectValidationError("项目没有可用的被评估人")
         owned_elsewhere = await self.db.scalar(
@@ -875,7 +1033,7 @@ class PerformanceProjectService:
         except ValueError as exc:
             raise ProjectValidationError(str(exc)) from exc
         if any("PROJECT_MANAGER" in (node.get("executor_types") or []) for node in nodes):
-            missing = [person.employee_no for person in selected if person.employee_no not in project_managers]
+            missing = [person.employee_no for person in task_people if person.employee_no not in project_managers]
             if missing:
                 raise ProjectValidationError(f"被评估人 {missing[0]} 未导入直属项目上级")
         result_view_nodes = [node for node in nodes if node.get("node_type") == "result_view"]
@@ -887,10 +1045,11 @@ class PerformanceProjectService:
             raise ProjectValidationError("请至少选择一种方式")
         if sum(bool(node.get("include_final_result")) for node in nodes) != 1:
             raise ProjectValidationError("请且仅请选择一个环节作为最终结果")
+        flow = (project.settings or {}).get("flow_settings") or {}
+        self._validate_distribution_start_readiness(flow, nodes)
         try:
             await validate_executor_roles(self.db, nodes)
-            flow = (project.settings or {}).get("flow_settings") or {}
-            calibration = {node["node_id"]: resolve_calibration(node, flow, people_by_employee, [person.employee_no for person in selected], require_complete=True) for node in nodes if node.get("node_type") == "calibration"}
+            calibration = {node["node_id"]: resolve_calibration(node, flow, people_by_employee, [person.employee_no for person in task_people], require_complete=True) for node in nodes if node.get("node_type") == "calibration"}
         except ValueError as exc:
             raise ProjectValidationError(str(exc)) from exc
         content_library = list((workflow.content_library if workflow else []) or [])
@@ -919,6 +1078,7 @@ class PerformanceProjectService:
                 employment_status=person.employment_status,
                 job_family=person.job_family,
                 job_category=person.job_category,
+                standard_position=person.standard_position,
                 position_level=person.position_level,
                 hire_date=person.hire_date,
             ))
@@ -950,7 +1110,7 @@ class PerformanceProjectService:
                 continue
             if node_type == "result_view":
                 continue
-            for person in selected:
+            for person in task_people:
                 handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
                 if "PROJECT_MANAGER" in (raw_node.get("executor_types") or []):
                     handlers.add(project_managers[person.employee_no])

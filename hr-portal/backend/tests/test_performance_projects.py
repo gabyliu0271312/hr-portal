@@ -493,6 +493,56 @@ def test_project_scope_permissions_are_limited_to_granted_project():
     assert not _can_manage_project(context(), target)
 
 
+def _distribution_rule(assessment_item_id="grade", grade_codes=None):
+    return {
+        "assessment_item_id": assessment_item_id,
+        "min_people_count": 8,
+        "conditions": [{"control_mode": "HARD", "grade_codes": grade_codes or ["A"], "operator": "GTE", "value": 20, "unit": "PERCENT"}],
+        "rounding_method": "ROUND",
+    }
+
+
+def test_project_distribution_rules_round_trip_and_reject_duplicate_assessment_item():
+    distribution = {"mode": "UNIFIED", "rules": [_distribution_rule()], "scope_configured": False}
+    flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": distribution, "phases": []}}}}
+    assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"] == distribution
+    duplicate = {**distribution, "rules": [_distribution_rule(), _distribution_rule()]}
+    with pytest.raises(ProjectValidationError, match="同一评估项只能配置一套分布规则"):
+        PerformanceProjectService._validate_flow_settings({"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": duplicate, "phases": []}}}})
+
+
+@pytest.mark.parametrize("distribution,error", [
+    ({"mode": "UNIFIED", "rules": [], "scope_configured": False}, "请至少添加一条"),
+    ({"mode": "BY_CALIBRATION_SCOPE", "rules": [], "scope_configured": False}, "请完善绩效结果强制 / 建议分布"),
+])
+def test_project_distribution_incomplete_configuration_blocks_start(distribution, error):
+    flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": distribution}}}}
+    with pytest.raises(ProjectValidationError, match=error):
+        PerformanceProjectService._validate_distribution_start_readiness(flow, [{"node_id": "calibration-1", "node_type": "calibration"}])
+
+
+def test_project_distribution_disabled_keeps_configuration_without_blocking_start():
+    flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": False, "distribution": {"mode": "BY_CALIBRATION_SCOPE", "rules": [_distribution_rule()], "scope_configured": False}}}}}
+    PerformanceProjectService._validate_distribution_start_readiness(flow, [{"node_id": "calibration-1", "node_type": "calibration"}])
+
+
+@pytest.mark.asyncio
+async def test_project_distribution_template_options_reject_unknown_assessment_and_grade():
+    from app.performance.models import PerformanceTemplateWorkflow
+    workflow = SimpleNamespace(nodes=[{"node_id": "final", "include_final_result": True, "content_bindings": {"fill": ["rating"]}}], content_library=[{
+        "content_id": "rating", "type": "rating", "name": "评级", "items": [{"id": "grade", "label": "等级"}], "options": [{"id": "A", "label": "A"}],
+    }])
+    class Db:
+        async def get(self, model, _key): return workflow if model is PerformanceTemplateWorkflow else None
+    service = PerformanceProjectService(Db())
+    def flow(rule): return {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": {"mode": "UNIFIED", "scope_configured": False, "rules": [rule]}}}}}
+    with pytest.raises(ProjectValidationError, match="评估项不属于当前模板"):
+        await service._validate_distribution_template_options(11, flow(_distribution_rule("missing")))
+    with pytest.raises(ProjectValidationError, match="等级不属于所选评估项"):
+        await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["B"])))
+    await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["A"])))
+
+
 def test_project_flow_settings_validate_supported_editable_variants():
     settings = {
         "node_settings": {
@@ -2612,7 +2662,7 @@ def test_hrbp_scope_only_includes_selected_path_and_descendants():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("locked", [False, True])
-async def test_evaluator_options_and_counts_use_roster_or_locked_snapshot(monkeypatch, locked):
+async def test_evaluator_options_and_counts_use_existing_draft_or_locked_snapshot(monkeypatch, locked):
     from datetime import date
     from app.performance import project_service
     from app.performance.models import PerformanceAuthorizationSnapshotPerson
@@ -2627,15 +2677,13 @@ async def test_evaluator_options_and_counts_use_roster_or_locked_snapshot(monkey
     live_calls = []
 
     async def roster(_db):
-        assert not locked, "锁定周期不得读取实时花名册"
-        live_calls.append(True)
-        return rows
+        raise AssertionError("所有周期筛选不得读取实时花名册")
 
     monkeypatch.setattr(project_service, "_canonical_roster_rows", roster)
 
     class Db:
         async def scalar(self, _statement):
-            return SimpleNamespace(id=7) if locked else None
+            return SimpleNamespace(id=7, status="LOCKED" if locked else "DRAFT")
 
         async def execute(self, statement):
             assert statement.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshotPerson
@@ -2656,7 +2704,70 @@ async def test_evaluator_options_and_counts_use_roster_or_locked_snapshot(monkey
     for row in rows:
         row["hire_date"] = None
     assert (await service.evaluator_options(cycle))["hire_date_range"] == {"min": None, "max": None}
-    assert bool(live_calls) is not locked
+    assert live_calls == []
+
+
+
+
+@pytest.mark.asyncio
+async def test_evaluator_preview_separates_tasks_report_only_people_and_group_counts(monkeypatch):
+    from datetime import date
+    from app.performance import projects_router, project_service
+
+    people = [
+        SimpleNamespace(employee_no="E1", display_name="员工一", company_org="集团", department="研发", department_2="平台", department_3="后端", department_4=None, department_5=None, direct_supervisor_employee_no="M1", direct_supervisor_source_value="经理", direct_supervisor="经理", hrbp_employee_no=None, employee_type="正式员工", employment_status="在职", job_family="技术", job_category="研发", standard_position="软件工程师", position_level="P6", hire_date=date(2020, 1, 1), departure_date=None),
+        SimpleNamespace(employee_no="E2", display_name="员工二", company_org="集团", department="研发", department_2="平台", department_3="前端", department_4=None, department_5=None, direct_supervisor_employee_no="M1", direct_supervisor_source_value="经理", direct_supervisor="经理", hrbp_employee_no=None, employee_type="正式员工", employment_status="离职", job_family="技术", job_category="研发", standard_position="前端工程师", position_level="P5", hire_date=date(2021, 1, 1), departure_date=date(2026, 10, 1)),
+        SimpleNamespace(employee_no="E3", display_name="员工三", company_org="集团", department="销售", department_2=None, department_3=None, department_4=None, department_5=None, direct_supervisor_employee_no=None, direct_supervisor_source_value=None, hrbp_employee_no=None, employee_type="正式员工", employment_status="在职", job_family="营销", job_category="销售", standard_position="销售经理", position_level="M3", hire_date=date(2022, 1, 1), departure_date=None),
+    ]
+    cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=True, leaver_start_date=date(2026, 9, 1), leaver_end_date=date(2026, 10, 31), leaver_participation_mode="REPORT_ONLY")
+
+    async def get_cycle(*_args):
+        return cycle
+
+    async def roster(_db):
+        return [vars(person) for person in people]
+
+    monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
+    monkeypatch.setattr(projects_router, "_assert_cycle_project_view", lambda *_args: _resolved(None))
+    monkeypatch.setattr(project_service, "_canonical_roster_rows", roster)
+
+    class Db:
+        async def scalar(self, _statement):
+            return SimpleNamespace(id=7, status="DRAFT")
+
+        async def execute(self, statement):
+            from app.performance.models import PerformanceAuthorizationSnapshotPerson
+            result = people if statement.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshotPerson else []
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: result))
+
+    rules = {"groups": [
+        {"conditions": [{"field": "department", "operator": "include", "values": ["集团/研发"]}, {"field": "employee_type", "operator": "include", "values": ["正式员工"]}]},
+        {"conditions": [{"field": "employee", "operator": "include", "values": ["E3"]}]},
+    ]}
+    payload = projects_router.EvaluatorPreviewPayload(evaluator_rules=rules)
+    summary = await projects_router.evaluator_preview(1, payload, context("performance.cycles.manage"), Db())
+    assert summary.model_dump() == {"matched_count": 3, "task_generation_count": 2, "report_count": 3, "report_only_count": 1, "group_counts": [2, 1]}
+
+    page = await projects_router.evaluator_preview_people(1, projects_router.EvaluatorPreviewPayload(evaluator_rules=rules, list_kind="report_only"), 1, 50, None, context("performance.cycles.manage"), Db())
+    assert page.total == 1
+    assert page.items[0].model_dump() == {
+        "employee_no": "E2", "display_name": "员工二", "direct_supervisor": "经理",
+        "company_org": "集团", "department": "研发", "department_2": "平台", "department_3": "前端",
+        "job_family": "技术", "job_category": "研发", "standard_position": "前端工程师",
+        "employment_status": "离职", "live_employment_status": "离职",
+        "status": "report_only", "report_only": True,
+    }
+
+
+def test_report_only_leaver_does_not_create_tasks_but_stays_in_member_snapshot():
+    from datetime import date
+    cycle = SimpleNamespace(leaver_enabled=True, leaver_start_date=date(2026, 10, 1), leaver_end_date=date(2026, 10, 31), leaver_participation_mode="REPORT_ONLY")
+    active = SimpleNamespace(employee_no="E1", display_name="员工一", employment_status="在职", departure_date=None, company_org="集团", department="研发", department_2=None, department_3=None, department_4=None, department_5=None, employee_type="正式员工", hire_date=date(2020, 1, 1))
+    leaver = SimpleNamespace(employee_no="E2", display_name="员工二", employment_status="离职", departure_date=date(2026, 10, 1), company_org="集团", department="研发", department_2=None, department_3=None, department_4=None, department_5=None, employee_type="正式员工", hire_date=date(2020, 1, 1))
+    settings = {"evaluator_rules": {"groups": [{"conditions": [{"field": "department", "operator": "include", "values": ["集团/研发"]}]}]}, "scope_rules": {"groups": []}}
+    task_people, report_only = PerformanceProjectService._classify_people([active, leaver], settings, cycle)
+    assert [person.employee_no for person in task_people] == ["E1"]
+    assert [person.employee_no for person in report_only] == ["E2"]
 
 
 @pytest.mark.asyncio
@@ -2776,7 +2887,7 @@ async def test_start_project_filters_locked_snapshot_by_hire_date_before_workflo
         department_2=None, department_3=None, department_4=None, department_5=None,
     )
     cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=False)
-    snapshot = SimpleNamespace(id=7)
+    snapshot = SimpleNamespace(id=7, status="LOCKED")
     project = SimpleNamespace(
         id=1, project_ref="project:one", cycle_ref="cycle:one", status="DRAFT", settings={
             "evaluator_rules": {"groups": [{"conditions": [{
@@ -3484,6 +3595,282 @@ async def test_calibration_phase_times_real_database_api_round_trip():
         await engine.dispose()
 
 
+def _snapshot_filter_people():
+    from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+    return [SimpleNamespace(**vars(person)) for person in build_snapshot_people([
+        RosterAuthorizationInput(employee_no="E1", display_name="员工一", company_org="集团", department="研发", employee_type="正式员工", employment_status="在职", job_family="技术", job_category="研发", position_level="P6", standard_position="软件工程师", hire_date=date(2020, 1, 1)),
+        RosterAuthorizationInput(employee_no="E2", display_name="员工二", company_org="集团", department="研发", employee_type="正式员工", employment_status="离职", job_family="技术", job_category="研发", position_level="P6", standard_position="软件工程师", hire_date=date(2021, 1, 1), departure_date=date(2026, 10, 1)),
+        RosterAuthorizationInput(employee_no="E3", display_name="员工三", company_org="集团", department="销售", employment_status="离职", job_family="营销", departure_date=date(2026, 10, 31)),
+        RosterAuthorizationInput(employee_no="E4", display_name="区间外", employment_status="离职", job_family="区间外", departure_date=date(2026, 9, 30)),
+        RosterAuthorizationInput(employee_no="E5", display_name="空离职日期", employment_status="离职", job_family="无日期"),
+    ])]
+
+
+def _snapshot_filter_cycle(mode="REPORT_ONLY"):
+    return SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=True, leaver_start_date=date(2026, 10, 1), leaver_end_date=date(2026, 10, 31), leaver_participation_mode=mode)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["DRAFT", "LOCKED"])
+async def test_six_field_options_use_cycle_snapshot_and_keep_allowed_leavers(monkeypatch, status):
+    from app.performance import project_service
+    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson
+
+    people = _snapshot_filter_people()
+    people[0].live_employment_status = "离职"
+
+    async def forbidden_roster(*_args):
+        raise AssertionError("候选和预览禁止回查实时花名册")
+    monkeypatch.setattr(project_service, "_canonical_roster_rows", forbidden_roster)
+
+    class Db:
+        async def scalar(self, statement):
+            assert statement.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshot
+            assert "status" not in statement.compile().params
+            return SimpleNamespace(id=7, status=status)
+        async def execute(self, statement):
+            assert statement.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshotPerson
+            assert statement.compile().params["snapshot_id_1"] == 7
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: people))
+
+    service = PerformanceProjectService(Db())
+    cycle = _snapshot_filter_cycle()
+    options = await service.evaluator_options(cycle)
+    assert set(options) == {"organization_tree", "people", "employee_types", "hire_date_range", "employment_statuses", "job_families", "job_categories", "position_levels", "standard_positions", "departure_date_range"}
+    assert [item["value"] for item in options["people"]] == ["E1", "E2", "E3"]
+    for key, values in {"employment_statuses": ["在职", "离职"], "job_families": sorted(["技术", "营销"]), "job_categories": ["研发"], "position_levels": ["P6"], "standard_positions": ["软件工程师"]}.items():
+        assert options[key] == [{"value": value, "label": value} for value in values]
+    assert options["departure_date_range"] == {"min": "2026-10-01", "max": "2026-10-31"}
+    rules = {"groups": [{"conditions": [{"field": "employment_status", "operator": "include", "values": ["在职"]}]}]}
+    assert await service.evaluator_count(cycle, rules) == 1
+    cycle.leaver_enabled = False
+    options = await service.evaluator_options(cycle)
+    assert [item["value"] for item in options["people"]] == ["E1"]
+    assert options["departure_date_range"] == {"min": None, "max": None}
+
+
+@pytest.mark.parametrize("field,value", [("employment_status", "离职"), ("job_family", "技术"), ("job_category", "研发"), ("position_level", "P6"), ("standard_position", "软件工程师")])
+@pytest.mark.parametrize("operator", ["include", "exclude"])
+def test_six_field_text_filters_match_and_round_trip(field, value, operator):
+    condition = {"field": field, "operator": operator, "values": [value, " 另一个值 ", value]}
+    rules = PerformanceProjectService._validate_rules({"groups": [{"conditions": [condition]}]})
+    assert rules["groups"][0]["conditions"][0]["values"] == [value, "另一个值"]
+    target = project()
+    _, _, _, target.settings = PerformanceProjectService._validate_payload({"name": target.name, "evaluator_rules": rules})
+    assert PerformanceProjectService.serialize(target)["evaluator_rules"] == rules
+    people = [SimpleNamespace(employee_no="match", **{field: value}), SimpleNamespace(employee_no="other", **{field: "其他"})]
+    assert [person.employee_no for person in PerformanceProjectService._select_people(people, target.settings)] == (["match"] if operator == "include" else ["other"])
+
+
+@pytest.mark.parametrize("operator,expected", [("before", [True, False, False]), ("not_before", [False, True, True]), ("after", [False, False, True]), ("not_after", [True, True, False])])
+def test_departure_date_uses_same_comparisons_as_hire_date(operator, expected):
+    from app.performance.project_service import _matches_scope_condition, _matches_start_project_condition
+    condition = {"field": "departure_date", "operator": operator, "values": ["2026-10-15"]}
+    rules = {"groups": [{"conditions": [condition]}]}
+    assert PerformanceProjectService._validate_rules(rules) == rules
+    for matcher in [_matches_scope_condition, _matches_start_project_condition]:
+        assert [matcher({"departure_date": date(2026, 10, day)}, condition) for day in [14, 15, 16]] == expected
+        assert not matcher({"departure_date": None}, condition)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,expected_tasks", [("REPORT_ONLY", {"E1"}), ("CREATE_TASK", {"E1", "E2"})])
+async def test_preview_and_actual_start_share_six_field_snapshot_filters(monkeypatch, mode, expected_tasks):
+    from app.performance import project_service, models
+    from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
+    people = _snapshot_filter_people()
+    cycle = _snapshot_filter_cycle(mode)
+    snapshot = SimpleNamespace(id=7, status="LOCKED")
+    target = project()
+    target.settings = {
+        "template_id": 11,
+        "evaluator_rules": {"groups": [
+            {"conditions": [{"field": field, "operator": "include", "values": [value]} for field, value in [("employment_status", "离职"), ("job_family", "技术"), ("job_category", "研发"), ("position_level", "P6"), ("standard_position", "软件工程师")]] + [{"field": "departure_date", "operator": "not_before", "values": ["2026-10-01"]}]},
+            {"conditions": [{"field": "employment_status", "operator": "include", "values": ["在职"]}]},
+        ]},
+        "scope_rules": {"groups": [{"conditions": [{"field": "department", "operator": "include", "values": ["集团/研发"]}]}]},
+        "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}},
+    }
+    workflow = SimpleNamespace(content_library=[], nodes=[
+        {"node_id": "summary", "node_type": "work_summary", "name": "总结", "include_final_result": True, "executor_types": ["SUBJECT"]},
+        {"node_id": "view", "node_type": "result_view", "name": "结果"},
+    ])
+
+    class Db:
+        def __init__(self):
+            self.added = []
+        async def scalar(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            return cycle if entity is models.PerformanceCycle else snapshot if entity is models.PerformanceAuthorizationSnapshot else None
+        async def execute(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            if entity is models.PerformanceAuthorizationSnapshot:
+                return SimpleNamespace(scalar_one_or_none=lambda: snapshot)
+            values = people if entity is models.PerformanceAuthorizationSnapshotPerson else []
+            if entity is models.PerformanceRole:
+                values = [SimpleNamespace(code="assessment.reviewee", role_type="ASSESSMENT", is_system=True, is_active=True)]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+        async def get(self, entity, key):
+            assert entity is models.PerformanceTemplateWorkflow and key == 11
+            return workflow
+        def add(self, obj):
+            self.added.append(obj)
+            if hasattr(obj, "id") and obj.id is None:
+                obj.id = len(self.added)
+        async def flush(self):
+            pass
+        async def commit(self):
+            pass
+        async def refresh(self, _obj):
+            pass
+
+    async def forbidden_roster(*_args):
+        raise AssertionError("启动和预览禁止读取实时花名册")
+    monkeypatch.setattr(project_service, "_canonical_roster_rows", forbidden_roster)
+    db = Db()
+    service = PerformanceProjectService(db)
+    matched, tasks, reports = await service.preview_people(cycle, target.settings)
+    assert {person.employee_no for person in matched} == {"E1", "E2"}
+    assert {person.employee_no for person in tasks} == expected_tasks
+    await PerformanceAuthorizationSnapshotService(db).sync_employment_statuses(cycle.cycle_ref, {"E1": "离职", "E2": "在职"})
+    after, after_tasks, _ = await service.preview_people(cycle, target.settings)
+    assert after == matched and after_tasks == tasks
+    snapshot.status = "DRAFT"
+    with pytest.raises(ProjectValidationError, match="尚未锁定"):
+        await service.start_project(target, actor_type="PORTAL_USER", actor_id=1)
+    assert db.added == []
+    snapshot.status = "LOCKED"
+    await service.start_project(target, actor_type="PORTAL_USER", actor_id=1)
+    members = [obj for obj in db.added if isinstance(obj, models.PerformanceProjectMember)]
+    generated = [obj for obj in db.added if isinstance(obj, models.PerformanceNodeTask)]
+    assert {person.employee_no for person in members} == {person.employee_no for person in matched}
+    assert {person.employee_no: person.employment_status for person in members} == {"E1": "在职", "E2": "离职"}
+    assert {task.target_employee_no for task in generated} == expected_tasks
+    assert target.status == "STARTED"
+
+
+@pytest.mark.asyncio
+async def test_six_field_rules_post_patch_get_and_live_status_reopen(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+    from app.performance import projects_router, models
+    from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
+    cycle = _snapshot_filter_cycle()
+    people = _snapshot_filter_people()
+    snapshot = SimpleNamespace(id=7, status="DRAFT")
+
+    class Db:
+        def __init__(self):
+            self.project = None
+        async def scalar(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            return snapshot if entity is models.PerformanceAuthorizationSnapshot else cycle if entity is models.PerformanceCycle else None
+        async def execute(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            if entity is models.PerformanceAuthorizationSnapshot:
+                return SimpleNamespace(scalar_one_or_none=lambda: snapshot)
+            values = people if entity is models.PerformanceAuthorizationSnapshotPerson else []
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+        async def get(self, _entity, _key):
+            return None
+        def add(self, obj):
+            if isinstance(obj, models.PerformanceProject):
+                obj.id = 41
+                self.project = obj
+        async def flush(self):
+            pass
+        async def commit(self):
+            pass
+        async def refresh(self, _obj):
+            pass
+    db = Db()
+    async def get_cycle(*_args):
+        return cycle
+    async def get_project(*_args):
+        return db.project
+    monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
+    monkeypatch.setattr(projects_router, "_get_project", get_project)
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[projects_router.get_session] = lambda: db
+    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    conditions = [{"field": field, "operator": "include", "values": [value]} for field, value in [("employment_status", "离职"), ("job_family", "技术"), ("job_category", "研发"), ("position_level", "P6"), ("standard_position", "软件工程师")]]
+    rules = {"groups": [{"conditions": [*conditions, {"field": "departure_date", "operator": "not_after", "values": ["2026-10-31"]}]}]}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/api/v1/performance/cycles/1/projects", json={"name": "六字段筛选", "evaluator_rules": rules})
+        assert created.status_code == 201, created.text
+        assert created.json()["evaluator_rules"] == rules and created.json()["evaluated_count"] == 0
+        url = "/api/v1/performance/projects/41"
+        assert (await client.get(url)).json()["evaluator_rules"] == rules
+        await PerformanceAuthorizationSnapshotService(db).sync_employment_statuses(cycle.cycle_ref, {"E2": "在职"})
+        preview = await client.post("/api/v1/performance/cycles/1/evaluator-preview/people", json={"evaluator_rules": rules})
+        assert preview.status_code == 200 and preview.json()["total"] == 1
+        assert preview.json()["items"][0]["employment_status"] == "离职"
+        assert preview.json()["items"][0]["live_employment_status"] == "在职"
+        changed = {"groups": [{"conditions": [{"field": "employment_status", "operator": "include", "values": ["在职"]}]}]}
+        updated = await client.patch(url, json={"name": "六字段筛选", "evaluator_rules": changed})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["evaluated_count"] == 1
+        assert (await client.get(url)).json()["evaluator_rules"] == changed
+        assert db.project.settings["evaluator_rules"] == changed
+
+
+@pytest.mark.asyncio
+async def test_snapshot_filter_http_rejections_permissions_and_missing_snapshot(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+    from app.performance import projects_router
+    cycle = _snapshot_filter_cycle()
+    target = project()
+
+    class Db:
+        async def scalar(self, statement):
+            from app.performance.models import PerformanceCycle
+            return cycle if statement.column_descriptions[0]["entity"] is PerformanceCycle else None
+        async def execute(self, _statement):
+            raise AssertionError("缺失快照或非法条件不能查询人员")
+    async def get_cycle(*_args):
+        return cycle
+    async def get_project(*_args):
+        return target
+    monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
+    monkeypatch.setattr(projects_router, "_get_project", get_project)
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[projects_router.get_session] = lambda: Db()
+    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    base = "/api/v1/performance/cycles/1"
+    valid_rules = {"groups": [{"conditions": [{"field": "standard_position", "operator": "include", "values": ["工程师"]}]}]}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        for url in [base + "/evaluator-preview", base + "/evaluator-preview/people"]:
+            response = await client.post(url, json={"evaluator_rules": valid_rules})
+            assert response.status_code == 422 and "快照不存在" in response.json()["detail"]
+        response = await client.get(base + "/evaluator-options")
+        assert response.status_code == 422 and "快照不存在" in response.json()["detail"]
+        with pytest.raises(ProjectValidationError, match="快照不存在"):
+            await PerformanceProjectService(Db()).start_project(target, actor_type="PORTAL_USER", actor_id=1)
+        invalid = [
+            {"field": [], "operator": "include", "values": ["在职"]},
+            {"field": "employment_status", "operator": [], "values": ["在职"]},
+            {"field": "live_employment_status", "operator": "include", "values": ["在职"]},
+            *[{"field": field, "operator": "before", "values": ["2026-10-01"]} for field in ["employment_status", "job_family", "job_category", "position_level", "standard_position"]],
+            *[{"field": "departure_date", "operator": "not_before", "values": values} for values in [[], ["2026-02-30"], ["2026-1-01"], ["2026-10-01", "2026-10-31"], None]],
+            {"field": "departure_date", "operator": "include", "values": ["2026-10-01", "2026-10-31"]},
+            *[{"field": "job_family", "operator": "include", "values": values} for values in [None, "技术", [], [None]]],
+        ]
+        for condition in invalid:
+            rules = {"groups": [{"conditions": [condition]}]}
+            for url in [base + "/evaluator-preview", base + "/evaluator-preview/people"]:
+                assert (await client.post(url, json={"evaluator_rules": rules})).status_code == 422
+            for method, url in [(client.post, base + "/projects"), (client.patch, "/api/v1/performance/projects/1")]:
+                assert (await method(url, json={"name": "筛选", "evaluator_rules": rules})).status_code == 422
+        app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()
+        assert (await client.get(base + "/evaluator-options")).status_code == 403
+        for url in [base + "/evaluator-preview", base + "/evaluator-preview/people"]:
+            assert (await client.post(url, json={"evaluator_rules": valid_rules})).status_code == 403
+        assert (await client.post(base + "/projects", json={"name": "筛选", "evaluator_rules": valid_rules})).status_code == 403
+        assert (await client.patch("/api/v1/performance/projects/1", json={"name": "筛选", "evaluator_rules": valid_rules})).status_code == 403
+
 @pytest.mark.parametrize("phase_id", ["__proto__", "constructor", "prototype", "with space", "x" * 97])
 def test_calibration_phase_times_reject_unsafe_phase_ids(phase_id):
     flow = calibration_phase_time_settings()
@@ -3830,6 +4217,29 @@ async def test_project_template_candidates_scope_and_order(monkeypatch):
         with pytest.raises(HTTPException) as error:
             await projects_router.project_templates(1, actor, Db())
         assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_project_template_workflow_returns_distribution_assessment_options(monkeypatch):
+    from app.performance import projects_router
+    from app.performance.models import PerformanceTemplate, PerformanceTemplateWorkflow
+    cycle = SimpleNamespace(cycle_ref="cycle:one", template_ids=[11])
+    nodes = [{"node_id": "final", "node_type": "evaluation", "include_final_result": True, "content_bindings": {"fill": ["rating"]}}]
+    workflow = SimpleNamespace(nodes=nodes, content_library=[{
+        "content_id": "rating", "type": "rating", "name": "评级内容", "description": "最终等级",
+        "items": [{"id": "grade", "label": "绩效等级"}], "options": [{"id": "A", "label": "A"}, {"id": "B", "label": "B"}],
+    }])
+    async def get_cycle(*_args): return cycle
+    async def get_nodes(*_args): return nodes, 0, 0
+    monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
+    monkeypatch.setattr("app.performance.template_workflow_service.PerformanceTemplateWorkflowService.get_nodes", get_nodes)
+    class Db:
+        async def get(self, model, _key):
+            if model is PerformanceTemplate: return SimpleNamespace(template_kind="performance")
+            if model is PerformanceTemplateWorkflow: return workflow
+            return None
+    result = await projects_router.project_template_workflow(1, 11, context("performance.cycles.manage"), Db())
+    assert result["distribution_assessment_options"] == [{"id": "grade", "label": "绩效等级", "description": "最终等级", "grade_options": [{"value": "A", "label": "A"}, {"value": "B", "label": "B"}]}]
 
 
 @pytest.mark.asyncio

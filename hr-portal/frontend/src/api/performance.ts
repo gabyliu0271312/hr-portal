@@ -53,6 +53,7 @@ export interface PerformanceMemberProfile {
   department_5?: string | null
   job_family: string | null
   job_category: string | null
+  standard_position?: string | null
   job_sequence: string | null
   position_level: string | null
   hire_date: string | null
@@ -1216,6 +1217,7 @@ export interface PerformanceWorkflowResponse {
   usage_summary: { cycle_count: number; project_count: number }
   editable_scope?: { workflow: boolean; data_write_settings: boolean; reference_and_prompt_content: boolean }
   content_library?: PerformanceTemplateContent[]
+  distribution_assessment_options?: PerformanceDistributionAssessmentOption[]
   nodes: PerformanceWorkflowNode[]
 }
 
@@ -1225,7 +1227,7 @@ export type PerformanceCycleLockRule = 'IMMEDIATE' | 'SCHEDULED'
 export type PerformanceCycleSyncMode = 'MANUAL' | 'AUTO_DAILY'
 export type PerformanceCycleLeaverMode = 'CREATE_TASK' | 'REPORT_ONLY'
 
-export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee'
+export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position'
 export type PerformanceAudienceOperator = 'include' | 'exclude' | 'before' | 'not_before' | 'after' | 'not_after'
 export interface PerformanceAudienceCondition {
   field: PerformanceAudienceField
@@ -1289,6 +1291,36 @@ export interface PerformanceCalibrationAssignment {
   phases: Array<{ phase_id: string; assignments: Array<{ handler_ref: string; employee_no: string; allow_authorize: boolean }> }>
 }
 
+export type PerformanceDistributionMode = 'UNIFIED' | 'BY_CALIBRATION_SCOPE'
+export type PerformanceDistributionControlMode = 'HARD' | 'SOFT'
+export type PerformanceDistributionOperator = 'GTE' | 'LTE'
+export type PerformanceDistributionUnit = 'PERCENT' | 'PEOPLE'
+export type PerformanceDistributionRounding = 'ROUND' | 'CEIL' | 'FLOOR'
+export interface PerformanceDistributionCondition {
+  control_mode: PerformanceDistributionControlMode
+  grade_codes: string[]
+  operator: PerformanceDistributionOperator
+  value: number
+  unit: PerformanceDistributionUnit
+}
+export interface PerformanceDistributionRule {
+  assessment_item_id: string
+  min_people_count: number
+  conditions: PerformanceDistributionCondition[]
+  rounding_method: PerformanceDistributionRounding
+}
+export interface PerformanceDistributionSettings {
+  mode: PerformanceDistributionMode
+  rules: PerformanceDistributionRule[]
+  scope_configured: boolean
+}
+export interface PerformanceDistributionAssessmentOption {
+  id: string
+  label: string
+  description?: string
+  grade_options: Array<{ value: string; label: string }>
+}
+
 export interface PerformanceProjectFlowSettings {
   node_settings: Record<string, {
     invite?: {
@@ -1305,6 +1337,7 @@ export interface PerformanceProjectFlowSettings {
     }
     calibration?: {
       force_distribution_enabled: boolean
+      distribution?: PerformanceDistributionSettings
       phases: Array<{ phase_id?: string; rules: PerformanceProjectFlowRule[] }>
     }
     result_view?: {
@@ -1401,6 +1434,7 @@ export interface PerformanceCyclePerson {
   employment_status: string | null
   job_family: string | null
   job_category: string | null
+  standard_position?: string | null
   position_level: string | null
   hire_date: string | null
   departure_date: string | null
@@ -1506,12 +1540,61 @@ export interface PerformanceEvaluatorOptions {
   people: Array<{ value: string; label: string }>
   employee_types: Array<{ value: string; label: string }>
   hire_date_range?: { min: string | null; max: string | null }
+  employment_statuses?: Array<{ value: string; label: string }>
+  job_families?: Array<{ value: string; label: string }>
+  job_categories?: Array<{ value: string; label: string }>
+  position_levels?: Array<{ value: string; label: string }>
+  standard_positions?: Array<{ value: string; label: string }>
+  departure_date_range?: { min: string | null; max: string | null }
 }
 
 export type PerformanceProjectTemplate = Pick<PerformanceTemplateListItem, 'template_id' | 'name' | 'description' | 'status'>
 
+export interface PerformanceEvaluatorPreviewPayload {
+  project_id?: number | null
+  evaluator_rules: PerformanceAudienceRules
+  scope_rules?: PerformanceAudienceRules
+  group_index?: number | null
+  list_kind?: 'matched' | 'task' | 'report_only'
+}
+export interface PerformanceEvaluatorPreviewSummary {
+  matched_count: number
+  task_generation_count: number
+  report_count: number
+  report_only_count: number
+  group_counts: number[]
+}
+export interface PerformanceEvaluatorPreviewPerson {
+  employee_no: string
+  display_name: string
+  direct_supervisor: string | null
+  company_org: string | null
+  department: string | null
+  department_2: string | null
+  department_3: string | null
+  job_family: string | null
+  job_category: string | null
+  standard_position: string | null
+  status: 'task' | 'report_only'
+  report_only: boolean
+}
+export interface PerformanceEvaluatorPreviewPeoplePage {
+  items: PerformanceEvaluatorPreviewPerson[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export const performanceProjectApi = {
-  async getTemplateWorkflow(cycleId: number, templateId: number): Promise<Pick<PerformanceWorkflowResponse, 'template_id' | 'nodes'>> {
+  async previewEvaluators(cycleId: number, payload: PerformanceEvaluatorPreviewPayload): Promise<PerformanceEvaluatorPreviewSummary> {
+    const { data } = await api.post<PerformanceEvaluatorPreviewSummary>(`/performance/cycles/${cycleId}/evaluator-preview`, payload)
+    return data
+  },
+  async previewEvaluatorPeople(cycleId: number, payload: PerformanceEvaluatorPreviewPayload, keyword = '', page = 1, pageSize = 50): Promise<PerformanceEvaluatorPreviewPeoplePage> {
+    const { data } = await api.post<PerformanceEvaluatorPreviewPeoplePage>(`/performance/cycles/${cycleId}/evaluator-preview/people`, payload, { params: { ...(keyword ? { keyword } : {}), page, page_size: pageSize } })
+    return data
+  },
+  async getTemplateWorkflow(cycleId: number, templateId: number): Promise<Pick<PerformanceWorkflowResponse, 'template_id' | 'nodes' | 'distribution_assessment_options'>> {
     const { data } = await api.get(`/performance/cycles/${cycleId}/project-templates/${templateId}/workflow`)
     return data
   },

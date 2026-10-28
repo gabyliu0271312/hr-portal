@@ -10,6 +10,54 @@ const emptyGroups = [{ conditions: [{ field: '' as const, operator: 'include' as
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceAudienceRuleEditor', () => {
+  it.each([
+    ['employment_status', '在职状态', 'employment_statuses'],
+    ['job_family', '职位族', 'job_families'],
+    ['job_category', '职位类', 'job_categories'],
+    ['position_level', '职级', 'position_levels'],
+    ['standard_position', '标准职位', 'standard_positions'],
+  ] as const)('loads %s snapshot options lazily and keeps saved selections through retries', async (field, label, source) => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: [{ conditions: [{ field, operator: 'include', values: ['原快照'] }] }], allowedFields: [field], snapshotOptions: { organization_tree: [], people: [], employee_types: [], [source]: [] } },
+      attachTo: document.body,
+    })
+    expect(wrapper.emitted('open-options')).toBeUndefined()
+    const select = wrapper.findAllComponents(PerformanceSearchSelect)[2]
+    expect(select.props('multiple')).toBe(true)
+    await wrapper.get(`input[aria-label="${label}范围"]`).trigger('click')
+    expect(wrapper.emitted('open-options')).toHaveLength(1)
+    await wrapper.setProps({ error: '加载失败，请重试' })
+    expect(wrapper.text()).toContain('加载失败，请重试')
+    await wrapper.setProps({ error: '', snapshotOptions: { organization_tree: [], people: [], employee_types: [], [source]: [{ value: '新增快照', label: '新增快照' }] } })
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(select.props('modelValue')).toEqual(['原快照'])
+    expect(select.props('options')).toEqual([{ value: '新增快照', label: '新增快照' }])
+    select.vm.$emit('update:modelValue', ['原快照', '新增快照'])
+    await flushPromises()
+    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])[0].conditions[0].values).toEqual(['原快照', '新增快照'])
+    wrapper.unmount()
+  })
+
+  it('shares the date picker and resets values and operators when switching departure date fields', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: [{ conditions: [{ field: 'employment_status', operator: 'exclude', values: ['离职'] }] }], allowedFields: ['employment_status', 'departure_date'], snapshotOptions: { organization_tree: [], people: [], employee_types: [], departure_date_range: { min: '2026-01-01', max: '2026-10-28' } } },
+    })
+    wrapper.findAllComponents(PerformanceSearchSelect)[0].vm.$emit('update:modelValue', 'departure_date')
+    await flushPromises()
+    const groups = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
+    expect(groups[0].conditions[0]).toEqual({ field: 'departure_date', operator: 'before', values: [] })
+    await wrapper.setProps({ modelValue: groups })
+    const date = wrapper.getComponent(PerformanceDateTimeField)
+    expect(date.props('initialDate')).toBe('2026-01-01')
+    expect(date.props('dateOnly')).toBe(true)
+    const operator = wrapper.findAllComponents(PerformanceSearchSelect)[1]
+    expect(operator.props('options')!.map(option => option.value)).toEqual(['before', 'not_before', 'after', 'not_after'])
+    date.vm.$emit('update:modelValue', '2026-10-28')
+    await flushPromises()
+    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])[0].conditions[0].values).toEqual(['2026-10-28'])
+    wrapper.unmount()
+  })
+
   it('loads roster employee types lazily and preserves selected values on failure or reload', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
       props: { modelValue: [{ conditions: [{ field: 'employee_type', operator: 'include', values: ['实习生'] }] }], allowedFields: ['employee_type', 'hire_date'], employeeTypeOptions: [] },
@@ -174,6 +222,16 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.get('.performance-audience-rule-editor__or').element.parentElement?.className).toBe('performance-audience-rule-editor__group')
     await wrapper.get('[aria-label="删除范围 2"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(twoConditions)
+  })
+
+
+  it('shows each group matched count as a preview link', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }] }], allowedFields: ['department'], organizationTree, groupCounts: [5] },
+    })
+    expect(wrapper.get('.performance-audience-rule-editor__group-heading').text()).toContain('同时满足以下条件：5人')
+    await wrapper.get('.performance-audience-rule-editor__count-link').trigger('click')
+    expect(wrapper.emitted('open-preview')).toEqual([[0]])
   })
 
   it('reuses the organization tree and only selects a department after clicking a node', async () => {

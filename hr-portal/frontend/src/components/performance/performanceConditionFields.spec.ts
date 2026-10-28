@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CALIBRATOR_RELATION_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions, HIRE_DATE_OPERATOR_OPTIONS, validHireDateCondition } from './performanceConditionFields'
+import { CALIBRATOR_RELATION_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions, HIRE_DATE_OPERATOR_OPTIONS, validHireDateCondition, REVIEWEE_CONDITION_FIELDS, isDateConditionField } from './performanceConditionFields'
 
 describe('performanceConditionFields', () => {
   it('maps each field to its value source without adding API endpoints', () => {
@@ -10,6 +10,26 @@ describe('performanceConditionFields', () => {
     expect(PERFORMANCE_CONDITION_FIELDS.calibrator_relation.valueSource).toBe('fixed')
     expect(conditionValueOptions('employee', { people: [{ value: 'E1', label: '员工 E1' }] })).toEqual([{ value: 'E1', label: '员工 E1' }])
     expect(conditionValueOptions('employee_type', { employeeTypes: [{ value: 'FULL', label: '正式' }] })).toEqual([{ value: 'FULL', label: '正式' }])
+  })
+
+  it('resolves the six snapshot fields through the shared field catalogue', () => {
+    for (const [field, label, source] of [
+      ['employment_status', '在职状态', 'employment_statuses'],
+      ['job_family', '职位族', 'job_families'],
+      ['job_category', '职位类', 'job_categories'],
+      ['position_level', '职级', 'position_levels'],
+      ['standard_position', '标准职位', 'standard_positions'],
+    ] as const) {
+      expect(REVIEWEE_CONDITION_FIELDS).toContain(field)
+      expect(PERFORMANCE_CONDITION_FIELDS[field]).toEqual({ label, valueSource: source })
+      expect(conditionValueOptions(field, { [source]: [{ value: 'snapshot', label: '快照值' }] })).toEqual([{ value: 'snapshot', label: '快照值' }])
+      expect(conditionValueOptions(field, {})).toEqual([])
+      expect(isDateConditionField(field)).toBe(false)
+    }
+    expect(PERFORMANCE_CONDITION_FIELDS.departure_date.label).toBe('离职日期')
+    expect(isDateConditionField('departure_date')).toBe(true)
+    expect(isDateConditionField('hire_date')).toBe(true)
+    expect(REVIEWEE_CONDITION_FIELDS).toHaveLength(10)
   })
 
   it('validates one real date for each of the four comparison operators', () => {

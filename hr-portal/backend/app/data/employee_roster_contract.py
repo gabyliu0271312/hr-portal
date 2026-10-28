@@ -40,6 +40,7 @@ EMPLOYEE_ROSTER_FIELDS = {
         EmployeeRosterField("employment_status", "在职状态", "employment_status", "employment_status", ("employment_status", "active_status")),
         EmployeeRosterField("job_family", "职位族", "job_family", "job_family"),
         EmployeeRosterField("job_category", "职位类", "job_category", "job_category"),
+        EmployeeRosterField("standard_position", "标准职位", "standard_position", "standard_position"),
         EmployeeRosterField("position_level", "职级", "position_level", "position_level"),
         EmployeeRosterField("hire_date", "入职日期", "hire_date", "hire_date"),
         EmployeeRosterField("departure_date", "离职日期", "expected_departure_date", "departure_date", ("expected_departure_date", "terminated_date")),

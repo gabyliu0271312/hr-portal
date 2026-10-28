@@ -26,18 +26,18 @@
           <template v-else>
             <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
                 <div class="performance-audience-rule-editor__group-heading">
-                  <span>范围 {{ groupIndex + 1 }}</span>
+                  <span>同时满足以下条件：<button class="performance-audience-rule-editor__count-link" type="button" :disabled="disabled || groupCounts[groupIndex] == null" @click="emit('open-preview', groupIndex)">{{ groupCounts[groupIndex] ?? 0 }}人</button></span>
                   <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
                 </div>
                 <PerformanceConditionLogicGroup :count="modelValue[groupIndex].conditions.length" operator="且">
                   <template #default="{ index: conditionIndex }">
                     <div class="performance-audience-rule-editor__condition" :class="{ 'has-delete': modelValue[groupIndex].conditions.length > 1 }">
                       <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
-                      <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].operator" :options="modelValue[groupIndex].conditions[conditionIndex].field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !modelValue[groupIndex].conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
+                      <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].operator" :options="isDateConditionField(modelValue[groupIndex].conditions[conditionIndex].field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !modelValue[groupIndex].conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
                       <PerformanceOrganizationSelect v-if="modelValue[groupIndex].conditions[conditionIndex].field === 'department'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
                       <PerformancePersonSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                      <PerformanceSearchSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee_type'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                      <PerformanceDateTimeField v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'hire_date'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values.length === 1 ? modelValue[groupIndex].conditions[conditionIndex].values[0] : ''" date-only :initial-date="hireDateRange?.min || hireDateRange?.max || undefined" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                      <PerformanceDateTimeField v-else-if="isDateConditionField(modelValue[groupIndex].conditions[conditionIndex].field)" :model-value="modelValue[groupIndex].conditions[conditionIndex].values.length === 1 ? modelValue[groupIndex].conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(modelValue[groupIndex].conditions[conditionIndex].field)" :aria-label="fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                      <PerformanceSearchSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="valueOptions(modelValue[groupIndex].conditions[conditionIndex].field)" multiple :aria-label="`${fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)}范围`" :placeholder="`请选择${fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)}`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
                       <PerformanceIconButton v-if="modelValue[groupIndex].conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled" @click="removeCondition(groupIndex, conditionIndex)" />
                     </div>
@@ -72,20 +72,17 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { PerformanceHrbpOrganizationNode } from '@/api/performance'
+import type { PerformanceAudienceCondition, PerformanceAudienceField, PerformanceAudienceGroup, PerformanceAudienceOperator, PerformanceEvaluatorOptions, PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceConditionLogicGroup from './PerformanceConditionLogicGroup.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
-import { HIRE_DATE_OPERATOR_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
+import { HIRE_DATE_OPERATOR_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions, isDateConditionField, type PerformanceConditionField } from './performanceConditionFields'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 
-export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee'
-export type PerformanceAudienceOperator = 'include' | 'exclude' | 'before' | 'not_before' | 'after' | 'not_after'
-export type PerformanceAudienceCondition = { field: PerformanceAudienceField; operator: PerformanceAudienceOperator; values: string[] }
-export type PerformanceAudienceGroup = { conditions: PerformanceAudienceCondition[] }
+export type { PerformanceAudienceCondition, PerformanceAudienceField, PerformanceAudienceGroup, PerformanceAudienceOperator } from '@/api/performance'
 
 const props = withDefaults(defineProps<{
   modelValue: PerformanceAudienceGroup[]
@@ -94,10 +91,12 @@ const props = withDefaults(defineProps<{
   personOptions?: PerformanceSearchSelectOption[]
   employeeTypeOptions?: PerformanceSearchSelectOption[]
   hireDateRange?: { min: string | null; max: string | null }
+  snapshotOptions?: PerformanceEvaluatorOptions
   scopeMode?: boolean
   disabled?: boolean
   loading?: boolean
   error?: string
+  groupCounts?: number[]
 }>(), {
   organizationTree: () => [],
   personOptions: () => [],
@@ -106,8 +105,9 @@ const props = withDefaults(defineProps<{
   disabled: false,
   loading: false,
   error: '',
+  groupCounts: () => [],
 })
-const emit = defineEmits<{ 'update:modelValue': [value: PerformanceAudienceGroup[]]; 'open-options': [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: PerformanceAudienceGroup[]]; 'open-options': []; 'open-preview': [groupIndex: number] }>()
 const operatorOptions: PerformanceSearchSelectOption[] = [
   { value: 'include', label: '包含' },
   { value: 'exclude', label: '不包含' },
@@ -115,6 +115,16 @@ const operatorOptions: PerformanceSearchSelectOption[] = [
 const fieldOptions = computed(() => props.allowedFields.map(value => ({ value, label: value ? PERFORMANCE_CONDITION_FIELDS[value].label : '请选择范围' })))
 const allowMultipleConditions = computed(() => !props.scopeMode)
 
+function fieldLabel(field: PerformanceAudienceField) {
+  return field ? PERFORMANCE_CONDITION_FIELDS[field].label : ''
+}
+function valueOptions(field: PerformanceAudienceField) {
+  return field ? conditionValueOptions(field as PerformanceConditionField, { ...props.snapshotOptions, people: props.personOptions, employeeTypes: props.employeeTypeOptions }) : []
+}
+function initialDate(field: PerformanceAudienceField) {
+  const range = field === 'departure_date' ? props.snapshotOptions?.departure_date_range : props.hireDateRange
+  return range?.min || range?.max || undefined
+}
 function normalizeValues(value: string | string[] | null) {
   return Array.isArray(value) ? value : value ? [value] : []
 }
@@ -128,11 +138,11 @@ function updateCondition(groupIndex: number, conditionIndex: number, patch: Part
 }
 function updateField(groupIndex: number, conditionIndex: number, value: string) {
   const field = props.allowedFields.includes(value as PerformanceAudienceField) ? value as PerformanceAudienceField : ''
-  updateCondition(groupIndex, conditionIndex, { field, operator: field === 'hire_date' ? 'before' : 'include', values: [] })
+  updateCondition(groupIndex, conditionIndex, { field, operator: isDateConditionField(field) ? 'before' : 'include', values: [] })
 }
 function updateOperator(groupIndex: number, conditionIndex: number, value: string) {
   const field = props.modelValue[groupIndex].conditions[conditionIndex].field
-  const options = field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions
+  const options = isDateConditionField(field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions
   if (options.some(option => option.value === value)) updateCondition(groupIndex, conditionIndex, { operator: value as PerformanceAudienceOperator })
 }
 function updateValues(groupIndex: number, conditionIndex: number, values: string[]) {
@@ -185,7 +195,9 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor__scope-add :deep(.text-button-icon) { width: 14px; height: 14px; }
 .performance-audience-rule-editor__group { margin-top: var(--spacing-3); padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
 .performance-audience-rule-editor__group:first-child { margin-top: 0; }
-.performance-audience-rule-editor__group-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-3); color: var(--color-text-primary); font: 600 var(--font-size-md)/22px var(--font-sans); }
+.performance-audience-rule-editor__group-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-3); color: var(--color-text-secondary); font: 400 var(--font-size-md)/22px var(--font-sans); }
+.performance-audience-rule-editor__count-link { padding: 0; border: 0; background: transparent; color: var(--performance-button-text-color); cursor: pointer; font: inherit; }
+.performance-audience-rule-editor__count-link:disabled { color: var(--performance-button-link-disabled-color); cursor: default; }
 .performance-audience-rule-editor__condition { display: grid; grid-template-columns: 112px 96px minmax(0, 1fr) 24px; gap: var(--spacing-2); align-items: start; margin-top: var(--spacing-2); }
 .performance-audience-rule-editor__condition:first-child { margin-top: 0; }
 .performance-audience-rule-editor__condition > :deep(.performance-select-shell) { min-width: 0; }

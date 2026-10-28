@@ -49,6 +49,31 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.find('.reconsideration-settings').exists()).toBe(true)
   })
 
+  it('keeps distribution rules when disabled and allows the scope mode draft placeholder', async () => {
+    const initial = { node_settings: { 'calibration-1': { calibration: {
+      force_distribution_enabled: true,
+      distribution: { mode: 'UNIFIED' as const, scope_configured: false, rules: [{ assessment_item_id: 'grade', min_people_count: 8, rounding_method: 'ROUND' as const, conditions: [{ control_mode: 'HARD' as const, grade_codes: ['A'], operator: 'GTE' as const, value: 20, unit: 'PERCENT' as const }] }] },
+      phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }],
+    } } }, node_times: {} }
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], modelValue: initial, distributionAssessmentOptions: [{ id: 'grade', label: '绩效等级', grade_options: [{ value: 'A', label: 'A' }] }] } })
+    expect(wrapper.get('.distribution-rule-summary').text()).toContain('绩效等级')
+    await wrapper.get('[aria-label="绩效结果强制建议分布"]').trigger('click')
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+    expect(emitted.node_settings['calibration-1'].calibration.force_distribution_enabled).toBe(false)
+    expect(emitted.node_settings['calibration-1'].calibration.distribution.rules).toHaveLength(1)
+    await wrapper.get('[aria-label="绩效结果强制建议分布"]').trigger('click')
+    const scopeRadio = wrapper.findAll('input[type="radio"]')[1]
+    await scopeRadio.setValue()
+    expect(wrapper.get('.distribution-scope-placeholder').text()).toContain('当前项目草稿可以保存')
+  })
+
+  it('opens the distribution drawer and adds a unified rule', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], distributionAssessmentOptions: [{ id: 'grade', label: '绩效等级', grade_options: [{ value: 'A', label: 'A' }] }] } })
+    await wrapper.get('[aria-label="绩效结果强制建议分布"]').trigger('click')
+    await wrapper.get('.distribution-rule-summary__header button').trigger('click')
+    expect(document.body.querySelector('[aria-label="添加分布规则"]')).not.toBeNull()
+  })
+
   it('renders a header and shared phase delete control for each calibration phase', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)] } })
 

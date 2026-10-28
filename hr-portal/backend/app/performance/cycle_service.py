@@ -132,6 +132,7 @@ class PerformanceCycleService:
                 "employment_status": person.employment_status,
                 "job_family": person.job_family,
                 "job_category": person.job_category,
+                "standard_position": person.standard_position,
                 "position_level": person.position_level,
                 "hire_date": person.hire_date.isoformat() if person.hire_date else None,
                 "departure_date": person.departure_date.isoformat() if person.departure_date else None,
@@ -333,7 +334,7 @@ class PerformanceCycleService:
         if snapshot is None:
             return {}
         people = (await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id))).scalars().all()
-        fields = ("display_name", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "position_level", "hire_date", "departure_date", "is_manually_maintained")
+        fields = ("display_name", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "standard_position", "position_level", "hire_date", "departure_date", "is_manually_maintained")
         return {person.employee_no: {field: getattr(person, field).isoformat() if isinstance(getattr(person, field), date) else getattr(person, field) for field in fields} for person in people}
 
     @staticmethod
@@ -385,7 +386,7 @@ class PerformanceCycleService:
             person = people.get(employee_no)
             if person is None:
                 raise CycleValidationError(f"周期快照中不存在员工：{employee_no}")
-            before = {field: getattr(person, field) for field in ("display_name", *ORGANIZATION_FIELDS, "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "job_family", "job_category", "position_level", "hire_date")}
+            before = {field: getattr(person, field) for field in ("display_name", *ORGANIZATION_FIELDS, "direct_supervisor_employee_no", "hrbp_employee_no", "employee_type", "job_family", "job_category", "standard_position", "position_level", "hire_date")}
             for field in before:
                 if field in update:
                     setattr(person, field, update[field])
@@ -494,6 +495,7 @@ class PerformanceCycleService:
             "employment_status": columns["employment_status"],
             "job_family": columns["job_family"],
             "job_category": columns["job_category"],
+            "standard_position": columns["standard_position"],
             "position_level": columns["position_level"],
             "hire_date": columns["hire_date"],
             "departure_date": columns["departure_date"],
@@ -522,6 +524,7 @@ class PerformanceCycleService:
                 employment_status=normalize_roster_text(row.get("employment_status")),
                 job_family=normalize_roster_text(row.get("job_family")),
                 job_category=normalize_roster_text(row.get("job_category")),
+                standard_position=normalize_roster_text(row.get("standard_position")),
                 position_level=normalize_roster_text(row.get("position_level")),
                 hire_date=normalize_roster_date(row.get("hire_date")),
                 departure_date=departure_date,

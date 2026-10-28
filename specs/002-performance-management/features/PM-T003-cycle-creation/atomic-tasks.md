@@ -125,6 +125,20 @@
   - 完成定义：实现、边界/权限测试、构建、UI 和持久化证据齐全后再勾选；I07 其余未验收项不随子任务勾选。
   - 校准范围筛选增强（2026-10-28）：既有“按指定规则校准”范围新增部门、人员、入职日期三类条件，分别复用 `PerformanceOrganizationSelect`、`PerformancePersonSelect`、`PerformanceDateTimeField`；字段值沿用周期冻结快照，支持 `INCLUDE/EXCLUDE` 及日期 `before/not_before/after/not_after`，后端保存/回读并在校准任务范围解析时按部门、人员、入职日期求交。前端校准组件与项目设置回归 37 项通过，后端项目校准聚焦 66 项通过，前端生产构建通过；完整项目测试 256 passed、1 failed（并行工作树既有锁定快照测试在花名册契约错误处失败），未勾选 I07。
 
+
+- [ ] PM-T003-I07-F03 被评估人人数统计与人员预览
+  - Goal/Type：在项目信息被评估人区域展示真实总人数、任务人数、仅报表离职人数及每组人数，并复用去催办人员弹层查看明细；既有 UI/API/快照增强。
+  - Prerequisites/reading：PM-T003-I07/F01/F02、Spec002 基线、本功能交互、execution-contract/migration-coordination/acceptance-evidence；Spec012 A01/A02/A05/N0001/N0002/N0004/N0005/N1101-N1106。
+  - Allowed modifications：绩效 employee_roster_contract、models/snapshot_service/cycle_service/cycles_router/project_service/projects_router；新迁移0277；现有 performance API、AudienceRuleEditor、ReminderPanel/TaskTable/SelectionActionBar、ProjectMemberListPanel、PerformanceProjectSettingsPage及对应测试；本功能文档。共享文件串行合并并保留并行强制分布和六字段筛选改动。
+  - Frozen contract：周期快照为唯一人员源；POST `/cycles/{cycle_id}/evaluator-preview` 返回 matched/task/report/report_only/group_counts；POST `/cycles/{cycle_id}/evaluator-preview/people` 支持 matched|task|report_only、group_index、keyword、分页。已占用人员排除；无权403，非法规则422。`standard_position` 独立进入周期/项目快照，历史空值不回填实时花名册。
+  - UI：总标题16/600/24；说明14/400/22；每组“同时满足以下条件：N人”。复用 TaskOverlay/ReminderPanel 只读 preview 模式，固定九列，不显示选择/导出/催办动作。独立 PNG 计划 `../../ui-blueprints/PM-T003-I07-F03-implemented-evaluator-preview.png`。
+  - Business boundary：N人生成任务并纳入报表；M名离职人员不生成任务，仅进入成员快照和报表。项目 evaluated_count、校准和节点任务只统计/生成 N 人；同周期唯一性覆盖 N+M。
+  - Tests：`tests/test_performance_snapshot_service.py`、`tests/test_performance_projects.py`；AudienceRuleEditor/ReminderPanel/ProjectSettings focused Vitest；vue-tsc、前端 build、alembic heads、迁移真实升降级和浏览器截图分别记录。
+  - Evidence（2026-10-28，本地）：本任务精确后端4/4通过；绩效快照+项目完整回归300通过、5个显式跳过、1个既有python_multipart弃用警告；前端4文件36/36通过；`npx vue-tsc --noEmit`通过；`npm run build`的vue-tsc+Vite生产构建通过，仅既有VueUse PURE注释提示；迁移链单头0278，顺序为0276→本任务0277→并行0278；`git diff --check`无错误，仅其他工作区文件LF/CRLF提示。
+  - Not-run/blockers：未执行真实数据库 migration upgrade/downgrade；未取得实际浏览器登录态截图/独立PNG；未做真实 API→SQL→GET 回读；未部署、commit或push。因此任务保持 `[ ]`。
+  - Non-scope：不展示虚线上级；不复用催办任务API/action；不修改权限角色、UCP、外部系统或生产数据。
+  - Definition of done：实现、迁移真实升降级、权限/快照/唯一性/API回读、浏览器PNG、构建及回归证据齐全后才勾选。
+
 - [ ] PM-T003-I02-F01 周期评估设置接入已启用绩效模板并持久化周期关联
   - 范围：周期新建/编辑页真实读取绩效模板，过滤为 `active`，两行展示名称和说明，并通过周期 API 的 `template_id` 保存和回填。
   - 代码交付物：周期模板选择器、周期 DTO/服务/模型字段、迁移和测试。
@@ -146,6 +160,26 @@
   - 范围：OtherSettings.vue/OtherSettingsOverdueCard.vue、CycleManagement.vue、PerformanceCycleSettingsMenu.vue、PerformanceCycleOverdueSubmissionDialog.vue、api/performance.ts及对应 spec；共享文件仅局部串行编辑并保护别的会话改动。不新增全局主题或路由，不改360°/通知设置。
   - Given 勾选全局第三项；When 进入周期设置、勾选/取消/切换单选、取消/确定、失败重试；Then 灰区仅勾选时显示，提交仅两个字段，已启动项目立即生效，刷新/重开回显，权限不足无入口，空态/失败不伪造保存。前端组件/页面 Vitest、npm run build、实际浏览器截图与窄屏走查。
   - 当前：待组件测试、构建、截图及后端联调，不得勾选；独立 PNG 待生成 `../../ui-blueprints/PM-T003-I09-implemented-cycle-overdue-dialog.png`。
+
+- [ ] PM-T003-I12 项目校准节点绩效结果强制/建议分布配置
+  - Goal：在具体校准节点完成节点级统一分布规则配置、保存回读和未完成范围模式的启动门禁。
+  - Type：既有功能增强，前端业务组合组件、项目 JSONB 合同、服务校验与测试。
+  - Prerequisites：现有项目流程设置、校准阶段、项目 PATCH/GET 与启动接口；用户于 2026-10-28 确认入口、节点统一规则、范围模式草稿和启动拒绝。
+  - Required reading：Spec002 START_HERE/基线、PM-T003 spec/ui-interaction、execution-contract/task-card-template/acceptance-evidence；Spec012 UI 通用守则。
+  - Allowed modifications：项目 `performance.ts`、`PerformanceProjectFlowSettings`、`performanceProjectCalibration`、`PerformanceProjectSettingsPage`；绩效分布规则新组件及现有 spec；后端 `project_service.py`、`projects_router.py`、`test_performance_projects.py`；本功能交互与任务文件。
+  - Allowed new files：`PerformanceDistributionRuleDrawer.vue/.spec.ts`、`PerformanceDistributionRuleRow.vue`；独立 UI PNG 路径 `../../ui-blueprints/PM-T003-I12-implemented-distribution-rules.png`。
+  - Forbidden modifications：迁移、周期快照、权限点、运行时分布计算、按校准范围下一步、生产部署、021/数仓/UCP 和其他共享工作区差异。
+  - Shared files：`performance.ts`、项目页面、项目服务与测试已有并行改动，只做分布规则相关局部修改，不覆盖其他差异。
+  - Input contract：`calibration.force_distribution_enabled`；可选 `distribution={mode,rules,scope_configured}`；规则包含评级评估项、人数下限、条件和取整方式。同节点评估项唯一。
+  - Output contract：项目 PATCH/GET 原样回读；关闭开关保留规则；范围模式未完成可保存草稿；启动返回 422 中文业务提示；模板流程接口返回真实评级评估项和等级候选。
+  - UI：现有项目流程页局部增强，不新增页面；680px 抽屉及已确认状态见 `ui-interaction.md` PM-T003-I12。独立实际 PNG 尚待浏览器生成。
+  - API/database/permission/external-system impact：扩展既有模板流程 GET 响应和项目 JSONB；无迁移、权限变化、外部副作用。项目保存与审计同事务，启动失败不写快照或任务。
+  - Test contract：Given 模板含评级项、已保存规则或范围占位；When 添加编辑删除、关闭重开、PATCH/GET、启动；Then 候选真实、规则回显、重复/非法值拒绝、关闭不丢规则、范围未完成与统一空规则均阻止启动。测试文件为新组件 spec、现有流程/页面 spec 和 `backend/tests/test_performance_projects.py`；执行定向 Vitest、后端项目全文件与 `npm run build`。
+  - Acceptance：成功/校验失败/旧数据兼容/启动状态边界/模板候选/保存回读/关闭恢复/构建与回归分别记录。无新 migration，回滚为停止未发布代码。
+  - Evidence（2026-10-28，本地）：后端分布/接口定向 5/5 通过；完整 `test_performance_projects.py` 263 passed、4 个既有 opt-in skipped、1 个既有弃用 warning。前端新抽屉与流程页 2 文件 23/23 通过。`npm run build` 首次通过；最终复跑被并行 `PerformanceReminderPanel.spec.ts:97` 多余结束括号阻断，本卡未修改该文件；单独 Vite 生产资源构建 3407 modules transformed 并成功输出。`git diff --check` 本卡目标文件通过。实际 UI PNG、真实鉴权 PATCH/GET/启动 API 与数据库回读尚未执行，因此任务保持 `[ ]`。
+  - Blockers：运行时分布计算和按校准范围下一步是后续独立任务，不阻塞本卡配置与门禁；实际 UI PNG 和真实 API/SQL 证据尚未生成；正式整体类型构建等待并行测试语法错误解除后复跑。
+  - Non-scope：分布执行、自动调整、软控制提示、强制豁免、范围配置下一步、历史重建、部署和提交推送。
+  - Definition of done：配置、合同、启动拒绝、前后端测试、构建、实际 UI PNG 与保存/重开证据完成后，主代理才可勾选。
 
 ## 任务依赖图
 ```text
@@ -248,6 +282,20 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
 
 - 本部分提交授权：用户明确要求在main完成并推送；仅纳入按钮可见文案、模板前置图标、被评估人显隐、对应测试/截图/记录。tokens.css仅暂存3个图标token，其他并行选择器、通知与数仓改动不纳入；不包含部署或数据库操作。
 
+
+### PM-T003-I07-F02 六字段快照筛选（2026-10-28 用户确认）
+
+- [ ] PM-T003-I07-F02 扩展公共条件组件并接入项目被评估人六字段筛选
+  - 确认依据：用户明确新增在职状态、离职日期、职位族、职位类、职级、标准职位，并确认筛选统一读取周期人员快照；实时状态仅用于前端识别离职人员；随后要求完成调整。
+  - 前置/必读：Spec002 START_HERE、基线、PM-001、PM-T003 spec/ui-interaction/I07/F01、ADR-001、performance-spec-development 执行/迁移/验收契约；Spec012 通用 UI 门禁。复用既有条件组、搜索多选和纯日期组件，不新增页面或完整蓝图。
+  - 允许修改：performanceConditionFields.ts、PerformanceAudienceRuleEditor.vue 及其现有测试、api/performance.ts、PerformanceProjectSettingsPage.vue 及现有测试；后端 project_service.py、projects_router.py、models.py、snapshot_service.py 及现有项目/快照测试；必要的新迁移与本功能交互/任务文档。保留所有并行未提交改动，前后端分文件串行整合。
+  - 输入/输出契约：沿用 evaluator-options/preview/preview-people 和项目 POST/PATCH/GET；新增 employment_status、departure_date、job_family、job_category、position_level、standard_position。五类文本条件使用 include/exclude 多选，departure_date 使用 before/not_before/after/not_after 单日期，空日期不命中。候选值和日期元数据来自周期快照，未锁定时也不得回查实时花名册；没有快照时明确拒绝。
+  - 数据边界：employment_status 保持筛选快照值，实时同步写入独立 live_employment_status；已启动成员不重算。现有旧状态无法从当前花名册恢复锁定原值，不作实时回填。既有标准职位 0277 迁移保持原样，新增迁移须串接当前唯一 head。
+  - UI/API/权限：仅在项目信息被评估人开放六字段，限定考核范围及校准字段不扩展；组内且/组间或、按需加载、空值/失败重试和保存回显沿用原交互。保留当前权限与周期离职参评边界，不 commit/push/部署或改生产。
+  - 验收：六字段候选去重、日期边界及空值、混合条件、预览/启动一致、保存回读、快照与实时值分离、无快照拒绝、非法字段/操作符/日期422、无权403；现有组件测试、后端项目/快照测试、前端构建及独立实际 UI PNG。迁移需独立数据库升级/降级证据，未执行或受阻分别记录。
+  - 停止/回滚：只撤销本卡新增局部差异，不覆盖既有未提交文件；测试或迁移链冲突先报告并保留证据。所有必要证据齐备前不勾选完成。
+  - 前端证据：公共字段目录、条件编辑器、项目设置页与校准条件回归共4文件41项通过；页面测试覆盖六字段原值加载、预览请求、保存重开、非法离职日期阻断、无快照明确错误、候选失败重试且草稿不变。真实 Chrome + 隔离接口验证六字段显示、首次打开值框才请求（1次）、六条规则 PATCH 后重开保持、0 pageerror；已查看独立 PNG `../../ui-blueprints/PM-T003-I07-F02-snapshot-reviewee-filters.png`。模拟 API 不作为真实数据库或生产证据。`npm --prefix hr-portal/frontend run build` 的 vue-tsc + Vite 通过，仅既有 @vueuse PURE 注释警告；早期数仓类型错误经并行工作树修正，未由本卡改动数仓文件。
+  - UI 合规：沿用现有页面信息架构、公共组件和token，无新菜单或权限扩大；Spec012 N000/N00/N11 通用规则适用，数仓/UCP专属检查不适用。
 
 ### PM-T003-I11-F01 勾选值与角色标签一致性修正
 

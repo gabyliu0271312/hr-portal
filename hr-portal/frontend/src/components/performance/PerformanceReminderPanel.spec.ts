@@ -61,6 +61,24 @@ describe('PerformanceReminderPanel', () => {
     opening.mockRestore()
   })
 
+  it('renders preview providers without selection or action controls', async () => {
+    const provider = vi.fn().mockResolvedValue({
+      ...result(),
+      columns: [
+        { key: 'display_name', label: '姓名', locked: true, visibleByDefault: true },
+        { key: 'standard_position', label: '标准职位', visibleByDefault: true },
+      ],
+      items: [{ ...result().items[0], standard_position: '软件工程师', selectable: false }],
+      capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: false },
+    })
+    const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'preview' } })
+    await flushPromises()
+    expect(wrapper.find('.selection-cell').exists()).toBe(false)
+    expect(wrapper.find('.performance-selection-action-bar').exists()).toBe(false)
+    expect(wrapper.find('.export-button').exists()).toBe(false)
+    expect(wrapper.findAll('thead th').map(cell => cell.text())).toEqual(['姓名', '标准职位'])
+  })
+
   it('keeps selection and reports failed reminder requests', async () => {
     const provider = vi.fn().mockResolvedValue(result())
     const wrapper = mount(PerformanceReminderPanel, { props: { context, provider } })

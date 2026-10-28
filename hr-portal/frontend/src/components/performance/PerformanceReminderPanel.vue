@@ -16,7 +16,7 @@
           @clear="reload"
           @filter="handleFilter"
         >
-          <template #actions>
+          <template v-if="mode !== 'preview'" #actions>
             <button class="export-button" type="button" aria-label="导出" :disabled="!capabilities.canExport" @click="handleExport"><PerformanceExportIcon /><span>导出</span></button>
           </template>
         </PerformanceListToolbar>
@@ -31,6 +31,8 @@
         :total="total"
         :page="page"
         :page-size="pageSize"
+        :selectable="mode !== 'preview'"
+        :empty-text="mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人'"
         @retry="load"
         @page-change="changePage"
       />
@@ -38,7 +40,7 @@
       <div v-if="notice" class="performance-reminder-notice" role="status">{{ notice }}</div>
     </div>
     <PerformanceColumnVisibilityDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
-    <PerformanceSelectionActionBar :selected-count="selectedKeys.length" :capabilities="capabilities" :action-mode="mode" :loading="actionLoading" @action="handleAction" @clear="selectedKeys = []" />
+    <PerformanceSelectionActionBar v-if="mode !== 'preview'" :selected-count="selectedKeys.length" :capabilities="capabilities" :action-mode="mode" :loading="actionLoading" @action="handleAction" @clear="selectedKeys = []" />
     <PerformanceConfirmDialog
       v-if="mode === 'open-result'"
       v-model="confirmOpen"
@@ -65,7 +67,7 @@ import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceTaskTable from './PerformanceTaskTable.vue'
 import { defaultReminderColumns, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
 
-const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'open-result' }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind' })
+const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'open-result' | 'preview' }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind' })
 const emit = defineEmits<{ filter: []; export: []; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const rows = ref<ReminderListResult['items']>([])
@@ -95,7 +97,7 @@ async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<
         task_id: item.employee_no,
         employee_no: item.employee_no, display_name: item.display_name, project_name: item.project_name,
         status: item.can_open ? 'pending' : 'unavailable', selectable: item.can_open, unavailable_reason: item.unavailable_reason,
-        due_at: null, job_family: null, job_category: null, job_sequence: null, position_level: null,
+        due_at: null, job_family: null, job_category: null, standard_position: null, job_sequence: null, position_level: null,
         hire_date: null, department: null, employee_type: null, employment_status: null,
       })),
       total: result.total,
@@ -129,12 +131,13 @@ async function load() {
     total.value = result.total
     columns.value = result.columns.length ? result.columns : defaultReminderColumns
     capabilities.value = result.capabilities
-    selectedColumnKeys.value = selectedColumnKeys.value.filter(key => columns.value.some(column => column.key === key))
-    if (!selectedColumnKeys.value.length) selectedColumnKeys.value = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
+    const retainedKeys = selectedColumnKeys.value.filter(key => columns.value.some(column => column.key === key))
+    const configuredDefaults = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
+    selectedColumnKeys.value = props.mode === 'preview' || !retainedKeys.length ? configuredDefaults : retainedKeys
     const availableKeys = new Set(rows.value.filter(row => row.selectable !== false).map(row => String(row.task_id)))
     selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
   } catch {
-    if (sequence === requestSequence) error.value = '未完成人员加载失败，请稍后重试'
+    if (sequence === requestSequence) error.value = props.mode === 'preview' ? '人员加载失败，请稍后重试' : '未完成人员加载失败，请稍后重试'
   } finally {
     if (sequence === requestSequence) loading.value = false
   }

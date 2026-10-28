@@ -119,6 +119,7 @@ class CyclePerson(BaseModel):
     employment_status: str | None
     job_family: str | None
     job_category: str | None
+    standard_position: str | None
     position_level: str | None
     hire_date: date | None
     departure_date: date | None
@@ -352,6 +353,7 @@ class ManualPersonUpdate(BaseModel):
     employee_type: str | None = Field(default=None, max_length=64)
     job_family: str | None = Field(default=None, max_length=128)
     job_category: str | None = Field(default=None, max_length=128)
+    standard_position: str | None = Field(default=None, max_length=256)
     position_level: str | None = Field(default=None, max_length=128)
     hire_date: date | None = None
 

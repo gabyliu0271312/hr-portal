@@ -458,6 +458,47 @@ async def submit_template_task(task_id: int, payload: SelfSummaryAnswersPayload,
     return await _save_self_summary(task_id, payload, True, context, db, "evaluation", employee_no)
 
 
+class EvaluatorPreviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: int | None = Field(default=None, ge=1)
+    evaluator_rules: dict = Field(default_factory=lambda: {"groups": []})
+    scope_rules: dict = Field(default_factory=lambda: {"groups": []})
+    group_index: int | None = Field(default=None, ge=0)
+    list_kind: Literal["matched", "task", "report_only"] = "matched"
+
+
+class EvaluatorPreviewPerson(BaseModel):
+    employee_no: str
+    display_name: str
+    direct_supervisor: str | None = None
+    company_org: str | None = None
+    department: str | None = None
+    department_2: str | None = None
+    department_3: str | None = None
+    job_family: str | None = None
+    job_category: str | None = None
+    standard_position: str | None = None
+    employment_status: str | None = None
+    live_employment_status: str | None = None
+    status: str
+    report_only: bool = False
+
+
+class EvaluatorPreviewResponse(BaseModel):
+    matched_count: int
+    task_generation_count: int
+    report_count: int
+    report_only_count: int
+    group_counts: list[int]
+
+
+class EvaluatorPreviewPeoplePage(BaseModel):
+    items: list[EvaluatorPreviewPerson]
+    total: int
+    page: int
+    page_size: int
+
+
 class ProjectPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=1, max_length=128)
@@ -521,6 +562,7 @@ class ProjectMemberResponse(BaseModel):
     completion: str | None = None
     job_family: str | None = None
     job_category: str | None = None
+    standard_position: str | None = None
     job_sequence: str | None = None
     position_level: str | None = None
     hire_date: str | None = None
@@ -1127,6 +1169,7 @@ def _serialize_project_member(member: PerformanceProjectMember) -> ProjectMember
         department=organization_leaf(member),
         job_family=member.job_family,
         job_category=member.job_category,
+        standard_position=member.standard_position,
         job_sequence=format_job_sequence(member.job_family, member.job_category),
         position_level=member.position_level,
         hire_date=member.hire_date.isoformat() if member.hire_date else None,
@@ -1358,6 +1401,7 @@ async def project_template_workflow(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
+    from app.performance.project_service import distribution_assessment_options
     from app.performance.template_workflow_service import PerformanceTemplateWorkflowService
 
     cycle = await _get_cycle(db, cycle_id)
@@ -1368,7 +1412,12 @@ async def project_template_workflow(
     if template is None or template.template_kind != "performance":
         raise HTTPException(status_code=404, detail="绩效模板不存在")
     nodes, _, _ = await PerformanceTemplateWorkflowService(db).get_nodes(template_id)
-    return {"template_id": template_id, "nodes": nodes}
+    workflow = await db.get(PerformanceTemplateWorkflow, template_id)
+    return {
+        "template_id": template_id,
+        "nodes": nodes,
+        "distribution_assessment_options": distribution_assessment_options(nodes, list((workflow.content_library if workflow else []) or [])),
+    }
 
 
 @router.get("/cycles/{cycle_id}/evaluator-options")
@@ -1379,7 +1428,100 @@ async def evaluator_options(
 ):
     cycle = await _get_cycle(db, cycle_id)
     await _assert_cycle_project_view(db, cycle, context)
-    return await PerformanceProjectService(db).evaluator_options(cycle)
+    try:
+        return await PerformanceProjectService(db).evaluator_options(cycle)
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.post("/cycles/{cycle_id}/evaluator-preview", response_model=EvaluatorPreviewResponse)
+async def evaluator_preview(
+    cycle_id: int,
+    payload: EvaluatorPreviewPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle = await _get_cycle(db, cycle_id)
+    await _assert_cycle_project_view(db, cycle, context)
+    if payload.project_id is not None:
+        project = await _get_project(db, payload.project_id)
+        if project.cycle_ref != cycle.cycle_ref or not _can_manage_project(context, project):
+            raise HTTPException(status_code=403, detail="无权预览当前项目被评估人")
+    try:
+        rules = PerformanceProjectService._validate_rules(payload.evaluator_rules)
+        scope_rules = PerformanceProjectService._validate_scope_rules(payload.scope_rules)
+        service = PerformanceProjectService(db)
+        settings = {"evaluator_rules": rules, "scope_rules": scope_rules}
+        matched, task_people, report_only = await service.preview_people(cycle, settings, project_id=payload.project_id)
+        group_counts = []
+        for index in range(len(rules.get("groups") or [])):
+            group_matched, _group_tasks, _group_report_only = await service.preview_people(cycle, settings, group_index=index, project_id=payload.project_id)
+            group_counts.append(len(group_matched))
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return EvaluatorPreviewResponse(
+        matched_count=len(matched),
+        task_generation_count=len(task_people),
+        report_count=len(matched),
+        report_only_count=len(report_only),
+        group_counts=group_counts,
+    )
+
+
+def _preview_person(person, report_only_numbers: set[str]) -> EvaluatorPreviewPerson:
+    return EvaluatorPreviewPerson(
+        employee_no=person.employee_no,
+        display_name=person.display_name,
+        direct_supervisor=person.direct_supervisor_source_value,
+        company_org=person.company_org,
+        department=person.department,
+        department_2=person.department_2,
+        department_3=person.department_3,
+        job_family=person.job_family,
+        job_category=person.job_category,
+        standard_position=person.standard_position,
+        employment_status=person.employment_status,
+        live_employment_status=getattr(person, "live_employment_status", None) if getattr(person, "live_employment_status", None) is not None else person.employment_status,
+        status="report_only" if person.employee_no in report_only_numbers else "task",
+        report_only=person.employee_no in report_only_numbers,
+    )
+
+
+@router.post("/cycles/{cycle_id}/evaluator-preview/people", response_model=EvaluatorPreviewPeoplePage)
+async def evaluator_preview_people(
+    cycle_id: int,
+    payload: EvaluatorPreviewPayload,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    keyword: str | None = Query(default=None, max_length=100),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle = await _get_cycle(db, cycle_id)
+    await _assert_cycle_project_view(db, cycle, context)
+    if payload.project_id is not None:
+        project = await _get_project(db, payload.project_id)
+        if project.cycle_ref != cycle.cycle_ref or not _can_manage_project(context, project):
+            raise HTTPException(status_code=403, detail="无权预览当前项目被评估人")
+    try:
+        rules = PerformanceProjectService._validate_rules(payload.evaluator_rules)
+        scope_rules = PerformanceProjectService._validate_scope_rules(payload.scope_rules)
+        matched, task_people, report_only = await PerformanceProjectService(db).preview_people(
+            cycle,
+            {"evaluator_rules": rules, "scope_rules": scope_rules},
+            group_index=payload.group_index,
+            project_id=payload.project_id,
+        )
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    selected = matched if payload.list_kind == "matched" else task_people if payload.list_kind == "task" else report_only
+    if keyword and keyword.strip():
+        needle = keyword.strip().casefold()
+        selected = [person for person in selected if needle in f"{person.display_name} {person.employee_no}".casefold()]
+    report_only_numbers = {person.employee_no for person in report_only}
+    items = [_preview_person(person, report_only_numbers) for person in selected]
+    start = (page - 1) * page_size
+    return EvaluatorPreviewPeoplePage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size)
+
 
 @router.post("/cycles/{cycle_id}/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
@@ -1395,8 +1537,11 @@ async def create_project(
     try:
         if data.get("evaluator_rules") is not None:
             data["evaluator_rules"] = PerformanceProjectService._validate_rules(data.get("evaluator_rules"))
-        data["evaluated_count"] = await PerformanceProjectService(db).evaluator_count(cycle, data.get("evaluator_rules"))
-        project = await PerformanceProjectService(db).create_project(
+        service = PerformanceProjectService(db)
+        settings = {"evaluator_rules": data.get("evaluator_rules") or {"groups": []}, "scope_rules": data.get("scope_rules") or {"groups": []}}
+        _matched, task_people, _report_only = await service.preview_people(cycle, settings)
+        data["evaluated_count"] = len(task_people)
+        project = await service.create_project(
             cycle.cycle_ref, data, actor_type=context.subject_type, actor_id=context.subject_id
         )
     except ProjectValidationError as exc:
@@ -1430,7 +1575,10 @@ async def update_project(
     try:
         if data.get("evaluator_rules") is not None:
             data["evaluator_rules"] = PerformanceProjectService._validate_rules(data.get("evaluator_rules"))
-            data["evaluated_count"] = await PerformanceProjectService(db).evaluator_count(cycle, data.get("evaluator_rules"))
+        if data.get("evaluator_rules") is not None or data.get("scope_rules") is not None:
+            preview_settings = {**(project.settings or {}), **data}
+            _matched, task_people, _report_only = await PerformanceProjectService(db).preview_people(cycle, preview_settings, project_id=project.id)
+            data["evaluated_count"] = len(task_people)
         project = await PerformanceProjectService(db).update_project(
             project, data, actor_type=context.subject_type, actor_id=context.subject_id
         )
@@ -2250,6 +2398,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             "department_5": getattr(member, "department_5", None) if member else None,
             "job_family": getattr(member, "job_family", None) if member else None,
             "job_category": getattr(member, "job_category", None) if member else None,
+            "standard_position": getattr(member, "standard_position", None) if member else None,
             "job_sequence": format_job_sequence(getattr(member, "job_family", None), getattr(member, "job_category", None)) if member else None,
             "position_level": getattr(member, "position_level", None) if member else None,
             "hire_date": getattr(member, "hire_date", None).isoformat() if member and getattr(member, "hire_date", None) else None,

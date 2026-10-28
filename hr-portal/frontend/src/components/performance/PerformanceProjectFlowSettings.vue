@@ -26,7 +26,26 @@
 
       <section v-else-if="node.node_type === 'calibration'" class="node-settings calibration-settings" aria-label="校准规则设置">
         <div class="calibration-switch-row"><div><strong>绩效结果强制 / 建议分布</strong><p>开启后，可以选择一个评估项，针对评估项的等级设置强制分布和建议分布规则</p></div><PerformanceSwitch :model-value="calibrationSettings(node).force_distribution_enabled" aria-label="绩效结果强制建议分布" @update:model-value="calibrationSettings(node).force_distribution_enabled = $event" /></div>
-        <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><span class="info-mark" aria-label="校准规则说明">i</span></h3></div></div>
+        <div v-if="calibrationSettings(node).force_distribution_enabled" class="distribution-settings">
+          <PerformanceRadioGroup
+            :model-value="distributionSettings(node).mode"
+            :options="distributionModeOptions"
+            :name="`distribution-mode-${nodeKey(node)}`"
+            direction="vertical"
+            aria-label="分布规则配置模式"
+            @update:model-value="setDistributionMode(node, $event)"
+          />
+          <div v-if="distributionSettings(node).mode === 'UNIFIED'" class="distribution-rule-summary">
+            <div class="distribution-rule-summary__header"><strong>分布规则</strong><PerformanceTextButton label="＋ 添加分布规则" @click="openDistributionEditor(node)" /></div>
+            <p v-if="!distributionSettings(node).rules.length" class="distribution-rule-summary__empty">暂未配置分布规则</p>
+            <div v-for="(rule,index) in distributionSettings(node).rules" :key="rule.assessment_item_id" class="distribution-rule-summary__row">
+              <div><strong>{{ distributionAssessmentLabel(rule.assessment_item_id) }}</strong><span>适用人数 ≥ {{ rule.min_people_count }} 人 · {{ rule.conditions.length }} 条规则 · {{ distributionRoundingLabel(rule.rounding_method) }}</span></div>
+              <span class="distribution-rule-summary__actions"><PerformanceTextButton label="编辑" @click="openDistributionEditor(node,index)" /><PerformanceTextButton label="删除" @click="removeDistributionRule(node,index)" /></span>
+            </div>
+          </div>
+          <div v-else class="distribution-scope-placeholder" role="status">按校准范围配置将在后续开放。当前项目草稿可以保存，项目启动前需完善该配置。</div>
+        </div>
+        <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><PerformanceInfoPopover content="校准人可查看并调整其校准范围内的绩效结果" :width="320" /></h3></div></div>
         <div class="calibration-summary"><span class="info-circle">i</span><span v-if="assignmentStats[nodeKey(node)]">当前共 {{ assignmentStats[nodeKey(node)]!.evaluated_count }} 个被评估人，{{ assignmentStats[nodeKey(node)]!.assigned_count }} 人已分配校准，{{ assignmentStats[nodeKey(node)]!.unassigned_count }} 人未分配校准人。</span><span v-else>{{ assignmentError || (assignmentLoading ? '正在计算校准分配…' : '校准分配尚未计算') }}</span><PerformanceTextButton label="查看校准详情" /></div>
         <div v-for="(phase, phaseIndex) in calibrationSettings(node).phases" :key="phase.phase_id || phaseIndex" class="calibration-phase">
           <div class="phase-heading"><div class="phase-title">第 {{ phaseIndex + 1 }} 阶段</div><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除第 ${phaseIndex + 1} 阶段`" :disabled="calibrationSettings(node).phases.length <= 1" @click="removePhase(node, phaseIndex)" /></div>
@@ -79,6 +98,15 @@
         <PerformanceSearchSelect :model-value="reconsiderationSettings(node).handler" :options="handlerOptions" class="reconsideration-handler-select" selection-style="plain" aria-label="结果复议处理人" @update:model-value="setReconsiderationHandler(node, $event)" />
       </section>
     </article>
+    <PerformanceDistributionRuleDrawer
+      v-if="distributionEditor"
+      v-model="distributionDrawerOpen"
+      :assessment-options="distributionAssessmentOptions"
+      :used-assessment-ids="distributionUsedAssessmentIds"
+      :initial-value="distributionEditor.rule"
+      @confirm="saveDistributionRule"
+      @cancel="distributionEditor = null"
+    />
     <PerformanceProject360InviteSettingsDrawer
       v-if="inviteDrawerNode"
       v-model="inviteDrawerOpen"
@@ -109,10 +137,12 @@
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import { createCalibrationPhaseId, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { PerformanceCalibrationAssignment, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
+import type { PerformanceCalibrationAssignment, PerformanceDistributionAssessmentOption, PerformanceDistributionMode, PerformanceDistributionRule, PerformanceDistributionRounding, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
 import { performanceProjectApi } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
+import PerformanceDistributionRuleDrawer from '@/components/performance/PerformanceDistributionRuleDrawer.vue'
+import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopover.vue'
 import PerformanceRadioGroup from '@/components/performance/PerformanceRadioGroup.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
@@ -143,8 +173,9 @@ const props = withDefaults(defineProps<{
   error?: string
   manualResultOpeningEnabled?: boolean
   manualOpeningSettingLoaded?: boolean
+  distributionAssessmentOptions?: PerformanceDistributionAssessmentOption[]
   showOpeningError?: boolean
-}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], organizationTree: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
+}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], organizationTree: () => [], distributionAssessmentOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSettings]; 'open-options': [] }>()
 
 const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue))
@@ -154,6 +185,14 @@ const calibrationSaving = ref(false)
 const calibrationSaveError = ref('')
 const drawerOpen = computed({ get: () => Boolean(ruleEditor.value), set: value => { if (!value && !calibrationSaving.value) ruleEditor.value = null } })
 const inviteDrawerNode = ref<PerformanceWorkflowNode | null>(null)
+const distributionEditor = ref<{ node: PerformanceWorkflowNode; ruleIndex: number | null; rule: PerformanceDistributionRule | null } | null>(null)
+const distributionDrawerOpen = computed({ get: () => Boolean(distributionEditor.value), set: value => { if (!value) distributionEditor.value = null } })
+const distributionModeOptions = [
+  { value: 'UNIFIED', label: '统一配置规则' },
+  { value: 'BY_CALIBRATION_SCOPE', label: '按校准范围配置规则', description: '按校准范围分别配置分布规则' },
+]
+const distributionAssessmentOptions = computed(() => props.distributionAssessmentOptions)
+const distributionUsedAssessmentIds = computed(() => distributionEditor.value ? distributionSettings(distributionEditor.value.node).rules.map(rule => rule.assessment_item_id) : [])
 const inviteSaving = ref(false)
 const inviteSaveError = ref('')
 const inviteDrawerOpen = computed({ get: () => Boolean(inviteDrawerNode.value), set: value => { if (!value) inviteDrawerNode.value = null } })
@@ -172,7 +211,7 @@ function cloneSettings(value?: PerformanceProjectFlowSettings): PerformanceProje
 function nodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
 function defaultFor(node: PerformanceWorkflowNode) {
   if (node.node_type === 'reviewer_360_invite') return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false } }
-  if (node.node_type === 'calibration') return { calibration: { force_distribution_enabled: false, phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }] } }
+  if (node.node_type === 'calibration') return { calibration: { force_distribution_enabled: false, distribution: { mode: 'UNIFIED' as const, rules: [], scope_configured: false }, phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }] } }
   if (node.node_type === 'result_view') return { result_view: { automatic_enabled: false, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' as const } }
   if (node.node_type === 'result_reconsideration') return { result_reconsideration: { handler: null } }
   return {}
@@ -188,6 +227,7 @@ function ensureNode(node: PerformanceWorkflowNode) {
   if (node.node_type === 'calibration') {
     const calibration = settings.calibration || defaults.calibration!
     if (!settings.calibration) settings.calibration = calibration
+    calibration.distribution ||= { mode: 'UNIFIED', rules: [], scope_configured: false }
     if (!calibration.phases?.length) calibration.phases = defaults.calibration!.phases
     calibration.phases.forEach(phase => { if (!phase.rules?.length) phase.rules = [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] })
   }
@@ -195,6 +235,23 @@ function ensureNode(node: PerformanceWorkflowNode) {
 function ensureAllNodes() { props.nodes.forEach(ensureNode); ensureCalibrationPhaseIds(draft.value.node_settings); syncCalibrationPhaseTimes(draft.value.node_settings, draft.value.node_times) }
 function inviteSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].invite! }
 function calibrationSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].calibration! }
+function distributionSettings(node: PerformanceWorkflowNode) { const calibration = calibrationSettings(node); return calibration.distribution ||= { mode: 'UNIFIED', rules: [], scope_configured: false } }
+function setDistributionMode(node: PerformanceWorkflowNode, value: string) { distributionSettings(node).mode = value as PerformanceDistributionMode }
+function openDistributionEditor(node: PerformanceWorkflowNode, ruleIndex: number | null = null) {
+  const rule = ruleIndex === null ? null : distributionSettings(node).rules[ruleIndex]
+  distributionEditor.value = { node, ruleIndex, rule: rule ? JSON.parse(JSON.stringify(rule)) : null }
+}
+function saveDistributionRule(rule: PerformanceDistributionRule) {
+  const editor = distributionEditor.value
+  if (!editor) return
+  const rules = distributionSettings(editor.node).rules
+  if (editor.ruleIndex === null) rules.push(rule)
+  else rules.splice(editor.ruleIndex, 1, rule)
+  distributionEditor.value = null
+}
+function removeDistributionRule(node: PerformanceWorkflowNode, index: number) { distributionSettings(node).rules.splice(index, 1) }
+function distributionAssessmentLabel(id: string) { return props.distributionAssessmentOptions.find(option => option.id === id)?.label || id }
+function distributionRoundingLabel(value: PerformanceDistributionRounding) { return { ROUND: '四舍五入', CEIL: '向上取整', FLOOR: '向下取整' }[value] }
 function resultViewSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_view! }
 function reconsiderationSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_reconsideration! }
 function descriptionFor(node: PerformanceWorkflowNode) { return node.description || descriptions[node.node_type] || '' }
@@ -330,6 +387,7 @@ watch(draft, value => { ensureCalibrationPhaseIds(value.node_settings); syncCali
 </script>
 
 <style scoped>
+.distribution-settings{display:flex;flex-direction:column;gap:var(--spacing-3);margin-top:var(--spacing-4);padding:var(--spacing-4);border-radius:var(--radius-lg);background:var(--performance-evaluation-rule-surface)}.distribution-settings :deep(.performance-radio-group){gap:var(--spacing-2)!important}.distribution-rule-summary{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-rule-summary__header{display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-4)}.distribution-rule-summary__empty{margin:0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.distribution-rule-summary__row{display:flex;align-items:center;justify-content:space-between;gap:var(--spacing-4);min-height:48px;padding:var(--spacing-2) var(--spacing-3);border:1px solid var(--color-line-control);border-radius:var(--radius-md);background:var(--color-bg-card)}.distribution-rule-summary__row>div{display:flex;min-width:0;flex-direction:column}.distribution-rule-summary__row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.distribution-rule-summary__row span{color:var(--color-text-secondary);font-size:var(--font-size-sm);line-height:20px}.distribution-rule-summary__actions{display:flex;flex:0 0 auto;gap:var(--spacing-2)}.distribution-scope-placeholder{padding:var(--spacing-3);border:1px dashed var(--color-line-control);border-radius:var(--radius-md);background:var(--color-bg-card);color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-heading h3{display:flex;align-items:center;gap:var(--spacing-1)}
 .result-view-choices--error :deep(.ud__checkbox__wallpaper){border-color:var(--performance-field-error-color)}
 .result-view-choices .performance-radio-group{display:flex;margin:8px 0 12px 24px;max-width:100%}
 .result-view-choices :deep(.performance-radio-option){height:auto;min-height:22px;white-space:normal}

@@ -73,6 +73,7 @@ class RosterAuthorizationInput:
     employment_status: str | None = None
     job_family: str | None = None
     job_category: str | None = None
+    standard_position: str | None = None
     position_level: str | None = None
     hire_date: date | None = None
     departure_date: date | None = None
@@ -97,8 +98,10 @@ class SnapshotPersonState:
     hrbp_source_value: str | None = None
     employee_type: str | None = None
     employment_status: str | None = None
+    live_employment_status: str | None = None
     job_family: str | None = None
     job_category: str | None = None
+    standard_position: str | None = None
     position_level: str | None = None
     hire_date: date | None = None
     departure_date: date | None = None
@@ -241,8 +244,10 @@ def build_snapshot_people(
                 hrbp_source_value=_normalized_reference(row.hrbp_source_value),
                 employee_type=_normalized_reference(row.employee_type),
                 employment_status=_normalized_reference(row.employment_status),
+                live_employment_status=_normalized_reference(row.employment_status),
                 job_family=_normalized_reference(row.job_family),
                 job_category=_normalized_reference(row.job_category),
+                standard_position=_normalized_reference(row.standard_position),
                 position_level=_normalized_reference(row.position_level),
                 hire_date=row.hire_date,
                 departure_date=row.departure_date,
@@ -264,9 +269,9 @@ def apply_live_employment_statuses(
     return tuple(
         replace(
             person,
-            employment_status=normalized_statuses.get(
+            live_employment_status=normalized_statuses.get(
                 person.employee_no,
-                person.employment_status,
+                person.live_employment_status,
             ),
         )
         for person in people
@@ -400,6 +405,7 @@ class PerformanceAuthorizationSnapshotService:
                     display_name=person.display_name,
                 )
                 self.db.add(record)
+            record.live_employment_status = person.employment_status
             if record.is_manually_maintained:
                 record.employment_status = person.employment_status
                 record.departure_date = person.departure_date
@@ -418,6 +424,7 @@ class PerformanceAuthorizationSnapshotService:
             record.employment_status = person.employment_status
             record.job_family = person.job_family
             record.job_category = person.job_category
+            record.standard_position = person.standard_position
             record.position_level = person.position_level
             record.hire_date = person.hire_date
             record.departure_date = person.departure_date
@@ -601,7 +608,7 @@ class PerformanceAuthorizationSnapshotService:
         }
         for person in people:
             if person.employee_no in normalized_statuses:
-                person.employment_status = normalized_statuses[person.employee_no]
+                person.live_employment_status = normalized_statuses[person.employee_no]
         await self.db.commit()
 
     async def resolve_scopes(
@@ -643,6 +650,7 @@ class PerformanceAuthorizationSnapshotService:
                     employment_status=person.employment_status,
                     job_family=person.job_family,
                     job_category=person.job_category,
+                    standard_position=person.standard_position,
                     position_level=person.position_level,
                     hire_date=person.hire_date,
                     departure_date=person.departure_date,

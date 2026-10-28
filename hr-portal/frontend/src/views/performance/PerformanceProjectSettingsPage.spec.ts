@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), listTemplates: vi.fn(), getTemplateWorkflow: vi.fn(),
-  listEvaluatorOptions: vi.fn(), update: vi.fn(), otherSettings: vi.fn(),
+  listEvaluatorOptions: vi.fn(), previewEvaluators: vi.fn(), previewEvaluatorPeople: vi.fn(), update: vi.fn(), otherSettings: vi.fn(),
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { cycleId: '1', id: '2' } }),
@@ -15,13 +15,14 @@ vi.mock('@/api/performance', async () => {
 })
 
 import PerformanceProjectSettingsPage from './PerformanceProjectSettingsPage.vue'
+import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
 
 function page(realDialog = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
       teleport: true,
       PageHeader: { template: '<header><slot name="actions" /></header>' },
-      PerformanceAudienceRuleEditor: { template: '<div data-testid="audience-editor" />' },
+      PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions'], template: '<div data-testid="audience-editor" />' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
       PerformanceProjectFlowSettings: true,
@@ -46,6 +47,8 @@ beforeEach(() => {
     { template_id: 12, name: '全年度绩效评估', description: '另一模板', status: 'active' },
   ])
   mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [] })
+  mocks.previewEvaluators.mockResolvedValue({ matched_count: 5, task_generation_count: 4, report_count: 5, report_only_count: 1, group_counts: [5] })
+  mocks.previewEvaluatorPeople.mockResolvedValue({ items: [{ employee_no: 'E1', display_name: '员工一', direct_supervisor: '经理', company_org: '集团', department: '研发', department_2: '平台', department_3: '后端', job_family: '技术', job_category: '研发', standard_position: '软件工程师', status: 'task', report_only: false }], total: 1, page: 1, page_size: 50 })
   mocks.otherSettings.mockResolvedValue({ manual_result_opening_enabled: true })
 })
 
@@ -102,6 +105,100 @@ describe('project audience visibility', () => {
     await flushPromises()
     expect(wrapper.find('#people-title').exists()).toBe(true)
     expect(wrapper.get('.selected-template').text()).toContain('全年度绩效评估')
+    wrapper.unmount()
+  })
+})
+
+
+
+describe('project audience preview', () => {
+  it('shows task and report-only counts and opens the reused read-only people overlay', async () => {
+    const original = await mocks.get()
+    mocks.get.mockResolvedValue({ ...original, template_id: 11 })
+    const wrapper = page()
+    await flushPromises()
+    expect(wrapper.get('.audience-summary').text()).toContain('符合条件的员工，共计 5人')
+    expect(wrapper.get('.audience-summary').text()).toContain('4名人员生成评估任务，并纳入报表统计')
+    expect(wrapper.get('.audience-summary').text()).toContain('1名离职人员不生成评估任务，仅纳入报表统计')
+    await wrapper.get('.audience-summary h3 button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('符合条件的员工')
+    expect(wrapper.text()).toContain('标准职位')
+    expect(wrapper.text()).toContain('软件工程师')
+    expect(wrapper.find('.performance-selection-action-bar').exists()).toBe(false)
+    expect(mocks.previewEvaluatorPeople).toHaveBeenCalledWith(1, expect.objectContaining({ project_id: 2, list_kind: 'matched' }), '', 1, 50)
+    wrapper.unmount()
+  })
+})
+
+describe('project snapshot audience filters', () => {
+  const rules = { groups: [{ conditions: [
+    { field: 'employment_status' as const, operator: 'include' as const, values: ['在职'] },
+    { field: 'departure_date' as const, operator: 'not_after' as const, values: ['2026-10-28'] },
+    { field: 'job_family' as const, operator: 'include' as const, values: ['技术'] },
+    { field: 'job_category' as const, operator: 'exclude' as const, values: ['运营'] },
+    { field: 'position_level' as const, operator: 'include' as const, values: ['P6'] },
+    { field: 'standard_position' as const, operator: 'include' as const, values: ['工程师'] },
+  ] }] }
+
+  it('exposes all fields and preserves snapshot rules through preview, save and reopen', async () => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, evaluator_rules: rules })
+    const wrapper = page()
+    await flushPromises()
+    const editor = wrapper.getComponent(PerformanceAudienceRuleEditor)
+    expect(editor.props('allowedFields')).toEqual(expect.arrayContaining(rules.groups[0].conditions.map(condition => condition.field)))
+    expect(editor.props('modelValue')).toEqual(rules.groups)
+    expect(mocks.previewEvaluators).toHaveBeenCalledWith(1, expect.objectContaining({ evaluator_rules: rules }))
+    await button(wrapper, '下一步').trigger('click')
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ evaluator_rules: rules }))
+    wrapper.unmount()
+    const reopened = page()
+    await flushPromises()
+    expect(reopened.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    reopened.unmount()
+  })
+
+  it('blocks invalid departure dates before preview and save', async () => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, evaluator_rules: { groups: [{ conditions: [{ field: 'departure_date', operator: 'before', values: ['2026-02-30'] }] }] } })
+    const wrapper = page()
+    await flushPromises()
+    expect(mocks.previewEvaluators).not.toHaveBeenCalled()
+    await button(wrapper, '下一步').trigger('click')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请完善被评估人筛选条件')
+    wrapper.unmount()
+  })
+
+  it('shows a missing-snapshot API error without discarding the saved rules', async () => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, evaluator_rules: rules })
+    mocks.listEvaluatorOptions.mockRejectedValueOnce({ response: { data: { detail: '周期人员快照尚未生成' } } })
+    const wrapper = page()
+    await flushPromises()
+    const editor = wrapper.getComponent(PerformanceAudienceRuleEditor)
+    editor.vm.$emit('open-options')
+    await flushPromises()
+    expect(wrapper.get('.page-notice').text()).toBe('周期人员快照尚未生成')
+    expect(editor.props('modelValue')).toEqual(rules.groups)
+    wrapper.unmount()
+  })
+
+  it('retries failed snapshot option loading without changing saved rules', async () => {
+    const options = { organization_tree: [], people: [], employee_types: [], employment_statuses: [{ value: '在职', label: '在职' }], job_families: [{ value: '技术', label: '技术' }], departure_date_range: { min: '2026-01-01', max: '2026-10-28' } }
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, evaluator_rules: rules })
+    mocks.listEvaluatorOptions.mockRejectedValueOnce(new Error('options failed')).mockResolvedValueOnce(options)
+    const wrapper = page()
+    await flushPromises()
+    const editor = wrapper.getComponent(PerformanceAudienceRuleEditor)
+    expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+    editor.vm.$emit('open-options')
+    await flushPromises()
+    expect(wrapper.text()).toContain('被评估人名单加载失败')
+    expect(editor.props('modelValue')).toEqual(rules.groups)
+    editor.vm.$emit('open-options')
+    await flushPromises()
+    expect(editor.props('snapshotOptions')).toEqual(options)
+    expect(editor.props('modelValue')).toEqual(rules.groups)
+    expect(mocks.listEvaluatorOptions).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })
 })
