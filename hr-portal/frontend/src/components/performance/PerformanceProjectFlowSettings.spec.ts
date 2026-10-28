@@ -62,7 +62,7 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.get('.distribution-add-rule').text()).toBe('＋ 添加分布规则')
   })
 
-  it('keeps distribution rules when disabled and allows the scope mode draft placeholder', async () => {
+  it('keeps distribution rules when disabled and opens scoped rule configuration without a placeholder', async () => {
     const initial = { node_settings: { 'calibration-1': { calibration: {
       force_distribution_enabled: true,
       distribution: { mode: 'UNIFIED' as const, scope_configured: false, rules: [{ assessment_item_id: 'grade', min_people_count: 8, rounding_method: 'ROUND' as const, conditions: [{ control_mode: 'HARD' as const, grade_codes: ['A'], operator: 'GTE' as const, value: 20, unit: 'PERCENT' as const }] }] },
@@ -77,7 +77,7 @@ describe('PerformanceProjectFlowSettings', () => {
     await wrapper.get('[aria-label="绩效结果强制建议分布"]').trigger('click')
     const scopeRadio = wrapper.findAll('input[type="radio"]')[1]
     await scopeRadio.setValue()
-    expect(wrapper.get('.distribution-scope-placeholder').text()).toContain('当前项目草稿可以保存')
+    expect(wrapper.find('.distribution-scope-placeholder').exists()).toBe(false)
   })
 
   it('opens the distribution drawer and adds a unified rule', async () => {

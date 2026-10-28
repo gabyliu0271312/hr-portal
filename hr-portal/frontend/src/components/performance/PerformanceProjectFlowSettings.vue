@@ -62,7 +62,6 @@
             </div>
             <PerformanceTextButton class="distribution-add-rule" label="＋ 添加分布规则" @click="openDistributionEditor(node)" />
           </div>
-          <div v-else class="distribution-scope-placeholder" role="status">按校准范围配置将在后续开放。当前项目草稿可以保存，项目启动前需完善该配置。</div>
         </div>
         <div class="settings-heading calibration-heading"><div><h3>校准规则设置 <span class="required-mark">*</span><PerformanceInfoPopover content="校准人可查看并调整其校准范围内的绩效结果" :width="320" /></h3></div></div>
         <div class="calibration-summary"><span class="info-circle">i</span><span v-if="assignmentStats[nodeKey(node)]">当前共 {{ assignmentStats[nodeKey(node)]!.evaluated_count }} 个被评估人，{{ assignmentStats[nodeKey(node)]!.assigned_count }} 人已分配校准，{{ assignmentStats[nodeKey(node)]!.unassigned_count }} 人未分配校准人。</span><span v-else>{{ assignmentError || (assignmentLoading ? '正在计算校准分配…' : '校准分配尚未计算') }}</span><PerformanceTextButton label="查看校准详情" /></div>
@@ -145,6 +144,7 @@
       :hire-date-range="hireDateRange"
       :assessment-options="distributionAssessmentOptions"
       :position-level-options="positionLevelOptions"
+      :distribution-mode="distributionSettings(ruleEditor.node).mode"
       @open-options="emit('open-options')"
       :saving="calibrationSaving"
       :save-error="calibrationSaveError"

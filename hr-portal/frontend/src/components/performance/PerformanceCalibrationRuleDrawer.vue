@@ -6,17 +6,12 @@
     variant="captured"
     @close="cancel"
   >
-    <template #header>
-      <div class="calibration-rule-header">
-        <h2>{{ mode === 'edit' ? '编辑校准规则' : '添加校准规则' }}</h2>
-        <div v-if="isDistributionFlow" class="calibration-step-guide" aria-label="校准规则配置步骤">
-          <span :class="{ current: step === 0, done: step === 1 }"><b>{{ step === 1 ? '✓' : '1' }}</b>校准规则</span>
-          <i aria-hidden="true"></i>
-          <span :class="{ current: step === 1 }"><b>2</b>分布规则</span>
-        </div>
-      </div>
-    </template>
     <div class="calibration-rule-drawer" aria-label="校准规则编辑">
+      <div v-if="isDistributionFlow" class="calibration-step-guide calibration-step-guide--body" aria-label="校准规则配置步骤">
+        <span :class="{ current: step === 0, done: step === 1 }"><b>{{ step === 1 ? '✓' : '1' }}</b>校准规则</span>
+        <i aria-hidden="true"></i>
+        <span :class="{ current: step === 1 }"><b>2</b>分布规则</span>
+      </div>
       <template v-if="step === 0 || !isDistributionFlow">
       <section class="calibration-rule-section" aria-labelledby="calibrator-title">
         <h3 id="calibrator-title" class="calibration-rule-section__title"><span class="required-mark">*</span>校准人</h3>
@@ -96,24 +91,25 @@
       </template>
       <template v-else-if="isDistributionFlow">
         <section class="calibration-rule-section calibration-distribution-section" aria-labelledby="distribution-title">
-          <h3 id="distribution-title" class="calibration-rule-section__title">分布规则</h3>
           <div v-if="draft.distribution_rules.length" class="calibration-distribution-list">
-            <article v-for="(distribution, index) in draft.distribution_rules" :key="index" class="calibration-distribution-card">
+            <article v-for="(distribution, index) in draft.distribution_rules" :key="index" class="calibration-distribution-item">
               <div class="calibration-distribution-card__header">
                 <span>分布规则 {{ index + 1 }}</span>
                 <PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除分布规则 ${index + 1}`" :disabled="saving" @click="removeDistributionRule(index)" />
               </div>
-              <PerformanceDistributionRuleEditor
-                :model-value="distribution"
-                :assessment-options="assessmentOptions"
-                :organization-tree="organizationTree"
-                :position-level-options="positionLevelOptions"
-                show-execution-scope
-                :submitted="distributionSubmitted"
-                :disabled="saving"
-                @open-options="emit('open-options')"
-                @update:model-value="updateDistributionRule(index, $event)"
-              />
+              <div class="calibration-distribution-card">
+                <PerformanceDistributionRuleEditor
+                  :model-value="distribution"
+                  :assessment-options="assessmentOptions"
+                  :organization-tree="organizationTree"
+                  :position-level-options="positionLevelOptions"
+                  show-execution-scope
+                  :submitted="distributionSubmitted"
+                  :disabled="saving"
+                  @open-options="emit('open-options')"
+                  @update:model-value="updateDistributionRule(index, $event)"
+                />
+              </div>
             </article>
           </div>
           <div v-else class="calibration-distribution-empty" role="status">
@@ -166,9 +162,10 @@ const props = withDefaults(defineProps<{
   hireDateRange?: { min: string | null; max: string | null }
   assessmentOptions?: PerformanceDistributionAssessmentOption[]
   positionLevelOptions?: PerformanceSearchSelectOption[]
+  distributionMode?: 'UNIFIED' | 'BY_CALIBRATION_SCOPE'
   saving?: boolean
   saveError?: string
-}>(), { rule: null, mode: 'create', peopleOptions: () => [], organizationTree: () => [], assessmentOptions: () => [], positionLevelOptions: () => [], saving: false, saveError: '' })
+}>(), { rule: null, mode: 'create', peopleOptions: () => [], organizationTree: () => [], assessmentOptions: () => [], positionLevelOptions: () => [], distributionMode: 'UNIFIED', saving: false, saveError: '' })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [rule: PerformanceProjectFlowRule]; cancel: []; 'open-options': [] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const subjectFieldOptions = [{ value: 'employee', label: PERFORMANCE_CONDITION_FIELDS.employee.label }]
@@ -179,7 +176,7 @@ const validationError = ref('')
 const subjectDirty = ref(false)
 const step = ref(0)
 const distributionSubmitted = ref(false)
-const isDistributionFlow = computed(() => props.assessmentOptions.length > 0)
+const isDistributionFlow = computed(() => props.distributionMode === 'BY_CALIBRATION_SCOPE')
 
 function createGroup(field: 'employee' | 'calibrator_relation'): CalibrationGroup {
   return { conditions: [{ field, operator: 'INCLUDE', values: [] }] }
@@ -214,7 +211,7 @@ function nextStep() {
     validationError.value = !validGroups(draft.value.subject_groups) ? '请完善校准人条件组中的条件值' : '请完善校准范围条件组中的条件值'
     return
   }
-  validationError.value = ''; step.value = 1
+  validationError.value = ''; if (!draft.value.distribution_rules.length) draft.value.distribution_rules.push(emptyDistributionRule()); step.value = 1
 }
 function backStep() { step.value = 0; distributionSubmitted.value = false }
 function validGroups(groups: CalibrationGroup[]) {
@@ -285,8 +282,8 @@ watch(() => [props.modelValue, props.rule, props.mode], () => {
 
 <style scoped>
 .calibration-rule-error{margin:8px 0 0;color:#f54a45;font-size:14px;line-height:22px}
-.calibration-rule-header{display:flex;align-items:center;gap:32px;min-width:0}.calibration-rule-header h2{margin:0;white-space:nowrap}.calibration-step-guide{display:flex;align-items:center;gap:12px;color:#8f959e;font-size:14px;line-height:22px}.calibration-step-guide span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.calibration-step-guide b{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;border:1px solid #d0d3d6;border-radius:50%;font-size:12px;font-weight:400}.calibration-step-guide span.current,.calibration-step-guide span.done{color:#3370ff}.calibration-step-guide span.current b,.calibration-step-guide span.done b{border-color:#3370ff;background:#3370ff;color:#fff}.calibration-step-guide i{width:28px;border-top:1px solid #d0d3d6}
-.calibration-distribution-list{display:flex;flex-direction:column;gap:12px}.calibration-distribution-card{padding:16px 20px;border-radius:4px;background:#f5f6f7}.calibration-distribution-card__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font-weight:600}.calibration-distribution-empty{display:flex;flex-direction:column;align-items:center;padding:32px 0;color:#646a73}.calibration-distribution-empty :deep(svg){width:80px;height:80px}.calibration-distribution-empty p{margin:12px 0}.calibration-distribution-add{margin-top:12px}
+.calibration-rule-header{display:flex;align-items:center;gap:32px;min-width:0}.calibration-rule-header h2{margin:0;white-space:nowrap}.calibration-step-guide{display:flex;align-items:center;justify-content:center;gap:12px;color:#8f959e;font-size:14px;line-height:22px}.calibration-step-guide--body{margin:0 auto 20px}.calibration-step-guide span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.calibration-step-guide b{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;border:1px solid #d0d3d6;border-radius:50%;font-size:12px;font-weight:400}.calibration-step-guide span.current,.calibration-step-guide span.done{color:#3370ff}.calibration-step-guide span.current b,.calibration-step-guide span.done b{border-color:#3370ff;background:#3370ff;color:#fff}.calibration-step-guide i{width:56px;border-top:1px solid #d0d3d6}
+.calibration-distribution-list{display:flex;flex-direction:column;gap:12px}.calibration-distribution-item{display:flex;flex-direction:column;gap:8px}.calibration-distribution-card{padding:16px 20px;border-radius:4px;background:#f5f6f7}.calibration-distribution-card__header{display:flex;align-items:center;justify-content:space-between;font-weight:600}.calibration-distribution-empty{display:flex;flex-direction:column;align-items:center;padding:32px 0;color:#646a73}.calibration-distribution-empty :deep(.metric-template-empty-illustration){display:block;width:250px;height:125px}.calibration-distribution-empty p{margin:12px 0}.calibration-distribution-add{margin-top:12px}
 .calibration-rule-group-or{margin:16px -20px 8px;padding:12px 20px 0;border-top:1px solid var(--color-line-divider);color:var(--color-text-secondary);font:400 14px/22px var(--font-sans)}
 .calibration-rule-section :deep(.performance-condition-logic-group__rows > .calibration-condition-group + .calibration-condition-group){margin-top:8px}
 .calibration-condition-group+.calibration-condition-group{margin-top:8px}.calibration-rule-drawer{display:flex;flex-direction:column;gap:20px;min-width:0;color:#1f2329;font:400 14px/22px var(--font-sans)}.calibration-rule-section{min-width:0}.calibration-rule-section__title{display:flex;align-items:center;margin:0;font:600 14px/22px var(--font-sans)}.required-mark{margin-right:4px;color:#f54a45}.calibration-radio-group{display:flex;flex-wrap:wrap;gap:8px 24px;margin:8px 0 20px}.calibration-radio-group--vertical{flex-direction:column;margin-bottom:0}.calibration-radio-group label{display:flex;align-items:center;min-height:22px;cursor:pointer}.calibration-radio-group input{width:16px;height:16px;margin:0 8px 0 0;accent-color:#1456f0}.calibration-rule-link{display:inline-flex;align-items:center;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-rule-link svg{width:16px;height:16px;margin-right:4px}.calibration-rule-empty{margin:8px 0 0;color:#646a73}.calibration-rule-help{margin:8px 0 12px;color:#646a73}.calibration-rule-example{margin-left:8px;padding:0;border:0;background:transparent;color:#1456f0;font:inherit;cursor:pointer}.calibration-description-input{display:flex;align-items:center;min-height:32px;padding:4px 8px 4px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;box-sizing:border-box}.calibration-description-input:focus-within{border-color:#3370ff;box-shadow:0 0 0 2px rgba(51,112,255,.18)}.calibration-description-input input{flex:1;min-width:20px;height:22px;padding:0;border:0;outline:0;background:transparent;color:#1f2329;font:400 14px/22px var(--font-sans)}.calibration-description-input>span:not(.calibration-description-input__count){margin-left:8px;padding:0 6px;border-radius:4px;background:rgba(31,35,41,.1);color:#646a73;font-size:12px;line-height:20px}.calibration-description-input__count{display:none}.calibration-rule-delegation{margin-top:0}.calibration-rule-delegation .calibration-rule-section__title{gap:8px}.calibration-rule-delegation .calibration-rule-help{margin-bottom:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

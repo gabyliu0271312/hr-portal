@@ -170,6 +170,7 @@ describe('PerformanceCalibrationRuleDrawer', () => {
         modelValue: true,
         rule,
         assessmentOptions: [{ id: 'grade', label: '综合评级', grade_options: [{ value: 'A', label: 'A' }] }],
+        distributionMode: 'BY_CALIBRATION_SCOPE',
         organizationTree: [{ value: '集团', label: '集团', level: 1, children: [] }],
         positionLevelOptions: [{ value: 'P6', label: 'P6' }],
       },
@@ -181,6 +182,9 @@ describe('PerformanceCalibrationRuleDrawer', () => {
     await wrapper.vm.$nextTick()
     expect(document.body.querySelector('.calibration-step-guide')?.textContent).toContain('分布规则')
     expect((document.body.querySelector('.performance-drawer-footer__cancel') as HTMLButtonElement).textContent).toBe('上一步')
+    expect(document.body.textContent).toContain('分布规则 1')
+    ;(document.body.querySelector('[aria-label="删除分布规则 1"]') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
     expect(document.body.textContent).toContain('暂无分布规则')
     ;(document.body.querySelector('.calibration-distribution-empty button') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
