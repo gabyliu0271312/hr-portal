@@ -24,10 +24,12 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [valu
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const submitted = ref(false)
 const draft = reactive<PerformanceDistributionRule>(emptyRule())
+const noRoundingHelp = '强制/建议的人数值计算得小数值时，实际人数会与此小数值直接对比。\n举例：S 小于等于 20%，D 大于等于 10%。某团队人数为 33 人，则：\nS ≤ 6.6 人（S 实际最大可为 6 人）\nD ≥ 3.3 人（D 实际最小可为 4 人 ）'
 const roundingOptions = [
   { value: 'ROUND', label: '四舍五入' },
   { value: 'CEIL', label: '向上取整' },
   { value: 'FLOOR', label: '向下取整' },
+  { value: 'NONE', label: '不强制取整' },
 ]
 const selectableAssessments = computed(() => props.assessmentOptions.map(option => ({
   id: option.id,
@@ -91,7 +93,9 @@ watch(() => props.modelValue, value => { if (value) reset() })
 
       <PerformanceFormItem label="取整方式" required>
         <template #description>当基于比例计算所得的强制/建议人数值为小数时，可以选择数据取整方式。（取整方式会展示给校准人）</template>
-        <PerformanceRadioGroup v-model="draft.rounding_method" name="distribution-rounding" :options="roundingOptions" aria-label="分布取整方式" />
+        <PerformanceRadioGroup v-model="draft.rounding_method" name="distribution-rounding" :options="roundingOptions" aria-label="分布取整方式">
+          <template #after-option="{ option }"><PerformanceInfoPopover v-if="option.value === 'NONE'" :content="noRoundingHelp" :width="420" preserve-newlines /></template>
+        </PerformanceRadioGroup>
       </PerformanceFormItem>
       <p v-if="saveError" class="distribution-save-error" role="alert">{{ saveError }}</p>
     </form>

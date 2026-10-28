@@ -32,6 +32,7 @@
         <template v-if="Array.isArray(content)">
           <div v-for="line in content" :key="line" class="performance-info-popover__line invite-info-line"><span class="performance-info-popover__dot invite-info-dot" aria-hidden="true" /><span>{{ line }}</span></div>
         </template>
+        <template v-else-if="preserveNewlines"><span class="performance-info-popover__multiline">{{ content }}</span></template>
         <template v-else>{{ content }}</template>
       </div>
       <div class="performance-info-popover__arrow" :style="arrowStyle"><svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8-.5H0v1c1.553 0 3.033.664 4.065 1.825l2.814 3.166a1.5 1.5 0 002.242 0l2.814-3.166A5.438 5.438 0 0116 .5v-1H8z" /></svg></div>
@@ -51,6 +52,7 @@ const props = withDefaults(defineProps<{
   gap?: number
   viewportMargin?: number
   iconColor?: string
+  preserveNewlines?: boolean
 }>(), {
   delay: 124,
   width: 420,
@@ -58,6 +60,7 @@ const props = withDefaults(defineProps<{
   gap: 10,
   viewportMargin: 16,
   iconColor: '#646a73',
+  preserveNewlines: false,
 })
 
 const tooltipId = `performance-info-popover-${getCurrentInstance()!.uid}`
@@ -139,6 +142,7 @@ onBeforeUnmount(() => {
 .performance-info-popover-root{display:block;flex:0 0 16px;width:16px;height:16px}
 .performance-info-popover{width:420px}
 .performance-info-popover__anchor{display:block;flex:0 0 16px;width:16px;height:16px;color:#646a73;line-height:16px;cursor:default}.performance-info-popover__anchor svg{display:block;width:16px;height:16px}.performance-info-popover__anchor:focus-visible{outline:2px solid #1456f0;outline-offset:2px;border-radius:999px}.performance-info-popover{position:fixed;z-index:1030;box-sizing:border-box;color:#1f2329;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}.performance-info-popover__content{width:100%;min-height:47.333px;overflow:hidden;padding:12px 16px;box-sizing:border-box;border:.666667px solid #dee0e3;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.04) 0 8px 24px 8px,rgba(31,35,41,.04) 0 6px 12px 0,rgba(31,35,41,.06) 0 4px 8px -8px}.performance-info-popover__line{display:flex;align-items:flex-start}.performance-info-popover__dot{display:block;flex:0 0 4px;width:4px;height:4px;margin:9px 8px 0 0;border-radius:999px;background:#8f959e}.performance-info-popover__arrow{position:absolute;line-height:0}.performance-info-popover__arrow svg{position:absolute;display:flex;transform:translate(-50%,-1px)}.performance-info-popover__arrow path{fill:#fff;stroke:#dee0e3;stroke-width:.666667px}.performance-info-popover--top .performance-info-popover__arrow{bottom:0}.performance-info-popover--bottom .performance-info-popover__arrow{top:0}.performance-info-popover--bottom .performance-info-popover__arrow svg{transform:translate(-50%,1px) rotate(180deg)}
+.performance-info-popover__multiline{display:block;white-space:pre-line}
 .performance-info-popover-root--action { display: inline-flex; flex: none; width: auto; height: auto; }
 .performance-info-popover__anchor--action { display: inline-flex; flex: none; width: auto; height: auto; line-height: var(--performance-popover-line-height); cursor: not-allowed; }
 .performance-info-popover__anchor--action:focus-visible { outline: 0; border-radius: var(--performance-button-radius); box-shadow: var(--performance-button-focus-ring); }

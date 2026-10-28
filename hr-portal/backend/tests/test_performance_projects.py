@@ -510,6 +510,13 @@ def test_project_distribution_accepts_all_comparison_operators():
         assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"]["rules"][0]["conditions"][0]["operator"] == operator
 
 
+def test_project_distribution_accepts_no_rounding_method():
+    rule = _distribution_rule()
+    rule["rounding_method"] = "NONE"
+    flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": {"mode": "UNIFIED", "rules": [rule], "scope_configured": False}, "phases": []}}}}
+    assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"]["rules"][0]["rounding_method"] == "NONE"
+
+
 def test_project_distribution_rules_round_trip_and_reject_duplicate_assessment_item():
     distribution = {"mode": "UNIFIED", "rules": [_distribution_rule()], "scope_configured": False}
     flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": distribution, "phases": []}}}}
@@ -538,7 +545,7 @@ def test_project_distribution_disabled_keeps_configuration_without_blocking_star
 async def test_project_distribution_template_options_reject_unknown_assessment_and_grade():
     from app.performance.models import PerformanceTemplateWorkflow
     workflow = SimpleNamespace(nodes=[{"node_id": "final", "include_final_result": True, "content_bindings": {"fill": ["rating"]}}], content_library=[{
-        "content_id": "rating", "type": "rating", "name": "评级", "items": [{"id": "grade", "label": "等级"}], "options": [{"id": "A", "label": "A"}],
+        "content_id": "rating", "type": "rating", "name": "评级", "items": [{"id": "grade", "label": "等级"}], "options": [{"id": "level-1", "code": "A", "label": "优秀"}],
     }])
     class Db:
         async def get(self, model, _key): return workflow if model is PerformanceTemplateWorkflow else None
@@ -549,6 +556,7 @@ async def test_project_distribution_template_options_reject_unknown_assessment_a
     with pytest.raises(ProjectValidationError, match="等级不属于所选评估项"):
         await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["B"])))
     await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["A"])))
+    await service._validate_distribution_template_options(11, flow(_distribution_rule("grade", ["level-1"])))
 
 
 def test_project_flow_settings_validate_supported_editable_variants():
@@ -4235,7 +4243,7 @@ async def test_project_template_workflow_returns_distribution_assessment_options
     nodes = [{"node_id": "final", "node_type": "evaluation", "include_final_result": True, "content_bindings": {"fill": ["rating"]}}]
     workflow = SimpleNamespace(nodes=nodes, content_library=[{
         "content_id": "rating", "type": "rating", "name": "评级内容", "description": "最终等级",
-        "items": [{"id": "grade", "label": "绩效等级"}], "options": [{"id": "A", "label": "A"}, {"id": "B", "label": "B"}],
+        "items": [{"id": "grade", "label": "绩效等级"}], "options": [{"id": "level-a", "code": "A", "label": "优秀"}, {"id": "level-b", "code": "B", "label": "良好"}],
     }])
     async def get_cycle(*_args): return cycle
     async def get_nodes(*_args): return nodes, 0, 0
@@ -4247,7 +4255,7 @@ async def test_project_template_workflow_returns_distribution_assessment_options
             if model is PerformanceTemplateWorkflow: return workflow
             return None
     result = await projects_router.project_template_workflow(1, 11, context("performance.cycles.manage"), Db())
-    assert result["distribution_assessment_options"] == [{"id": "grade", "label": "绩效等级", "description": "最终等级", "grade_options": [{"value": "A", "label": "A"}, {"value": "B", "label": "B"}]}]
+    assert result["distribution_assessment_options"] == [{"id": "grade", "label": "绩效等级", "description": "最终等级", "grade_options": [{"value": "A", "label": "A", "legacy_value": "level-a"}, {"value": "B", "label": "B", "legacy_value": "level-b"}]}]
 
 
 @pytest.mark.asyncio

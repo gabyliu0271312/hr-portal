@@ -1120,7 +1120,7 @@ export interface PerformanceTemplateContentItem {
     allowMultiple?: boolean
     allowView?: boolean
   }
-  options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
+  options?: Array<{ id: string; code?: string; label: string; color?: string; placeholder?: string }>
 }
 
 export interface PerformanceReferenceDisplaySettings {
@@ -1158,7 +1158,7 @@ export interface PerformanceTemplateContent {
   questionType?: 'text' | 'tag'
   tagOptionId?: string
   defaultAll?: boolean
-  options?: Array<{ id: string; label: string; color?: string; placeholder?: string }>
+  options?: Array<{ id: string; code?: string; label: string; color?: string; placeholder?: string }>
 }
 
 export type PerformanceCalibrationItemSettings = { allowModify?: boolean; hideName?: boolean; hideDescription?: boolean; levelRulesEnabled?: boolean }
@@ -1295,7 +1295,7 @@ export type PerformanceDistributionMode = 'UNIFIED' | 'BY_CALIBRATION_SCOPE'
 export type PerformanceDistributionControlMode = 'HARD' | 'SOFT'
 export type PerformanceDistributionOperator = 'EQ' | 'LT' | 'LTE' | 'GT' | 'GTE'
 export type PerformanceDistributionUnit = 'PERCENT' | 'PEOPLE'
-export type PerformanceDistributionRounding = 'ROUND' | 'CEIL' | 'FLOOR'
+export type PerformanceDistributionRounding = 'ROUND' | 'CEIL' | 'FLOOR' | 'NONE'
 export interface PerformanceDistributionCondition {
   control_mode: PerformanceDistributionControlMode
   grade_codes: string[]
@@ -1318,7 +1318,7 @@ export interface PerformanceDistributionAssessmentOption {
   id: string
   label: string
   description?: string
-  grade_options: Array<{ value: string; label: string }>
+  grade_options: Array<{ value: string; label: string; legacy_value?: string }>
 }
 
 export interface PerformanceProjectFlowSettings {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
 import PerformanceDistributionRuleRow from './PerformanceDistributionRuleRow.vue'
 import PerformanceDistributionRuleDrawer from './PerformanceDistributionRuleDrawer.vue'
+import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 
 const assessmentOptions = [{ id: 'grade', label: '绩效等级', description: '最终评级', grade_options: [{ value: 'A', label: 'A' }, { value: 'B', label: 'B' }] }]
 
@@ -45,6 +46,16 @@ describe('PerformanceDistributionRuleDrawer', () => {
     await row.find('input[aria-label="分布等级"]').trigger('focus')
     await wrapper.vm.$nextTick()
     expect(Array.from(document.body.querySelectorAll('[role="option"]')).map(item => item.textContent)).toEqual(['A', 'B'])
+  })
+
+  it('offers no-forced-rounding with the exact explanatory tooltip', async () => {
+    const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
+    const radioGroup = wrapper.findComponent(PerformanceRadioGroup)
+    const rounding = radioGroup.props('options') as Array<{ value: string; label: string }>
+    expect(rounding.find(option => option.value === 'NONE')?.label).toBe('不强制取整')
+    const tooltip = wrapper.findAllComponents({ name: 'PerformanceInfoPopover' }).find(component => String(component.props('content')).includes('实际人数会与此小数值直接对比'))
+    expect(tooltip?.props('content')).toContain('强制/建议的人数值计算得小数值时，实际人数会与此小数值直接对比。')
+    expect(tooltip?.props('preserveNewlines')).toBe(true)
   })
 
   it('disables an assessment item already used by another rule', async () => {

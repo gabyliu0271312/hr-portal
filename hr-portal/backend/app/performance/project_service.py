@@ -104,7 +104,7 @@ DISTRIBUTION_MODES = {"UNIFIED", "BY_CALIBRATION_SCOPE"}
 DISTRIBUTION_CONTROL_MODES = {"HARD", "SOFT"}
 DISTRIBUTION_OPERATORS = {"EQ", "LT", "LTE", "GT", "GTE"}
 DISTRIBUTION_UNITS = {"PERCENT", "PEOPLE"}
-DISTRIBUTION_ROUNDING_METHODS = {"ROUND", "CEIL", "FLOOR"}
+DISTRIBUTION_ROUNDING_METHODS = {"ROUND", "CEIL", "FLOOR", "NONE"}
 
 
 def distribution_assessment_options(nodes: list[dict], content_library: list[dict]) -> list[dict[str, Any]]:
@@ -123,9 +123,13 @@ def distribution_assessment_options(nodes: list[dict], content_library: list[dic
             item_id = str(item.get("id") or "").strip()
             grade_options = item.get("options") if isinstance(item.get("options"), list) else content.get("options")
             grades = [
-                {"value": str(option.get("id")), "label": str(option.get("label") or option.get("id"))}
+                {
+                    "value": str(option.get("code") or option.get("id")),
+                    "label": str(option.get("code") or option.get("label") or option.get("id")),
+                    "legacy_value": str(option.get("id")),
+                }
                 for option in (grade_options or [])
-                if isinstance(option, dict) and option.get("id") is not None
+                if isinstance(option, dict) and (option.get("code") or option.get("id")) is not None
             ]
             if not item_id or not grades or item_id in seen:
                 continue
@@ -786,7 +790,15 @@ class PerformanceProjectService:
         if workflow is None:
             raise ProjectValidationError("绩效结果分布规则缺少可用的绩效模板")
         options = distribution_assessment_options(list(workflow.nodes or []), list(workflow.content_library or []))
-        allowed = {option["id"]: {grade["value"] for grade in option["grade_options"]} for option in options}
+        allowed = {
+            option["id"]: {
+                value
+                for grade in option["grade_options"]
+                for value in (grade["value"], grade.get("legacy_value"))
+                if value
+            }
+            for option in options
+        }
         for rule in configured:
             item_id = rule["assessment_item_id"]
             if item_id not in allowed:

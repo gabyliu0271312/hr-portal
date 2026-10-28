@@ -42,8 +42,23 @@
           <div v-if="distributionSettings(node).mode === 'UNIFIED'" class="distribution-rule-summary">
             <strong>分布规则</strong>
             <div v-for="(rule,index) in distributionSettings(node).rules" :key="rule.assessment_item_id" class="distribution-rule-summary__row">
-              <div><strong>{{ distributionAssessmentLabel(rule.assessment_item_id) }}</strong><span>适用人数 ≥ {{ rule.min_people_count }} 人 · {{ rule.conditions.length }} 条规则 · {{ distributionRoundingLabel(rule.rounding_method) }}</span></div>
-              <span class="distribution-rule-summary__actions"><PerformanceTextButton label="编辑" @click="openDistributionEditor(node,index)" /><PerformanceTextButton label="删除" @click="removeDistributionRule(node,index)" /></span>
+              <div class="distribution-rule-card__header">
+                <span>分布规则 {{ index + 1 }}</span>
+                <div class="distribution-rule-card__actions">
+                  <PerformanceIconButton icon="EditOutlined" :label="`编辑分布规则 ${index + 1}`" @click="openDistributionEditor(node,index)" />
+                  <PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除分布规则 ${index + 1}`" @click="removeDistributionRule(node,index)" />
+                </div>
+              </div>
+              <div class="distribution-rule-card__meta"><span>{{ distributionAssessmentLabel(rule.assessment_item_id) }}</span><span>大于等于 {{ rule.min_people_count }} 人</span></div>
+              <span class="distribution-rule-card__label">分布规则</span>
+              <div class="distribution-rule-card__conditions">
+                <div v-for="(condition,conditionIndex) in rule.conditions" :key="conditionIndex" class="distribution-rule-card__condition">
+                  <span>{{ distributionControlLabel(condition.control_mode) }}</span>
+                  <span>{{ condition.grade_codes.map(code => distributionGradeCode(rule.assessment_item_id, code)).join('、') }}</span>
+                  <span>{{ distributionOperatorLabel(condition.operator) }} {{ condition.value }} {{ distributionUnitLabel(condition.unit) }}</span>
+                </div>
+              </div>
+              <div class="distribution-rule-card__rounding"><span class="distribution-rule-card__label">取整方式</span><span>{{ distributionRoundingLabel(rule.rounding_method) }}</span></div>
             </div>
             <PerformanceTextButton class="distribution-add-rule" label="＋ 添加分布规则" @click="openDistributionEditor(node)" />
           </div>
@@ -254,8 +269,16 @@ function saveDistributionRule(rule: PerformanceDistributionRule) {
   distributionEditor.value = null
 }
 function removeDistributionRule(node: PerformanceWorkflowNode, index: number) { distributionSettings(node).rules.splice(index, 1) }
-function distributionAssessmentLabel(id: string) { return props.distributionAssessmentOptions.find(option => option.id === id)?.label || id }
-function distributionRoundingLabel(value: PerformanceDistributionRounding) { return { ROUND: '四舍五入', CEIL: '向上取整', FLOOR: '向下取整' }[value] }
+function distributionAssessmentOption(id: string) { return props.distributionAssessmentOptions.find(option => option.id === id) }
+function distributionAssessmentLabel(id: string) { return distributionAssessmentOption(id)?.label || id }
+function distributionGradeCode(assessmentId: string, value: string) {
+  const grade = distributionAssessmentOption(assessmentId)?.grade_options.find(option => option.value === value || option.legacy_value === value)
+  return grade?.value || value
+}
+function distributionControlLabel(value: string) { return value === 'HARD' ? '强制' : '建议' }
+function distributionOperatorLabel(value: string) { return { EQ: '等于', LT: '小于', LTE: '小于等于', GT: '大于', GTE: '大于等于' }[value] || value }
+function distributionUnitLabel(value: string) { return value === 'PERCENT' ? '%' : '人' }
+function distributionRoundingLabel(value: PerformanceDistributionRounding) { return { ROUND: '四舍五入', CEIL: '向上取整', FLOOR: '向下取整', NONE: '不强制取整' }[value] }
 function resultViewSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_view! }
 function reconsiderationSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_reconsideration! }
 function descriptionFor(node: PerformanceWorkflowNode) { return node.description || descriptions[node.node_type] || '' }
@@ -391,7 +414,7 @@ watch(draft, value => { ensureCalibrationPhaseIds(value.node_settings); syncCali
 </script>
 
 <style scoped>
-.distribution-settings{display:flex;flex-direction:column;gap:var(--spacing-3);margin-top:var(--spacing-3)}.distribution-settings :deep(.performance-radio-group){gap:var(--spacing-6)!important}.distribution-rule-summary{display:flex;flex-direction:column;align-items:flex-start;gap:var(--spacing-2)}.distribution-rule-summary>strong{font-size:var(--font-size-md);line-height:22px}.distribution-rule-summary__row{display:flex;width:100%;align-items:center;justify-content:space-between;gap:var(--spacing-4);min-height:48px;padding:var(--spacing-3);box-sizing:border-box;border-radius:var(--radius-lg);background:var(--performance-evaluation-rule-surface)}.distribution-rule-summary__row>div{display:flex;min-width:0;flex-direction:column}.distribution-rule-summary__row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.distribution-rule-summary__row span{color:var(--color-text-secondary);font-size:var(--font-size-sm);line-height:20px}.distribution-rule-summary__actions{display:flex;flex:0 0 auto;gap:var(--spacing-2)}.distribution-add-rule{margin-top:0}.distribution-scope-placeholder{padding:var(--spacing-3);border:1px dashed var(--color-line-control);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-distribution-heading{display:flex;align-items:center;gap:var(--spacing-2)}.calibration-distribution-heading strong{font-size:var(--font-size-md);line-height:22px}.calibration-distribution-help{margin:var(--spacing-1) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-heading h3{display:flex;align-items:center;gap:var(--spacing-1)}
+.distribution-settings{display:flex;flex-direction:column;gap:var(--spacing-3);margin-top:var(--spacing-3)}.distribution-settings :deep(.performance-radio-group){gap:var(--spacing-6)!important}.distribution-rule-summary{display:flex;flex-direction:column;align-items:flex-start;gap:var(--spacing-2)}.distribution-rule-summary>strong{font-size:var(--font-size-md);line-height:22px}.distribution-rule-summary__row{display:flex;width:100%;flex-direction:column;gap:var(--spacing-1);margin:var(--spacing-1) 0 var(--spacing-2);padding:var(--spacing-4) var(--spacing-5);box-sizing:border-box;border-radius:var(--radius-sm);background:var(--performance-review-readonly-surface);color:var(--color-text-primary);font-size:var(--font-size-md);line-height:22px}.distribution-rule-card__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--spacing-1)}.distribution-rule-card__actions{display:flex;align-items:center;gap:var(--spacing-3)}.distribution-rule-card__actions :deep(.performance-icon-button){--performance-icon-button-size:20px;padding:2px}.distribution-rule-card__meta{display:flex;align-items:center;gap:var(--spacing-5);margin-bottom:var(--spacing-2)}.distribution-rule-card__label{color:var(--color-text-secondary)}.distribution-rule-card__conditions{display:flex;flex-direction:column}.distribution-rule-card__condition{display:flex;align-items:center;gap:var(--spacing-2)}.distribution-rule-card__rounding{display:flex;flex-direction:column;gap:var(--spacing-1);margin-top:var(--spacing-3)}.distribution-add-rule{margin-top:0}.distribution-scope-placeholder{padding:var(--spacing-3);border:1px dashed var(--color-line-control);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-distribution-heading{display:flex;align-items:center;gap:var(--spacing-2)}.calibration-distribution-heading strong{font-size:var(--font-size-md);line-height:22px}.calibration-distribution-help{margin:var(--spacing-1) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-heading h3{display:flex;align-items:center;gap:var(--spacing-1)}
 .result-view-choices--error :deep(.ud__checkbox__wallpaper){border-color:var(--performance-field-error-color)}
 .result-view-choices .performance-radio-group{display:flex;margin:8px 0 12px 24px;max-width:100%}
 .result-view-choices :deep(.performance-radio-option){height:auto;min-height:22px;white-space:normal}
