@@ -1,13 +1,107 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PerformanceAudienceRuleEditor, { type PerformanceAudienceGroup } from './PerformanceAudienceRuleEditor.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import PerformanceEmploymentStatusSelect from './PerformanceEmploymentStatusSelect.vue'
+import PerformanceJobFamilySelect from './PerformanceJobFamilySelect.vue'
+import PerformanceJobCategorySelect from './PerformanceJobCategorySelect.vue'
+import PerformancePositionLevelSelect from './PerformancePositionLevelSelect.vue'
+import PerformanceStandardPositionSelect from './PerformanceStandardPositionSelect.vue'
+import PerformanceDepartureDateSelect from './PerformanceDepartureDateSelect.vue'
+import { performanceProjectApi } from '@/api/performance'
 
 const organizationTree = [{ value: '集团', label: '集团', level: 1, children: [{ value: '集团/研发', label: '研发', level: 2, children: [] }] }]
 const emptyGroups = [{ conditions: [{ field: '' as const, operator: 'include' as const, values: [] }] }]
 
-afterEach(() => { document.body.innerHTML = '' })
+afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
+
+const snapshotOptions = { organization_tree: [], people: [], employee_types: [] }
+
+describe('independent snapshot selectors', () => {
+  it.each([
+    [PerformanceEmploymentStatusSelect, 'employment_statuses', '在职状态'],
+    [PerformanceJobFamilySelect, 'job_families', '职位族'],
+    [PerformanceJobCategorySelect, 'job_categories', '职位类'],
+    [PerformancePositionLevelSelect, 'position_levels', '职级'],
+    [PerformanceStandardPositionSelect, 'standard_positions', '标准职位'],
+  ] as const)('loads the correct snapshot source for %s without caller field configuration', async (component, key, label) => {
+    const request = vi.spyOn(performanceProjectApi, 'listEvaluatorOptions').mockResolvedValue({ ...snapshotOptions, [key]: [{ value: '快照值', label: '快照值' }] })
+    const wrapper = mount(component, { props: { modelValue: ['原值'], cycleId: 7 } })
+    const select = wrapper.getComponent(PerformanceSearchSelect)
+    expect(request).not.toHaveBeenCalled()
+    expect(select.props('multiple')).toBe(true)
+    expect(select.props('ariaLabel')).toBe(label)
+    select.vm.$emit('open')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith(7)
+    expect(select.props('options')).toEqual([{ value: '快照值', label: '快照值' }])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    select.vm.$emit('update:modelValue', ['原值', '快照值'])
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['原值', '快照值']]])
+    select.vm.$emit('open')
+    await flushPromises()
+    expect(request).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('retries errors and discards a response from the previous cycle', async () => {
+    const request = vi.spyOn(performanceProjectApi, 'listEvaluatorOptions').mockRejectedValueOnce({ response: { data: { detail: '无快照' } } })
+    const wrapper = mount(PerformanceJobFamilySelect, { props: { modelValue: ['保留'], cycleId: 1 } })
+    const select = wrapper.getComponent(PerformanceSearchSelect)
+    select.vm.$emit('open')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('无快照')
+    let finishOld!: (value: any) => void
+    request.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+    await wrapper.get('button[aria-label="重试"]').trigger('click')
+    await wrapper.setProps({ cycleId: 2 })
+    request.mockResolvedValueOnce({ ...snapshotOptions, job_families: [{ value: '新周期', label: '新周期' }] })
+    select.vm.$emit('open')
+    await flushPromises()
+    finishOld({ ...snapshotOptions, job_families: [{ value: '旧周期', label: '旧周期' }] })
+    await flushPromises()
+    expect(select.props('options')).toEqual([{ value: '新周期', label: '新周期' }])
+    expect(select.props('modelValue')).toEqual(['保留'])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('uses supplied options without requesting and supports single selection and disabled state', async () => {
+    const request = vi.spyOn(performanceProjectApi, 'listEvaluatorOptions')
+    const wrapper = mount(PerformanceJobCategorySelect, { props: { modelValue: '研发', cycleId: 1, options: [], multiple: false, disabled: true } })
+    const select = wrapper.getComponent(PerformanceSearchSelect)
+    expect(select.props('multiple')).toBe(false)
+    expect(select.props('disabled')).toBe(true)
+    select.vm.$emit('open')
+    expect(wrapper.emitted('open')).toBeUndefined()
+    await wrapper.setProps({ disabled: false, options: [{ value: '研发', label: '研发' }] })
+    select.vm.$emit('open')
+    await flushPromises()
+    expect(request).not.toHaveBeenCalled()
+    expect(select.props('options')).toEqual([{ value: '研发', label: '研发' }])
+    select.vm.$emit('update:modelValue', '研发')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['研发']])
+    wrapper.unmount()
+  })
+
+  it('loads departure date metadata without overwriting a selected date', async () => {
+    const request = vi.spyOn(performanceProjectApi, 'listEvaluatorOptions').mockResolvedValue({ ...snapshotOptions, departure_date_range: { min: '2020-01-01', max: '2026-10-28' } })
+    const wrapper = mount(PerformanceDepartureDateSelect, { props: { modelValue: '2026-10-01', cycleId: 7 } })
+    const date = wrapper.getComponent(PerformanceDateTimeField)
+    expect(date.props('dateOnly')).toBe(true)
+    expect(request).not.toHaveBeenCalled()
+    date.vm.$emit('open')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith(7)
+    expect(date.props('initialDate')).toBe('2020-01-01')
+    expect(date.props('modelValue')).toBe('2026-10-01')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    date.vm.$emit('update:modelValue', '2026-02-30')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['2026-02-30']])
+    wrapper.unmount()
+  })
+})
 
 describe('PerformanceAudienceRuleEditor', () => {
   it.each([

@@ -39,7 +39,9 @@
                       <PerformanceSearchSelect :model-value="modelValue[groupIndex].conditions[conditionIndex].operator" :options="isDateConditionField(modelValue[groupIndex].conditions[conditionIndex].field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !modelValue[groupIndex].conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
                       <PerformanceOrganizationSelect v-if="modelValue[groupIndex].conditions[conditionIndex].field === 'department'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
                       <PerformancePersonSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'employee'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                      <PerformanceDateTimeField v-else-if="isDateConditionField(modelValue[groupIndex].conditions[conditionIndex].field)" :model-value="modelValue[groupIndex].conditions[conditionIndex].values.length === 1 ? modelValue[groupIndex].conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(modelValue[groupIndex].conditions[conditionIndex].field)" :aria-label="fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                      <PerformanceDepartureDateSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'departure_date'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values.length === 1 ? modelValue[groupIndex].conditions[conditionIndex].values[0] : ''" :date-range="snapshotOptions?.departure_date_range ?? { min: null, max: null }" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                      <PerformanceDateTimeField v-else-if="modelValue[groupIndex].conditions[conditionIndex].field === 'hire_date'" :model-value="modelValue[groupIndex].conditions[conditionIndex].values.length === 1 ? modelValue[groupIndex].conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(modelValue[groupIndex].conditions[conditionIndex].field)" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                      <component :is="snapshotFieldComponents[modelValue[groupIndex].conditions[conditionIndex].field]" v-else-if="snapshotFieldComponents[modelValue[groupIndex].conditions[conditionIndex].field]" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="valueOptions(modelValue[groupIndex].conditions[conditionIndex].field)" :aria-label="`${fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else-if="modelValue[groupIndex].conditions[conditionIndex].field" :model-value="modelValue[groupIndex].conditions[conditionIndex].values" :options="valueOptions(modelValue[groupIndex].conditions[conditionIndex].field)" multiple :aria-label="`${fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)}范围`" :placeholder="`请选择${fieldLabel(modelValue[groupIndex].conditions[conditionIndex].field)}`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
                       <PerformanceIconButton v-if="modelValue[groupIndex].conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled" @click="removeCondition(groupIndex, conditionIndex)" />
@@ -74,10 +76,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import type { PerformanceAudienceCondition, PerformanceAudienceField, PerformanceAudienceGroup, PerformanceAudienceOperator, PerformanceEvaluatorOptions, PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceConditionLogicGroup from './PerformanceConditionLogicGroup.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import PerformanceDepartureDateSelect from './PerformanceDepartureDateSelect.vue'
+import PerformanceEmploymentStatusSelect from './PerformanceEmploymentStatusSelect.vue'
+import PerformanceJobFamilySelect from './PerformanceJobFamilySelect.vue'
+import PerformanceJobCategorySelect from './PerformanceJobCategorySelect.vue'
+import PerformancePositionLevelSelect from './PerformancePositionLevelSelect.vue'
+import PerformanceStandardPositionSelect from './PerformanceStandardPositionSelect.vue'
 import { HIRE_DATE_OPERATOR_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions, isDateConditionField, type PerformanceConditionField } from './performanceConditionFields'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
@@ -115,6 +123,13 @@ const operatorOptions: PerformanceSearchSelectOption[] = [
   { value: 'include', label: '包含' },
   { value: 'exclude', label: '不包含' },
 ]
+const snapshotFieldComponents: Partial<Record<PerformanceAudienceField, Component>> = {
+  employment_status: PerformanceEmploymentStatusSelect,
+  job_family: PerformanceJobFamilySelect,
+  job_category: PerformanceJobCategorySelect,
+  position_level: PerformancePositionLevelSelect,
+  standard_position: PerformanceStandardPositionSelect,
+}
 const fieldOptions = computed(() => props.allowedFields.map(value => ({ value, label: value ? PERFORMANCE_CONDITION_FIELDS[value].label : '请选择范围' })))
 const allowMultipleConditions = computed(() => !props.scopeMode)
 

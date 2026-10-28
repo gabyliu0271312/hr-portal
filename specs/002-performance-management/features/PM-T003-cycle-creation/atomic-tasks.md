@@ -300,6 +300,19 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
   - 迁移证据/阻塞：新增0278_performance_live_employment_status.py，revision=0278_performance_live_status、down_revision=0277_performance_standard_position；仅新增live列并复制既有快照状态初始化，不查实时花名册。`python -m alembic heads` 为唯一0278_performance_live_status，SQL编译测试通过；实际启用隔离PostgreSQL升降级测试时连接TimeoutError，未执行到迁移。主线程确认本机Docker daemon未启动、127.0.0.1:5432不可连接；真实升级/降级与数据库持久化验收仍blocked，因此保持[ ]。
   - 实时状态展示补齐：预览人员响应与前端DTO区分快照employment_status/live_employment_status；被评估人预览名单新增“当前在职状态”列，读取live值、缺失时回退快照，不修改规则或人数。三组快照/实时状态差异测试通过，最新前端4文件44项通过；最终 `npm --prefix hr-portal/frontend run build`（vue-tsc + Vite）通过，Vite built in 42.57s、exit 0，仅既有 @vueuse PURE 注释警告。本轮不新增实时同步调度或扩展其他前台接口。
 
+### PM-T003-I07-F04 六项独立筛选入口（2026-10-28）
+
+- [x] PM-T003-I07-F04 独立封装在职状态、离职日期、职位族、职位类、职级、标准职位
+  - 用户明确要求六项可像部门组件一样独立调用。沿用F02快照字段/接口，不改后端、迁移、权限和历史数据。
+  - 允许范围：六个 Performance*Select.vue 业务组件、内部共享快照选项加载/选择组件，现有AudienceRuleEditor及其测试，项目页必要接线，本交互/任务文档。保护其他未提交内容；本轮不自动提交/推送/部署。
+  - 契约：v-model、cycle-id、disabled；文本支持multiple（默认多选）及可选options，日期为YYYY-MM-DD字符串及可选date-range。有外部选项时由open事件交父级加载；否则打开时按cycle-id调用既有evaluator-options。组件内处理加载、失败重试、切换周期清缓存和过期响应丢弃；禁止实时花名册回退。
+  - 复用：底层搜索多选/纯日期与token不变，编辑器改用独立具名组件；不扩展限定范围或校准字段。局部封装不改变信息架构，无需新完整蓝图。
+  - 验收：现有测试中覆盖六组件独立加载、正确字段、失败重试、周期切换、禁用/外部选项模式、日期初始化不覆盖选值；筛选/项目页回归、构建和独立UI证据。全部证据完成后勾选。
+  - 交付：新增六个具名业务组件、PerformanceSnapshotFieldSelect.vue 与 usePerformanceSnapshotOptions.ts 共享内部能力；AudienceRuleEditor 改用具名组件，外部选项模式保持父级统一懒加载，不增加后端接口。调用示例与props见ui-interaction.md对应F04小节。
+  - 验证：`npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceAudienceRuleEditor.spec.ts src/components/performance/performanceConditionFields.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts` → 3文件44项通过（独立入口8项，编辑器14项，目录4项，项目页18项）。`npm --prefix hr-portal/frontend run build` 的vue-tsc + Vite通过，built in 43.28s、exit0，仅既有@vueuse注释警告。
+  - 实际Chrome：六组件仅传v-model与cycle-id、无预加载，5类文本与离职日期分别正确请求快照选项并选中；失败422后重试成功，含重试共7次请求，0 pageerror。最终独立截图 `../../ui-blueprints/PM-T003-I07-F04-independent-snapshot-selectors.png` 已查看。浏览器使用隔离API夹具，无数据库或生产写入；本轮无后端/迁移变更，因此不重复F02数据库验收，父任务状态不变。
+  - UI合规：沿用Spec012 N000/N00/N11通用规则与全局token，未新增菜单/权限/UCP能力。
+
 ### PM-T003-I11-F01 勾选值与角色标签一致性修正
 
 - 用户明确：谁可管理人员绩效数据须与编辑弹窗勾选项一致，沿用原采集标签样式。此前误将 `administrators` 名单当成角色；修正为 API `data_managers`，PROJECT_ADMIN 显示项目管理员、HRBP 原样显示。

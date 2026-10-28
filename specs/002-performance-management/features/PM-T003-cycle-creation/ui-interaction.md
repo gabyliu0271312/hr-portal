@@ -167,6 +167,15 @@
 - API：POST `/performance/cycles/{cycle_id}/evaluator-preview` 返回总人数、任务人数、仅报表人数和各组人数；POST `/performance/cycles/{cycle_id}/evaluator-preview/people` 按 `matched|task|report_only`、可选 `group_index`、keyword 和分页返回人员。沿用周期/项目查看权限，无权 403，非法规则 422。
 - UI 使用已有 design token，不复制采集 CSS；属于现有复杂表单的局部增强，无新路由或完整页面蓝图。独立 PNG 计划为 `../../ui-blueprints/PM-T003-I07-F03-implemented-evaluator-preview.png`。
 
+## PM-T003-I07-F04 六项独立业务筛选组件（2026-10-28）
+
+- 用户要求每项具有独立具名入口：`PerformanceEmploymentStatusSelect`、`PerformanceDepartureDateSelect`、`PerformanceJobFamilySelect`、`PerformanceJobCategorySelect`、`PerformancePositionLevelSelect`、`PerformanceStandardPositionSelect`，均位于 `frontend/src/components/performance/`。
+- 独立调用只需导入组件，传 `v-model` 与 `:cycle-id="cycleId"`。五类文本默认多选，值为 `string[]`；`:multiple="false"` 可单选，值为 `string|null`。离职日期值为 `YYYY-MM-DD` 字符串或空字符串，仅日期选择，比较操作符由原条件规则维护。
+- 打开时按周期调用既有 `performanceProjectApi.listEvaluatorOptions`，内部确定字段来源；不需调用方填写field或拼API。加载中有反馈；失败保留选值并提供重试；无周期明确提示；禁用时不发请求。切换周期清除候选缓存并丢弃过期请求结果，保留受控v-model由父级决定。
+- 可传 `options`（文本）或 `date-range`（日期）切换为外部选项模式，包含显式空数组/空日期范围；此时仅透传 `open` 事件、不再自行请求。被评估人编辑器采用此模式，保留父级统一懒加载与错误重试，不重复请求。
+- 底层仍复用现有搜索选择器、纯日期组件与token；候选数据仅来自周期快照，日期范围只用于日历初始化，不自动选择或限制日期。未更改后端、迁移、权限、保存规则或历史快照。
+- 属于现有筛选项封装调整，不改变信息架构。独立实现截图：`../../ui-blueprints/PM-T003-I07-F04-independent-snapshot-selectors.png`。
+
 ## 9. 明确不包含
 
 - 项目新建/编辑表单、项目成员和项目管理员配置、项目启动/复制/删除业务、项目权重和项目评价。
