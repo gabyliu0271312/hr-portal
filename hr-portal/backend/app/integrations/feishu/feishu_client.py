@@ -74,6 +74,9 @@ class FeishuClient:
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """通用 POST，携带 token。"""
+        from app.identity_switch.service import current_switch
+        if current_switch.get() is not None:
+            raise FeishuClientError("身份切换期间禁止直接投递，请使用受控消息测试入口")
         token = await self._ensure_token()
         headers = {
             "Authorization": f"Bearer {token}",

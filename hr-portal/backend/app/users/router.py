@@ -276,7 +276,11 @@ async def deactivate_user(
     if user_id == me.id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="不能禁用自己的账号")
     user = await _get_user_or_404(db, user_id)
+    from app.identity_switch.service import get_setting, revoke_unqualified_sessions
+    await get_setting(db, lock=True)
     user.is_active = False
+    await db.flush()
+    await revoke_unqualified_sessions(db, [user.id])
     await db.commit()
 
 
@@ -329,6 +333,9 @@ async def set_user_roles(
     for rid in new_ids:
         db.add(UserRole(user_id=user_id, role_id=rid))
 
+    await db.flush()
+    from app.identity_switch.service import revoke_unqualified_sessions
+    await revoke_unqualified_sessions(db, [user.id])
     await db.commit()
     await db.refresh(user)
     return await _detail(user, db)

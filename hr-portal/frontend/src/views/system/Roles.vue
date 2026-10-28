@@ -107,6 +107,7 @@
                 <el-checkbox
                   v-if="row.is_leaf"
                   v-model="row.enabled"
+                  :disabled="row.code === 'performance.identity_switch' && !switchEnabled"
                   @change="() => toggleEnabled(row)"
                 />
               </template>
@@ -114,7 +115,7 @@
             <el-table-column label="数据范围" width="180">
               <template #default="{ row }">
                 <el-select
-                  v-if="row.is_leaf"
+                  v-if="row.is_leaf && row.code !== 'performance.identity_switch'"
                   v-model="row.scope_dimension"
                   :disabled="!row.enabled"
                   size="small"
@@ -123,31 +124,32 @@
                   <el-option label="成本中心" value="cost_center" />
                   <el-option label="组织架构" value="org" />
                 </el-select>
+                <span v-if="row.code === 'performance.identity_switch'">不适用</span>
               </template>
             </el-table-column>
             <el-table-column label="增" width="60" align="center">
               <template #default="{ row }">
-                <el-checkbox v-if="row.is_leaf" v-model="row.can_create" :disabled="!row.enabled" />
+                <el-checkbox v-if="row.is_leaf && row.code !== 'performance.identity_switch'" v-model="row.can_create" :disabled="!row.enabled" />
               </template>
             </el-table-column>
             <el-table-column label="改" width="60" align="center">
               <template #default="{ row }">
-                <el-checkbox v-if="row.is_leaf" v-model="row.can_update" :disabled="!row.enabled" />
+                <el-checkbox v-if="row.is_leaf && row.code !== 'performance.identity_switch'" v-model="row.can_update" :disabled="!row.enabled" />
               </template>
             </el-table-column>
             <el-table-column label="删" width="60" align="center">
               <template #default="{ row }">
-                <el-checkbox v-if="row.is_leaf" v-model="row.can_delete" :disabled="!row.enabled" />
+                <el-checkbox v-if="row.is_leaf && row.code !== 'performance.identity_switch'" v-model="row.can_delete" :disabled="!row.enabled" />
               </template>
             </el-table-column>
             <el-table-column label="导出" width="60" align="center">
               <template #default="{ row }">
-                <el-checkbox v-if="row.is_leaf" v-model="row.can_export" :disabled="!row.enabled" />
+                <el-checkbox v-if="row.is_leaf && row.code !== 'performance.identity_switch'" v-model="row.can_export" :disabled="!row.enabled" />
               </template>
             </el-table-column>
             <el-table-column label="批量" width="140">
               <template #default="{ row }">
-                <template v-if="row.is_leaf">
+                <template v-if="row.is_leaf && row.code !== 'performance.identity_switch'">
                   <el-button link size="small" :disabled="!row.enabled" @click="onSelectAllOps(row, true)">
                     全开
                   </el-button>
@@ -205,6 +207,9 @@ import { computed, onMounted, ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, InfoFilled } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
+import { identitySwitchApi } from '@/api/identitySwitch'
+const switchGeneration = ref(0)
+const switchEnabled = ref(false)
 import AiCapabilityGrantEditor from '@/components/system/AiCapabilityGrantEditor.vue'
 import {
   rolesApi,
@@ -275,6 +280,9 @@ async function loadList() {
 }
 
 async function loadMenus() {
+  const capability = await identitySwitchApi.capability()
+  switchGeneration.value = capability.generation
+  switchEnabled.value = capability.others_enabled
   if (allMenus.value.length) return
   allMenus.value = await menusApi.list()
 }
@@ -319,7 +327,7 @@ function buildMatrix(detail: RoleDetail | null): MatrixRow[] {
       parent_id: m.parent_id,
       depth: depthOf(m),
       is_leaf: !hasChildren.has(m.id),
-      enabled: !!cur,
+      enabled: m.code === 'performance.identity_switch' ? !!cur?.can_view : !!cur,
       scope_dimension: (cur?.scope_dimension as any) ?? 'none',
       can_create: !!cur?.can_create,
       can_update: !!cur?.can_update,
@@ -348,6 +356,7 @@ async function openEdit(id: number) {
   await loadCategories()
   try {
     const detail = await rolesApi.get(id)
+    switchGeneration.value = detail.identity_switch_generation ?? switchGeneration.value
     const visibleCats = await fieldCategoriesApi.getRoleVisible(id).catch(() => [])
     selectedCategoryIds.value = [...visibleCats]
     editingId.value = id
@@ -399,7 +408,7 @@ async function onSave() {
         name: form.name,
         description: form.description || undefined,
         menus,
-        ai_capability_ids: form.ai_capability_ids,
+        identity_switch_generation: switchGeneration.value,        ai_capability_ids: form.ai_capability_ids,
       })
       // 新建后保存可见分类
       if (selectedCategoryIds.value.length > 0) {
@@ -414,7 +423,7 @@ async function onSave() {
         description: form.description || undefined,
         is_active: form.is_active,
         menus,
-        ai_capability_ids: form.ai_capability_ids,
+        identity_switch_generation: switchGeneration.value,        ai_capability_ids: form.ai_capability_ids,
       })
       await fieldCategoriesApi
         .setRoleVisible(editingId.value, selectedCategoryIds.value)

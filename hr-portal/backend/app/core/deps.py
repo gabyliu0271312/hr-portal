@@ -67,6 +67,9 @@ async def current_user(
 
 
 async def user_has_op(user: User, db: AsyncSession, menu_code: str, op: str) -> bool:
+    if menu_code == "system.identity_management":
+        from app.identity_switch.service import is_admin
+        return await is_admin(db, user.id)
     op = op.upper()
     if op not in _OP_FLAGS:
         raise ValueError(f"unknown op: {op}")
@@ -202,6 +205,8 @@ async def get_user_menus(user: User, db: AsyncSession) -> list[dict]:
     # 同一菜单可能被多个角色覆盖：操作权限取并集
     merged: dict[str, dict] = {}
     for r in rows:
+        if r.code == "system.identity_management":
+            continue
         key = r.code
         if key not in merged:
             merged[key] = {
@@ -244,4 +249,15 @@ async def get_user_menus(user: User, db: AsyncSession) -> list[dict]:
                     "scope_dimension": "none",
                 }
             parent_id = parent.parent_id
+    from app.identity_switch.service import is_admin
+    if await is_admin(db, user.id):
+        node = next((m for m in all_menus.values() if m.code == "system.identity_management"), None)
+        while node is not None:
+            if node.code not in merged:
+                own = node.code == "system.identity_management"
+                merged[node.code] = {"id": node.id, "code": node.code, "label": node.label,
+                    "parent_id": node.parent_id, "order": node.display_order, "icon": node.icon,
+                    "can_create": False, "can_update": own, "can_delete": False,
+                    "can_export": False, "scope_dimension": "none"}
+            node = all_menus.get(node.parent_id)
     return sorted(merged.values(), key=lambda item: (item["order"], item["id"]))

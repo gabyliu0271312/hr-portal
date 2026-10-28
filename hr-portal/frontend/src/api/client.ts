@@ -1,4 +1,7 @@
-import axios, { type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios'
+import axios, { CanceledError, type AxiosInstance, type InternalAxiosRequestConfig, AxiosError } from 'axios'
+import { employeeSwitchSession, employeeSwitchEpoch, employeeSwitchRequests, clearEmployeeSwitch } from '@/stores/identitySwitch'
+
+type SwitchRequestConfig = InternalAxiosRequestConfig & { switchEpoch?: number; switchAbort?: AbortController }
 import { ElMessage } from 'element-plus'
 
 const TOKEN_KEY = 'hr_portal.token'
@@ -7,6 +10,7 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
 }
 export function setToken(t: string | null) {
+  if (!t) clearEmployeeSwitch()
   if (t) localStorage.setItem(TOKEN_KEY, t)
   else localStorage.removeItem(TOKEN_KEY)
 }
@@ -21,6 +25,18 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (token) {
     config.headers = config.headers || {}
     config.headers.Authorization = `Bearer ${token}`
+  }
+  const session = employeeSwitchSession.value
+  if (session && config.url?.startsWith('/performance/') && !config.url.startsWith('/performance/identity-switch/')) {
+    config.headers.set('X-App-Switch-Session', session.session_token)
+    if (!config.headers.has('X-App-Switch-Request')) config.headers.set('X-App-Switch-Request', `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    const tracked = config as SwitchRequestConfig
+    tracked.switchEpoch = employeeSwitchEpoch.value
+    if (!config.signal) {
+      tracked.switchAbort = new AbortController()
+      config.signal = tracked.switchAbort.signal
+      employeeSwitchRequests.add(tracked.switchAbort)
+    }
   }
   return config
 })
@@ -44,13 +60,23 @@ function formatDetail(data: any, fallback: string): string {
       })
       .join('；')
   }
-  if (typeof d === 'object') return JSON.stringify(d)
+  if (typeof d === 'object') return d.message || JSON.stringify(d)
   return fallback
 }
 
 api.interceptors.response.use(
-  (resp) => resp,
+  (resp) => {
+    const config = resp.config as SwitchRequestConfig
+    if (config.switchAbort) employeeSwitchRequests.delete(config.switchAbort)
+    if (config.switchEpoch !== undefined && config.switchEpoch !== employeeSwitchEpoch.value) throw new CanceledError('旧身份响应已丢弃')
+    return resp
+  },
   (error: AxiosError<any>) => {
+    const config = error.config as SwitchRequestConfig | undefined
+    if (config?.switchAbort) employeeSwitchRequests.delete(config.switchAbort)
+    if (axios.isCancel(error) || (config?.switchEpoch !== undefined && config.switchEpoch !== employeeSwitchEpoch.value)) return Promise.reject(new CanceledError('身份已变化'))
+    const rawDetail = (error.response?.data as any)?.detail
+    if (config?.switchEpoch !== undefined && rawDetail?.code?.startsWith('SWITCH_')) clearEmployeeSwitch(rawDetail.message || '身份切换已失效，请恢复本人')
     const status = error.response?.status
     const detail = formatDetail(error.response?.data, error.message || '网络异常')
 

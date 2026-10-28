@@ -123,9 +123,13 @@ async def login(payload: LoginIn, db: AsyncSession = Depends(get_session)) -> Lo
 
 
 @router.post("/logout")
-async def logout(_: User = Depends(current_user)) -> dict:
+async def logout(user: User = Depends(current_user), db: AsyncSession = Depends(get_session)) -> dict:
     """目前不维护 token revocation list，前端清掉本地 token 即可。
     后期需要踢人时再补 Redis 黑名单。"""
+    from sqlalchemy import update
+    from app.identity_switch.models import IdentitySwitchSession
+    await db.execute(update(IdentitySwitchSession).where(IdentitySwitchSession.operator_user_id == user.id, IdentitySwitchSession.revoked_at.is_(None)).values(revoked_at=datetime.now(UTC)))
+    await db.commit()
     return {"ok": True}
 
 

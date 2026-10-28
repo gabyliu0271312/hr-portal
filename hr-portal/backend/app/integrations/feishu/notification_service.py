@@ -109,6 +109,10 @@ async def send_notification(
     不应因单个接收人失败而中断其他接收人的发送。
     所有结果写入 feishu_notification_logs。
     """
+    from app.identity_switch.service import current_switch
+    if current_switch.get() is not None:
+        from app.identity_switch.notifications import intercept_notification
+        return await intercept_notification(config, context, db, biz_type, biz_id)
     if not config.enabled:
         log = FeishuNotificationLog(
             biz_type=biz_type, biz_id=biz_id, is_test=is_test,

@@ -1184,6 +1184,14 @@ class PerformanceProjectService:
             before_state=before,
             after_state={**self.serialize(project), "member_snapshot_id": member_snapshot.id},
         ))
+        from app.identity_switch.service import current_switch
+        if current_switch.get() is not None:
+            from app.identity_switch.notifications import record_notification
+            await record_notification(self.db, [{
+                "key": f"project-start:{project.id}:{person.employee_no}",
+                "title": "绩效项目已启动", "content": f"{person.display_name}，你参与的绩效项目“{project.name}”已启动，请查看本人任务。",
+                "receiver_count": 1, "errors": [], "missing_variables": [],
+            } for person in selected], [f"employee:{person.employee_no}" for person in selected])
         await self.db.commit()
         await self.db.refresh(project)
         return project

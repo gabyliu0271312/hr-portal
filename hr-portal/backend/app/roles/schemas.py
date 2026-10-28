@@ -37,6 +37,7 @@ class RoleDetail(BaseModel):
     is_active: bool
     user_count: int
     menus: list[RoleMenuItem]
+    identity_switch_generation: int | None = None
     ai_capability_ids: list[str] = []
 
 
@@ -44,6 +45,7 @@ class RoleCreateIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
     description: str | None = None
     menus: list[RoleMenuItem] = []
+    identity_switch_generation: int | None = None
     ai_capability_ids: list[str] = []
 
 
@@ -51,5 +53,6 @@ class RoleUpdateIn(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=64)
     description: str | None = None
     is_active: bool | None = None
+    identity_switch_generation: int | None = None
     ai_capability_ids: list[str] | None = None
     menus: list[RoleMenuItem] | None = None  # 提供时整体替换

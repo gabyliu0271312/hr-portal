@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from app.identity_switch.router import router as identity_switch_router
+from app.identity_switch.middleware import IdentitySwitchMiddleware
 from app.auth.router import router as auth_router
 from app.codegen.router import router as codegen_router
 from app.core.config import settings
@@ -221,6 +223,8 @@ async def root() -> dict:
 
 
 # ===== 路由挂载 =====
+app.add_middleware(IdentitySwitchMiddleware)
+app.include_router(identity_switch_router, prefix=settings.API_PREFIX)
 app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_cycles_router, prefix=settings.API_PREFIX)

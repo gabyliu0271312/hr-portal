@@ -4,6 +4,8 @@ import { useUserStore } from '@/stores/user'
 import { getToken, setUnauthorizedHandler } from '@/api/client'
 import { performanceApi } from '@/api/performance'
 import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
+import { employeeSwitchSession, clearEmployeeSwitch } from '@/stores/identitySwitch'
+import { identitySwitchApi } from '@/api/identitySwitch'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -43,6 +45,12 @@ const routes: RouteRecordRaw[] = [
         name: 'SystemRoles',
         component: () => import('@/views/system/Roles.vue'),
         meta: { label: '角色配置', menuCode: 'system.roles' },
+      },
+      {
+        path: 'system/identity-management',
+        name: 'SystemIdentityManagement',
+        component: () => import('@/views/system/IdentityManagement.vue'),
+        meta: { label: '身份管理', menuCode: 'system.identity_management' },
       },
       {
         path: 'system/scopes',
@@ -725,6 +733,11 @@ router.onError((error, to) => {
 })
 
 router.beforeEach(async (to) => {
+  if (employeeSwitchSession.value && (!to.path.startsWith('/performance/') || to.path.startsWith('/performance/settings'))) {
+    const previous = employeeSwitchSession.value
+    clearEmployeeSwitch()
+    try { await identitySwitchApi.end(previous.session_id) } catch {}
+  }
   if (to.meta.public) return true
 
   const userStore = useUserStore()

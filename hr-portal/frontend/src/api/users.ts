@@ -3,6 +3,7 @@ import { api } from './client'
 export interface UserListItem {
   id: number
   login_name: string
+  feishu_user_id?: string | null
   display_name: string
   email: string | null
   is_active: boolean

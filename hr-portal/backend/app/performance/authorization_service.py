@@ -225,16 +225,23 @@ class PerformanceAuditService:
         self.db = db
 
     def append_event(self, event: AuditEventInput) -> PerformanceAuditEvent:
+        from app.identity_switch.service import current_switch
+        call = current_switch.get()
+        metadata = {} if call is None else {"identity_switch": {
+            "operator_user_id": call.operator_user_id, "effective_employee_no": call.employee_no,
+            "session_id": call.session_id, "request_id": call.request_id,
+            "business_actor_type": event.actor_type, "business_actor_ref": event.actor_ref,
+        }}
         record = PerformanceAuditEvent(
             event_type=event.event_type,
             cycle_ref=event.cycle_ref,
             employee_no=event.employee_no,
-            actor_type=event.actor_type,
-            actor_ref=event.actor_ref,
+            actor_type="PORTAL_USER" if call else event.actor_type,
+            actor_ref=str(call.operator_user_id) if call else event.actor_ref,
             subject_type=event.subject_type,
             subject_ref=event.subject_ref,
             before_state=event.before_state or {},
-            after_state=event.after_state or {},
+            after_state={**(event.after_state or {}), **metadata},
         )
         self.db.add(record)
         return record

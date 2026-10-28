@@ -56,6 +56,8 @@ async def _detail(db: AsyncSession, role: Role) -> RoleDetail:
             )
         )
     ).scalars().all()
+    from app.identity_switch.service import get_setting
+    switch_setting = await get_setting(db)
     return RoleDetail(
         id=role.id,
         name=role.name,
@@ -64,6 +66,7 @@ async def _detail(db: AsyncSession, role: Role) -> RoleDetail:
         user_count=user_count,
         menus=menus,
         ai_capability_ids=sorted(ai_capability_ids),
+        identity_switch_generation=switch_setting.generation,
     )
 
 
@@ -85,8 +88,10 @@ async def _replace_ai_capability_grants(
 
 
 async def _replace_menus(
-    db: AsyncSession, role: Role, items: list[RoleMenuItem]
+    db: AsyncSession, role: Role, items: list[RoleMenuItem], generation: int | None = None
 ) -> None:
+    from app.identity_switch.service import validate_role_menus
+    await validate_role_menus(db, items, generation)
     # 校验
     for it in items:
         if it.scope_dimension not in VALID_SCOPE:
@@ -126,6 +131,10 @@ async def _replace_menus(
                 can_export=it.can_export,
             )
         )
+    await db.flush()
+    from app.identity_switch.service import revoke_unqualified_sessions
+    users = list((await db.execute(select(UserRole.user_id).where(UserRole.role_id == role.id))).scalars())
+    await revoke_unqualified_sessions(db, users)
 
 
 # ==================== List ====================
@@ -178,7 +187,7 @@ async def create_role(
     db.add(role)
     await db.flush()
 
-    await _replace_menus(db, role, payload.menus)
+    await _replace_menus(db, role, payload.menus, payload.identity_switch_generation)
     await _replace_ai_capability_grants(db, role, payload.ai_capability_ids)
     await db.commit()
     await db.refresh(role)
@@ -221,7 +230,7 @@ async def update_role(
         role.is_active = payload.is_active
 
     if payload.menus is not None:
-        await _replace_menus(db, role, payload.menus)
+        await _replace_menus(db, role, payload.menus, payload.identity_switch_generation)
     if payload.ai_capability_ids is not None:
         await _replace_ai_capability_grants(db, role, payload.ai_capability_ids)
 
@@ -237,7 +246,12 @@ async def deactivate_role(
     _=Depends(require_op("system.roles", "U")),
 ) -> None:
     role = await _get_or_404(db, role_id)
+    from app.identity_switch.service import get_setting, revoke_unqualified_sessions
+    await get_setting(db, lock=True)
     role.is_active = False
+    await db.flush()
+    users = list((await db.execute(select(UserRole.user_id).where(UserRole.role_id == role.id))).scalars())
+    await revoke_unqualified_sessions(db, users)
     await db.commit()
 
 

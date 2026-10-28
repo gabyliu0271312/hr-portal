@@ -39,5 +39,5 @@ async def list_menus(
             order=m.display_order,
             icon=m.icon,
         )
-        for m in rows
+        for m in rows if m.code != "system.identity_management"
     ]

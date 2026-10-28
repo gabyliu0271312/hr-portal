@@ -785,7 +785,7 @@ export const performanceWorkbenchApi = {
 }
 
 export interface PerformanceAccessContext {
-  subject_type: 'PORTAL_USER' | 'SYSTEM_ACCOUNT'
+  subject_type: 'PORTAL_USER' | 'SYSTEM_ACCOUNT' | 'EMPLOYEE'
   subject_id: number
   display_name: string
   account_type: string | null
@@ -793,6 +793,9 @@ export interface PerformanceAccessContext {
   role_grants?: PerformanceRoleGrant[]
   permission_codes: string[]
   dev_admin_debug?: boolean
+  effective_employee_no?: string | null
+  operator_user_id?: number | null
+  switch_session_id?: string | null
 }
 
 export const performanceApi = {

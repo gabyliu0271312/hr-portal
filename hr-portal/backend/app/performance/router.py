@@ -64,6 +64,9 @@ class PerformanceAccessContextOut(BaseModel):
     role_grants: list[PerformanceRoleGrantOut]
     permission_codes: list[str]
     dev_admin_debug: bool = False
+    effective_employee_no: str | None = None
+    operator_user_id: int | None = None
+    switch_session_id: str | None = None
 
 
 class PerformanceAdminAccountCreateIn(BaseModel):
@@ -159,6 +162,9 @@ async def get_context(
         ],
         permission_codes=list(context.permission_codes),
         dev_admin_debug=performance_admin_preview_enabled(context),
+        effective_employee_no=context.effective_employee_no,
+        operator_user_id=context.operator_user_id,
+        switch_session_id=context.switch_session_id,
     )
 
 

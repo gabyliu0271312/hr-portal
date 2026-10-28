@@ -43,13 +43,16 @@ class PerformanceRoleGrant:
 
 @dataclass(frozen=True)
 class PerformanceAccessContext:
-    subject_type: Literal["PORTAL_USER", "SYSTEM_ACCOUNT"]
+    subject_type: Literal["PORTAL_USER", "SYSTEM_ACCOUNT", "EMPLOYEE"]
     subject_id: int
     display_name: str
     account_type: str | None
     portal_entry_permissions: tuple[str, ...]
     role_grants: tuple[PerformanceRoleGrant, ...]
     permission_codes: tuple[str, ...]
+    effective_employee_no: str | None = None
+    operator_user_id: int | None = None
+    switch_session_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,8 @@ PERFORMANCE_PORTAL_ADMIN_PERMISSIONS = (
 
 
 def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool:
+    if getattr(context, "effective_employee_no", None):
+        return False
     if settings.APP_ENV.lower() != "dev" or not settings.PERFORMANCE_DEV_ADMIN_DEBUG:
         return False
     return (
@@ -90,6 +95,8 @@ async def resolve_trusted_performance_actor(
     require_employee_identity: bool = False,
 ) -> TrustedPerformanceActor:
     """Derive a performance actor from the authenticated server-side context only."""
+    if getattr(context, "effective_employee_no", None):
+        return TrustedPerformanceActor(actor_type="EMPLOYEE", actor_ref=context.effective_employee_no)
     if context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT:
         return TrustedPerformanceActor(
             actor_type=SUBJECT_TYPE_SYSTEM_ACCOUNT,
@@ -235,6 +242,12 @@ async def get_performance_access_context(
         if not user.is_active:
             raise _unauthorized("账号已被禁用")
 
+        secret = getattr(request, "headers", {}).get("X-App-Switch-Session")
+        if secret:
+            from app.identity_switch.context import switched_context
+            context = await switched_context(db, user, secret, request)
+            request.state.performance_access_context = context
+            return context
         portal_entry_permissions = []
         for code in ("performance.app", "performance.admin"):
             if await user_has_op(user, db, code, "V"):
@@ -264,6 +277,12 @@ async def get_performance_access_context(
     else:
         raise _unauthorized("登录态主体无效")
 
+    secret = getattr(request, "headers", {}).get("X-App-Switch-Session")
+    if secret:
+        if context.subject_type != SUBJECT_TYPE_PORTAL_USER:
+            raise _unauthorized("身份切换仅支持 Portal 操作者")
+        from app.identity_switch.context import switched_context
+        context = await switched_context(db, user, secret, request)
     request.state.performance_access_context = context
     return context
 

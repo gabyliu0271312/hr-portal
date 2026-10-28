@@ -1283,6 +1283,14 @@ async def _project_data_scope(context: PerformanceAccessContext, project: Perfor
     ))).scalars().all())
     enabled = {role.code for role in roles if function_key in (role.function_permission_keys or [])}
     if "PROJECT_ADMIN" in selected and "performance.project_admin" in enabled and _person_in_project_administrators(project, context.display_name):
+        if getattr(context, "effective_employee_no", None):
+            from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson
+            matches = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson.employee_no)
+                .join(PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id)
+                .where(PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref,
+                       PerformanceAuthorizationSnapshotPerson.display_name == context.display_name))).scalars())
+            if matches != [context.effective_employee_no]:
+                raise HTTPException(status_code=403, detail="PROJECT_ADMIN_IDENTITY_AMBIGUOUS")
         return None
     if "HRBP" in selected and "performance.hrbp" in enabled:
         actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
@@ -2114,7 +2122,7 @@ async def review_overview(
             PerformanceNodeTask.handler_ref == actor.actor_ref,
         ).exists()
         project_statement = project_statement.where(or_(
-            member_exists.where(PerformanceProjectMember.portal_user_id == context.subject_id).exists(),
+            member_exists.where((PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id)).exists(),
             task_exists,
         ))
     if project_id is not None:
@@ -2152,7 +2160,7 @@ async def review_overview(
                 PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
             ).where(
                 PerformanceProjectMemberSnapshot.project_id == project.id,
-                PerformanceProjectMember.portal_user_id == context.subject_id,
+                (PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id),
             )
         )
     ).scalars().all()
@@ -2252,7 +2260,7 @@ async def workbench_projects(
             PerformanceNodeTask.handler_ref == actor.actor_ref,
         ).exists()
         stmt = stmt.where(or_(
-            member_exists.where(PerformanceProjectMember.portal_user_id == context.subject_id).exists(),
+            member_exists.where((PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id)).exists(),
             task_exists,
         ))
     if keyword:
@@ -2279,7 +2287,7 @@ async def workbench_timeline(project_id: int, context: PerformanceAccessContext 
         PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
     ).where(
         PerformanceProjectMemberSnapshot.project_id == project_id,
-        PerformanceProjectMember.portal_user_id == context.subject_id,
+        (PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id),
     ).exists()
     task_allowed = select(PerformanceNodeTask.id).where(
         PerformanceNodeTask.project_id == project_id,
@@ -2473,6 +2481,11 @@ async def remind_project_tasks(
             subject_ref=str(task.id),
             after_state={"action": "remind", "node_id": payload.node_id, "delivery_status": "recorded"},
         ))
+        if getattr(context, "switch_session_id", None):
+            from app.identity_switch.notifications import record_notification
+            await record_notification(db, [{"key": f"remind:{task.id}", "title": "绩效任务催办",
+                "content": f"请及时完成项目“{project.name}”的绩效任务。", "receiver_count": 1,
+                "errors": [], "missing_variables": []}], [f"employee:{task.handler_ref}"])
     await db.commit()
     return {"accepted_task_ids": accepted_task_ids, "skipped_task_ids": skipped_task_ids, "delivery_status": "recorded"}
 

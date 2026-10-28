@@ -45,6 +45,7 @@ MENU_TREE: list[dict] = [
                 "children": [
                     {"code": "system.users", "label": "用户管理", "icon": "User"},
                     {"code": "system.roles", "label": "角色配置", "icon": "Avatar"},
+                    {"code": "system.identity_management", "label": "身份管理", "icon": "Switch"},
                     {"code": "system.scopes", "label": "管理单元", "icon": "Connection"},
                     {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
                     {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
@@ -175,6 +176,7 @@ MENU_TREE: list[dict] = [
                 "children": [
                     {"code": "performance.app", "label": "绩效管理入口", "icon": "DataBoard"},
                     {"code": "performance.admin", "label": "绩效后台设置", "icon": "Setting"},
+                    {"code": "performance.identity_switch", "label": "绩效用户切换", "icon": "Switch"},
                 ],
             },
         ],
@@ -312,6 +314,8 @@ async def _ensure_super_role(db: AsyncSession, menus: dict[str, Menu]) -> Role:
         .all()
     }
     for menu in menus.values():
+        if menu.code in {"system.identity_management", "performance.identity_switch"}:
+            continue
         if menu.id in existing_links:
             continue
         db.add(
@@ -366,7 +370,12 @@ async def run_seed(session_factory) -> None:
     async with session_factory() as db:
         menus = await _ensure_menus(db)
         super_role = await _ensure_super_role(db, menus)
-        await _ensure_admin_user(db, super_role)
+        admin = await _ensure_admin_user(db, super_role)
+        from app.identity_switch.models import IdentitySwitchSetting
+        switch_setting = await db.get(IdentitySwitchSetting, 1)
+        if switch_setting is not None and switch_setting.admin_operator_user_id is None:
+            switch_setting.admin_operator_user_id = admin.id
+            await db.commit()
         if seed_performance_authorization_defaults is not None:
             await seed_performance_authorization_defaults(db)
         await _ensure_datasources(db)

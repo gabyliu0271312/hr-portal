@@ -21,12 +21,15 @@
         <el-dropdown trigger="click" @command="handleUserCommand">
           <button class="user-trigger" type="button">
             <el-avatar :size="30">{{ userInitial }}</el-avatar>
-            <span class="user-name">{{ userStore.user?.display_name }}</span>
+            <span class="user-name">{{ employeeSwitchSession?.effective_identity.display_name || userStore.user?.display_name }}</span>
             <el-icon><ArrowDown /></el-icon>
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="canAdmin" command="settings">后台管理</el-dropdown-item>
+              <el-dropdown-item v-if="canAdmin && !employeeSwitchSession" command="settings">后台管理</el-dropdown-item>
+              <el-dropdown-item v-if="switchCapability?.can_switch" command="switch">切换用户</el-dropdown-item>
+              <el-dropdown-item v-if="employeeSwitchSession" command="restore">恢复本人</el-dropdown-item>
+              <el-dropdown-item command="switch-records">消息测试记录</el-dropdown-item>
               <el-dropdown-item command="logout" :divided="canAdmin">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -34,6 +37,13 @@
       </div>
     </div>
 
+    <div v-if="employeeSwitchSession" class="identity-switch-banner" role="status">
+      <span>正在以「{{ employeeSwitchSession.effective_identity.display_name }} · {{ employeeSwitchSession.effective_identity.employee_no }}」身份测试；实际操作者：{{ userStore.user?.display_name }}。业务操作真实生效，原业务接收方始终禁投。</span>
+      <el-button size="small" @click="restoreIdentity">恢复本人</el-button>
+    </div>
+    <el-alert v-if="employeeSwitchNotice" type="warning" :closable="false" :title="employeeSwitchNotice" />
+    <PerformanceIdentitySwitchDialog v-model="switchDialog" />
+    <PerformanceIdentitySwitchRecords v-model="recordsDialog" />
     <el-container class="performance-body">
       <el-aside v-if="!isWorkbench && !isReview && !isProjectManagement" width="220px" class="performance-aside">
         <div class="aside-title">{{ activeTab?.label || '绩效管理' }}</div>
@@ -49,23 +59,29 @@
       </el-aside>
 
       <el-main :class="['performance-main', { 'review-main': isReview || isProjectManagement }]">
-        <router-view />
+        <router-view :key="`${employeeSwitchEpoch}:${route.fullPath}`" />
       </el-main>
     </el-container>
-    <GlobalAiAssistant />
+    <GlobalAiAssistant v-if="!employeeSwitchSession" />
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { performanceApi, type PerformanceAccessContext } from '@/api/performance'
+import { api } from '@/api/client'
 import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
 import { openPerformanceSettingsInNewTab } from '@/utils/performanceSettingsNavigation'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 import PerformanceBrand from '@/components/performance/PerformanceBrand.vue'
+import PerformanceIdentitySwitchDialog from '@/components/performance/PerformanceIdentitySwitchDialog.vue'
+import PerformanceIdentitySwitchRecords from '@/components/performance/PerformanceIdentitySwitchRecords.vue'
+import { identitySwitchApi, type SwitchCapability } from '@/api/identitySwitch'
+import { employeeSwitchSession, employeeSwitchEpoch, employeeSwitchNotice, clearEmployeeSwitch } from '@/stores/identitySwitch'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 interface PerformanceMenuItem {
   key: string
@@ -88,7 +104,7 @@ const performanceContext = ref<PerformanceAccessContext | null>(null)
 const canAdmin = computed(() =>
   canManagePerformanceSettings(userStore.menus.map((menu) => menu.code), performanceContext.value),
 )
-const userInitial = computed(() => userStore.user?.display_name?.trim().slice(0, 1) || '我')
+const userInitial = computed(() => (employeeSwitchSession.value?.effective_identity.display_name || userStore.user?.display_name)?.trim().slice(0, 1) || '我')
 const isWorkbench = computed(() => route.path === '/performance/workbench')
 const isReview = computed(() => route.path === '/performance/review')
 const isProjectManagement = computed(() => route.path === '/performance/project-management')
@@ -136,7 +152,10 @@ function isActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
 }
 
-async function handleUserCommand(command: 'settings' | 'logout') {
+async function handleUserCommand(command: 'settings' | 'logout' | 'switch' | 'restore' | 'switch-records') {
+  if (command === 'switch') { switchDialog.value = true; return }
+  if (command === 'restore') { await restoreIdentity(); return }
+  if (command === 'switch-records') { recordsDialog.value = true; return }
   if (command === 'settings') {
     openPerformanceSettingsInNewTab()
     return
@@ -145,16 +164,49 @@ async function handleUserCommand(command: 'settings' | 'logout') {
   await router.replace({ name: 'Login' })
 }
 
-onMounted(async () => {
+const switchDialog = ref(false)
+const recordsDialog = ref(false)
+const switchCapability = ref<SwitchCapability | null>(null)
+const projectContext = usePerformanceProjectContextStore()
+let heartbeat: ReturnType<typeof setInterval> | undefined
+async function refreshIdentity() {
+  const version = employeeSwitchEpoch.value
   try {
-    performanceContext.value = await performanceApi.getAccessContext()
-  } catch {
-    performanceContext.value = null
+    const context = await performanceApi.getAccessContext()
+    if (version === employeeSwitchEpoch.value) performanceContext.value = context
+  } catch { if (version === employeeSwitchEpoch.value) performanceContext.value = null }
+  try { switchCapability.value = await identitySwitchApi.capability() }
+  catch { switchCapability.value = null }
+}
+async function restoreIdentity() {
+  const previous = employeeSwitchSession.value
+  clearEmployeeSwitch()
+  if (previous) {
+    try { await identitySwitchApi.end(previous.session_id) }
+    catch { employeeSwitchNotice.value = '本页已恢复本人；服务端会话结束未确认，请勿继续使用旧会话' }
   }
+  await router.replace('/performance/workbench')
+}
+watch(employeeSwitchEpoch, () => {
+  projectContext.resetIdentity()
+  performanceContext.value = null
+  void refreshIdentity()
 })
+onMounted(() => {
+  void refreshIdentity()
+  heartbeat = setInterval(async () => {
+    const session = employeeSwitchSession.value
+    if (!session) return
+    try { await api.get('/performance/identity-switch/session', { headers: { 'X-App-Switch-Session': session.session_token } }) }
+    catch { if (employeeSwitchSession.value === session) clearEmployeeSwitch('身份切换已失效，请恢复本人或重新申请授权') }
+  }, 15000)
+})
+onUnmounted(() => { if (heartbeat) clearInterval(heartbeat) })
+
 </script>
 
 <style scoped>
+.identity-switch-banner { display: flex; gap: 12px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 12px 16px; background: var(--color-warning-light); color: var(--color-text-primary); font-size: 13px; }
 .performance-app {
   height: 100vh;
   flex-direction: column;

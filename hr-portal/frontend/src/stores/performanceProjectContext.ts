@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
+import { employeeSwitchSession } from './identitySwitch'
 import type { PerformanceReviewOverview, PerformanceWorkbenchProject, PerformanceWorkbenchTaskGroup, PerformanceWorkbenchTimelineNode } from '@/api/performance'
 
 const STORAGE_KEY = 'performance.active-project-id'
@@ -28,6 +29,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
 
   function setActiveProjectId(projectId: number | null) {
     activeProjectId.value = projectId
+    if (employeeSwitchSession.value) return
     try {
       if (projectId) localStorage.setItem(STORAGE_KEY, String(projectId))
       else localStorage.removeItem(STORAGE_KEY)
@@ -44,7 +46,15 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   function setWorkbenchSnapshot(projectId: number, snapshot: PerformanceWorkbenchSnapshot) { workbenchSnapshots.value = { ...workbenchSnapshots.value, [projectId]: snapshot } }
   function workbenchSnapshot(projectId: number | null | undefined) { return projectId ? workbenchSnapshots.value[projectId] || null : null }
 
+  function resetIdentity() {
+    activeProjectId.value = null
+    reviewOverviews.value = {}
+    selectedReviewNodes.value = {}
+    workbenchProjects.value = null
+    workbenchSnapshots.value = {}
+  }
   return {
+    resetIdentity,
     activeProjectId,
     workbenchProjects,
     setActiveProjectId,
