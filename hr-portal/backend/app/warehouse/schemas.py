@@ -1835,6 +1835,7 @@ class DatasetReleaseIssueOut(BaseModel):
     severity: Literal["error", "warning"] = "error"
     target_kind: str | None = None
     target_id: int | None = None
+    target_code: str | None = None
     message: str
 
 

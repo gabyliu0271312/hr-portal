@@ -7,7 +7,7 @@ import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelR
 import PermissionButton from '@/components/PermissionButton.vue'
 
 const mocks = vi.hoisted(() => ({
-  get: vi.fn(), release: vi.fn(), confirm: vi.fn(), refresh: vi.fn(),
+  get: vi.fn(), release: vi.fn(), confirm: vi.fn(), refresh: vi.fn(), push: vi.fn(),
   readiness: vi.fn(), conversion: vi.fn(), authorization: vi.fn(),
   contracts: vi.fn(), standardFields: vi.fn(), preview: vi.fn(), previewV2: vi.fn(),
 }))
@@ -15,7 +15,7 @@ vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
   ElMessageBox: { confirm: mocks.confirm },
 }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: '4' } }), useRouter: () => ({ back: vi.fn(), replace: vi.fn() }) }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: '4' } }), useRouter: () => ({ back: vi.fn(), replace: vi.fn(), push: mocks.push }) }))
 const editable = ref(true)
 vi.mock('@/stores/user', () => ({ useUserStore: () => ({ menus: [{ code: 'warehouse.assets' }], hasOp: () => editable.value }) }))
 vi.mock('@/api/warehouse', () => ({
@@ -36,6 +36,7 @@ const stubs = {
   'el-input': { props: ['modelValue', 'size'], template: '<input :value="modelValue" />' },
   'el-option': true, 'el-select': true, 'el-collapse': true, 'el-collapse-item': true,
   'el-table': true, 'el-table-column': true, 'el-drawer': true, 'el-dialog': true,
+  'el-form': true, 'el-form-item': true, 'el-switch': true, 'el-checkbox': true,
   'el-tag': wrap, 'el-icon': wrap, 'el-descriptions': wrap, 'el-descriptions-item': wrap,
   PermissionButton,
 }
@@ -74,7 +75,7 @@ beforeEach(() => {
   mocks.refresh.mockResolvedValue(undefined)
   mocks.preview.mockResolvedValue({ columns: [], items: [], summary: {} })
   mocks.previewV2.mockResolvedValue({ tables: [], joins: [], summary: {} })
-  mocks.readiness.mockResolvedValue({ eligible: true, checked_output_count: 1, confirmed_output_count: 1, issues: [], isolation: null })
+  mocks.readiness.mockResolvedValue({ eligible: true, fields_eligible: true, checked_output_count: 1, confirmed_output_count: 1, issues: [], isolation: null })
   mocks.conversion.mockResolvedValue({ eligible: true, issues: [] })
   mocks.authorization.mockResolvedValue({ eligible: true, runtime_enabled: true, issues: [] })
   mocks.contracts.mockResolvedValue([])
@@ -173,10 +174,53 @@ describe('R17 model checks remain read-only until an explicit governance action'
     expect(mocks.authorization).toHaveBeenCalledTimes(1)
     expect(mocks.authorization).toHaveBeenCalledWith(4)
     expect(wrapper.text()).toContain('字段与结构')
-    expect(wrapper.text()).toContain('来源转换')
-    expect(wrapper.text()).toContain('权限与运行检查')
+    expect(wrapper.text()).toContain('来源转换证据')
+    expect(wrapper.text()).toContain('当前主体运行校验')
+    expect(wrapper.text()).toContain('事实与权限用途声明')
+    expect(wrapper.text()).toContain('变更影响分析')
+    expect(wrapper.text()).not.toContain('批准转换')
+    expect(wrapper.text()).not.toContain('授权合同状态')
     expect(mocks.release).not.toHaveBeenCalled()
     expect((wrapper.vm as any).publish).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('shows the affected output field and offers existing repair entries', async () => {
+    mocks.readiness.mockResolvedValueOnce({ eligible: false, fields_eligible: false, checked_output_count: 2, confirmed_output_count: 1,
+      issues: [{ code: 'output_binding_missing', target_kind: 'dataset_output_field', target_id: 9, target_code: 'employee_no', message: '输出字段没有标准字段确认绑定' }], isolation: null })
+    const wrapper = panel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('employee_no：输出字段没有标准字段确认绑定')
+    expect(wrapper.text()).toContain('前往输出字段')
+    expect(wrapper.text()).toContain('前往标准字段目录')
+    expect(wrapper.text()).toContain('前往数据清洗')
+    expect(wrapper.text()).toContain('返回数据建模')
+    await button(wrapper, '前往标准字段目录').trigger('click')
+    expect(mocks.push).toHaveBeenCalledWith('/warehouse/standard-fields')
+    wrapper.unmount()
+  })
+
+  it('keeps conversion evidence read-only even when the server still requires evidence approval', async () => {
+    mocks.conversion.mockResolvedValueOnce({ eligible: false, issues: [{ code: 'conversion_approval_missing', message: '最新转换证据尚未批准' }] })
+    const wrapper = panel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('最新转换证据尚未批准')
+    expect(wrapper.text()).toContain('这里只展示当前证据')
+    expect(wrapper.text()).not.toContain('批准转换')
+    expect(wrapper.findAll('input').some(input => input.attributes('placeholder')?.includes('批准原因'))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('labels an active declaration as blocked when its model snapshot drifted', async () => {
+    mocks.contracts.mockResolvedValueOnce([{ id: 7, dataset_id: 4, contract_version: 2, revision: 1, status: 'active', approved_by: 1,
+      approved_at: '2026-10-28T00:00:00Z', approval_reason: 'reviewed', created_by: 1, runtime_enabled: false, schema_version: 3,
+      facts: [{ alias: 'fact', table_name: 'dwd_fact', fact_key: 'fact_id', employee_key: 'employee_no', cost_center_key: null,
+        allow_cost_center_summary: false, role: 'person_fact' }], output_fields: [], dimensions: [], measures: [], internal_fields: [] }])
+    mocks.authorization.mockResolvedValueOnce({ eligible: false, runtime_enabled: false,
+      issues: [{ code: 'authorization_contract_drift', message: '数据集来源、关联或输出结构已偏离批准快照' }] })
+    const wrapper = panel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('已失效：模型结构已变化')
     wrapper.unmount()
   })
 
@@ -186,7 +230,7 @@ describe('R17 model checks remain read-only until an explicit governance action'
     const wrapper = panel()
     await flushPromises()
     expect(wrapper.text()).toContain('权限树健康检查未通过')
-    expect(wrapper.text()).not.toContain('当前没有发布阻断原因')
+    expect(wrapper.text()).not.toContain('当前主体运行检查通过')
     expect(wrapper.emitted('ready')?.at(-1)).toEqual([false])
     wrapper.unmount()
   })
@@ -199,8 +243,8 @@ describe('R17 model checks remain read-only until an explicit governance action'
     await button(wrapper, '重新检查').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('无权查看建模校验结果')
-    expect(wrapper.text()).toContain('尚未取得检查结果')
-    expect(wrapper.text()).not.toContain('当前没有发布阻断原因')
+    expect(wrapper.text()).toContain('尚未取得字段检查结果')
+    expect(wrapper.text()).not.toContain('当前主体运行检查通过')
     expect(wrapper.emitted('ready')?.at(-1)).toEqual([false])
     wrapper.unmount()
   })

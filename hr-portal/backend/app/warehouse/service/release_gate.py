@@ -21,6 +21,7 @@ async def check_dataset_release(db, dataset_id: int, *, verify_conversion=True) 
             code=code, message=message,
             target_kind="dataset_output_field" if output else None,
             target_id=output.id if output else None,
+            target_code=output.output_code if output else None,
         ))
 
     tables = (await db.execute(select(DataSetTable).where(

@@ -513,6 +513,7 @@ export interface DatasetReadinessIssue {
   severity?: 'error' | 'warning'
   target_kind?: string | null
   target_id?: number | null
+  target_code?: string | null
   message: string
 }
 

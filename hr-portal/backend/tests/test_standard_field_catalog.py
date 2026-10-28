@@ -1280,6 +1280,9 @@ async def test_dataset_release_readiness_blocks_unconfirmed_output_and_release(s
     body = readiness.json()
     assert body["eligible"] is False and body["fields_eligible"] is False and body["checked_output_count"] == 1
     assert body["issues"][0]["code"] == "output_binding_missing"
+    assert body["issues"][0]["target_kind"] == "dataset_output_field"
+    assert body["issues"][0]["target_id"] == 41
+    assert body["issues"][0]["target_code"] == "employee_no"
     blocked = await client.post(base + "/release", json={"expected_version": 3})
     assert blocked.status_code == 409
     assert blocked.json()["detail"]["code"] == "dataset_release_blocked"

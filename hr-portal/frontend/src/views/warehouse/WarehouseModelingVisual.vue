@@ -791,6 +791,7 @@ onBeforeUnmount(() => {
             :model-version="modelMeta.version"
             :model-name="form.label || '当前模型'"
             @ready="validationReady = $event"
+            @navigate="target => { step = target === 'fields' ? 2 : 1 }"
           />
           <el-empty v-else description="请先完成并保存前面的步骤" :image-size="60" />
         </div>

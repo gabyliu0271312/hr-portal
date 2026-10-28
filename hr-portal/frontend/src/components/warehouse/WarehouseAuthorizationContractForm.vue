@@ -57,20 +57,21 @@ async function create() {
       payload.internal_fields = []
     }
     await createAuthorizationContract(props.modelId, payload)
-    ElMessage.success('授权合同草稿已创建，批准前不会开放执行')
+    ElMessage.success('事实与权限用途声明草稿已创建，生效前不会开放运行')
     emit('created')
   } catch (cause: any) {
     const detail = cause?.response?.data?.detail
-    error.value = typeof detail === 'string' ? detail : detail?.message || '授权合同创建失败，请核对事实与关联配置。'
+    error.value = typeof detail === 'string' ? detail : detail?.message || '事实与权限用途声明创建失败，请核对事实、字段和关联配置。'
   } finally { saving.value = false }
 }
 </script>
 
 <template>
   <div class="contract-form">
-    <el-switch v-model="standard" active-text="schema3事实与路径合同" :disabled="saving" />
-    <p class="contract-form__note">每个事实独立授权；中心资格仅补充分摊汇总，不授予工资或员工明细。字段权限仍逐项生效。</p>
-    <el-alert v-if="!standard && tables.length > 1" title="旧合同模式不支持多事实，请使用schema3。" type="warning" :closable="false" />
+    <p class="contract-form__note">声明当前模型的事实身份、人员/成本中心键和允许的汇总用途。这里不配置用户、角色、数据集 ACL 或报表 ACL。</p>
+    <el-switch v-model="standard" active-text="使用标准事实与路径声明" :disabled="saving" />
+    <p class="contract-form__note">每个事实独立定义用途；中心范围仅允许获准的分摊汇总，不授予工资结果或员工明细访问权，字段敏感分类仍逐项生效。</p>
+    <el-alert v-if="!standard && tables.length > 1" title="旧声明格式不支持多事实，请使用标准事实与路径声明。" type="warning" :closable="false" />
     <el-empty v-if="!tables.length" description="请先在数据建模步骤添加事实来源" :image-size="48" />
     <div v-for="fact in facts" :key="fact.alias" class="contract-form__fact">
       <strong>{{ fact.alias }} · {{ fact.table_name }}</strong>
@@ -88,15 +89,15 @@ async function create() {
           <el-input v-model="fact.employee_key" :aria-label="`${fact.alias}人员键`" placeholder="如 employee_no" maxlength="128" />
         </el-form-item>
         <el-form-item v-if="fact.role === 'allocation_fact'" label="成本中心路径">
-          <el-checkbox v-model="fact.allow_cost_center_summary">批准中心汇总</el-checkbox>
-          <el-input v-if="fact.allow_cost_center_summary" v-model="fact.cost_center_key" :aria-label="`${fact.alias}中心键`" placeholder="中心键（物理列）" maxlength="128" />
+          <el-checkbox v-model="fact.allow_cost_center_summary">允许中心汇总</el-checkbox>
+          <el-input v-if="fact.allow_cost_center_summary" v-model="fact.cost_center_key" :aria-label="`${fact.alias}中心键`" placeholder="成本中心键（物理列）" maxlength="128" />
         </el-form-item>
       </el-form>
-      <el-checkbox v-if="standard" v-model="fact.allow_employee_count" :disabled="saving">批准人数指标（COUNT DISTINCT 人员键）</el-checkbox>
+      <el-checkbox v-if="standard" v-model="fact.allow_employee_count" :disabled="saving">允许人数指标（COUNT DISTINCT 人员键）</el-checkbox>
     </div>
     <p v-if="tables.length > 1" class="contract-form__note">关联键、方向与基数沿用“数据建模”配置。服务端验证事实身份、基数与防重复口径；未支持的关系仍阻断。</p>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-    <PermissionButton menu="warehouse.assets" op="U" size="small" :loading="saving" :disabled="saving || !valid" @click="create">创建合同草稿</PermissionButton>
+    <PermissionButton menu="warehouse.assets" op="U" size="small" :loading="saving" :disabled="saving || !valid" @click="create">创建声明草稿</PermissionButton>
   </div>
 </template>
 
