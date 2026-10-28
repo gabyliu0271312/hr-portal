@@ -26,8 +26,11 @@
           <template v-else>
             <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
                 <div class="performance-audience-rule-editor__group-heading">
-                  <span>同时满足以下条件：<button class="performance-audience-rule-editor__count-link" type="button" :disabled="disabled || groupCounts[groupIndex] == null" @click="emit('open-preview', groupIndex)">{{ groupCounts[groupIndex] ?? 0 }}人</button></span>
-                  <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
+                  <span>范围 {{ groupIndex + 1 }}</span>
+                  <div class="performance-audience-rule-editor__group-heading-actions">
+                    <span class="performance-audience-rule-editor__group-count">同时满足以下条件：<button class="performance-audience-rule-editor__count-link" type="button" :disabled="disabled || groupCounts[groupIndex] == null" @click="emit('open-preview', groupIndex)">{{ groupCounts[groupIndex] ?? 0 }}</button></span>
+                    <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
+                  </div>
                 </div>
                 <PerformanceConditionLogicGroup :count="modelValue[groupIndex].conditions.length" operator="且">
                   <template #default="{ index: conditionIndex }">
@@ -196,6 +199,8 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor__group { margin-top: var(--spacing-3); padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
 .performance-audience-rule-editor__group:first-child { margin-top: 0; }
 .performance-audience-rule-editor__group-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-3); color: var(--color-text-secondary); font: 400 var(--font-size-md)/22px var(--font-sans); }
+.performance-audience-rule-editor__group-heading-actions { display: flex; align-items: center; gap: var(--spacing-2); }
+.performance-audience-rule-editor__group-count { white-space: nowrap; }
 .performance-audience-rule-editor__count-link { padding: 0; border: 0; background: transparent; color: var(--performance-button-text-color); cursor: pointer; font: inherit; }
 .performance-audience-rule-editor__count-link:disabled { color: var(--performance-button-link-disabled-color); cursor: default; }
 .performance-audience-rule-editor__condition { display: grid; grid-template-columns: 112px 96px minmax(0, 1fr) 24px; gap: var(--spacing-2); align-items: start; margin-top: var(--spacing-2); }

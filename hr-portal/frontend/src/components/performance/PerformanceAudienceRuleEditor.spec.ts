@@ -229,7 +229,9 @@ describe('PerformanceAudienceRuleEditor', () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
       props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }] }], allowedFields: ['department'], organizationTree, groupCounts: [5] },
     })
-    expect(wrapper.get('.performance-audience-rule-editor__group-heading').text()).toContain('同时满足以下条件：5人')
+    expect(wrapper.get('.performance-audience-rule-editor__group-heading > span').text()).toBe('范围 1')
+    expect(wrapper.get('.performance-audience-rule-editor__group-count').text()).toBe('同时满足以下条件：5')
+    expect(wrapper.get('.performance-audience-rule-editor__count-link').text()).toBe('5')
     await wrapper.get('.performance-audience-rule-editor__count-link').trigger('click')
     expect(wrapper.emitted('open-preview')).toEqual([[0]])
   })

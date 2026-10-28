@@ -34,8 +34,8 @@
         <h2 id="people-title">被评估人<span class="required">*</span></h2>
         <p class="hint">可圈定被评估人范围。同一评估周期中，每名被评估人只能参与 1 次「绩效评估」。</p>
         <div class="audience-summary">
-          <h3>符合条件的员工，共计 <button type="button" :disabled="previewLoading" @click="openAudiencePreview('matched')">{{ previewSummary.matched_count }}人</button></h3>
-          <p><button type="button" :disabled="previewLoading" @click="openAudiencePreview('task')">{{ previewSummary.task_generation_count }}名人员</button>生成评估任务，并纳入报表统计<span v-if="previewSummary.report_only_count">；<button type="button" :disabled="previewLoading" @click="openAudiencePreview('report_only')">{{ previewSummary.report_only_count }}名离职人员</button>不生成评估任务，仅纳入报表统计</span></p>
+          <h3>符合条件的员工，共计 {{ previewSummary.matched_count }}人</h3>
+          <p><button type="button" :disabled="previewLoading" @click="openAudiencePreview('task')">{{ previewSummary.task_generation_count }}</button>名人员生成评估任务，并纳入报表统计<span v-if="previewSummary.report_only_count">；<button type="button" :disabled="previewLoading" @click="openAudiencePreview('report_only')">{{ previewSummary.report_only_count }}</button>名离职人员不生成评估任务，仅纳入报表统计</span></p>
         </div>
         <PerformanceAudienceRuleEditor
           v-model="form.evaluator_rules.groups"
