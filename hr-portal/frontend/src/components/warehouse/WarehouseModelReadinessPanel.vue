@@ -6,13 +6,13 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import WarehouseAuthorizationContractForm from './WarehouseAuthorizationContractForm.vue'
 import {
   approveAuthorizationContract,
-  getAuthorizationExecutionReadiness,
+  getPermissionMappingReadiness,
   getConversionReadiness,
   getModel,
   getReleaseReadiness,
   listAuthorizationContracts,
   listModelStandardFields,
-  type AuthorizationExecutionReadiness,
+  type PermissionMappingReadiness,
   type ConversionReadiness,
   type DatasetReleaseReadiness,
   type ModelStandardFieldBinding,
@@ -31,7 +31,7 @@ const loading = ref(false)
 const error = ref('')
 const releaseReadiness = ref<DatasetReleaseReadiness | null>(null)
 const conversion = ref<ConversionReadiness | null>(null)
-const authorization = ref<AuthorizationExecutionReadiness | null>(null)
+const authorization = ref<PermissionMappingReadiness | null>(null)
 const contracts = ref<ProductAuthorizationContract[]>([])
 const modelOutputFields = ref<Array<{ output_code: string; agg_role: string; is_sensitive: boolean }>>([])
 const standardFields = ref<ModelStandardFieldBinding[]>([])
@@ -42,16 +42,16 @@ const activeContract = computed(() => contracts.value.find(contract => contract.
 const contractStatus = computed(() => {
   if (!contracts.value.length) return { text: '未配置事实与权限用途声明', type: 'warning' as const }
   if (!activeContract.value) return { text: '草稿：尚未生效', type: 'warning' as const }
-  const runtimeIssues = authorization.value?.issues || []
+  const mappingIssues = authorization.value?.issues || []
   const releaseIssues = releaseReadiness.value?.issues || []
-  if (runtimeIssues.some(issue => issue.code.includes('drift'))) return { text: '已失效：模型结构已变化', type: 'danger' as const }
+  if (mappingIssues.some(issue => issue.code.includes('drift'))) return { text: '已失效：模型结构已变化', type: 'danger' as const }
   if (releaseIssues.some(issue => issue.code.startsWith('output_') || issue.code.startsWith('technical_output'))) {
     return { text: '阻断：标准字段映射不完整', type: 'danger' as const }
   }
   if (conversion.value?.issues.some(issue => issue.code.startsWith('conversion_'))) {
     return { text: '阻断：来源转换证据失效', type: 'danger' as const }
   }
-  if (runtimeIssues.length) return { text: '阻断：权限树或事实路径不可解析', type: 'danger' as const }
+  if (mappingIssues.length) return { text: '阻断：权限字段或关联路径不可解析', type: 'danger' as const }
   const allowsCenterSummary = activeContract.value.facts.some(fact => fact.allow_cost_center_summary)
   return { text: allowsCenterSummary ? '已生效：人员范围 + 中心汇总' : '已生效：人员范围', type: 'success' as const }
 })
@@ -83,7 +83,7 @@ async function load() {
   try {
     const [release, conversionResult, authorizationResult, contractResult, model, standardFieldResult] = await Promise.all([
       getReleaseReadiness(props.modelId), getConversionReadiness(props.modelId),
-      getAuthorizationExecutionReadiness(props.modelId), listAuthorizationContracts(props.modelId), getModel(props.modelId),
+      getPermissionMappingReadiness(props.modelId), listAuthorizationContracts(props.modelId), getModel(props.modelId),
       listModelStandardFields(props.modelId),
     ])
     releaseReadiness.value = release
@@ -98,7 +98,7 @@ async function load() {
   } finally {
     loading.value = false
     emit('ready', releaseReadiness.value?.eligible === true && conversion.value?.eligible === true
-      && authorization.value?.eligible === true && authorization.value.runtime_enabled === true)
+      && authorization.value?.eligible === true)
   }
 }
 async function approve(contract: ProductAuthorizationContract) {
@@ -122,7 +122,7 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
       <el-button size="small" :loading="loading" @click="load">重新检查</el-button>
     </div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-    <p class="readiness-panel__note">这里集中展示服务端检查结果，不给用户授予数据权限，也不单独批准执行资格。发布时会按当前模型和当前主体重新复核。</p>
+    <p class="readiness-panel__note">这里集中展示模型配置和来源证据检查结果。用户权限在系统设置维护；查询、预览和导出时由服务端按实际用户权限裁决。</p>
     <div class="readiness-grid">
       <div class="readiness-card">
         <div><strong>字段与结构</strong><el-tag size="small" :type="releaseReadiness?.fields_eligible ? 'success' : 'danger'">{{ releaseReadiness ? statusText(releaseReadiness.fields_eligible) : '未检查' }}</el-tag></div>
@@ -133,8 +133,8 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
         <p>只读核对最新加工运行、结构、规则、数据指纹与当前模型是否一致。</p>
       </div>
       <div class="readiness-card">
-        <div><strong>当前主体运行校验</strong><el-tag size="small" :type="authorization?.eligible ? 'success' : 'danger'">{{ authorization ? statusText(authorization.eligible) : '未检查' }}</el-tag></div>
-        <p>{{ authorization?.runtime_enabled ? '当前主体的资源、范围和运行路径检查通过' : '由服务端按当前主体检查数据集 ACL、范围、字段和权限树' }}</p>
+        <div><strong>权限字段与关联路径校验</strong><el-tag size="small" :type="authorization?.eligible ? 'success' : 'danger'">{{ authorization ? statusText(authorization.eligible) : '未检查' }}</el-tag></div>
+        <p>检查人员、组织和成本中心权限字段的映射、类型与关联路径，不评估建模者的数据查看范围。</p>
       </div>
     </div>
 
@@ -165,13 +165,14 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
 
     <section class="readiness-section">
       <div class="section-heading">
-        <strong>当前主体运行校验</strong>
+        <strong>权限字段与关联路径校验</strong>
         <el-button text type="primary" @click="emit('navigate', 'model')">返回数据建模</el-button>
       </div>
-      <p class="readiness-panel__note">这是当前登录主体的运行前检查，不是用户授权配置。功能权限、数据集 ACL、报表 ACL 及人员/组织/中心范围仍在各自现有入口维护。</p>
-      <el-empty v-if="!authorization" description="尚未取得当前主体运行检查" :image-size="48" />
-      <el-empty v-else-if="!authorizationIssues.length" description="当前主体运行检查通过" :image-size="48" />
-      <ul v-else><li v-for="(issue, index) in authorizationIssues" :key="`${issue.code}-${index}`">{{ issue.message }}</li></ul>
+      <p class="readiness-panel__note">本模型只声明哪些字段用于人员、组织和成本中心权限过滤，以及字段如何关联。用户范围在系统设置中维护，实际查询时再应用对应用户权限。</p>
+      <el-empty v-if="!authorization" description="尚未取得权限字段与关联路径检查结果" :image-size="48" />
+      <el-empty v-else-if="authorization.eligible" description="权限字段与关联路径检查通过" :image-size="48" />
+      <ul v-else-if="authorizationIssues.length"><li v-for="(issue, index) in authorizationIssues" :key="`${issue.code}-${index}`">{{ issue.message }}</li></ul>
+      <el-alert v-else title="权限字段与关联路径尚未通过检查，请重新检查。" type="error" :closable="false" />
     </section>
 
     <section v-if="otherIssues.length" class="readiness-section">

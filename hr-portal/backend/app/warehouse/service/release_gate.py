@@ -255,9 +255,8 @@ async def get_dataset_release_health(db, dataset_id):
 async def request_dataset_release(db, dataset_id, expected_version, user):
     from datetime import UTC, datetime
     from app.datasets.router import _can_access
-    from app.datasets.authorization_contract import execution_readiness
+    from app.datasets.authorization_contract import permission_mapping_readiness
     from app.system.models import SystemLog
-    from sqlalchemy.orm.attributes import set_committed_value
 
     try:
         dataset = (await db.execute(select(DataSet).where(DataSet.id == dataset_id)
@@ -271,22 +270,18 @@ async def request_dataset_release(db, dataset_id, expected_version, user):
         previous_status = dataset.status
         observed_state = (dataset.version, dataset.status, dataset.is_active, dataset.warehouse_layer)
         with db.no_autoflush:
-            set_committed_value(dataset, "status", "published")
-            try:
-                execution = await execution_readiness(db, dataset_id, user)
-                if not execution.eligible or not execution.runtime_enabled:
-                    raise HTTPException(409, detail={
-                        "code": "dataset_release_blocked", "message": "当前数据集不满足限定汇总执行资格",
-                        "issues": execution.issues,
-                    })
-                readiness = await check_dataset_release(db, dataset_id)
-                if not readiness.eligible:
-                    raise HTTPException(409, detail={
-                        "code": "dataset_release_blocked", "message": "完整发布准入尚未通过",
-                        "issues": [issue.model_dump() for issue in readiness.issues],
-                    })
-            finally:
-                set_committed_value(dataset, "status", previous_status)
+            mapping = await permission_mapping_readiness(db, dataset_id)
+            if not mapping.eligible:
+                raise HTTPException(409, detail={
+                    "code": "dataset_release_blocked", "message": "权限字段与关联路径校验未通过",
+                    "issues": mapping.issues,
+                })
+            readiness = await check_dataset_release(db, dataset_id)
+            if not readiness.eligible:
+                raise HTTPException(409, detail={
+                    "code": "dataset_release_blocked", "message": "完整发布准入尚未通过",
+                    "issues": [issue.model_dump() for issue in readiness.issues],
+                })
             dataset = (await db.execute(select(DataSet).where(DataSet.id == dataset_id)
                 .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
         if dataset is None or dataset.version != expected_version:
@@ -304,7 +299,7 @@ async def request_dataset_release(db, dataset_id, expected_version, user):
             metadata_json={"dataset_id": dataset_id, "version": dataset.version,
                            "release_version": dataset.release_version,
                            "previous_status": previous_status, "status": "published",
-                           "contract_id": execution.contract_id, "contract_version": execution.contract_version},
+                           "contract_id": mapping.contract_id, "contract_version": mapping.contract_version},
         ))
         await db.commit()
         return readiness.model_copy(update={"dataset_status": "published"})

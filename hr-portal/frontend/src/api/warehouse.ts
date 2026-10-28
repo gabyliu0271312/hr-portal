@@ -553,6 +553,15 @@ export interface ConversionReadiness {
   checked_areas: string[]
 }
 
+export interface PermissionMappingReadiness {
+  dataset_id: number
+  contract_id: number | null
+  contract_version: number | null
+  eligible: boolean
+  issues: Array<{ code: string; message: string }>
+  checked_areas: string[]
+}
+
 export interface AuthorizationExecutionReadiness {
   dataset_id: number
   contract_id: number | null
@@ -590,6 +599,9 @@ export function getReleaseReadiness(id: number): Promise<DatasetReleaseReadiness
 }
 export function getConversionReadiness(id: number): Promise<ConversionReadiness> {
   return api.get(`/warehouse/models/${id}/conversion-readiness`).then(r => r.data)
+}
+export function getPermissionMappingReadiness(id: number): Promise<PermissionMappingReadiness> {
+  return api.get(`/warehouse/models/${id}/permission-mapping-readiness`).then(r => r.data)
 }
 export function getAuthorizationExecutionReadiness(id: number): Promise<AuthorizationExecutionReadiness> {
   return api.get(`/warehouse/models/${id}/authorization-execution-readiness`).then(r => r.data)

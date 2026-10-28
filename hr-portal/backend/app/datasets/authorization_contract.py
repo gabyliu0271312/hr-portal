@@ -778,6 +778,113 @@ class AuthorizationPathOut(BaseModel):
     cost_center_key: str | None
 
 
+class PermissionMappingReadinessOut(BaseModel):
+    dataset_id: int
+    contract_id: int | None = None
+    contract_version: int | None = None
+    eligible: bool
+    issues: list[dict[str, str]]
+    checked_areas: list[str]
+
+
+async def permission_mapping_readiness(db, dataset_id, user=None):
+    dataset = await db.get(DataSet, dataset_id)
+    if dataset is None:
+        raise HTTPException(404, detail={"code": "dataset_not_found", "message": "数据集不存在"})
+    if user is not None:
+        from app.datasets.router import _can_access
+        if not await _can_access(user, dataset, db):
+            raise HTTPException(403, detail={"code": "dataset_acl_denied", "message": "当前用户不具备数据集资源访问权"})
+    issues = []
+    checked = ["contract_snapshot", "fact_keys", "permission_field_bindings", "physical_schema", "relation_paths"]
+    rows = (await db.execute(select(DataProductAuthorizationContract).where(
+        DataProductAuthorizationContract.dataset_id == dataset_id,
+        DataProductAuthorizationContract.status == "active",
+    ).order_by(DataProductAuthorizationContract.contract_version.desc()).limit(2))).scalars().all()
+    result = PermissionMappingReadinessOut(dataset_id=dataset_id, eligible=False, issues=[], checked_areas=checked)
+    if len(rows) != 1:
+        result.issues = [{"code": "authorization_contract_ambiguous" if rows else "authorization_contract_missing",
+                          "message": "事实与权限用途声明必须有且仅有一份已生效配置"}]
+        return result
+    contract = rows[0]
+    result.contract_id = contract.id
+    result.contract_version = contract.contract_version
+    try:
+        definition = ProductAuthorizationDefinition.model_validate(contract.contract_json)
+    except (TypeError, ValueError, ValidationError):
+        result.issues = [{"code": "authorization_contract_invalid", "message": "事实与权限用途声明定义无效"}]
+        return result
+    tables = (await db.execute(select(DataSetTable).where(DataSetTable.dataset_id == dataset_id))).scalars().all()
+    relations = (await db.execute(select(DataSetRelation).where(DataSetRelation.dataset_id == dataset_id))).scalars().all()
+    outputs = (await db.execute(select(DatasetOutputField).where(DatasetOutputField.dataset_id == dataset_id))).scalars().all()
+    aliases = {table.alias: table.table_name for table in tables}
+    if dataset.is_active is not True or dataset.status not in {"draft", "published"}:
+        issues.append({"code": "dataset_inactive", "message": "模型已停用或状态无效，不能用于权限字段关联"})
+    if not tables or len(aliases) != len(tables):
+        issues.append({"code": "permission_source_invalid", "message": "模型来源为空或来源别名不唯一，请到数据建模修复"})
+    if not isinstance(contract.model_snapshot, dict) or _snapshot_drift(contract.model_snapshot, tables, relations, outputs):
+        issues.append({"code": "authorization_contract_drift", "message": "事实与权限用途声明与当前模型结构不一致，请重新确认声明"})
+    relation_issues = _validate_relation_metadata(relations, set(aliases))
+    issues.extend(relation_issues)
+    if not relation_issues:
+        issues.extend(await _collect_contract_physical_drift(db, definition, tables, relations, outputs))
+        graph = {alias: set() for alias in aliases}
+        for relation in relations:
+            graph[relation.left_alias].add(relation.right_alias)
+            graph[relation.right_alias].add(relation.left_alias)
+        reached = set()
+        pending = list(aliases)[:1]
+        while pending:
+            alias = pending.pop()
+            if alias not in reached:
+                reached.add(alias)
+                pending.extend(graph[alias] - reached)
+        if reached != set(aliases):
+            issues.append({"code": "permission_relation_disconnected", "message": "权限字段的来源关联路径未连通，请到数据建模补齐关联键"})
+    binding_rows = (await db.execute(
+        select(TableColumn, StandardFieldBinding, StandardField)
+        .select_from(TableColumn)
+        .outerjoin(StandardFieldBinding, StandardFieldBinding.table_column_id == TableColumn.id)
+        .outerjoin(StandardField, StandardField.id == StandardFieldBinding.standard_field_id)
+        .where(TableColumn.table_name.in_(set(aliases.values())))
+    )).all()
+    by_column = {}
+    for column, binding, field in binding_rows:
+        by_column.setdefault((column.table_name, column.column_code), []).append((column, binding, field))
+    if not relation_issues:
+        for relation in relations:
+            for key in relation.keys:
+                left = by_column.get((aliases[relation.left_alias], key["left"]), [])
+                right = by_column.get((aliases[relation.right_alias], key["right"]), [])
+                if left and right and _normalized_metadata_type(left[0][0].data_type) != _normalized_metadata_type(right[0][0].data_type):
+                    issues.append({"code": "permission_relation_type_mismatch", "message": f"关联字段 {relation.left_alias}.{key['left']} 与 {relation.right_alias}.{key['right']} 类型不兼容，请到数据建模修复"})
+    from app.warehouse.service.standard_fields import _physical_source_identity
+    for fact in definition.facts:
+        if aliases.get(fact.alias) != fact.table_name:
+            issues.append({"code": "permission_fact_source_invalid", "message": f"事实 {fact.alias} 未关联到声明来源 {fact.table_name}"})
+            continue
+        for key, domain, label in ((fact.employee_key, "org", "人员"), (fact.cost_center_key, "cost_center", "成本中心")):
+            if not key:
+                continue
+            candidates = by_column.get((fact.table_name, key), [])
+            if len(candidates) != 1 or candidates[0][1] is None:
+                issues.append({"code": "permission_anchor_binding_missing", "message": f"{label}字段 {fact.alias}.{key} 缺少唯一标准字段映射，请到来源映射确认"})
+                continue
+            column, binding, field = candidates[0]
+            identity = column.source_field_id or _physical_source_identity(column.table_name, column.column_code)
+            if not _usable_binding(binding, field):
+                issues.append({"code": "permission_anchor_binding_invalid", "message": f"{label}字段 {fact.alias}.{key} 的标准字段映射未确认或已失效"})
+            elif binding.observed_source_field_id != identity:
+                issues.append({"code": "permission_anchor_identity_drift", "message": f"{label}字段 {fact.alias}.{key} 来源身份已漂移"})
+            elif not field.is_permission_anchor or field.permission_domain != domain:
+                issues.append({"code": "permission_anchor_semantics_invalid", "message": f"{label}字段 {fact.alias}.{key} 关联的标准字段 {field.field_code} 不是对应权限锚点"})
+            elif len({_normalized_metadata_type(value) for value in (column.data_type, binding.observed_data_type, field.data_type)}) != 1:
+                issues.append({"code": "permission_anchor_type_drift", "message": f"{label}字段 {fact.alias}.{key} 与标准字段 {field.field_code} 类型不一致"})
+    result.issues = issues
+    result.eligible = not issues
+    return result
+
+
 class AuthorizationExecutionReadinessOut(BaseModel):
     dataset_id: int
     contract_id: int | None

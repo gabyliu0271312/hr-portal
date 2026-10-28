@@ -22,7 +22,7 @@ vi.mock('@/api/warehouse', () => ({
   getModel: mocks.get, releaseModel: mocks.release, updateModel: vi.fn(), createModel: vi.fn(), saveOutputFields: vi.fn(),
   previewModel: mocks.preview, previewModelV2: mocks.previewV2,
   getReleaseReadiness: mocks.readiness, getConversionReadiness: mocks.conversion,
-  getAuthorizationExecutionReadiness: mocks.authorization, listAuthorizationContracts: mocks.contracts,
+  getPermissionMappingReadiness: mocks.authorization, listAuthorizationContracts: mocks.contracts, getAuthorizationExecutionReadiness: vi.fn(() => { throw new Error('建模校验不得调用当前用户运行检查') }),
   listModelStandardFields: mocks.standardFields, approveAuthorizationContract: vi.fn(), approveConversion: vi.fn(),
 }))
 vi.mock('@/api/datasets', () => ({ datasetsApi: { list: vi.fn().mockResolvedValue([]) } }))
@@ -77,7 +77,7 @@ beforeEach(() => {
   mocks.previewV2.mockResolvedValue({ tables: [], joins: [], summary: {} })
   mocks.readiness.mockResolvedValue({ eligible: true, fields_eligible: true, checked_output_count: 1, confirmed_output_count: 1, issues: [], isolation: null })
   mocks.conversion.mockResolvedValue({ eligible: true, issues: [] })
-  mocks.authorization.mockResolvedValue({ eligible: true, runtime_enabled: true, issues: [] })
+  mocks.authorization.mockResolvedValue({ eligible: true, issues: [] })
   mocks.contracts.mockResolvedValue([])
   mocks.standardFields.mockResolvedValue([])
 })
@@ -175,7 +175,7 @@ describe('R17 model checks remain read-only until an explicit governance action'
     expect(mocks.authorization).toHaveBeenCalledWith(4)
     expect(wrapper.text()).toContain('字段与结构')
     expect(wrapper.text()).toContain('来源转换证据')
-    expect(wrapper.text()).toContain('当前主体运行校验')
+    expect(wrapper.text()).toContain('权限字段与关联路径校验')
     expect(wrapper.text()).toContain('事实与权限用途声明')
     expect(wrapper.text()).toContain('变更影响分析')
     expect(wrapper.text()).not.toContain('批准转换')
@@ -224,13 +224,23 @@ describe('R17 model checks remain read-only until an explicit governance action'
     wrapper.unmount()
   })
 
-  it('shows runtime problems even when field and conversion checks pass', async () => {
-    mocks.authorization.mockResolvedValueOnce({ eligible: false, runtime_enabled: false,
-      issues: [{ code: 'authorization_org_tree_unhealthy', message: '权限树健康检查未通过' }] })
+  it('shows missing permission anchors even when field and conversion checks pass', async () => {
+    mocks.authorization.mockResolvedValueOnce({ eligible: false,
+      issues: [{ code: 'permission_anchor_binding_missing', message: '人员字段 fact.employee_no 缺少唯一标准字段映射，请到来源映射确认' }] })
     const wrapper = panel()
     await flushPromises()
-    expect(wrapper.text()).toContain('权限树健康检查未通过')
-    expect(wrapper.text()).not.toContain('当前主体运行检查通过')
+    expect(wrapper.text()).toContain('人员字段 fact.employee_no 缺少唯一标准字段映射')
+    expect(wrapper.text()).not.toContain('权限字段与关联路径检查通过')
+    expect(wrapper.emitted('ready')?.at(-1)).toEqual([false])
+    wrapper.unmount()
+  })
+
+  it('does not show a successful mapping check when the server rejects without issues', async () => {
+    mocks.authorization.mockResolvedValueOnce({ eligible: false, issues: [] })
+    const wrapper = panel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('权限字段与关联路径尚未通过检查，请重新检查。')
+    expect(wrapper.text()).not.toContain('权限字段与关联路径检查通过')
     expect(wrapper.emitted('ready')?.at(-1)).toEqual([false])
     wrapper.unmount()
   })
@@ -244,7 +254,7 @@ describe('R17 model checks remain read-only until an explicit governance action'
     await flushPromises()
     expect(wrapper.text()).toContain('无权查看建模校验结果')
     expect(wrapper.text()).toContain('尚未取得字段检查结果')
-    expect(wrapper.text()).not.toContain('当前主体运行检查通过')
+    expect(wrapper.text()).not.toContain('权限字段与关联路径检查通过')
     expect(wrapper.emitted('ready')?.at(-1)).toEqual([false])
     wrapper.unmount()
   })

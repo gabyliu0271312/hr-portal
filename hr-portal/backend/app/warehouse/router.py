@@ -74,7 +74,7 @@ from app.warehouse.schemas import (
 from app.warehouse.service import WarehouseService, get_warehouse_service
 from app.datasets.authorization_contract import (
     ProductAuthorizationActionIn, ProductAuthorizationCreateIn, ProductAuthorizationOut, ProductAuthorizationUpdateIn,
-    AuthorizationExecutionReadinessOut,
+    AuthorizationExecutionReadinessOut, PermissionMappingReadinessOut,
 )
 from app.warehouse.impact import get_impact_analyzer
 from app.warehouse.lineage import (
@@ -2127,6 +2127,12 @@ async def update_authorization_contract(model_id: int, contract_id: int, payload
 async def approve_authorization_contract(model_id: int, contract_id: int, payload: ProductAuthorizationActionIn, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
     from app.datasets.authorization_contract import approve_contract
     return await approve_contract(db, model_id, contract_id, payload, user)
+
+
+@router.get("/models/{model_id}/permission-mapping-readiness", response_model=PermissionMappingReadinessOut, dependencies=[Depends(require_op("warehouse.assets", "V"))])
+async def model_permission_mapping_readiness(model_id: int, user: User = Depends(current_user), db: AsyncSession = Depends(get_session)):
+    from app.datasets.authorization_contract import permission_mapping_readiness
+    return await permission_mapping_readiness(db, model_id, user)
 
 
 @router.get("/models/{model_id}/authorization-execution-readiness", response_model=AuthorizationExecutionReadinessOut, dependencies=[Depends(require_op("warehouse.assets", "V"))])

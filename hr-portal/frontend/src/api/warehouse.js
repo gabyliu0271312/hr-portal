@@ -75,6 +75,7 @@ export function saveOutputFields(id, fields) {
 }
 export function getReleaseReadiness(id) { return api.get(`/warehouse/models/${id}/release-readiness`).then(r => r.data); }
 export function getConversionReadiness(id) { return api.get(`/warehouse/models/${id}/conversion-readiness`).then(r => r.data); }
+export function getPermissionMappingReadiness(id) { return api.get(`/warehouse/models/${id}/permission-mapping-readiness`).then(r => r.data); }
 export function getAuthorizationExecutionReadiness(id) { return api.get(`/warehouse/models/${id}/authorization-execution-readiness`).then(r => r.data); }
 export function releaseModel(id, expectedVersion) { return api.post(`/warehouse/models/${id}/release`, { expected_version: expectedVersion }).then(r => r.data); }
 export function listAuthorizationContracts(id) { return api.get(`/warehouse/models/${id}/authorization-contracts`).then(r => r.data); }

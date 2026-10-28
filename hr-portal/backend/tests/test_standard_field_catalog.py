@@ -2146,8 +2146,8 @@ async def test_postgres_release_candidate_is_not_flushed_and_lock_reloads_curren
     async with engine.begin() as conn:
         await conn.execute(text("UPDATE datasets SET status='draft' WHERE id=4"))
 
-    async def execution(db, dataset_id, user):
-        assert (await db.get(DataSet, dataset_id)).status == "published"
+    async def mapping(db, dataset_id):
+        assert (await db.get(DataSet, dataset_id)).status == "draft"
         async with db.begin_nested():
             assert await db.scalar(text("SELECT status FROM datasets WHERE id=4")) == "draft"
         if change:
@@ -2163,7 +2163,7 @@ async def test_postgres_release_candidate_is_not_flushed_and_lock_reloads_curren
     gate = DatasetReleaseReadinessOut(dataset_id=4, dataset_status="draft", eligible=True,
         fields_eligible=True, authorization_verified=True, conversion_verified=True,
         checked_output_count=1, confirmed_output_count=1, issues=[])
-    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", execution)
+    monkeypatch.setattr("app.datasets.authorization_contract.permission_mapping_readiness", mapping)
     monkeypatch.setattr(release_gate, "check_dataset_release", AsyncMock(return_value=gate))
     response = await client.post("/api/v1/warehouse/models/4/release", json={"expected_version": 3})
     assert response.status_code == (409 if change else 200), response.text
@@ -2362,8 +2362,131 @@ async def test_postgres_empty_conversion_migration_round_trip_preserves_catalog(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mutation,expected", [
+    (None, None), ("missing", "permission_anchor_binding_missing"),
+    ("unconfirmed", "permission_anchor_binding_invalid"),
+    ("semantics", "permission_anchor_semantics_invalid"),
+    ("type", "permission_anchor_type_drift"),
+    ("identity", "permission_anchor_identity_drift"),
+    ("duplicate", "permission_anchor_binding_missing"),
+    ("disconnected", "permission_relation_disconnected"),
+    ("relation_type", "permission_relation_type_mismatch"),
+    ("snapshot", "authorization_contract_drift"),
+])
+async def test_permission_mapping_checks_model_without_resolving_user_scope(monkeypatch, mutation, expected):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    from app.datasets import authorization_contract as service
+
+    table = SimpleNamespace(id=1, alias="f", table_name="dwd_probe")
+    tables = [table]
+    if mutation in {"disconnected", "relation_type"}:
+        tables.append(SimpleNamespace(id=2, alias="r", table_name="dwd_reference"))
+    relations = [SimpleNamespace(id=1, left_alias="f", right_alias="r", join_type="left", cardinality="N:1",
+        keys=[{"left": "employee_no", "right": "reference_key"}])] if mutation == "relation_type" else []
+    definition = service.ProductAuthorizationDefinition(schema_version=3, facts=[{
+        "alias": "f", "table_name": "dwd_probe", "fact_key": "id", "employee_key": "employee_no",
+    }])
+    contract = SimpleNamespace(id=12, contract_version=1, contract_json=definition.model_dump(),
+        model_snapshot=service._snapshot(tables, relations, []))
+    if mutation == "snapshot":
+        contract.model_snapshot = {}
+    column = SimpleNamespace(table_name="dwd_probe", column_code="employee_no", data_type="string", source_field_id="source-employee")
+    binding = SimpleNamespace(status="suggested" if mutation == "unconfirmed" else "confirmed", binding_version=1,
+        confirmed_by=7, confirmed_at=datetime.now(UTC), observed_source_field_id="old-source" if mutation == "identity" else "source-employee",
+        observed_data_type="string")
+    field = SimpleNamespace(is_active=True, field_code="employee_no", is_permission_anchor=True,
+        permission_domain="cost_center" if mutation == "semantics" else "org", data_type="number" if mutation == "type" else "string")
+    binding_rows = [(column, None, None)] if mutation == "missing" else [(column, binding, field)]
+    if mutation == "duplicate":
+        binding_rows *= 2
+    if mutation == "relation_type":
+        binding_rows.append((SimpleNamespace(table_name="dwd_reference", column_code="reference_key", data_type="number"), None, None))
+
+    def rows(values):
+        result = Mock()
+        result.scalars.return_value.all.return_value = values
+        result.all.return_value = values
+        return result
+
+    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(id=4, is_active=True, status="draft")), execute=AsyncMock(side_effect=[
+        rows([contract]), rows(tables), rows(relations), rows([]), rows(binding_rows),
+    ]))
+    physical_check = AsyncMock(return_value=[])
+    monkeypatch.setattr(service, "_collect_contract_physical_drift", physical_check)
+    runtime = AsyncMock(side_effect=AssertionError("配置校验不得解析用户范围"))
+    monkeypatch.setattr(service, "execution_readiness", runtime)
+    access = AsyncMock(return_value=True)
+    monkeypatch.setattr("app.datasets.router._can_access", access)
+    result = await service.permission_mapping_readiness(db, 4, SimpleNamespace(id=7))
+    access.assert_awaited_once()
+    runtime.assert_not_awaited()
+    assert result.eligible is (expected is None)
+    assert result.contract_id == 12
+    if expected:
+        assert expected in {issue["code"] for issue in result.issues}
+    assert "tree_health" not in result.checked_areas
+    assert "current_user_scope" not in result.checked_areas
+
+
+@pytest.mark.asyncio
+async def test_permission_mapping_requires_dataset_resource_access(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.datasets.authorization_contract import permission_mapping_readiness
+    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(id=4)), execute=AsyncMock())
+    monkeypatch.setattr("app.datasets.router._can_access", AsyncMock(return_value=False))
+    with pytest.raises(HTTPException) as error:
+        await permission_mapping_readiness(db, 4, SimpleNamespace(id=7))
+    assert error.value.status_code == 403
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("denial", [None, "function", "resource"])
+async def test_permission_mapping_http_keeps_access_controls_without_business_scope(monkeypatch, denial):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+    import httpx
+    from fastapi import FastAPI
+    from app.core.db import get_session
+    from app.core.deps import current_user
+    from app.datasets import authorization_contract as service
+    from app.warehouse.router import router
+
+    menu_result = Mock()
+    menu_result.first.return_value = None if denial == "function" else object()
+    contracts_result = Mock()
+    contracts_result.scalars.return_value.all.return_value = []
+    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(id=4)),
+        execute=AsyncMock(side_effect=[menu_result, contracts_result]))
+    user = SimpleNamespace(id=7)
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[get_session] = lambda: db
+    app.dependency_overrides[current_user] = lambda: user
+    access = AsyncMock(return_value=denial != "resource")
+    monkeypatch.setattr("app.datasets.router._can_access", access)
+    runtime = AsyncMock(side_effect=AssertionError("建模接口不得裁决用户业务范围"))
+    monkeypatch.setattr(service, "execution_readiness", runtime)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/warehouse/models/4/permission-mapping-readiness")
+    assert response.status_code == (403 if denial else 200)
+    runtime.assert_not_awaited()
+    if denial == "function":
+        access.assert_not_awaited()
+    elif denial == "resource":
+        assert response.json()["detail"]["code"] == "dataset_acl_denied"
+    else:
+        assert response.json()["eligible"] is False
+        assert response.json()["issues"][0]["code"] == "authorization_contract_missing"
+        assert "runtime_enabled" not in response.json()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("initial_status", ["draft", "published"])
-async def test_release_checks_conversion_and_execution_without_changing_semantic_version(monkeypatch, initial_status):
+async def test_release_checks_model_mapping_without_using_publishers_data_scope(monkeypatch, initial_status):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
     from contextlib import nullcontext
@@ -2382,14 +2505,15 @@ async def test_release_checks_conversion_and_execution_without_changing_semantic
         fields_eligible=True, authorization_verified=True, conversion_verified=True,
         checked_output_count=2, confirmed_output_count=2, issues=[])
     check = AsyncMock(return_value=gate)
-    async def execution(*args):
-        assert dataset.status == "published"
-        assert dataset.version == 3
-        return SimpleNamespace(eligible=True, runtime_enabled=True, contract_id=12, contract_version=1)
+    mapping = AsyncMock(return_value=SimpleNamespace(eligible=True, contract_id=12, contract_version=1))
+    runtime = AsyncMock(side_effect=AssertionError("发布不得解析当前建模者的数据范围或编译运行查询"))
     monkeypatch.setattr(release_gate, "check_dataset_release", check)
     monkeypatch.setattr("app.datasets.router._can_access", AsyncMock(return_value=True))
-    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", execution)
+    monkeypatch.setattr("app.datasets.authorization_contract.permission_mapping_readiness", mapping)
+    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", runtime)
     released = await release_gate.request_dataset_release(db, 4, 3, SimpleNamespace(id=7))
+    mapping.assert_awaited_once_with(db, 4)
+    runtime.assert_not_awaited()
     assert released.dataset_status == "published" and released.eligible
     check.assert_awaited_once_with(db, 4)
     assert dataset.version == 3
@@ -2400,7 +2524,7 @@ async def test_release_checks_conversion_and_execution_without_changing_semantic
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["acl", "version", "release", "execution", "audit"])
+@pytest.mark.parametrize("failure", ["acl", "version", "release", "mapping", "audit"])
 async def test_release_failures_rollback_without_commit(monkeypatch, failure):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, Mock
@@ -2422,8 +2546,9 @@ async def test_release_failures_rollback_without_commit(monkeypatch, failure):
         fields_eligible=True, authorization_verified=True, conversion_verified=failure != "release",
         checked_output_count=2, confirmed_output_count=2, issues=[])
     monkeypatch.setattr(release_gate, "check_dataset_release", AsyncMock(return_value=gate))
-    monkeypatch.setattr("app.datasets.authorization_contract.execution_readiness", AsyncMock(return_value=SimpleNamespace(
-        eligible=failure != "execution", runtime_enabled=failure != "execution", issues=[], contract_id=12, contract_version=1)))
+    monkeypatch.setattr("app.datasets.authorization_contract.permission_mapping_readiness", AsyncMock(return_value=SimpleNamespace(
+        eligible=failure != "mapping", issues=[{"code": "permission_anchor_binding_missing", "message": "人员字段缺少标准字段映射"}] if failure == "mapping" else [],
+        contract_id=12, contract_version=1)))
     if failure == "audit":
         db.add.side_effect = RuntimeError("audit unavailable")
     with pytest.raises((HTTPException, RuntimeError)):
