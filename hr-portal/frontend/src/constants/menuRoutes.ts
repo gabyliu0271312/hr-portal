@@ -1,6 +1,8 @@
 export const MENU_ROUTE_MAP: Record<string, string> = {
   'system.users': '/system/users',
   'system.roles': '/system/roles',
+  'system.identity_management': '/system/identity-management',
+  'system.master_entities': '/system/master-entities',
   'system.scopes': '/system/scopes',
   'system.field_categories': '/system/field-categories',
   'system.field_columns': '/system/field-columns',

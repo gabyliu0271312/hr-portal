@@ -321,3 +321,16 @@ T01 仍保持未勾选：等待用户确认蓝图 v1.1、Q04 与 Q06 明确处�
 - 临时 8012/5178 验收服务已停止，隔离浏览器登录已清除并关闭；原 8000 服务未重启。没有提交、推送或生产部署。
 
 公开仓库提交说明：T07 正式截图中的员工姓名、员工编号和头像区域已做不可逆像素遮盖；保留其余真实界面与验收含义。未修改功能代码或测试结果。
+
+## 7. PM-T008-F01 共用侧栏菜单映射修复（2026-10-28）
+
+- [x] **PM-T008-F01 身份管理与主数据定义侧栏点击回归**
+  - 背景：用户生产反馈身份管理、主数据定义点击后进入首页；两页路由存在，但 MENU_ROUTE_MAP 缺少相应菜单编码，Default.vue 的空映射回退使点击目标变成 /home。不是当前源码中的 JS/TS 同名遮蔽。
+  - 范围：只在 frontend/src/constants/menuRoutes.ts 补 system.identity_management → /system/identity-management、system.master_entities → /system/master-entities；不改角色、admin 限制、后端、数据库或其他业务。
+  - 需求追踪：PM-T008 FR-02/AC-01；B01.a 主数据定义入口（FR-B01/B12 的既有定义入口，不扩大业务验收）。
+  - 复用：实际 Default.vue 侧栏、真实 MENU_ROUTE_MAP、内存路由；测试只模拟已授权菜单和目标页面，不绕过实际业务接口保护。
+  - 验证：在修改映射前，新增 4 项断言失败，其中两项实际点击跳到 /home；补映射后，menuRoutes.spec.ts 的映射与侧栏点击/高亮均通过。联合原身份管理与会话专项共 10 项通过。
+  - 命令：frontend 下 `npm run test -- src/constants/menuRoutes.spec.ts src/views/system/IdentityManagement.spec.ts src/stores/identitySwitch.spec.ts src/components/performance/PerformanceIdentitySwitchDialog.spec.ts`。
+  - 构建：`npm run build`（vue-tsc + Vite）通过；已核对正式 Default 布局产物包含两个菜单编码及正确目标路径。
+  - 影响/停止：纯前端导航映射，无 API/SQL/迁移，不改已部署数据；如构建或点击回归失败，停止发布而不放宽权限。生产需批准后以正常前端发布更新，禁止现场补丁。
+  - 验收边界：组件级实际侧栏点击已验证；真实生产点击未复验，未部署。无需新 UI 蓝图，页面与布局均不变。
