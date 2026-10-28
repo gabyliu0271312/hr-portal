@@ -1,9 +1,34 @@
 """Resolve project calibration rules against the cycle snapshot."""
+from app.data.employee_roster_contract import normalize_roster_date, organization_path
+
 CALIBRATOR_ROLE_CODE = "assessment.calibrator"
 
 
 def _matches(groups, value):
     return any(all((value in condition["values"]) == (condition["operator"] == "INCLUDE") for condition in group["conditions"]) for group in groups)
+
+
+def _matches_scope(employee_no, condition, people, relations):
+    field = condition["field"]
+    if field == "calibrator_relation":
+        matched = bool(relations.intersection(condition["values"]))
+        return matched == (condition["operator"] == "INCLUDE")
+    person = people[employee_no]
+    if field == "employee":
+        actual = employee_no
+    elif field == "department":
+        actual = organization_path(person) or ""
+        leaf = actual.rsplit("/", 1)[-1] if actual else ""
+        matched = bool(actual and any(actual == value or actual.startswith(f"{value}/") or leaf == value for value in condition["values"]))
+        return matched == (condition["operator"] == "INCLUDE")
+    else:
+        actual = normalize_roster_date(getattr(person, "hire_date", None))
+        target = normalize_roster_date(condition["values"][0])
+        if actual is None or target is None:
+            return False
+        return {"before": actual < target, "not_before": actual >= target, "after": actual > target, "not_after": actual <= target}[condition["operator"]]
+    matched = actual in condition["values"]
+    return matched == (condition["operator"] == "INCLUDE")
 
 
 def _relations(employee_no, calibrator, people):
@@ -44,7 +69,7 @@ def resolve_calibration(node, settings, people, member_nos, *, require_complete=
                     in_scope = rule.get("scope", "PROJECT_ALL") == "PROJECT_ALL"
                     if not in_scope:
                         relations = _relations(employee_no, handler, people)
-                        in_scope = any(all(bool(relations.intersection(condition["values"])) == (condition["operator"] == "INCLUDE") for condition in group["conditions"]) for group in rule.get("scope_groups") or [])
+                        in_scope = any(all(_matches_scope(employee_no, condition, people, relations) for condition in group["conditions"]) for group in rule.get("scope_groups") or [])
                     if in_scope:
                         key = (handler, employee_no)
                         assignments[key] = assignments.get(key, False) or bool(rule.get("allow_authorize"))

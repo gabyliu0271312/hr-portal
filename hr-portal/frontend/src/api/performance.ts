@@ -1254,8 +1254,8 @@ export interface PerformanceCycleProjectShell {
 }
 
 export interface PerformanceCalibrationCondition {
-  field: 'employee' | 'calibrator_relation'
-  operator: 'INCLUDE' | 'EXCLUDE'
+  field: 'department' | 'employee' | 'hire_date' | 'calibrator_relation'
+  operator: 'INCLUDE' | 'EXCLUDE' | 'before' | 'not_before' | 'after' | 'not_after'
   values: string[]
 }
 

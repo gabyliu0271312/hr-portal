@@ -382,7 +382,7 @@ class PerformanceProjectService:
         return {"groups": groups}
 
     @staticmethod
-    def _validate_calibration_groups(groups: Any, *, field: str) -> list[dict[str, Any]]:
+    def _validate_calibration_groups(groups: Any, *, allowed_fields: set[str]) -> list[dict[str, Any]]:
         if not isinstance(groups, list) or not groups:
             raise ProjectValidationError("校准规则条件组不能为空")
         normalized = []
@@ -392,16 +392,24 @@ class PerformanceProjectService:
                 raise ProjectValidationError("校准规则条件组不合法")
             conditions = []
             for condition in group["conditions"]:
-                if (not isinstance(condition, dict) or set(condition) != {"field", "operator", "values"}
-                        or condition.get("field") != field or condition.get("operator") not in {"INCLUDE", "EXCLUDE"}):
+                if not isinstance(condition, dict) or set(condition) != {"field", "operator", "values"}:
                     raise ProjectValidationError("校准规则条件不合法")
+                field = condition.get("field")
+                operator = condition.get("operator")
                 values = condition.get("values")
-                if (not isinstance(values, list) or not values
-                        or any(not isinstance(value, str) or not value.strip() or len(value.strip()) > 128 for value in values)):
-                    raise ProjectValidationError("校准规则条件值不合法")
-                if field == "calibrator_relation" and any(value.strip() not in {"ALL_SUBORDINATES", "DIRECT_SUBORDINATES", "INDIRECT_SUBORDINATES"} for value in values):
+                if field not in allowed_fields or not isinstance(values, list) or not values:
+                    raise ProjectValidationError("校准规则条件不合法")
+                if field == "hire_date":
+                    if operator not in {"before", "not_before", "after", "not_after"} or len(values) != 1 or not isinstance(values[0], str) or _parse_hire_date(values[0]) is None:
+                        raise ProjectValidationError("入职日期条件不合法")
+                    normalized_values = values
+                else:
+                    if operator not in {"INCLUDE", "EXCLUDE"} or any(not isinstance(value, str) or not value.strip() or len(value.strip()) > 128 for value in values):
+                        raise ProjectValidationError("校准规则条件值不合法")
+                    normalized_values = [value.strip() for value in values]
+                if field == "calibrator_relation" and any(value not in {"ALL_SUBORDINATES", "DIRECT_SUBORDINATES", "INDIRECT_SUBORDINATES"} for value in normalized_values):
                     raise ProjectValidationError("与校准人关系选项不合法")
-                conditions.append({"field": field, "operator": condition["operator"], "values": [value.strip() for value in values]})
+                conditions.append({"field": field, "operator": operator, "values": normalized_values})
             normalized.append({"conditions": conditions})
         return normalized
 
@@ -499,9 +507,9 @@ class PerformanceProjectService:
                                 raise ProjectValidationError("校准人来源不合法")
                             normalized_rule["subject_source"] = "RULE"
                         if "subject_groups" in rule:
-                            normalized_rule["subject_groups"] = cls._validate_calibration_groups(rule["subject_groups"], field="employee")
+                            normalized_rule["subject_groups"] = cls._validate_calibration_groups(rule["subject_groups"], allowed_fields={"employee"})
                         if "scope_groups" in rule:
-                            normalized_rule["scope_groups"] = cls._validate_calibration_groups(rule["scope_groups"], field="calibrator_relation")
+                            normalized_rule["scope_groups"] = cls._validate_calibration_groups(rule["scope_groups"], allowed_fields={"department", "employee", "hire_date", "calibrator_relation"})
                         if scope == "RULE" and "scope_groups" not in normalized_rule:
                             raise ProjectValidationError("规则校准范围不能为空")
                         if "description" in rule:

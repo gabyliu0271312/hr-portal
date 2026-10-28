@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
+import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
 import type { PerformanceProjectFlowRule } from '@/api/performance'
 import { CALIBRATOR_RELATION_OPTIONS } from './performanceConditionFields'
 
-const condition = (field: 'employee' | 'calibrator_relation', values: string[] = []) => ({ field, operator: 'INCLUDE' as const, values })
+const condition = (field: 'department' | 'employee' | 'hire_date' | 'calibrator_relation', values: string[] = [], operator: 'INCLUDE' | 'EXCLUDE' | 'before' | 'not_before' | 'after' | 'not_after' = field === 'hire_date' ? 'before' : 'INCLUDE') => ({ field, operator, values })
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceCalibrationConditionGroup', () => {
@@ -47,13 +50,30 @@ describe('PerformanceCalibrationConditionGroup', () => {
     wrapper.unmount()
   })
 
-  it('clears stale values when changing fields', async () => {
+  it('uses the standard organization, person, and hire-date controls for scope fields', async () => {
+    const organizationTree = [{ value: '集团', label: '集团', level: 1, children: [] }]
     const wrapper = mount(PerformanceCalibrationConditionGroup, {
-      props: { modelValue: { conditions: [condition('employee', ['E1'])] }, title: '条件组 1', fieldLabel: '校准人', fieldOptions: [{ value: 'employee', label: '人员' }, { value: 'calibrator_relation', label: '与校准人关系' }] },
+      props: {
+        modelValue: { conditions: [condition('department')] },
+        title: '条件组 1', fieldLabel: '校准范围',
+        fieldOptions: [{ value: 'department', label: '部门' }, { value: 'employee', label: '人员' }, { value: 'hire_date', label: '入职日期' }],
+        valueOptions: [{ value: 'E1', label: '员工 E1' }], organizationTree, hireDateRange: { min: '2025-01-01', max: '2026-01-01' },
+      },
     })
-    wrapper.findAllComponents({ name: 'PerformanceSearchSelect' })[0].vm.$emit('update:modelValue', 'calibrator_relation')
-    await wrapper.vm.$nextTick()
-    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('calibrator_relation')] })
+    expect(wrapper.getComponent(PerformanceOrganizationSelect).props('nodes')).toEqual(organizationTree)
+    wrapper.findAllComponents({ name: 'PerformanceSearchSelect' })[0].vm.$emit('update:modelValue', 'employee')
+    await wrapper.setProps({ modelValue: wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any })
+    expect(wrapper.getComponent(PerformancePersonSelect).props('options')).toEqual([{ value: 'E1', label: '员工 E1' }])
+    wrapper.findAllComponents({ name: 'PerformanceSearchSelect' })[0].vm.$emit('update:modelValue', 'hire_date')
+    const hireDateModel = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+    expect(hireDateModel).toEqual({ conditions: [condition('hire_date')] })
+    await wrapper.setProps({ modelValue: hireDateModel })
+    expect(wrapper.getComponent(PerformanceDateTimeField).props()).toMatchObject({ dateOnly: true, initialDate: '2025-01-01' })
+    expect(wrapper.findAllComponents({ name: 'PerformanceSearchSelect' })[1].props('options')).toEqual([
+      { value: 'before', label: '早于' }, { value: 'not_before', label: '不早于' }, { value: 'after', label: '晚于' }, { value: 'not_after', label: '不晚于' },
+    ])
+    wrapper.getComponent(PerformanceDateTimeField).vm.$emit('update:modelValue', '2026-01-15')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ conditions: [condition('hire_date', ['2026-01-15'])] })
   })
 })
 

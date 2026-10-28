@@ -40,7 +40,7 @@
         <h3 id="scope-title" class="calibration-rule-section__title"><span class="required-mark">*</span>校准范围</h3>
         <div class="calibration-radio-group calibration-radio-group--vertical" role="radiogroup" aria-label="校准范围">
           <label><input v-model="draft.scope_mode" type="radio" value="PROJECT_ALL" /> <span>项目全员</span></label>
-          <label><input v-model="draft.scope_mode" type="radio" value="RULE" /> <span>按指定规则校准</span></label>
+          <label><input v-model="draft.scope_mode" type="radio" value="RULE" /> <span>按指定校准规则</span></label>
         </div>
         <template v-if="draft.scope_mode === 'RULE'">
           <template v-for="(group, groupIndex) in draft.scope_groups" :key="groupIndex">
@@ -49,8 +49,11 @@
               :title="`条件组 ${groupIndex + 1}`"
               field-label="校准范围"
               :field-options="scopeFieldOptions"
-              :value-options="scopeOptions"
+              :value-options="peopleOptions"
+              :organization-tree="organizationTree"
+              :hire-date-range="hireDateRange"
               :removable="draft.scope_groups.length > 1"
+              @open-options="emit('open-options')"
               @update:model-value="validationError = ''"
               @remove="removeScopeGroup(groupIndex)"
             />
@@ -89,11 +92,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceCalibrationConditionGroup as CalibrationGroup, PerformanceProjectFlowRule } from '@/api/performance'
+import type { PerformanceCalibrationConditionGroup as CalibrationGroup, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule } from '@/api/performance'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
-import { PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
+import { HIRE_DATE_OPERATOR_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions, validHireDateCondition } from './performanceConditionFields'
 import PerformanceSwitch from './PerformanceSwitch.vue'
 
 type PeopleOption = { value: string; label: string }
@@ -111,15 +114,16 @@ const props = withDefaults(defineProps<{
   rule?: PerformanceProjectFlowRule | null
   mode?: 'create' | 'edit'
   peopleOptions?: PeopleOption[]
+  organizationTree?: PerformanceHrbpOrganizationNode[]
+  hireDateRange?: { min: string | null; max: string | null }
   saving?: boolean
   saveError?: string
-}>(), { rule: null, mode: 'create', peopleOptions: () => [], saving: false, saveError: '' })
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [rule: PerformanceProjectFlowRule]; cancel: [] }>()
+}>(), { rule: null, mode: 'create', peopleOptions: () => [], organizationTree: () => [], saving: false, saveError: '' })
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; confirm: [rule: PerformanceProjectFlowRule]; cancel: []; 'open-options': [] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const subjectFieldOptions = [{ value: 'employee', label: PERFORMANCE_CONDITION_FIELDS.employee.label }]
-const scopeFieldOptions = [{ value: 'calibrator_relation', label: PERFORMANCE_CONDITION_FIELDS.calibrator_relation.label }]
+const scopeFieldOptions = ['department', 'employee', 'hire_date', 'calibrator_relation'].map(value => ({ value, label: PERFORMANCE_CONDITION_FIELDS[value as keyof typeof PERFORMANCE_CONDITION_FIELDS].label }))
 const peopleOptions = computed(() => conditionValueOptions('employee', { people: props.peopleOptions }))
-const scopeOptions = conditionValueOptions('calibrator_relation', {})
 const draft = ref<RuleDraft>(createDraft(props.rule))
 const validationError = ref('')
 const subjectDirty = ref(false)
@@ -143,13 +147,15 @@ function removeSubjectGroup(index: number) { if (draft.value.subject_groups.leng
 function addScopeGroup() { validationError.value = ''; draft.value.scope_groups.push(createGroup('calibrator_relation')) }
 function removeScopeGroup(index: number) { if (draft.value.scope_groups.length > 1) { validationError.value = ''; draft.value.scope_groups.splice(index, 1) } }
 function validGroups(groups: CalibrationGroup[]) {
-  return groups.length > 0 && groups.every(group => group.conditions.length > 0 && group.conditions.every(condition => condition.values.length > 0))
+  return groups.length > 0 && groups.every(group => group.conditions.length > 0 && group.conditions.every(condition => condition.field === 'hire_date'
+    ? validHireDateCondition(condition.operator, condition.values)
+    : condition.values.length > 0 && !HIRE_DATE_OPERATOR_OPTIONS.some(option => option.value === condition.operator)))
 }
 function toRule(): PerformanceProjectFlowRule {
   const subjectCondition = draft.value.subject_groups[0]?.conditions[0]
   return {
     subject_type: 'PERSON',
-    operator: subjectCondition?.operator || 'INCLUDE',
+    operator: subjectCondition?.operator === 'EXCLUDE' ? 'EXCLUDE' : 'INCLUDE',
     scope: draft.value.scope_mode,
     allow_authorize: draft.value.allow_authorize,
     ...(!props.rule || subjectDirty.value || props.rule.subject_groups ? { subject_source: draft.value.subject_source, subject_groups: clone(draft.value.subject_groups) } : {}),

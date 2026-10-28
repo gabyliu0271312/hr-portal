@@ -123,6 +123,7 @@
   - 验证与部署证据（2026-10-20）：前端筛选/日期/字段目录 14 项、周期页面 26 项通过；本地生产构建通过。Docker Compose 对 frontend/backend 构建并以 `up -d --no-deps --force-recreate frontend backend` 替换，未重建 db/gotenberg 或删除数据卷。运行前端镜像 `sha256:ab5a9c007baeaf161af63b08501dfb27b5e8d1df0c8b4c1910a785df0c51a05a`，后端 `sha256:e292ae29c499e67a3a0ee2a01d91b21bda93d9b6d68ea30a4880b3f6af7ab54e`，均 running、0 restart。新后端容器执行 `pytest -q tests/test_performance_projects.py tests/test_performance_cycles.py`：174 passed，1 项既有 python_multipart 弃用警告；`nginx -t` 通过，`http://127.0.0.1:8080/api/v1/health` 返回 200、db.ok=true，未认证 evaluator-options 返回 401。迁移 current/head 均为 `0259_performance_result_openings`，无新增迁移。重启初期短暂 502，后端启动完成后最终复查恢复正常。
   - UI 证据与验收限制：独立截图 `../../ui-blueprints/PM-T003-I07-F01-implemented-reviewee-filters.png`；替换后 8080 前端实际页面以隔离模拟 API 验证按需选项请求 1 次、日期格 42 个、无时间列、无 pageerror。真实鉴权 API→数据库保存/重开仍未验收，因此 F01 与 I07 保持 `[ ]`，容器部署成功不等同于完整业务验收；共享工作树的 PM-T007/授权配置前端壳一并构建，不据此宣称其真实授权 API/持久化已完成。
   - 完成定义：实现、边界/权限测试、构建、UI 和持久化证据齐全后再勾选；I07 其余未验收项不随子任务勾选。
+  - 校准范围筛选增强（2026-10-28）：既有“按指定规则校准”范围新增部门、人员、入职日期三类条件，分别复用 `PerformanceOrganizationSelect`、`PerformancePersonSelect`、`PerformanceDateTimeField`；字段值沿用周期冻结快照，支持 `INCLUDE/EXCLUDE` 及日期 `before/not_before/after/not_after`，后端保存/回读并在校准任务范围解析时按部门、人员、入职日期求交。前端校准组件与项目设置回归 37 项通过，后端项目校准聚焦 66 项通过，前端生产构建通过；完整项目测试 256 passed、1 failed（并行工作树既有锁定快照测试在花名册契约错误处失败），未勾选 I07。
 
 - [ ] PM-T003-I02-F01 周期评估设置接入已启用绩效模板并持久化周期关联
   - 范围：周期新建/编辑页真实读取绩效模板，过滤为 `active`，两行展示名称和说明，并通过周期 API 的 `template_id` 保存和回填。

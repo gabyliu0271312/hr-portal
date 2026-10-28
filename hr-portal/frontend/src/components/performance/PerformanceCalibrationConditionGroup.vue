@@ -10,16 +10,34 @@
       <div class="calibration-condition-group__row">
         <div class="calibration-condition-group__fields">
         <div class="calibration-select"><PerformanceSearchSelect :model-value="modelValue.conditions[index].field" :options="optionFields" selection-style="plain" :aria-label="`${fieldLabel}类型`" @update:model-value="updateField(index, $event)" /></div>
-        <div class="calibration-select calibration-select--operator"><PerformanceSearchSelect :model-value="modelValue.conditions[index].operator" :options="operatorOptions" selection-style="plain" aria-label="操作" @update:model-value="updateOperator(index, $event)" /></div>
+        <div class="calibration-select calibration-select--operator"><PerformanceSearchSelect :model-value="modelValue.conditions[index].operator" :options="operatorOptions(modelValue.conditions[index].field)" selection-style="plain" aria-label="操作" @update:model-value="updateOperator(index, $event)" /></div>
         <div class="calibration-value-select">
+          <PerformanceOrganizationSelect
+            v-if="modelValue.conditions[index].field === 'department'"
+            :model-value="modelValue.conditions[index].values"
+            :nodes="organizationTree"
+            :aria-label="`${fieldLabel}条件值`"
+            @open="emit('open-options')"
+            @update:model-value="updateValues(index, $event)"
+          />
           <PerformanceSearchSelect
-            v-if="modelValue.conditions[index].field === 'calibrator_relation'"
+            v-else-if="modelValue.conditions[index].field === 'calibrator_relation'"
             :model-value="modelValue.conditions[index].values"
             :options="conditionValueOptions('calibrator_relation', {})"
             multiple
             placeholder="请选择与校准人的关系"
             :aria-label="`${fieldLabel}条件值`"
             @update:model-value="updateValues(index, $event)"
+          />
+          <PerformanceDateTimeField
+            v-else-if="modelValue.conditions[index].field === 'hire_date'"
+            :model-value="modelValue.conditions[index].values[0] || ''"
+            date-only
+            :initial-date="hireDateRange?.min || hireDateRange?.max || undefined"
+            placeholder="请选择日期"
+            :aria-label="`${fieldLabel}条件值`"
+            @open="emit('open-options')"
+            @update:model-value="updateValues(index, $event ? [$event] : [])"
           />
           <PerformancePersonSelect
             v-else
@@ -28,6 +46,7 @@
             multiple
             placeholder="请输入"
             :aria-label="`${fieldLabel}条件值`"
+            @open="emit('open-options')"
             @update:model-value="updateValues(index, $event)"
           />
         </div>
@@ -45,12 +64,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { PerformanceCalibrationCondition, PerformanceCalibrationConditionGroup } from '@/api/performance'
+import type { PerformanceHrbpOrganizationNode, PerformanceCalibrationCondition, PerformanceCalibrationConditionGroup } from '@/api/performance'
 import PerformanceConditionLogicGroup from './PerformanceConditionLogicGroup.vue'
+import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
+import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
-import { CALIBRATOR_RELATION_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions } from './performanceConditionFields'
+import { CALIBRATOR_RELATION_OPTIONS, HIRE_DATE_OPERATOR_OPTIONS, conditionValueOptions } from './performanceConditionFields'
 
 type Option = { value: string; label: string }
 const props = withDefaults(defineProps<{
@@ -59,23 +80,29 @@ const props = withDefaults(defineProps<{
   fieldLabel: string
   fieldOptions: Option[]
   valueOptions?: Option[]
+  organizationTree?: PerformanceHrbpOrganizationNode[]
+  hireDateRange?: { min: string | null; max: string | null }
   count?: number
   countSuffix?: string
   removable?: boolean
-}>(), { valueOptions: () => [], count: 0, countSuffix: '', removable: false })
-const emit = defineEmits<{ 'update:modelValue': [value: PerformanceCalibrationConditionGroup]; remove: [] }>()
-const operatorOptions = [{ value: 'INCLUDE', label: '包含' }, { value: 'EXCLUDE', label: '不包含' }]
+}>(), { valueOptions: () => [], organizationTree: () => [], count: 0, countSuffix: '', removable: false })
+const emit = defineEmits<{ 'update:modelValue': [value: PerformanceCalibrationConditionGroup]; remove: []; 'open-options': [] }>()
+const includeOperatorOptions = [{ value: 'INCLUDE', label: '包含' }, { value: 'EXCLUDE', label: '不包含' }]
+const operatorOptions = (field: PerformanceCalibrationCondition['field']) => field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : includeOperatorOptions
 const countText = computed(() => `共 ${props.count} 人${props.countSuffix}`)
-const optionFields = computed(() => props.fieldOptions.map(option => ({ value: option.value, label: PERFORMANCE_CONDITION_FIELDS[option.value as PerformanceCalibrationCondition['field']].label })))
+const optionFields = computed(() => props.fieldOptions)
 function updateCondition(index: number, patch: Partial<PerformanceCalibrationCondition>) {
   const conditions = props.modelValue.conditions.map((condition, conditionIndex) => conditionIndex === index ? { ...condition, ...patch } : condition)
   emit('update:modelValue', { ...props.modelValue, conditions })
 }
 function updateField(index: number, value: string | string[] | null) {
-  updateCondition(index, { field: String(value || 'employee') as PerformanceCalibrationCondition['field'], values: [] })
+  const field = String(value || 'employee') as PerformanceCalibrationCondition['field']
+  updateCondition(index, { field, operator: field === 'hire_date' ? 'before' : 'INCLUDE', values: [] })
 }
 function updateOperator(index: number, value: string | string[] | null) {
-  updateCondition(index, { operator: String(value || 'INCLUDE') as PerformanceCalibrationCondition['operator'] })
+  const field = props.modelValue.conditions[index].field
+  const operator = String(value || (field === 'hire_date' ? 'before' : 'INCLUDE')) as PerformanceCalibrationCondition['operator']
+  if (operatorOptions(field).some(option => option.value === operator)) updateCondition(index, { operator })
 }
 function updateValues(index: number, value: string | string[] | null) {
   const values = Array.isArray(value) ? value : value ? [value] : []

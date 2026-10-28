@@ -1,3 +1,4 @@
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -603,8 +604,9 @@ def test_project_calibration_rule_groups_round_trip_without_mutating_input():
         ],
         "scope_groups": [
             {"conditions": [
-                {"field": "calibrator_relation", "operator": "INCLUDE", "values": ["ALL_SUBORDINATES"]},
-                {"field": "calibrator_relation", "operator": "EXCLUDE", "values": ["DIRECT_SUBORDINATES"]},
+                {"field": "department", "operator": "INCLUDE", "values": [" 新疆事业部 "]},
+                {"field": "employee", "operator": "EXCLUDE", "values": ["E003"]},
+                {"field": "hire_date", "operator": "not_before", "values": ["2026-01-01"]},
             ]},
             {"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": ["INDIRECT_SUBORDINATES"]}]},
         ],
@@ -616,6 +618,11 @@ def test_project_calibration_rule_groups_round_trip_without_mutating_input():
         {"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001", "E002"]},
                         {"field": "employee", "operator": "EXCLUDE", "values": ["E003"]}]},
         rule["subject_groups"][1],
+    ], "scope_groups": [
+        {"conditions": [{"field": "department", "operator": "INCLUDE", "values": ["新疆事业部"]},
+                        {"field": "employee", "operator": "EXCLUDE", "values": ["E003"]},
+                        {"field": "hire_date", "operator": "not_before", "values": ["2026-01-01"]}]},
+        rule["scope_groups"][1],
     ]}
     assert rule["subject_groups"][0]["conditions"][0]["values"][0] == " E001 "
     assert PerformanceProjectService._validate_flow_settings(normalized) == normalized
@@ -639,7 +646,6 @@ def test_project_calibration_legacy_rule_keeps_four_fields():
     {"subject_groups": []},
     {"subject_groups": [{"conditions": []}]},
     {"scope": "RULE", "scope_groups": [{"conditions": []}]},
-    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"]}]}]},
     {"subject_groups": [{"conditions": [{"field": "department", "operator": "INCLUDE", "values": ["研发"]}]}]},
     {"subject_groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E001"]}]}]},
     {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": []}]}]},
@@ -650,7 +656,10 @@ def test_project_calibration_legacy_rule_keeps_four_fields():
     {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001", ""]}]}]},
     {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["x" * 129]}]}]},
     {"subject_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"], "extra": 1}]}]},
-    {"scope_groups": [{"conditions": [{"field": "employee", "operator": "INCLUDE", "values": ["E001"]}]}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "hire_date", "operator": "INCLUDE", "values": ["2026-01-01"]}]}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "hire_date", "operator": "before", "values": ["bad-date"]}]}]},
+    {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "department", "operator": "before", "values": ["新疆"]}]}]},
+    {"scope_groups": [{"conditions": [{"field": "unknown", "operator": "INCLUDE", "values": ["E001"]}]}]},
     {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": [""]}]}]},
     {"scope": "RULE", "scope_groups": [{"conditions": [{"field": "calibrator_relation", "operator": "INCLUDE", "values": ["HRBP"]}]}]},
     {"subject_source": "IMPORT"},
@@ -3492,7 +3501,20 @@ def test_calibration_phase_times_derive_window_instead_of_trusting_stale_node_da
 
 
 def _calibration_people():
-    return {key: SimpleNamespace(employee_no=key, direct_supervisor_employee_no=manager) for key, manager in [("C1", None), ("M1", "C1"), ("E1", "M1"), ("E2", "C1"), ("E3", None)]}
+    return {
+        key: SimpleNamespace(
+            employee_no=key,
+            direct_supervisor_employee_no=manager,
+            company_org="集团",
+            department="新疆事业部" if key in {"E1", "E2"} else "华东事业部",
+            department_2="研发部" if key == "E1" else "销售部",
+            department_3=None,
+            department_4=None,
+            department_5=None,
+            hire_date={"E1": date(2026, 2, 1), "E2": date(2025, 12, 1)}.get(key),
+        )
+        for key, manager in [("C1", None), ("M1", "C1"), ("E1", "M1"), ("E2", "C1"), ("E3", None)]
+    }
 
 
 def _calibration_rules(scope="RULE", values=None):
@@ -3507,6 +3529,18 @@ def test_calibration_scope_uses_selected_project_members_and_snapshot_relationsh
     assert {item["employee_no"] for item in result["phases"][0]["assignments"]} == expected
     assert result["assigned_count"] == len(expected)
     assert result["unassigned_count"] == 3 - len(expected)
+
+
+def test_calibration_scope_supports_department_employee_and_hire_date_snapshot_filters():
+    from app.performance.calibration_service import resolve_calibration
+    config = _calibration_rules()
+    config["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0]["scope_groups"] = [{"conditions": [
+        {"field": "department", "operator": "INCLUDE", "values": ["集团/新疆事业部"]},
+        {"field": "employee", "operator": "EXCLUDE", "values": ["E2"]},
+        {"field": "hire_date", "operator": "not_before", "values": ["2026-01-01"]},
+    ]}]
+    result = resolve_calibration({"node_id": "calibration-1"}, config, _calibration_people(), ["E1", "E2", "E3"])
+    assert {item["employee_no"] for item in result["phases"][0]["assignments"]} == {"E1"}
 
 
 def test_calibration_project_all_deduplicates_overlapping_rules_and_phases():

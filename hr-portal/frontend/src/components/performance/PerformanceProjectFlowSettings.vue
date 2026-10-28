@@ -94,6 +94,9 @@
       :mode="ruleEditor.ruleIndex === null ? 'create' : 'edit'"
       :rule="ruleEditor.rule"
       :people-options="peopleOptions"
+      :organization-tree="organizationTree"
+      :hire-date-range="hireDateRange"
+      @open-options="emit('open-options')"
       :saving="calibrationSaving"
       :save-error="calibrationSaveError"
       @confirm="saveRuleEditor"
@@ -106,7 +109,7 @@
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import { createCalibrationPhaseId, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { PerformanceCalibrationAssignment, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
+import type { PerformanceCalibrationAssignment, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
 import { performanceProjectApi } from '@/api/performance'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
@@ -131,6 +134,8 @@ const props = withDefaults(defineProps<{
   nodes: PerformanceWorkflowNode[]
   modelValue?: PerformanceProjectFlowSettings
   peopleOptions?: PeopleOption[]
+  organizationTree?: PerformanceHrbpOrganizationNode[]
+  hireDateRange?: { min: string | null; max: string | null }
   evaluatedCount?: number
   projectId?: number | null
   projectPayload?: PerformanceProjectPayload | null
@@ -139,8 +144,8 @@ const props = withDefaults(defineProps<{
   manualResultOpeningEnabled?: boolean
   manualOpeningSettingLoaded?: boolean
   showOpeningError?: boolean
-}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
-const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSettings] }>()
+}>(), { modelValue: () => ({ node_settings: {}, node_times: {} }), peopleOptions: () => [], organizationTree: () => [], evaluatedCount: 0, loading: false, error: '', showOpeningError: false, manualResultOpeningEnabled: true, manualOpeningSettingLoaded: true })
+const emit = defineEmits<{ 'update:modelValue': [value: PerformanceProjectFlowSettings]; 'open-options': [] }>()
 
 const draft = ref<PerformanceProjectFlowSettings>(cloneSettings(props.modelValue))
 const lastEmitted = ref(JSON.stringify(draft.value))
