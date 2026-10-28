@@ -13,7 +13,13 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceDistributionCondition]; remove: [] }>()
 
 const controlOptions = [{ value: 'HARD', label: '强制' }, { value: 'SOFT', label: '建议' }]
-const operatorOptions = [{ value: 'GTE', label: '大于等于' }, { value: 'LTE', label: '小于等于' }]
+const operatorOptions = [
+  { value: 'EQ', label: '等于' },
+  { value: 'LT', label: '小于' },
+  { value: 'LTE', label: '小于等于' },
+  { value: 'GT', label: '大于' },
+  { value: 'GTE', label: '大于等于' },
+]
 const unitOptions = [{ value: 'PERCENT', label: '%' }, { value: 'PEOPLE', label: '人' }]
 
 function update(patch: Partial<PerformanceDistributionCondition>) {

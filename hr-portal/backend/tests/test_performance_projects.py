@@ -502,6 +502,14 @@ def _distribution_rule(assessment_item_id="grade", grade_codes=None):
     }
 
 
+def test_project_distribution_accepts_all_comparison_operators():
+    for operator in ("EQ", "LT", "LTE", "GT", "GTE"):
+        rule = _distribution_rule()
+        rule["conditions"][0]["operator"] = operator
+        flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": {"mode": "UNIFIED", "rules": [rule], "scope_configured": False}, "phases": []}}}}
+        assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"]["rules"][0]["conditions"][0]["operator"] == operator
+
+
 def test_project_distribution_rules_round_trip_and_reject_duplicate_assessment_item():
     distribution = {"mode": "UNIFIED", "rules": [_distribution_rule()], "scope_configured": False}
     flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": distribution, "phases": []}}}}

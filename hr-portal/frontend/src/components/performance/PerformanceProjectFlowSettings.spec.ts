@@ -49,6 +49,19 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.find('.reconsideration-settings').exists()).toBe(true)
   })
 
+  it('renders distribution controls inline without an empty-state surface', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], distributionAssessmentOptions: [{ id: 'grade', label: '绩效等级', grade_options: [{ value: 'A', label: 'A' }] }] } })
+    const heading = wrapper.get('.calibration-distribution-heading')
+    expect(heading.text()).toBe('绩效结果强制 / 建议分布')
+    expect(heading.get('[role="switch"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('.distribution-settings').exists()).toBe(false)
+    await heading.get('[role="switch"]').trigger('click')
+    expect(wrapper.get('[aria-label="分布规则配置模式"]').classes()).toContain('performance-radio-group--horizontal')
+    expect(wrapper.text()).not.toContain('暂未配置分布规则')
+    expect(wrapper.find('.distribution-rule-summary__row').exists()).toBe(false)
+    expect(wrapper.get('.distribution-add-rule').text()).toBe('＋ 添加分布规则')
+  })
+
   it('keeps distribution rules when disabled and allows the scope mode draft placeholder', async () => {
     const initial = { node_settings: { 'calibration-1': { calibration: {
       force_distribution_enabled: true,
@@ -70,7 +83,7 @@ describe('PerformanceProjectFlowSettings', () => {
   it('opens the distribution drawer and adds a unified rule', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], distributionAssessmentOptions: [{ id: 'grade', label: '绩效等级', grade_options: [{ value: 'A', label: 'A' }] }] } })
     await wrapper.get('[aria-label="绩效结果强制建议分布"]').trigger('click')
-    await wrapper.get('.distribution-rule-summary__header button').trigger('click')
+    await wrapper.get('.distribution-add-rule').trigger('click')
     expect(document.body.querySelector('[aria-label="添加分布规则"]')).not.toBeNull()
   })
 

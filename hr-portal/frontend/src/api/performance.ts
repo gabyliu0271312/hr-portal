@@ -1293,7 +1293,7 @@ export interface PerformanceCalibrationAssignment {
 
 export type PerformanceDistributionMode = 'UNIFIED' | 'BY_CALIBRATION_SCOPE'
 export type PerformanceDistributionControlMode = 'HARD' | 'SOFT'
-export type PerformanceDistributionOperator = 'GTE' | 'LTE'
+export type PerformanceDistributionOperator = 'EQ' | 'LT' | 'LTE' | 'GT' | 'GTE'
 export type PerformanceDistributionUnit = 'PERCENT' | 'PEOPLE'
 export type PerformanceDistributionRounding = 'ROUND' | 'CEIL' | 'FLOOR'
 export interface PerformanceDistributionCondition {

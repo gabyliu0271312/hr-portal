@@ -176,7 +176,7 @@
   - API/database/permission/external-system impact：扩展既有模板流程 GET 响应和项目 JSONB；无迁移、权限变化、外部副作用。项目保存与审计同事务，启动失败不写快照或任务。
   - Test contract：Given 模板含评级项、已保存规则或范围占位；When 添加编辑删除、关闭重开、PATCH/GET、启动；Then 候选真实、规则回显、重复/非法值拒绝、关闭不丢规则、范围未完成与统一空规则均阻止启动。测试文件为新组件 spec、现有流程/页面 spec 和 `backend/tests/test_performance_projects.py`；执行定向 Vitest、后端项目全文件与 `npm run build`。
   - Acceptance：成功/校验失败/旧数据兼容/启动状态边界/模板候选/保存回读/关闭恢复/构建与回归分别记录。无新 migration，回滚为停止未发布代码。
-  - Evidence（2026-10-28，本地）：后端分布/接口定向 5/5 通过；完整 `test_performance_projects.py` 263 passed、4 个既有 opt-in skipped、1 个既有弃用 warning。前端新抽屉与流程页 2 文件 23/23 通过。`npm run build` 首次通过；最终复跑被并行 `PerformanceReminderPanel.spec.ts:97` 多余结束括号阻断，本卡未修改该文件；单独 Vite 生产资源构建 3407 modules transformed 并成功输出。`git diff --check` 本卡目标文件通过。实际 UI PNG、真实鉴权 PATCH/GET/启动 API 与数据库回读尚未执行，因此任务保持 `[ ]`。
+  - Evidence（2026-10-28，本地）：首次实现后端分布/接口定向5/5通过、完整 `test_performance_projects.py` 263 passed/4个既有opt-in skipped；前端2文件23/23通过。用户修订布局与筛选口径后，前端分布抽屉/流程设置2文件25/25通过，后端分布规则7/7通过，`npm run build` 的vue-tsc与Vite生产构建通过（3407 modules transformed，仅既有VueUse PURE注释提示），目标文件 `git diff --check` 无错误。实际 UI PNG、真实鉴权 PATCH/GET/启动 API 与数据库回读尚未执行，因此任务保持 `[ ]`。
   - Blockers：运行时分布计算和按校准范围下一步是后续独立任务，不阻塞本卡配置与门禁；实际 UI PNG 和真实 API/SQL 证据尚未生成；正式整体类型构建等待并行测试语法错误解除后复跑。
   - Non-scope：分布执行、自动调整、软控制提示、强制豁免、范围配置下一步、历史重建、部署和提交推送。
   - Definition of done：配置、合同、启动拒绝、前后端测试、构建、实际 UI PNG 与保存/重开证据完成后，主代理才可勾选。

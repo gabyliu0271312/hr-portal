@@ -37,7 +37,8 @@ const selectableAssessments = computed(() => props.assessmentOptions.map(option 
   disabledReason: '该评估项已配置分布规则',
 })))
 const selectedAssessment = computed(() => props.assessmentOptions.find(option => option.id === draft.assessment_item_id))
-const gradeOptions = computed(() => selectedAssessment.value?.grade_options || [])
+const gradeOptions = computed(() => selectedAssessment.value?.grade_options.map(option => ({ value: option.value, label: option.value })) || [])
+const gradeCodes = computed(() => selectedAssessment.value?.grade_options.map(option => option.value) || [])
 const ruleInvalid = computed(() => submitted.value && draft.conditions.some(condition => !condition.grade_codes.length || condition.value <= 0 || (condition.unit === 'PERCENT' && condition.value > 100)))
 
 function emptyCondition(): PerformanceDistributionCondition {
@@ -72,6 +73,7 @@ watch(() => props.modelValue, value => { if (value) reset() })
     <form class="distribution-rule-form" novalidate @submit.prevent="submit">
       <PerformanceFormItem label="评估项" required :invalid="submitted && !draft.assessment_item_id" error-message="评估项为必填">
         <PerformanceAssessmentSelect :model-value="draft.assessment_item_id" label="" aria-label="分布评估项" placeholder="请选择" :options="selectableAssessments" :invalid="submitted && !draft.assessment_item_id" empty-text="暂无可配置的评级评估项" @update:model-value="setAssessment" />
+        <p v-if="selectedAssessment" class="distribution-assessment-summary">{{ selectedAssessment.label }}共{{ gradeCodes.length }}个评级结果：<span v-for="code in gradeCodes" :key="code">{{ code }}</span></p>
       </PerformanceFormItem>
 
       <PerformanceFormItem label="适用人数" required :invalid="submitted && draft.min_people_count < 0" error-message="适用人数不合法">
@@ -99,6 +101,7 @@ watch(() => props.modelValue, value => { if (value) reset() })
 
 <style scoped>
 .distribution-rule-form{display:flex;flex-direction:column;width:100%;min-width:0;padding:var(--spacing-5) var(--spacing-6);box-sizing:border-box;overflow:auto;color:var(--color-text-primary)}
+.distribution-assessment-summary{display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-1);margin:var(--spacing-2) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.distribution-assessment-summary span{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:var(--radius-sm);background:var(--performance-select-tag-background);color:var(--performance-select-tag-text)}
 .distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}
 .distribution-applicable-count>span{flex:0 0 120px;height:var(--performance-control-height);padding:4px var(--performance-select-padding-x);box-sizing:border-box;border:1px solid var(--performance-field-border);border-radius:var(--performance-control-radius);background:var(--color-bg-card);font-size:var(--font-size-md);line-height:22px}
 .distribution-condition-list{display:flex;flex-direction:column;gap:var(--spacing-2);margin-bottom:var(--spacing-2)}
