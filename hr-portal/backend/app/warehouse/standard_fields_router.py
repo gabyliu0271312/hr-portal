@@ -23,6 +23,7 @@ CATALOG_MENU = "warehouse.standard_fields.catalog"
 
 @router.get("", response_model=StandardFieldListOut)
 async def list_fields(
+    entity_id: int | None = Query(None, gt=0),
     keyword: str | None = Query(None, min_length=1, max_length=128),
     is_active: bool | None = Query(None),
     offset: int = Query(0, ge=0),
@@ -30,7 +31,7 @@ async def list_fields(
     user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_standard_fields(db, keyword, is_active, offset, limit)
+    return await service.list_standard_fields(db, keyword, is_active, offset, limit, user=user, entity_id=entity_id)
 
 
 @router.get("/{field_id}", response_model=StandardFieldDetailOut)
@@ -39,7 +40,7 @@ async def get_field(
     user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.read_standard_field(db, field_id)
+    return await service.read_standard_field(db, field_id, user=user)
 
 
 @router.post("", response_model=StandardFieldDetailOut, status_code=201)

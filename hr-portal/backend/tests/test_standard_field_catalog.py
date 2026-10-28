@@ -2627,7 +2627,7 @@ async def test_value_domain_non_enum_cannot_bypass_direct_api(monkeypatch, opera
     from app.warehouse.schemas import StandardFieldCreateIn, StandardFieldUpdateIn
     from app.warehouse.service import standard_fields as service
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
-    monkeypatch.setattr(service, "_field", AsyncMock(return_value=SimpleNamespace(id=1, revision=0, is_active=True)))
+    monkeypatch.setattr(service, "_field", AsyncMock(return_value=SimpleNamespace(id=1, field_code="test", entity_id=None, revision=0, is_active=True)))
     data = _definition_payload(value_domain={"items": [{"code": "a", "name": "Manual"}]})
     with pytest.raises(HTTPException) as error:
         if operation == "create":

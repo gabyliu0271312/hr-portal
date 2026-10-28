@@ -68,6 +68,7 @@ MENU_TREE: list[dict] = [
                 "label": "参数配置",
                 "icon": "Operation",
                 "children": [
+                    {"code": "system.master_entities", "label": "主数据定义", "icon": "Collection"},
                     {"code": "system.compensation_caps", "label": "补偿金规则维护", "icon": "Money"},
                     {"code": "system.document_templates", "label": "模板维护", "icon": "Document"},
                     {"code": "system.ai_config", "label": "AI 基础配置", "icon": "Cpu"},

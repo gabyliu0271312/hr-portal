@@ -22,6 +22,7 @@ from app.users import models as _users_models  # noqa: F401
 from app.field_category import models as _field_cat_models  # noqa: F401
 from app.datasources import models as _datasources_models  # noqa: F401
 from app.data import models as _data_models  # noqa: F401
+from app.master_data import models as _master_data_models  # noqa: F401
 from app.reports import models as _reports_models  # noqa: F401
 from app.scheduler import models as _scheduler_models  # noqa: F401
 from app.scopes import models as _scopes_models  # noqa: F401

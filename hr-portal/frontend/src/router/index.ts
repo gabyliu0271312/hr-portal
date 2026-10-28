@@ -63,6 +63,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '字段管理', menuCode: 'system.field_columns' },
       },
       {
+        path: 'system/master-entities',
+        name: 'MasterDataEntities',
+        component: () => import('@/views/system/MasterDataEntities.vue'),
+        meta: { label: '主数据定义', menuCode: 'system.master_entities' },
+      },
+      {
         path: 'system/compensation-caps',
         name: 'SystemCompensationCaps',
         component: () => import('@/views/system/CompensationCaps.vue'),

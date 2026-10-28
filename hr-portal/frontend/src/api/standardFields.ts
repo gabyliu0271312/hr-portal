@@ -18,6 +18,8 @@ export interface StandardFieldBindingCandidateParams {
 
 export interface StandardFieldSummary {
   id: number
+  entity_id?: number | null
+  entity_name?: string | null
   field_code: string
   field_name: string
   business_definition: string
@@ -80,6 +82,7 @@ export interface StandardFieldListResponse {
 }
 
 export interface StandardFieldDefinitionPayload {
+  entity_id?: number | null
   field_code?: string
   field_name: string
   business_definition: string
@@ -90,7 +93,7 @@ export interface StandardFieldDefinitionPayload {
 }
 
 export const standardFieldsApi = {
-  list(params: { keyword?: string; is_active?: boolean; offset?: number; limit?: number } = {}) {
+  list(params: { entity_id?: number; keyword?: string; is_active?: boolean; offset?: number; limit?: number } = {}) {
     return api.get<StandardFieldListResponse>('/warehouse/standard-fields', { params }).then(r => r.data)
   },
   get(id: number) {

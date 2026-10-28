@@ -2,9 +2,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from app.core.deps import user_has_op
+from app.master_data.access import ENTITY_MENU, require_entity
+from app.master_data.models import EntityDefinition
 from app.data.column_roles import is_technical_column
 from app.data.models import StandardField, StandardFieldBinding, StandardFieldCategory
 from app.field_category.models import FieldCategory
@@ -32,13 +35,18 @@ async def _transaction(db):
         raise
 
 
-async def _field(db, field_id, lock=False):
+async def _field(db, field_id, lock=False, *, user=None, op="V"):
     stmt = select(StandardField).where(StandardField.id == field_id)
     if lock:
         stmt = stmt.with_for_update().execution_options(populate_existing=True)
     field = (await db.execute(stmt)).scalar_one_or_none()
     if field is None:
         _error(404, "standard_field_not_found", "标准字段不存在")
+    if getattr(field, "entity_id", None) is not None:
+        if user is None or not await user_has_op(user, db, "warehouse.standard_fields.catalog", "V"):
+            _error(403, "standard_field_view_denied", "无标准字段查看权限")
+        entity = await require_entity(db, field.entity_id, user, op, active=op != "V")
+        field._entity_name = entity.name
     return field
 
 
@@ -55,14 +63,23 @@ async def _category_map(db, field_ids):
 def _summary(field, categories):
     return StandardFieldSummaryOut(
         id=field.id, field_code=field.field_code, field_name=field.display_name,
+        entity_id=getattr(field, "entity_id", None), entity_name=getattr(field, "_entity_name", None),
         business_definition=field.business_definition, data_type=field.data_type,
         value_domain=field.value_domain, category_ids=categories,
         revision=field.revision, is_active=field.is_active,
     )
 
 
-async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit=50):
+async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit=50, *, user=None, entity_id=None):
     stmt = select(StandardField)
+    if entity_id is not None:
+        await require_entity(db, entity_id, user)
+        stmt = stmt.where(StandardField.entity_id == entity_id)
+    if user is not None and await user_has_op(user, db, ENTITY_MENU, "V"):
+        owned = select(EntityDefinition.id).where(EntityDefinition.owner_user_id == user.id)
+        stmt = stmt.where(or_(StandardField.entity_id.is_(None), StandardField.entity_id.in_(owned)))
+    else:
+        stmt = stmt.where(StandardField.entity_id.is_(None))
     if keyword:
         stmt = stmt.where(StandardField.field_code.icontains(keyword, autoescape=True)
             | StandardField.display_name.icontains(keyword, autoescape=True)
@@ -71,12 +88,17 @@ async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit
         stmt = stmt.where(StandardField.is_active == is_active)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     fields = (await db.execute(stmt.order_by(StandardField.field_code).offset(offset).limit(limit))).scalars().all()
+    ids = {field.entity_id for field in fields if getattr(field, "entity_id", None) is not None}
+    if ids:
+        names = dict((await db.execute(select(EntityDefinition.id, EntityDefinition.name).where(EntityDefinition.id.in_(ids)))).all())
+        for field in fields:
+            field._entity_name = names.get(field.entity_id)
     categories = await _category_map(db, [field.id for field in fields])
     return StandardFieldListOut(total=total, items=[_summary(field, categories.get(field.id, [])) for field in fields])
 
 
-async def read_standard_field(db, field_id):
-    field = await _field(db, field_id)
+async def read_standard_field(db, field_id, *, user=None):
+    field = await _field(db, field_id, user=user)
     categories = await _category_map(db, [field_id])
     bindings = (await db.execute(select(StandardFieldBinding).where(
         StandardFieldBinding.standard_field_id == field_id,
@@ -85,13 +107,35 @@ async def read_standard_field(db, field_id):
         bindings=[StandardFieldBindingRefOut.model_validate(binding) for binding in bindings])
 
 
-async def _validate_definition(db, payload):
+async def _validate_definition(db, payload, field_code=None):
+    if field_code in {"employee_no", "mobile_phone", "bank_card_number"} and payload.data_type != "string":
+        _error(422, "standard_identifier_type", "工号、手机号、银行卡号必须使用字符型")
+    if field_code == "work_location" and payload.data_type != "enum":
+        _error(422, "work_location_type", "工作地标准字段必须使用枚举类型")
     if payload.value_domain is not None and payload.data_type != "enum":
         _error(422, "standard_field_value_domain_requires_enum", "仅enum标准字段允许维护枚举值域")
     if payload.category_ids:
         existing = (await db.execute(select(FieldCategory.id).where(FieldCategory.id.in_(payload.category_ids)))).scalars().all()
         if set(existing) != set(payload.category_ids):
             _error(400, "standard_field_category_invalid", "字段分类不存在")
+
+
+async def _definition_entity(db, payload, user, field=None):
+    current = getattr(field, "entity_id", None)
+    target = payload.entity_id if "entity_id" in payload.model_fields_set else current
+    if field is not None and target != current:
+        if current is not None or field.created_by != user.id or await db.scalar(select(StandardFieldBinding.id).where(
+            StandardFieldBinding.standard_field_id == field.id).limit(1)):
+            _error(409, "standard_field_entity_conflict", "已有归属或引用的标准字段不能迁移归属")
+    entity = None
+    if target is not None:
+        if not await user_has_op(user, db, "warehouse.standard_fields.catalog", "V"):
+            _error(403, "standard_field_view_denied", "无标准字段查看权限")
+        entity = await require_entity(db, target, user, "C" if field is None else "U", active=True, lock=True)
+    code = field.field_code if field is not None else payload.field_code
+    if code == "work_location" and (field is None or target is not None) and (entity is None or entity.entity_code != "person"):
+        _error(422, "work_location_entity", "工作地枚举必须归属于Person定义")
+    return target
 
 
 async def _replace_categories(db, field_id, category_ids):
@@ -103,7 +147,7 @@ async def _replace_categories(db, field_id, category_ids):
 
 def _audit(db, action, field, user, reason_supplied=False, binding=None):
     db.add(SystemLog(category="scope_governance", action="standard_field_" + action, status="success", user_id=user.id,
-        metadata_json={"field_id": field.id, "revision": field.revision, "reason_supplied": reason_supplied,
+        metadata_json={"field_id": field.id, "entity_id": getattr(field, "entity_id", None), "revision": field.revision, "reason_supplied": reason_supplied,
             **({"binding_id": binding.id, "binding_version": binding.binding_version,
                 "binding_status": binding.status, "table_column_id": binding.table_column_id,
                 "dataset_output_field_id": binding.dataset_output_field_id} if binding is not None else {})}))
@@ -119,46 +163,52 @@ def _apply_definition(field, payload):
 
 async def create_standard_field(db, payload, user):
     async with _transaction(db):
-        await _validate_definition(db, payload)
+        await _validate_definition(db, payload, payload.field_code)
+        entity_id = await _definition_entity(db, payload, user)
         if await db.scalar(select(StandardField.id).where(StandardField.field_code == payload.field_code)):
             _error(409, "standard_field_code_exists", "标准字段编码已存在")
-        field = StandardField(field_code=payload.field_code, created_by=user.id)
+        field = StandardField(field_code=payload.field_code, created_by=user.id, entity_id=entity_id)
         _apply_definition(field, payload)
         db.add(field)
         await db.flush()
         await _replace_categories(db, field.id, payload.category_ids)
         _audit(db, "created", field, user)
-        return await read_standard_field(db, field.id)
+        return await read_standard_field(db, field.id, user=user)
 
 
 async def update_standard_field(db, field_id, payload, user):
     async with _transaction(db):
-        field = await _field(db, field_id, lock=True)
+        field = await _field(db, field_id, lock=True, user=user, op="U")
         if field.revision != payload.expected_revision:
             _error(409, "standard_field_revision_conflict", "字段已更新，请重新加载")
         if not field.is_active:
             _error(409, "standard_field_inactive", "停用字段不能编辑或用于确认映射")
-        await _validate_definition(db, payload)
-        if field.data_type != payload.data_type and await db.scalar(select(StandardFieldBinding.id).where(
+        if getattr(field, "data_type", payload.data_type) != payload.data_type and await db.scalar(select(StandardFieldBinding.id).where(
             StandardFieldBinding.standard_field_id == field_id).limit(1)):
             _error(409, "standard_field_type_in_use", "已有来源或输出映射，不能直接改变字段类型")
+        code = field.field_code
+        if code == "work_location" and field.entity_id is None and payload.entity_id is None:
+            code = None
+        await _validate_definition(db, payload, code)
+        entity_id = await _definition_entity(db, payload, user, field)
         if field.value_domain is not None and not isinstance(field.value_domain.get("items"), list):
             _error(409, "standard_field_value_domain_migration_required", "旧格式值域须先完成格式迁移")
         if "value_domain" not in payload.model_fields_set and field.data_type == "enum" and payload.data_type != "enum":
             _error(422, "standard_field_value_domain_requires_enum", "改变枚举类型时须明确清空值域")
         _apply_definition(field, payload)
+        field.entity_id = entity_id
         field.revision += 1
         field.updated_at = datetime.now(UTC)
         if "category_ids" in payload.model_fields_set:
             await _replace_categories(db, field.id, payload.category_ids)
         await db.flush()
         _audit(db, "updated", field, user)
-        return await read_standard_field(db, field.id)
+        return await read_standard_field(db, field.id, user=user)
 
 
 async def delete_standard_field(db, field_id, expected_revision, user):
     async with _transaction(db):
-        field = await _field(db, field_id, lock=True)
+        field = await _field(db, field_id, lock=True, user=user, op="D")
         if field.revision != expected_revision:
             _error(409, "standard_field_revision_conflict", "字段已更新，请重新加载")
         if await db.scalar(select(StandardFieldBinding.id).where(StandardFieldBinding.standard_field_id == field_id).limit(1)):
@@ -262,7 +312,7 @@ async def _require_binding_dataset_scope(db, dataset):
 
 
 async def list_binding_candidates(db, field_id, keyword=None, table_name=None, dataset_id=None, user=None):
-    await _field(db, field_id)
+    await _field(db, field_id, user=user)
     if table_name is not None:
         table_name = table_name.strip()
         if not table_name:
@@ -332,7 +382,7 @@ async def list_binding_candidates(db, field_id, keyword=None, table_name=None, d
 async def create_suggested_binding(db, field_id, payload, user):
     from app.datasets.models import DataSetTable
     async with _transaction(db):
-        field = await _field(db, field_id, lock=True)
+        field = await _field(db, field_id, lock=True, user=user, op="U")
         if not field.is_active:
             _error(409, "standard_field_inactive", "停用字段不可创建映射")
         if payload.dataset_id is not None:
@@ -374,7 +424,7 @@ async def create_suggested_binding(db, field_id, payload, user):
 
 async def transition_binding(db, field_id, binding_id, payload, user, target_status):
     async with _transaction(db):
-        field = await _field(db, field_id, lock=True)
+        field = await _field(db, field_id, lock=True, user=user, op="U")
         binding = (await db.execute(select(StandardFieldBinding).where(
             StandardFieldBinding.id == binding_id,
             StandardFieldBinding.standard_field_id == field_id,

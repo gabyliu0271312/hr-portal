@@ -1723,6 +1723,7 @@ class StandardFieldValueDomainIn(BaseModel):
 
 class StandardFieldDefinitionIn(BaseModel):
     model_config = {"extra": "forbid"}
+    entity_id: int | None = Field(default=None, gt=0, strict=True)
     field_name: str = Field(min_length=1, max_length=128)
     business_definition: str = Field(min_length=1, max_length=4000)
     data_type: Literal["string", "number", "date", "datetime", "bool", "enum"]
@@ -1755,6 +1756,8 @@ class StandardFieldUpdateIn(StandardFieldDefinitionIn):
 
 class StandardFieldSummaryOut(BaseModel):
     id: int
+    entity_id: int | None = None
+    entity_name: str | None = None
     field_code: str
     field_name: str
     business_definition: str

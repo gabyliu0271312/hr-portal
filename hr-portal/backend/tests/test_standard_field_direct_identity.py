@@ -45,6 +45,14 @@ async def direct_catalog(postgres_standard_catalog):
     engine, factory, _ = postgres_standard_catalog
     async with engine.begin() as connection:
         await connection.run_sync(install)
+        path = Path(__file__).parents[1] / "alembic/versions/0281_master_entity_definitions.py"
+        spec = spec_from_file_location("entity_definition_migration", path)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        def install_entity(conn):
+            module.op = Operations(MigrationContext.configure(conn))
+            module.upgrade()
+        await connection.run_sync(install_entity)
     app = FastAPI()
     app.include_router(router, prefix='/api/v1')
 

@@ -5,20 +5,23 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { standardFieldsApi, type StandardFieldDefinitionPayload, type StandardFieldDetail, type StandardFieldSummary } from '@/api/standardFields'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
 import { useUserStore } from '@/stores/user'
+import { masterDataApi, type EntityDefinition } from '@/api/masterData'
 import StandardFieldDefinitionForm from './StandardFieldDefinitionForm.vue'
 import StandardFieldValueDomain from './StandardFieldValueDomain.vue'
 
-const props = defineProps<{ modelValue: boolean; fieldId: number | null }>()
+const props = defineProps<{ modelValue: boolean; fieldId: number | null; entityId?: number }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
 const userStore = useUserStore()
 const detail = ref<StandardFieldDetail | null>(null)
 const categories = ref<FieldCategory[]>([])
+const entities = ref<EntityDefinition[]>([])
+const canEntityView = computed(() => userStore.menus.some(menu => menu.code === 'system.master_entities'))
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const mode = ref<'view' | 'create' | 'edit'>('view')
 const canView = computed(() => userStore.menus.some(menu => menu.code === 'warehouse.standard_fields.catalog'))
-const canWrite = computed(() => canView.value && userStore.hasOp('warehouse.standard_fields.catalog', mode.value === 'edit' ? 'U' : 'C'))
+const canWrite = computed(() => canView.value && userStore.hasOp('warehouse.standard_fields.catalog', mode.value === 'edit' ? 'U' : 'C') && (!(detail.value?.entity_id || form.entity_id) || (canEntityView.value && userStore.hasOp('system.master_entities', mode.value === 'edit' ? 'U' : 'C'))))
 let requestId = 0
 let contextId = 0
 const form = reactive<StandardFieldDefinitionPayload>({
@@ -36,6 +39,7 @@ function message(cause: any, fallback: string) {
 }
 
 function fill(field?: StandardFieldSummary) {
+  form.entity_id = field?.entity_id || props.entityId || null
   form.field_code = detail.value?.field_code || ''
   form.field_name = field?.field_name || ''
   form.business_definition = field?.business_definition || ''
@@ -46,18 +50,20 @@ function fill(field?: StandardFieldSummary) {
 
 async function load() {
   const current = ++requestId
-  detail.value = null; categories.value = []; loading.value = false; error.value = ''
+  detail.value = null; categories.value = []; entities.value = []; loading.value = false; error.value = ''
   mode.value = 'view'; fill()
   if (!props.modelValue || !canView.value) return
   loading.value = true
   try {
-    const [record, categoryList] = await Promise.all([
+    const [record, categoryList, entityList] = await Promise.all([
       props.fieldId ? standardFieldsApi.get(props.fieldId) : Promise.resolve(null),
       fieldCategoriesApi.list().catch(() => [] as FieldCategory[]),
+      canEntityView.value ? masterDataApi.list({ limit: 100 }) : Promise.resolve({ items: [] as EntityDefinition[], total: 0 }),
     ])
     if (current !== requestId) return
     detail.value = record
     categories.value = categoryList
+    entities.value = entityList.items
     fill(record || undefined)
     mode.value = props.fieldId ? 'view' : 'create'
   } catch (cause: any) {
@@ -69,7 +75,7 @@ async function load() {
 
 function close() { if (!saving.value) { ++contextId; ++requestId; emit('update:modelValue', false) } }
 function beginEdit() {
-  if (saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U') || !detail.value) return
+  if (saving.value || !canView.value || !userStore.hasOp('warehouse.standard_fields.catalog', 'U') || !detail.value || (detail.value.entity_id && (!canEntityView.value || !userStore.hasOp('system.master_entities', 'U')))) return
   if (!detail.value.is_active || migrationRequired.value) return
   fill(detail.value); mode.value = 'edit'
 }
@@ -78,6 +84,7 @@ function cancel() { if (detail.value) { fill(detail.value); mode.value = 'view' 
 function normalizedForm(): StandardFieldDefinitionPayload {
   const valueDomain = form.value_domain ? { items: (form.value_domain.items || []).map(item => ({ code: item.code.trim(), name: item.name.trim(), enabled: item.enabled, sort_order: item.sort_order })) } : null
   return {
+    ...(form.entity_id ? { entity_id: form.entity_id } : {}),
     field_name: form.field_name.trim(), business_definition: form.business_definition.trim(),
     data_type: form.data_type, category_ids: [...(form.category_ids || [])], value_domain: valueDomain,
   }
@@ -112,7 +119,7 @@ async function save() {
     if (context === contextId) saving.value = false
   }
 }
-watch(() => [props.modelValue, props.fieldId, canView.value], () => { ++contextId; saving.value = false; void load() }, { immediate: true, flush: 'sync' })
+watch(() => [props.modelValue, props.fieldId, props.entityId, canView.value, canEntityView.value, userStore.user?.id], () => { ++contextId; saving.value = false; void load() }, { immediate: true, flush: 'sync' })
 watch(canWrite, allowed => {
   if (allowed || mode.value === 'view') return
   ++contextId; saving.value = false; error.value = ''; mode.value = 'view'; fill(detail.value || undefined)
@@ -130,11 +137,12 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
       <p v-if="!canView" role="alert">无权限查看标准字段目录。</p>
       <p v-else-if="migrationRequired" role="status">旧格式值域仅支持读取，请先完成值域格式迁移；定义暂不可保存。</p>
       <template v-if="canView && !loading">
-        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" @update:model-value="Object.assign(form, $event)" @submit="save" />
+        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" :entities="entities" :entity-locked="!!detail?.entity_id" @update:model-value="Object.assign(form, $event)" @submit="save" />
         <template v-else-if="detail">
           <section class="field-summary">
             <div><span>字段编码</span><strong>{{ detail.field_code }}</strong></div>
             <div><span>字段名称</span><strong>{{ detail.field_name }}</strong></div>
+            <div><span>归属实体</span><strong>{{ detail.entity_name || '未归属' }}</strong></div>
             <div><span>数据类型</span><strong>{{ detail.data_type }}</strong></div>
             <div class="field-summary__definition"><span>业务定义</span><p>{{ detail.business_definition }}</p></div>
             <div><span>敏感字段分类</span><strong>{{ categoryNames.length ? categoryNames.join('、') : '未分类' }}</strong></div>

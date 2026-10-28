@@ -258,6 +258,7 @@ class StandardField(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     field_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master_entity_definitions.id", ondelete="RESTRICT"), nullable=True, index=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     has_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     business_definition: Mapped[str] = mapped_column(Text, nullable=False)
