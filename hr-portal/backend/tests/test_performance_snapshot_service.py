@@ -357,6 +357,19 @@ async def test_explicit_roster_refresh_sets_snapshot_and_live_statuses(manual):
     assert record.employment_status == record.live_employment_status == "离职"
 
 
+def test_live_status_guard_repair_migration_targets_current_head():
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0279_performance_live_status_guard.py"
+    spec = importlib.util.spec_from_file_location("live_status_guard_repair", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "0278_performance_live_status"
+    assert len(migration.revision) <= 32
+    source = path.read_text(encoding="utf-8")
+    assert "CREATE OR REPLACE FUNCTION performance_guard_snapshot_person_mutation()" in source
+    assert "ARRAY['live_employment_status', 'updated_at']" in source
+
+
 def test_live_status_migration_compiles_snapshot_only_backfill_and_downgrade():
     import importlib.util
     from io import StringIO
@@ -376,6 +389,9 @@ def test_live_status_migration_compiles_snapshot_only_backfill_and_downgrade():
         migration.downgrade()
     sql = output.getvalue()
     assert "ADD COLUMN live_employment_status VARCHAR(64)" in sql
+    assert "CREATE OR REPLACE FUNCTION performance_guard_snapshot_person_mutation()" in sql
+    assert "ARRAY['live_employment_status', 'updated_at']" in sql
+    assert "ARRAY['employment_status', 'updated_at']" in sql
     assert "UPDATE performance_authorization_snapshot_people SET live_employment_status = employment_status" in sql
     assert "DROP COLUMN live_employment_status" in sql
     assert "roster" not in sql.lower()
@@ -411,14 +427,34 @@ async def test_live_status_isolated_postgres_migration_upgrade_downgrade():
             try:
                 await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
                 await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
-                await connection.execute(text("CREATE TABLE performance_authorization_snapshot_people (id BIGINT PRIMARY KEY, employment_status VARCHAR(64))"))
+                await connection.execute(text("CREATE TABLE performance_authorization_snapshots (id BIGINT PRIMARY KEY, status VARCHAR(16) NOT NULL)"))
+                await connection.execute(text("CREATE TABLE performance_authorization_snapshot_people (id BIGINT PRIMARY KEY, snapshot_id BIGINT NOT NULL, employment_status VARCHAR(64), updated_at TIMESTAMPTZ)"))
+                await connection.execute(text("""
+                    CREATE FUNCTION performance_guard_snapshot_person_mutation()
+                    RETURNS trigger AS $$
+                    DECLARE snapshot_locked boolean;
+                    BEGIN
+                        SELECT status = 'LOCKED' INTO snapshot_locked
+                        FROM performance_authorization_snapshots
+                        WHERE id = COALESCE(NEW.snapshot_id, OLD.snapshot_id);
+                        IF COALESCE(snapshot_locked, false) AND
+                           (to_jsonb(NEW) - ARRAY['employment_status', 'updated_at'])
+                           IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['employment_status', 'updated_at']) THEN
+                            RAISE EXCEPTION 'locked performance authorization snapshots only allow employment status updates';
+                        END IF;
+                        RETURN COALESCE(NEW, OLD);
+                    END;
+                    $$ LANGUAGE plpgsql;
+                """))
+                await connection.execute(text("CREATE TRIGGER trg_performance_snapshot_people_locked_guard BEFORE INSERT OR UPDATE OR DELETE ON performance_authorization_snapshot_people FOR EACH ROW EXECUTE FUNCTION performance_guard_snapshot_person_mutation()"))
+                await connection.execute(text("INSERT INTO performance_authorization_snapshots VALUES (7, 'LOCKED')"))
                 def apply(sync, method):
                     with Operations.context(MigrationContext.configure(sync)):
                         getattr(migration, method)()
                 await connection.run_sync(lambda sync: apply(sync, "upgrade"))
                 assert (await connection.execute(text("SELECT live_employment_status FROM performance_authorization_snapshot_people"))).all() == []
                 await connection.run_sync(lambda sync: apply(sync, "downgrade"))
-                await connection.execute(text("INSERT INTO performance_authorization_snapshot_people VALUES (1,'在职'),(2,'离职'),(3,NULL)"))
+                await connection.execute(text("INSERT INTO performance_authorization_snapshot_people (id,snapshot_id,employment_status) VALUES (1,7,'在职'),(2,7,'离职'),(3,7,NULL)"))
                 await connection.run_sync(lambda sync: apply(sync, "upgrade"))
                 assert (await connection.execute(text("SELECT employment_status,live_employment_status FROM performance_authorization_snapshot_people ORDER BY id"))).all() == [("在职", "在职"), ("离职", "离职"), (None, None)]
                 await connection.execute(text("UPDATE performance_authorization_snapshot_people SET live_employment_status='离职' WHERE id=1"))
