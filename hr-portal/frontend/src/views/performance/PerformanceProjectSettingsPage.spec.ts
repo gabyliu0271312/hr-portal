@@ -21,7 +21,7 @@ function page(realDialog = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
       teleport: true,
-      PageHeader: { template: '<header><slot name="actions" /></header>' },
+      PageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
       PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions'], template: '<div data-testid="audience-editor" />' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
@@ -150,6 +150,9 @@ describe('project audience preview', () => {
     expect(wrapper.text()).toContain('标准职位')
     expect(wrapper.text()).toContain('软件工程师')
     expect(wrapper.find('.performance-selection-action-bar').exists()).toBe(false)
+    expect(wrapper.find('.performance-reminder-panel__heading').exists()).toBe(false)
+    expect(wrapper.get('.performance-task-header-description').text()).toBe('生成评估任务并纳入报表统计，共计 1 人')
+    expect(wrapper.get('.performance-export-button').attributes('disabled')).toBeUndefined()
     expect(mocks.previewEvaluatorPeople).toHaveBeenCalledWith(1, expect.objectContaining({ project_id: 2, list_kind: 'task' }), '', 1, 50)
     wrapper.unmount()
   })

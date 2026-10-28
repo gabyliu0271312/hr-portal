@@ -2,7 +2,7 @@
   <Teleport to="body">
     <div v-if="modelValue" class="performance-task-overlay">
       <section class="performance-task-overlay__panel" role="dialog" aria-modal="true" :aria-label="title">
-        <PerformanceTaskHeader :title="title" @back="close" />
+        <PerformanceTaskHeader :title="title" :description="description" @back="close" />
         <div class="performance-task-overlay__body"><slot /></div>
         <slot name="footer" />
       </section>
@@ -13,7 +13,7 @@
 <script setup lang="ts">
 import PerformanceTaskHeader from './PerformanceTaskHeader.vue'
 
-const props = defineProps<{ modelValue: boolean; title: string }>()
+const props = defineProps<{ modelValue: boolean; title: string; description?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; close: [] }>()
 
 function close() {

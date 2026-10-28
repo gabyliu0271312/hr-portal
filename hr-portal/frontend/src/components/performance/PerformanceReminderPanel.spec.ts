@@ -2,6 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import PerformanceReminderPanel from './PerformanceReminderPanel.vue'
 import PerformanceTaskOverlay from './PerformanceTaskOverlay.vue'
+import PerformanceExportButton from './PerformanceExportButton.vue'
+import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
 import type { ReminderListResult } from './performanceReminder'
 
 const result = (): ReminderListResult => ({
@@ -75,8 +77,35 @@ describe('PerformanceReminderPanel', () => {
     await flushPromises()
     expect(wrapper.find('.selection-cell').exists()).toBe(false)
     expect(wrapper.find('.performance-selection-action-bar').exists()).toBe(false)
-    expect(wrapper.find('.export-button').exists()).toBe(false)
+    expect(wrapper.find('.performance-export-button').exists()).toBe(true)
+    expect(wrapper.get('.performance-export-button').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.performance-reminder-panel__heading').exists()).toBe(false)
+    expect(wrapper.get('.performance-search-input').attributes('style')).toContain('224px')
     expect(wrapper.findAll('thead th').map(cell => cell.text())).toEqual(['姓名', '标准职位'])
+  })
+
+  it('exports all matching pages with the applied search and visible columns', async () => {
+    const provider = vi.fn().mockImplementation(async query => {
+      const all = Array.from({ length: 101 }, (_, index) => ({ ...result().items[0], task_id: index + 1, display_name: `员工${index + 1}` }))
+      return { ...result(), items: all.slice((query.page - 1) * query.pageSize, query.page * query.pageSize), total: all.length, capabilities: { ...result().capabilities, canExport: true } }
+    })
+    const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'preview' } })
+    await flushPromises()
+    await wrapper.get('input[aria-label="搜索成员"]').setValue('员工')
+    await wrapper.get('input[aria-label="搜索成员"]').trigger('keyup.enter')
+    await flushPromises()
+    const drawer = wrapper.getComponent(PerformanceColumnVisibilityDrawer)
+    drawer.vm.$emit('confirm', ['display_name'])
+    await flushPromises()
+    const loadRows = wrapper.getComponent(PerformanceExportButton).props('loadRows')
+    const exported = await loadRows()
+    expect(exported).toHaveLength(102)
+    expect(exported[0]).toEqual(['被评估人'])
+    expect(exported.at(-1)).toEqual(['员工101'])
+    expect(provider).toHaveBeenLastCalledWith(expect.objectContaining({ keyword: '员工', page: 2, pageSize: 100 }))
+    provider.mockResolvedValueOnce({ ...result(), items: Array.from({ length: 100 }, (_, index) => ({ ...result().items[0], task_id: index + 1 })), total: 101 }).mockRejectedValueOnce(new Error('failed page'))
+    await expect(loadRows()).rejects.toThrow('failed page')
+    wrapper.unmount()
   })
 
   it('keeps selection and reports failed reminder requests', async () => {
@@ -98,7 +127,8 @@ describe('PerformanceReminderPanel', () => {
 
 describe('PerformanceTaskOverlay', () => {
   it('renders a full-screen task shell and closes from the header back action', async () => {
-    const wrapper = mount(PerformanceTaskOverlay, { props: { modelValue: true, title: '上级评估' }, slots: { default: '<p>content</p>' } })
+    const wrapper = mount(PerformanceTaskOverlay, { props: { modelValue: true, title: '上级评估', description: '生成评估任务并纳入报表统计，共计 415 人' }, slots: { default: '<p>content</p>' } })
+    expect(document.querySelector('.performance-task-header-description')?.textContent).toBe('生成评估任务并纳入报表统计，共计 415 人')
     expect(document.body.textContent).toContain('上级评估')
     expect(document.body.textContent).toContain('content')
     const backButton = document.querySelector('.full-screen-modal-header-back')

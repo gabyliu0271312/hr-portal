@@ -97,8 +97,8 @@
     </PerformanceContentSurface>
     </main>
     <p v-if="notice" class="page-notice" role="alert">{{ notice }}</p>
-    <PerformanceTaskOverlay v-model="audiencePreviewOpen" :title="audiencePreviewTitle" @close="audiencePreviewOpen = false">
-      <PerformanceReminderPanel v-if="audiencePreviewOpen" :context="audiencePreviewContext" :provider="audiencePreviewProvider" :description="audiencePreviewDescription" mode="preview" />
+    <PerformanceTaskOverlay v-model="audiencePreviewOpen" :title="audiencePreviewTitle" :description="audiencePreviewDescription" @close="audiencePreviewOpen = false">
+      <PerformanceReminderPanel v-if="audiencePreviewOpen" :context="audiencePreviewContext" :provider="audiencePreviewProvider" mode="preview" @loaded="audiencePreviewTotal = $event" />
     </PerformanceTaskOverlay>
     <PerformanceProjectDialog
       v-model="basicDialogOpen"
@@ -146,6 +146,7 @@ const previewSummary = ref<PerformanceEvaluatorPreviewSummary>({ matched_count: 
 const audiencePreviewOpen = ref(false)
 const audiencePreviewKind = ref<'matched' | 'task' | 'report_only'>('matched')
 const audiencePreviewGroup = ref<number | null>(null)
+const audiencePreviewTotal = ref(0)
 const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceProjectTemplate[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
 const templateError = ref('')
 const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const distributionAssessmentOptions = ref<PerformanceDistributionAssessmentOption[]>([]); const flowLoading = ref(false); const flowError = ref(''); const openingError = ref(false); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>()); const manualResultOpeningEnabled = ref(true); const manualOpeningSettingLoaded = ref(false); const manualOpeningError = ref('')
@@ -155,7 +156,7 @@ const administratorsText = computed({ get: () => form.administrators.join('、')
 const dataManagerTags = computed(() => (basicDialogProject.value?.data_managers ?? []).map(value => ({ value, label: value === 'PROJECT_ADMIN' ? '项目管理员' : 'HRBP' })))
 const projectName = computed(() => form.name)
 const audiencePreviewTitle = computed(() => audiencePreviewGroup.value == null ? '符合条件的员工' : `范围 ${audiencePreviewGroup.value + 1} 符合条件的员工`)
-const audiencePreviewDescription = computed(() => audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计的人员' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务、仅纳入报表统计的离职人员' : '符合当前被评估人筛选条件的员工')
+const audiencePreviewDescription = computed(() => `${audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务，仅纳入报表统计' : '符合当前筛选条件'}，共计 ${audiencePreviewTotal.value} 人`)
 const audiencePreviewContext = computed(() => ({ projectId: projectId.value || 0, cycleId: cycleId.value || 0, nodeId: 'evaluator-preview', nodeType: 'preview', reviewType: 'evaluator_preview', title: audiencePreviewTitle.value, sectionTitle: audiencePreviewTitle.value }))
 const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at))
 function workflowNodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
@@ -190,6 +191,7 @@ async function loadAudiencePreview() {
 function openAudiencePreview(kind: 'matched' | 'task' | 'report_only', groupIndex: number | null = null) {
   audiencePreviewKind.value = kind
   audiencePreviewGroup.value = groupIndex
+  audiencePreviewTotal.value = groupIndex != null ? previewSummary.value.group_counts[groupIndex] ?? 0 : kind === 'task' ? previewSummary.value.task_generation_count : kind === 'report_only' ? previewSummary.value.report_only_count : previewSummary.value.matched_count
   audiencePreviewOpen.value = true
 }
 const audiencePreviewProvider: ReminderProvider = async query => {
@@ -210,7 +212,7 @@ const audiencePreviewProvider: ReminderProvider = async query => {
       { key: 'job_category', label: '职位类', visibleByDefault: true, minWidth: 140 },
       { key: 'standard_position', label: '标准职位', visibleByDefault: true, minWidth: 180 },
     ],
-    capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: false },
+    capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: true },
   }
 }
 async function loadManualOpeningSetting() {
