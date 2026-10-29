@@ -86,6 +86,7 @@
 | R18/R13 执行授权与平行链退役 | 未完成 | 当前仅正常前端入口已调整 | 后端execution-binding写入口及执行版本分流仍保留 |
 | B01.a 实体定义/字段归属 | 开发验收通过 | 已推送 | 生产未验收 |
 | B01.b 发布+受控写入+授权读取 | **开发/PG/API/PC通过** | **已推送`3a9f383`/`c92b37b`/`0c006c0`；部署与迁移完成（用户确认）** | **生产对象/链路验收未做** |
+| B01.c 主数据模块壳（只读概览） | **开发/PG/API/PC通过** | **已推送`ded9aa4`；`0285`未部署** | **生产未部署、未验收** |
 
 R19.c已把字段编辑、确认映射、发布/刷新、报表解析与权限消费者迁到标准字段ID。旧版本创建/编辑/审批写入口已移除；迁移后的旧版本/审批表仅保全为只读历史证据，不再是正式消费依赖。**不要再次开发这段迁移，也不要把旧证据表仍存在误判为仍走版本链。**联合收口、A整体验收及B开发均未完成。
 
@@ -124,16 +125,17 @@ B01.b已交付：定义发布与发布后字段冻结（`POST /master-data/entit
 
 ### 5.1 接手启动事实（2026-10-29）
 
-- **迁移链**：`0281 → 0282_master_entity_records → 0283_performance_template_draft`，唯一head为0283。**0283必须挂0282**；并行绩效会话曾将其rebase到0281，改回0281会产生双head并使测试无法启动。
-- **隔离验收库**：容器`hr021-b01-postgres`，`127.0.0.1:15432`，库`hr021_migration`，用户`hr021_test`，密码`b01-local-only`，当前版本0283。PG验收命令（在`hr-portal/backend`）：
+- **迁移链**：`0281 → 0282_master_entity_records → 0283_performance_template_draft → 0285_master_data_module_menus`，唯一head为**0285**。**0283必须挂0282**；并行绩效会话曾将其rebase到0281，改回0281会产生双head并使后端测试直接退出。
+- **隔离验收库**：容器`hr021-b01-postgres`，`127.0.0.1:15432`，库`hr021_migration`，用户`hr021_test`，密码`b01-local-only`，当前版本**0285**。PG验收命令（在`hr-portal/backend`）：
   `DB_HOST=127.0.0.1 DB_PORT=15432 DB_NAME=hr021_migration DB_USER=hr021_test DB_PASSWORD=b01-local-only .venv/Scripts/python.exe -m pytest tests/test_master_entity_records.py tests/test_master_entity_definitions.py tests/test_standard_field_direct_identity.py --postgres-acceptance -q`
-  （conftest强制单一head并与库版本同步；隔离库版本表用`UPDATE/INSERT alembic_version`校正时须保留真实已应用集合。）
-- **本地dev栈**：`hr-portal-db`/`hr-portal-backend`(8000)/`hr-portal-frontend`(8080)。后端挂载源码，重启即加载新代码；前端为镜像内构建。**`docker compose up -d --build frontend`会连带重建后端（pip下载很慢）**，应改用`docker compose build frontend` + `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --no-deps frontend`。后端端口映射来自`docker-compose.dev.yml`，单独`up`会丢8000映射。
-- **已知坑：Vite优先解析`.js`**。残留同名`.js`会遮蔽`.ts`（本轮`src/api/masterData.js`、`scopes.js`导致新接口未进构建产物，单测因mock未暴露）。已删除这两个；其余`.js/.ts`成对文件是既有模式，未批量清理，改动同名`ts`时先删对应`js`。
-- **本地dev库当前留有本轮合成数据**：Person实体（已发布，revision 1）、标准字段`work_location`(id 30)、记录1、admin的用户ACL、标签“合成人员范围”。仅本地演示/复查用，可随时清理重建。
-- **PC证据**：`hr-portal/.tmp/b01b-master-entities-pc.png`、`b01b-users-acl-pc.png`、`b01b-scopes-picker-pc.png`（本地dev栈真实登录）。10-28的`b01-person-reference-*.png`是B01.a“定义草稿”截图，不能作为B01.b证据。
-- **未做**：生产对象/链路验收；真实来源接管；旧姓名范围迁移；Employment/时间轴/编辑停用。部署与迁移已按用户2026-10-29确认完成：线上代码包含`c92b37b`（用户确认），生产库`alembic_version`同时含`0282_master_entity_records`与`0283_performance_template_draft`（用户确认）。记录来源为用户告知，本会话未直连生产核对。
-- **部署必须覆盖的提交**：`3a9f383`（B01.b主体）与`c92b37b`（删除遮蔽`masterData.js`/`scopes.js`）。仅在`3a9f383`部署时前端产物缺`recordEntities`/`person_references`接口，记录区会报“记录读取失败”，需确认线上包含`c92b37b`或更新版本。
+  最近结果：**106 passed**（约5分钟）。conftest强制单一head并与库版本同步；校正版本表时须保留真实已应用集合。
+- **本地dev栈**：`hr-portal-db`/`hr-portal-backend`(8000)/`hr-portal-frontend`(8080)，dev库已到0285。后端挂载源码，重启即加载新代码并自动跑迁移；前端为镜像内构建。**`docker compose up -d --build frontend`会连带重建后端（pip源约250kB/s，非常慢）**，应改用`docker compose build frontend` + `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --no-deps frontend`；后端8000端口来自dev override，单独`up`会丢映射。
+- **新模块入口**：顶级「主数据」→「主数据概览」，路由`/master-data/overview`，菜单`master_data.overview`，接口`GET /master-data/overview`（只返回计数，不返回业务值）。**新菜单必须由迁移写入并与role_menus一起授权**，否则路由被guard拦回首页。
+- **已知坑：Vite优先解析`.js`**。残留同名`.js`会遮蔽`.ts`（本轮`src/api/masterData.js`、`scopes.js`导致新接口未进构建产物，单测因mock未暴露）。已删除这两个；其余`.js/.ts`成对文件是既有模式，未批量清理，改动同名`ts`时先删对应`js`。测试环境`src/test-setup.ts`把`el-alert`桩成只渲染slot，**断言告警文案会失败**，应断言组件状态而非文本。
+- **本地dev库合成数据**：Person实体（已发布，revision 1）、标准字段`work_location`(id 30)、记录1、admin的用户ACL、标签“合成人员范围”。仅本地演示/复查，可随时清理重建。
+- **PC证据（本地dev栈真实登录）**：`hr-portal/.tmp/b01b-master-entities-pc.png`、`b01b-users-acl-pc.png`、`b01b-scopes-picker-pc.png`、`b01c-master-data-overview-pc.png`。10-28的`b01-person-reference-*.png`为B01.a“定义草稿”，不能作为B01.b证据。
+- **生产状态**：已部署`3a9f383`+`c92b37b`（用户确认），生产库`alembic_version`含`0282`与`0283`（用户确认）。**本轮`0285`尚未部署**：上线前先跑迁移再发前端，否则新菜单不出现；生产对象/链路验收仍未做（记录来源为用户告知，本会话未直连生产）。
+- **未做**：生产对象验收；真实来源接管；组织层级口径统一；Employment实体/关系/编辑停用；标准字段建设迁入主数据模块。
 
 R17/R19权限字段/关联路径解耦已随`ea16451`提交推送，前端74项、后端无库/ASGI及运行侧联合141项和完整构建为上一轮通过证据。真库/PC仍待验收，不冒称完成；该环境阻塞不作为B00.a代码/元数据只读准备的前置。任何实际发布该版本仍必须按R16验证迁移前置、目标对象及影响。
 
@@ -142,6 +144,16 @@ R17/R19权限字段/关联路径解耦已随`ea16451`提交推送，前端74项�
 A现有拒绝、字段保护与紧急安全修复持续有效；R18/R13只在实际消费者安全承接后退役，不能借B排期跳过。原B其他扩展能力及工资/分摊服务仍为有效待办，见主规格与任务账，不混进本阶段第一张卡。
 
 每轮启动只写：目标卡/FR与AC、角色与入口、必要依赖、影响渠道、成功/拒绝预期、停止方式。每轮结束只更新原卡状态和实际证据，区分准备、开发、真库/服务、PC、部署和生产。
+
+**R19.c发布边界仍有效**：0276依赖0275；此前只有15432隔离验收库记录，开发主库/生产迁移未验。正式发布需核对实际前置和批准维护窗口；冲突原子停止，历史版本/审批证据保护，禁止downgrade、批量legacy回填或未经批准清理表列。
+
+### 下次启动清单（下一张卡：组织层级统一 + 组织接管）
+
+1. **先读**：本页→[专项规格](b-foundation-first-spec.md)→[主规格](spec.md)§3/§4（含§4.4.2的2026-10-29补充）→[任务账](mvp-tasks.md)§3/§4/§9；重查`git status`与提交，不覆盖并行绩效会话的未提交改动。
+2. **目标与复用**：统一组织层级口径（RootOrg不计级，第一个业务组织=第1级），让`org_tree.level`存储值与`org_level_N`投影一致；复用现有`org_tree`、`resolve_org_hierarchy`、树接口，不新建组织实体、不造第二个组织来源。
+3. **前置冻结项**：组织只接收外部来源、不提供手工维护；任职记录只存末级组织引用、层级派生；组织来源稳定键须用户核准后才接管，未核准只做只读对照。
+4. **不做**：不新增组织CRUD；不改成本中心；不接生产、不读员工行；不顺手改Person/Employment字段归属。
+5. **验收**：层级编号改正前后对照（同一组织在存储列与投影中编号一致）；孤儿/成环/超深度拒绝；无权限用户不可读；完成后按“代码/真库API/PC/部署/生产”分别记证据，只有开发级证据不得标完成。
 
 **R19.c发布边界仍有效**：0276依赖0275；此前只有15432隔离验收库记录，开发主库/生产迁移未验。正式发布需核对实际前置和批准维护窗口；冲突原子停止，历史版本/审批证据保护，禁止downgrade、批量legacy回填或未经批准清理表列。
 
