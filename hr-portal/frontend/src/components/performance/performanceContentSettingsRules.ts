@@ -1,5 +1,6 @@
 import type { PerformanceCalibrationSettings, PerformanceTemplateContent } from '@/api/performance'
 import type { AssessmentContentType } from './PerformanceAssessmentContentLayers.vue'
+import { ASSESSMENT_ROLE_CODES } from './performanceExecutorOptions'
 
 export type ContentSlot = 'fill' | 'reference' | 'adjustment' | 'view'
 export type ContentSettingsOwner = 'none' | 'root' | 'item'
@@ -68,9 +69,9 @@ export function supportsStageItemView(nodeType: string | undefined, content: { t
   return false
 }
 
-export function getEvaluationExecutorKind(executorLabel?: string, executorTypes: readonly string[] = []): EvaluationExecutorKind {
-  if (executorLabel?.includes('360') || executorTypes.some(type => /360|REVIEWER/i.test(type))) return 'reviewer_360'
-  if (executorLabel?.includes('直属') || executorLabel?.includes('直接') || executorLabel?.includes('实线') || executorTypes.includes('DIRECT_MANAGER')) return 'direct_manager'
+export function getEvaluationExecutorKind(executorRoleCode?: string | null): EvaluationExecutorKind {
+  if (executorRoleCode === ASSESSMENT_ROLE_CODES.REVIEWER_360) return 'reviewer_360'
+  if (executorRoleCode === ASSESSMENT_ROLE_CODES.LINE_MANAGER) return 'direct_manager'
   return 'other'
 }
 

@@ -21,15 +21,15 @@ import { readFileSync } from 'node:fs'
 import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi } from '@/api/performance'
 
 const mockNodes = [
-  { node_id: 'n1', node_type: 'work_summary', name: '工作总结环节', executor_label: '被评估人' },
-  { node_id: 'n2', node_type: 'reviewer_360_invite', name: '360°邀请环节', executor_label: '被评估人' },
-  { node_id: 'n3', node_type: 'reviewer_360_confirm', name: '360°确认环节', executor_label: '直属上级' },
-  { node_id: 'n4', node_type: 'evaluation', name: '评估型环节', executor_label: '360°评估人' },
-  { node_id: 'n5', node_type: 'calibration', name: '校准环节', executor_label: '在项目配置时指定' },
-  { node_id: 'n6', node_type: 'result_communication', name: '结果沟通', executor_label: '直属上级' },
-  { node_id: 'n7', node_type: 'evaluation', name: '评估型环节', executor_label: '直属上级' },
-  { node_id: 'n8', node_type: 'result_view', name: '绩效结果查看环节', executor_label: '被评估人' },
-  { node_id: 'n9', node_type: 'result_reconsideration', name: '结果复议处理', executor_label: '复议处理人' },
+  { node_id: 'n1', node_type: 'work_summary', name: '工作总结环节', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' },
+  { node_id: 'n2', node_type: 'reviewer_360_invite', name: '360°邀请环节', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' },
+  { node_id: 'n3', node_type: 'reviewer_360_confirm', name: '360°确认环节', executor_label: '直属上级', executor_role_code: 'assessment.line_manager' },
+  { node_id: 'n4', node_type: 'evaluation', name: '评估型环节', executor_label: '360°评估人', executor_role_code: 'assessment.reviewer_360' },
+  { node_id: 'n5', node_type: 'calibration', name: '校准环节', executor_label: '在项目配置时指定', executor_role_code: 'assessment.calibrator' },
+  { node_id: 'n6', node_type: 'result_communication', name: '结果沟通', executor_label: '直属上级', executor_role_code: 'assessment.line_manager' },
+  { node_id: 'n7', node_type: 'evaluation', name: '评估型环节', executor_label: '直属上级', executor_role_code: 'assessment.line_manager' },
+  { node_id: 'n8', node_type: 'result_view', name: '绩效结果查看环节', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' },
+  { node_id: 'n9', node_type: 'result_reconsideration', name: '结果复议处理', executor_label: '复议处理人', executor_role_code: null },
 ] as any[]
 
 function pointerEvent(type: string, values: Record<string, number>) {
@@ -111,6 +111,50 @@ describe('PerformanceTemplateContentSettings', () => {
     expect((reopened.findAll('.content-settings-detail--prompt input')[1].element as HTMLInputElement).checked).toBe(true)
     expect(reopened.findAll('.performance-prompt-display')[1].classes()).toContain('is-unavailable')
     reopened.unmount()
+  })
+
+  it('locks source fill-only prompts in reference and result-view references after save and reopen', async () => {
+    const prompt = { title: '填写提示', content: '填写时显示', color: '#3370ff', scope: 'all' as const, onlyWhenFilling: true }
+    const source = { ...mockNodes[0], content: [
+      { content_id: 'page-prompt', type: 'prompt', name: '填写提示', items: [], prompt },
+      { content_id: 'mixed', type: 'custom', name: '混合内容', items: [{ id: 'inline', kind: 'prompt', label: '', hint: '', prompt }] },
+    ] }
+    const targets = [mockNodes[5], mockNodes[7]].map(node => ({ ...node, content: [{ content_id: 'reference-n1', content_slot: 'reference', type: 'reference', name: '工作总结环节', reference_kind: 'node', reference_value: 'n1', items: [] }] }))
+    const nodes = [source, ...targets]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    for (const stageIndex of [1, 2]) {
+      await wrapper.findAll('.stage-card')[stageIndex].trigger('click')
+      if (stageIndex === 1) await wrapper.findAll('.content-tab')[1].trigger('click')
+      const blocks = wrapper.findAllComponents(PerformanceConfiguredContentBlock)
+      const page = blocks.find(block => block.props('content').type === 'prompt')!
+      expect(page.props('content').prompt).toMatchObject({ onlyWhenFilling: true, allowView: false })
+      expect(page.find('.performance-prompt-display').classes()).toContain('is-unavailable')
+      await page.get('.configured-content-card__row').trigger('click')
+      const pageControl = wrapper.get('.content-settings-detail--prompt input').element as HTMLInputElement
+      expect(pageControl.checked).toBe(false)
+      expect(pageControl.disabled).toBe(true)
+      await blocks.find(block => block.props('content').type === 'custom')!.get('[data-content-item-id="inline"]').trigger('click')
+      const inlineControl = wrapper.get('.content-settings-detail--prompt input').element as HTMLInputElement
+      expect(inlineControl.checked).toBe(false)
+      expect(inlineControl.disabled).toBe(true)
+    }
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[0].content).toEqual(source.content)
+    expect(saved.nodes[1].content![0].reference_settings?.content_settings).toMatchObject({ 'page-prompt': { root: { allowView: false, onlyWhenFilling: true } }, mixed: { items: { inline: { allowView: false, onlyWhenFilling: true } } } })
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(saved as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    const reopened = wrapper.findAllComponents(PerformanceConfiguredContentBlock).find(block => block.props('content').type === 'prompt')!
+    expect(reopened.props('content').prompt).toMatchObject({ onlyWhenFilling: true, allowView: false })
+    await reopened.get('.configured-content-card__row').trigger('click')
+    expect((wrapper.get('.content-settings-detail--prompt input').element as HTMLInputElement).disabled).toBe(true)
+    wrapper.unmount()
   })
 
   beforeEach(() => {
@@ -1051,23 +1095,6 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('[data-content-item-id="confirm-item"]').classes()).toContain('is-selected')
     expect(wrapper.get('.configured-content-card').classes()).not.toContain('is-selected')
     expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
-  })
-
-  it('shows selected manager levels for evaluation and result-communication stages', async () => {
-    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
-      nodes: [
-        { ...mockNodes[3], executor_label: '实线上级', executor_role_code: 'assessment.line_manager', executor_types: ['DIRECT_MANAGER', 'LEVEL_1_MANAGER'] },
-        { ...mockNodes[5], executor_label: '实线上级', executor_role_code: 'assessment.line_manager', executor_types: ['LEVEL_2_MANAGER'] },
-      ],
-    } as any)
-    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
-    await flushPromises()
-
-    expect(wrapper.findAll('.stage-card__executor').map(item => item.text())).toEqual([
-      '执行人：直属上级、隔 1 级上级',
-      '执行人：隔 2 级上级',
-    ])
-    wrapper.unmount()
   })
 
   it('renders the captured result section and keeps non-final contents visible but disabled', async () => {

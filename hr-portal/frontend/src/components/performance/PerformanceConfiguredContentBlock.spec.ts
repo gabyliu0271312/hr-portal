@@ -555,9 +555,9 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getStageContentRule('evaluation')).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: true })
     expect(getStageContentRule('evaluation', 'reviewer_360')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'evaluation-360-root', itemSettingsEnabled: true })
     expect(getStageContentRule('evaluation', 'direct_manager')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'evaluation-direct-root', itemSettingsEnabled: true })
-    expect(getEvaluationExecutorKind('360°评估人')).toBe('reviewer_360')
-    expect(getEvaluationExecutorKind('直属上级')).toBe('direct_manager')
-    expect(getEvaluationExecutorKind('', ['DIRECT_MANAGER'])).toBe('direct_manager')
+    expect(getEvaluationExecutorKind('assessment.reviewer_360')).toBe('reviewer_360')
+    expect(getEvaluationExecutorKind('assessment.line_manager')).toBe('direct_manager')
+    expect(getEvaluationExecutorKind('assessment.reviewee')).toBe('other')
     expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-view-root', itemSettingsEnabled: true })
     expect(getStageContentRule('result_communication')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-communication-root', itemSettingsEnabled: true, itemSettingsVariant: 'result-communication-item' })
     for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'result_reconsideration', 'unknown', undefined]) {

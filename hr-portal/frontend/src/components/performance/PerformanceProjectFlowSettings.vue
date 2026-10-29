@@ -12,7 +12,7 @@
         </div>
       </header>
 
-      <section v-if="node.node_type === 'reviewer_360_invite'" class="node-settings invite-settings" aria-label="360°评估人设置">
+      <section v-if="is360SettingsNode(node)" class="node-settings invite-settings" aria-label="360°评估人设置">
         <div class="settings-heading">
           <div><h3>360°评估人设置</h3><p>该配置对所有 360° 相关环节生效</p></div>
           <button class="outline-button" type="button" @click="openInviteDrawer(node)">设置</button>
@@ -170,6 +170,7 @@ import PerformanceTextButton from '@/components/performance/PerformanceTextButto
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import PerformanceCalibrationRuleDrawer from '@/components/performance/PerformanceCalibrationRuleDrawer.vue'
 import PerformanceProject360InviteSettingsDrawer from '@/components/performance/PerformanceProject360InviteSettingsDrawer.vue'
+import { isReviewer360Node } from '@/components/performance/performanceExecutorOptions'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
 
 type PeopleOption = { value: string; label: string }
@@ -218,21 +219,24 @@ const distributionUsedAssessmentIds = computed(() => distributionEditor.value ? 
 const inviteSaving = ref(false)
 const inviteSaveError = ref('')
 const inviteDrawerOpen = computed({ get: () => Boolean(inviteDrawerNode.value), set: value => { if (!value) inviteDrawerNode.value = null } })
+const REVIEWER_360_SETTINGS_HINT = '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效'
 const descriptions: Record<string, string> = {
-  reviewer_360_invite: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
-  reviewer_360_confirm: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
-  evaluation: '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效',
   calibration: '校准人可按校准范围查看和修改最终绩效结果（不受汇报线限制）',
 }
+const first360NodeKey = computed(() => {
+  const node = props.nodes.find(isReviewer360Node)
+  return node ? nodeKey(node) : null
+})
 const handlerOptions = computed(() => [{ value: 'HRBP', label: 'HRBP' }, ...props.peopleOptions])
 const peopleOptions = computed(() => props.peopleOptions)
 
+function is360SettingsNode(node: PerformanceWorkflowNode) { return first360NodeKey.value !== null && nodeKey(node) === first360NodeKey.value }
 function cloneSettings(value?: PerformanceProjectFlowSettings): PerformanceProjectFlowSettings {
   return JSON.parse(JSON.stringify(value || { node_settings: {}, node_times: {} }))
 }
 function nodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
 function defaultFor(node: PerformanceWorkflowNode) {
-  if (node.node_type === 'reviewer_360_invite') return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false } }
+  if (is360SettingsNode(node)) return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false } }
   if (node.node_type === 'calibration') return { calibration: { force_distribution_enabled: false, distribution: { mode: 'UNIFIED' as const, rules: [], scope_configured: false }, phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }] } }
   if (node.node_type === 'result_view') return { result_view: { automatic_enabled: false, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' as const } }
   if (node.node_type === 'result_reconsideration') return { result_reconsideration: { handler: null } }
@@ -243,7 +247,7 @@ function ensureNode(node: PerformanceWorkflowNode) {
   const defaults = defaultFor(node) as typeof draft.value.node_settings[string]
   if (!draft.value.node_settings[key]) draft.value.node_settings[key] = defaults
   const settings = draft.value.node_settings[key]
-  if (node.node_type === 'reviewer_360_invite' && !settings.invite) settings.invite = defaults.invite
+  if (is360SettingsNode(node) && !settings.invite) settings.invite = defaults.invite
   if (node.node_type === 'result_view' && !settings.result_view) settings.result_view = defaults.result_view
   if (node.node_type === 'result_reconsideration' && !settings.result_reconsideration) settings.result_reconsideration = defaults.result_reconsideration
   if (node.node_type === 'calibration') {
@@ -284,7 +288,7 @@ function distributionUnitLabel(value: string) { return value === 'PERCENT' ? '%'
 function distributionRoundingLabel(value: PerformanceDistributionRounding) { return { ROUND: '四舍五入', CEIL: '向上取整', FLOOR: '向下取整', NONE: '不强制取整' }[value] }
 function resultViewSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_view! }
 function reconsiderationSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_reconsideration! }
-function descriptionFor(node: PerformanceWorkflowNode) { return node.description || descriptions[node.node_type] || '' }
+function descriptionFor(node: PerformanceWorkflowNode) { return node.description || (is360SettingsNode(node) ? REVIEWER_360_SETTINGS_HINT : descriptions[node.node_type] || '') }
 function inviteLabel(value: string) { return value === 'DIRECT_SUBORDINATES' ? '直属下级' : '暂未配置' }
 function openInviteDrawer(node: PerformanceWorkflowNode) { inviteSaveError.value = ''; inviteDrawerNode.value = node }
 async function saveInviteSettings(value: NonNullable<PerformanceProjectFlowSettings['node_settings'][string]['invite']>) {

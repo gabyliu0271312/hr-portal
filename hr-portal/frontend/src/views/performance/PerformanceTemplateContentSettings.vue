@@ -219,7 +219,7 @@ const props = defineProps<{ templateId?: number | null }>()
 const selectedStage = ref<string | null>(null)
 const activeTab = ref('fill')
 const loading = ref(false)
-const stages = ref<Array<{ id: string; nodeType: string; icon: string; title: string; executor: string; executorTypes: string[] }>>([])
+const stages = ref<Array<{ id: string; nodeType: string; icon: string; title: string; executor: string; executorRoleCode: string | null }>>([])
 const workflowNodes = ref<PerformanceWorkflowNode[]>([])
 const pageNameLocked = ref(false)
 const pageNameError = ref('')
@@ -300,19 +300,14 @@ const finalNode = computed(() => {
   const nodes = workflowNodes.value.filter(node => node.include_final_result)
   return nodes.length === 1 ? nodes[0] : null
 })
-function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'executor_label' | 'executor_types' | 'executor_role_code'>) {
-  const isLineManager = node.executor_role_code === 'assessment.line_manager'
-    || node.executor_label === '实线上级'
-    || node.executor_types?.some(type => REAL_LINE_MANAGER_LEVEL_OPTIONS.some(option => option.type === type))
-  if (isLineManager) {
+const finalExecutorLabel = computed(() => {
+  const node = finalNode.value
+  if (!node) return '未配置'
+  if (node.executor_label === '实线上级') {
     const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
     if (levels.length) return levels.map(option => option.label).join('、')
   }
   return node.executor_label || '未配置'
-}
-const finalExecutorLabel = computed(() => {
-  const node = finalNode.value
-  return node ? executorDisplayLabel(node) : '未配置'
 })
 const finalFillContents = computed(() => {
   const node = finalNode.value
@@ -422,7 +417,7 @@ function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T
 }
 const configuredCardKey = (content: PerformanceTemplateContent) => `${selectedStage.value || 'stage'}:${activeTab.value}:${contentIdentity(content)}`
 const contentLayerRef = ref<InstanceType<typeof PerformanceAssessmentContentLayers> | null>(null)
-const evaluationExecutorKind = computed(() => getEvaluationExecutorKind(selectedStageData.value?.executor, selectedStageData.value?.executorTypes))
+const evaluationExecutorKind = computed(() => getEvaluationExecutorKind(selectedStageData.value?.executorRoleCode))
 const availableTabs = computed(() => getStageContentTabs(selectedStageData.value?.nodeType, evaluationExecutorKind.value))
 const activeTabLabel = computed(() => availableTabs.value.find((tab) => tab.key === activeTab.value)?.label || availableTabs.value[0].label)
 const referenceTabEmpty = computed(() => isReferenceTab.value && !configuredContents.value.length && !referenceRelations.value.length)
@@ -733,7 +728,7 @@ function selectStage(id: string) {
   syncSelectedStageContents()
   selectedStage.value = id
   const node = workflowNodes.value.find((item) => item.node_id === id)
-  activeTab.value = getStageContentTabs(node?.node_type, getEvaluationExecutorKind(node?.executor_label, node?.executor_types))[0]?.key || 'fill'
+  activeTab.value = getStageContentTabs(node?.node_type, getEvaluationExecutorKind(node?.executor_role_code))[0]?.key || 'fill'
   loadSelectedStageContents()
   selectedConfiguredId.value = null
   configuredHoverKey.value = null
@@ -851,7 +846,7 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
     if (!merged.has(contentId)) merged.set(contentId, { ...cloneContent(content), content_id: contentId })
   })
   contentLibrary.value = [...merged.values()]
-  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: executorDisplayLabel(node), executorTypes: node.executor_types || [] }))
+  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label, executorRoleCode: node.executor_role_code ?? null }))
 }
 async function save() {
   if (!props.templateId) return
@@ -1056,13 +1051,13 @@ onMounted(async () => {
 .content-card__actions button { border: 0; background: transparent; color: #3370ff; font-size: 18px; cursor: pointer; }
 .content-card__actions i { width: 1px; height: 24px; background: #bbbfc4; }
 
+.calibration-notice{width:var(--performance-content-width);max-width:100%;margin:0 0 12px}
 .result-reconsideration-section{width:var(--performance-content-width);max-width:100%;border-radius:4px;background:var(--color-bg-card);overflow:hidden}
 .result-reconsideration-section__frame{display:block;min-height:120px;padding:8px 0 0;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card);cursor:pointer}
 .result-reconsideration-section__header{position:relative;display:flex;align-items:flex-start;min-height:56px;padding:16px 24px;box-sizing:border-box}
 .result-reconsideration-section__header :deep(.performance-assessment-preview-header){flex:1;min-width:0;margin:0;padding-left:10px}
 .result-reconsideration-section__header :deep(.performance-assessment-preview-header::before){top:5px;width:2px;height:14px}
 .result-reconsideration-section__collapse{flex:0 0 24px;margin-left:auto}
-.calibration-notice{width:var(--performance-content-width);max-width:100%;margin:0 0 12px}
 .result-reconsideration-section__body{height:102px;padding:12px 24px;box-sizing:border-box}
 .result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
 .result-view-section{position:relative;width:800px;max-width:100%;overflow:visible;border-radius:4px;background:var(--color-bg-card)}

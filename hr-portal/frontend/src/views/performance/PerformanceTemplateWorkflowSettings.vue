@@ -234,6 +234,7 @@ import WorkflowExecutorField from '@/components/performance/WorkflowExecutorFiel
 import PerformanceMultiExecutorField from '@/components/performance/PerformanceMultiExecutorField.vue'
 import WorkflowNodeBasicFields from '@/components/performance/WorkflowNodeBasicFields.vue'
 import {
+  ASSESSMENT_ROLE_CODES,
   PERFORMANCE_EXECUTOR_OPTIONS,
   REAL_LINE_MANAGER_LEVEL_OPTIONS,
   RESULT_COMMUNICATION_EXECUTOR_OPTIONS,
@@ -395,27 +396,35 @@ const standardNodeLabels: Record<string, string> = {
 }
 const selectedExecutorModeOptions = computed(() => ['result_communication', 'reviewer_360_confirm'].includes(selectedNode.value?.node_type || '') ? resultCommunicationExecutorModeOptions : executorModeOptions)
 const selectedManagerLevelOptions = computed(() => selectedNode.value?.node_type === 'reviewer_360_confirm' ? reviewer360ConfirmExecutorOptions : executorOptions)
+const selectedExecutorOption = computed(() => {
+  const code = selectedNode.value?.executor_role_code
+  return code ? executorModeOptions.find(option => option.roleCode === code) : undefined
+})
 const selectedExecutorMode = computed({
-  get: () => selectedNode.value && selectableExecutorNodeTypes.includes(selectedNode.value.node_type) ? (selectedNode.value.executor_label || '实线上级') : '',
+  get: () => selectedNode.value && selectableExecutorNodeTypes.includes(selectedNode.value.node_type) ? (selectedExecutorOption.value?.label || selectedNode.value.executor_label || '实线上级') : '',
   set: (value: string) => {
     if (!selectedNode.value || !selectableExecutorNodeTypes.includes(selectedNode.value.node_type)) return
-    selectedNode.value.executor_label = value
-    const option = executorModeOptions.find(option => option.label === value)
-    selectedNode.value.executor_role_code = option?.roleCode
-    selectedNode.value.executor_types = option?.type === 'REAL_LINE_MANAGER'
+    const option = executorModeOptions.find(item => item.label === value)
+    if (!option) return
+    selectedNode.value.executor_label = option.label
+    selectedNode.value.executor_role_code = option.roleCode
+    selectedNode.value.executor_types = option.type === 'REAL_LINE_MANAGER'
       ? selectedNode.value.executor_types.filter(type => executorOptions.some(level => level.type === type))
-      : option ? [option.type] : []
-    if (option?.type === 'REAL_LINE_MANAGER' && !selectedNode.value.executor_types.length) selectedNode.value.executor_types = ['DIRECT_MANAGER']
-    if (['result_communication', 'reviewer_360_confirm'].includes(selectedNode.value.node_type)) {
-      if (value === '实线上级' && selectedNode.value.executor_types.length === 0) selectedNode.value.executor_types = ['DIRECT_MANAGER']
-      return
-    }
+      : [option.type]
+    if (option.type === 'REAL_LINE_MANAGER' && !selectedNode.value.executor_types.length) selectedNode.value.executor_types = ['DIRECT_MANAGER']
+    if (['result_communication', 'reviewer_360_confirm'].includes(selectedNode.value.node_type)) return
     applyExecutorSelectionDefaults(selectedNode.value)
   },
 })
-const fixedEvaluationType = computed<'SINGLE' | 'MULTI' | null>(() => selectedExecutorMode.value === '360°评估人' ? 'MULTI' : ['被评估人', '实线上级'].includes(selectedExecutorMode.value) ? 'SINGLE' : null)
+const fixedEvaluationType = computed<'SINGLE' | 'MULTI' | null>(() => {
+  const code = selectedNode.value?.executor_role_code
+  if (code === ASSESSMENT_ROLE_CODES.REVIEWER_360) return 'MULTI'
+  if (code === ASSESSMENT_ROLE_CODES.REVIEWEE || code === ASSESSMENT_ROLE_CODES.LINE_MANAGER) return 'SINGLE'
+  return null
+})
 const isEvaluationTypeFixed = computed(() => selectedNode.value?.node_type === 'evaluation' && fixedEvaluationType.value !== null)
-const isFinalResultRestricted = computed(() => selectedNode.value?.node_type === 'evaluation' && ['被评估人', '360°评估人', '虚线上级'].includes(selectedExecutorMode.value))
+const isFinalResultRestricted = computed(() => selectedNode.value?.node_type === 'evaluation'
+  && [ASSESSMENT_ROLE_CODES.REVIEWEE, ASSESSMENT_ROLE_CODES.REVIEWER_360, ASSESSMENT_ROLE_CODES.DOTTED_MANAGER].includes(selectedNode.value.executor_role_code || ''))
 const evaluationTypeDisabled = computed(() => locked('evaluation_type') || isEvaluationTypeFixed.value)
 const finalResultDisabled = computed(() => locked('include_final_result') || isFinalResultRestricted.value)
 const finalResultRestrictionMessage = computed(() => `执行人为${selectedExecutorMode.value}时无法开启此功能。`)
@@ -445,28 +454,37 @@ function pruneInviteSelections() {
   }
 }
 function invalidInviteNodeId() {
-  const reviewers = businessNodes.value.filter((node) => node.node_type === 'evaluation' && node.executor_label === '360°评估人')
+  const reviewers = businessNodes.value.filter((node) => node.executor_role_code === ASSESSMENT_ROLE_CODES.REVIEWER_360)
   const invalid = reviewers.filter((node) => node.allow_invite_other_executors && node.invite_executor_scope === 'PARTIAL' && node.invite_executor_types.length === 0)
   return reviewers.length > 0 && invalid.length === reviewers.length ? invalid[0].node_id : null
 }
 function normalizeRestrictedExecutor(node: PerformanceWorkflowNode) {
   if (node.node_type !== 'evaluation') return
-  if (node.executor_label === '被评估人') { node.executor_types = ['SUBJECT']; node.evaluation_type = 'SINGLE' }
-  else if (node.executor_label === '360°评估人') { node.executor_types = ['REVIEWER_360']; node.evaluation_type = 'MULTI' }
-  else if (node.executor_label === '实线上级') { node.evaluation_type = 'SINGLE'; return }
-  else if (node.executor_label === '虚线上级') { node.executor_types = ['VIRTUAL_LINE_MANAGER']; node.include_final_result = false; return }
-  else if (node.executor_label === '指标评价人') { node.executor_types = ['INDICATOR_EVALUATOR']; return }
+  const code = node.executor_role_code
+  if (code === ASSESSMENT_ROLE_CODES.REVIEWEE) { node.executor_types = ['SUBJECT']; node.evaluation_type = 'SINGLE' }
+  else if (code === ASSESSMENT_ROLE_CODES.REVIEWER_360) { node.executor_types = ['REVIEWER_360']; node.evaluation_type = 'MULTI' }
+  else if (code === ASSESSMENT_ROLE_CODES.LINE_MANAGER) { node.evaluation_type = 'SINGLE'; return }
+  else if (code === ASSESSMENT_ROLE_CODES.DOTTED_MANAGER) { node.executor_types = ['VIRTUAL_LINE_MANAGER']; node.include_final_result = false; return }
+  else if (code === ASSESSMENT_ROLE_CODES.METRIC_EVALUATOR) { node.executor_types = ['INDICATOR_EVALUATOR']; return }
   else return
   node.include_final_result = false
 }
 function normalizeSharedManagerExecutor(node: PerformanceWorkflowNode) {
   if (!['result_communication', 'reviewer_360_confirm'].includes(node.node_type)) return
-  if (!resultCommunicationExecutorModeOptions.some((option) => option.label === node.executor_label)) node.executor_label = '实线上级'
+  if (node.executor_role_code !== ASSESSMENT_ROLE_CODES.LINE_MANAGER && node.executor_role_code !== ASSESSMENT_ROLE_CODES.DOTTED_MANAGER) {
+    node.executor_role_code = ASSESSMENT_ROLE_CODES.LINE_MANAGER
+    node.executor_label = '实线上级'
+  }
+  if (node.executor_role_code === ASSESSMENT_ROLE_CODES.DOTTED_MANAGER) {
+    node.executor_label = '虚线上级'
+    node.executor_types = ['VIRTUAL_LINE_MANAGER']
+    return
+  }
   if (node.node_type === 'reviewer_360_confirm') {
     const allowed = new Set(reviewer360ConfirmExecutorOptions.map((option) => option.type))
     node.executor_types = [...new Set(node.executor_types.filter((type) => allowed.has(type)))]
   }
-  if (node.executor_label === '实线上级' && node.executor_types.length === 0) node.executor_types = ['DIRECT_MANAGER']
+  if (node.executor_types.length === 0) node.executor_types = ['DIRECT_MANAGER']
 }
 function normalizeFixedSubjectExecutor(node: PerformanceWorkflowNode) {
   if (!['work_summary', 'reviewer_360_invite', 'result_view'].includes(node.node_type)) return
@@ -497,8 +515,15 @@ function normalizePreviousNodeRequirement(node: PerformanceWorkflowNode, index: 
 }
 function normalizeNode(node: PerformanceWorkflowNode, index: number) {
   ensureInviteDefaults(node)
-  const option = fixedExecutorOptionByNodeType[node.node_type] || executorModeOptions.find(option => option.label === node.executor_label)
-  node.executor_role_code = option?.roleCode || null
+  const option = fixedExecutorOptionByNodeType[node.node_type]
+    || executorModeOptions.find(item => item.roleCode === node.executor_role_code)
+    || executorModeOptions.find(item => item.label === node.executor_label)
+  if (option) {
+    node.executor_role_code = option.roleCode
+    node.executor_label = option.label
+  } else {
+    node.executor_role_code = null
+  }
   normalizeRestrictedExecutor(node)
   normalizeSharedManagerExecutor(node)
   normalizeFixedSubjectExecutor(node)
@@ -521,7 +546,7 @@ function updateSubjectConfirmation(enabled: boolean) {
 function applyExecutorSelectionDefaults(node: PerformanceWorkflowNode) {
   if (node.node_type !== 'evaluation') return
   normalizeRestrictedExecutor(node)
-  if (node.executor_label !== '被评估人' && node.executor_label !== '360°评估人') {
+  if (node.executor_role_code !== ASSESSMENT_ROLE_CODES.REVIEWEE && node.executor_role_code !== ASSESSMENT_ROLE_CODES.REVIEWER_360) {
     node.evaluation_type = 'SINGLE'
     node.include_final_result = false
   }
@@ -578,7 +603,7 @@ function showPopover(index: number, event?: Event) {
 function closePopover() { popoverIndex.value = null; activeConnector = null; popoverResizeObserver?.disconnect() }
 function schedulePopoverClose() { cancelPopoverClose(); popoverCloseTimer = setTimeout(() => { closePopover(); popoverCloseTimer = null }, 120) }
 function selectNode(id: string | null) { if (!id) return; selectedId.value = id; closePopover() }
- function addNode(type: string) { const insertionIndex = popoverIndex.value; const option = addableOptions.find((item) => item.type === type); if (insertionIndex === null || !option) return; const previousType = nodeBeforeConnector(insertionIndex)?.node_type; if (type === 'result_reconsideration') { if (previousType !== 'result_view' || hasNodeType(type)) return } else if (previousType === 'result_view' || previousType === 'result_reconsideration' || (type !== 'evaluation' && hasNodeType(type))) return; const id = `${type}-${Date.now()}`; const fixedSubject = ['work_summary', 'reviewer_360_invite'].includes(type); const fixedCalibration = type === 'calibration'; const sharedManagerExecutor = ['evaluation', 'result_communication', 'reviewer_360_confirm'].includes(type); businessNodes.value.splice(insertionIndex, 0, { node_id: id, node_type: type, name: option.label, description: '', order: 0, executor_types: type === 'result_reconsideration' ? ['HRBP'] : fixedSubject ? [SUBJECT_EXECUTOR_OPTION.type] : fixedCalibration ? [CALIBRATION_EXECUTOR_OPTION.type] : ['DIRECT_MANAGER'], executor_label: type === 'result_reconsideration' ? 'HRBP' : fixedSubject ? SUBJECT_EXECUTOR_OPTION.label : fixedCalibration ? CALIBRATION_EXECUTOR_OPTION.label : sharedManagerExecutor ? '实线上级' : '直属上级', executor_config: type === 'result_reconsideration' ? { mode: 'MULTI_ROLE', roles: [{ type: 'HRBP' }] } : undefined, appeal_prompt_content: type === 'result_reconsideration' ? DEFAULT_APPEAL_PROMPT : undefined, appeal_reason_instruction: type === 'result_reconsideration' ? DEFAULT_APPEAL_REASON_INSTRUCTION : undefined, evaluation_type: type === 'evaluation' ? 'SINGLE' : null, include_final_result: false, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false, calibration_reason_enabled: fixedCalibration, calibration_reason_required: false }); selectedId.value = id; closePopover(); renumber() }
+ function addNode(type: string) { const insertionIndex = popoverIndex.value; const option = addableOptions.find((item) => item.type === type); if (insertionIndex === null || !option) return; const previousType = nodeBeforeConnector(insertionIndex)?.node_type; if (type === 'result_reconsideration') { if (previousType !== 'result_view' || hasNodeType(type)) return } else if (previousType === 'result_view' || previousType === 'result_reconsideration' || (type !== 'evaluation' && hasNodeType(type))) return; const id = `${type}-${Date.now()}`; const fixedSubject = ['work_summary', 'reviewer_360_invite'].includes(type); const fixedCalibration = type === 'calibration'; const sharedManagerExecutor = ['evaluation', 'result_communication', 'reviewer_360_confirm'].includes(type); businessNodes.value.splice(insertionIndex, 0, { node_id: id, node_type: type, name: option.label, description: '', order: 0, executor_types: type === 'result_reconsideration' ? ['HRBP'] : fixedSubject ? [SUBJECT_EXECUTOR_OPTION.type] : fixedCalibration ? [CALIBRATION_EXECUTOR_OPTION.type] : ['DIRECT_MANAGER'], executor_role_code: type === 'result_reconsideration' ? null : fixedSubject ? ASSESSMENT_ROLE_CODES.REVIEWEE : fixedCalibration ? ASSESSMENT_ROLE_CODES.CALIBRATOR : ASSESSMENT_ROLE_CODES.LINE_MANAGER, executor_label: type === 'result_reconsideration' ? 'HRBP' : fixedSubject ? SUBJECT_EXECUTOR_OPTION.label : fixedCalibration ? CALIBRATION_EXECUTOR_OPTION.label : sharedManagerExecutor ? '实线上级' : '直属上级', executor_config: type === 'result_reconsideration' ? { mode: 'MULTI_ROLE', roles: [{ type: 'HRBP' }] } : undefined, appeal_prompt_content: type === 'result_reconsideration' ? DEFAULT_APPEAL_PROMPT : undefined, appeal_reason_instruction: type === 'result_reconsideration' ? DEFAULT_APPEAL_REASON_INSTRUCTION : undefined, evaluation_type: type === 'evaluation' ? 'SINGLE' : null, include_final_result: false, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false, calibration_reason_enabled: fixedCalibration, calibration_reason_required: false }); selectedId.value = id; closePopover(); renumber() }
 function canDeleteNode(node: PerformanceWorkflowNode) { return !node.system && (node.node_type !== 'evaluation' || evaluationNodeCount.value > 1) }
 function removeNode(id: string | null) { if (!id) return; const node = businessNodes.value.find((item) => item.node_id === id); if (!node || !canDeleteNode(node)) return; businessNodes.value = businessNodes.value.filter((item) => item.node_id !== id); selectedId.value = null; renumber() }
 function renumber() { businessNodes.value.forEach((node, index) => { node.order = index + 1 }) }

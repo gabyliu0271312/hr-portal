@@ -5,7 +5,7 @@ import type { PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 
-const node = (node_type: string, order: number): PerformanceWorkflowNode => ({
+const node = (node_type: string, order: number, executor_role_code: string | null = 'assessment.reviewee'): PerformanceWorkflowNode => ({
   node_id: `${node_type}-${order}`,
   node_type,
   name: ({
@@ -22,6 +22,7 @@ const node = (node_type: string, order: number): PerformanceWorkflowNode => ({
   order,
   executor_types: [],
   executor_label: '被评估人',
+  executor_role_code,
   evaluation_type: null,
   include_final_result: false,
   system: false,
@@ -30,13 +31,14 @@ const node = (node_type: string, order: number): PerformanceWorkflowNode => ({
   invite_executor_types: [],
   require_previous_node_completion: false,
 })
+const reviewer360Node = (order: number) => node('evaluation', order, 'assessment.reviewer_360')
 
 describe('PerformanceProjectFlowSettings', () => {
   beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
   afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
   it('renders template nodes in order and reuses the stage icon for every node', () => {
     const types = ['work_summary', 'reviewer_360_invite', 'reviewer_360_confirm', 'evaluation', 'calibration', 'result_communication', 'result_view', 'result_reconsideration']
-    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: types.map((type, index) => node(type, index + 1)) } })
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: types.map((type, index) => node(type, index + 1, type === 'evaluation' ? 'assessment.reviewer_360' : undefined)) } })
 
     expect(wrapper.findAll('.flow-node-card')).toHaveLength(8)
     expect(wrapper.findAll('.flow-node-header h2').map(item => item.text())).toEqual([
@@ -47,6 +49,23 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.find('.calibration-settings').exists()).toBe(true)
     expect(wrapper.find('.result-view-settings').exists()).toBe(true)
     expect(wrapper.find('.reconsideration-settings').exists()).toBe(true)
+  })
+
+  it('shows the 360° settings only on the first reviewer-360 node', () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [
+      node('evaluation', 1, 'assessment.reviewee'),
+      node('evaluation', 2, 'assessment.line_manager'),
+      reviewer360Node(3),
+      reviewer360Node(4),
+    ] } })
+
+    expect(wrapper.findAll('.invite-settings')).toHaveLength(1)
+    expect(wrapper.findAll('.flow-node-card')[2].find('.invite-settings').exists()).toBe(true)
+    expect(wrapper.findAll('.flow-node-card')[3].find('.invite-settings').exists()).toBe(false)
+    expect(wrapper.findAll('.flow-node-card')[0].text()).not.toContain('「360°评估人设置」')
+    expect(wrapper.findAll('.flow-node-card')[1].text()).not.toContain('「360°评估人设置」')
+    expect(wrapper.findAll('.flow-node-card')[2].text()).toContain('「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效')
+    wrapper.unmount()
   })
 
   it('renders distribution controls inline without an empty-state surface', async () => {
@@ -65,11 +84,22 @@ describe('PerformanceProjectFlowSettings', () => {
   it('keeps distribution rules when disabled and opens scoped rule configuration without a placeholder', async () => {
     const initial = { node_settings: { 'calibration-1': { calibration: {
       force_distribution_enabled: true,
-      distribution: { mode: 'UNIFIED' as const, scope_configured: false, rules: [{ assessment_item_id: 'grade', min_people_count: 8, rounding_method: 'ROUND' as const, conditions: [{ control_mode: 'HARD' as const, grade_codes: ['A'], operator: 'GTE' as const, value: 20, unit: 'PERCENT' as const }] }] },
+      distribution: { mode: 'UNIFIED' as const, scope_configured: false, rules: [{ assessment_item_id: 'grade', min_people_count: 8, rounding_method: 'ROUND' as const, conditions: [{ control_mode: 'HARD' as const, grade_codes: ['level-1'], operator: 'GTE' as const, value: 20, unit: 'PERCENT' as const }] }] },
       phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }],
     } } }, node_times: {} }
-    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], modelValue: initial, distributionAssessmentOptions: [{ id: 'grade', label: '绩效等级', grade_options: [{ value: 'A', label: 'A' }] }] } })
-    expect(wrapper.get('.distribution-rule-summary').text()).toContain('绩效等级')
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], modelValue: initial, distributionAssessmentOptions: [{ id: 'grade', label: '综合评级', grade_options: [{ value: '1星', label: '1星', legacy_value: 'level-1' }] }] } })
+    const card = wrapper.get('.distribution-rule-summary__row')
+    expect(card.text()).toContain('分布规则 1')
+    expect(card.text()).toContain('综合评级')
+    expect(card.text()).toContain('大于等于 8 人')
+    expect(card.text()).toContain('强制')
+    expect(card.text()).toContain('1星')
+    expect(card.text()).toContain('大于等于 20 %')
+    expect(card.text()).toContain('四舍五入')
+    expect(card.findAll('.performance-icon-button')).toHaveLength(2)
+    expect(card.findAll('.performance-icon-button').map(button => button.attributes('aria-label'))).toEqual(['编辑分布规则 1', '删除分布规则 1'])
+    expect(card.text()).not.toContain('编辑')
+    expect(card.text()).not.toContain('删除')
     await wrapper.get('[aria-label="绩效结果强制建议分布"]').trigger('click')
     const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
     expect(emitted.node_settings['calibration-1'].calibration.force_distribution_enabled).toBe(false)
@@ -227,7 +257,7 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 
   it('discards 360° invitation draft when cancelled or closed', async () => {
-    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('reviewer_360_invite', 1)] } })
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [reviewer360Node(1)] } })
     const openDrawer = async () => {
       await wrapper.get('.outline-button').trigger('click')
       return document.body.querySelector('[aria-label="360°评估人设置"]') as HTMLElement
@@ -250,7 +280,7 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 
   it('opens max-invite options only from its selector', async () => {
-    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('reviewer_360_invite', 1)] } })
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [reviewer360Node(1)] } })
     await wrapper.get('.outline-button').trigger('click')
     const drawer = document.body.querySelector('[aria-label="360°评估人设置"]') as HTMLElement
     const selector = drawer.querySelector('.invite-settings-prefix-select') as HTMLElement
@@ -289,7 +319,7 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 
   it('requires a larger second prompt count before confirmation', async () => {
-    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('reviewer_360_invite', 1)] } })
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [reviewer360Node(1)] } })
     await wrapper.get('.outline-button').trigger('click')
     const drawer = document.body.querySelector('[aria-label="360°评估人设置"]') as HTMLElement
     const maximum = drawer.querySelector('input[aria-label="最多邀请人数"]') as HTMLInputElement
@@ -340,7 +370,7 @@ describe('PerformanceProjectFlowSettings', () => {
     await wrapper.vm.$nextTick()
     expect(document.body.querySelector('[aria-label="360°评估人设置"]')).toBeNull()
     const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as { node_settings: Record<string, { invite: Record<string, unknown> }> }
-    expect(updated.node_settings['reviewer_360_invite-1'].invite).toMatchObject({
+    expect(updated.node_settings['evaluation-1'].invite).toMatchObject({
       maximum_invited_count: 8, maximum_invite_mode: 'SUGGESTED', second_prompt_enabled: true,
       second_prompt_count: 9, second_prompt_mode: 'SUGGESTED',
     })
@@ -348,7 +378,7 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 
   it('saves invite counts through the project API and reopens with returned settings', async () => {
-    const initial = { node_settings: { 'reviewer_360_invite-1': { invite: {
+    const initial = { node_settings: { 'evaluation-1': { invite: {
       default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5,
       exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false,
     } } }, node_times: {} }
@@ -357,7 +387,7 @@ describe('PerformanceProjectFlowSettings', () => {
       ...payload, flow_settings: payload.flow_settings,
     } as Awaited<ReturnType<typeof performanceProjectApi.update>>))
     const wrapper = mount(PerformanceProjectFlowSettings, {
-      props: { nodes: [node('reviewer_360_invite', 1)], modelValue: initial, projectId: 12, projectPayload },
+      props: { nodes: [reviewer360Node(1)], modelValue: initial, projectId: 12, projectPayload },
     })
     await wrapper.get('.outline-button').trigger('click')
     const drawer = document.body.querySelector('[aria-label="360°评估人设置"]') as HTMLElement
@@ -374,7 +404,7 @@ describe('PerformanceProjectFlowSettings', () => {
     ;(drawer.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
     await vi.waitFor(() => expect(update).toHaveBeenCalledOnce())
     expect(update.mock.calls[0][0]).toBe(12)
-    expect(update.mock.calls[0][1].flow_settings?.node_settings['reviewer_360_invite-1'].invite).toMatchObject({
+    expect(update.mock.calls[0][1].flow_settings?.node_settings['evaluation-1'].invite).toMatchObject({
       maximum_invited_count: 8, maximum_invite_mode: 'SUGGESTED',
       second_prompt_enabled: true, second_prompt_count: 9, second_prompt_mode: 'SUGGESTED',
     })
@@ -387,13 +417,13 @@ describe('PerformanceProjectFlowSettings', () => {
   })
 
   it('keeps the invite drawer open when project save fails', async () => {
-    const initial = { node_settings: { 'reviewer_360_invite-1': { invite: {
+    const initial = { node_settings: { 'evaluation-1': { invite: {
       default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5,
       exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false,
     } } }, node_times: {} }
     const update = vi.spyOn(performanceProjectApi, 'update').mockRejectedValue(new Error('network'))
     const wrapper = mount(PerformanceProjectFlowSettings, {
-      props: { nodes: [node('reviewer_360_invite', 1)], modelValue: initial, projectId: 12,
+      props: { nodes: [reviewer360Node(1)], modelValue: initial, projectId: 12,
         projectPayload: { name: '项目一', description: null, administrators: [], flow_settings: initial } },
     })
     await wrapper.get('.outline-button').trigger('click')
@@ -463,7 +493,7 @@ describe('PerformanceProjectFlowSettings', () => {
 
   it('persists editable flow settings through v-model without changing template nodes', async () => {
     const wrapper = mount(PerformanceProjectFlowSettings, {
-      props: { nodes: [node('reviewer_360_invite', 1), node('result_view', 2)] },
+      props: { nodes: [reviewer360Node(1), node('result_view', 2)] },
     })
 
     await wrapper.get('.outline-button').trigger('click')
@@ -480,9 +510,9 @@ describe('PerformanceProjectFlowSettings', () => {
 
     const updates = wrapper.emitted('update:modelValue') || []
     const latest = updates.at(-1)?.[0] as { node_settings: Record<string, Record<string, unknown>> }
-    expect(latest.node_settings['reviewer_360_invite-1'].invite).toMatchObject({ minimum_invited_count: 7, maximum_invited_count: null, second_prompt_enabled: false, second_prompt_count: null })
+    expect(latest.node_settings['evaluation-1'].invite).toMatchObject({ minimum_invited_count: 7, maximum_invited_count: null, second_prompt_enabled: false, second_prompt_count: null })
     expect(latest.node_settings['result_view-2'].result_view).toMatchObject({ automatic_enabled: true, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' })
-    expect(wrapper.findAll('.flow-node-card h2').map(item => item.text())).toEqual(['360°邀请环节', '绩效结果查看环节'])
+    expect(wrapper.findAll('.flow-node-card h2').map(item => item.text())).toEqual(['评估型环节', '绩效结果查看环节'])
   })
 })
 
