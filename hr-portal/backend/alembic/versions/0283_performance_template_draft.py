@@ -2,7 +2,7 @@
 from alembic import op
 
 revision = "0283_performance_template_draft"
-down_revision = "0282_master_entity_records"
+down_revision = "0281_master_entity_definitions"
 branch_labels = None
 depends_on = None
 
