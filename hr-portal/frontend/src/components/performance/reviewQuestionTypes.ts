@@ -20,6 +20,8 @@ export interface ReviewQuestion {
   createdAt: string
   remark: string
   rule_id?: number
+  deletable?: boolean
+  delete_reason?: string
   is_sub_question?: boolean
   parent_question_id?: number | null
   display_mode?: '标签样式' | '下拉样式'

@@ -53,7 +53,9 @@ async function removeRule(rule: ReviewRule) {
     await loadRules()
   } catch (error: any) {
     if (error === 'cancel' || error === 'close') return
-    ElMessage.error(error?.response?.data?.detail?.message || '评估规则删除失败，请稍后重试')
+    const detail = error?.response?.data?.detail
+    ElMessage.error((typeof detail === 'string' ? detail : detail?.message) || '评估规则删除失败，请稍后重试')
+    if (error?.response?.status === 409 || error?.response?.status === 404) await loadRules()
   }
 }
 

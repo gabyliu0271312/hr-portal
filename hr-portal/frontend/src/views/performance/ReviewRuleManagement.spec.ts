@@ -67,6 +67,20 @@ describe('ReviewRuleManagement', () => {
     expect(wrapper.emitted('filter')).toHaveLength(1)
   })
 
+  it('shows normalized conflict details and refreshes rule availability', async () => {
+    const reason = '此评估规则已被使用，不允许删除'
+    list.mockResolvedValue([{ id: 7, name: '评级不参与计算', deletable: true }])
+    remove.mockRejectedValueOnce({ response: { status: 409, data: { detail: reason } } })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-remove]').trigger('click')
+    await flushPromises()
+    expect(error).toHaveBeenCalledWith(reason)
+    expect(success).not.toHaveBeenCalled()
+    expect(list).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
   it('soft deletes an unused rule and reloads the list', async () => {
     list.mockResolvedValueOnce([{
       id: 7,

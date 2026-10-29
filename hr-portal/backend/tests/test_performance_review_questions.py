@@ -475,8 +475,8 @@ class _DeleteDb:
             return _DeleteResult(self.cycles)
         if "performance_project_node_snapshots" in sql:
             return _DeleteResult(self.snapshots)
-        if "parent_question_id =" in sql:
-            return _DeleteResult(self.children)
+        if "parent_question_id IN" in sql:
+            return _DeleteResult([self.question.id] if self.children and self.question else [])
         return _DeleteResult([(self.question, _rule())] if self.question else [])
 
     async def delete(self, question):
@@ -582,6 +582,53 @@ async def test_delete_question_returns_not_found_without_writing():
     assert error.value.status_code == 404
     assert db.deleted is None
     assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("usage, expected_code", [
+    ("unused", None),
+    ("children", "PERFORMANCE_REVIEW_QUESTION_HAS_CHILDREN"),
+    ("template", "PERFORMANCE_REVIEW_QUESTION_IN_TEMPLATE"),
+    ("cycle", "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE"),
+    ("snapshot", "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE"),
+])
+async def test_list_delete_availability_matches_delete_guard(usage, expected_code):
+    question = _question()
+    question.display_mode = "标签样式"
+    db = _DeleteDb(
+        question,
+        children=[301] if usage == "children" else [],
+        workflows=[_workflow(library=[{"ratingOptionId": "201"}], cycle_count=1 if usage == "cycle" else 0)] if usage in {"template", "cycle"} else [],
+        snapshots=[{"template": {"content": [{"ratingOptionId": "201"}]}}] if usage == "snapshot" else [],
+    )
+    item = (await list_review_questions(None, _context(), db)).items[0]
+    assert item.deletable is (expected_code is None)
+    assert bool(item.delete_reason) is (expected_code is not None)
+    if expected_code:
+        with pytest.raises(HTTPException) as error:
+            await delete_review_question(201, _context(), db)
+        assert error.value.detail == {"code": expected_code, "message": item.delete_reason}
+    else:
+        assert (await delete_review_question(201, _context(), db)).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_non_calculating_rating_can_be_deleted_when_unreferenced():
+    question = _question()
+    question.display_mode = "标签样式"
+    db = _DeleteDb(question)
+    rule = _rule(config={"gradeParticipatesInCalculation": False, "levels": []})
+    execute = db.execute
+
+    async def with_non_calculating_rule(statement):
+        if "JOIN performance_review_rules" in str(statement):
+            return _DeleteResult([(question, rule)])
+        return await execute(statement)
+
+    db.execute = with_non_calculating_rule
+    item = (await list_review_questions(None, _context(), db)).items[0]
+    assert item.deletable is True
+    assert (await delete_review_question(201, _context(), db)).status_code == 204
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,8 @@ const questions: ReviewQuestion[] = [{
   createdAt: '2026-08-31 10:00',
   remark: '备注',
   rule_id: 11,
+  deletable: true,
+  delete_reason: '',
 }]
 
 const ElTableStub = defineComponent({
@@ -27,9 +29,9 @@ const ElTableColumnStub = defineComponent({
 })
 
 describe('ReviewQuestionTable', () => {
-  function mountTable() {
+  function mountTable(rows: ReviewQuestion[] = questions) {
     return mount(ReviewQuestionTable, {
-      props: { questions, loading: false },
+      props: { questions: rows, loading: false },
       global: {
         stubs: {
           'el-table': ElTableStub,
@@ -37,7 +39,7 @@ describe('ReviewQuestionTable', () => {
           'el-button': { template: '<button @click="$emit(\'click\')"><slot /></button>', emits: ['click'] },
           'el-select': { template: '<select><slot /></select>' },
           'el-option': { props: ['label', 'value'], template: '<option :value="value">{{ label }}</option>' },
-          PerformanceDisabledReason: { template: '<span><slot /></span>' },
+          PerformanceDisabledReason: { props: ['disabled', 'reason'], template: '<span data-delete-reason :data-disabled="disabled" :data-reason="reason"><slot /></span>' },
         },
       },
     })
@@ -49,6 +51,24 @@ describe('ReviewQuestionTable', () => {
     expect(wrapper.findAll('[data-label]').map((cell) => cell.attributes('data-label'))).toEqual(['名称', '类型', '创建人', '创建时间', '备注', '操作'])
     expect(wrapper.get('[data-label="类型"]').text()).toBe('OKR 评估项')
     expect(wrapper.find('[data-label="评估方式"]').exists()).toBe(false)
+  })
+
+  it.each(['此评估题存在子题，不允许删除', '此评估题已被模板引用，不允许删除', '此评估题已被周期使用，不允许删除'])(
+    'disables deletion and exposes the server reason: %s', async reason => {
+      const wrapper = mountTable([{ ...questions[0], deletable: false, delete_reason: reason }])
+      const button = wrapper.get('button.delete-button')
+      expect(button.attributes('disabled')).toBeDefined()
+      expect(button.classes()).toContain('performance-button--text')
+      expect(wrapper.get('[data-delete-reason]').attributes('data-reason')).toBe(reason)
+      await button.trigger('click')
+      expect(wrapper.emitted('remove')).toBeUndefined()
+    },
+  )
+
+  it('allows deleting an unused question', async () => {
+    const wrapper = mountTable()
+    await wrapper.get('button.delete-button').trigger('click')
+    expect(wrapper.emitted('remove')).toEqual([[questions[0]]])
   })
 
   it('keeps shared loading and empty states', () => {

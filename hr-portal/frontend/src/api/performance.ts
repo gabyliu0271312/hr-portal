@@ -837,6 +837,8 @@ export interface PerformanceReviewQuestion {
   created_at: string
   updated_at: string
   rule: PerformanceReviewRuleDetail
+  deletable: boolean
+  delete_reason: string
 }
 
 export interface PerformanceReviewSubQuestionOption {

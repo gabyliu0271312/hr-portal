@@ -85,7 +85,7 @@ describe('ReviewQuestionManagement', () => {
   })
 
   it('removes only after DELETE succeeds and reloads persisted results on reopen', async () => {
-    list.mockResolvedValueOnce([{ id: 201, name: '待删除题目', rule: {} }]).mockResolvedValueOnce([])
+    list.mockResolvedValueOnce([{ id: 201, name: '待删除题目', rule: {}, deletable: true }]).mockResolvedValueOnce([])
     let finishDelete!: () => void
     remove.mockImplementationOnce(() => new Promise<void>(resolve => { finishDelete = resolve }))
     const wrapper = mountView()
@@ -108,7 +108,7 @@ describe('ReviewQuestionManagement', () => {
 
   it.each(['此评估题存在子题，不允许删除', '此评估题已被模板引用，不允许删除', '此评估题已被周期使用，不允许删除'])(
     'keeps the question and shows the rejection: %s', async message => {
-      list.mockResolvedValue([{ id: 201, name: '受保护题目', rule: {} }])
+      list.mockResolvedValue([{ id: 201, name: '受保护题目', rule: {}, deletable: true }])
       remove.mockRejectedValueOnce({ response: { data: { detail: { message } } } })
       const wrapper = mountView()
       await flushPromises()
@@ -121,8 +121,35 @@ describe('ReviewQuestionManagement', () => {
     },
   )
 
+  it('does not open confirmation or DELETE for a protected question', async () => {
+    list.mockResolvedValue([{ id: 201, name: '评级不参与计算', rule: {}, deletable: false, delete_reason: '此评估题已被模板引用，不允许删除' }])
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-remove]').trigger('click')
+    await flushPromises()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows interceptor-normalized 409 detail and refreshes disabled state', async () => {
+    const reason = '此评估题已被模板引用，不允许删除'
+    list.mockResolvedValueOnce([{ id: 201, name: '评级不参与计算', rule: {}, deletable: true }])
+      .mockResolvedValueOnce([{ id: 201, name: '评级不参与计算', rule: {}, deletable: false, delete_reason: reason }])
+    remove.mockRejectedValueOnce({ response: { status: 409, data: { detail: reason } } })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-remove]').trigger('click')
+    await flushPromises()
+    expect(error).toHaveBeenCalledWith(reason)
+    expect(list).toHaveBeenCalledTimes(2)
+    await wrapper.get('[data-remove]').trigger('click')
+    expect(remove).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('does not call DELETE when confirmation is cancelled', async () => {
-    list.mockResolvedValue([{ id: 201, name: '保留题目', rule: {} }])
+    list.mockResolvedValue([{ id: 201, name: '保留题目', rule: {}, deletable: true }])
     confirm.mockRejectedValueOnce('cancel')
     const wrapper = mountView()
     await flushPromises()

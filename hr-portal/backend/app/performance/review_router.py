@@ -98,6 +98,8 @@ class ReviewQuestionResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     rule: ReviewRuleDetail
+    deletable: bool = True
+    delete_reason: str = ""
 
 
 class ReviewQuestionListResponse(BaseModel):
@@ -265,40 +267,45 @@ def _contains_question_reference(value: Any, question_id: int) -> bool:
     return question_id in review_question_ids(value)
 
 
-async def _question_delete_blocker(db: AsyncSession, question: PerformanceReviewQuestion) -> tuple[str, str] | None:
-    child_id = (
-        await db.execute(
-            select(PerformanceReviewQuestion.id)
-            .where(PerformanceReviewQuestion.parent_question_id == question.id)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if child_id is not None:
-        return "PERFORMANCE_REVIEW_QUESTION_HAS_CHILDREN", "此评估题存在子题，不允许删除"
-
+async def _question_delete_blockers(db: AsyncSession, question_ids: set[int]) -> dict[int, tuple[str, str]]:
+    if not question_ids:
+        return {}
+    parents = set((await db.execute(
+        select(PerformanceReviewQuestion.parent_question_id)
+        .where(PerformanceReviewQuestion.parent_question_id.in_(question_ids))
+        .distinct()
+    )).scalars().all())
     workflows = (await db.execute(select(PerformanceTemplateWorkflow))).scalars().all()
-    referenced = [
-        workflow for workflow in workflows
-        if _contains_question_reference(workflow.nodes, question.id)
-        or _contains_question_reference(workflow.content_library, question.id)
-    ]
-    if referenced:
-        template_ids = {workflow.template_id for workflow in referenced}
-        template_refs = {str(value) for value in template_ids}
+    references = {
+        workflow.template_id: review_question_ids([workflow.nodes, workflow.content_library]) & question_ids
+        for workflow in workflows
+    }
+    used_templates = {workflow.template_id for workflow in workflows if (workflow.cycle_count or 0) > 0}
+    if any(references.values()):
         cycles = (await db.execute(select(PerformanceCycle))).scalars().all()
-        if any((workflow.cycle_count or 0) > 0 for workflow in referenced) or any(
-            cycle.template_id in template_ids
-            or any(str(template_id) in template_refs for template_id in (cycle.template_ids or []))
-            for cycle in cycles
-        ):
-            return "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE", "此评估题已被周期使用，不允许删除"
-
+        for cycle in cycles:
+            used_templates.update(
+                int(str(value)) for value in [cycle.template_id, *(cycle.template_ids or [])]
+                if str(value).isdigit()
+            )
+    template_questions = set().union(*references.values())
+    cycle_questions = set().union(*(ids for template_id, ids in references.items() if template_id in used_templates))
     snapshots = (await db.execute(select(PerformanceProjectNodeSnapshot.config))).scalars().all()
-    if any(_contains_question_reference(config, question.id) for config in snapshots):
-        return "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE", "此评估题已被周期使用，不允许删除"
-    if referenced:
-        return "PERFORMANCE_REVIEW_QUESTION_IN_TEMPLATE", "此评估题已被模板引用，不允许删除"
-    return None
+    for config in snapshots:
+        cycle_questions.update(review_question_ids(config) & question_ids)
+    blockers = {}
+    for question_id in question_ids:
+        if question_id in parents:
+            blockers[question_id] = ("PERFORMANCE_REVIEW_QUESTION_HAS_CHILDREN", "此评估题存在子题，不允许删除")
+        elif question_id in cycle_questions:
+            blockers[question_id] = ("PERFORMANCE_REVIEW_QUESTION_IN_CYCLE", "此评估题已被周期使用，不允许删除")
+        elif question_id in template_questions:
+            blockers[question_id] = ("PERFORMANCE_REVIEW_QUESTION_IN_TEMPLATE", "此评估题已被模板引用，不允许删除")
+    return blockers
+
+
+async def _question_delete_blocker(db: AsyncSession, question: PerformanceReviewQuestion) -> tuple[str, str] | None:
+    return (await _question_delete_blockers(db, {question.id})).get(question.id)
 
 
 async def _is_rule_used(db: AsyncSession, rule_id: int) -> bool:
@@ -549,7 +556,14 @@ async def list_review_questions(
             statement.order_by(PerformanceReviewQuestion.created_at.desc(), PerformanceReviewQuestion.id.desc())
         )
     ).all()
-    return ReviewQuestionListResponse(items=[_question_response(question, rule) for question, rule in rows])
+    blockers = await _question_delete_blockers(db, {question.id for question, _rule in rows})
+    return ReviewQuestionListResponse(items=[
+        _question_response(question, rule).model_copy(update={
+            "deletable": question.id not in blockers,
+            "delete_reason": blockers[question.id][1] if question.id in blockers else "",
+        })
+        for question, rule in rows
+    ])
 
 
 @router.get("/review-questions/sub-question-options", response_model=ReviewSubQuestionOptionListResponse)

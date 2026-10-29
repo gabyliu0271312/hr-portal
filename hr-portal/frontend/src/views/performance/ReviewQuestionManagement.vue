@@ -39,6 +39,8 @@ async function loadQuestions() {
       is_sub_question: item.is_sub_question,
       parent_question_id: item.parent_question_id,
       display_mode: item.display_mode,
+      deletable: item.deletable,
+      delete_reason: item.delete_reason,
     }))
   } catch {
     questions.value = []
@@ -84,6 +86,7 @@ function handleEdit(question: ReviewQuestion) {
 }
 
 async function handleRemove(question: ReviewQuestion) {
+  if (!question.deletable) return
   try {
     await ElMessageBox.confirm(`确定删除「${question.name}」吗？`, '删除确认', {
       type: 'warning',
@@ -95,7 +98,9 @@ async function handleRemove(question: ReviewQuestion) {
     ElMessage.success('已删除')
   } catch (error: any) {
     if (error === 'cancel' || error === 'close') return
-    ElMessage.error(error?.response?.data?.detail?.message || '评估题删除失败，请稍后重试')
+    const detail = error?.response?.data?.detail
+    ElMessage.error((typeof detail === 'string' ? detail : detail?.message) || '评估题删除失败，请稍后重试')
+    if (error?.response?.status === 409 || error?.response?.status === 404) await loadQuestions()
   }
 }
 

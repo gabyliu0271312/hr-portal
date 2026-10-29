@@ -57,8 +57,8 @@ const emit = defineEmits<{
       <template #default="{ row }">
         <div class="row-actions">
           <PerformanceButton variant="text" class="edit-button" @click="emit('edit', row)">编辑</PerformanceButton>
-          <PerformanceDisabledReason :disabled="false" reason="">
-            <PerformanceButton variant="text" class="delete-button" @click="emit('remove', row)">删除</PerformanceButton>
+          <PerformanceDisabledReason :disabled="!row.deletable" :reason="row.delete_reason || ''">
+            <PerformanceButton variant="text" class="delete-button" :disabled="!row.deletable" @click="row.deletable && emit('remove', row)">删除</PerformanceButton>
           </PerformanceDisabledReason>
         </div>
       </template>
