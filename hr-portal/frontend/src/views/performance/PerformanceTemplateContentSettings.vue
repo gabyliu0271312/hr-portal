@@ -456,11 +456,15 @@ function resolveReferenceContents(): PerformanceTemplateContent[] {
       const sourceContentId = contentIdentity(sourceContent)
       const id = `${relation.reference_value}:${sourceContentId}`
       const local = settings[sourceContentId] || {}
+      const sourcePrompt = sourceContent.prompt ? { ...sourceContent.prompt, ...local.root, onlyWhenFilling: sourceContent.prompt.onlyWhenFilling === true, allowView: sourceContent.prompt.onlyWhenFilling === true ? false : local.root?.allowView !== false } : undefined
       meta[id] = { relationId, sourceContentId }
       resolved.push({ ...cloneContent(sourceContent), id, content_id: id, content_slot: 'reference', reference_source_content_id: sourceContentId,
         settings: { allowMultiple: false, allowUnknown: false, allowView: local.root?.allowView !== false, hideDescription: local.root?.hideDescription === true },
-        ...(sourceContent.prompt ? { prompt: { ...sourceContent.prompt, ...local.root } } : {}),
-        items: sourceContent.items.map(item => ({ ...cloneContent(item), settings: { mode: 'view', required: false, allowView: local.items?.[item.id]?.allowView !== false, hideName: local.items?.[item.id]?.hideName === true, hideDescription: local.items?.[item.id]?.hideDescription === true }, ...(item.prompt ? { prompt: { ...item.prompt, ...local.items?.[item.id] } } : {}) })) })
+        ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
+        items: sourceContent.items.map(item => {
+          const itemPrompt = item.prompt ? { ...item.prompt, ...local.items?.[item.id], onlyWhenFilling: item.prompt.onlyWhenFilling === true, allowView: item.prompt.onlyWhenFilling === true ? false : local.items?.[item.id]?.allowView !== false } : undefined
+          return { ...cloneContent(item), settings: { mode: 'view', required: false, allowView: local.items?.[item.id]?.allowView !== false, hideName: local.items?.[item.id]?.hideName === true, hideDescription: local.items?.[item.id]?.hideDescription === true }, ...(itemPrompt ? { prompt: itemPrompt } : {}) }
+        }) })
     }
   }
   referenceContentMeta.value = meta
