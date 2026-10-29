@@ -1,5 +1,14 @@
 # PM-T004 流程设置交互说明
 
+## 模板配置完成状态（PM-T004-T03-F01，2026-10-29 用户确认）
+
+- 绩效模板创建接口保存基本信息时写入 `DRAFT`，列表显示“待完成配置”，启用按钮使用共享按钮的 `disabled` 状态；操作处理函数同步拒绝启用。
+- 中途返回、保存基本信息或保存流程/内容草稿均不标记完成。向导最终预览步骤点击“保存”时，通过既有 metadata PATCH 提交 `configuration_completed=true`，后端在同一事务内将 `DRAFT` 转为 `inactive` 并记录前后状态审计；失败时留在当前页，允许重试。
+- `inactive` 显示“待启用”，前置圆点为 `6×6px`、`border-radius:50%`、`#1456F0`，复用现有 `--performance-line-tabs-ink` 色值。`active` 继续显示“已启用”与原绿色圆点。
+- 待启用可启用；已启用可停用，停用后回到待启用。重新保存已启用模板不自动停用。草稿不得通过 status PATCH 绕过配置完成步骤，返回 409 `PERFORMANCE_TEMPLATE_CONFIGURATION_INCOMPLETE`。
+- 迁移仅扩大状态约束；保留原 `active/inactive` 数据、数据库默认值与指标模板创建行为。旧数据没有完整向导完成标记，不能据已有 inactive 值追溯判断是否中途退出；不自动重分类。
+- 范围为原列表与向导的小修复，沿用原信息架构及用户本次 SnapSpec，不创建整页蓝图。未部署生产；真实数据库与浏览器验收分别记录在任务证据中。
+
 ## Result reconsideration shared executor configuration (PM-T004-T02-F34)
 
 - `result_reconsideration` uses the shared multi-role executor configuration component; existing executor nodes retain their current component props and legacy fields.

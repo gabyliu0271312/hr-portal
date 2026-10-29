@@ -24,7 +24,7 @@
           <el-table-column label="状态" min-width="130">
             <template #default="{ row }">
               <span class="status-badge" :class="`status-${row.status}`">
-                <i aria-hidden="true"></i>{{ row.status === 'active' ? '已启用' : '待完成配置' }}
+                <i aria-hidden="true"></i>{{ templateStatusLabel(row.status) }}
               </span>
             </template>
           </el-table-column>
@@ -33,7 +33,7 @@
             <template #default="{ row }">
               <div class="row-actions">
                 <PerformancePermissionButton :allowed="true" op="U" class="template-row-button" @click="openEditPage(row)">编辑</PerformancePermissionButton>
-                <PerformancePermissionButton :allowed="true" op="U" class="template-row-button" @click="handleTemplateAction(row.status === 'active' ? '停用' : '启用', row)">{{ row.status === 'active' ? '停用' : '启用' }}</PerformancePermissionButton>
+                <PerformancePermissionButton :allowed="true" op="U" class="template-row-button" :disabled="row.status === 'DRAFT'" @click="handleTemplateAction(row.status === 'active' ? '停用' : '启用', row)">{{ row.status === 'active' ? '停用' : '启用' }}</PerformancePermissionButton>
                 <el-dropdown trigger="click" @command="(action: string) => handleTemplateAction(action, row)">
                   <el-button class="more-button" link aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
@@ -99,6 +99,10 @@ const filteredTemplates = computed(() => {
   return templates.value.filter((template) => !normalizedKeyword || `${template.name} ${template.description}`.toLowerCase().includes(normalizedKeyword))
 })
 
+function templateStatusLabel(status: TemplateStatus) {
+  return status === 'active' ? '已启用' : status === 'inactive' ? '待启用' : '待完成配置'
+}
+
 function templateRowKey(template: PerformanceTemplate) {
   return template.templateId || template.name
 }
@@ -120,6 +124,7 @@ function openEditPage(template: PerformanceTemplate) {
 
 async function handleTemplateAction(action: string, template: PerformanceTemplate) {
   if (action === '启用' || action === '停用') {
+    if (template.status === 'DRAFT') return
     if (!template.templateId) { notice.value = '该模板缺少真实 ID，无法更新状态。'; return }
     try {
       const updated = await performanceTemplateApi.updateStatus(template.templateId, action === '启用' ? 'active' : 'inactive')
@@ -188,6 +193,7 @@ onMounted(loadTemplates)
 .template-table-wrap { overflow-x: auto; }
 .status-badge { display: inline-flex; align-items: center; gap: 6px; color: #646a73; white-space: nowrap; }
 .status-badge i { width: 6px; height: 6px; border-radius: 50%; background: #f5920a; }
+.status-inactive i { background: var(--performance-line-tabs-ink); }
 .status-active { color: #1f2329; }.status-active i { background: #12b76a; }
 .row-actions { gap: var(--performance-button-gap); white-space: nowrap; }.more-button { width: 28px; }
 :global(.template-action-menu) { min-width: 67px; margin: 0; padding: 2px 0; border: 1px solid #dee0e3; border-radius: 6px; box-shadow: 0 8px 24px 8px rgba(31, 35, 41, .04), 0 6px 12px rgba(31, 35, 41, .04), 0 4px 8px -8px rgba(31, 35, 41, .06); }

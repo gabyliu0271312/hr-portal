@@ -139,6 +139,10 @@ class TemplateCreateRequest(BaseModel):
     selected_rules: list[str] = Field(default_factory=list, max_length=16)
 
 
+class TemplateUpdateRequest(TemplateCreateRequest):
+    configuration_completed: bool = False
+
+
 class TemplateCreateResponse(BaseModel):
     template_id: int
     name: str
@@ -146,7 +150,7 @@ class TemplateCreateResponse(BaseModel):
 
 class TemplateDetailResponse(TemplateCreateRequest):
     template_id: int
-    status: Literal["active", "inactive"]
+    status: Literal["DRAFT", "active", "inactive"]
     created_at: str
     updated_at: str
 
@@ -155,7 +159,7 @@ class TemplateListItem(BaseModel):
     template_id: int
     name: str
     description: str
-    status: Literal["active", "inactive"]
+    status: Literal["DRAFT", "active", "inactive"]
     created_at: str
     updated_at: str = ""
     updated_by: str = ""
@@ -249,7 +253,7 @@ async def get_template(
 @router.patch("/{template_id}", response_model=TemplateDetailResponse)
 async def update_template(
     template_id: int,
-    payload: TemplateCreateRequest,
+    payload: TemplateUpdateRequest,
     context: PerformanceAccessContext = Depends(
         require_performance_permission("performance.configuration.manage")
     ),
@@ -286,6 +290,8 @@ async def update_template(
     template.dimensions = [dimension.model_dump(mode="json") for dimension in payload.dimensions]
     template.calculation_enabled = payload.calculation_enabled
     template.selected_rules = payload.selected_rules
+    if getattr(payload, "configuration_completed", False) and getattr(template, "status", "inactive") == "DRAFT":
+        template.status = "inactive"
     db.add(
         PerformanceAuditEvent(
             event_type="PERFORMANCE_TEMPLATE_UPDATED",
@@ -317,6 +323,11 @@ async def update_template_status(
     next_status = payload.get("status")
     if next_status not in {"active", "inactive"}:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="模板状态不合法")
+    if template.status == "DRAFT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "PERFORMANCE_TEMPLATE_CONFIGURATION_INCOMPLETE", "message": "模板尚未完成配置，无法启用"},
+        )
     before_state = _template_detail(template).model_dump()
     template.status = next_status
     db.add(PerformanceAuditEvent(
@@ -398,6 +409,7 @@ async def create_template(
         english_enabled=payload.english_enabled,
         audience_settings_enabled=payload.audience_settings_enabled,
         template_kind=payload.template_kind,
+        status="DRAFT" if payload.template_kind == "performance" else "inactive",
         score_method=payload.score_method,
         dimensions=[dimension.model_dump(mode="json") for dimension in payload.dimensions],
         calculation_enabled=payload.calculation_enabled,

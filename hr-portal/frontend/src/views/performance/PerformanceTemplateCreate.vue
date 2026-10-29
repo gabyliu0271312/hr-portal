@@ -110,7 +110,7 @@ async function saveTemplate() {
   if (!activeTemplateId.value || saving.value) return
   saving.value = true
   try {
-    await performanceTemplateApi.update(activeTemplateId.value, templatePayload())
+    await performanceTemplateApi.update(activeTemplateId.value, { ...templatePayload(), configuration_completed: true })
     localStorage.setItem('performance-template-draft', JSON.stringify({ name: templateName.value.trim(), description: description.value, englishEnabled: englishEnabled.value, calculationEnabled: calculationEnabled.value, selectedRules: selectedRules.value, templateId: activeTemplateId.value }))
     notice.value = '保存成功'
     await router.push({ name: 'PerformanceTemplates' })

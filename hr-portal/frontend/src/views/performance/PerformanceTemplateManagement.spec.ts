@@ -1,28 +1,32 @@
-﻿import { flushPromises, mount } from '@vue/test-utils'
+﻿import { readFileSync } from 'node:fs'
+import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElTable, ElTableColumn } from 'element-plus'
 import { performanceTemplateApi } from '@/api/performance'
 
 const persistedTemplates = [
   { template_id: 1, name: '半年度绩效评估', description: '真实半年度模板', status: 'active' as const, created_at: '2026-08-31T10:00:00Z' },
   { template_id: 2, name: '全年度绩效评估', description: '真实年度模板', status: 'inactive' as const, created_at: '2026-08-31T10:00:00Z' },
+  { template_id: 3, name: '未完成模板', description: '中途退出的模板', status: 'DRAFT' as const, created_at: '2026-08-31T10:00:00Z' },
 ]
 
 const push = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
+vi.mock('@/stores/user', () => ({ useUserStore: () => ({ hasOp: () => true }) }))
 import PerformanceTemplateManagement from './PerformanceTemplateManagement.vue'
 
 function mountView() {
   return mount(PerformanceTemplateManagement, {
     global: {
       stubs: {
-        'el-button': { template: '<button @click="$emit(\'click\')"><slot /></button>' },
+        'el-button': { props: ['disabled'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
         'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' },
         'el-dropdown-menu': { template: '<ul><slot /></ul>' },
         'el-dropdown-item': { props: ['command'], template: '<li @click="$emit(\'click\')"><slot /></li>' },
         'el-input': { props: ['modelValue'], emits: ['update:modelValue'], template: '<label><input :value="modelValue" aria-label="通过名称、备注搜索" @input="$emit(\'update:modelValue\', $event.target.value)" /><slot name="prefix" /></label>' },
         'el-empty': { props: ['description'], template: '<div>{{ description }}</div>' },
-        'el-table': { props: ['data'], template: '<table><tr v-for="row in data" :key="row.name"><td>{{ row.name }}</td><td>{{ row.description }}</td><td>{{ row.status === \'active\' ? \'已启用\' : \'待完成配置\' }}</td><td>{{ row.createdAt }}</td></tr><slot /></table>' },
-        'el-table-column': { template: '<div />' },
+        'el-table': ElTable,
+        'el-table-column': ElTableColumn,
         'el-tag': { template: '<span><slot /></span>' },
         'el-alert': { template: '<div>{{ title }}</div>', props: ['title'] },
         'el-icon': { template: '<span><slot /></span>' },
@@ -54,7 +58,39 @@ describe('PerformanceTemplateManagement', () => {
     expect(wrapper.find('.filter-button').exists()).toBe(true)
     expect(wrapper.text()).toContain('真实半年度模板')
     expect(wrapper.text()).toContain('已启用')
+    expect(wrapper.text()).toContain('待启用')
     expect(wrapper.text()).toContain('待完成配置')
+  })
+
+  it('disables draft activation and allows completed templates to enable and disable', async () => {
+    const update = vi.spyOn(performanceTemplateApi, 'updateStatus').mockImplementation(async (id, status) => ({ ...persistedTemplates.find(item => item.template_id === id)!, status }))
+    const wrapper = mountView()
+    await flushPromises()
+    const rows = wrapper.findAll('.el-table__body tr')
+    expect(rows.map(row => row.get('.status-badge').text())).toEqual(['已启用', '待启用', '待完成配置'])
+    const draftAction = rows[2].findAll('.template-row-button')[1]
+    expect((draftAction.element as HTMLButtonElement).disabled).toBe(true)
+    await draftAction.trigger('click')
+    const state = (wrapper.vm.$ as any).setupState
+    await state.handleTemplateAction('启用', state.templates[2])
+    expect(update).not.toHaveBeenCalled()
+    expect(rows[1].get('.status-badge').classes()).toContain('status-inactive')
+    await rows[1].findAll('.template-row-button')[1].trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenLastCalledWith(2, 'active')
+    expect(rows[1].get('.status-badge').text()).toBe('已启用')
+    await rows[1].findAll('.template-row-button')[1].trigger('click')
+    await flushPromises()
+    expect(update).toHaveBeenLastCalledWith(2, 'inactive')
+    expect(rows[1].get('.status-badge').text()).toBe('待启用')
+    wrapper.unmount()
+  })
+
+  it('uses the captured blue token for the ready status dot', () => {
+    const viewSource = readFileSync('src/views/performance/PerformanceTemplateManagement.vue', 'utf8')
+    const tokenSource = readFileSync('src/styles/tokens.css', 'utf8')
+    expect(viewSource).toContain('.status-inactive i { background: var(--performance-line-tabs-ink); }')
+    expect(tokenSource).toContain('--performance-line-tabs-ink: #1456f0')
   })
 
   it('filters templates by keyword', async () => {

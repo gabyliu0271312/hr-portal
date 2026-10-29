@@ -107,6 +107,7 @@ describe('PerformanceTemplateCreate', () => {
     await flushPromises()
 
     expect(update).toHaveBeenCalledWith(42, expect.objectContaining({ name: '修改后的模板' }))
+    expect(update.mock.calls[0][1]).not.toHaveProperty('configuration_completed')
     expect(performanceTemplateApi.create).not.toHaveBeenCalled()
     expect(wrapper.find('.full-screen-modal-header-title').text()).toBe('编辑绩效模板')
     expect(wrapper.find('.basic-info-panel').exists()).toBe(false)
@@ -145,13 +146,31 @@ describe('PerformanceTemplateCreate', () => {
     expect(wrapper.get('.next-button').text()).toBe('下一步')
     await wrapper.get('.next-button').trigger('click')
     expect(wrapper.get('.next-button').text()).toBe('保存')
+    update.mockRejectedValueOnce({ response: { data: { detail: { message: '模板保存失败' } } } })
+    await wrapper.get('.next-button').trigger('click')
+    await flushPromises()
+    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('模板保存失败')
     await wrapper.get('.next-button').trigger('click')
     await flushPromises()
 
-    expect(update).toHaveBeenCalledWith(42, expect.objectContaining({ name: '已有模板' }))
+    expect(update).toHaveBeenCalledWith(42, expect.objectContaining({ name: '已有模板', configuration_completed: true }))
     expect(push).toHaveBeenCalledWith({ name: 'PerformanceTemplates' })
   })
 
+
+  it('leaves a new template unfinished when exiting after basic information', async () => {
+    const update = vi.spyOn(performanceTemplateApi, 'update')
+    const wrapper = mountView()
+    await wrapper.get('[aria-label="模板名称"]').setValue('中途退出模板')
+    await wrapper.get('.next-button').trigger('click')
+    await flushPromises()
+    await wrapper.get('.full-screen-modal-header-back').trigger('click')
+    expect(push).toHaveBeenCalledWith({ name: 'PerformanceTemplates' })
+    expect(performanceTemplateApi.create).toHaveBeenCalledWith(expect.not.objectContaining({ configuration_completed: true }))
+    expect(update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 
   it('requires a name without calling the create API', async () => {
     const wrapper = mountView()

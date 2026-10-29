@@ -68,6 +68,19 @@
   - Non-scope: versioning, publish, content editing
   - Definition of done: integration and evidence complete; only main agent may check task
 
+- [ ] PM-T004-T03-F01 模板配置完成后待启用、草稿禁用启用按钮（2026-10-29 用户确认）
+  - Goal: 完整向导最终保存后状态为待启用；中途退出保持待完成配置，禁用启用，待启用显示用户指定蓝色圆点。
+  - Authority/reading: 用户本轮四条要求及迁移脚本许可；Spec002基线、PM-T004规格/交互/既有蓝图；Spec012 UI门禁；执行/迁移/验收合同。既有列表/向导小范围修复，无新页面或信息架构。
+  - Allowed files: `backend/app/performance/templates_router.py`、`backend/tests/test_performance_template_workflow.py`、`frontend/src/api/performance.ts`、`frontend/src/views/performance/PerformanceTemplate{Create,Management}.vue`及已有同名spec、本任务和ui-interaction。新增迁移仅 `backend/alembic/versions/0283_performance_template_draft.py`；共享文件串行修改，保留无关工作树改动。
+  - Contract: POST绩效模板显式DRAFT；最终metadata PATCH可选`configuration_completed`默认false，仅true将DRAFT转inactive，同事务已有UPDATED审计；active/inactive不回退。status PATCH拒绝DRAFT的直接状态切换，409 `PERFORMANCE_TEMPLATE_CONFIGURATION_INCOMPLETE`；原配置权限不变。
+  - UI: 原templates列表/创建向导；DRAFT=待完成配置+disabled启用，inactive=待启用+6px圆点#1456F0（复用现有token），active沿用已启用。中途保存不完成，最终失败可重试。沿用既有蓝图和本轮SnapSpec；无新增整页蓝图。
+  - Migration: 0283接0282，单一head；仅扩展check允许DRAFT，数据库默认值不变；原active/inactive保留，不根据缺失历史信息重分类；指标模板仍创建为inactive。downgrade把DRAFT映射inactive以恢复旧约束，会丢失草稿区别；未在任何生产或开发业务库执行。
+  - Given/When/Then: 新建/中途退出/基本信息更新保持DRAFT；完成最终保存转inactive、GET重开一致；草稿无法从前端或status API启用；完成模板启用→停用→再启用；active重保存不停用；保存失败不导航且可重试；403拒绝、审计前后状态覆盖。
+  - Evidence: 后端`python -m pytest tests/test_performance_template_workflow.py tests/test_performance_template_dimensions.py -q` 最终237通过、无跳过、1既有Starlette弃用警告；HTTP TestClient覆盖实际PATCH/GET DTO与权限，接口测试数据库为替身，不能作为真实落库证据。PostgreSQL恢复可用后，0283真实upgrade/downgrade在独立临时schema通过，覆盖既有active/inactive保留、DRAFT写入、降级映射及恢复旧约束；事务回滚后查询确认schema已清理。前端`npm --prefix ../frontend test -- src/views/performance/PerformanceTemplateManagement.spec.ts src/views/performance/PerformanceTemplateCreate.spec.ts` 最终2文件28通过，列表使用真实Element Plus表格检验行插槽和disabled按钮，蓝色token源码断言通过。最终`npm --prefix ../frontend run build` vue-tsc+Vite通过，有既有VueUse PURE注释警告；Python编译及diff --check通过。运行中旧容器模板列表路由HTTP200仅证明可达，不作为本次改动已部署证据。
+  - Blockers/not-run: 首次本机PostgreSQL连接失败、迁移测试跳过；随后服务恢复且最终迁移实测通过。未执行真实API结合业务数据库的保存重开；未取得登录态浏览器实现态独立PNG或实测色值，不把组件测试算作浏览器验收；生产部署未执行。
+  - UI compliance: 已读Spec012交互与实施守则，关联N0001/N0002/N0004/N0005/N1102-N1104；复用既有按钮和token，无权限/周期快照/UCP/外部系统变化。
+  - DoD: 代码、聚焦回归、构建和隔离schema迁移验证已完成；真实业务数据库保存重开及浏览器截图验收未完成，保持未勾选，不勾T03整体。无commit/push/部署。
+
 - [ ] PM-T004-T04 流程设置视觉与验收回归
   - Goal: 建立附件 48 个状态的 focused visual regression。
   - Type: test/acceptance

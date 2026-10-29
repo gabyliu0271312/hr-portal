@@ -1083,7 +1083,7 @@ export const performanceTemplateApi = {
     const { data } = await api.get<PerformanceTemplateDetail>(`/performance/templates/${id}`, kind ? { params: { template_kind: kind } } : undefined)
     return data
   },
-  async update(id: number, payload: PerformanceTemplateCreateRequest): Promise<PerformanceTemplateDetail> {
+  async update(id: number, payload: PerformanceTemplateCreateRequest & { configuration_completed?: boolean }): Promise<PerformanceTemplateDetail> {
     const { data } = await api.patch<PerformanceTemplateDetail>(`/performance/templates/${id}`, payload)
     return data
   },

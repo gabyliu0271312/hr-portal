@@ -1043,6 +1043,7 @@ def _template_metadata():
         id=42,
         name="已有模板",
         description="已有描述",
+        status="inactive",
         language="zh-CN",
         english_enabled=False,
         calculation_enabled=False,
@@ -1150,6 +1151,125 @@ async def test_template_metadata_get_and_update_round_trip_without_creating_a_ne
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("kind,expected", [("performance", "DRAFT"), ("metric", "inactive")])
+async def test_new_template_configuration_status(kind, expected):
+    db = _TemplateMetadataDb(None)
+    await templates_router.create_template(
+        templates_router.TemplateCreateRequest(name="新模板", template_kind=kind),
+        _template_admin_context(), db,
+    )
+    template = next(value for value in db.added if isinstance(value, PerformanceTemplate))
+    assert template.status == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial", ["DRAFT", "inactive", "active"])
+@pytest.mark.parametrize("completed", [False, True])
+async def test_template_completion_preserves_existing_availability_and_reopens(initial, completed):
+    template = _template_metadata()
+    template.status = initial
+    db = _TemplateMetadataDb(template)
+    result = await templates_router.update_template(
+        42, templates_router.TemplateUpdateRequest(name=template.name, configuration_completed=completed),
+        _template_admin_context(), db,
+    )
+    expected = "inactive" if initial == "DRAFT" and completed else initial
+    assert result.status == expected
+    assert (await templates_router.get_template(42, _template_admin_context(), db)).status == expected
+    assert db.added[0].before_state["status"] == initial
+    assert db.added[0].after_state["status"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["active", "inactive"])
+async def test_draft_cannot_bypass_completion_through_status_endpoint(target):
+    template = _template_metadata()
+    template.status = "DRAFT"
+    db = _TemplateMetadataDb(template)
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_status(42, {"status": target}, _template_admin_context(), db)
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "PERFORMANCE_TEMPLATE_CONFIGURATION_INCOMPLETE"
+    assert template.status == "DRAFT"
+    assert db.commits == 0
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_completed_template_can_enable_disable_and_enable_again():
+    template = _template_metadata()
+    db = _TemplateMetadataDb(template)
+    for target in ["active", "inactive", "active"]:
+        result = await templates_router.update_template_status(42, {"status": target}, _template_admin_context(), db)
+        assert result.status == target
+        assert (await templates_router.get_template(42, _template_admin_context(), db)).status == target
+    assert db.commits == 3
+
+
+@pytest.mark.asyncio
+async def test_performance_template_draft_migration_upgrade_and_downgrade():
+    import importlib.util
+    from uuid import uuid4
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.core.config import settings
+
+    assert make_url(settings.db_url_async).host in {"localhost", "127.0.0.1"}
+    schema = f"pm_template_status_{uuid4().hex}"
+    engine = create_async_engine(settings.db_url_async, poolclass=NullPool)
+    import socket
+    url = make_url(settings.db_url_async)
+    try:
+        with socket.create_connection((url.host, url.port or 5432), timeout=1):
+            pass
+    except OSError:
+        await engine.dispose()
+        pytest.skip("本地 PostgreSQL 未运行，迁移升降级验证未执行")
+    migration_path = Path(__file__).resolve().parents[1] / "alembic/versions/0283_performance_template_draft.py"
+    module_spec = importlib.util.spec_from_file_location("performance_template_draft_migration", migration_path)
+    migration = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(migration)
+
+    async with engine.connect() as connection:
+        transaction = await connection.begin()
+        try:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}", public'))
+            await connection.execute(text("""
+                CREATE TABLE performance_templates (
+                    id bigint PRIMARY KEY,
+                    status varchar(16) NOT NULL DEFAULT 'inactive',
+                    CONSTRAINT ck_performance_templates_status CHECK (status IN ('active', 'inactive'))
+                )
+            """))
+            await connection.execute(text("INSERT INTO performance_templates (id, status) VALUES (1, 'active'), (2, 'inactive')"))
+
+            def apply(sync_connection, method):
+                with Operations.context(MigrationContext.configure(sync_connection)):
+                    getattr(migration, method)()
+
+            await connection.run_sync(lambda sync_connection: apply(sync_connection, "upgrade"))
+            await connection.execute(text("INSERT INTO performance_templates (id, status) VALUES (3, 'DRAFT')"))
+            assert (await connection.execute(text("SELECT status FROM performance_templates ORDER BY id"))).scalars().all() == ["active", "inactive", "DRAFT"]
+
+            await connection.run_sync(lambda sync_connection: apply(sync_connection, "downgrade"))
+            assert (await connection.execute(text("SELECT status FROM performance_templates ORDER BY id"))).scalars().all() == ["active", "inactive", "inactive"]
+            with pytest.raises(IntegrityError):
+                await connection.execute(text("INSERT INTO performance_templates (id, status) VALUES (4, 'DRAFT')"))
+        finally:
+            await transaction.rollback()
+        assert (await connection.execute(text("SELECT 1 FROM pg_namespace WHERE nspname=:schema"), {"schema": schema})).first() is None
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_template_metadata_get_returns_not_found_for_unknown_template():
     db = _TemplateMetadataDb(_template_metadata())
 
@@ -1201,7 +1321,7 @@ def _template_metadata_api_client(*, allowed: bool) -> TestClient:
         route
         for route in app.routes
         if isinstance(route, APIRoute)
-        and route.path == "/api/v1/performance/templates/{template_id}"
+        and route.path in {"/api/v1/performance/templates/{template_id}", "/api/v1/performance/templates/{template_id}/status"}
     ]
     for route in routes:
         permission_dependency = next(
@@ -1249,6 +1369,30 @@ def test_template_metadata_api_requires_configuration_permission():
     assert denied_patch.status_code == status.HTTP_403_FORBIDDEN
     assert allowed_delete.status_code == status.HTTP_204_NO_CONTENT
     assert denied_delete.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_template_status_api_permissions_and_completion_round_trip():
+    client = _template_metadata_api_client(allowed=True)
+    template = _template_metadata()
+    template.status = "DRAFT"
+    db = _TemplateMetadataDb(template)
+    client.app.dependency_overrides[get_session] = lambda: db
+    url = "/api/v1/performance/templates/42"
+    assert client.get(url).json()["status"] == "DRAFT"
+    rejected = client.patch(url + "/status", json={"status": "active"})
+    assert rejected.status_code == 409
+    assert rejected.json()["detail"]["code"] == "PERFORMANCE_TEMPLATE_CONFIGURATION_INCOMPLETE"
+    assert client.patch(url, json={"name": template.name}).json()["status"] == "DRAFT"
+    completed = client.patch(url, json={"name": template.name, "configuration_completed": True})
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "inactive"
+    assert client.get(url).json()["status"] == "inactive"
+    assert client.patch(url + "/status", json={"status": "active"}).json()["status"] == "active"
+    assert client.patch(url, json={"name": template.name, "configuration_completed": True}).json()["status"] == "active"
+    assert client.patch(url + "/status", json={"status": "inactive"}).json()["status"] == "inactive"
+    denied = _template_metadata_api_client(allowed=False)
+    assert denied.patch(url + "/status", json={"status": "active"}).status_code == 403
+    assert denied.patch(url, json={"name": template.name, "configuration_completed": True}).status_code == 403
 
 
 def test_result_reconsideration_executor_config_defaults_to_hrbp_and_projects_legacy_fields():
