@@ -49,7 +49,7 @@ describe('performance employee switch dialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
     expect(wrapper.find('[data-pick]').exists()).toBe(false)
-    await wrapper.findAll('button').find(button => button.text() === '添加人员')!.trigger('click')
+    await wrapper.findAll('button').find(button => button.text() === '+添加用户')!.trigger('click')
     await flushPromises()
     await wrapper.get('[data-pick]').trigger('click')
     await flushPromises()

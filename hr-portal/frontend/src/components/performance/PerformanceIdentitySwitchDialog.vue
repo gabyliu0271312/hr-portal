@@ -11,14 +11,14 @@
           <PerformanceButton variant="text" size="small" :disabled="switching || savingFavorite" @click="removeFavorite(person)">删除</PerformanceButton>
         </div>
       </div>
-      <p v-else-if="!adding" class="favorite-empty">暂无添加的人员，点击下方「添加人员」添加</p>
+      <p v-else-if="!adding" class="favorite-empty">暂无添加的用户，点击下方「+添加用户」添加</p>
       <div v-if="adding" class="favorite-row is-adding">
         <PerformancePersonSelect :model-value="selected" :options="options" :disabled="savingFavorite" aria-label="添加人员" placeholder="搜索姓名或员工编号" @search="searchPeople" @update:model-value="pickPerson" />
         <PerformanceButton variant="text" size="small" :disabled="savingFavorite" @click="cancelAdd">删除</PerformanceButton>
       </div>
       <p v-if="error" class="switch-error" role="alert">{{ error }}</p>
       <div class="add-action">
-        <PerformanceButton variant="outline-primary" :disabled="adding || switching || savingFavorite" @click="startAdd">添加人员</PerformanceButton>
+        <PerformanceButton variant="text" :disabled="adding || switching || savingFavorite" @click="startAdd">+添加用户</PerformanceButton>
       </div>
     </div>
     <template #footer>
