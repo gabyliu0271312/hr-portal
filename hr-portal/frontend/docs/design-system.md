@@ -196,6 +196,19 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 
 ## 组件约定
 
+### 绩效浮层（PM-T004-T05-F36，2026-10-29）
+
+- 唯一外壳为 `PerformancePopover.vue`：负责 Teleport、实测尺寸定位、上下翻转、水平避让、滚动/resize 重定位、Escape 关闭、箭头指向与内容区滚动。`PerformancePromptPopover` 与评级等级详情已复用它；`PerformanceInfoPopover` 随其并行空态改动单独迁移，现有箭头与定位暂保持原实现。
+- 外观只消费 `tokens.css` 的 `--performance-popover-*`：背景、边框、`1px` 边框、`8px` 圆角、`12px/16px` 内边距、`22px` 行高、三层阴影、层级、宽度、间距、视口边距、箭头尺寸与箭头内缩。组件内不新增浮层颜色、阴影或圆角硬编码。
+- 箭头固定 `16×8px` SVG，随上下方向翻转，中心始终指向触发目标；长内容在可用空间内滚动，不得覆盖目标或溢出视口。
+- 调用方只提供内容插槽与业务类名（如 `content-class`），不复制定位逻辑；确需独立外观时在调用方追加类名覆盖，不修改共享 token 语义。
+
+```vue
+<PerformancePopover :visible="visible" :anchor="anchor" name="performance-rating-popover" content-class="rating-popover__content">
+  <slot />
+</PerformancePopover>
+```
+
 ### 绩效选择框（CR-005-T07，2026-10-27）
 
 - 通用入口为 `PerformanceSearchSelect`，内部复用 `PerformanceSelectShell` 与 `PerformanceSelectTag`；人员、角色、原MultiSelect和组织树入口复用同一壳/标签。业务页面不自行实现标签折叠与删除。

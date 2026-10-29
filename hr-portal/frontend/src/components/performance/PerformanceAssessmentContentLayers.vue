@@ -117,6 +117,7 @@ import PerformanceRepeatableFillItemList from './PerformanceRepeatableFillItemLi
 import PerformanceFormField from './PerformanceFormField.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
+import { mergeRatingOptions } from './performanceRatingOptions'
 import PerformanceSwitch from './PerformanceSwitch.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
@@ -157,7 +158,7 @@ let idCounter=0,contentCounter=0,successTimer:ReturnType<typeof setTimeout>|null
 const nextId=()=>{let id:string;do{id=`assessment-content-${++idCounter}`}while([...items.value,...workSummaryItems.value,...drawerContents.value.flatMap(content=>content.items)].some(item=>item.id===id));return id}
 const nextContentId=()=>`content-${Date.now()}-${++contentCounter}`
 const activeLabel=computed(()=>({work_summary:'工作总结',rating:'评分评级',custom:'自定义'} as const)[activeType.value!]||'')
-function ratingItemOptions(item:FillItem){if(item.options!==undefined)return item.options;const option=props.ratingOptions.find(candidate=>candidate.id===item.ratingOptionId||candidate.id===item.id);return option?.levelOptions||(option?.levels||[]).map((label,index)=>({id:`${option?.id||item.id}-${index}`,label}))}
+function ratingItemOptions(item:FillItem){const option=props.ratingOptions.find(candidate=>candidate.id===item.ratingOptionId||candidate.id===item.id);return mergeRatingOptions(item.options,option?.levelOptions||(option?.levels||[]).map((label,index)=>({id:`${option?.id||item.id}-${index}`,label})))}
 function ratingItemDisplayMode(item:FillItem){return item.ratingDisplayMode||props.ratingOptions.find(candidate=>candidate.id===item.ratingOptionId||candidate.id===item.id)?.displayMode||'标签样式'}
 function normalizeTagItem(item:FillItem){
   const source=props.tagOptions.find(option=>option.id===item.tagOptionId)

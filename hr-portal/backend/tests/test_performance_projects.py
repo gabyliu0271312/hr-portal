@@ -1099,8 +1099,8 @@ async def test_self_summary_template_expands_rating_rule_options():
     assert content["description"] == "评级说明"
     assert content["ratingDisplayMode"] == "下拉样式"
     assert content["options"] == [
-        {"id": "one", "label": "1星", "color": "#f54a45", "placeholder": "", "required": False},
-        {"id": "five", "label": "5星", "color": "#3370ff", "placeholder": "", "required": False},
+        {"id": "one", "name": "1星", "label": "1星", "color": "#f54a45", "placeholder": "", "required": False},
+        {"id": "five", "name": "5星", "label": "5星", "color": "#3370ff", "placeholder": "", "required": False},
     ]
 
 
@@ -1136,7 +1136,7 @@ async def test_self_summary_rating_hydration_preserves_inline_display_and_conten
     assert content["description"] == "局部说明"
     assert content["settings"] == {"required": False}
     assert content["items"] == [{"id": "101", "label": "局部评级名称", "hint": "局部提示", "settings": {"required": True}}]
-    assert content["options"][0] == {"id": "one", "label": "局部名称", "placeholder": "局部提示", "required": True, "code": "ONE", "color": "#f54a45"}
+    assert content["options"][0] == {"id": "one", "label": "局部名称", "name": "全局名称", "placeholder": "局部提示", "required": True, "code": "ONE", "color": "#f54a45"}
     assert content["options"][1]["label"] == "五星"
     assert content["options"][1]["color"] == "#3370ff"
     template["content"][0]["options"] = []
@@ -1144,6 +1144,44 @@ async def test_self_summary_rating_hydration_preserves_inline_display_and_conten
     empty = (await hydrate_self_summary_template(template, Db()))["content"][0]
     assert empty["options"] == []
     assert empty["description"] == ""
+
+
+@pytest.mark.asyncio
+async def test_self_summary_rating_hydration_backfills_by_code_without_overwriting_local_values():
+    from app.performance.self_summary_service import hydrate_self_summary_template
+
+    levels = [
+        {"id": "one", "code": "ONE", "name": "全局名称", "description": "全局说明", "color": "#f54a45"},
+        {"id": "five", "code": "FIVE", "name": "五星", "level_description": "旧字段说明", "color": "#3370ff"},
+    ]
+
+    class Db:
+        async def execute(self, _statement):
+            question = SimpleNamespace(id=101, description="", display_mode="标签样式")
+            return SimpleNamespace(all=lambda: [(question, SimpleNamespace(config={"levels": levels}))])
+
+    template = {"content": [{
+        "type": "rating", "ratingOptionId": "101", "items": [{"id": "101"}],
+        "options": [
+            {"code": "ONE", "label": "", "name": "", "description": [], "color": "", "placeholder": ""},
+            {"id": "five", "code": "历史编码", "level_description": "局部旧字段说明"},
+        ],
+    }]}
+
+    options = (await hydrate_self_summary_template(template, Db()))["content"][0]["options"]
+
+    assert options[0] == {
+        "id": "one", "code": "ONE", "label": "", "name": "", "description": [],
+        "color": "", "placeholder": "", "required": False,
+    }
+    assert options[1] == {
+        "id": "five", "code": "历史编码", "name": "五星", "label": "五星",
+        "level_description": "局部旧字段说明", "description": "局部旧字段说明",
+        "color": "#3370ff", "placeholder": "", "required": False,
+    }
+    assert template["content"][0]["options"][0] == {
+        "code": "ONE", "label": "", "name": "", "description": [], "color": "", "placeholder": "",
+    }
 
 
 
@@ -2321,7 +2359,7 @@ async def test_rating_code_survives_hydration_and_schema_without_changing_form_l
     template = {"content": [{"type": "rating", "items": [{"id": "101", "label": "绩效评级"}]}]}
     hydrated = await hydrate_self_summary_template(template, Db())
     option = build_self_summary_schema(hydrated)[0]["fields"][0]["options"][0]
-    assert option == {"id": "one", "code": "1星", "label": "不合格", "color": "rgb(251, 191, 188)", "placeholder": "", "required": False}
+    assert option == {"id": "one", "code": "1星", "name": "不合格", "label": "不合格", "color": "rgb(251, 191, 188)", "placeholder": "", "required": False}
     assert "options" not in template["content"][0]
     assert levels[0]["name"] == "不合格"
 

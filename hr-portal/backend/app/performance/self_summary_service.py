@@ -18,6 +18,8 @@ def _option(value: dict, index: int) -> dict:
         "id": str(value.get("id") or value.get("value") or index),
         "label": label,
         **({"code": value["code"]} if "code" in value else {}),
+        **({"name": value["name"]} if "name" in value else {}),
+        **({"description": value.get("description", value.get("level_description"))} if "description" in value or "level_description" in value else {}),
         "color": value.get("color"),
         "placeholder": value.get("placeholder") or value.get("content") or value.get("prompt") or "",
         "required": bool(value.get("required", False)),
@@ -114,23 +116,28 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
         pair = questions.get(int(raw_id)) if raw_id.isdigit() else None
         if pair:
             question, rule = pair
+            levels = [
+                level for level in ((rule.config or {}).get("levels") or [])
+                if isinstance(level, dict)
+            ]
             if target.get("options") is None:
-                target["options"] = [
-                    _option(level, index)
-                    for index, level in enumerate((rule.config or {}).get("levels") or [])
-                    if isinstance(level, dict)
-                ]
+                target["options"] = [_option(level, index) for index, level in enumerate(levels)]
             else:
                 levels_by_id = {
-                    str(level.get("id")): level
-                    for level in ((rule.config or {}).get("levels") or [])
-                    if isinstance(level, dict) and level.get("id") is not None
+                    str(level["id"]): level for level in levels if level.get("id") is not None
+                }
+                levels_by_code = {
+                    str(level["code"]): level for level in levels if level.get("code") is not None
                 }
                 for option in target["options"]:
                     level = levels_by_id.get(str(option.get("id")))
+                    if level is None and option.get("code") is not None:
+                        level = levels_by_code.get(str(option["code"]))
                     if not level:
                         continue
                     defaults = _option(level, 0)
+                    if "level_description" in option and "description" not in option:
+                        defaults["description"] = option["level_description"]
                     for key, value in defaults.items():
                         if key not in option:
                             option[key] = value

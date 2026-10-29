@@ -39,7 +39,7 @@
           <strong v-if="!itemState(item.id).hideName" class="performance-item-title">{{ item.label }}</strong><i v-if="itemState(item.id).mode !== 'view' && !itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
         </div>
         <div class="content-renderer-rating__body">
-          <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="item.options ?? content.options ?? []" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="item.ratingDisplayMode || content.ratingDisplayMode" :interactive="false" preview-hover />
+          <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="ratingOptionsFor(item)" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="item.ratingDisplayMode || content.ratingDisplayMode" :interactive="false" preview-hover />
         </div>
       </template>
       <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
@@ -53,6 +53,7 @@
 </template>
 <script setup lang="ts">
 import { toRefs } from 'vue'
+import { mergeRatingOptions } from './performanceRatingOptions'
 import PerformanceRichTextBox from './PerformanceRichTextBox.vue'
 import PerformanceAssessmentRichTextField from './PerformanceAssessmentRichTextField.vue'
 import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame.vue'
@@ -104,6 +105,7 @@ const viewPreviewValue = (item: ContentItem) => {
   return ''
 }
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
+const ratingOptionsFor = (item: ContentItem) => mergeRatingOptions(item.options, content.value.options || [])
 </script>
 <style scoped>
 .performance-content-renderer{min-width:0;color:#1f2329}

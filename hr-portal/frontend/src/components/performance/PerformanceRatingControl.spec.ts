@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 
 const options = [{ id: 's', label: '卓越', color: '#3370ff' }, { id: 'a', label: '符合预期', color: '#34c724' }]
-afterEach(() => { document.body.querySelectorAll('.performance-rating-control__popover').forEach(node => node.remove()) })
+afterEach(() => { document.body.querySelectorAll('.performance-rating-popover').forEach(node => node.remove()) })
 
 describe('PerformanceRatingControl', () => {
   it('renders and updates label-style ratings', async () => {
@@ -44,15 +44,16 @@ describe('PerformanceRatingControl', () => {
     expect(option.text()).toBe('1星')
     expect(option.attributes('disabled')).toBeUndefined()
     await option.trigger('mouseenter')
-    const popup = document.body.querySelector('.performance-rating-control__popover') as HTMLElement
+    const popup = document.body.querySelector('.performance-rating-popover') as HTMLElement
     expect(popup?.textContent).toContain('1星')
     expect(popup?.textContent).toContain('不合格')
     expect(popup?.textContent).toContain('交付结果低于预期')
+    expect(popup.querySelector('.performance-popover__arrow svg')?.getAttribute('viewBox')).toBe('0 0 16 8')
     expect((popup.querySelector('.performance-rating-control__code') as HTMLElement).style.backgroundColor).toBe('rgb(253, 226, 226)')
     await option.trigger('click')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     await option.trigger('mouseleave')
-    expect(document.body.querySelector('.performance-rating-control__popover')).toBeNull()
+    expect(document.body.querySelector('.performance-rating-popover')).toBeNull()
     wrapper.unmount()
   })
 
@@ -61,7 +62,7 @@ describe('PerformanceRatingControl', () => {
     const preview = wrapper.get('.rating-select-preview')
     expect(preview.text()).toContain('1星')
     await preview.trigger('mouseenter')
-    expect(document.body.querySelector('.performance-rating-control__popover')?.textContent).toContain('交付结果低于预期')
+    expect(document.body.querySelector('.performance-rating-popover')?.textContent).toContain('交付结果低于预期')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
   })

@@ -212,6 +212,7 @@ import PerformanceReferenceEntryBar from '@/components/performance/PerformanceRe
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getItemSettingsVariant, resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
 import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
+import { mergeRatingOptions } from '@/components/performance/performanceRatingOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -238,7 +239,7 @@ function ratingLevelOptions(config: Record<string, unknown>) {
     const name = record.name ? String(record.name) : undefined
     const label = name || (record.label ? String(record.label) : '') || code || ''
     if (!label) return null
-    return { id: String(record.id || record.code || `level-${index}`), code, name, label, ...(record.description || record.level_description ? { description: String(record.description || record.level_description) } : {}), color: record.color ? String(record.color) : undefined }
+    return { id: String(record.id || record.code || `level-${index}`), code, name, label, ...(record.description !== undefined || record.level_description !== undefined ? { description: String(record.description ?? record.level_description ?? '') } : {}), color: record.color ? String(record.color) : undefined }
   }).filter((level): level is { id: string; code: string | undefined; name: string | undefined; label: string; description?: string; color: string | undefined } => Boolean(level))
 }
 
@@ -409,9 +410,10 @@ function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T
   const item = selected
     ? { ...selected, label: selected.label ?? current?.label ?? '', hint: selected.hint ?? '' }
     : current ? { id: current.id, kind: 'rating' as const, label: current.label, hint: '' } : null
-  const options = content.options ?? (current?.levelOptions?.length
+  const defaultOptions = current?.levelOptions?.length
     ? cloneContent(current.levelOptions)
-    : current?.levels?.map((label, index) => ({ id: `${current.id}-${index}`, label })))
+    : current?.levels?.map((label, index) => ({ id: `${current.id}-${index}`, label })) || []
+  const options = mergeRatingOptions(content.options, defaultOptions)
   const ratingDisplayMode = content.ratingDisplayMode || current?.displayMode
   const items = content.items.some(value => value.kind)
     ? content.items.map(value => value === selected && item ? item : value)

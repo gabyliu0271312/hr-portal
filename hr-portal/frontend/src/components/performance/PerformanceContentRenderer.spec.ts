@@ -27,6 +27,15 @@ describe('performance content shared primitives', () => {
     fixed.unmount()
     inherited.unmount()
   })
+  it('keeps the hidden presentation tokens shared with unavailable prompt previews', () => {
+    const tokenSource = readFileSync('src/styles/tokens.css', 'utf8')
+    const promptSource = readFileSync('src/components/performance/PerformancePromptDisplay.vue', 'utf8')
+    expect(contentRendererSource).toContain('opacity:var(--performance-content-hidden-opacity)')
+    expect(promptSource).toContain('opacity: var(--performance-content-hidden-opacity)')
+    expect(tokenSource).toContain('--performance-content-hidden-opacity: 0.5')
+    expect(tokenSource).toContain('--performance-content-hidden-text: var(--color-text-placeholder)')
+  })
+
   it('stops item selection from bubbling into the content root', async () => {
     const host = document.createElement('div')
     host.addEventListener('click', () => { throw new Error('item click escaped the selection frame') })
@@ -99,6 +108,20 @@ describe('performance content shared primitives', () => {
     } as any } })
     expect(wrapper.findAll('[data-content-item-id="first"] .rating-option').map(option => option.text())).toEqual(['1星'])
     expect(wrapper.findAll('[data-content-item-id="second"] .rating-option').map(option => option.text())).toEqual(['5星'])
+  })
+
+  it('fills legacy item grade descriptions from the block options without changing local labels', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: {
+      type: 'rating',
+      options: [{ id: 'a', code: '1星', label: '不合格', name: '不合格', description: '交付结果低于预期', color: 'rgb(251, 191, 188)' }],
+      items: [{ id: 'item-1', kind: 'rating', label: '评级题', options: [{ id: 'a', label: '本地不合格' }] }],
+    } as any } })
+    const option = wrapper.get('.rating-option')
+    expect(option.text()).toBe('1星')
+    expect(option.attributes('style')).toContain('rgb(251, 191, 188)')
+    expect(wrapper.getComponent({ name: 'PerformanceRatingControl' }).props('options')).toEqual([
+      { id: 'a', label: '本地不合格', code: '1星', name: '不合格', description: '交付结果低于预期', color: 'rgb(251, 191, 188)' },
+    ])
   })
 
   it('renders mixed rating, fill, and prompt items in source order', () => {

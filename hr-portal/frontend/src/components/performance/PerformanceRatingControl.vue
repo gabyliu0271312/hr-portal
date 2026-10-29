@@ -2,15 +2,9 @@
   <div class="performance-rating-control" :class="[`is-${normalizedMode}`, { 'is-interactive': interactive, 'is-invalid': invalid }]" :aria-label="ariaLabel">
     <template v-if="normalizedMode === 'dropdown'">
       <div v-if="interactive" class="performance-rating-control__shared-select"><PerformanceSearchSelect :model-value="modelValue || null" :options="selectableOptions.map(option => ({ value: option.id, label: option.label }))" selection-style="plain" :placeholder="placeholder" :aria-label="ariaLabel" @update:model-value="$emit('update:modelValue', String($event || ''))" /></div>
-      <div v-else class="rating-select-preview performance-rating-control__dropdown-preview" aria-label="下拉样式预览" :tabindex="previewHover ? 0 : undefined" @mouseenter="selectedOption && showHover(selectedOption, $event)" @mouseleave="hideHover" @focus="selectedOption && showHover(selectedOption, $event)" @blur="hideHover">
+      <div v-else ref="dropdownPreview" class="rating-select-preview performance-rating-control__dropdown-preview" aria-label="下拉样式预览" :tabindex="previewHover ? 0 : undefined" @mouseenter="showSelectedHover" @mouseleave="hideHover" @focus="showSelectedHover" @blur="hideHover">
         <span>{{ selectedLabel || placeholder }}</span>
         <DownBoldOutlinedIcon class="performance-rating-control__arrow" :size="12" />
-        <Teleport to="body">
-          <div v-if="previewHover && selectedOption && hoveredOptionId === selectedOption.id" class="performance-rating-control__popover" role="tooltip" :style="hoverPosition">
-            <div class="performance-rating-control__popover-heading"><PerformanceRatingTag class="performance-rating-control__code" :label="selectedOption.code || selectedOption.label" :color="selectedOption.color" /><strong>{{ selectedOption.name || selectedOption.label }}</strong></div>
-            <div v-if="selectedOption.description" class="performance-rating-control__description">{{ selectedOption.description }}</div>
-          </div>
-        </Teleport>
       </div>
     </template>
     <div v-else class="performance-rating-control__labels" role="radiogroup" :aria-label="ariaLabel">
@@ -31,19 +25,14 @@
           @click="interactive && $emit('update:modelValue', option.id)"
         >
           {{ previewHover ? (option.code || option.label) : option.label }}
-          <Teleport to="body">
-            <div v-if="hoveredOptionId === option.id && (option.description || option.code || option.name)" class="performance-rating-control__popover" role="tooltip" :style="hoverPosition">
-              <div class="performance-rating-control__popover-heading">
-                <PerformanceRatingTag class="performance-rating-control__code" :label="option.code || option.label" :color="option.color" />
-                <strong>{{ option.name || option.label }}</strong>
-              </div>
-              <div v-if="option.description" class="performance-rating-control__description">{{ option.description }}</div>
-            </div>
-          </Teleport>
         </button>
         <span v-if="index < selectableOptions.length - 1" class="performance-rating-control__connector rating-connector" aria-hidden="true"></span>
       </template>
     </div>
+    <PerformancePopover v-if="previewHover && hoveredOption && hoverAnchor" :visible="true" :anchor="hoverAnchor" :width="420" :gap="8" name="performance-rating-popover" content-class="performance-rating-control__popover-content">
+      <div class="performance-rating-control__popover-heading"><PerformanceRatingTag class="performance-rating-control__code" :label="hoveredOption.code || hoveredOption.label" :color="hoveredOption.color" /><strong>{{ hoveredOption.name || hoveredOption.label }}</strong></div>
+      <div v-if="hoveredOption.description" class="performance-rating-control__description">{{ hoveredOption.description }}</div>
+    </PerformancePopover>
   </div>
 </template>
 
@@ -52,6 +41,7 @@ import { computed, ref } from 'vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
+import PerformancePopover from './PerformancePopover.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
 
 export interface PerformanceRatingOption {
@@ -86,16 +76,23 @@ defineEmits<{ 'update:modelValue': [value: string] }>()
 const normalizedMode = computed(() => props.displayMode === '下拉样式' ? 'dropdown' : 'labels')
 const selectableOptions = computed(() => props.allowUnknown === true ? [...props.options.filter(option => option.id !== '__unknown__'), { id: '__unknown__', label: '不了解' }] : props.options)
 const hoveredOptionId = ref<string | null>(null)
-const hoverPosition = ref({ top: '0px', left: '0px' })
+const hoveredOption = computed(() => selectableOptions.value.find(option => option.id === hoveredOptionId.value))
+const selectedOption = computed(() => selectableOptions.value.find(option => option.id === props.modelValue))
+const hoverAnchor = ref<HTMLElement | null>(null)
+const dropdownPreview = ref<HTMLElement | null>(null)
 const levelBackground = (color?: string) => performanceLevelBackground(color)
 function showHover(option: PerformanceRatingOption, event: MouseEvent | FocusEvent) {
   if (!props.interactive && !props.previewHover) return
   hoveredOptionId.value = option.id
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  hoverPosition.value = { top: `${Math.max(16, Math.min(window.innerHeight - 150, rect.bottom + 8))}px`, left: `${Math.max(16, Math.min(window.innerWidth - 436, rect.left))}px` }
+  if (props.previewHover) hoverAnchor.value = event.currentTarget as HTMLElement
 }
-function hideHover() { hoveredOptionId.value = null }
-const selectedOption = computed(() => selectableOptions.value.find(option => option.id === props.modelValue))
+function showSelectedHover() {
+  if (props.previewHover && selectedOption.value && dropdownPreview.value) {
+    hoveredOptionId.value = selectedOption.value.id
+    hoverAnchor.value = dropdownPreview.value
+  }
+}
+function hideHover() { hoveredOptionId.value = null; hoverAnchor.value = null }
 const selectedLabel = computed(() => {
   const selected = selectedOption.value
   return selected ? (props.previewHover ? selected.code || selected.label : selected.label) : ''
