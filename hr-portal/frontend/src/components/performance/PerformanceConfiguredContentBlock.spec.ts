@@ -63,6 +63,49 @@ describe('PerformanceConfiguredContentBlock', () => {
     wrapper.unmount()
   })
 
+  it('reuses the hidden presentation for unavailable reference content', () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, content_slot: 'reference' } as any,
+      active: false, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false, allowView: false }, itemSettings: {}, rootSettingsEnabled: true, itemSettingsEnabled: true,
+      rootSettingsVariant: 'result-view-root', itemSettingsVariant: 'result-view-item',
+    } })
+    expect(wrapper.get('.configured-content-card__row').classes()).toContain('configured-content-card__row--unavailable')
+    expect(wrapper.find('.performance-unavailable-overlay').exists()).toBe(true)
+    wrapper.unmount()
+  })
+  it('locks reference prompts that are only shown while filling', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, content_slot: 'reference', type: 'prompt', name: '参考提示', prompt: { title: '提示', content: '仅填写时显示', color: '#3370ff', scope: 'all', onlyWhenFilling: true, allowView: false }, items: [] } as any,
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: {}, rootSettingsEnabled: true, itemSettingsEnabled: true,
+      rootSettingsVariant: 'generic-root', itemSettingsVariant: 'prompt',
+    } })
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    const input = wrapper.get('.content-settings-detail--prompt input')
+    expect((input.element as HTMLInputElement).disabled).toBe(true)
+    expect(wrapper.getComponent(PerformanceInfoPopover).props('content')).toBe('提示信息已设置为「仅在填写时显示」,可前往「配置填写内容」页面修改设置后再启用')
+    await input.trigger('change')
+    expect(wrapper.emitted('update:content')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps ordinary reference prompts editable without changing their fill-only flag', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, content_slot: 'reference', type: 'prompt', name: '参考提示', prompt: { title: '提示', content: '可查看', color: '#3370ff', scope: 'all', onlyWhenFilling: false }, items: [] } as any,
+      active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: false,
+      rootSettings: { hideDescription: false, allowMultiple: false }, itemSettings: {}, rootSettingsEnabled: false, itemSettingsEnabled: false,
+      rootSettingsVariant: 'generic-root', itemSettingsVariant: 'generic-item',
+    } })
+    await wrapper.get('.configured-content-card__row').trigger('click')
+    expect(wrapper.find('.work-summary-view-options').exists()).toBe(false)
+    const input = wrapper.get('.content-settings-detail--prompt input')
+    expect((input.element as HTMLInputElement).disabled).toBe(false)
+    await input.setValue(false)
+    expect((wrapper.emitted('update:content')!.at(-1) as any[])[0].prompt).toMatchObject({ allowView: false, onlyWhenFilling: false })
+    wrapper.unmount()
+  })
+
   it.each(['work-summary-item', 'evaluation-item', 'result-view-item', 'generic-item'])('edits embedded prompt settings independently in %s', async itemSettingsVariant => {
     const inline = { title: '内部提示', content: '内部说明', color: '#10B981', scope: 'all' as const }
     const wrapper = mount(PerformanceConfiguredContentBlock, { props: {

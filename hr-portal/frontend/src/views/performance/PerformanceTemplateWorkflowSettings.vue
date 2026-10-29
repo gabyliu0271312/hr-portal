@@ -289,8 +289,9 @@ function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'executor_labe
   if (isLineManager) {
     const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
     if (levels.length) return levels.map(option => option.label).join('、')
+    return '--'
   }
-  return node.executor_label || '未配置'
+  return node.executor_label || '--'
 }
 const appealExecutorDescription = computed(() => {
   const roles = selectedNode.value?.executor_config?.roles || [{ type: 'HRBP' as const }]

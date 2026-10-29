@@ -33,7 +33,8 @@ const displayStyle = computed(() => ({ backgroundColor: definition.value.noticeB
 .performance-prompt-display__text { min-width: 0; }
 .performance-prompt-display__title { min-width: 0; margin: 0 0 2px; overflow-wrap: anywhere; font: 600 16px/24px var(--font-sans); }
 .performance-prompt-display__content { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-text-secondary); font: 400 14px/22px var(--font-sans); }
-.performance-prompt-display.is-unavailable { padding-right: calc(var(--spacing-2) + var(--performance-icon-button-size) + var(--spacing-2)); opacity: .5; }
-.performance-prompt-display__hidden-icon { position: absolute; top: var(--spacing-1); right: var(--spacing-2); z-index: 2; display: grid; place-items: center; width: var(--performance-icon-button-size); height: var(--performance-icon-button-size); padding: var(--spacing-1); border: 0; background: transparent; color: var(--color-text-placeholder); pointer-events: none; }
+.performance-prompt-display.is-unavailable { padding-right: calc(var(--spacing-2) + var(--performance-icon-button-size) + var(--spacing-2)); background: var(--performance-content-hidden-background); color: var(--performance-content-hidden-text); opacity: var(--performance-content-hidden-opacity); }
+.performance-prompt-display.is-unavailable .performance-prompt-display__content { color: var(--performance-content-hidden-text); }
+.performance-prompt-display__hidden-icon { position: absolute; top: var(--spacing-1); right: var(--spacing-2); z-index: 2; display: grid; place-items: center; width: var(--performance-icon-button-size); height: var(--performance-icon-button-size); padding: var(--spacing-1); border: 0; background: transparent; color: var(--performance-content-unavailable-icon); pointer-events: none; }
 .performance-prompt-display__hidden-icon svg { display: block; width: var(--performance-icon-size); height: var(--performance-icon-size); overflow: hidden; }
 </style>

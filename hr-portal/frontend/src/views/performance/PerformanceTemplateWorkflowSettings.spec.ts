@@ -208,6 +208,17 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(wrapper.get('.stage-node.selected .node-executor').text()).not.toContain('实线上级')
   })
 
+  it('shows an empty executor when no manager level is selected', async () => {
+    const wrapper = mount(PerformanceTemplateWorkflowSettings)
+    const evaluationNode = wrapper.findAll('.stage-node').find(node => node.text().includes('评估型环节'))!
+    await evaluationNode.trigger('click')
+
+    const input = wrapper.get('.sub-options .ud__checkbox__input')
+    await input.setValue(false)
+
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).toBe('执行人：--')
+  })
+
   it('updates the result-communication flow node executor label when manager levels are selected', async () => {
     const wrapper = mount(PerformanceTemplateWorkflowSettings)
     await wrapper.get('.flow-connector').trigger('mouseenter')
@@ -221,7 +232,19 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(wrapper.get('.stage-node.selected .node-executor').text()).not.toContain('实线上级')
   })
 
-  it('renders the real-line manager options with the captured checkbox geometry and selected state', async () => {
+  it('shows an empty result-communication executor when no manager level is selected', async () => {
+    const wrapper = mount(PerformanceTemplateWorkflowSettings)
+    await wrapper.get('.flow-connector').trigger('mouseenter')
+    await wrapper.findAll('.popover-stage').find(option => option.text().includes('结果沟通'))?.trigger('click')
+    await wrapper.get('.stage-node.selected').trigger('click')
+
+    const input = wrapper.get('.sub-options .ud__checkbox__input')
+    await input.setValue(false)
+
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).toBe('执行人：--')
+  })
+
+  it('renders the captured real-line manager options with the selected state', async () => {
     const wrapper = mount(PerformanceTemplateWorkflowSettings)
     const evaluationNode = wrapper.findAll('.stage-node').find(node => node.text().includes('评估型环节'))
 

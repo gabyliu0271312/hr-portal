@@ -65,6 +65,10 @@
   --performance-review-readonly-surface: #f5f6f7;
   --performance-content-unavailable-overlay: rgba(255, 255, 255, 0.56);
   --performance-content-unavailable-icon: var(--color-text-placeholder);
+  --performance-content-hidden-opacity: 0.5;
+  --performance-content-hidden-text: var(--color-text-placeholder);
+  --performance-content-hidden-border: #dee0e3;
+  --performance-content-hidden-background: var(--color-bg-card);
   --performance-readonly-item-padding-block: var(--spacing-4);
   --performance-readonly-item-padding-inline: var(--spacing-6);
   --performance-readonly-answer-padding: var(--spacing-4);

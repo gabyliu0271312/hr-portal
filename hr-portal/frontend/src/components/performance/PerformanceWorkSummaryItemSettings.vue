@@ -17,8 +17,10 @@ export interface WorkSummaryItemSettings {
   allowModify?: boolean
 }
 
-const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant; disabled?: boolean }>(), {
+const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant; disabled?: boolean; allowViewLocked?: boolean; referencePrompt?: boolean }>(), {
   variant: 'work-summary',
+  allowViewLocked: false,
+  referencePrompt: false,
 })
 const capabilities = computed(() => itemSettingsCapabilities[props.variant])
 const emit = defineEmits<{ 'update:modelValue': [value: WorkSummaryItemSettings] }>()
@@ -41,8 +43,11 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
 <template>
   <div class="work-summary-item-settings" :class="{ 'work-summary-item-settings--rating': variant === 'rating' || variant === 'calibration-rating' || variant === 'evaluation-rating' || variant === 'result-view-rating' || variant === 'result-communication-rating' }" :aria-label="variant === 'rating' || variant === 'calibration-rating' || variant === 'evaluation-rating' || variant === 'result-view-rating' || variant === 'result-communication-rating' ? '评分评级设置' : variant === 'custom-text' || variant === 'calibration-custom-text' || variant === 'evaluation-custom-text' || variant === 'result-view-custom-text' || variant === 'result-communication-custom-text' ? '自定义文本填写题设置' : variant === 'custom-tag' || variant === 'calibration-custom-tag' || variant === 'evaluation-custom-tag' || variant === 'result-view-tag' || variant === 'result-communication-custom-tag' ? '自定义标签填写题设置' : '工作总结填写题设置'">
     <fieldset v-if="capabilities.allowView" class="work-summary-setting-group work-summary-view-setting">
-      <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" :checked-color="checkedColor" @update:model-value="update({ allowView: $event })" />
-      <div v-if="modelValue.allowView !== false && (capabilities.hideName || capabilities.hideDescription || capabilities.onlyWhenFilling)" class="work-summary-view-options">
+      <PerformanceInfoPopover v-if="allowViewLocked" content="提示信息已设置为「仅在填写时显示」,可前往「配置填写内容」页面修改设置后再启用" variant="disabled-action" width="auto">
+        <PerformanceCheckbox :model-value="false" label="允许查看" :checked-color="checkedColor" disabled />
+      </PerformanceInfoPopover>
+      <PerformanceCheckbox v-else :model-value="modelValue.allowView !== false" label="允许查看" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ allowView: $event })" />
+      <div v-if="modelValue.allowView !== false && !allowViewLocked && !referencePrompt && (capabilities.hideName || capabilities.hideDescription || capabilities.onlyWhenFilling)" class="work-summary-view-options">
         <PerformanceCheckbox v-if="capabilities.onlyWhenFilling" :model-value="modelValue.onlyWhenFilling === true" label="仅在填写时显示" :checked-color="checkedColor" @update:model-value="update({ onlyWhenFilling: $event })" />
         <PerformanceCheckbox v-if="capabilities.hideName" :model-value="modelValue.hideName === true" label="隐藏名称" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ hideName: $event })" />
         <PerformanceCheckbox v-if="capabilities.hideDescription" :model-value="modelValue.hideDescription === true" label="隐藏描述" :checked-color="checkedColor" :disabled="disabled" @update:model-value="update({ hideDescription: $event })" />

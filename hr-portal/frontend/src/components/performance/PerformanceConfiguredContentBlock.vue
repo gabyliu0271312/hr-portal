@@ -14,6 +14,7 @@ import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from
 import PerformanceWorkSummaryRootSettings, { type WorkSummaryRootSettings } from './PerformanceWorkSummaryRootSettings.vue'
 import { getItemSettingsVariant, getRootSettingsCapabilities, supportsCalibrationItemSettings, supportsEvaluationItemSettings, supportsEvaluationView, supportsResultViewSettings } from './performanceContentSettingsRules'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
+import PerformanceUnavailableOverlay from './PerformanceUnavailableOverlay.vue'
 
 const props = withDefaults(defineProps<{
   content: AssessmentContentDraft & { id: string }
@@ -62,6 +63,8 @@ const horizontalHandleVisible = computed(() => !props.horizontalHandle || rootHo
 const selectedItemId = ref<string | null>(null)
 const selectedPrompt = computed(() => owner.value === 'root' ? (isPromptContent.value ? props.content.prompt : undefined) : props.content.items.find(item => item.id === selectedItemId.value && item.kind === 'prompt')?.prompt)
 const promptSettings = computed<WorkSummaryItemSettings>(() => ({ mode: 'fill', required: false, allowView: selectedPrompt.value?.allowView !== false, onlyWhenFilling: selectedPrompt.value?.onlyWhenFilling === true }))
+const promptAllowViewLocked = computed(() => props.content.content_slot === 'reference' && selectedPrompt.value?.onlyWhenFilling === true)
+const rootUnavailable = computed(() => props.content.content_slot === 'reference' && props.rootSettings.allowView === false)
 const settingsAvailable = computed(() => Boolean(selectedPrompt.value && !isCalibration.value) || (owner.value === 'root' ? rootSettingsAvailable.value : selectedItemSettingsEnabled.value))
 const itemSettingsVariant = computed(() => {
   if (isCalibration.value) {
@@ -132,7 +135,10 @@ function selectItem(itemId: string) {
 }
 
 function updatePromptSettings(settings: WorkSummaryItemSettings) {
-  const patch: Partial<PerformancePromptValue> = { allowView: settings.allowView !== false, onlyWhenFilling: settings.onlyWhenFilling === true }
+  if (promptAllowViewLocked.value) return
+  const patch: Partial<PerformancePromptValue> = props.content.content_slot === 'reference'
+    ? { allowView: settings.allowView !== false }
+    : { allowView: settings.allowView !== false, onlyWhenFilling: settings.onlyWhenFilling === true }
   emit('update:content', owner.value === 'root'
     ? { ...props.content, prompt: { ...selectedPrompt.value!, ...patch } }
     : { ...props.content, items: props.content.items.map(item => item.id === selectedItemId.value ? { ...item, prompt: { ...item.prompt!, ...patch } } : item) })
@@ -170,7 +176,8 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
       @edit="emit('edit')"
       @delete="emit('delete')"
     />
-    <div class="configured-content-card__row" :class="{ 'configured-content-card__row--prompt': isPromptContent }" role="button" :tabindex="isPromptContent || toolbarVisible ? 0 : -1" :aria-label="`Select ${content.name}`" @click="selectRoot" @keydown.enter.prevent="selectRoot" @keydown.space.prevent="selectRoot">
+    <div class="configured-content-card__row" :class="{ 'configured-content-card__row--prompt': isPromptContent, 'configured-content-card__row--unavailable': rootUnavailable }" role="button" :tabindex="isPromptContent || toolbarVisible ? 0 : -1" :aria-label="`Select ${content.name}`" @click="selectRoot" @keydown.enter.prevent="selectRoot" @keydown.space.prevent="selectRoot">
+      <PerformanceUnavailableOverlay v-if="rootUnavailable" />
       <div class="configured-content-card__header">
         <template v-if="isPromptContent">
           <PerformancePromptDisplay v-if="content.prompt" :value="content.prompt" />
@@ -195,7 +202,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
 
   <div v-if="active && settingsAvailable" class="configured-content-settings">
     <div v-if="selectedPrompt" class="content-settings-detail content-settings-detail--prompt" aria-label="提示内容设置">
-      <PerformanceWorkSummaryItemSettings :model-value="promptSettings" variant="prompt" @update:model-value="updatePromptSettings" />
+      <PerformanceWorkSummaryItemSettings :model-value="promptSettings" :allow-view-locked="promptAllowViewLocked" :reference-prompt="props.content.content_slot === 'reference'" variant="prompt" @update:model-value="updatePromptSettings" />
     </div>
     <div v-else-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
       <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" :allow-view-enabled="rootCapabilities.allowView === true" @update:model-value="emit('update:root-settings', $event)" />
@@ -214,5 +221,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
 .configured-content-card.is-result-readonly .configured-content-card__row{min-height:0}.configured-content-card.is-result-readonly.rating-content-card .configured-content-card__row{height:auto;min-height:0;margin-top:0}.configured-content-card.is-result-readonly.rating-content-card .configured-content-card__details{padding-bottom:var(--spacing-2)}.configured-content-card.is-result-readonly.rating-content-card{padding-bottom:0}
 .configured-content-card.is-result-tag .configured-content-card__details{padding-bottom:var(--performance-result-view-tag-inset-block)}
 .configured-content-card__row--prompt{display:block;padding:var(--performance-readonly-item-padding-block) var(--performance-readonly-item-padding-inline);border:var(--performance-content-item-border-width) solid transparent}
+.configured-content-card__row--unavailable{opacity:var(--performance-content-hidden-opacity);color:var(--performance-content-hidden-text)}
+.configured-content-card__row--unavailable :deep(.performance-assessment-preview-header__description),.configured-content-card__row--unavailable :deep(.performance-prompt-display__content){color:var(--performance-content-hidden-text)}
 .configured-content-settings{position:static}
 </style>
