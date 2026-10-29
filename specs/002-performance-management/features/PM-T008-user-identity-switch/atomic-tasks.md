@@ -169,6 +169,7 @@ T09 写入与消息隔离：已纳入 MVP-1，在 T08 最终验收前完成；Q0
   - 测试/命令（frontend）：`npm run test -- src/stores/identitySwitch.spec.ts src/views/system/IdentityManagement.spec.ts src/components/performance/PerformanceIdentitySwitchDialog.spec.ts`；`npm run build`。
   - 验收：加载、无人、重名、无任务、故障、无权、成功、取消、切换失败回本人、到期、恢复、跨应用/标签；后端拒绝不能被前端模拟响应掩盖。
   - 证据：组件测试/构建、PC 多标签真实 API、原始身份/目标身份响应对照、独立 PNG、无敏感凭证检查。
+  - 修复记录（2026-10-29，切换后 1 分钟内掉身份）：心跳与业务请求此前把任意失败都当作会话撤销，一次超时/断网/5xx 即清空切换身份且不重试；现改为只有服务端明确 4xx 判定才结束会话，瞬时故障保留会话等下一轮心跳，失效提示改用服务端原因。改动 `PerformanceLayout.vue`、`api/client.ts`、`api/client.js`（运行时优先加载 `.js` 镜像，两份必须同步）。验证：本地接口 403/410/422 判定与连续心跳 200，vitest 5/5；真实页面待重新部署后复验。
   - 阻塞/非范围：目标导航身份不明或读取路径未贯通则停止；不独立宣称正式 SSO 全员已可用。
   - 完成定义：按目标权限展示、独立会话隔离和恢复完整验证，UI 与真实 API 一致。
 

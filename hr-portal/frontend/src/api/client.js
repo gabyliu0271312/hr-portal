@@ -64,8 +64,8 @@ api.interceptors.response.use(
     if (config?.switchAbort) employeeSwitchRequests.delete(config.switchAbort);
     if (axios.isCancel(error) || config?.switchEpoch !== void 0 && config.switchEpoch !== employeeSwitchEpoch.value) return Promise.reject(new CanceledError("\u8EAB\u4EFD\u5DF2\u53D8\u5316"));
     const rawDetail = error.response?.data?.detail;
-    if (config?.switchEpoch !== void 0 && rawDetail?.code?.startsWith("SWITCH_")) clearEmployeeSwitch(rawDetail.message || "\u8EAB\u4EFD\u5207\u6362\u5DF2\u5931\u6548\uFF0C\u8BF7\u6062\u590D\u672C\u4EBA");
     const status = error.response?.status;
+    if (config?.switchEpoch !== void 0 && status && status < 500 && rawDetail?.code?.startsWith("SWITCH_")) clearEmployeeSwitch(rawDetail.message || "\u8EAB\u4EFD\u5207\u6362\u5DF2\u5931\u6548\uFF0C\u8BF7\u6062\u590D\u672C\u4EBA");
     const detail = formatDetail(error.response?.data, error.message || "\u7F51\u7EDC\u5F02\u5E38");
     if (error.response) {
       if (error.response.data && typeof error.response.data === "object") {

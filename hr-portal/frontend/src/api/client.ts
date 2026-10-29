@@ -76,8 +76,9 @@ api.interceptors.response.use(
     if (config?.switchAbort) employeeSwitchRequests.delete(config.switchAbort)
     if (axios.isCancel(error) || (config?.switchEpoch !== undefined && config.switchEpoch !== employeeSwitchEpoch.value)) return Promise.reject(new CanceledError('身份已变化'))
     const rawDetail = (error.response?.data as any)?.detail
-    if (config?.switchEpoch !== undefined && rawDetail?.code?.startsWith('SWITCH_')) clearEmployeeSwitch(rawDetail.message || '身份切换已失效，请恢复本人')
     const status = error.response?.status
+    // 5xx 属于服务端瞬时故障，不能据此结束切换会话；只有明确拒绝才作废
+    if (config?.switchEpoch !== undefined && status && status < 500 && rawDetail?.code?.startsWith('SWITCH_')) clearEmployeeSwitch(rawDetail.message || '身份切换已失效，请恢复本人')
     const detail = formatDetail(error.response?.data, error.message || '网络异常')
 
     // 把格式化后的字符串挂回 response.data.detail，方便业务页面统一读
