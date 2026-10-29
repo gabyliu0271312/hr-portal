@@ -1,5 +1,5 @@
 <template>
-  <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled, 'is-scope': scopeMode }">
+  <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled, 'is-scope': scopeMode, 'is-embedded': embedded }">
     <div v-if="scopeMode && showScopeHeading" class="performance-audience-rule-editor__scope-heading">
       <span>人员范围</span>
       <span>满足以下任一条件</span>
@@ -115,6 +115,7 @@ const props = withDefaults(defineProps<{
   hireDateRange?: { min: string | null; max: string | null }
   snapshotOptions?: PerformanceEvaluatorOptions
   scopeMode?: boolean
+  embedded?: boolean
   showScopeHeading?: boolean
   operatorDisabled?: boolean
   defaultField?: string
@@ -127,6 +128,7 @@ const props = withDefaults(defineProps<{
   personOptions: () => [],
   employeeTypeOptions: () => [],
   scopeMode: false,
+  embedded: false,
   showScopeHeading: true,
   operatorDisabled: false,
   defaultField: '',
@@ -213,11 +215,14 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 <style scoped>
 .performance-audience-rule-editor { min-width: 0; }
 .performance-audience-rule-editor.is-scope { margin-top: var(--spacing-2); padding: var(--spacing-5); border-radius: var(--radius-lg); background: var(--performance-review-readonly-surface); }
+.performance-audience-rule-editor.is-scope.is-embedded { margin-top: 0; padding: 0; border-radius: 0; background: transparent; }
 .performance-audience-rule-editor__scope-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-2); margin-bottom: var(--spacing-2); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); }
 .performance-audience-rule-editor__scope-heading span:last-child { color: var(--performance-count-badge-text); }
 .performance-audience-rule-editor__groups { min-width: 0; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__groups { display: flex; align-items: stretch; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-add { margin-top: var(--spacing-2); }
+.performance-audience-rule-editor.is-scope.is-embedded .performance-audience-rule-editor__group { margin-bottom: var(--spacing-2); }
+.performance-audience-rule-editor.is-scope.is-embedded .performance-audience-rule-editor__scope-add { margin-top: 0; }
 .performance-audience-rule-editor__main { min-width: 0; flex: 1; }
 .performance-audience-rule-editor__rows { min-width: 0; }
 .performance-audience-rule-editor__scope-tools { min-width: 0; }
