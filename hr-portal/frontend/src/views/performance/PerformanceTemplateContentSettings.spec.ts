@@ -1384,7 +1384,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     expect(performanceReviewQuestionApi.list).toHaveBeenCalledWith('评级')
     expect(wrapper.findComponent(PerformanceAssessmentContentLayers).props('ratingOptions')).toEqual([
-      expect.objectContaining({ id: '101', label: '绩效评级', description: '7档绩效等级', displayMode: '下拉样式', levels: ['优秀'], levelOptions: [{ id: 'excellent', code: 'A', label: '优秀', color: '#3370ff' }] }),
+      expect.objectContaining({ id: '101', label: '绩效评级', description: '7档绩效等级', displayMode: '下拉样式', levels: ['优秀'], levelOptions: [{ id: 'excellent', code: 'A', name: '优秀', label: '优秀', color: '#3370ff' }] }),
     ])
     await wrapper.findAll('.stage-card')[3].trigger('click')
     await wrapper.find('.template-operate__button').trigger('click')

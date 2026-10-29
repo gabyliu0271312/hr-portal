@@ -1,6 +1,7 @@
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PerformanceAssessmentContentLayers, { type AssessmentOption, type AssessmentTagOption } from './PerformanceAssessmentContentLayers.vue'
+import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
 import layersSource from './PerformanceAssessmentContentLayers.vue?raw'
 import editorSource from './PerformanceRichTextEditor.vue?raw'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
@@ -167,6 +168,40 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(addMenuSource).toContain('var(--performance-menu-item-hover-background)')
     expect(addMenuSource).toContain('<Teleport to="body">')
     menu.unmount()
+  })
+
+  it('portals the rating selector outside clipped content and preserves selection', async () => {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const wrapper = mount(PerformanceAssessmentSelect, { attachTo: host, props: { label: '评估项', options: [{ id: 'one', label: '年度评级', description: '评级规则' }] } })
+    await wrapper.get('[role="combobox"]').trigger('click')
+    expect(host.querySelector('.option-menu')).toBeNull()
+    const menu = document.body.querySelector('.option-menu') as HTMLElement
+    expect(menu?.getAttribute('role')).toBe('listbox')
+    expect(menu?.style.position).toBe('fixed')
+    menu.querySelector('button')?.click()
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['one'])
+    wrapper.unmount()
+    host.remove()
+  })
+
+  it('keeps per-question grade metadata through editor confirmation', async () => {
+    const grades = [{ id: 'one', code: '1星', name: '不合格', label: '不合格', description: '结果未达标', color: 'rgb(251, 191, 188)' }]
+    const wrapper = mount(PerformanceAssessmentContentLayers, {
+      props: { open: true, ratingOptions: [{ id: 'annual', label: '年度评级', displayMode: '标签样式', levelOptions: grades }] },
+      global: { stubs: { Teleport: true, Transition: false } },
+    })
+    await openType(wrapper, '评分评级')
+    await wrapper.get('.select-shell > button').trigger('click')
+    await wrapper.get('.option-menu [role="option"]').trigger('click')
+    expect(wrapper.get('.rating-preview .rating-option').text()).toBe('1星')
+    expect(wrapper.get('.rating-preview .rating-option').attributes('style')).toContain('rgb(251, 191, 188)')
+    await wrapper.get('.config-pane input').setValue('评分评级')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    await wrapper.get('.drawer-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')![0][0] as any[])[0]
+    expect(saved.items[0].options).toEqual(grades)
+    wrapper.unmount()
   })
 
   it.each(['自定义', '评分评级'])('adds shared fill and prompt items to %s and preserves mixed order on edit', async label => {

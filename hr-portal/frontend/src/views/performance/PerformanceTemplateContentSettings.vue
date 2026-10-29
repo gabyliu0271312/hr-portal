@@ -231,13 +231,15 @@ function ratingLevelOptions(config: Record<string, unknown>) {
   const levels = config.levels
   if (!Array.isArray(levels)) return []
   return levels.map((level, index) => {
-    if (typeof level === 'string') return { id: `level-${index}`, code: undefined, label: level, color: undefined }
+    if (typeof level === 'string') return { id: `level-${index}`, code: undefined, name: undefined, label: level, color: undefined }
     if (!level || typeof level !== 'object') return null
     const record = level as Record<string, unknown>
-    const label = String(record.name || record.label || record.code || '')
+    const code = record.code ? String(record.code) : undefined
+    const name = record.name ? String(record.name) : undefined
+    const label = name || (record.label ? String(record.label) : '') || code || ''
     if (!label) return null
-    return { id: String(record.id || record.code || `level-${index}`), code: record.code ? String(record.code) : undefined, label, color: record.color ? String(record.color) : undefined }
-  }).filter((level): level is { id: string; code: string | undefined; label: string; color: string | undefined } => Boolean(level))
+    return { id: String(record.id || record.code || `level-${index}`), code, name, label, ...(record.description || record.level_description ? { description: String(record.description || record.level_description) } : {}), color: record.color ? String(record.color) : undefined }
+  }).filter((level): level is { id: string; code: string | undefined; name: string | undefined; label: string; description?: string; color: string | undefined } => Boolean(level))
 }
 
 function toRatingOption(question: PerformanceReviewQuestion): AssessmentOption {
@@ -247,7 +249,7 @@ function toRatingOption(question: PerformanceReviewQuestion): AssessmentOption {
     id: String(question.id),
     label: question.name,
     description: question.rule.name,
-    levels: levelOptions.map(level => level.label),
+    levels: levelOptions.map(level => level.name || level.label),
     levelOptions,
     displayMode: displayMode === '下拉样式' ? '下拉样式' : '标签样式',
   }

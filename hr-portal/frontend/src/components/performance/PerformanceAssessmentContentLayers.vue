@@ -86,7 +86,7 @@
             <template v-if="activeType==='rating' || activeType==='custom'">
               <template v-for="item in items" :key="`preview-${item.id}`">
                 <div v-if="item.kind === 'prompt' && item.prompt" class="prompt-preview"><PerformancePromptDisplay :value="item.prompt" /></div>
-                <div v-else-if="item.kind === 'rating'" class="rating-preview"><strong>{{ item.label || '未命名评估项' }}</strong><PerformanceRatingControl :options="ratingItemOptions(item)" :display-mode="ratingItemDisplayMode(item)" :interactive="false" :aria-label="`${item.label || '评估项'}预览`" /></div>
+                <div v-else-if="item.kind === 'rating'" class="rating-preview"><strong>{{ item.label || '未命名评估项' }}</strong><PerformanceRatingControl :options="ratingItemOptions(item)" :display-mode="ratingItemDisplayMode(item)" :interactive="false" :preview-hover="true" :aria-label="`${item.label || '评估项'}预览`" /></div>
                 <div v-else-if="item.questionType==='tag'" class="tag-preview"><PerformanceTemplateFieldRenderer mode="edit" :editable="true" :field="tagPreviewField(item)" :label="tagPreviewField(item).label" :value="tagPreviewValue(item)" @update:value="value => updateTagPreview(item, value)" /></div>
                 <div v-else class="text-preview"><strong>{{ item.label.trim() || '未命名填写题' }}</strong><PerformanceRichTextEditor v-model="item.richText" :placeholder="item.hint || '请输入内容'" /></div>
               </template>
@@ -123,12 +123,12 @@ import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceContentOptionCard from './PerformanceContentOptionCard.vue'
 
 export type AssessmentContentType = 'work_summary' | 'rating' | 'custom'
-export interface AssessmentOption { id:string; label:string; description?:string; disabled?:boolean; disabledReason?:string; levels?:string[]; levelOptions?:Array<{id:string;label:string;color?:string}>; displayMode?:'标签样式'|'下拉样式' }
+export interface AssessmentOption { id:string; label:string; description?:string; disabled?:boolean; disabledReason?:string; levels?:string[]; levelOptions?:Array<{id:string;code?:string;label:string;name?:string;description?:string;color?:string}>; displayMode?:'标签样式'|'下拉样式' }
 export interface AssessmentTagField { label:string; content:string }
 export interface AssessmentTagOption extends AssessmentOption { defaultFields?:AssessmentTagField[] }
-export interface AssessmentContentDraft { type:AssessmentContentType|'prompt'; name:string; description:string; items:Array<PerformanceTemplateContentItem>; prompt?:PerformancePromptValue; id?:string; content_id?:string; content_slot?:'fill'|'reference'|'adjustment'|'view'; settings?:{hideDescription?:boolean;allowMultiple?:boolean;allowUnknown?:boolean;mode?:string;required?:boolean}; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
+export interface AssessmentContentDraft { type:AssessmentContentType|'prompt'; name:string; description:string; items:Array<PerformanceTemplateContentItem>; prompt?:PerformancePromptValue; id?:string; content_id?:string; content_slot?:'fill'|'reference'|'adjustment'|'view'; settings?:{hideDescription?:boolean;allowMultiple?:boolean;allowUnknown?:boolean;mode?:string;required?:boolean}; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;code?:string;label:string;name?:string;description?:string;placeholder?:string;color?:string}> }
 interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
-interface FillItem { id:string; label:string; hint:string; richText?:string; kind?:'rating'|'fill'|'prompt'; prompt?:PerformancePromptValue; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;label:string;placeholder?:string;color?:string}> }
+interface FillItem { id:string; label:string; hint:string; richText?:string; kind?:'rating'|'fill'|'prompt'; prompt?:PerformancePromptValue; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;code?:string;label:string;name?:string;description?:string;placeholder?:string;color?:string}> }
 
 const props=withDefaults(defineProps<{open:boolean;horizontalHandle?:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
@@ -211,7 +211,7 @@ function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{
     Object.assign(draft,{name:content.name,description:content.description,ratingOptionId:content.ratingOptionId||(type==='rating'?content.items[0]?.id||'':''),questionType:content.questionType||'text',tagOptionId:content.tagOptionId||'',defaultAll:!!content.defaultAll})
     if(type==='work_summary' || type==='custom' || type==='rating') {
       const fillItems=content.items.length?content.items:[{id:nextId(),label:'',hint:'',richText:''}]
-      const targetItems=fillItems.map(item=>JSON.parse(JSON.stringify({...item,kind:item.kind||(type==='rating'?'rating':'fill'),ratingOptionId:item.kind==='rating'||(type==='rating'&&!item.kind)?(item as FillItem).ratingOptionId||content.ratingOptionId||item.id:undefined,ratingDisplayMode:item.ratingDisplayMode||(type==='rating'&&item.kind!=='fill'&&item.kind!=='prompt'?content.ratingDisplayMode:undefined),richText:item.richText||'',questionType:item.questionType||content.questionType||'text',tagOptionId:item.tagOptionId??content.tagOptionId,defaultAll:item.defaultAll??content.defaultAll,options:item.options??(item.kind==='fill'&&type==='rating'?undefined:content.options)})))
+      const targetItems=fillItems.map(item=>JSON.parse(JSON.stringify({...item,kind:item.kind||(type==='rating'?'rating':'fill'),ratingOptionId:item.kind==='rating'||(type==='rating'&&!item.kind)?(item as FillItem).ratingOptionId||content.ratingOptionId||item.id:undefined,ratingDisplayMode:item.ratingDisplayMode||(type==='rating'&&item.kind!=='fill'&&item.kind!=='prompt'?content.ratingDisplayMode:undefined),richText:item.richText||'',questionType:item.questionType||content.questionType||'text',tagOptionId:item.tagOptionId??content.tagOptionId,defaultAll:item.defaultAll??content.defaultAll,options:item.options??(item.kind==='fill'&&type==='rating'?undefined:(item.kind==='rating'&&item.ratingOptionId&&item.ratingOptionId!==content.ratingOptionId?undefined:content.options))})))
       if(type==='work_summary') workSummaryItems.value=targetItems
       else items.value=targetItems
     } else if(type==='rating') items.value=[]
@@ -263,7 +263,7 @@ function confirmContent(){
     ? workSummaryItems.value.map(({id,label,hint,richText})=>({id,label:label.trim(),hint:hint.trim(),richText,kind:'fill' as const}))
     : items.value.map(item=>{const normalized=item.questionType==='tag'?normalizeTagItem(item):item;return{...normalized,label:normalized.label.trim(),hint:(normalized.hint??'').trim()}})
   const existing=editingCreatedId.value?drawerContents.value.find(item=>contentKey(item)===editingCreatedId.value):undefined
-  const preservedItems=finalItems.map(item=>({...existing?.items.find(value=>value.id===item.id),...item}))
+  const preservedItems=finalItems.map(item=>({...existing?.items.find(value=>value.id===item.id),...item,options:item.kind==='rating'?ratingItemOptions(item):item.options}))
   const ratingItem=preservedItems.find(item=>item.kind==='rating')
   const ratingOptionId=ratingItem?.ratingOptionId
   const ratingLevels=ratingItem?ratingItemOptions(ratingItem):[]

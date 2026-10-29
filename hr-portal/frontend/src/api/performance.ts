@@ -698,7 +698,7 @@ export const projectManagementApi = {
   },
 }
 
-export type PerformanceTemplateOption = { id: string; code?: string; label: string; color?: string; placeholder?: string; description?: string; required?: boolean }
+export type PerformanceTemplateOption = { id: string; code?: string; label: string; name?: string; color?: string; placeholder?: string; description?: string; required?: boolean }
 export type PerformanceTemplateField = {
   id: string
   type: 'rich_text' | 'rating' | 'tag_with_followup'
@@ -863,6 +863,7 @@ export interface PerformanceReviewQuestionPayload {
   parent_question_id: number | null
   rule_id: number
   display_mode: '标签样式' | '下拉样式'
+  level_descriptions?: Record<string, string>
   remark: string
 }
 
@@ -1130,7 +1131,7 @@ export interface PerformanceTemplateContentItem {
     allowMultiple?: boolean
     allowView?: boolean
   }
-  options?: Array<{ id: string; code?: string; label: string; color?: string; placeholder?: string }>
+  options?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; color?: string; placeholder?: string }>
 }
 
 export interface PerformanceReferenceDisplaySettings {
@@ -1168,7 +1169,7 @@ export interface PerformanceTemplateContent {
   questionType?: 'text' | 'tag'
   tagOptionId?: string
   defaultAll?: boolean
-  options?: Array<{ id: string; code?: string; label: string; color?: string; placeholder?: string }>
+  options?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; color?: string; placeholder?: string }>
 }
 
 export type PerformanceCalibrationItemSettings = { allowModify?: boolean; hideName?: boolean; hideDescription?: boolean; levelRulesEnabled?: boolean }

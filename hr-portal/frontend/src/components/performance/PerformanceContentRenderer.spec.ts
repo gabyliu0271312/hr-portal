@@ -90,6 +90,17 @@ describe('performance content shared primitives', () => {
     expect(item.classes()).toContain('content-renderer-item--selected')
     expect(item.classes()).toContain('content-renderer-item--interactive')
   })
+  it('uses each rating item’s own levels rather than the block’s first rating levels', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: { content: {
+      type: 'rating', options: [{ id: 'first-level', code: '1星', label: '不合格' }], items: [
+        { id: 'first', kind: 'rating', label: '第一题', options: [{ id: 'first-level', code: '1星', label: '不合格' }] },
+        { id: 'second', kind: 'rating', label: '第二题', options: [{ id: 'second-level', code: '5星', label: '卓越' }] },
+      ],
+    } as any } })
+    expect(wrapper.findAll('[data-content-item-id="first"] .rating-option').map(option => option.text())).toEqual(['1星'])
+    expect(wrapper.findAll('[data-content-item-id="second"] .rating-option').map(option => option.text())).toEqual(['5星'])
+  })
+
   it('renders mixed rating, fill, and prompt items in source order', () => {
     const wrapper = mount(PerformanceContentRenderer, { props: { content: {
       type: 'rating', options: [{ id: 'a', label: '符合预期' }], items: [
@@ -271,16 +282,25 @@ describe('performance content shared primitives', () => {
     expect(wrapper.findAll('.rich-answer').map(answer => answer.text())).toEqual(['更新后的预览', '更新后的预览', '更新后的预览'])
   })
 
+  it('uses the same grade code preview in view mode', () => {
+    const wrapper = mount(PerformanceContentRenderer, { props: {
+      content: { type: 'rating', items: [{ id: 'rating', label: '年度评级' }], options: [{ id: 'a', code: '1星', label: '不合格', name: '不合格', description: '未达标', color: 'rgb(251, 191, 188)' }] },
+      itemSettings: { rating: { mode: 'view', required: false } },
+    } })
+    expect(wrapper.get('.content-renderer-rating__header').text()).toBe('年度评级')
+    expect(wrapper.get('.rating-option').text()).toBe('1星')
+    expect(wrapper.get('.performance-rating-control').attributes('aria-label')).toBeDefined()
+  })
+
   it('uses the shared readonly presentation for rating view previews', () => {
     const wrapper = mount(PerformanceContentRenderer, { props: {
       content: { type: 'rating', items: [{ id: 'rating', label: '年度评级', hint: '不显示的描述' }], options: [{ id: 'level-a', code: 'A', label: '优秀', color: '#3370ff' }] },
       itemSettings: { rating: { mode: 'view', required: false } },
     } })
-    expect(wrapper.get('.readonly-field-rating .template-field-label').text()).toBe('年度评级')
-    expect(wrapper.get('.readonly-rating-badge').text()).toBe('A')
-    expect(wrapper.get('.readonly-rating-label').text()).toBe('优秀')
-    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('background-color: rgb(51, 112, 255)')
-    expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
+    expect(wrapper.get('.content-renderer-rating__header').text()).toBe('年度评级')
+    expect(wrapper.get('.rating-option').text()).toBe('A')
+    expect(wrapper.find('.readonly-rating-badge').exists()).toBe(false)
+    expect(wrapper.get('.performance-rating-control').attributes('aria-label')).toBe('评级选项')
   })
 
   it('adds a single unknown preview option without changing source levels', async () => {

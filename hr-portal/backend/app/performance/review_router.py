@@ -73,6 +73,7 @@ class ReviewQuestionCreateRequest(BaseModel):
     parent_question_id: int | None = Field(default=None, gt=0)
     rule_id: int = Field(..., gt=0)
     display_mode: DisplayMode | None = None
+    level_descriptions: dict[str, str] | None = None
     remark: str = Field(default="", max_length=2000)
 
     @model_validator(mode="after")
@@ -350,7 +351,7 @@ def _validate_used_rating_update(old_config: dict[str, Any], new_config: dict[st
     new_levels = new_config.get("levels", [])
     if not isinstance(old_levels, list) or not isinstance(new_levels, list) or len(old_levels) != len(new_levels):
         raise _restricted_update()
-    editable_keys = {"id", "color", "code", "name", "value"}
+    editable_keys = {"id", "color", "code", "name", "value", "description"}
     for old_level, new_level in zip(old_levels, new_levels, strict=True):
         if not isinstance(old_level, dict) or not isinstance(new_level, dict):
             raise _restricted_update()
@@ -623,6 +624,24 @@ async def get_review_question(
     return _question_response(question, rule)
 
 
+def _apply_level_descriptions(rule: PerformanceReviewRule, descriptions: dict[str, str] | None) -> None:
+    if descriptions is None:
+        return
+    if rule.review_type != "评级":
+        raise HTTPException(status_code=422, detail={"code": "PERFORMANCE_REVIEW_LEVEL_INVALID", "message": "仅评级规则可配置等级描述"})
+    config = rule.config or {}
+    levels = config.get("levels")
+    if not isinstance(levels, list) or any(not isinstance(level, dict) for level in levels):
+        raise HTTPException(status_code=422, detail={"code": "PERFORMANCE_REVIEW_LEVEL_INVALID", "message": "评级等级配置无效"})
+    ids = [str(level.get("id") or level.get("code") or index) for index, level in enumerate(levels)]
+    if len(ids) != len(set(ids)) or any(key not in ids or not isinstance(value, str) or len(value) > 1000 for key, value in descriptions.items()):
+        raise HTTPException(status_code=422, detail={"code": "PERFORMANCE_REVIEW_LEVEL_INVALID", "message": "等级描述与评估规则不匹配"})
+    rule.config = {**config, "levels": [
+        {**level, **({"description": descriptions[ids[index]]} if ids[index] in descriptions else {})}
+        for index, level in enumerate(levels)
+    ]}
+
+
 @router.post(
     "/review-questions",
     response_model=ReviewQuestionResponse,
@@ -664,6 +683,7 @@ async def create_review_question(
         created_by_ref=str(context.subject_id),
     )
     db.add(question)
+    _apply_level_descriptions(rule, payload.level_descriptions)
     await db.commit()
     await db.refresh(question)
     return _question_response(question, rule)
@@ -713,6 +733,7 @@ async def update_review_question(
     question.remark = payload.remark
     question.created_by_type = context.subject_type
     question.created_by_ref = str(context.subject_id)
+    _apply_level_descriptions(rule, payload.level_descriptions)
     await db.commit()
     await db.refresh(question)
     return _question_response(question, rule)

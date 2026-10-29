@@ -85,8 +85,8 @@ import PerformanceSortableList from './PerformanceSortableList.vue'
 import PerformanceSwitch from './PerformanceSwitch.vue'
 
 type TagOption = { id: string; label: string; description?: string; defaultFields?: Array<{ label: string; content: string }> }
-type RatingOption = { id: string; label: string; description?: string; disabled?: boolean; disabledReason?: string; levels?: string[]; levelOptions?: Array<{ id: string; label: string; color?: string }>; displayMode?: '标签样式' | '下拉样式' }
-export type FillItem = { id: string; label: string; hint: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PerformancePromptValue; ratingOptionId?: string; ratingDisplayMode?: '标签样式' | '下拉样式'; questionType?: 'text' | 'tag'; tagOptionId?: string; defaultAll?: boolean; options?: Array<{ id: string; label: string; placeholder?: string; color?: string }> }
+type RatingOption = { id: string; label: string; description?: string; disabled?: boolean; disabledReason?: string; levels?: string[]; levelOptions?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; color?: string }>; displayMode?: '标签样式' | '下拉样式' }
+export type FillItem = { id: string; label: string; hint: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PerformancePromptValue; ratingOptionId?: string; ratingDisplayMode?: '标签样式' | '下拉样式'; questionType?: 'text' | 'tag'; tagOptionId?: string; defaultAll?: boolean; options?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; placeholder?: string; color?: string }> }
 
 const props = withDefaults(defineProps<{ items: FillItem[]; horizontalHandle?: boolean; invalid?: boolean; showQuestionType?: boolean; tagOptions?: TagOption[]; mixed?: boolean; ratingOptions?: RatingOption[] }>(), { invalid: false, showQuestionType: false, tagOptions: () => [], mixed: false, ratingOptions: () => [] })
 const emit = defineEmits<{

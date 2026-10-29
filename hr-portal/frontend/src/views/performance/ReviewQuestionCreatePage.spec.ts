@@ -91,6 +91,20 @@ describe('ReviewQuestionCreatePage rule relationship', () => {
     expect(wrapper.find('[aria-label="展示方式"]').exists()).toBe(true)
   })
 
+  it('saves edited rating descriptions in the question request', async () => {
+    listRules.mockResolvedValue([{ id: 11, name: '评级规则', review_type: '评级', status: 'active' }])
+    getRule.mockResolvedValue({ id: 11, name: '评级规则', review_type: '评级', remark: '', status: 'active', config: { levels: [{ id: 'a', code: '1星', name: '不合格', color: 'rgb(251, 191, 188)' }] } })
+    route.query = { name: '绩效评级' }
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('select').setValue('11')
+    await flushPromises()
+    await wrapper.get('.level-description-input').setValue('交付结果低于预期')
+    await wrapper.get('[data-submit]').trigger('click')
+    await flushPromises()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ rule_id: 11, level_descriptions: { a: '交付结果低于预期' } }))
+  })
+
   it('persists the selected display mode on the current question', async () => {
     listRules.mockResolvedValue([{ id: 11, name: '测试评级', review_type: '评级', status: 'active', updated_at: '', config_summary: {} }])
     getRule.mockResolvedValue({ id: 11, name: '测试评级', review_type: '评级', status: 'active', updated_at: '', config_summary: {}, config: { displayMode: '标签样式', levels: [{ code: 'A' }] } })

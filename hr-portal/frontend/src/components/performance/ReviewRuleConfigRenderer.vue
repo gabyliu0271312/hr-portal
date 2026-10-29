@@ -4,7 +4,7 @@ import FixedScoreOptionsSummary from './FixedScoreOptionsSummary.vue'
 import PerformanceOptionNavigator, { type PerformanceOptionLayoutPolicy } from './PerformanceOptionNavigator.vue'
 import ScoreMappingSummary from './ScoreMappingSummary.vue'
 import ScoreRangeSummary from './ScoreRangeSummary.vue'
-import { performanceLevelBackground as levelTriggerColor } from './performanceColorOptions'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 
 interface RuleConfig { [key: string]: unknown }
 
@@ -14,6 +14,7 @@ const props = defineProps<{
   config: RuleConfig
   loading?: boolean
   error?: string
+  levelDescriptions?: Record<string, string>
 }>()
 
 function record(value: unknown): RuleConfig {
@@ -35,6 +36,11 @@ function displayLevelName(value: unknown): string {
 function booleanValue(source: RuleConfig, camel: string, snake: string): boolean {
   const value = valueOf(source, camel, snake)
   return value === true || value === 'true' || value === 1 || value === '1'
+}
+
+const emit = defineEmits<{ 'update:levelDescriptions': [value: Record<string, string>] }>()
+function updateDescription(level: RuleConfig, index: number, value: string) {
+  emit('update:levelDescriptions', { ...props.levelDescriptions, [String(level.id ?? level.code ?? index)]: value })
 }
 
 const levels = computed(() => Array.isArray(props.config.levels) ? props.config.levels.map(record) : [])
@@ -96,10 +102,10 @@ const ratingSummary = computed(() => {
           <span class="level-description-heading">等级描述</span>
         </div>
         <div v-for="(level, index) in levels" :key="String(level.id ?? index)" class="level-grid level-grid-row" :class="{ quantified: gradeParticipatesInCalculation }">
-          <span class="level-code"><span class="level-code-pill" :style="{ backgroundColor: levelTriggerColor(level.color) }"><span class="level-code-text">{{ display(level.code) }}</span></span></span>
+          <span class="level-code"><PerformanceRatingTag class="level-code-pill" :label="display(level.code)" :color="typeof level.color === 'string' ? level.color : undefined" /></span>
           <span class="level-name">{{ displayLevelName(level.name) }}</span>
           <span v-if="gradeParticipatesInCalculation" class="quantified-score">{{ display(valueOf(level, 'quantifiedScore', 'quantified_score')) }}</span>
-          <input class="level-description-input" :value="display(valueOf(level, 'description', 'level_description')) === '—' ? '' : display(valueOf(level, 'description', 'level_description'))" aria-label="等级描述" />
+          <input class="level-description-input" :value="levelDescriptions?.[String(level.id ?? level.code ?? index)] ?? (display(valueOf(level, 'description', 'level_description')) === '—' ? '' : display(valueOf(level, 'description', 'level_description')))" aria-label="等级描述" @input="updateDescription(level, index, ($event.target as HTMLInputElement).value)" />
         </div>
       </div>
       <span class="sr-only">{{ ratingSummary }}</span>
@@ -128,8 +134,8 @@ const ratingSummary = computed(() => {
 .level-description-heading { min-width: 0; }
 .level-grid-row { min-height: 31.33px; margin-top: 12px; color: #1f2329; font-size: 14px; line-height: 22px; }
 .level-code, .level-code-pill, .level-code-text { min-width: 0; }
-.level-code-pill { display: inline-flex; align-items: center; width: max-content; max-width: 132px; height: 22px; padding: 0 8px; box-sizing: border-box; border-radius: 11px; }
-.level-code-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.level-code-pill { max-width: 132px; height: 22px; min-width: 0; padding: 0 8px; color: inherit; }
+.level-code-pill :deep(.rating-tag-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .level-description-input { width: 100%; height: 32px; padding: 4px 11px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; outline: none; color: #1f2329; font: 400 14px/22px inherit; }
 .level-description-input:focus { border-color: #3370ff; }
 .score-config, .mapping-config { margin-top: 16px; }

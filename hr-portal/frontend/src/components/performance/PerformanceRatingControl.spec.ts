@@ -1,8 +1,9 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 
 const options = [{ id: 's', label: '卓越', color: '#3370ff' }, { id: 'a', label: '符合预期', color: '#34c724' }]
+afterEach(() => { document.body.querySelectorAll('.performance-rating-control__popover').forEach(node => node.remove()) })
 
 describe('PerformanceRatingControl', () => {
   it('renders and updates label-style ratings', async () => {
@@ -34,6 +35,34 @@ describe('PerformanceRatingControl', () => {
     await wrapper.setProps({ allowUnknown: false, options })
     if (displayMode === '下拉样式') await wrapper.get('.performance-select-shell__selector').trigger('click')
     expect(wrapper.findAll(selector).map(option => option.text())).toEqual(['卓越', '符合预期'])
+    wrapper.unmount()
+  })
+
+  it('shows the code, name and description on readonly preview hover without changing the answer', async () => {
+    const wrapper = mount(PerformanceRatingControl, { props: { options: [{ id: 'one', code: '1星', label: '1星', name: '不合格', description: '交付结果低于预期', color: 'rgb(251, 191, 188)' }], previewHover: true }, attachTo: document.body })
+    const option = wrapper.get('.rating-option')
+    expect(option.text()).toBe('1星')
+    expect(option.attributes('disabled')).toBeUndefined()
+    await option.trigger('mouseenter')
+    const popup = document.body.querySelector('.performance-rating-control__popover') as HTMLElement
+    expect(popup?.textContent).toContain('1星')
+    expect(popup?.textContent).toContain('不合格')
+    expect(popup?.textContent).toContain('交付结果低于预期')
+    expect((popup.querySelector('.performance-rating-control__code') as HTMLElement).style.backgroundColor).toBe('rgb(253, 226, 226)')
+    await option.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await option.trigger('mouseleave')
+    expect(document.body.querySelector('.performance-rating-control__popover')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('keeps the readonly dropdown preview non-editable while showing maintained grade details', async () => {
+    const wrapper = mount(PerformanceRatingControl, { props: { options: [{ id: 'one', code: '1星', label: '不合格', name: '不合格', description: '交付结果低于预期', color: 'rgb(251, 191, 188)' }], displayMode: '下拉样式', modelValue: 'one', previewHover: true }, attachTo: document.body })
+    const preview = wrapper.get('.rating-select-preview')
+    expect(preview.text()).toContain('1星')
+    await preview.trigger('mouseenter')
+    expect(document.body.querySelector('.performance-rating-control__popover')?.textContent).toContain('交付结果低于预期')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
   })
 

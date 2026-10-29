@@ -39,6 +39,7 @@ const form = reactive<ReviewQuestionForm>({
 })
 const ruleOptions = ref<ReviewRuleOption[]>([])
 const selectedRule = ref<PerformanceReviewRuleDetail | null>(null)
+const levelDescriptions = ref<Record<string, string>>({})
 const displayMode = ref<'标签样式' | '下拉样式'>('标签样式')
 const subQuestionOptions = ref<{ none: PerformanceReviewSubQuestionOption[]; condition: PerformanceReviewSubQuestionOption[] }>({ none: [], condition: [] })
 const subQuestions = ref<ReviewQuestionSubQuestion[]>([])
@@ -90,6 +91,7 @@ function normalizeScoringMethod(config: Record<string, unknown>): string {
 async function loadRule(id: number | null) {
   const requestVersion = ++ruleLoadVersion
   selectedRule.value = null
+  levelDescriptions.value = {}
   loadingRule.value = false
   subQuestions.value = []
   subQuestionValidation.value = ''
@@ -183,6 +185,7 @@ async function submit() {
     parent_question_id: parentQuestionId.value,
     rule_id: form.rule_id,
     display_mode: displayMode.value,
+    ...(Object.keys(levelDescriptions.value).length && selectedRule.value?.review_type === '评级' ? { level_descriptions: levelDescriptions.value } : {}),
     remark: form.remark,
   }
   try {
@@ -226,8 +229,10 @@ function preview() { ElMessage.info('预览') }
           :entry-mode="entryMode"
           :rule-type="selectedRule?.review_type || '评级'"
           :config="selectedRule?.config || {}"
+          :level-descriptions="levelDescriptions"
           :loading="loadingRule"
           :error="ruleError"
+          @update:level-descriptions="levelDescriptions = $event"
         />
       </section>
       <ReviewQuestionRuleAdditionalCards

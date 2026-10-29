@@ -192,6 +192,42 @@ def test_inactive_rule_is_not_selectable():
 
 
 @pytest.mark.asyncio
+async def test_question_description_update_validates_rule_and_commits_atomically():
+    rule = _rule(config={"levels": [{"id": "a", "code": "1星", "name": "不合格"}]})
+    db = _Db(rule=rule)
+    result = await create_review_question(
+        ReviewQuestionCreateRequest(name="绩效评级", type="regular", rule_id=rule.id, level_descriptions={"a": "结果未达标"}),
+        _context(), db,
+    )
+    assert db.commits == 1
+    assert result.rule.config["levels"][0]["description"] == "结果未达标"
+
+    with pytest.raises(HTTPException) as exc:
+        await create_review_question(
+            ReviewQuestionCreateRequest(name="无效评级", type="regular", rule_id=rule.id, level_descriptions={"missing": "未知等级"}),
+            _context(), db,
+        )
+    assert exc.value.status_code == 422
+    assert db.commits == 1
+    assert rule.config["levels"][0]["description"] == "结果未达标"
+
+
+@pytest.mark.asyncio
+async def test_question_edit_updates_description_in_the_same_commit():
+    rule = _rule(config={"levels": [{"id": "a", "code": "1星", "name": "不合格", "description": "旧说明"}]})
+    question = _question(is_sub_question=False)
+    db = _Db(rule=rule, parent=question)
+    result = await update_review_question(
+        question.id,
+        ReviewQuestionCreateRequest(name="更新评级", type="regular", rule_id=rule.id, level_descriptions={"a": "新说明"}),
+        _context(), db,
+    )
+    assert db.commits == 1
+    assert result.rule.config["levels"][0]["description"] == "新说明"
+    assert question.name == "更新评级"
+
+
+@pytest.mark.asyncio
 async def test_create_review_question_persists_rule_id_and_parent_relation():
     db = _Db(rule=_rule())
     payload = ReviewQuestionCreateRequest(
@@ -338,7 +374,7 @@ async def test_used_rating_allows_visible_fields_and_blocks_quantified_score_or_
     allowed = {
         **rule.config,
         "levels": [
-            {**rule.config["levels"][0], "color": "blue", "code": "S", "name": "卓越", "value": "40"},
+            {**rule.config["levels"][0], "color": "blue", "code": "S", "name": "卓越", "description": "超出预期", "value": "40"},
             {**rule.config["levels"][1], "name": "符合预期"},
         ],
     }
@@ -346,6 +382,7 @@ async def test_used_rating_allows_visible_fields_and_blocks_quantified_score_or_
     result = await update_review_rule(rule.id, _write_payload(rule, name="已使用评级", config=allowed), _context(), db)
     assert result.name == "已使用评级"
     assert result.config["levels"][0]["quantifiedScore"] == "3"
+    assert result.config["levels"][0]["description"] == "超出预期"
 
     changed_score = {**allowed, "levels": [{**allowed["levels"][0], "quantifiedScore": "4"}, allowed["levels"][1]]}
     with pytest.raises(HTTPException) as score_exc:
