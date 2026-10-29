@@ -10,6 +10,8 @@ from app.core.deps import current_user
 from app.data.models import StandardField
 from app.users.models import Menu, RoleMenu
 from app.master_data.schemas import EntityCreateIn, EntityUpdateIn
+from app.master_data import records
+from app.master_data.models import EntityRecordAcl, EntitySource
 from tests.test_standard_field_direct_identity import direct_catalog, definition
 from tests.test_standard_field_catalog import postgres_standard_catalog
 from tests.test_scope_classification import postgres_classification_schema
@@ -29,10 +31,11 @@ def test_entity_schema_rejects_identity_forgery():
 
 @pytest_asyncio.fixture
 async def entity_api(direct_catalog):
-    from app.master_data.router import router
+    from app.master_data.router import router, record_router
     client, engine, factory = direct_catalog
     app = client._transport.app
     app.include_router(router, prefix='/api/v1')
+    app.include_router(record_router, prefix='/api/v1')
     actor = {'id': 7}
     async def user():
         return SimpleNamespace(id=actor['id'])

@@ -40,6 +40,8 @@ async def upsert_to_target_table(
       - offer_not_found_count: 飞书 Offer 未找到数
       - failed_application_ids: 失败投递 ID 列表（不含薪酬明细）
     """
+    from app.data.ddl import require_warehouse_table
+    require_warehouse_table(target_table)
     if not merged_rows:
         return {
             "status": "SUCCESS",
@@ -132,6 +134,8 @@ async def _raw_sql_upsert(
 
     Phase 1A 用于 hr_pending_employee_full 等目标表。
     """
+    from app.data.ddl import require_warehouse_table
+    require_warehouse_table(target_table)
     if not merged_rows:
         return {"status": "SUCCESS", "merged_count": 0}
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { EntityDefinition } from '@/api/masterData'
 import PermissionButton from '@/components/PermissionButton.vue'
-defineProps<{ items: EntityDefinition[]; loading: boolean }>()
-const emit = defineEmits<{ select: [entity: EntityDefinition]; edit: [entity: EntityDefinition] }>()
+defineProps<{ items: EntityDefinition[]; loading: boolean; publishing?: boolean }>()
+const emit = defineEmits<{ select: [entity: EntityDefinition]; edit: [entity: EntityDefinition]; publish: [entity: EntityDefinition] }>()
 </script>
 
 <template>
@@ -11,10 +11,11 @@ const emit = defineEmits<{ select: [entity: EntityDefinition]; edit: [entity: En
       <el-table-column prop="entity_code" label="实体编码" min-width="150" />
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column prop="description" label="业务说明" min-width="250" show-overflow-tooltip />
-      <el-table-column label="状态" min-width="100"><template #default="{ row }">{{ row.is_active ? '定义草稿' : '已失效' }}</template></el-table-column>
+      <el-table-column label="状态" min-width="100"><template #default="{ row }">{{ row.published_at ? '已发布' : row.is_active ? '定义草稿' : '已失效' }}</template></el-table-column>
       <el-table-column label="操作" width="280" fixed="right"><template #default="{ row }">
         <PermissionButton menu="system.master_entities" op="V" link type="primary" @click="emit('select', row)">查看字段引用</PermissionButton>
         <PermissionButton menu="system.master_entities" op="U" link :disabled="!row.is_active" @click="emit('edit', row)">编辑定义</PermissionButton>
+        <PermissionButton v-if="!row.published_at" menu="system.master_entities" op="U" link :disabled="!row.is_active || publishing" @click="emit('publish', row)">发布</PermissionButton>
       </template></el-table-column>
     </el-table>
   </div>

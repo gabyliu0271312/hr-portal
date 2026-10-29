@@ -7,6 +7,7 @@ import { useUserStore } from '@/stores/user'
 import EntityDefinitionList from '@/components/master-data/EntityDefinitionList.vue'
 import EntityDefinitionForm from '@/components/master-data/EntityDefinitionForm.vue'
 import EntityFieldReferences from '@/components/master-data/EntityFieldReferences.vue'
+import RecordEntityRecords from '@/components/master-data/RecordEntityRecords.vue'
 const store = useUserStore()
 const canView = computed(() => store.menus.some(m => m.code === 'system.master_entities'))
 const items = ref<EntityDefinition[]>([])
@@ -15,6 +16,8 @@ const editing = ref<EntityDefinition | null>(null)
 const form = ref({ entity_code: 'person', name: '人员', description: '人员基本信息定义，不包含真实人员记录。' })
 const formOpen = ref(false)
 const saving = ref(false)
+const publishing = ref(false)
+const recordVersion = ref(0)
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
@@ -64,8 +67,24 @@ async function save() {
   } catch (cause) { if (current === context) error.value = message(cause) }
   finally { if (current === context) saving.value = false }
 }
-watch(() => [canView.value, store.user?.id], () => { ++context; formOpen.value = false; saving.value = false; void load() }, { immediate: true, flush: 'sync' })
+async function publish(entity: EntityDefinition) {
+  if (publishing.value || !canView.value || !store.hasOp('system.master_entities', 'U')) return
+  const current = context
+  publishing.value = true; error.value = ''
+  try {
+    const updated = await masterDataApi.publish(entity.id, entity.revision)
+    if (current !== context || !canView.value || !store.hasOp('system.master_entities', 'U')) return
+    const index = items.value.findIndex(item => item.id === entity.id)
+    if (index >= 0) items.value[index] = updated
+    if (selected.value?.id === entity.id) selected.value = updated
+    ++recordVersion.value
+    ElMessage.success('实体已发布；记录结构已冻结，人员记录仍由受控服务写入')
+  } catch (cause) { if (current === context) error.value = message(cause) }
+  finally { if (current === context) publishing.value = false }
+}
+
 watch(canSave, allowed => { if (!allowed) { ++context; formOpen.value = false; saving.value = false } }, { flush: 'sync' })
+watch(() => [canView.value, store.user?.id, JSON.stringify(store.menus)], () => { ++context; formOpen.value = false; saving.value = false; publishing.value = false; void load() }, { immediate: true, flush: 'sync' })
 watch(page, load)
 onBeforeUnmount(() => { ++context; ++request })
 </script>
@@ -73,16 +92,17 @@ onBeforeUnmount(() => { ++context; ++request })
 <template>
   <div style="padding: 24px"><el-card shadow="never">
     <template #header><div class="entities-heading"><strong>主数据定义</strong><PermissionButton menu="system.master_entities" op="C" type="primary" :disabled="saving" @click="open()">新建实体定义</PermissionButton></div></template>
-    <p class="entities-note">建立Person等业务对象的配置身份；不开放人员数据。字段与枚举统一在数据仓库的标准字段目录维护。</p>
+    <p class="entities-note">配置定义与业务记录访问独立授权。字段与枚举统一在数据仓库的标准字段目录维护。</p>
     <p v-if="!canView" role="alert">无权限查看主数据定义。</p>
     <template v-else>
       <el-alert v-if="error" :title="String(error)" type="error" :closable="false" show-icon />
       <EntityDefinitionForm v-if="formOpen" v-model="form" :editing="!!editing" :saving="saving" @save="save" @cancel="formOpen = false" />
       <el-form v-else inline @submit.prevent="page = 1; load()"><el-form-item label="搜索"><el-input v-model="keyword" clearable placeholder="实体编码或名称" /></el-form-item><PermissionButton menu="system.master_entities" op="V" @click="page = 1; load()">查询</PermissionButton></el-form>
-      <EntityDefinitionList :items="items" :loading="loading" @select="selected = $event" @edit="open" />
+      <EntityDefinitionList :items="items" :loading="loading" :publishing="publishing" @select="selected = $event" @edit="open" @publish="publish" />
       <el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="total, prev, pager, next" />
       <EntityFieldReferences v-if="selected" :key="selected.id" :entity="selected" />
     </template>
+    <RecordEntityRecords :key="recordVersion" />
   </el-card></div>
 </template>
 

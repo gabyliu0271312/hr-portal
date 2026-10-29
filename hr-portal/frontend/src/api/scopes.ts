@@ -17,6 +17,11 @@ export interface ScopeFilter {
   order_index?: number
 }
 
+export interface PersonReference {
+  entity_id: number
+  record_id: number
+}
+
 export interface ScopeTagItem {
   id: number
   name: string
@@ -27,6 +32,7 @@ export interface ScopeTagItem {
   selections: ScopeSelection[]
   person_scope_enabled: boolean
   filters: ScopeFilter[]
+  person_references?: PersonReference[]
   used_by_users: number
   created_at: string
   updated_at: string
@@ -41,6 +47,7 @@ export interface ScopePayload {
   selections: Omit<ScopeSelection, 'id'>[]
   person_scope_enabled: boolean
   filters: Omit<ScopeFilter, 'id'>[]
+  person_references?: PersonReference[]
 }
 
 export const scopesApi = {

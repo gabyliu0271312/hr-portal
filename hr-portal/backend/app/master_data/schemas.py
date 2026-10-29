@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -31,8 +33,32 @@ class EntityOut(BaseModel):
     description: str
     revision: int
     is_active: bool
+    published_at: datetime | None = None
 
 
 class EntityListOut(BaseModel):
     total: int
     items: list[EntityOut]
+
+
+class EntityPublishIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    expected_revision: int = Field(ge=0, strict=True)
+
+
+class EntityRecordUserAccessIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    allowed: bool = Field(strict=True)
+
+
+class EntityRecordAccessIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    user_ids: list[int] = Field(default_factory=list, max_length=100)
+    role_ids: list[int] = Field(default_factory=list, max_length=100)
+
+    @field_validator("user_ids", "role_ids")
+    @classmethod
+    def valid_subjects(cls, values):
+        if any(v <= 0 for v in values) or len(values) != len(set(values)):
+            raise ValueError("授权主体必须为不重复的有效ID")
+        return values

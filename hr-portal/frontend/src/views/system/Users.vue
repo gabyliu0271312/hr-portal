@@ -183,6 +183,7 @@
         <el-form-item label="AI 能力授权">
           <AiCapabilityGrantEditor v-model="form.ai_capability_ids" />
         </el-form-item>
+        <RecordAccessEditor v-if="drawerOpen && drawerMode === 'edit' && editing" :user-id="editing.id" :enabled="true" />
       </el-form>
 
       <template #footer>
@@ -267,6 +268,7 @@ import { ElInput, ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import AiCapabilityGrantEditor from '@/components/system/AiCapabilityGrantEditor.vue'
+import RecordAccessEditor from '@/components/master-data/RecordAccessEditor.vue'
 import { usersApi, type UserDetail, type UserListItem } from '@/api/users'
 import { scopesApi, type ScopeTagItem } from '@/api/scopes'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'

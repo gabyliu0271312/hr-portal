@@ -132,6 +132,8 @@ async def _definition_entity(db, payload, user, field=None):
         if not await user_has_op(user, db, "warehouse.standard_fields.catalog", "V"):
             _error(403, "standard_field_view_denied", "无标准字段查看权限")
         entity = await require_entity(db, target, user, "C" if field is None else "U", active=True, lock=True)
+        if entity.published_at is not None:
+            _error(409, "standard_field_entity_published", "实体已发布；本卡不支持修改其字段合同，请先完成定义升级影响核对")
     code = field.field_code if field is not None else payload.field_code
     if code == "work_location" and (field is None or target is not None) and (entity is None or entity.entity_code != "person"):
         _error(422, "work_location_entity", "工作地枚举必须归属于Person定义")
@@ -211,6 +213,10 @@ async def delete_standard_field(db, field_id, expected_revision, user):
         field = await _field(db, field_id, lock=True, user=user, op="D")
         if field.revision != expected_revision:
             _error(409, "standard_field_revision_conflict", "字段已更新，请重新加载")
+        if field.entity_id is not None:
+            entity = await require_entity(db, field.entity_id, user, "D", lock=True)
+            if entity.published_at is not None:
+                _error(409, "standard_field_entity_published", "已发布实体的字段身份不能删除")
         if await db.scalar(select(StandardFieldBinding.id).where(StandardFieldBinding.standard_field_id == field_id).limit(1)):
             _error(409, "standard_field_in_use", "存在映射引用，禁止删除")
         if field.has_history:

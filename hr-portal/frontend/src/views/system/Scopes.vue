@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, Close } from '@element-plus/icons-vue'
 import PermissionButton from '@/components/PermissionButton.vue'
@@ -10,8 +10,16 @@ import {
   type ScopePayload,
   type ScopeFilterField,
   type ScopeFilterOp,
+  type PersonReference,
 } from '@/api/scopes'
 import { treesApi, distinctApi, type TreeNode, type DistinctValue, type PersonItem } from '@/api/data'
+import PersonReferencePicker from '@/components/master-data/PersonReferencePicker.vue'
+import { useUserStore } from '@/stores/user'
+const store = useUserStore()
+let identity = 0
+let listRequest = 0
+const canView = computed(() => store.menus.some(m => m.code === 'system.scopes'))
+const canSave = computed(() => canView.value && store.hasOp('system.scopes', editing.value ? 'U' : 'C'))
 
 const list = ref<ScopeTagItem[]>([])
 const loading = ref(false)
@@ -52,6 +60,8 @@ interface FormState {
   selections: { node_id: number; include_descendants: boolean }[]
   person_scope_enabled: boolean
   filters: FilterRow[]
+  person_references: PersonReference[]
+  person_reference_mode: boolean
 }
 
 const form = reactive<FormState>({
@@ -63,6 +73,8 @@ const form = reactive<FormState>({
   selections: [],
   person_scope_enabled: false,
   filters: [],
+  person_references: [],
+  person_reference_mode: false,
 })
 
 const cc_tree = ref<TreeNode[]>([])
@@ -84,13 +96,17 @@ const currentTree = computed(() =>
 )
 
 async function loadList() {
+  const current = ++listRequest
+  list.value = []; loading.value = false
+  if (!canView.value) return
   loading.value = true
   try {
-    list.value = await scopesApi.list()
+    const rows = await scopesApi.list()
+    if (current === listRequest) list.value = rows
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '加载失败')
+    if (current === listRequest) ElMessage.error(e?.response?.data?.detail || '加载失败')
   } finally {
-    loading.value = false
+    if (current === listRequest) loading.value = false
   }
 }
 
@@ -128,18 +144,23 @@ function resetForm() {
     selections: [],
     person_scope_enabled: false,
     filters: [],
+    person_references: [],
+    person_reference_mode: false,
   })
   personOptionsByRow.value = {}
   personLoadingByRow.value = {}
   editing.value = null
 }
 
-function openCreate() {
+function openCreate(stable = false) {
+  if (!canView.value || !store.hasOp('system.scopes', 'C')) return
   resetForm()
+  if (stable) Object.assign(form, { dimension: 'org', org_scope_enabled: false, person_scope_enabled: true, person_reference_mode: true })
   drawerOpen.value = true
 }
 
 function openEdit(row: ScopeTagItem) {
+  if (!canView.value || !store.hasOp('system.scopes', 'U')) return
   editing.value = row
   form.name = row.name
   form.description = row.description ?? ''
@@ -156,6 +177,8 @@ function openEdit(row: ScopeTagItem) {
     operator: f.operator,
     values: [...f.values],
   }))
+  form.person_references = (row.person_references || []).map(r => ({ ...r }))
+  form.person_reference_mode = form.person_references.length > 0
   // 编辑模式：把已选 person 值预填到 options，避免回显成空
   personOptionsByRow.value = {}
   form.filters.forEach((f, idx) => {
@@ -182,7 +205,7 @@ function summary(s: ScopeTagItem): string {
     else parts.push(`组织 ${s.selections.length} 节点`)
   }
   if (s.person_scope_enabled) {
-    parts.push(`人员 ${s.filters.length} 条筛选`)
+    parts.push(s.person_references?.length ? `稳定人员 ${s.person_references.length} 条记录` : `人员 ${s.filters.length} 条筛选`)
   }
   return parts.join(' / ') || '—'
 }
@@ -282,18 +305,19 @@ function buildPayload(): ScopePayload {
   return {
     name: form.name.trim(),
     description: form.description.trim() || null,
-    dimension: form.dimension,
-    org_scope_enabled: form.org_scope_enabled,
-    org_scope_unlimited: form.org_scope_unlimited,
+    dimension: form.person_reference_mode ? 'org' : form.dimension,
+    org_scope_enabled: form.person_reference_mode ? false : form.org_scope_enabled,
+    org_scope_unlimited: form.person_reference_mode ? false : form.org_scope_unlimited,
     selections:
-      form.org_scope_enabled && !form.org_scope_unlimited
+      !form.person_reference_mode && form.org_scope_enabled && !form.org_scope_unlimited
         ? form.selections.map((s) => ({
             node_id: s.node_id,
             include_descendants: s.include_descendants,
           }))
         : [],
-    person_scope_enabled: form.person_scope_enabled,
-    filters: form.person_scope_enabled
+    person_scope_enabled: form.person_reference_mode || form.person_scope_enabled,
+    person_references: form.person_references.map(r => ({ ...r })),
+    filters: !form.person_reference_mode && form.person_scope_enabled
       ? form.filters.map((f, i) => ({
           field_code: f.field_code,
           operator: f.operator,
@@ -306,6 +330,7 @@ function buildPayload(): ScopePayload {
 
 function validate(): string | null {
   if (!form.name.trim()) return '请填写名称'
+  if (form.person_reference_mode) return form.person_references.length ? null : '请至少添加 1 条稳定人员记录'
   if (!form.org_scope_enabled && !form.person_scope_enabled)
     return '至少启用「管理组织范围」或「管理人员范围」之一'
   if (
@@ -315,7 +340,7 @@ function validate(): string | null {
   )
     return '请勾选组织节点，或选择「不限范围」'
   if (form.person_scope_enabled) {
-    if (form.filters.length === 0) return '请至少添加 1 条人员筛选条件'
+    if (!form.filters.length && !form.person_references.length) return '请至少添加 1 条人员筛选条件或稳定人员记录'
     for (let i = 0; i < form.filters.length; i++) {
       if (form.filters[i].values.length === 0)
         return `第 ${i + 1} 条筛选条件未选值`
@@ -325,6 +350,8 @@ function validate(): string | null {
 }
 
 async function save() {
+  if (saving.value || !canSave.value) return
+  const current = identity
   const err = validate()
   if (err) {
     ElMessage.warning(err)
@@ -335,17 +362,19 @@ async function save() {
     const payload = buildPayload()
     if (editing.value) {
       await scopesApi.update(editing.value.id, payload)
+      if (current !== identity) return
       ElMessage.success('已保存')
     } else {
       await scopesApi.create(payload)
+      if (current !== identity) return
       ElMessage.success('已创建')
     }
     drawerOpen.value = false
     await loadList()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '保存失败')
+    if (current === identity) ElMessage.error(e?.response?.data?.detail || '保存失败')
   } finally {
-    saving.value = false
+    if (current === identity) saving.value = false
   }
 }
 
@@ -381,6 +410,13 @@ async function onDimensionChange() {
   }
 }
 
+watch(() => [store.user?.id, JSON.stringify(store.menus)], () => {
+  ++identity; ++listRequest
+  drawerOpen.value = false; saving.value = false; resetForm()
+  list.value = []; cc_tree.value = []; org_tree.value = []; employmentTypes.value = []; employmentEntities.value = []
+  void loadList()
+}, { flush: 'sync' })
+onBeforeUnmount(() => { ++identity; ++listRequest })
 onMounted(async () => {
   await loadList()
   await Promise.all([loadTrees(), loadEnums()])
@@ -395,9 +431,9 @@ onMounted(async () => {
           <span style="font-size: 16px; font-weight: 600">
             管理单元（数据范围标签，共 {{ filteredList.length }} 个）
           </span>
-          <PermissionButton menu="system.scopes" op="C" type="primary" @click="openCreate">
+          <div style="display: flex; gap: 8px"><PermissionButton menu="system.scopes" op="C" @click="openCreate(true)">新建稳定人员标签</PermissionButton><PermissionButton menu="system.scopes" op="C" type="primary" @click="openCreate()">
             <el-icon style="margin-right: 4px"><Plus /></el-icon>新建标签
-          </PermissionButton>
+          </PermissionButton></div>
         </div>
       </template>
 
@@ -466,6 +502,8 @@ onMounted(async () => {
           <el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" />
         </el-form-item>
 
+        <PersonReferencePicker v-if="form.person_reference_mode" v-model="form.person_references" :op="editing ? 'U' : 'C'" :disabled="saving" />
+        <template v-else>
         <el-checkbox v-model="include_inactive" style="margin-bottom: 12px">
           含停用组织 / 失效成本中心 / 离职人员（影响下方树和人员下拉）
         </el-checkbox>
@@ -573,12 +611,13 @@ onMounted(async () => {
             未启用 — 该标签将不约束人员范围
           </div>
         </el-card>
+        </template>
       </el-form>
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 8px">
-          <el-button @click="drawerOpen = false">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+          <PermissionButton menu="system.scopes" :op="editing ? 'U' : 'C'" @click="drawerOpen = false">取消</PermissionButton>
+          <PermissionButton menu="system.scopes" :op="editing ? 'U' : 'C'" type="primary" :loading="saving" @click="save">保存</PermissionButton>
         </div>
       </template>
     </el-drawer>

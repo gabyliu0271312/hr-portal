@@ -22,7 +22,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.deps import current_user, require_op
+from app.core.deps import current_user, require_op, user_has_op
 from app.scopes.models import (
     ScopeTag,
     ScopeTagFilter,
@@ -66,6 +66,12 @@ class FilterOut(FilterIn):
     id: int
 
 
+class PersonReferenceIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    entity_id: int = Field(gt=0)
+    record_id: int = Field(gt=0)
+
+
 class ScopeIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     description: str | None = None
@@ -75,6 +81,7 @@ class ScopeIn(BaseModel):
     selections: list[SelectionIn] = Field(default_factory=list)
     person_scope_enabled: bool = False
     filters: list[FilterIn] = Field(default_factory=list)
+    person_references: list[PersonReferenceIn] = Field(default_factory=list, max_length=100)
 
 
 class ScopeOut(BaseModel):
@@ -87,6 +94,7 @@ class ScopeOut(BaseModel):
     selections: list[SelectionOut]
     person_scope_enabled: bool
     filters: list[FilterOut]
+    person_references: list[PersonReferenceIn] = Field(default_factory=list)
     used_by_users: int
     created_at: datetime
     updated_at: datetime
@@ -95,7 +103,7 @@ class ScopeOut(BaseModel):
 # ===== 工具 =====
 
 
-async def _to_out(t: ScopeTag, db: AsyncSession) -> ScopeOut:
+async def _to_out(t: ScopeTag, db: AsyncSession, user=None) -> ScopeOut:
     sels = (
         (
             await db.execute(
@@ -123,7 +131,15 @@ async def _to_out(t: ScopeTag, db: AsyncSession) -> ScopeOut:
             select(UserScopeTag).where(UserScopeTag.tag_id == t.id)
         )
     ).all()
+    from app.master_data.models import ScopePersonReference
+    references = []
+    if user is not None and await user_has_op(user, db, "system.scopes", "V"):
+        references = (await db.scalars(select(ScopePersonReference).where(ScopePersonReference.tag_id == t.id))).all()
+        from app.master_data.records import list_records
+        for reference in references:
+            await list_records(db, user, reference.entity_id, record_id=reference.record_id)
     return ScopeOut(
+        person_references=[PersonReferenceIn(entity_id=r.entity_id, record_id=r.record_id) for r in references],
         id=t.id,
         name=t.name,
         description=t.description,
@@ -166,11 +182,33 @@ def _validate_payload(payload: ScopeIn) -> None:
             status.HTTP_400_BAD_REQUEST,
             detail="启用「管理组织范围」时，请勾选节点或选择「不限范围」",
         )
-    if payload.person_scope_enabled and not payload.filters:
+    if payload.person_references and (payload.dimension != "org" or payload.org_scope_enabled or not payload.person_scope_enabled or payload.filters):
+        raise HTTPException(422, detail="稳定Person引用仅支持独立人员范围，不与旧文本/组织/中心条件混用")
+    if len({(r.entity_id, r.record_id) for r in payload.person_references}) != len(payload.person_references):
+        raise HTTPException(422, detail="Person引用不能重复")
+    if payload.person_scope_enabled and not payload.filters and not payload.person_references:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail="启用「管理人员范围」时，请至少添加 1 条筛选条件",
         )
+
+
+async def _validate_person_references(db, payload, user):
+    from app.master_data.records import list_records
+    from app.master_data.models import EntityDefinition, ScopePersonReference
+    if not payload.person_references:
+        return
+    for ref in payload.person_references:
+        entity = await db.get(EntityDefinition, ref.entity_id)
+        if entity is None or entity.entity_code != "person":
+            raise HTTPException(404, detail="人员引用不存在或无权访问")
+        await list_records(db, user, ref.entity_id, record_id=ref.record_id)
+
+
+async def _replace_person_references(db, tag_id, references):
+    from app.master_data.models import ScopePersonReference
+    await db.execute(delete(ScopePersonReference).where(ScopePersonReference.tag_id == tag_id))
+    db.add_all([ScopePersonReference(tag_id=tag_id, entity_id=r.entity_id, record_id=r.record_id) for r in references])
 
 
 # ===== Endpoints =====
@@ -179,14 +217,14 @@ def _validate_payload(payload: ScopeIn) -> None:
 @router.get("", response_model=list[ScopeOut])
 async def list_scopes(
     dimension: str | None = None,
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[ScopeOut]:
     stmt = select(ScopeTag).order_by(ScopeTag.dimension, ScopeTag.name)
     if dimension:
         stmt = stmt.where(ScopeTag.dimension == dimension)
     rows = (await db.execute(stmt)).scalars().all()
-    return [await _to_out(r, db) for r in rows]
+    return [await _to_out(r, db, user) for r in rows]
 
 
 @router.post(
@@ -197,8 +235,10 @@ async def list_scopes(
 async def create_scope(
     payload: ScopeIn,
     db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
 ) -> ScopeOut:
     _validate_payload(payload)
+    await _validate_person_references(db, payload, user)
 
     exists = (
         await db.execute(select(ScopeTag).where(ScopeTag.name == payload.name))
@@ -239,21 +279,22 @@ async def create_scope(
                 )
             )
 
+    await _replace_person_references(db, t.id, payload.person_references)
     await db.commit()
     await db.refresh(t)
-    return await _to_out(t, db)
+    return await _to_out(t, db, user)
 
 
 @router.get("/{tag_id}", response_model=ScopeOut)
 async def get_scope(
     tag_id: int,
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> ScopeOut:
     t = await db.get(ScopeTag, tag_id)
     if t is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="标签不存在")
-    return await _to_out(t, db)
+    return await _to_out(t, db, user)
 
 
 @router.put(
@@ -265,8 +306,10 @@ async def update_scope(
     tag_id: int,
     payload: ScopeIn,
     db: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
 ) -> ScopeOut:
     _validate_payload(payload)
+    await _validate_person_references(db, payload, user)
 
     t = await db.get(ScopeTag, tag_id)
     if t is None:
@@ -316,9 +359,10 @@ async def update_scope(
                 )
             )
 
+    await _replace_person_references(db, tag_id, payload.person_references)
     await db.commit()
     await db.refresh(t)
-    return await _to_out(t, db)
+    return await _to_out(t, db, user)
 
 
 @router.delete(
@@ -361,12 +405,19 @@ async def assign_user_tags(
     user_id: int,
     payload: UserTagsIn,
     db: AsyncSession = Depends(get_session),
+    actor: User = Depends(current_user),
 ) -> dict[str, Any]:
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="用户不存在")
 
     if payload.tag_ids:
+        from app.master_data.models import ScopePersonReference
+        from app.master_data.records import list_records
+        refs = (await db.scalars(select(ScopePersonReference).where(
+            ScopePersonReference.tag_id.in_(payload.tag_ids)))).all()
+        for ref in refs:
+            await list_records(db, actor, ref.entity_id, record_id=ref.record_id)
         rows = (
             await db.execute(
                 select(ScopeTag.id).where(ScopeTag.id.in_(payload.tag_ids))
@@ -390,7 +441,7 @@ async def assign_user_tags(
 @router.get("/_user/{user_id}", response_model=list[ScopeOut])
 async def list_user_tags(
     user_id: int,
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_session),
 ) -> list[ScopeOut]:
     rows = (
@@ -401,4 +452,4 @@ async def list_user_tags(
             .order_by(ScopeTag.dimension, ScopeTag.name)
         )
     ).scalars().all()
-    return [await _to_out(t, db) for t in rows]
+    return [await _to_out(t, db, user) for t in rows]

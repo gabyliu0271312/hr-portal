@@ -7,7 +7,7 @@ from sqlalchemy import bindparam, delete, text, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.data.ddl import validate_column_name, validate_table_name
+from app.data.ddl import validate_column_name, validate_table_name, require_warehouse_table
 from app.data.models import RegisteredTable, TableColumn
 from app.datasources.models import DataSource
 
@@ -22,7 +22,7 @@ class WarehouseAssetSink:
         self.db = db
 
     async def write(self, *, target_asset: str, rows: list[dict], write_mode: str, primary_key: str | None, field_whitelist: list[str], batch_id: str | None = None, period_field: str | None = None) -> dict:
-        target_asset = validate_table_name(target_asset)
+        target_asset = require_warehouse_table(target_asset)
         if write_mode == "period_full_snapshot":
             return await self._write_period_full_snapshot(
                 target_asset=target_asset,
@@ -121,6 +121,7 @@ class WarehouseAssetSink:
         batch_id: str | None,
         period_field: str | None,
     ) -> dict:
+        require_warehouse_table(target_asset)
         asset = await self.db.scalar(
             select(RegisteredTable).where(RegisteredTable.table_name == target_asset)
         )

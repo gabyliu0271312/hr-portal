@@ -6,8 +6,8 @@ import EntityFieldReferences from './EntityFieldReferences.vue'
 import StandardFieldDrawer from '@/components/warehouse/StandardFieldDrawer.vue'
 import StandardFieldDefinitionForm from '@/components/warehouse/StandardFieldDefinitionForm.vue'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), update: vi.fn(), push: vi.fn(), get: vi.fn(), post: vi.fn(), put: vi.fn() }))
-vi.mock('@/api/masterData', () => ({ masterDataApi: { list: mocks.list, create: mocks.create, update: mocks.update } }))
+const mocks = vi.hoisted(() => ({ recordEntities: vi.fn(), publish: vi.fn(), list: vi.fn(), create: vi.fn(), update: vi.fn(), push: vi.fn(), get: vi.fn(), post: vi.fn(), put: vi.fn() }))
+vi.mock('@/api/masterData', () => ({ masterDataApi: { recordEntities: mocks.recordEntities, publish: mocks.publish, list: mocks.list, create: mocks.create, update: mocks.update } }))
 vi.mock('@/api/client', () => ({ api: { get: mocks.get, post: mocks.post, put: mocks.put } }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }))
@@ -26,6 +26,7 @@ const button = (wrapper: ReturnType<typeof mount>, text: string) => wrapper.find
 beforeEach(() => {
   vi.clearAllMocks(); store.user = { id: 7 }; store.writable = true
   store.menus = [{ code: 'system.master_entities' }, { code: 'warehouse.standard_fields.catalog' }]
+  mocks.recordEntities.mockResolvedValue({ total: 0, items: [] })
   mocks.list.mockResolvedValue({ total: 0, items: [] }); mocks.create.mockResolvedValue(entity)
   mocks.get.mockImplementation((url: string) => Promise.resolve({ data: url === '/field-categories' ? [] : { total: 0, items: [] } }))
 })

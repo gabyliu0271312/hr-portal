@@ -55,6 +55,13 @@ def _byte_len(value: str) -> int:
     return len(value.encode("utf-8"))
 
 
+def require_warehouse_table(table_name: str) -> str:
+    table = validate_table_name(table_name)
+    if table.startswith("master_records_"):
+        raise DDLValidationError("主数据业务表只能通过受控主数据服务访问")
+    return table
+
+
 def validate_table_name(table_name: str) -> str:
     """Validate an application-managed source table name."""
     value = (table_name or "").strip()

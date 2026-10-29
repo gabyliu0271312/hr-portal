@@ -53,6 +53,21 @@ async def direct_catalog(postgres_standard_catalog):
             module.op = Operations(MigrationContext.configure(conn))
             module.upgrade()
         await connection.run_sync(install_entity)
+        from sqlalchemy import BigInteger, Column, MetaData, Table
+        from app.scopes.models import ScopeTag, ScopeTagFilter, ScopeTagSelection, UserScopeTag
+        scope_metadata = MetaData()
+        Table('users', scope_metadata, Column('id', BigInteger, primary_key=True))
+        for model in (ScopeTag, ScopeTagFilter, ScopeTagSelection, UserScopeTag):
+            model.__table__.to_metadata(scope_metadata)
+        await connection.run_sync(scope_metadata.create_all)
+        records_path = Path(__file__).parents[1] / "alembic/versions/0282_master_entity_records.py"
+        records_spec = spec_from_file_location("master_entity_records_migration", records_path)
+        records_module = module_from_spec(records_spec)
+        records_spec.loader.exec_module(records_module)
+        def install_records(conn):
+            records_module.op = Operations(MigrationContext.configure(conn))
+            records_module.upgrade()
+        await connection.run_sync(install_records)
     app = FastAPI()
     app.include_router(router, prefix='/api/v1')
 

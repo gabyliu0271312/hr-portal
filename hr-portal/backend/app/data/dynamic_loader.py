@@ -75,7 +75,8 @@ async def register_source_table_model(
     """
     from app.data.models import DATA_TABLES
 
-    table = validate_table_name(table_name)
+    from app.data.ddl import require_warehouse_table
+    table = require_warehouse_table(table_name)
     if not force and table in DATA_TABLES:
         return DATA_TABLES[table]
     model = await reflect_source_table_model(db, table)
@@ -90,7 +91,8 @@ async def _register_view_model(db, table_name: str, *, force: bool = False):
     from sqlalchemy import PrimaryKeyConstraint
     from sqlalchemy import Table as SATable, MetaData
 
-    table = validate_table_name(table_name)
+    from app.data.ddl import require_warehouse_table
+    table = require_warehouse_table(table_name)
     if not force and table in DATA_TABLES:
         return DATA_TABLES[table]
 
