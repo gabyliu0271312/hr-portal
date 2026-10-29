@@ -18,7 +18,7 @@
                 <span class="node-icon" aria-hidden="true"><PerformanceWorkflowStageIcon :type="node.node_type" /></span>
                 <span class="node-title">{{ node.name }}</span>
               </span>
-              <span class="node-executor">执行人：{{ node.executor_label }}</span>
+              <span class="node-executor">执行人：{{ executorDisplayLabel(node) }}</span>
               <button v-if="canDeleteNode(node)" class="delete-node" type="button" :aria-label="`删除${node.name}`" @click.stop="removeNode(node.node_id)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M8 4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2h5a1 1 0 1 1 0 2h-1v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6H3a1 1 0 0 1 0-2h5ZM6 6v14h12V6H6Zm4 3a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Z" fill="currentColor" /></svg></button>
             </div>
             <button v-if="canAddAtConnector(index + 1)" class="flow-connector" :class="{ open: popoverIndex === index + 1 }" type="button" @mouseenter="showPopover(index + 1, $event)" @mouseleave="schedulePopoverClose" @focus="showPopover(index + 1, $event)" @blur="schedulePopoverClose" @click="showPopover(index + 1, $event)"><span class="flow-line"></span><span class="add-circle">+</span><span class="flow-line"></span><span class="triangle"></span></button>
@@ -279,8 +279,18 @@ let appealPreviewHideTimer: ReturnType<typeof setTimeout> | null = null
 const DEFAULT_APPEAL_PROMPT = '如果你不认可本次绩效结果，请详细说明复议原因并提供事实依据'
 const DEFAULT_APPEAL_REASON_INSTRUCTION = '请输入复议理由'
 const executorLevelLabel: Record<string, string> = {
-  DIRECT_MANAGER: '直属上级', LEVEL_1_MANAGER: '隔 1 级上级', CURRENT_DEPARTMENT: '所属部门负责人',
+  DIRECT_MANAGER: '直属上级', LEVEL_1_MANAGER: '隔 1 级上级', LEVEL_2_MANAGER: '隔 2 级上级', LEVEL_3_MANAGER_PLUS: '隔 3 级上级及以上', CURRENT_DEPARTMENT: '所属部门负责人',
   PARENT_DEPARTMENT: '隔级部门负责人', LEVEL_1_DEPARTMENT: '所属一级部门负责人',
+}
+function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'executor_label' | 'executor_types' | 'executor_role_code'>) {
+  const isLineManager = node.executor_role_code === 'assessment.line_manager'
+    || node.executor_label === '实线上级'
+    || node.executor_types?.some(type => Object.prototype.hasOwnProperty.call(executorLevelLabel, type) && type.endsWith('_MANAGER'))
+  if (isLineManager) {
+    const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
+    if (levels.length) return levels.map(option => option.label).join('、')
+  }
+  return node.executor_label || '未配置'
 }
 const appealExecutorDescription = computed(() => {
   const roles = selectedNode.value?.executor_config?.roles || [{ type: 'HRBP' as const }]

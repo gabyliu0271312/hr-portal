@@ -196,6 +196,31 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     vi.useRealTimers()
   })
 
+  it('updates the flow node executor label when manager levels are selected', async () => {
+    const wrapper = mount(PerformanceTemplateWorkflowSettings)
+    const evaluationNode = wrapper.findAll('.stage-node').find(node => node.text().includes('评估型环节'))!
+    await evaluationNode.trigger('click')
+
+    const inputs = wrapper.get('.sub-options').findAll('.ud__checkbox__input')
+    await inputs[1].setValue(true)
+
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).toBe('执行人：直属上级、隔 1 级上级')
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).not.toContain('实线上级')
+  })
+
+  it('updates the result-communication flow node executor label when manager levels are selected', async () => {
+    const wrapper = mount(PerformanceTemplateWorkflowSettings)
+    await wrapper.get('.flow-connector').trigger('mouseenter')
+    await wrapper.findAll('.popover-stage').find(option => option.text().includes('结果沟通'))?.trigger('click')
+    await wrapper.get('.stage-node.selected').trigger('click')
+
+    const inputs = wrapper.get('.sub-options').findAll('.ud__checkbox__input')
+    await inputs[1].setValue(true)
+
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).toBe('执行人：直属上级、隔 1 级上级')
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).not.toContain('实线上级')
+  })
+
   it('renders the real-line manager options with the captured checkbox geometry and selected state', async () => {
     const wrapper = mount(PerformanceTemplateWorkflowSettings)
     const evaluationNode = wrapper.findAll('.stage-node').find(node => node.text().includes('评估型环节'))
