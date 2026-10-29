@@ -125,7 +125,7 @@ B01.b已交付：定义发布与发布后字段冻结（`POST /master-data/entit
 - **已知坑：Vite优先解析`.js`**。残留同名`.js`会遮蔽`.ts`（本轮`src/api/masterData.js`、`scopes.js`导致新接口未进构建产物，单测因mock未暴露）。已删除这两个；其余`.js/.ts`成对文件是既有模式，未批量清理，改动同名`ts`时先删对应`js`。
 - **本地dev库当前留有本轮合成数据**：Person实体（已发布，revision 1）、标准字段`work_location`(id 30)、记录1、admin的用户ACL、标签“合成人员范围”。仅本地演示/复查用，可随时清理重建。
 - **PC证据**：`hr-portal/.tmp/b01b-master-entities-pc.png`、`b01b-users-acl-pc.png`、`b01b-scopes-picker-pc.png`（本地dev栈真实登录）。10-28的`b01-person-reference-*.png`是B01.a“定义草稿”截图，不能作为B01.b证据。
-- **未做**：生产对象/链路验收；真实来源接管；旧姓名范围迁移；Employment/时间轴/编辑停用。部署与迁移已按用户2026-10-29确认完成（记录来源为用户告知，未由本会话直连生产核对）。
+- **未做**：生产对象/链路验收；真实来源接管；旧姓名范围迁移；Employment/时间轴/编辑停用。部署与迁移已按用户2026-10-29确认完成：线上代码包含`c92b37b`（用户确认），生产库`alembic_version`同时含`0282_master_entity_records`与`0283_performance_template_draft`（用户确认）。记录来源为用户告知，本会话未直连生产核对。
 - **部署必须覆盖的提交**：`3a9f383`（B01.b主体）与`c92b37b`（删除遮蔽`masterData.js`/`scopes.js`）。仅在`3a9f383`部署时前端产物缺`recordEntities`/`person_references`接口，记录区会报“记录读取失败”，需确认线上包含`c92b37b`或更新版本。
 
 R17/R19权限字段/关联路径解耦已随`ea16451`提交推送，前端74项、后端无库/ASGI及运行侧联合141项和完整构建为上一轮通过证据。真库/PC仍待验收，不冒称完成；该环境阻塞不作为B00.a代码/元数据只读准备的前置。任何实际发布该版本仍必须按R16验证迁移前置、目标对象及影响。
