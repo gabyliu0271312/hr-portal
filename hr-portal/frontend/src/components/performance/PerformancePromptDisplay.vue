@@ -1,7 +1,7 @@
 <template>
   <div class="performance-prompt-display" :class="{ 'is-unavailable': value.allowView === false }" :style="displayStyle">
     <button v-if="value.allowView === false" class="performance-prompt-display__hidden-icon" type="button" aria-label="不允许查看" tabindex="-1"><PerformanceVisibleLockIcon /></button>
-    <span v-if="value.showIcon === true" class="performance-prompt-display__icon" :style="{ color: safeColor }" aria-hidden="true">
+    <span v-if="value.showIcon === true" class="performance-prompt-display__icon" :style="{ color: definition.iconColor }" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
         <path :d="definition.iconPath" fill="currentColor" />
         <path :d="definition.iconInnerPath" fill="#fff" />

@@ -4,6 +4,8 @@ import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import contentRendererSource from './PerformanceContentRenderer.vue?raw'
 import PerformanceRichTextToolbar from './PerformanceRichTextToolbar.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
+import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
+import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import { readFileSync } from 'node:fs'
 import richTextFieldSource from './PerformanceAssessmentRichTextField.vue?raw'
 import templateFieldSource from './PerformanceTemplateFieldRenderer.vue?raw'
@@ -16,6 +18,15 @@ const content = {
 }
 
 describe('performance content shared primitives', () => {
+  it.each(['#3B82F6', '#3370ff'])('uses the fixed notice icon color and background for inherited prompt %s', color => {
+    const fixed = mount(PerformancePromptNotice, { props: { type: 'info' }, slots: { default: '绩效校准人修改评估内容后会产生修改记录' } })
+    const inherited = mount(PerformancePromptDisplay, { props: { value: { title: '', content: '终评提示', color, scope: 'all', showIcon: true } } })
+    expect(inherited.get('.performance-prompt-display__icon').attributes('style')).toBe(fixed.get('.prompt-notice__icon').attributes('style'))
+    expect(inherited.attributes('style')).toBe(fixed.attributes('style'))
+    expect(inherited.get('.performance-prompt-display__icon').attributes('style')).toContain('rgb(20, 86, 240)')
+    fixed.unmount()
+    inherited.unmount()
+  })
   it('stops item selection from bubbling into the content root', async () => {
     const host = document.createElement('div')
     host.addEventListener('click', () => { throw new Error('item click escaped the selection frame') })
