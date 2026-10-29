@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
+from app.performance.assessment_roles import ROLE_CALIBRATOR, ROLE_DOTTED_MANAGER, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.auth_context import PerformanceAccessContext
 from app.performance.models import (
     PerformanceHrbpPermission,
@@ -38,6 +39,15 @@ SUBJECT_VISIBILITY_ROLES = (
     ("other", "其他角色"),
 )
 SUBJECT_VISIBILITY_ROLE_LABELS = dict(SUBJECT_VISIBILITY_ROLES)
+VISIBILITY_BY_ROLE_CODE = {
+    ROLE_REVIEWEE: "reviewee",
+    ROLE_LINE_MANAGER: "leader",
+    ROLE_DOTTED_MANAGER: "dotted_leader",
+    ROLE_PROJECT_MANAGER: "pdt_manager",
+    ROLE_METRIC_EVALUATOR: "metric_reviewer",
+    ROLE_REVIEWER_360: "reviewer_360",
+    ROLE_CALIBRATOR: "adjuster",
+}
 DEFAULT_SUBJECT_VISIBILITY_RULES = {
     "reviewee": ["department", "position_level", "job_sequence"],
     "leader": ["department", "position_level", "job_sequence", "direct_supervisor", "hire_date"],
@@ -69,12 +79,6 @@ async def load_subject_visibility_rules(db: AsyncSession) -> dict[str, list[str]
     return normalize_subject_visibility_rules(getattr(setting, "rules", None))
 
 
-def _executor_label(node: PerformanceProjectNodeSnapshot) -> str:
-    config = getattr(node, "config", None) or {}
-    template = config.get("template") if isinstance(config.get("template"), dict) else {}
-    return str(template.get("executor_label") or config.get("executor_label") or "").strip()
-
-
 async def resolve_subject_visibility_role(
     db: AsyncSession,
     context: PerformanceAccessContext,
@@ -103,23 +107,15 @@ async def resolve_subject_visibility_role(
             hrbp = None
         if hrbp is not None:
             return "hrbp"
-    label = _executor_label(node)
-    if label == "被评估人":
-        return "reviewee"
-    if label == "实线上级":
-        return "leader"
-    if label == "虚线上级":
-        return "dotted_leader"
-    if label == "HRBP":
+    template = (getattr(node, "config", None) or {}).get("template")
+    template = template if isinstance(template, dict) else {}
+    role_code = node_role_code(template)
+    if role_code in VISIBILITY_BY_ROLE_CODE:
+        return VISIBILITY_BY_ROLE_CODE[role_code]
+    if "HRBP" in (template.get("executor_types") or []):
         return "hrbp"
-    if label in {"PDT 管理者", "PDT负责人", "PDT 负责人"}:
-        return "pdt_manager"
-    if getattr(node, "node_type", "") == "calibration" or label == "校准人":
+    if getattr(node, "node_type", "") == "calibration":
         return "adjuster"
-    if "360" in getattr(node, "node_type", "") or "360" in label:
-        return "reviewer_360"
-    if getattr(node, "node_type", "") == "evaluation":
-        return "metric_reviewer"
     return "other"
 
 

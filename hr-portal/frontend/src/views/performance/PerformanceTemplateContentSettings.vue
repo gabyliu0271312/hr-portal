@@ -211,7 +211,7 @@ import PerformanceContentRegionList from '@/components/performance/PerformanceCo
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getItemSettingsVariant, resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
-import { REAL_LINE_MANAGER_LEVEL_OPTIONS } from '@/components/performance/performanceExecutorOptions'
+import { ASSESSMENT_ROLE_CODES, REAL_LINE_MANAGER_LEVEL_OPTIONS, nodeRoleCode } from '@/components/performance/performanceExecutorOptions'
 import { mergeRatingOptions } from '@/components/performance/performanceRatingOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -303,7 +303,7 @@ const finalNode = computed(() => {
 const finalExecutorLabel = computed(() => {
   const node = finalNode.value
   if (!node) return '未配置'
-  if (node.executor_label === '实线上级') {
+  if (nodeRoleCode(node) === ASSESSMENT_ROLE_CODES.LINE_MANAGER) {
     const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
     if (levels.length) return levels.map(option => option.label).join('、')
   }

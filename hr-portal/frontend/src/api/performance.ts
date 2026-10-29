@@ -33,6 +33,7 @@ export interface PerformanceWorkbenchTaskGroup {
   task_id?: number
   node_id: string
   node_type: string
+  executor_role_code?: string | null
   node_name: string
   pending_count: number
   completed_count: number

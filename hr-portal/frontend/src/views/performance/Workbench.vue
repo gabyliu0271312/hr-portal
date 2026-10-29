@@ -142,6 +142,7 @@ import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
 import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
+import { isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
 import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 import { usePerformanceProjectContextStore, type PerformanceWorkbenchSnapshot } from '@/stores/performanceProjectContext'
 
@@ -276,10 +277,11 @@ function reviewQuery(entry: string) { return { name: 'PerformanceReview', query:
 function goToResults() { router.push(reviewQuery('results')) }
 function openTeam() { router.push(reviewQuery('team')) }
 function todoHref(todo: Todo) {
-  const query = new URLSearchParams({ node: String(todo.node_id), project_id: String(activeProjectId.value || '') })
-  if (todo.node_type === 'work_summary' && todo.task_id) {
-    return `/performance/review/self-summary?${new URLSearchParams({ task_id: String(todo.task_id), project_id: String(activeProjectId.value || '') }).toString()}`
+  if (todo.task_id && (todo.node_type === 'work_summary' || isSelfEvaluationNode(todo))) {
+    const path = todo.node_type === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'
+    return `${path}?${new URLSearchParams({ task_id: String(todo.task_id), project_id: String(activeProjectId.value || '') }).toString()}`
   }
+  const query = new URLSearchParams({ node: String(todo.node_id), project_id: String(activeProjectId.value || '') })
   return `${todo.action_url || '/performance/review'}?${query.toString()}`
 }
 

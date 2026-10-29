@@ -278,13 +278,17 @@ def test_real_line_handlers_stop_at_cyclic_supervisor_chain():
 
 
 def test_review_nodes_follow_template_executor_mapping():
-    assert _review_node_category("work_summary", [], has_task=False) == "mine"
-    assert _review_node_category("evaluation", ["SUBJECT"], has_task=False) == "mine"
-    assert _review_node_category("evaluation", ["REAL_LINE_MANAGER"], has_task=False) == "team"
-    assert _review_node_category("reviewer_360_confirm", [], has_task=False) == "team"
-    assert _review_node_category("result_reconsideration", [], has_task=False) == "other"
-    assert _review_node_category("evaluation", ["REVIEWER_360"], has_task=False) is None
-    assert _review_node_category("evaluation", ["REVIEWER_360"], has_task=True) == "others"
+    from app.performance.assessment_roles import ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360
+
+    assert _review_node_category("work_summary", None, has_task=False) == "mine"
+    assert _review_node_category("evaluation", ROLE_REVIEWEE, has_task=False) == "mine"
+    assert _review_node_category("evaluation", ROLE_LINE_MANAGER, has_task=False) == "team"
+    assert _review_node_category("evaluation", ROLE_PROJECT_MANAGER, has_task=False) == "team"
+    assert _review_node_category("reviewer_360_confirm", None, has_task=False) == "team"
+    assert _review_node_category("result_reconsideration", None, has_task=False) == "other"
+    assert _review_node_category("evaluation", ROLE_REVIEWER_360, has_task=False) is None
+    assert _review_node_category("evaluation", ROLE_REVIEWER_360, has_task=True) == "others"
+    assert _review_node_category("evaluation", ROLE_METRIC_EVALUATOR, has_task=True) == "others"
 
 
 def test_review_node_status_has_three_time_based_states():
@@ -2632,7 +2636,7 @@ async def test_evaluation_member_list_can_return_completed_and_pending_tasks(mon
 
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
     project = SimpleNamespace(id=1, settings={})
-    node = SimpleNamespace(id=10, project_id=1, node_id="manager-review", node_type="evaluation", config={})
+    node = SimpleNamespace(id=10, project_id=1, node_id="manager-review", node_type="evaluation", config={"template": {"executor_role_code": "assessment.metric_evaluator"}})
     completed = SimpleNamespace(id=20, project_id=1, status="completed", submitted_at=datetime(2026, 9, 20, tzinfo=UTC), available_at=None, due_at=None, target_employee_no="E001", member_snapshot_id=7)
     pending = SimpleNamespace(id=21, project_id=1, status="pending", submitted_at=None, available_at=None, due_at=None, target_employee_no="E002", member_snapshot_id=7)
     member_a = SimpleNamespace(employee_no="E001", display_name="员工一", job_family="技术", job_category="研发", position_level="P6", hire_date=datetime(2020, 1, 2).date(), company_org="研发中心", organization_ref="研发中心", employee_type="正式员工", employment_status="在职")

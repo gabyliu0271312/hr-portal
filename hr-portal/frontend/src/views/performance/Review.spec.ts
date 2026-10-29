@@ -446,6 +446,37 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('renders self evaluation as a form task instead of the member workspace', async () => {
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce({
+      ...overview,
+      categories: overview.categories.map(category => category.key === 'mine'
+        ? { ...category, nodes: [{ ...category.nodes[0], task_id: 12, node_id: 'self-eval', node_name: '员工自评', node_type: 'evaluation', task_kind: 'evaluation', executor_label: '被评估人', executor_role_code: 'assessment.reviewee', status: 'pending' }] }
+        : category),
+    })
+    Object.assign(routeQuery, { project_id: '1', node: 'self-eval' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.evaluation-workspace').exists()).toBe(false)
+    expect(wrapper.text()).toContain('去完成')
+    wrapper.unmount()
+  })
+
+  it('keeps the member workspace for manager evaluation nodes', async () => {
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce({
+      ...overview,
+      categories: overview.categories.map(category => category.key === 'team'
+        ? { ...category, nodes: [{ ...category.nodes[0], task_id: 13, node_id: 'manager-eval', node_name: '上级评估', node_type: 'evaluation', task_kind: 'evaluation', executor_label: '实线上级', executor_role_code: 'assessment.line_manager', status: 'pending' }] }
+        : category),
+    })
+    Object.assign(routeQuery, { project_id: '1', node: 'manager-eval' })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('.evaluation-workspace').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('renders an empty state when the current user has no started project', async () => {
     vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce({
       projects: [], active_project: null, template_name: '', categories: overview.categories.map(category => ({ ...category, nodes: [] })),

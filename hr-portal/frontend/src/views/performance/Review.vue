@@ -63,6 +63,7 @@ import PerformanceReviewContent from '@/components/performance/PerformanceReview
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
+import { isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
 
 const route = useRoute()
 const router = useRouter()
@@ -173,7 +174,7 @@ async function openNode(node: PerformanceReviewNode) {
 async function openMember(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }) {
   const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
-  if (payload.member.status === 'completed' && payload.node.task_kind === 'evaluation') {
+  if (payload.member.status === 'completed' && payload.node.task_kind === 'evaluation' && !isSelfEvaluationNode(payload.node)) {
     drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId }
     return
   }

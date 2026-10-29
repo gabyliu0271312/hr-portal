@@ -278,10 +278,7 @@ const executorLevelLabel: Record<string, string> = {
   PARENT_DEPARTMENT: '隔级部门负责人', LEVEL_1_DEPARTMENT: '所属一级部门负责人',
 }
 function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'executor_label' | 'executor_types' | 'executor_role_code'>) {
-  const isLineManager = node.executor_role_code === 'assessment.line_manager'
-    || node.executor_label === '实线上级'
-    || node.executor_types?.some(type => Object.prototype.hasOwnProperty.call(executorLevelLabel, type) && type.endsWith('_MANAGER'))
-  if (isLineManager) {
+  if (node.executor_role_code === ASSESSMENT_ROLE_CODES.LINE_MANAGER) {
     const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
     if (levels.length) return levels.map(option => option.label).join('、')
     return '--'
@@ -298,8 +295,8 @@ const appealExecutorDescription = computed(() => {
   return labels.length ? labels.join('、') : 'HRBP'
 })
 const businessNodes = ref<PerformanceWorkflowNode[]>([
-  { node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1, executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', evaluation_type: 'SINGLE', include_final_result: false, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false },
-  { node_id: 'result-view-1', node_type: 'result_view', name: '绩效结果查看环节', description: '', order: 2, executor_types: ['SUBJECT'], executor_label: '被评估人', evaluation_type: null, include_final_result: false, system: true, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false, subject_confirm_required: false },
+  { node_id: 'evaluation-1', node_type: 'evaluation', name: '评估型环节', description: '', order: 1, executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', executor_role_code: ASSESSMENT_ROLE_CODES.LINE_MANAGER, evaluation_type: 'SINGLE', include_final_result: false, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false },
+  { node_id: 'result-view-1', node_type: 'result_view', name: '绩效结果查看环节', description: '', order: 2, executor_types: ['SUBJECT'], executor_label: '被评估人', executor_role_code: ASSESSMENT_ROLE_CODES.REVIEWEE, evaluation_type: null, include_final_result: false, system: true, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false, subject_confirm_required: false },
 ])
 const selectedNode = computed(() => businessNodes.value.find((node) => node.node_id === selectedId.value))
 const specifiedPeopleOptions = ref<PerformanceExecutorPerson[]>([])

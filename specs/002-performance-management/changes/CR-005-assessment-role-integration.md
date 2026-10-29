@@ -72,3 +72,51 @@
 - 前端定向测试 89/89：项目流程19、条件组8、模板流程50、项目阶段时间12。`npm --prefix hr-portal/frontend run build` 已通过（第三方 Rollup 注释警告不影响构建）。
 - Chrome真实组件交互已验证：五个执行人选项保持不变，选择360°后显示同步，分配统计显示真实接口结果而非规则条数；无页面异常。独立截图 `../../ui-blueprints/CR-005-T04-implemented-calibration-role-linkage.png`。浏览器使用实际Vue组件与受控接口夹具，不冒充真实登录→业务库的全链路验收。
 - CR-005-T02/T04/T06 仍不整卡勾选：指标实例授权、360°生命周期、历史项目过渡及全量真实登录验收不在本轮交付；生产发布另行批准。上线顺序为先执行0274迁移，再更新后端与前端；停止本轮能力应停止新项目启动而非删除历史任务。
+
+## 2026-10-29 执行人判据统一收敛（CR-005-T02 运行时消费）
+
+### 症状与根因
+
+绩效前台「绩效评估 → 我的绩效 → 员工自评」在评估型环节执行人设为「被评估人」时，主区域渲染为成员列表/矩阵分析/统计报表表格，与「填写工作总结」的表单逻辑不一致。
+
+根因是运行期存在三套判据：模板配置与内容设置读 `executor_role_code`，项目启动派发、完成度统计、评估页分类、催办权限、字段可见性读 `executor_types`，评估页渲染与工作台待办读 `task_kind`。`task_kind='evaluation'` 同时表示「自评」和「评估他人」，渲染层无法区分，自评因此进入评估他人的成员工作区。
+
+### 统一契约
+
+- 唯一角色判据：`executor_role_code`。后端 `assessment_roles.node_role_code()` 与前端 `performanceExecutorOptions.nodeRoleCode()` 为同构实现，解析顺序为角色码 → 固定环节类型（工作总结/360 邀请/结果查看=被评估人，校准=校准人）→ `executor_types` 回退。所有下游只调用该函数，不再自行解释标签或类型。
+- `executor_types` 降级为执行细节：实线上级取哪几级、结果复议取 HRBP 还是指定人员；不得用于角色分类。
+- `task_kind` 只决定任务表单入口（`evaluation`/`calibration` → template-task，`work_summary` → self-summary），不参与角色判断。
+- 结果复议处理节点没有评估角色码，保持按 `executor_types`（HRBP）与 `executor_config.roles`（指定人员）解析处理人；指定人员现在会实际生成任务，此前只解析 HRBP。
+
+### 消费点
+
+| 层 | 位置 | 收敛后判据 |
+| --- | --- | --- |
+| 模板保存归一 | `template_workflow_service.normalize_workflow_nodes` | 角色码，评估型节点不再按中文标签回写类型 |
+| 项目启动/补建派发 | `project_service._resolve_node_handlers` | 角色码；实线上级按级别链、项目上级按周期映射、虚线/360/指标评价人保持空范围、复议按 HRBP/指定人员 |
+| 项目上级校验 | `project_service` 启动/补建 | `node_role_code == assessment.project_manager` |
+| 完成度统计 | `projects_router._completion_node_key` | 角色码：被评估人=自评，360=360 反馈，管理者=上级评估 |
+| 评估页分类 | `projects_router._review_node_category` | 角色码：被评估人→我的绩效，360/指标评价人→给他人的评估，管理者→我团队的绩效 |
+| 参考内容催办 | `projects_router._reference_tabs` | 管理者角色码或校准环节 |
+| 字段可见性 | `subject_visibility_service.resolve_subject_visibility_role` | 角色码映射七种评估身份，HRBP 按执行类型兜底 |
+| 工作台待办 | `projects_router.workbench_tasks` + `Workbench.todoHref` | 返回角色码；自评直达 template-task 表单 |
+| 评估页渲染 | `PerformanceReviewContent` / `Review` | 评估型环节且非被评估人才进入成员工作区；自评走表单卡与只读表单 |
+| 模板显示 | 模板流程设置、模板内容设置 | 角色码判断实线上级，标签仅展示 |
+
+### 覆盖角色与环节
+
+- 角色：被评估人、实线上级、虚线上级、直属项目上级、360°评估人、校准人、指标评价人，以及结果复议的 HRBP/指定人员。
+- 环节：工作总结、评估型（自评/360/管理者/指标评价人）、360 邀请、360 确认、校准、结果沟通、结果查看、结果复议处理。
+
+### 变更文件
+
+- 后端：`app/performance/assessment_roles.py`、`project_service.py`、`projects_router.py`、`subject_visibility_service.py`、`template_workflow_service.py`、`tests/test_performance_projects.py`。
+- 前端：`api/performance.ts`、`components/performance/performanceExecutorOptions.ts`、`PerformanceReviewContent.vue`、`views/performance/Review.vue`、`Workbench.vue`、`PerformanceTemplateContentSettings.vue`、`PerformanceTemplateWorkflowSettings.vue`、`Review.spec.ts`。
+
+### 验证记录（2026-10-29，本地开发环境）
+
+- 后端 `pytest tests/test_performance_*.py`：853 passed / 38 skipped / 3 failed。3 项失败在未应用本轮改动的 HEAD 版本上同样失败：`test_performance_cycles.py` 两项因本地花名册缺 `standard_position` 列返回 503，`test_rescheduled_project_overview_and_timeline_read_current_settings` 期望 `pending` 但既有实现返回 `in_progress`；均非本轮引入，未修改。
+- 模板工作流 229/229、项目 289/289（除上述既有失败）通过；角色配置、对象授权、功能授权、身份上下文、快照、可见性、逾期策略 67 passed / 1 skipped。
+- 前端 `vue-tsc --noEmit` 通过；`Review.spec.ts` 22/22、`PerformanceTemplateWorkflowSettings.spec.ts` 54/54、项目/模板内容等定向 spec 通过；新增两条断言覆盖「自评不进成员工作区」与「管理者评估仍进成员工作区」。
+- 已确认既有遗留 `.spec.js` 文件失败与本轮无关：同一组文件在未应用前端改动的 HEAD 版本上失败数相同。
+- 未完成：真实浏览器登录 → 项目 → 评估页端到端截图验收；生产部署。不得据本地测试声称生产已生效。

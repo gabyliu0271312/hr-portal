@@ -19,6 +19,22 @@ export function isReviewer360Node(node: { executor_role_code?: string | null }):
   return node.executor_role_code === ASSESSMENT_ROLE_CODES.REVIEWER_360
 }
 
+const FIXED_ROLE_BY_NODE_TYPE: Record<string, string> = {
+  work_summary: ASSESSMENT_ROLE_CODES.REVIEWEE,
+  reviewer_360_invite: ASSESSMENT_ROLE_CODES.REVIEWEE,
+  result_view: ASSESSMENT_ROLE_CODES.REVIEWEE,
+  calibration: ASSESSMENT_ROLE_CODES.CALIBRATOR,
+}
+
+export function nodeRoleCode(node: { node_type?: string; executor_role_code?: string | null }): string | null {
+  if (node.executor_role_code) return node.executor_role_code
+  return (node.node_type && FIXED_ROLE_BY_NODE_TYPE[node.node_type]) || null
+}
+
+export function isSelfEvaluationNode(node: { node_type?: string; executor_role_code?: string | null }): boolean {
+  return node.node_type === 'evaluation' && nodeRoleCode(node) === ASSESSMENT_ROLE_CODES.REVIEWEE
+}
+
 export const SUBJECT_EXECUTOR_OPTION: PerformanceExecutorOption = {
   type: 'SUBJECT',
   roleCode: ASSESSMENT_ROLE_CODES.REVIEWEE,

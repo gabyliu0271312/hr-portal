@@ -19,8 +19,8 @@
         </div>
       </div>
       <div class="review-body">
-        <div class="review-panel" :class="{ completed: node.status === 'completed' && node.task_kind !== 'evaluation', evaluation: node.task_kind === 'evaluation' && node.status !== 'not_started' }">
-        <template v-if="node.task_kind === 'evaluation' && node.status !== 'not_started'">
+        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace }">
+        <template v-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
             <PerformanceLineTabs v-model="evaluationTab" :tabs="evaluationTabs" sticky flush>
               <ProjectMemberListPanel
@@ -64,12 +64,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
+import { isSelfEvaluationNode } from './performanceExecutorOptions'
 
 const props = defineProps<{
   loading: boolean
@@ -79,6 +80,10 @@ const props = defineProps<{
   projectId?: number | null
 }>()
 
+const showsEvaluationWorkspace = computed(() => {
+  const node = props.node
+  return Boolean(node && node.task_kind === 'evaluation' && node.status !== 'not_started' && !isSelfEvaluationNode(node))
+})
 const evaluationTabs: PerformanceLineTab[] = [
   { key: 'members', label: '成员列表' },
   { key: 'matrix', label: '矩阵分析' },

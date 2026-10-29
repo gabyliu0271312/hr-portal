@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.models import PerformanceReviewQuestion, PerformanceTemplateWorkflow
 from app.performance.self_summary_service import review_question_ids
-from app.performance.assessment_roles import normalize_executor_identity
+from app.performance.assessment_roles import ROLE_DOTTED_MANAGER, normalize_executor_identity
 from app.performance.executor_config import normalize_result_reconsideration_executor
 
 
@@ -29,7 +29,6 @@ INVITE_SCOPE_ALL = "ALL"
 INVITE_SCOPE_PARTIAL = "PARTIAL"
 REVIEWER_360_LABEL = "360°评估人"
 SHARED_MANAGER_EXECUTOR_NODE_TYPES = {"result_communication", "reviewer_360_confirm"}
-SHARED_MANAGER_EXECUTOR_LABELS = {"实线上级", "虚线上级"}
 REVIEWER_360_CONFIRM_MANAGER_TYPES = {"DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER"}
 REFERENCE_SOURCE_NODE_TYPES = {"work_summary", "evaluation", "calibration", "result_communication", "result_reconsideration"}
 CALIBRATION_EXECUTOR_TYPE = "PROJECT_CONFIGURED"
@@ -215,18 +214,18 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
         if node_type == "calibration":
             executor_types = [CALIBRATION_EXECUTOR_TYPE]
             executor_label = CALIBRATION_EXECUTOR_LABEL
-        elif node_type == "evaluation" and executor_label == "被评估人":
-            executor_types = ["SUBJECT"]
         elif node_type in SHARED_MANAGER_EXECUTOR_NODE_TYPES:
-            if executor_label not in SHARED_MANAGER_EXECUTOR_LABELS:
-                executor_label = "实线上级"
             if node_type == "reviewer_360_confirm":
                 executor_types = [
                     value for value in executor_types
                     if value in REVIEWER_360_CONFIRM_MANAGER_TYPES
                 ]
-            if executor_label == "实线上级" and not executor_types:
-                executor_types = ["DIRECT_MANAGER"]
+            if node.get("executor_role_code") == ROLE_DOTTED_MANAGER or executor_label == "虚线上级":
+                executor_label = "虚线上级"
+            else:
+                executor_label = "实线上级"
+                if not executor_types:
+                    executor_types = ["DIRECT_MANAGER"]
         normalized.append(
             {
                 "node_id": node_id,

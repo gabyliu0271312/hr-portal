@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
+from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
@@ -235,11 +236,11 @@ async def _reference_tabs(
     reminder_enabled = setting.manager_reminder_enabled if setting is not None else True
     reminder_node_types = set(setting.manager_reminder_node_types) if setting is not None else set(_DEFAULT_REMINDER_NODE_TYPES)
     current_template = (node.config or {}).get("template") or {}
-    current_executor_types = set(current_template.get("executor_types") or [])
+    current_role_code = node_role_code(current_template)
     viewer_can_remind = (
         str(task.handler_ref) == actor_ref
         and str(task.target_employee_no) != actor_ref
-        and (node.node_type == "calibration" or bool(current_executor_types & _MANAGER_EXECUTOR_TYPES))
+        and (node.node_type == "calibration" or current_role_code in MANAGER_ROLE_CODES)
     )
     result: list[dict] = []
     for reference_node_id in references:
@@ -1678,29 +1679,21 @@ _COMPLETION_NODE_DEFINITIONS = (
     ("view-result", "查看绩效结果"),
     ("result-reconsideration", "结果复议处理"),
 )
-_MANAGER_EXECUTOR_TYPES = {
-    "REAL_LINE_MANAGER",
-    "VIRTUAL_LINE_MANAGER",
-    "DIRECT_MANAGER",
-    "LEVEL_1_MANAGER",
-    "LEVEL_2_MANAGER",
-    "LEVEL_3_MANAGER_PLUS",
-}
 
 
 def _completion_node_key(node: PerformanceProjectNodeSnapshot) -> str | None:
     template = (node.config or {}).get("template") or {}
-    executor_types = set(template.get("executor_types") or [])
     if node.node_type == "work_summary":
         return "work-summary"
     if node.node_type in {"reviewer_360_invite", "reviewer_360_confirm"}:
         return "review-360"
     if node.node_type == "evaluation":
-        if "SUBJECT" in executor_types:
+        role_code = node_role_code(template)
+        if role_code == ROLE_REVIEWEE:
             return "self-review"
-        if "REVIEWER_360" in executor_types:
+        if role_code == ROLE_REVIEWER_360:
             return "review-360"
-        if _MANAGER_EXECUTOR_TYPES.intersection(executor_types):
+        if role_code in MANAGER_ROLE_CODES:
             return "manager-review"
     return {
         "calibration": "calibration",
@@ -2048,7 +2041,7 @@ def _task_entry_mode(task: PerformanceNodeTask | None) -> str:
     return _TASK_ENTRY_MODES.get(getattr(task, "task_kind", ""), "route") if task else "route"
 
 
-def _review_node_category(node_type: str, executor_types: list[str], *, has_task: bool) -> str | None:
+def _review_node_category(node_type: str, role_code: str | None, *, has_task: bool) -> str | None:
     if node_type in {"work_summary", "reviewer_360_invite", "result_view"}:
         return "mine"
     if node_type == "result_reconsideration":
@@ -2056,11 +2049,13 @@ def _review_node_category(node_type: str, executor_types: list[str], *, has_task
     if node_type in {"reviewer_360_confirm", "calibration", "result_communication"}:
         return "team"
     if node_type == "evaluation":
-        if "SUBJECT" in executor_types:
+        if role_code == ROLE_REVIEWEE:
             return "mine"
-        if "REVIEWER_360" in executor_types:
+        if role_code == ROLE_REVIEWER_360:
             return "others" if has_task else None
-        if {"REAL_LINE_MANAGER", "VIRTUAL_LINE_MANAGER", "DIRECT_MANAGER", "LEVEL_1_MANAGER"}.intersection(executor_types):
+        if role_code == ROLE_METRIC_EVALUATOR:
+            return "others" if has_task else None
+        if role_code in MANAGER_ROLE_CODES:
             return "team"
     return None
 
@@ -2209,8 +2204,7 @@ async def review_overview(
     for node in snapshots:
         raw_node = (node.config or {}).get("template") or {}
         timing = _node_timing(project, node) or {}
-        executor_types = list(raw_node.get("executor_types") or [])
-        category = _review_node_category(node.node_type, executor_types, has_task=bool(tasks_by_node.get(node.id)))
+        category = _review_node_category(node.node_type, node_role_code(raw_node), has_task=bool(tasks_by_node.get(node.id)))
         if category is None:
             continue
         start_at = timing.get("start_at")
@@ -2381,7 +2375,7 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
         first_task = visible_tasks[0]
         current_project = project if project and project.id == node.project_id else await db.get(PerformanceProject, node.project_id)
         available_at, due_at = _task_window(first_task, node, current_project)
-        result.append({"node_id": node.node_id, "node_type": node.node_type, "node_name": template_names.get(node.node_id, node.name), "pending_count": len(pending_tasks), "completed_count": len(tasks) - len(pending_tasks), "overdue_count": 0, "task_id": first_task.id, "available_at": available_at, "due_at": due_at, "action_url": f"/performance/review?node={node.node_id}"})
+        result.append({"node_id": node.node_id, "node_type": node.node_type, "node_name": template_names.get(node.node_id, node.name), "executor_role_code": node_role_code((node.config or {}).get("template") or {}), "pending_count": len(pending_tasks), "completed_count": len(tasks) - len(pending_tasks), "overdue_count": 0, "task_id": first_task.id, "available_at": available_at, "due_at": due_at, "action_url": f"/performance/review?node={node.node_id}"})
     return result
 
 

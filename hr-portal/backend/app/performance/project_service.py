@@ -19,7 +19,7 @@ from app.data.employee_roster_contract import (
     normalize_roster_text,
     require_employee_roster_columns,
 )
-from app.performance.assessment_roles import normalize_executor_identity, validate_executor_roles
+from app.performance.assessment_roles import ROLE_CALIBRATOR, ROLE_DOTTED_MANAGER, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code, normalize_executor_identity, validate_executor_roles
 from app.performance.calibration_service import calibration_template, resolve_calibration
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
@@ -157,35 +157,52 @@ def _parse_time(value: Any) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
 
+def _manager_chain_handlers(person: Any, people_by_employee: dict[str, Any], levels: set[str]) -> set[str]:
+    handlers: set[str] = set()
+    manager_ref = person.direct_supervisor_employee_no
+    visited = {person.employee_no}
+    depth = 1
+    while manager_ref and manager_ref not in visited:
+        visited.add(manager_ref)
+        if manager_ref not in people_by_employee:
+            break
+        level = ("DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER")[depth - 1] if depth <= 3 else "LEVEL_3_MANAGER_PLUS"
+        if level in levels:
+            handlers.add(manager_ref)
+        manager_ref = people_by_employee[manager_ref].direct_supervisor_employee_no
+        depth += 1
+    return handlers
+
+
+def _specified_person_handlers(node: dict) -> set[str]:
+    roles = (node.get("executor_config") or {}).get("roles")
+    return {
+        str(person["employee_no"])
+        for role in roles or []
+        if isinstance(role, dict) and role.get("type") == "SPECIFIED_PERSON"
+        for person in role.get("people") or []
+        if isinstance(person, dict) and person.get("employee_no")
+    }
+
+
 def _resolve_node_handlers(node: dict, person: Any, people_by_employee: dict[str, Any]) -> set[str]:
     if node.get("executor_role_code") or node.get("executor_label") in {"被评估人", "实线上级", "虚线上级", "360°评估人", "指标评价人"}:
         node = normalize_executor_identity(node)
-    types = set(node.get("executor_types") or [])
-    if "VIRTUAL_LINE_MANAGER" in types:
+    role = node_role_code(node)
+    if role == ROLE_REVIEWEE:
+        return {person.employee_no}
+    if role == ROLE_PROJECT_MANAGER:
+        manager = getattr(person, "project_manager_employee_no", None)
+        return {manager} if manager else set()
+    if role == ROLE_LINE_MANAGER:
+        return _manager_chain_handlers(person, people_by_employee, set(node.get("executor_types") or []))
+    if role in {ROLE_DOTTED_MANAGER, ROLE_REVIEWER_360, ROLE_METRIC_EVALUATOR, ROLE_CALIBRATOR}:
         return set()
+    types = set(node.get("executor_types") or [])
     handlers: set[str] = set()
-    if "SUBJECT" in types or node.get("node_type") in {"work_summary", "reviewer_360_invite"}:
-        handlers.add(person.employee_no)
     if "HRBP" in types and person.hrbp_employee_no:
         handlers.add(person.hrbp_employee_no)
-    if "PROJECT_MANAGER" in types and getattr(person, "project_manager_employee_no", None):
-        handlers.add(person.project_manager_employee_no)
-
-    levels = {"DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER", "LEVEL_3_MANAGER_PLUS"}
-    if types & levels:
-        manager_ref = person.direct_supervisor_employee_no
-        visited = {person.employee_no}
-        depth = 1
-        while manager_ref and manager_ref not in visited:
-            visited.add(manager_ref)
-            if manager_ref not in people_by_employee:
-                break
-            level = ("DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER")[depth - 1] if depth <= 3 else "LEVEL_3_MANAGER_PLUS"
-            if level in types:
-                handlers.add(manager_ref)
-            manager_ref = people_by_employee[manager_ref].direct_supervisor_employee_no
-            depth += 1
-    return handlers
+    return handlers | _specified_person_handlers(node)
 
 
 async def _canonical_roster_rows(db: AsyncSession) -> list[dict[str, Any]]:
@@ -1077,7 +1094,7 @@ class PerformanceProjectService:
             nodes = [normalize_executor_identity(node) for node in nodes]
         except ValueError as exc:
             raise ProjectValidationError(str(exc)) from exc
-        if any("PROJECT_MANAGER" in (node.get("executor_types") or []) for node in nodes):
+        if any(node_role_code(node) == ROLE_PROJECT_MANAGER for node in nodes):
             missing = [person.employee_no for person in task_people if person.employee_no not in project_managers]
             if missing:
                 raise ProjectValidationError(f"被评估人 {missing[0]} 未导入直属项目上级")
@@ -1157,7 +1174,7 @@ class PerformanceProjectService:
                 continue
             for person in task_people:
                 handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
-                if "PROJECT_MANAGER" in (raw_node.get("executor_types") or []):
+                if node_role_code(raw_node) == ROLE_PROJECT_MANAGER:
                     handlers.add(project_managers[person.employee_no])
                 for handler in sorted(handlers):
                     timing = node_times.get(node_id) or {}
@@ -1226,7 +1243,7 @@ class PerformanceProjectService:
         if member_snapshot is None:
             raise ProjectValidationError("项目成员快照不存在")
         members = list((await self.db.execute(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == member_snapshot.id))).scalars())
-        if any("PROJECT_MANAGER" in (node.get("executor_types") or []) for node in pending):
+        if any(node_role_code(node) == ROLE_PROJECT_MANAGER for node in pending):
             missing = [member.employee_no for member in members if not member.project_manager_employee_no]
             if missing:
                 raise ProjectValidationError(f"被评估人 {missing[0]} 缺少已冻结的直属项目上级")
