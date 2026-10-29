@@ -1,6 +1,6 @@
 <template>
   <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled, 'is-scope': scopeMode }">
-    <div v-if="scopeMode" class="performance-audience-rule-editor__scope-heading">
+    <div v-if="scopeMode && showScopeHeading" class="performance-audience-rule-editor__scope-heading">
       <span>人员范围</span>
       <span>满足以下任一条件</span>
     </div>
@@ -14,10 +14,12 @@
           <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
             <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition" :class="{ 'has-delete': modelValue.length > 1 }">
               <PerformanceSearchSelect :model-value="condition.field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
-              <PerformanceSearchSelect :model-value="condition.operator" :options="operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || !condition.field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
+              <PerformanceSearchSelect :model-value="condition.operator" :options="operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || operatorDisabled || !condition.field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
               <PerformanceOrganizationSelect v-if="condition.field === 'department'" :model-value="condition.values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
+              <component :is="customField(condition.field)?.component" v-else-if="customField(condition.field)" :model-value="condition.values" :options="customField(condition.field)?.options" :multiple="true" :aria-label="`${fieldLabel(condition.field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
               <PerformancePersonSelect v-else-if="condition.field === 'employee'" :model-value="condition.values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
               <PerformanceSearchSelect v-else-if="condition.field === 'employee_type'" :model-value="condition.values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+              <PerformancePositionLevelSelect v-else-if="condition.field === 'position_level'" :model-value="condition.values" :options="positionLevelOptions" multiple aria-label="职级范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
               <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
               <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
             </div>
@@ -95,15 +97,27 @@ import PerformanceTextButton from './PerformanceTextButton.vue'
 
 export type { PerformanceAudienceCondition, PerformanceAudienceField, PerformanceAudienceGroup, PerformanceAudienceOperator } from '@/api/performance'
 
+export type PerformanceAudienceCustomField = {
+  value: string
+  label: string
+  component: Component
+  options?: PerformanceSearchSelectOption[]
+}
+
 const props = withDefaults(defineProps<{
   modelValue: PerformanceAudienceGroup[]
   allowedFields: PerformanceAudienceField[]
+  customFields?: PerformanceAudienceCustomField[]
   organizationTree?: PerformanceHrbpOrganizationNode[]
   personOptions?: PerformanceSearchSelectOption[]
   employeeTypeOptions?: PerformanceSearchSelectOption[]
+  positionLevelOptions?: PerformanceSearchSelectOption[]
   hireDateRange?: { min: string | null; max: string | null }
   snapshotOptions?: PerformanceEvaluatorOptions
   scopeMode?: boolean
+  showScopeHeading?: boolean
+  operatorDisabled?: boolean
+  defaultField?: string
   disabled?: boolean
   loading?: boolean
   error?: string
@@ -113,6 +127,9 @@ const props = withDefaults(defineProps<{
   personOptions: () => [],
   employeeTypeOptions: () => [],
   scopeMode: false,
+  showScopeHeading: true,
+  operatorDisabled: false,
+  defaultField: '',
   disabled: false,
   loading: false,
   error: '',
@@ -130,11 +147,15 @@ const snapshotFieldComponents: Partial<Record<PerformanceAudienceField, Componen
   position_level: PerformancePositionLevelSelect,
   standard_position: PerformanceStandardPositionSelect,
 }
-const fieldOptions = computed(() => props.allowedFields.map(value => ({ value, label: value ? PERFORMANCE_CONDITION_FIELDS[value].label : '请选择范围' })))
+const fieldOptions = computed(() => [
+  ...props.allowedFields.map(value => ({ value, label: value ? PERFORMANCE_CONDITION_FIELDS[value].label : '请选择范围' })),
+  ...(props.customFields || []).map(({ value, label }) => ({ value, label })),
+])
 const allowMultipleConditions = computed(() => !props.scopeMode)
 
-function fieldLabel(field: PerformanceAudienceField) {
-  return field ? PERFORMANCE_CONDITION_FIELDS[field].label : ''
+function customField(field: string) { return props.customFields?.find(option => option.value === field) }
+function fieldLabel(field: string) {
+  return customField(field)?.label || (field && field in PERFORMANCE_CONDITION_FIELDS ? PERFORMANCE_CONDITION_FIELDS[field as PerformanceConditionField].label : '')
 }
 function valueOptions(field: PerformanceAudienceField) {
   return field ? conditionValueOptions(field as PerformanceConditionField, { ...props.snapshotOptions, people: props.personOptions, employeeTypes: props.employeeTypeOptions }) : []
@@ -155,7 +176,7 @@ function updateCondition(groupIndex: number, conditionIndex: number, patch: Part
   emit('update:modelValue', groups)
 }
 function updateField(groupIndex: number, conditionIndex: number, value: string) {
-  const field = props.allowedFields.includes(value as PerformanceAudienceField) ? value as PerformanceAudienceField : ''
+  const field = props.allowedFields.includes(value as PerformanceAudienceField) || customField(value) ? value as PerformanceAudienceField : ''
   updateCondition(groupIndex, conditionIndex, { field, operator: isDateConditionField(field) ? 'before' : 'include', values: [] })
 }
 function updateOperator(groupIndex: number, conditionIndex: number, value: string) {
@@ -168,7 +189,8 @@ function updateValues(groupIndex: number, conditionIndex: number, values: string
   updateCondition(groupIndex, conditionIndex, { values })
 }
 function addGroup() {
-  emit('update:modelValue', [...cloneGroups(), { conditions: [{ field: '', operator: 'include', values: [] }] }])
+  const field = props.allowedFields.includes(props.defaultField as PerformanceAudienceField) || customField(props.defaultField) ? props.defaultField as PerformanceAudienceField : ''
+  emit('update:modelValue', [...cloneGroups(), { conditions: [{ field, operator: 'include', values: [] }] }])
 }
 function removeGroup(index: number) {
   const groups = cloneGroups()

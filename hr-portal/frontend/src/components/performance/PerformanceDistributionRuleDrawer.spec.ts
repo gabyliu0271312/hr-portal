@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
 import PerformanceDistributionRuleRow from './PerformanceDistributionRuleRow.vue'
 import PerformanceDistributionRuleDrawer from './PerformanceDistributionRuleDrawer.vue'
+import PerformanceDistributionRuleEditor from './PerformanceDistributionRuleEditor.vue'
+import PerformanceAudienceRuleEditor from './PerformanceAudienceRuleEditor.vue'
+import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 
 const assessmentOptions = [{ id: 'grade', label: '绩效等级', description: '最终评级', grade_options: [{ value: 'A', label: 'A' }, { value: 'B', label: 'B' }] }]
@@ -65,5 +68,51 @@ describe('PerformanceDistributionRuleDrawer', () => {
     const option = document.body.querySelector('[role="option"]') as HTMLButtonElement
     expect(option.disabled).toBe(true)
     expect(option.title).toBe('该评估项已配置分布规则')
+  })
+
+  it('uses separate audience editors for department and other-dimension distribution scopes', async () => {
+    const wrapper = mount(PerformanceDistributionRuleEditor, {
+      props: {
+        modelValue: {
+          assessment_item_id: 'grade',
+          min_people_count: 0,
+          conditions: [{ control_mode: 'HARD', grade_codes: ['A'], operator: 'GTE', value: 20, unit: 'PERCENT' }],
+          rounding_method: 'ROUND',
+          execution_scope: {
+            calibration_scope: false,
+            department: true,
+            other_dimension: true,
+            rules: [
+              { type: 'DEPARTMENT', values: ['研发部'] },
+              { type: 'DEPARTMENT_LEVEL', values: ['department_2'] },
+              { type: 'POSITION_LEVEL', values: ['P6'] },
+            ],
+          },
+        },
+        assessmentOptions,
+        showExecutionScope: true,
+        positionLevelOptions: [{ value: 'P6', label: 'P6' }],
+      },
+      attachTo: document.body,
+    })
+    const editors = wrapper.findAllComponents(PerformanceAudienceRuleEditor)
+    expect(editors).toHaveLength(2)
+    expect(editors[0].props('showScopeHeading')).toBe(false)
+    expect(editors[0].props('customFields')).toEqual([{ value: 'department_level', label: '部门等级', component: expect.anything() }])
+    expect(editors[0].props('modelValue')).toEqual([
+      { conditions: [{ field: 'department', operator: 'include', values: ['研发部'] }] },
+      { conditions: [{ field: 'department_level', operator: 'include', values: ['department_2'] }] },
+    ])
+    expect(editors[1].props('modelValue')).toEqual([{ conditions: [{ field: 'position_level', operator: 'include', values: ['P6'] }] }])
+    editors[0].vm.$emit('update:modelValue', [
+      { conditions: [{ field: 'department', operator: 'include', values: ['研发部'] }] },
+      { conditions: [{ field: 'department', operator: 'include', values: ['销售部'] }] },
+    ])
+    await wrapper.vm.$nextTick()
+    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any).execution_scope.rules).toEqual([
+      { type: 'POSITION_LEVEL', values: ['P6'] },
+      { type: 'DEPARTMENT', values: ['研发部'] },
+      { type: 'DEPARTMENT', values: ['销售部'] },
+    ])
   })
 })

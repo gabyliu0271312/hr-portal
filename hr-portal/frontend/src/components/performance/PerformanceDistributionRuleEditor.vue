@@ -10,40 +10,31 @@
         <PerformanceCheckbox :model-value="scope.calibration_scope" label="校准范围内整体执行" @update:model-value="setScopeEnabled('calibration_scope', $event)" />
         <PerformanceCheckbox :model-value="scope.department" label="指定部门内执行分布" @update:model-value="setScopeEnabled('department', $event)" />
         <div v-if="scope.department" class="distribution-scope-group">
-          <ScopeRuleGroup
-            title="部门"
-            type="DEPARTMENT"
-            :rows="scopeRows('DEPARTMENT')"
+          <PerformanceAudienceRuleEditor
+            v-model="departmentGroups"
+            :allowed-fields="['department']"
+            :custom-fields="departmentCustomFields"
+            scope-mode
+            :show-scope-heading="false"
+            operator-disabled
+            default-field="department"
             :organization-tree="organizationTree"
             :disabled="disabled"
-            @update="updateScopeRow"
-            @add="addScopeRow('DEPARTMENT')"
-            @remove="removeScopeRow"
-            @open="emit('open-options')"
-          />
-          <ScopeRuleGroup
-            title="部门等级"
-            type="DEPARTMENT_LEVEL"
-            :rows="scopeRows('DEPARTMENT_LEVEL')"
-            :disabled="disabled"
-            @update="updateScopeRow"
-            @add="addScopeRow('DEPARTMENT_LEVEL')"
-            @remove="removeScopeRow"
-            @open="emit('open-options')"
+            @open-options="emit('open-options')"
           />
         </div>
         <PerformanceCheckbox :model-value="scope.other_dimension" label="指定其他维度内执行分布" @update:model-value="setScopeEnabled('other_dimension', $event)" />
         <div v-if="scope.other_dimension" class="distribution-scope-group">
-          <ScopeRuleGroup
-            title="职级"
-            type="POSITION_LEVEL"
-            :rows="scopeRows('POSITION_LEVEL')"
+          <PerformanceAudienceRuleEditor
+            v-model="otherDimensionGroups"
+            :allowed-fields="['position_level']"
+            scope-mode
+            :show-scope-heading="false"
+            operator-disabled
+            default-field="position_level"
             :position-level-options="positionLevelOptions"
             :disabled="disabled"
-            @update="updateScopeRow"
-            @add="addScopeRow('POSITION_LEVEL')"
-            @remove="removeScopeRow"
-            @open="emit('open-options')"
+            @open-options="emit('open-options')"
           />
         </div>
       </div>
@@ -73,8 +64,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, type PropType } from 'vue'
-import type { PerformanceDistributionAssessmentOption, PerformanceDistributionCondition, PerformanceDistributionExecutionScope, PerformanceDistributionRule, PerformanceDistributionRounding, PerformanceHrbpOrganizationNode } from '@/api/performance'
+import { computed } from 'vue'
+import type { PerformanceAudienceGroup, PerformanceDistributionAssessmentOption, PerformanceDistributionCondition, PerformanceDistributionExecutionScope, PerformanceDistributionRule, PerformanceDistributionRounding, PerformanceDistributionScopeRuleType, PerformanceHrbpOrganizationNode } from '@/api/performance'
+import PerformanceAudienceRuleEditor, { type PerformanceAudienceCustomField } from './PerformanceAudienceRuleEditor.vue'
 import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDistributionRuleRow from './PerformanceDistributionRuleRow.vue'
@@ -82,45 +74,14 @@ import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceOrganizationLevelSelect from './PerformanceOrganizationLevelSelect.vue'
-import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
-import PerformancePersonSelect from './PerformancePersonSelect.vue'
-import PerformancePositionLevelSelect from './PerformancePositionLevelSelect.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
-import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
+import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
-import PerformanceIconButton from './PerformanceIconButton.vue'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
 
-export type DistributionScopeRuleType = 'DEPARTMENT' | 'DEPARTMENT_LEVEL' | 'POSITION_LEVEL'
-export type DistributionScopeRow = { type: DistributionScopeRuleType; values: string[] }
-
-const ScopeRuleGroup = defineComponent({
-  name: 'ScopeRuleGroup',
-  props: {
-    title: { type: String, required: true },
-    type: { type: String as PropType<DistributionScopeRuleType>, required: true },
-    rows: { type: Array as PropType<DistributionScopeRow[]>, required: true },
-    organizationTree: { type: Array as PropType<PerformanceHrbpOrganizationNode[]>, default: () => [] },
-    positionLevelOptions: { type: Array as PropType<PerformanceSearchSelectOption[]>, default: () => [] },
-    disabled: { type: Boolean, default: false },
-  },
-  emits: ['update', 'add', 'remove', 'open'],
-  setup(props, { emit }) {
-    return () => h('div', { class: 'distribution-scope-rule-group' }, [
-      ...props.rows.map((row, index) => h('div', { class: 'distribution-scope-rule-row', key: `${row.type}-${index}` }, [
-        h('span', { class: 'distribution-scope-rule-row__kind' }, props.title),
-        h('span', { class: 'distribution-scope-rule-row__operator' }, '包含'),
-        row.type === 'DEPARTMENT'
-          ? h(PerformanceOrganizationSelect, { modelValue: row.values, nodes: props.organizationTree, disabled: props.disabled, ariaLabel: '部门范围', onOpen: () => emit('open'), 'onUpdate:modelValue': (value: string[]) => emit('update', index, value) })
-          : row.type === 'DEPARTMENT_LEVEL'
-            ? h(PerformanceOrganizationLevelSelect, { modelValue: row.values, disabled: props.disabled, onOpen: () => emit('open'), 'onUpdate:modelValue': (value: string | string[] | null) => emit('update', index, Array.isArray(value) ? value : value ? [value] : []) })
-            : h(PerformancePositionLevelSelect, { modelValue: row.values, options: props.positionLevelOptions, multiple: true, disabled: props.disabled, onOpen: () => emit('open'), 'onUpdate:modelValue': (value: string | string[] | null) => emit('update', index, Array.isArray(value) ? value : value ? [value] : []) }),
-        h(PerformanceIconButton, { icon: 'DeleteTrashOutlined', label: `删除${props.title}规则 ${index + 1}`, disabled: props.disabled || props.rows.length <= 1, onClick: () => emit('remove', props.type, index) }),
-      ])),
-      h(PerformanceTextButton, { label: '添加规则', disabled: props.disabled, onClick: () => emit('add') }, { icon: () => h(AddOutlinedIcon) }),
-    ])
-  },
-})
+const departmentCustomFields: PerformanceAudienceCustomField[] = [
+  { value: 'department_level', label: '部门等级', component: PerformanceOrganizationLevelSelect },
+]
 
 const props = withDefaults(defineProps<{
   modelValue: PerformanceDistributionRule
@@ -145,50 +106,46 @@ const selectableAssessments = computed(() => props.assessmentOptions.map(option 
 const selectedAssessment = computed(() => props.assessmentOptions.find(option => option.id === props.modelValue.assessment_item_id))
 const gradeOptions = computed(() => selectedAssessment.value?.grade_options.map(option => ({ value: option.value, label: option.value })) || [])
 const gradeCodes = computed(() => selectedAssessment.value?.grade_options.map(option => option.value) || [])
+const departmentGroups = computed<PerformanceAudienceGroup[]>({ get: () => groupsForTypes(['DEPARTMENT', 'DEPARTMENT_LEVEL']), set: groups => updateScopeGroups(['DEPARTMENT', 'DEPARTMENT_LEVEL'], groups) })
+const otherDimensionGroups = computed<PerformanceAudienceGroup[]>({ get: () => groupsForTypes(['POSITION_LEVEL']), set: groups => updateScopeGroups(['POSITION_LEVEL'], groups) })
 const ruleInvalid = computed(() => !props.modelValue.conditions.length || props.modelValue.conditions.some(invalidCondition))
 const scopeValid = computed(() => {
   if (!props.showExecutionScope) return true
   if (!scope.value.calibration_scope && !scope.value.department && !scope.value.other_dimension) return false
-  if (scope.value.department && !scopeRows('DEPARTMENT').every(row => row.values.length) ) return false
-  if (scope.value.department && !scopeRows('DEPARTMENT_LEVEL').every(row => row.values.length)) return false
-  if (scope.value.other_dimension && !scopeRows('POSITION_LEVEL').every(row => row.values.length)) return false
+  if (scope.value.department && (!departmentGroups.value.length || !departmentGroups.value.every(group => group.conditions.length === 1 && group.conditions[0].values.length))) return false
+  if (scope.value.department && (!scopeRows('DEPARTMENT').length || !scopeRows('DEPARTMENT_LEVEL').length)) return false
+  if (scope.value.other_dimension && (!otherDimensionGroups.value.length || !otherDimensionGroups.value.every(group => group.conditions.length === 1 && group.conditions[0].values.length))) return false
   return true
 })
 const valid = computed(() => Boolean(props.modelValue.assessment_item_id) && props.modelValue.min_people_count >= 0 && !ruleInvalid.value && scopeValid.value)
 
-function emptyScope(): PerformanceDistributionExecutionScope { return { calibration_scope: false, department: false, other_dimension: false, rules: [] } }
-function emptyRule(type: DistributionScopeRuleType): DistributionScopeRow { return { type, values: [] } }
-function scopeRows(type: DistributionScopeRuleType) { return scope.value.rules.filter(row => row.type === type) }
 function update(value: Partial<PerformanceDistributionRule>) { emit('update:modelValue', { ...props.modelValue, ...value }) }
 function updateCondition(index: number, value: PerformanceDistributionCondition) { const conditions = props.modelValue.conditions.map((condition, conditionIndex) => conditionIndex === index ? value : condition); update({ conditions }) }
 function invalidCondition(condition: PerformanceDistributionCondition) { return !condition.grade_codes.length || condition.value <= 0 || (condition.unit === 'PERCENT' && condition.value > 100) }
 function setAssessment(value: string) { if (props.modelValue.assessment_item_id === value) return; update({ assessment_item_id: value, conditions: props.modelValue.conditions.map(condition => ({ ...condition, grade_codes: [] })) }) }
 function addCondition() { update({ conditions: [...props.modelValue.conditions, { control_mode: 'HARD', grade_codes: [], operator: 'GTE', value: 0, unit: 'PERCENT' }] }) }
 function removeCondition(index: number) { if (props.modelValue.conditions.length > 1) update({ conditions: props.modelValue.conditions.filter((_, conditionIndex) => conditionIndex !== index) }) }
+function emptyScopeRule(type: 'DEPARTMENT' | 'DEPARTMENT_LEVEL' | 'POSITION_LEVEL') { return { type, values: [] } }
+function emptyGroup(field: string, values: string[] = []): PerformanceAudienceGroup { return { conditions: [{ field: field as never, operator: 'include', values: [...values] }] } }
+function fieldForType(type: 'DEPARTMENT' | 'DEPARTMENT_LEVEL' | 'POSITION_LEVEL') { return type === 'DEPARTMENT' ? 'department' : type === 'DEPARTMENT_LEVEL' ? 'department_level' : 'position_level' }
+function typeForField(field: string): PerformanceDistributionScopeRuleType { return field === 'department' ? 'DEPARTMENT' : field === 'department_level' ? 'DEPARTMENT_LEVEL' : 'POSITION_LEVEL' }
+function groupsForTypes(types: PerformanceDistributionScopeRuleType[]) {
+  return scope.value.rules.filter(rule => types.includes(rule.type)).map(rule => emptyGroup(fieldForType(rule.type), rule.values))
+}
+function updateScopeGroups(types: PerformanceDistributionScopeRuleType[], groups: PerformanceAudienceGroup[]) {
+  const replacements: Array<{ type: PerformanceDistributionScopeRuleType; values: string[] }> = groups.map(group => ({ type: typeForField(String(group.conditions[0]?.field || '')), values: [...(group.conditions[0]?.values || [])] })).filter(rule => types.includes(rule.type))
+  const retained = scope.value.rules.filter(rule => !types.includes(rule.type))
+  update({ execution_scope: { ...scope.value, rules: [...retained, ...replacements] } })
+}
+function scopeRows(type: 'DEPARTMENT' | 'DEPARTMENT_LEVEL' | 'POSITION_LEVEL') { return scope.value.rules.filter(row => row.type === type) }
 function setScopeEnabled(key: 'calibration_scope' | 'department' | 'other_dimension', value: boolean) {
-  const next = { ...scope.value, [key]: value, rules: [...scope.value.rules] }
+  const rules = [...scope.value.rules]
   if (value && key === 'department') {
-    if (!next.rules.some(row => row.type === 'DEPARTMENT')) next.rules.push(emptyRule('DEPARTMENT'))
-    if (!next.rules.some(row => row.type === 'DEPARTMENT_LEVEL')) next.rules.push(emptyRule('DEPARTMENT_LEVEL'))
+    if (!rules.some(row => row.type === 'DEPARTMENT')) rules.push(emptyScopeRule('DEPARTMENT'))
+    if (!rules.some(row => row.type === 'DEPARTMENT_LEVEL')) rules.push(emptyScopeRule('DEPARTMENT_LEVEL'))
   }
-  if (value && key === 'other_dimension' && !next.rules.some(row => row.type === 'POSITION_LEVEL')) next.rules.push(emptyRule('POSITION_LEVEL'))
-  update({ execution_scope: next })
-}
-function addScopeRow(type: DistributionScopeRuleType) { update({ execution_scope: { ...scope.value, rules: [...scope.value.rules, emptyRule(type)] } }) }
-function updateScopeRow(type: DistributionScopeRuleType, index: number, values: string[]) {
-  let position = -1
-  let seen = 0
-  scope.value.rules.forEach((row, rowIndex) => { if (row.type === type) { if (seen === index) position = rowIndex; seen += 1 } })
-  if (position < 0) return
-  const rules = scope.value.rules.map((row, rowIndex) => rowIndex === position ? { ...row, values } : row)
-  update({ execution_scope: { ...scope.value, rules } })
-}
-function removeScopeRow(type: DistributionScopeRuleType, index: number) {
-  const rows = scopeRows(type)
-  if (rows.length <= 1) return
-  let seen = 0
-  const rules = scope.value.rules.filter(row => row.type !== type || seen++ !== index)
-  update({ execution_scope: { ...scope.value, rules } })
+  if (value && key === 'other_dimension' && !rules.some(row => row.type === 'POSITION_LEVEL')) rules.push(emptyScopeRule('POSITION_LEVEL'))
+  update({ execution_scope: { ...scope.value, [key]: value, rules } })
 }
 </script>
 
@@ -197,6 +154,7 @@ function removeScopeRow(type: DistributionScopeRuleType, index: number) {
 .distribution-assessment-summary{display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-1);margin:var(--spacing-2) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.distribution-assessment-summary span{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:var(--radius-sm);background:var(--performance-select-tag-background);color:var(--performance-select-tag-text)}
 .distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}.distribution-applicable-count>span{flex:0 0 120px;height:var(--performance-control-height);padding:4px var(--performance-select-padding-x);box-sizing:border-box;border:1px solid var(--performance-field-border);border-radius:var(--performance-control-radius);background:var(--color-bg-card);font-size:var(--font-size-md);line-height:22px}
 .distribution-condition-list{display:flex;flex-direction:column;gap:var(--spacing-2);margin-bottom:var(--spacing-2)}.distribution-rule-editor :deep(.performance-form-item__label){gap:var(--spacing-1)}.distribution-rule-editor :deep(.performance-form-item__description){font-size:var(--font-size-md);line-height:20px}
-.distribution-scope-options{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-scope-group{display:flex;flex-direction:column;gap:var(--spacing-3);margin:0 0 var(--spacing-2) var(--spacing-6);padding:var(--spacing-3) var(--spacing-4);border-radius:var(--radius-sm);background:var(--performance-review-readonly-surface)}.distribution-scope-rule-group{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-scope-rule-row{display:grid;grid-template-columns:120px 72px minmax(0,1fr) 24px;gap:var(--spacing-2);align-items:start}.distribution-scope-rule-row__kind,.distribution-scope-rule-row__operator{display:flex;align-items:center;height:var(--performance-control-height);padding:4px var(--performance-select-padding-x);box-sizing:border-box;border:1px solid var(--performance-field-border);border-radius:var(--performance-control-radius);background:var(--color-bg-card);color:var(--color-text-primary);font-size:var(--font-size-md);line-height:22px;white-space:nowrap}.distribution-scope-rule-row__operator{color:var(--color-text-secondary);background:var(--performance-field-disabled-background)}.distribution-scope-rule-row :deep(.performance-select-shell),.distribution-scope-rule-row :deep(.performance-snapshot-field-select){min-width:0}.distribution-scope-rule-row :deep(.performance-icon-button){--performance-icon-button-size:24px;margin-top:4px}.distribution-rule-error{margin:0;color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
+.distribution-scope-options{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-scope-group{display:flex;flex-direction:column;gap:var(--spacing-3);margin:0 0 var(--spacing-2) var(--spacing-6);padding:var(--spacing-3) var(--spacing-4);border-radius:var(--radius-sm);background:var(--performance-review-readonly-surface)}
+.distribution-rule-error{margin:0;color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
 @media(max-width:720px){.distribution-rule-editor{min-width:640px}.distribution-scope-group{margin-left:0}}
 </style>
