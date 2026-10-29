@@ -17,7 +17,7 @@ const projects: PerformanceWorkbenchProject[] = [
   { project_id: 2, project_name: '项目二', cycle_ref: 'cycle-2', cycle_name: '2026周期', cycle_start_at: '2026-01-01', cycle_end_at: '2026-12-31', project_status: 'STARTED' },
 ]
 const timeline: PerformanceWorkbenchTimelineNode[] = [
-  { node_id: 'summary', node_name: '工作总结', node_type: 'work_summary', node_order: 1, start_at: null, end_at: null, status: 'pending' },
+  { node_id: 'summary', node_name: '工作总结', node_type: 'work_summary', node_order: 1, start_at: null, end_at: null, status: 'in_progress' },
 ]
 const pending: PerformanceWorkbenchTaskGroup[] = [
   { task_id: 11, node_id: 'summary', node_type: 'work_summary', node_name: '工作总结', pending_count: 1, completed_count: 0, overdue_count: 0, available_at: null, due_at: null, action_url: '/performance/review' },
@@ -34,7 +34,6 @@ function mountView() {
         'el-dropdown-item': { template: '<div><slot /></div>', props: ['command'] },
         'el-icon': { template: '<span><slot /></span>' },
         'el-button': { template: '<button><slot /></button>' },
-        PerformanceWorkbenchTimeline: { template: '<div class="timeline-stub" />' },
       },
     },
   })
@@ -72,6 +71,23 @@ describe('PerformanceWorkbench project context', () => {
     expect(wrapper.get('.cycle-picker-text').text()).toBe('2026周期')
     expect(performanceWorkbenchApi.timeline).toHaveBeenCalledWith(2)
     expect(replace).toHaveBeenCalledWith({ query: { project_id: '2' } })
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
+    expect(wrapper.get('.timeline-node').classes()).toContain('current')
+  })
+
+  it('marks timeline nodes from their time window, not from task state', async () => {
+    vi.mocked(performanceWorkbenchApi.timeline).mockResolvedValue([
+      { node_id: 'past', node_name: '已结束节点', node_type: 'work_summary', node_order: 1, start_at: '2026-01-01T00:00:00Z', end_at: '2026-02-01T00:00:00Z', status: 'ended' },
+      { node_id: 'future', node_name: '未开始节点', node_type: 'evaluation', node_order: 2, start_at: '2026-12-01T00:00:00Z', end_at: '2027-01-01T00:00:00Z', status: 'not_started' },
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    const nodes = wrapper.findAll('.timeline-node')
+    expect(nodes).toHaveLength(2)
+    expect(nodes[0].classes()).toContain('ended')
+    expect(nodes[1].classes()).not.toContain('ended')
+    expect(nodes[1].classes()).not.toContain('current')
   })
 
   it('renders announcements returned by workbench settings for the active cycle', async () => {

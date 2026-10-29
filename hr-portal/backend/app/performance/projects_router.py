@@ -2098,6 +2098,22 @@ def _review_task_status(task: PerformanceNodeTask | None, start_at: str | None, 
     return "completed" if task is not None and getattr(task, "submitted_at", None) is not None else _review_node_status(start_at, end_at, now)
 
 
+def _timeline_node_state(start_at: str | None, end_at: str | None, now: datetime | None = None) -> str:
+    try:
+        start = _parse_time(start_at)
+        end = _parse_time(end_at)
+    except ValueError:
+        start, end = None, None
+    if start is None and end is None:
+        return "unscheduled"
+    current = now or datetime.now(UTC)
+    if start is not None and current < start:
+        return "not_started"
+    if end is not None and current > end:
+        return "ended"
+    return "in_progress"
+
+
 def _task_completed(task: PerformanceNodeTask) -> bool:
     return getattr(task, "status", None) == "completed" or getattr(task, "submitted_at", None) is not None
 
@@ -2325,7 +2341,7 @@ async def workbench_timeline(project_id: int, context: PerformanceAccessContext 
         timing = _node_timing(project, node) or {}
         start_at = timing.get("start_at")
         end_at = timing.get("end_at")
-        result.append({"node_id": node.node_id, "node_name": template_names.get(node.node_id, node.name), "node_type": node.node_type, "node_order": node.node_order, "executor_label": (node.config.get("template") or {}).get("executor_label"), "start_at": start_at, "end_at": end_at, "status": _review_node_status(start_at, end_at, now)})
+        result.append({"node_id": node.node_id, "node_name": template_names.get(node.node_id, node.name), "node_type": node.node_type, "node_order": node.node_order, "executor_label": (node.config.get("template") or {}).get("executor_label"), "start_at": start_at, "end_at": end_at, "status": _timeline_node_state(start_at, end_at, now)})
     return result
 
 

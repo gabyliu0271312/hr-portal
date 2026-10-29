@@ -4693,3 +4693,15 @@ async def test_project_data_managers_isolated_postgres_api_scope_and_revocation(
             assert (await connection.execute(text("SELECT 1 FROM pg_namespace WHERE nspname=:schema"), {"schema": schema})).first() is None
     finally:
         await engine.dispose()
+
+
+def test_timeline_node_state_is_time_driven():
+    from datetime import UTC, datetime
+
+    from app.performance.projects_router import _timeline_node_state
+
+    now = datetime(2026, 10, 29, tzinfo=UTC)
+    assert _timeline_node_state("2026-11-01T00:00:00+00:00", "2026-11-10T00:00:00+00:00", now) == "not_started"
+    assert _timeline_node_state("2026-10-01T00:00:00+00:00", "2026-11-10T00:00:00+00:00", now) == "in_progress"
+    assert _timeline_node_state("2026-10-01T00:00:00+00:00", "2026-10-10T00:00:00+00:00", now) == "ended"
+    assert _timeline_node_state(None, None, now) == "unscheduled"

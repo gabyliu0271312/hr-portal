@@ -141,6 +141,7 @@ import ReadinfoOutlinedIcon from '@/components/performance/ReadinfoOutlinedIcon.
 import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
 import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 import { usePerformanceProjectContextStore, type PerformanceWorkbenchSnapshot } from '@/stores/performanceProjectContext'
 
@@ -159,7 +160,7 @@ if (Number.isFinite(routeProjectId) && routeProjectId > 0) projectContext.setAct
 const todoTab = ref<'pending' | 'completed'>('pending')
 const projects = ref<PerformanceWorkbenchProject[]>(projectContext.workbenchProjects || [])
 const activeProjectId = computed(() => projectContext.activeProjectId)
-const visibleNodes = ref<Array<PerformanceWorkbenchTimelineNode & { completed: boolean; current: boolean; range: string }>>([])
+const visibleNodes = ref<Array<PerformanceWorkbenchTimelineNode & { ended: boolean; current: boolean; range: string }>>([])
 const pendingTodos = ref<PerformanceWorkbenchTaskGroup[]>([])
 const completedTodos = ref<PerformanceWorkbenchTaskGroup[]>([])
 const loading = ref(true)
@@ -240,7 +241,7 @@ function resolveTodoIcon(nodeType: string): Component {
   return Document
 }
 function applyProjectSnapshot(snapshot: PerformanceWorkbenchSnapshot) {
-  visibleNodes.value = snapshot.timeline.map((node) => ({ ...node, range: formatRange(node.start_at, node.end_at), completed: node.status === 'completed', current: node.status === 'pending' }))
+  visibleNodes.value = snapshot.timeline.map((node) => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
   pendingTodos.value = snapshot.pending
   completedTodos.value = snapshot.completed
 }

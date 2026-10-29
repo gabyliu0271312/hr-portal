@@ -2,7 +2,7 @@
   <section class="workbench-timeline" aria-label="绩效流程节点">
     <div ref="viewport" class="timeline-viewport">
       <div ref="track" class="timeline-track" :style="{ transform: `translateX(${trackOffset}px)` }">
-        <div v-for="(node, index) in nodes" :key="node.node_id" class="timeline-node" :class="{ completed: node.completed, current: node.current }">
+        <div v-for="(node, index) in nodes" :key="node.node_id" class="timeline-node" :class="{ ended: node.ended, current: node.current }">
           <div class="node-copy">
             <strong :title="node.node_name">{{ node.node_name }}</strong>
             <span :title="node.range">{{ node.range }}</span>
@@ -10,7 +10,7 @@
           <div class="node-rail" aria-hidden="true">
             <i class="node-segment" :class="{ 'is-hidden': index === 0 }"></i>
             <span class="node-marker">
-              <svg v-if="node.completed" class="node-success" viewBox="0 0 24 24" fill="none" data-icon="SucceedFilled">
+              <svg v-if="node.ended" class="node-success" viewBox="0 0 24 24" fill="none" data-icon="SucceedFilled">
                 <path d="M11.996 22.98c-6.067 0-10.983-4.918-10.983-10.984S5.93 1.013 11.996 1.013c6.066 0 10.983 4.917 10.983 10.983 0 6.066-4.917 10.984-10.983 10.984Z" fill="currentColor" />
                 <path d="M17.537 10.746a1.38 1.38 0 0 0-.005-1.95 1.378 1.378 0 0 0-1.95-.005l-4.89 4.89-2.285-2.285a1.375 1.375 0 0 0-1.942.012 1.373 1.373 0 0 0-.013 1.942c1.178 1.175 2.356 2.348 3.53 3.528.392.394 1.03.394 1.422 0 2.037-2.051 4.087-4.09 6.133-6.132Z" fill="#fff" />
               </svg>
@@ -42,7 +42,7 @@ export interface WorkbenchTimelineNode {
   node_id: string
   node_name: string
   range: string
-  completed: boolean
+  ended: boolean
   current: boolean
 }
 

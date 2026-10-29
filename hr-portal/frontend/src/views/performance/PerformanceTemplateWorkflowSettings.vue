@@ -424,7 +424,7 @@ const fixedEvaluationType = computed<'SINGLE' | 'MULTI' | null>(() => {
 })
 const isEvaluationTypeFixed = computed(() => selectedNode.value?.node_type === 'evaluation' && fixedEvaluationType.value !== null)
 const isFinalResultRestricted = computed(() => selectedNode.value?.node_type === 'evaluation'
-  && [ASSESSMENT_ROLE_CODES.REVIEWEE, ASSESSMENT_ROLE_CODES.REVIEWER_360, ASSESSMENT_ROLE_CODES.DOTTED_MANAGER].includes(selectedNode.value.executor_role_code || ''))
+  && (([ASSESSMENT_ROLE_CODES.REVIEWEE, ASSESSMENT_ROLE_CODES.REVIEWER_360, ASSESSMENT_ROLE_CODES.DOTTED_MANAGER] as string[]).includes(selectedNode.value.executor_role_code || '')))
 const evaluationTypeDisabled = computed(() => locked('evaluation_type') || isEvaluationTypeFixed.value)
 const finalResultDisabled = computed(() => locked('include_final_result') || isFinalResultRestricted.value)
 const finalResultRestrictionMessage = computed(() => `执行人为${selectedExecutorMode.value}时无法开启此功能。`)
