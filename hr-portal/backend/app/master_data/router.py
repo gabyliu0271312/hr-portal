@@ -118,6 +118,14 @@ async def set_user_record_access(payload: "EntityRecordUserAccessIn", entity_id:
 record_router = APIRouter(prefix="/master-data", tags=["master-data"])
 
 
+@record_router.get("/overview")
+async def master_data_overview(user: User = Depends(require_op("master_data.overview", "V")),
+    db: AsyncSession = Depends(get_session)):
+    from app.master_data.overview import overview
+    return await overview(db)
+
+
+
 @record_router.get("/record-entities")
 async def record_entities(user: User = Depends(require_op(ENTITY_MENU, "V")),
     db: AsyncSession = Depends(get_session)):

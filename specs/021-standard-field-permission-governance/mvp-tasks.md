@@ -703,3 +703,11 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **部署版本要求**：需包含`c92b37b`（删除遮蔽`masterData.js`/`scopes.js`）；若线上仅为`3a9f383`，前端产物缺`recordEntities`/`person_references`，记录区会报“记录读取失败”，须重新构建前端镜像。
 - **环境/停止**：隔离库与Docker可用；本地dev栈仅用于原入口走查，验证后可继续保留或由用户决定清理。
 
+### 9.8 主数据模块壳（2026-10-29，B01.c 开发完成）
+
+- **目标/入口**：新增顶级菜单「主数据」(`master_data`) 与子菜单「主数据概览」(`master_data.overview`)；页面 `/master-data/overview`，只读。
+- **口径**：实体由后端统一建立，页面不提供创建实体入口；标准字段建设本期未迁移，仍在数据仓库→标准字段目录。
+- **实现**：`GET /master-data/overview`（`app/master_data/overview.py`）按实体汇总发布状态、字段数、启用来源数、记录数、最近写入时间，仅计数不返回业务值；记录钻取复用 `GET /master-data/entities/{id}/records`，仍受实体 ACL、人员范围与字段分类约束。迁移 `0285_master_data_module_menus` 建菜单并授予超级管理员 V/C/U/D/E。
+- **验收**：前端 `Overview.spec.ts` 3 项通过（计数展示、钻取与拒绝提示、无权限不发请求）；隔离库 PG 新用例 `test_master_data_overview_counts_entities_sources_and_records` 通过；完整 PG 套件 **106 passed**（297s）；前端三套件 **19 passed**；`npm run build`（vue-tsc+vite）通过。
+- **PC验证（本地dev栈，真实登录）**：顶级导航出现「主数据」→ 左侧「主数据概览」；表格显示 人员(person)/已发布/字段数1/来源数1/记录数1/最近写入2026-10-29 18:04，可点「查看记录」。截图`hr-portal/.tmp/b01c-master-data-overview-pc.png`。
+- **未做**：来源配置、字段映射台账、批次/失败原因（FR-B16/B21 后续）；实体创建入口的下线（历史页 `system.master_entities` 暂保留）。

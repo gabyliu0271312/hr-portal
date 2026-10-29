@@ -586,3 +586,34 @@ def test_record_migration_is_forward_only_and_enforces_publication_acl_and_refer
     assert 'UPDATE ' not in sql and 'DROP TABLE' not in sql
     with pytest.raises(RuntimeError, match='forward migration'):
         migration.downgrade()
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_master_data_overview_counts_entities_sources_and_records(entity_api):
+    client, engine, factory, _ = entity_api
+    async with engine.begin() as conn:
+        await conn.execute(text("INSERT INTO menus(id, code, label, display_order) VALUES(4, 'master_data.overview', 'Master data overview', 0) ON CONFLICT (code) DO NOTHING"))
+        await conn.execute(text("INSERT INTO role_menus(id, role_id, menu_id, scope_dimension, can_view, can_create, can_update, can_delete, can_export) SELECT (SELECT coalesce(max(id),0)+1 FROM role_menus), 1, m.id, 'none', true, false, false, false, false FROM menus m WHERE m.code='master_data.overview' ON CONFLICT (role_id, menu_id) DO NOTHING"))
+    entity = (await client.post('/api/v1/master-data/entities', json={
+        'entity_code': 'overview_person', 'name': 'Overview person', 'description': 'Synthetic overview entity'})).json()
+    field = (await client.post('/api/v1/warehouse/standard-fields', json={
+        'field_code': 'overview_location', 'field_name': 'Overview location',
+        'business_definition': 'Synthetic overview location', 'data_type': 'enum', 'entity_id': entity['id'],
+        'value_domain': {'items': [{'code': 'site-a', 'name': 'Site A', 'enabled': True, 'sort_order': 0}]},
+        'category_ids': []})).json()
+    assert (await client.post(f"/api/v1/master-data/entities/{entity['id']}/publish", json={'expected_revision': 0})).status_code == 200
+    async with factory() as db:
+        db.add(EntitySource(entity_id=entity['id'], source_system='overview-service', adapter_code='internal',
+                            field_ids=[str(field['id'])], is_active=True))
+        await db.flush()
+        source = (await db.scalars(select(EntitySource).where(EntitySource.entity_id == entity['id']))).one()
+        context = await records.bind_internal_source(db, source.id)
+        await records.receive_record(db, context, 'overview-person-1', {str(field['id']): 'site-a'})
+        await db.commit()
+    response = await client.get('/api/v1/master-data/overview')
+    assert response.status_code == 200, response.text
+    row = next(item for item in response.json()['items'] if item['id'] == entity['id'])
+    assert row['published'] is True
+    assert row['field_count'] == 1 and row['source_count'] == 1 and row['record_count'] == 1
+    assert row['last_record_at'] is not None

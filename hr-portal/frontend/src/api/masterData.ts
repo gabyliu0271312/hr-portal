@@ -14,7 +14,21 @@ export interface EntityRecordField { id: number; name: string; code: string }
 export interface EntityRecord { id: number; revision: number; created_at: string; values: Record<string, string> }
 export interface EntityRecordPage { total: number; fields: EntityRecordField[]; items: EntityRecord[] }
 export interface EntityDefinitionPayload { name: string; description: string }
+export interface MasterDataOverviewItem {
+  id: number
+  entity_code: string
+  name: string
+  published: boolean
+  published_at: string | null
+  field_count: number
+  source_count: number
+  record_count: number
+  last_record_at: string | null
+}
 export const masterDataApi = {
+  overview() {
+    return api.get<{ total: number; items: MasterDataOverviewItem[] }>('/master-data/overview').then(r => r.data)
+  },
   list(params: { keyword?: string; offset?: number; limit?: number } = {}) {
     return api.get<{ total: number; items: EntityDefinition[] }>('/master-data/entities', { params }).then(r => r.data)
   },
