@@ -322,7 +322,7 @@ const CreateMenu=defineComponent({props:{allowedTypes:{type:Array as ()=>Assessm
 .modal-layer .item-card__title{justify-self:start;margin-right:8px}
 .modal-layer .drag-icon-slot{display:grid;place-items:center;width:16px;height:16px;color:#646a73;transform:rotate(90deg)}
 .modal-layer .drag-icon{display:block;width:16px;height:16px}
-.modal-layer .item-card__actions{display:flex;justify-self:end;justify-content:flex-end;min-width:24px;margin-left:8px}
+.modal-layer .item-card__actions{grid-column:3;display:flex;justify-self:end;justify-content:flex-end;min-width:24px;margin-left:8px}
 .modal-layer .item-card__actions button{display:grid;place-items:center;width:24px;height:24px;padding:4px;border:0;background:transparent;color:#646a73;cursor:pointer}
 .modal-layer .item-card__actions button:hover{border-radius:4px;background:rgba(31,35,41,.1)}
 .modal-layer .item-card__actions svg{width:14px}

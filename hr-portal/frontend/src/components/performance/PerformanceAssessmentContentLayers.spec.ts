@@ -403,6 +403,31 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(wrapper.find('.saved-item .item-card__actions button').exists()).toBe(false)
   })
 
+  it.each(['工作总结', '评分评级', '自定义文本型填写题', '自定义标签型填写题'])('keeps multi-item delete actions in the right grid column for %s', async label => {
+    const wrapper = mount(PerformanceAssessmentContentLayers, {
+      props: { open: true, horizontalHandle: true, ratingOptions, tagOptions },
+      global: { stubs: { Teleport: true, Transition: false } },
+    })
+    await openType(wrapper, label === '工作总结' || label === '评分评级' ? label : '自定义')
+    if (label === '工作总结') await wrapper.get('.add-area .add-button').trigger('click')
+    else {
+      await wrapper.get('.performance-item-add-menu__trigger').trigger('click')
+      await wrapper.findAll('.performance-item-add-menu__menu button')[0].trigger('click')
+    }
+
+    const cards = wrapper.findAll('.repeatable-fill-item-list .saved-item')
+    expect(cards).toHaveLength(2)
+    if (label === '自定义标签型填写题') await cards[1].get('input[value="tag"]').setValue()
+    cards.forEach(card => {
+      expect(card.classes()).toContain('has-horizontal-handle')
+      expect(card.get('.config-box__heading .performance-horizontal-drag-handle').element).toBeTruthy()
+      expect(card.get('.config-box__heading').element.lastElementChild?.classList.contains('item-card__actions')).toBe(true)
+      expect(card.get('.item-card__actions button').element).toBeTruthy()
+    })
+    expect(layersSource).toMatch(/\.modal-layer \.item-card__actions\{grid-column:3;/)
+    wrapper.unmount()
+  })
+
   it('renders tag fixtures and default-all fields without product hardcoding', async () => {
     const wrapper = mountLayers()
     await openType(wrapper, '自定义')

@@ -604,3 +604,11 @@
     - PNG: `../../ui-blueprints/PM-T004-T05-F34-implemented-root-hover-selection.png`; opened and visually checked, shows reference group above main result, one full selected border, current-node page name, and inactive handles concealed. Synthetic fixture only; temporary browser/server closed.
     - Boundary: browser API intercepted with local in-memory fixtures; not real backend/database persistence or production acceptance. No backend/DTO/schema/permissions/cycle/migration changes in F34; backend tests and full frontend suite not rerun for this local UI task. No deployment/commit/push. Unrelated concurrent work preserved.
   - DoD: F34实现、定向测试、类型检查/构建、真实浏览器交互、独立截图与证据已完成；未将夹具验收表述为生产验收。
+
+- [ ] PM-T004-T05-F35 添加内容弹窗多填写项删除按钮右对齐（2026-10-29）
+  - Goal/UI: 工作总结、评分评级、自定义文本型、自定义标签型填写题在同一内容内添加至少两项后，删除按钮位于每张卡片标题栏最右侧；单项仍隐藏删除。复用T05三栏蓝图和F33横向手柄，不增加新页面或整页蓝图。
+  - Scope: 仅修改 `PerformanceAssessmentContentLayers.vue` 弹窗网格操作区列定位及既有同名spec；不改拖拽手柄、排序、删除逻辑、API/DTO、数据库、权限、周期快照、UCP、其他页面或生产环境。保留工作区已有未提交改动。
+  - Given/When/Then: Given四类内容且至少两项；When打开添加内容弹窗；Then卡片标题栏操作区占第三列、删除按钮在右侧，横向手柄仍在顶部，删除后回到单项隐藏入口。定向组件/页面测试覆盖四种多项结构和既有删除回归。
+  - Evidence: `npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts`：2文件137/137通过；`npm.cmd --prefix hr-portal/frontend run build`：vue-tsc及Vite构建通过（既有VueUse PURE注释提示）；`git diff --check`通过（无格式错误，有无关文件LF/CRLF提醒）。未运行登录态浏览器几何实测、独立截图或真实API/数据库验收；纯CSS修复不涉及后端测试、迁移或部署。
+  - UI compliance: 已读Spec012 UI交互与实施守则，关联N0001/N0002/N0004/N0005/N1102-N1104；沿用现有组件和设计体系，无新增禁止项。
+  - DoD: 代码、定向回归及构建已完成；浏览器实际位置未核验，保留未勾选，不勾T05整体。
