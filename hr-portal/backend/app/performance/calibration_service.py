@@ -94,7 +94,7 @@ def calibration_template(node, final_node, content_library):
     contents = []
     overrides = node.get("calibration_settings") or {}
     for raw in source.get("content") or []:
-        if (raw.get("content_slot") or "fill") != "fill" or raw.get("type") in {"reference", "prompt"}:
+        if (raw.get("content_slot") or "fill") != "fill" or raw.get("type") == "reference":
             continue
         content = deepcopy(raw)
         content_id = str(content.get("content_id") or content.get("id") or f"{content.get('type')}-{content.get('name')}")

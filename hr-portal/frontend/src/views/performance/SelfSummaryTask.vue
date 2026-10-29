@@ -7,7 +7,13 @@
     <main class="summary-scroll">
       <section v-if="loading" class="state">正在加载…</section>
       <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
-      <PerformanceTemplateRenderer v-else-if="activeTab === 'current'" ref="formRef" mode="edit" :title="task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+      <div v-else-if="activeTab === 'current'" class="task-content">
+        <div v-if="task.prompts?.length || task.calibration_notice" class="task-notices">
+          <PerformancePromptDisplay v-for="(prompt, index) in task.prompts || []" :key="`prompt-${index}`" :value="prompt" />
+          <PerformancePromptNotice v-if="task.calibration_notice" type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice>
+        </div>
+        <PerformanceTemplateRenderer ref="formRef" mode="edit" :title="task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+      </div>
       <PerformanceReferenceContent v-else-if="activeReference" :reference="activeReference" @remind="openReminder" />
     </main>
     <PerformanceSelfSummaryFooter v-if="activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" />
@@ -20,8 +26,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceReferenceContent from '@/components/performance/PerformanceReferenceContent.vue'
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
-import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
+import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
+import PerformancePromptDisplay from '@/components/performance/PerformancePromptDisplay.vue'
+import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
 const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' }>(), { taskKind: 'work_summary' })
@@ -156,5 +164,5 @@ onBeforeUnmount(() => window.clearTimeout(saveTimer))
 
 <style scoped>
 :global(html:has(.self-summary-page)){scrollbar-gutter:auto}
-.self-summary-page{display:flex;height:100vh;min-width:0;flex-direction:column;overflow:hidden;background:#f4f5f6;color:#1f2329;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}.summary-tabs{display:flex;width:calc(100% - 24px);height:48px;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:#fff}.summary-tabs button{position:relative;height:48px;padding:0 0;border:0;background:transparent;color:#1f2329;font-size:16px;line-height:24px;cursor:pointer}.summary-tabs button.active{color:#3370ff;font-weight:600}.summary-tabs button.active::after{position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px 3px 0 0;background:#3370ff;content:''}.summary-tabs button:disabled{cursor:not-allowed;opacity:.55}.summary-scroll{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;padding:12px 12px 75px}.state{display:flex;min-height:320px;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#646a73}.state.error{flex-direction:column;gap:12px}.state.error p{margin:0}.state.error button{height:32px;padding:0 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer}
+.self-summary-page{display:flex;height:100vh;min-width:0;flex-direction:column;overflow:hidden;background:#f4f5f6;color:#1f2329;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}.task-content{min-width:0}.task-notices{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.task-notices :deep(.performance-prompt-display),.task-notices :deep(.prompt-notice){width:100%}.summary-tabs{display:flex;width:calc(100% - 24px);height:48px;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:#fff}.summary-tabs button{position:relative;height:48px;padding:0 0;border:0;background:transparent;color:#1f2329;font-size:16px;line-height:24px;cursor:pointer}.summary-tabs button.active{color:#3370ff;font-weight:600}.summary-tabs button.active::after{position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px 3px 0 0;background:#3370ff;content:''}.summary-tabs button:disabled{cursor:not-allowed;opacity:.55}.summary-scroll{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;padding:12px 12px 75px}.state{display:flex;min-height:320px;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#646a73}.state.error{flex-direction:column;gap:12px}.state.error p{margin:0}.state.error button{height:32px;padding:0 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer}
 </style>

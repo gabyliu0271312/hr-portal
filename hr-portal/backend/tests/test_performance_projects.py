@@ -4077,13 +4077,15 @@ def test_calibration_window_never_uses_other_phase_envelope():
 def test_calibration_template_inherits_final_content_and_respects_readonly_fields():
     from app.performance.calibration_service import calibration_template
     from app.performance.self_summary_service import build_self_summary_schema, sanitize_self_summary_answers
-    final = {"content": [{"content_id": "content", "type": "custom", "items": [{"id": "readonly", "kind": "fill", "questionType": "text", "label": "只读"}, {"id": "editable", "kind": "fill", "questionType": "text", "label": "可改"}]}]}
+    final = {"content": [{"content_id": "notice", "type": "prompt", "prompt": {"title": "终评提示", "content": "请补充事实依据", "color": "#3B82F6", "scope": "all"}, "items": []}, {"content_id": "content", "type": "custom", "items": [{"id": "readonly", "kind": "fill", "questionType": "text", "label": "只读"}, {"id": "editable", "kind": "fill", "questionType": "text", "label": "可改"}]}]}
     node = {"node_id": "calibration-1", "calibration_settings": {"content": {"items": {"readonly": {"allowModify": False}}}}}
     resolved = calibration_template(node, final, [])
+    assert resolved["content"][0]["type"] == "prompt"
+    assert resolved["content"][0]["prompt"]["content"] == "请补充事实依据"
     schema = build_self_summary_schema(resolved)
     assert schema[0]["fields"][0]["readonly"]
     assert sanitize_self_summary_answers(schema, {"readonly": "forged", "editable": "allowed"}) == {"editable": "allowed"}
-    assert "settings" not in final["content"][0]["items"][0]
+    assert "settings" not in final["content"][1]["items"][0]
 
 
 @pytest.mark.postgres_acceptance

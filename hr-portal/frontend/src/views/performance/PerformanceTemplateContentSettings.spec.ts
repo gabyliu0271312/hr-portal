@@ -490,6 +490,8 @@ describe('PerformanceTemplateContentSettings', () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.find('.calibration-notice').text()).toBe('绩效校准人修改评估内容后会产生修改记录')
+    expect(wrapper.find('.calibration-notice .prompt-notice__icon').exists()).toBe(true)
     expect(wrapper.get('.configured-content-panel').text()).toContain('终评内容')
     expect(wrapper.find('.configured-content-footer').exists()).toBe(false)
     expect(wrapper.find('.configured-card-action-toolbar').exists()).toBe(false)
@@ -707,7 +709,7 @@ describe('PerformanceTemplateContentSettings', () => {
     let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.findAll('.stage-card')[1].trigger('click')
-    expect(wrapper.findAllComponents(PerformanceConfiguredContentBlock).map(block => block.props('content').content_id)).toEqual(['summary', 'rating', 'text', 'tag', 'visible'])
+    expect(wrapper.findAllComponents(PerformanceConfiguredContentBlock).map(block => block.props('content').content_id)).toEqual(['summary', 'rating', 'text', 'tag', 'visible', 'prompt', 'prompt-only'])
     expect(wrapper.findAll('.content-renderer-item--hidden')).toHaveLength(4)
     const selectHidden = async () => { await wrapper.findAllComponents(PerformanceConfiguredContentBlock)[0].get('[data-content-item-id="hidden"]').trigger('click') }
     await selectHidden()

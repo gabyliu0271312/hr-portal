@@ -752,6 +752,8 @@ export type PerformanceTemplateTask = {
   person: SelfSummaryPerson
   form_schema: SelfSummarySection[]
   answers: Record<string, unknown>
+  prompts?: PerformancePromptValue[]
+  calibration_notice?: string | null
   reference_tabs?: PerformanceReferenceTab[]
 }
 export type SelfSummaryTask = PerformanceTemplateTask

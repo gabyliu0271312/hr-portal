@@ -129,7 +129,10 @@
             <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
           </section>
         </template>
-        <PerformanceTemplateSectionCard v-else-if="!referenceTabEmpty" :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
+        <template v-else-if="!referenceTabEmpty">
+          <PerformancePromptNotice v-if="isCalibration" class="calibration-notice" type="info" multiline>绩效校准人修改评估内容后会产生修改记录</PerformancePromptNotice>
+          <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
+        </template>
         <section v-if="configuredContents.length && !isResultView && !isReferenceTab" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
@@ -193,6 +196,7 @@ import PerformanceAssessmentPreviewHeader from '@/components/performance/Perform
 import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
 import PerformanceExpandButton from '@/components/performance/PerformanceExpandButton.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
+import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
 import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type AssessmentContentType, type AssessmentOption, type AssessmentTagOption } from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
 import PerformanceTemplateOperateBar from '@/components/performance/PerformanceTemplateOperateBar.vue'
@@ -318,9 +322,9 @@ const finalFillContents = computed(() => {
       if (content) contents.set(id, content)
     }
   })
-  return [...contents.values()].filter(content => content.type !== 'reference' && content.type !== 'prompt' && content.items?.some(item => item.kind !== 'prompt'))
+  return [...contents.values()].filter(content => content.type !== 'reference' && (content.type === 'prompt' || (content.items || []).length > 0))
 })
-const finalContents = computed(() => finalFillContents.value.filter(content => content.items.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')))
+const finalContents = computed(() => finalFillContents.value.filter(content => content.type !== 'prompt' && content.items.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')))
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
 const calibrationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
@@ -1050,6 +1054,7 @@ onMounted(async () => {
 .result-reconsideration-section__header :deep(.performance-assessment-preview-header){flex:1;min-width:0;margin:0;padding-left:10px}
 .result-reconsideration-section__header :deep(.performance-assessment-preview-header::before){top:5px;width:2px;height:14px}
 .result-reconsideration-section__collapse{flex:0 0 24px;margin-left:auto}
+.calibration-notice{width:var(--performance-content-width);max-width:100%;margin:0 0 12px}
 .result-reconsideration-section__body{height:102px;padding:12px 24px;box-sizing:border-box}
 .result-reconsideration-section__preview{width:284px;height:54px;padding:16px;box-sizing:border-box;border-radius:6px;background:#f5f6f7;color:#1f2329;font:400 14px/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
 .result-view-section{position:relative;width:800px;max-width:100%;overflow:visible;border-radius:4px;background:var(--color-bg-card)}
