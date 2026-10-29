@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceTemplateApi } from '@/api/performance'
 
 const routerPush = vi.hoisted(() => vi.fn())
@@ -25,6 +25,12 @@ const stubs = {
   PerformanceManagementTable: { props: ['rows'], template: '<div class="table"><slot /></div>' },
   ElTableColumn: { props: ['label'], template: '<div class="column">{{ label }}</div>' },
 }
+
+beforeEach(() => {
+  vi.restoreAllMocks()
+  vi.spyOn(performanceTemplateApi, 'list').mockResolvedValue([])
+  routerPush.mockReset()
+})
 
 describe('MetricTemplateManagement', () => {
   it('renders the captured first-use empty state', () => {

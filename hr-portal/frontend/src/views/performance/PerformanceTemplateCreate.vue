@@ -65,11 +65,10 @@ const calculationError = ref(false)
 const notice = ref('')
 const saving = ref(false)
 const loadingTemplate = ref(false)
-const mockTemplateNames = ['11', '半年度绩效评估（2026模板）', '全年度绩效评估', '半年度绩效评估']
 const calculationOptions = [{ key: 'content', label: '按评估内容计算', description: '可配置环节内的各个评估项评分计算得到环节内的总分' }, { key: 'role', label: '按评估角色计算', description: '可配置不同环节的评估项评分计算得到最终结果' }]
 const steps = computed(() => { const result = [{ key: 'basic', label: '基本信息' }, { key: 'flow', label: '流程设置' }, { key: 'content', label: '内容设置' }]; if (calculationEnabled.value) result.push({ key: 'calculation', label: '计算规则' }); result.push({ key: 'preview', label: '模板预览' }); return result })
 function toggleCalculation(value: boolean) { calculationEnabled.value = value; calculationError.value = false; selectedRules.value = [] }
-function validate() { const name = templateName.value.trim(); if (!name) { nameError.value = '名称为必填'; return false }; if (!isEditing.value && mockTemplateNames.includes(name)) { nameError.value = '该模板名称已存在，请重新输入'; notice.value = nameError.value; return false }; nameError.value = ''; if (calculationEnabled.value && selectedRules.value.length === 0) { calculationError.value = true; return false }; calculationError.value = false; return true }
+function validate() { const name = templateName.value.trim(); if (!name) { nameError.value = '名称为必填'; return false }; nameError.value = ''; if (calculationEnabled.value && selectedRules.value.length === 0) { calculationError.value = true; return false }; calculationError.value = false; return true }
 function templatePayload() {
   return {
     name: templateName.value.trim(),
@@ -124,6 +123,7 @@ async function saveTemplate() {
 async function goNext() {
   if (currentStep.value === 0) {
     if (!validate() || saving.value) return
+    notice.value = ''
     saving.value = true
     try {
       const payload = templatePayload()
@@ -136,7 +136,10 @@ async function goNext() {
       localStorage.setItem('performance-template-draft', JSON.stringify({ name: templateName.value.trim(), description: description.value, englishEnabled: englishEnabled.value, calculationEnabled: calculationEnabled.value, selectedRules: selectedRules.value, templateId: activeTemplateId.value }))
       currentStep.value = Math.min(currentStep.value + 1, steps.value.length - 1)
     } catch (error: any) {
-      notice.value = error?.response?.data?.detail?.message || '模板保存失败，请稍后重试'
+      const detail = error?.response?.data?.detail
+      const message = (typeof detail === 'string' ? detail : detail?.message) || '模板保存失败，请稍后重试'
+      notice.value = message
+      if (error?.response?.status === 409) nameError.value = message
     } finally {
       saving.value = false
     }

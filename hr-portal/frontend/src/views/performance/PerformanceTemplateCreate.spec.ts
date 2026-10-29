@@ -1,6 +1,6 @@
 ﻿import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { performanceTemplateApi } from '@/api/performance'
+import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi } from '@/api/performance'
 import PerformanceTemplateCreate from './PerformanceTemplateCreate.vue'
 
 const push = vi.fn()
@@ -18,6 +18,8 @@ beforeEach(() => {
   push.mockReset()
   routeState.query = {}
   localStorage.clear()
+  vi.spyOn(performanceReviewQuestionApi, 'list').mockResolvedValue([])
+  vi.spyOn(performanceTagFillQuestionApi, 'options').mockResolvedValue([])
   vi.spyOn(performanceTemplateApi, 'create').mockResolvedValue({ template_id: 901, name: '新的模板' })
   vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({
     template_id: 901,
@@ -151,13 +153,45 @@ describe('PerformanceTemplateCreate', () => {
   })
 
 
-  it('validates required and duplicate names', async () => {
+  it('requires a name without calling the create API', async () => {
     const wrapper = mountView()
     await wrapper.get('.next-button').trigger('click')
     expect(wrapper.text()).toContain('名称为必填')
+    expect(performanceTemplateApi.create).not.toHaveBeenCalled()
+  })
+
+  it.each(['11', '半年度绩效评估（2026模板）', '全年度绩效评估', '半年度绩效评估'])(
+    'allows the backend to create the former demo name: %s', async name => {
+      const wrapper = mountView()
+      await wrapper.get('[aria-label="模板名称"]').setValue(name)
+      await wrapper.get('.next-button').trigger('click')
+      await flushPromises()
+      expect(performanceTemplateApi.create).toHaveBeenCalledWith(expect.objectContaining({ name }))
+      expect(wrapper.find('.basic-info-panel').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('该模板名称已存在，请重新输入')
+      wrapper.unmount()
+    },
+  )
+
+  it.each(['string', 'object'])( 'shows a real server duplicate and allows retry after renaming: %s', async format => {
+    const message = '该模板名称已存在，请重新输入'
+    vi.mocked(performanceTemplateApi.create).mockRejectedValueOnce({ response: { status: 409, data: {
+      detail: format === 'string' ? message : { code: 'PERFORMANCE_TEMPLATE_NAME_DUPLICATE', message },
+    } } })
+    const wrapper = mountView()
     await wrapper.get('[aria-label="模板名称"]').setValue('全年度绩效评估')
     await wrapper.get('.next-button').trigger('click')
-    expect(wrapper.text()).toContain('该模板名称已存在，请重新输入')
+    await flushPromises()
+    expect(performanceTemplateApi.create).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.field-error').text()).toBe(message)
+    expect(wrapper.find('.basic-info-panel').exists()).toBe(true)
+    expect(localStorage.getItem('performance-template-draft')).toBeNull()
+    await wrapper.get('[aria-label="模板名称"]').setValue('全年度绩效评估新版')
+    await wrapper.get('.next-button').trigger('click')
+    await flushPromises()
+    expect(performanceTemplateApi.create).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.basic-info-panel').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('requires a rule after enabling calculation rules', async () => {

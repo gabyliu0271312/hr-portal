@@ -2,6 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceTemplateApi } from '@/api/performance'
 
+const persistedTemplates = [
+  { template_id: 1, name: '半年度绩效评估', description: '真实半年度模板', status: 'active' as const, created_at: '2026-08-31T10:00:00Z' },
+  { template_id: 2, name: '全年度绩效评估', description: '真实年度模板', status: 'inactive' as const, created_at: '2026-08-31T10:00:00Z' },
+]
+
 const push = vi.fn()
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 import PerformanceTemplateManagement from './PerformanceTemplateManagement.vue'
@@ -29,7 +34,7 @@ function mountView() {
 beforeEach(() => {
   push.mockReset()
   vi.restoreAllMocks()
-  vi.spyOn(performanceTemplateApi, 'list').mockImplementation(() => new Promise(() => {}))
+  vi.spyOn(performanceTemplateApi, 'list').mockResolvedValue(persistedTemplates)
   vi.spyOn(performanceTemplateApi, 'remove').mockResolvedValue()
 })
 
@@ -39,26 +44,66 @@ afterEach(() => {
 })
 
 describe('PerformanceTemplateManagement', () => {
-  it('matches the reference page structure', () => {
+  it('renders real persisted templates in the page structure', async () => {
     const wrapper = mountView()
+    await flushPromises()
     expect(wrapper.find('.list-page-title').text()).toBe('绩效模板')
     expect(wrapper.find('.list-page-content .list-page-title').exists()).toBe(false)
     expect(wrapper.find('.create-button').text()).toContain('新建')
     expect(wrapper.find('.search-input').exists()).toBe(true)
     expect(wrapper.find('.filter-button').exists()).toBe(true)
-    expect(wrapper.text()).toContain('半年度绩效评估（2026模板）')
+    expect(wrapper.text()).toContain('真实半年度模板')
     expect(wrapper.text()).toContain('已启用')
     expect(wrapper.text()).toContain('待完成配置')
   })
 
   it('filters templates by keyword', async () => {
     const wrapper = mountView()
+    await flushPromises()
     await wrapper.get('input[aria-label="通过名称、备注搜索"]').setValue('项目制')
     expect(wrapper.text()).toContain('没有找到匹配的绩效模板')
 
     await wrapper.get('input[aria-label="通过名称、备注搜索"]').setValue('半年度')
     expect(wrapper.text()).toContain('半年度绩效评估')
     expect(wrapper.text()).not.toContain('全年度绩效评估')
+  })
+
+  it('shows loading without any demo templates while the API is pending', () => {
+    vi.mocked(performanceTemplateApi.list).mockImplementationOnce(() => new Promise(() => {}))
+    const wrapper = mountView()
+    expect(wrapper.text()).toContain('正在加载绩效模板...')
+    expect(wrapper.text()).not.toContain('暂无绩效模板')
+    expect(wrapper.text()).not.toContain('全年度绩效评估')
+    expect(wrapper.text()).not.toContain('半年度绩效评估')
+    wrapper.unmount()
+  })
+
+  it('shows empty only after the API returns no templates', async () => {
+    vi.mocked(performanceTemplateApi.list).mockResolvedValueOnce([])
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('暂无绩效模板')
+    expect(wrapper.text()).not.toContain('全年度绩效评估')
+    expect(wrapper.text()).not.toContain('正在加载')
+    wrapper.unmount()
+  })
+
+  it.each(['string', 'object', 'network'])('shows a distinct error and can retry: %s', async format => {
+    const message = '无绩效模板查看权限'
+    vi.mocked(performanceTemplateApi.list).mockRejectedValueOnce(format === 'network' ? new Error('Network Error') : {
+      response: { data: { detail: format === 'string' ? message : { message } } },
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain(format === 'network' ? '绩效模板加载失败，请稍后重试' : message)
+    expect(wrapper.text()).not.toContain('暂无绩效模板')
+    expect(wrapper.text()).not.toContain('全年度绩效评估')
+    await wrapper.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(performanceTemplateApi.list).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('真实半年度模板')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('opens the template creation page', async () => {

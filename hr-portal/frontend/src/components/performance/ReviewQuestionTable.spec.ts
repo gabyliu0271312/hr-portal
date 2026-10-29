@@ -71,6 +71,11 @@ describe('ReviewQuestionTable', () => {
     expect(wrapper.emitted('remove')).toEqual([[questions[0]]])
   })
 
+  it('renders creation time in the global minute format', () => {
+    const wrapper = mountTable([{ ...questions[0], createdAt: '2022-12-06T10:06:59.123Z' }])
+    expect(wrapper.get('[data-label="创建时间"]').text()).toBe('2022-12-06 18:06')
+  })
+
   it('keeps shared loading and empty states', () => {
     const wrapper = mount(ReviewQuestionTable, {
       props: { questions: [], loading: true },

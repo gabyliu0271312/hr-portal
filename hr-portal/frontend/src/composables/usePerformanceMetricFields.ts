@@ -2,7 +2,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { isAxiosError } from 'axios'
 import { ElMessage } from 'element-plus'
 import { performanceMetricFieldsApi, metricFieldTypeLabels, type MetricField, type MetricFieldDraft } from '@/api/performanceMetricFields'
-import { formatDateTime } from '@/utils/datetime'
+import { formatDisplayDateTime } from '@/utils/datetime'
 
 function errorCode(error: unknown) {
   if (!isAxiosError(error)) return undefined
@@ -50,7 +50,7 @@ export function usePerformanceMetricFields(enabled: Ref<boolean>) {
     id: field.id, displayId: field.display_id ?? field.id, name: field.name,
     type: metricFieldTypeLabels[field.field_type] || field.field_type,
     isSystem: field.is_system, inUse: field.in_use,
-    updatedBy: field.updated_by, updatedAt: field.is_system ? '' : formatDateTime(field.updated_at, '--'),
+    updatedBy: field.updated_by, updatedAt: field.is_system ? '' : formatDisplayDateTime(field.updated_at, '--'),
   })))
 
   async function load(saved = false, succeeded = '') {

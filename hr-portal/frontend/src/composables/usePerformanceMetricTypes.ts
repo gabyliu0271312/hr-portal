@@ -3,7 +3,7 @@ import { isAxiosError } from 'axios'
 import { ElMessage } from 'element-plus'
 import { performanceMetricFieldsApi } from '@/api/performanceMetricFields'
 import { performanceMetricTypesApi, type PerformanceMetricTypeDraft } from '@/api/performanceMetricTypes'
-import { formatDateTime } from '@/utils/datetime'
+import { formatDisplayDateTime } from '@/utils/datetime'
 
 export function usePerformanceMetricTypes(enabled: Ref<boolean>) {
   const types = ref<Awaited<ReturnType<typeof performanceMetricTypesApi.list>>['items']>([])
@@ -27,7 +27,7 @@ export function usePerformanceMetricTypes(enabled: Ref<boolean>) {
     fields: type.fields,
     fieldIds: type.field_ids,
     updatedBy: type.updated_by,
-    updatedAt: formatDateTime(type.updated_at, '--'),
+    updatedAt: formatDisplayDateTime(type.updated_at, '--'),
   })))
 
   async function load(saved = false) {

@@ -10,6 +10,10 @@
       </PerformanceListToolbar>
 
       <div v-if="loading" class="template-loading" role="status">正在加载绩效模板...</div>
+      <div v-else-if="loadError" class="template-empty" role="alert">
+        <span>{{ loadError }}</span>
+        <PerformanceButton @click="loadTemplates">重试</PerformanceButton>
+      </div>
       <div v-else-if="filteredTemplates.length === 0" class="template-empty">
         <el-empty :description="keyword ? '没有找到匹配的绩效模板' : '暂无绩效模板'" />
       </div>
@@ -61,6 +65,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { performanceTemplateApi } from '@/api/performance'
+import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceButton from '@/components/performance/PerformanceButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
@@ -79,23 +84,15 @@ interface PerformanceTemplate {
 }
 
 const keyword = ref('')
-const loading = ref(false)
+const loading = ref(true)
+const loadError = ref('')
 const notice = ref('')
 const deleteDialogVisible = ref(false)
 const deleting = ref(false)
 const pendingDeleteTemplate = ref<PerformanceTemplate | null>(null)
 const router = useRouter()
 
-const seedTemplates: PerformanceTemplate[] = [
-  { name: '11', description: '--', status: 'inactive', createdAt: '2026-08-07 13:10' },
-  { name: '半年度绩效评估（2026模板）', description: '半年度评估-360自愿评估-无投入度价值观', status: 'active', createdAt: '2026-06-22 15:05' },
-  { name: '全年度绩效评估', description: '全年度评估-360自愿评估', status: 'active', createdAt: '2023-12-12 16:08' },
-  { name: '半年度绩效评估', description: '半年度评估-360自愿评估', status: 'active', createdAt: '2023-06-15 17:31' },
-  { name: '2022年全年度绩效评估', description: '创梦总部-2022年度评估', status: 'active', createdAt: '2022-12-06 17:50' },
-  { name: '2022年半年度绩效评估', description: '创梦总部-2022半年度评估', status: 'active', createdAt: '2022-06-13 15:00' },
-  { name: '2021年下半年度绩效评估', description: '--', status: 'active', createdAt: '2021-11-29 11:12' },
-]
-const templates = ref<PerformanceTemplate[]>([...seedTemplates])
+const templates = ref<PerformanceTemplate[]>([])
 
 const filteredTemplates = computed(() => {
   const normalizedKeyword = keyword.value.trim().toLowerCase()
@@ -162,6 +159,8 @@ function showComingSoon(action: string) {
 }
 
 async function loadTemplates() {
+  loading.value = true
+  loadError.value = ''
   try {
     const persisted = await performanceTemplateApi.list()
     const persistedRows = persisted.map((template) => ({
@@ -169,11 +168,12 @@ async function loadTemplates() {
       name: template.name,
       description: template.description || '--',
       status: template.status as TemplateStatus,
-      createdAt: template.created_at ? new Date(template.created_at).toLocaleString('zh-CN', { hour12: false }).replaceAll('/', '-') : '--',
+      createdAt: formatDisplayDateTime(template.created_at, '--'),
     }))
     templates.value = persistedRows
-  } catch {
-    // Keep the reference rows visible when the list API is temporarily unavailable.
+  } catch (error: any) {
+    const detail = error?.response?.data?.detail
+    loadError.value = (typeof detail === 'string' ? detail : detail?.message) || '绩效模板加载失败，请稍后重试'
   } finally {
     loading.value = false
   }

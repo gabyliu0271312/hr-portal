@@ -81,6 +81,12 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 - `default`（130/90px）、`task-entry`（124/88px）、`tag`（34px）只控制已存在的外观尺寸，宽度始终跟随父容器。默认值不得写死采集491/473/457px或100vw。使用 `grid-template-columns:minmax(0,1fr)`、`min-width:0`、`white-space:pre-wrap` 和 `overflow-wrap:anywhere` 实现自然增长，不裁切长文本。
 - `PerformanceTagRichTextInput.vue` 在配置预览和实际填写中共用单外框、顶部单一工具栏和各标签独立输入区域；内部使用 `tag/hideToolbar` 编辑器。接收 `options` 和 `{tags,notes}`，兼容旧 `{tags,note}`。当前编辑对象由焦点/选区决定，移除后回退首个已选项。标签复选框及保存策略属于调用方：配置试填不写模板，实际填写沿既有答案保存。
 
+### 日期时间展示
+
+- 业务页面日期时间统一为 `YYYY-MM-DD HH:mm`，例如 `2022-12-06 18:06`，不显示 `T`、秒或毫秒；复用 `src/utils/datetime` 的 `formatDisplayDateTime`，按现有平台北京时间（Asia/Shanghai）展示，不依赖浏览器本地时区。
+- 仅在展示层格式化；API、数据库、时间选择器提交与回填不截断精度。纯日期字段继续使用日期规则，不补时间。
+- 操作日志、执行日志及后台日志保留精确时间；现有 `formatDateTime` 保持秒级输出，不受业务展示规则影响。
+
 ### 字体
 
 系统默认 sans-serif，不引入外部字体包。数字、编码、SQL、技术字段可用 `--font-mono`。

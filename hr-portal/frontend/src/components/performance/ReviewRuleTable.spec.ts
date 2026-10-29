@@ -76,6 +76,11 @@ describe('ReviewRuleTable', () => {
     expect(wrapper.get('table').attributes('data-max-height')).toBe('600')
   })
 
+  it('renders creation time in the global minute format', () => {
+    const wrapper = mountTable({ rules: [{ ...rules[0], createdAt: '2022-12-06T10:06:59.123Z' }] })
+    expect(wrapper.get('[data-label="创建时间"]').text()).toBe('2022-12-06 18:06')
+  })
+
   it('pins the rendered colgroup to the captured header geometry', () => {
     expect(reviewRuleTableSource).toContain('colgroup col:nth-child(1)) { width: 12.9325%')
     expect(reviewRuleTableSource).toContain('colgroup col:nth-child(2)) { width: 12.9325%')

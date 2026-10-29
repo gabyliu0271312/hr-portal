@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import PerformanceButton from './PerformanceButton.vue'
@@ -51,7 +52,9 @@ const emit = defineEmits<{
         </span>
       </template>
     </el-table-column>
-    <el-table-column prop="createdAt" label="创建时间" min-width="160" />
+    <el-table-column prop="createdAt" label="创建时间" min-width="160">
+      <template #default="{ row }">{{ formatDisplayDateTime(row.createdAt) }}</template>
+    </el-table-column>
     <el-table-column prop="remark" label="备注" min-width="240" show-overflow-tooltip />
     <el-table-column label="操作" min-width="128" fixed="right">
       <template #default="{ row }">

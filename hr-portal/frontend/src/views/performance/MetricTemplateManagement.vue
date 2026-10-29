@@ -73,6 +73,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MetricTemplateActionButtons from '@/components/performance/MetricTemplateActionButtons.vue'
 import { performanceTemplateApi } from '@/api/performance'
+import { formatDisplayDateTime } from '@/utils/datetime'
 import type { MetricTemplateDraft } from '@/components/performance/MetricTemplateCreateDialog.vue'
 import MetricTemplateCreateDialog from '@/components/performance/MetricTemplateCreateDialog.vue'
 import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
@@ -146,7 +147,7 @@ async function loadTemplates() {
     templates.value = (await performanceTemplateApi.list('metric')).map(item => ({
       id: item.template_id, name: item.name, description: item.description,
       status: item.status === 'active' ? '启用' : '未启用',
-      updatedBy: item.updated_by || '—', updatedAt: item.updated_at || item.created_at,
+      updatedBy: item.updated_by || '—', updatedAt: formatDisplayDateTime(item.updated_at || item.created_at),
     }))
   } catch { notify('指标模板列表加载失败，请刷新重试') } finally { loading.value = false }
 }

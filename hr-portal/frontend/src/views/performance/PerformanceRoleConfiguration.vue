@@ -125,6 +125,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { formatDisplayDateTime } from '@/utils/datetime'
 import {
   performanceRoleApi,
   type PerformanceRoleListItem,
@@ -181,7 +182,7 @@ function toRoleRow(item: PerformanceRoleListItem): RoleRow {
     memberSource: item.member_source || '--',
     status: item.is_active ? '已启用' : '已停用',
     updatedBy: '--',
-    updatedAt: new Date(item.updated_at).toLocaleString('zh-CN', { hour12: false }),
+    updatedAt: formatDisplayDateTime(item.updated_at),
   }
 }
 

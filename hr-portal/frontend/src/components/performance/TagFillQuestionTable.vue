@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceButton from './PerformanceButton.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import type { TagFillQuestionRecord } from './tagFillQuestionFixtures'
@@ -39,7 +40,9 @@ const emit = defineEmits<{
   >
     <el-table-column prop="name" label="名称" min-width="240" show-overflow-tooltip />
     <el-table-column prop="creator" label="创建人" min-width="320" show-overflow-tooltip />
-    <el-table-column prop="createdAt" label="创建时间" min-width="320" />
+    <el-table-column prop="createdAt" label="创建时间" min-width="320">
+      <template #default="{ row }">{{ formatDisplayDateTime(row.createdAt) }}</template>
+    </el-table-column>
     <el-table-column prop="remark" label="备注" min-width="240" show-overflow-tooltip />
     <el-table-column label="操作" min-width="160" fixed="right">
       <template #default="{ row }">

@@ -19,6 +19,14 @@ export function formatDateTime(v, fallback = '—') {
         return fallback;
     return d.toLocaleString('zh-CN', { timeZone: TZ, hour12: false });
 }
+// 业务页面统一展示到分钟，日志继续使用 formatDateTime 保留秒。
+export function formatDisplayDateTime(v, fallback = '—') {
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(v)) {
+        v = v.replace(' ', 'T') + '+08:00';
+    }
+    const local = utcToShanghaiLocal(typeof v === 'string' ? v : toDate(v)?.toISOString());
+    return local ? local.replace('T', ' ') : fallback;
+}
 // 纯日期字段（如入职日期），不做时区偏移，仅取日期部分
 export function formatDateOnly(v, fallback = '—') {
     if (v === null || v === undefined || v === '')

@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { shanghaiLocalToUtcIso, utcToShanghaiLocal } from './datetime'
+import { formatDateTime, formatDisplayDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from './datetime'
+import { formatDisplayDateTime as formatJsDisplayDateTime } from './datetime.js'
+
+it.each([formatDisplayDateTime, formatJsDisplayDateTime])('formats business timestamps without changing log precision', format => {
+  for (const value of [
+    '2022-12-06T10:06:59.123456Z',
+    '2022-12-06T18:06:59+08:00',
+    '2022-12-06T10:06:59',
+    '2022-12-06 18:06:59',
+    '2022-12-06 18:06',
+    new Date('2022-12-06T10:06:59Z'),
+    Date.parse('2022-12-06T10:06:59Z'),
+  ]) expect(format(value)).toBe('2022-12-06 18:06')
+  expect(format('2022-12-31T16:01:59Z')).toBe('2023-01-01 00:01')
+  expect(format('2022-12-06T10:06:59.999Z')).toBe('2022-12-06 18:06')
+  for (const value of [null, undefined, '', 'invalid', new Date('invalid')]) expect(format(value)).toBe('—')
+  expect(format(null, '--')).toBe('--')
+  expect(formatDateTime('2022-12-06T10:06:59Z')).toContain('18:06:59')
+})
 
 describe('performance cycle datetime helpers', () => {
   it('treats datetime-local input as Asia/Shanghai wall time', () => {
