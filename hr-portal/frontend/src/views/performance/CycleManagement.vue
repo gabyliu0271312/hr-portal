@@ -4,7 +4,7 @@
       <div class="cycle-page-content">
         <div class="cycle-workspace">
           <aside class="cycle-list-panel" aria-labelledby="cycle-list-title">
-            <h2>周期 <span class="info" aria-hidden="true">ⓘ</span></h2>
+            <h2>周期 <PerformanceInfoPopover class="info" :content="cycleListInfo" aria-label="周期列表说明" /></h2>
             <div class="cycle-search-row">
           <PerformanceSearchInput
             v-model="keyword"
@@ -282,6 +282,8 @@ import PerformanceComparisonRuleDrawer, { type PerformanceComparisonConfig } fro
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import PerformanceRequiredLabel from '@/components/performance/PerformanceRequiredLabel.vue'
+import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopover.vue'
+import { PERFORMANCE_INFO_PLACEHOLDER } from '@/components/performance/performanceInfoPlaceholder'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 import PerformanceSelectShell from '@/components/performance/PerformanceSelectShell.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
@@ -316,6 +318,7 @@ const yearPickerOpen = ref(false); const periodTypePickerOpen = ref(false); cons
 type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subtype: string | null; label: string }; const periodTypeGroups: { label: string; options: PeriodTypeOption[] }[] = [{ label: '年/半年度', options: [{ value: 'YEAR', type: 'YEAR', subtype: null, label: '全年' }, { value: 'H1', type: 'HALF_YEAR', subtype: 'H1', label: '上半年' }, { value: 'H2', type: 'HALF_YEAR', subtype: 'H2', label: '下半年' }] }, { label: '季度', options: [1, 2, 3, 4].map(index => ({ value: `Q${index}`, type: 'QUARTER', subtype: `Q${index}`, label: `第 ${index} 季度` })) }, { label: '双月', options: [1, 2, 3, 4, 5, 6].map(index => ({ value: `B${index}`, type: 'BIMONTH', subtype: `B${index}`, label: `${index * 2 - 1}-${index * 2} 双月` })) }, { label: '月度', options: Array.from({ length: 12 }, (_, index) => ({ value: `M${index + 1}`, type: 'MONTH', subtype: `M${index + 1}`, label: `${index + 1} 月份` })) }, { label: '非标准周期', options: [{ value: 'CUSTOM', type: 'CUSTOM', subtype: 'CUSTOM', label: '自定义' }] }];
 const selectedPeriodOption = computed(() => periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type && option.subtype === (form.period_subtype || null)) || periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type));
 const activeAnchor = ref('cycle-info'); const anchorItems = [{ id: 'cycle-info', label: '周期信息' }, { id: 'people-settings', label: '人员和部门信息设置' }, { id: 'evaluation-settings', label: '评估设置' }, { id: 'leaver-settings', label: '离职人员参评设置' }]; const yearPageSize = 20; const getDefaultYearPageStart = () => Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize; const yearPageStart = ref(Math.floor(new Date().getFullYear() / yearPageSize) * yearPageSize); const yearOptions = computed(() => Array.from({ length: yearPageSize }, (_, index) => yearPageStart.value + index).filter(year => year >= 1900 && year <= 2200)); const form = reactive<any>({ name: '', period_year: null, period_type: '', period_subtype: null, start_at: '', end_at: '', lock_rule: 'IMMEDIATE', lock_at: '', pre_lock_sync_mode: 'MANUAL', leaver_enabled: false, leaver_start_date: '', leaver_end_date: '', leaver_participation_mode: 'CREATE_TASK', overdue_submission_enabled: true, overdue_submission_scope: 'EVALUATION', evaluation_templates: [], comparison_rule: null }); const formSubmitted = ref(false); const isDirty = computed(() => editing.value && JSON.stringify(form) !== initialForm.value)
+const cycleListInfo = PERFORMANCE_INFO_PLACEHOLDER
 const cycleFormRef = ref<HTMLFormElement | null>(null)
 const fieldErrors = reactive<Record<string, string>>({})
 const requiredFields = computed(() => [
@@ -1250,7 +1253,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-list-panel { position: relative; flex: 0 0 228px; width: 228px; min-width: 228px; padding-right: 20px; box-sizing: border-box; }
 .cycle-list-panel::after { content: ''; position: absolute; top: -20px; right: -1px; bottom: -20px; left: auto; width: 1px; background: rgba(187, 191, 196, 0.5); }
 .cycle-list-panel h2 { margin: 0 0 16px; color: #373c43; font-size: 16px; font-weight: 600; line-height: 24px; }
-.cycle-list-panel .info { color: #646a73; font-size: 14px; }
+.cycle-list-panel .info { display: inline-flex; margin-left: var(--performance-info-icon-gap); color: var(--performance-info-icon-color); }
 .cycle-search-row { display: flex; align-items: center; width: 208px; height: 32px; margin-bottom: 16px; }
 .cycle-search-row :deep(.performance-search-input) { flex: 0 0 167px; width: 167px !important; }
 .cycle-search-row :deep(.search-icon) { width: 16px; height: 16px; }

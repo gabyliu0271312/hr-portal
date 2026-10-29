@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import type { PerformanceReviewRuleOption } from '@/api/performance'
 import PerformanceMetricDimensionCreateDialog from './PerformanceMetricDimensionCreateDialog.vue'
@@ -13,6 +13,19 @@ const reviewRules: PerformanceReviewRuleOption[] = [{
 const shellStub = {
   props: ['modelValue', 'title', 'loading'],
   template: '<section v-if="modelValue"><h2>{{ title }}</h2><div class="dialog-body"><slot /></div><footer><slot name="footer" /></footer></section>',
+}
+
+async function chooseOption(wrapper: ReturnType<typeof mount>, text: string) {
+  await flushPromises()
+  const inline = wrapper.findAll('[role="option"]').find(option => option.text() === text)
+  if (inline) {
+    await inline.trigger('click')
+    return
+  }
+  const portalled = [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find(element => (element.querySelector('strong')?.textContent ?? element.textContent ?? '').trim() === text)
+  if (!portalled) throw new Error(`找不到选项：${text}`)
+  portalled.click()
+  await flushPromises()
 }
 
 describe('PerformanceMetricDimensionCreateDialog', () => {
@@ -43,7 +56,7 @@ describe('PerformanceMetricDimensionCreateDialog', () => {
     await wrapper.get('#metric-dimension-weight').setValue('25')
     await wrapper.get('.metric-dimension-checkbox-group input').setValue(true)
     await wrapper.get('.metric-dimension-review-rule-select .select-shell > button').trigger('click')
-    await wrapper.get('[role="option"]').trigger('click')
+    await chooseOption(wrapper, '评分规则')
     await wrapper.get('.metric-dimension-footer button').trigger('click')
     expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({ need_weight: true, weight: 25 })
     await wrapper.get('[aria-label="需设置维度权重"]').trigger('click')
@@ -58,15 +71,15 @@ describe('PerformanceMetricDimensionCreateDialog', () => {
       global: { stubs: { PerformanceDialogShell: shellStub } },
     })
 
-    const options = wrapper.findAll('.metric-dimension-rule-group > *')
-    expect(options[0]?.text()).toContain('使用相同规则')
-    expect(options[1]?.classes()).toContain('metric-dimension-review-rule-select')
-    expect(options[2]?.text()).toContain('使用不同规则')
+    const ruleOptions = wrapper.findAll('.metric-dimension-rule-group .performance-radio-option')
+    expect(ruleOptions[0]?.text()).toContain('使用相同规则')
+    expect(wrapper.find('.metric-dimension-review-rule-select').exists()).toBe(true)
+    expect(ruleOptions[1]?.text()).toContain('使用不同规则')
 
     await wrapper.get('#metric-dimension-name').setValue('经营结果')
     await wrapper.get('.metric-dimension-checkbox-group input').setValue(true)
     await wrapper.get('.performance-assessment-select > .select-shell > button').trigger('click')
-    await wrapper.get('[role="option"]').trigger('click')
+    await chooseOption(wrapper, '评分规则')
     await wrapper.get('.metric-dimension-footer button').trigger('click')
 
     expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({
@@ -129,7 +142,7 @@ describe('PerformanceMetricDimensionCreateDialog', () => {
     await wrapper.get('#metric-dimension-name').setValue('经营结果')
     await wrapper.get('.metric-dimension-checkbox-group input').setValue(true)
     await wrapper.get('.metric-dimension-review-rule-select .select-shell > button').trigger('click')
-    await wrapper.get('[role="option"]').trigger('click')
+    await chooseOption(wrapper, '评分规则')
     await wrapper.get('.metric-dimension-footer button').trigger('click')
     expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({
       allow_reviewee_add_metrics: true,

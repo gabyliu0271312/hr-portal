@@ -135,7 +135,7 @@ describe('OtherPermissionSettings', () => {
     await flushPromises()
     await wrapper.findAll('.permission-button')[1].trigger('click')
     expect(wrapper.findAll('.dialog')).toHaveLength(1)
-    await wrapper.get('.dialog button.permission-settings-editor__button--primary').trigger('click')
+    await wrapper.get('.dialog .performance-button--primary').trigger('click')
     await flushPromises()
 
     expect(api.update).toHaveBeenCalledWith({

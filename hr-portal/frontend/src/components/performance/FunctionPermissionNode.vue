@@ -27,8 +27,8 @@
         <svg v-else-if="partial" viewBox="0 0 12 12"><path d="M2 5.4c0-.22.18-.4.4-.4h7.2c.22 0 .4.18.4.4v1.2a.4.4 0 01-.4.4H2.4a.4.4 0 01-.4-.4V5.4Z" /></svg>
       </span>
       <span class="tree-label">{{ node.label }}</span>
-      <InfoOutlinedIcon v-if="node.info" class="tree-info-icon" :title="node.info" />
     </label>
+    <PerformanceInfoPopover v-if="node.info" class="tree-info-popover" :content="node.info" icon-color="var(--performance-info-icon-color)" />
   </div>
   <div v-if="hasChildren && expandedKeys.has(node.key)" class="permission-children" role="group">
     <FunctionPermissionNode
@@ -47,7 +47,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import InfoOutlinedIcon from './InfoOutlinedIcon.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import type { FunctionPermissionTreeNode } from './PerformanceFunctionPermissionTree.vue'
 
 const props = withDefaults(defineProps<{
@@ -93,6 +93,6 @@ const partial = computed(() => selectedLeafCount.value > 0 && !checked.value)
 .tree-checkbox-wallpaper.checked, .tree-checkbox-wallpaper.partial { border-color: #3370ff; background: #3370ff; }
 .tree-checkbox-wallpaper svg { width: 12px; height: 12px; fill: currentColor; }
 .tree-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-info-icon { width: 14px; height: 14px; flex: 0 0 14px; margin-left: 2px; color: #646a73; }
+.tree-info-popover { margin-left: var(--performance-info-icon-gap); color: var(--performance-info-icon-color); }
 .permission-children { display: grid; gap: 2px; }
 </style>

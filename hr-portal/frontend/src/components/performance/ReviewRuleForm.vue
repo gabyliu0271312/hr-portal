@@ -6,6 +6,8 @@ import PerformanceSwitch from './PerformanceSwitch.vue'
 import ReviewTypeRadioGroup from './ReviewTypeRadioGroup.vue'
 import LevelConfigEditor from './LevelConfigEditor.vue'
 import InfoOutlinedIcon from './InfoOutlinedIcon.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
+import { PERFORMANCE_INFO_PLACEHOLDER } from './performanceInfoPlaceholder'
 import PerformanceRequiredLabel from './PerformanceRequiredLabel.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 import ScoreConfig from './ScoreConfig.vue'
@@ -251,8 +253,8 @@ defineExpose({ submit, preview, form })
               <span aria-hidden="true"></span>
               <PerformanceRequiredLabel label="颜色与等级" />
               <span>名称</span>
-              <span v-if="form.gradeParticipatesInCalculation" class="quantified-score-header"><span>量化分</span><AsteriskOutlinedIcon /><InfoOutlinedIcon /></span>
-              <span class="value-header"><span>量化值</span><InfoOutlinedIcon class="value-info-icon" /></span>
+              <span v-if="form.gradeParticipatesInCalculation" class="quantified-score-header"><span>量化分</span><AsteriskOutlinedIcon /><PerformanceInfoPopover :content="PERFORMANCE_INFO_PLACEHOLDER" /></span>
+              <span class="value-header"><span>量化值</span><PerformanceInfoPopover :content="PERFORMANCE_INFO_PLACEHOLDER" /></span>
             </div>
             <span class="level-header-delete" aria-hidden="true"></span>
           </div>

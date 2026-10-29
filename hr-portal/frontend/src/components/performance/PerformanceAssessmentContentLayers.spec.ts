@@ -112,7 +112,7 @@ describe('PerformanceAssessmentContentLayers', () => {
     const display = mount(PerformancePromptDisplay, { props: { value: { ...value, showIcon: true } } })
     expect(display.find('.performance-prompt-display__icon').exists()).toBe(true)
     expect(display.attributes('style')).toContain('background-color: rgb(255, 243, 229)')
-    expect(display.get('.performance-prompt-display__icon').attributes('style')).toContain('color: rgb(249, 115, 22)')
+    expect(display.get('.performance-prompt-display__icon').attributes('style')).toContain('color: rgb(255, 129, 26)')
     expect(promptDisplaySource).toContain('width: 100%')
     expect(promptDisplaySource).not.toContain('border-left:')
     expect(promptDisplaySource).toContain('font: 600 16px/24px')

@@ -23,7 +23,7 @@ describe('PM-T017-T04 metric field create dialog', () => {
     expect(wrapper.findAll('.performance-form-item__label').map(item => item.text())).toEqual(['名称*', '字段类型*'])
     expect(wrapper.findAll('.radio-label').map(item => item.text())).toEqual(['文本', '数字', '百分比'])
     expect((wrapper.get('input[value="text"]').element as HTMLInputElement).checked).toBe(true)
-    expect(wrapper.findAllComponents(PerformanceButton).map(button => button.text())).toEqual(['取消', '确定'])
+    expect(wrapper.findAllComponents(PerformanceButton).filter(button => button.text()).map(button => button.text())).toEqual(['取消', '确定'])
     expect(wrapper.text()).not.toContain('人员单选')
     expect(wrapper.text()).not.toContain('字段编码')
     expect(wrapper.text()).not.toContain('描述')

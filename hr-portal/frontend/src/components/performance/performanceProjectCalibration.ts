@@ -3,7 +3,7 @@ import type { PerformanceProjectFlowSettings, PerformanceProjectNodeTime, Perfor
 type NodeSettings = PerformanceProjectFlowSettings['node_settings']
 type Phase = NonNullable<NodeSettings[string]['calibration']>['phases'][number]
 
-export function createCalibrationPhaseId(randomUUID: (() => string) | undefined = globalThis.crypto?.randomUUID?.bind(globalThis.crypto)) {
+export function createCalibrationPhaseId(randomUUID: (() => string) | null = globalThis.crypto?.randomUUID?.bind(globalThis.crypto) ?? null) {
   return randomUUID ? randomUUID() : `phase-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 

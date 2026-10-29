@@ -78,7 +78,7 @@ describe('review question entry-mode variants', () => {
     const pills = wrapper.findAll('.level-code-pill')
     expect(pills[0].attributes('style')).toContain('background-color: rgb(253, 226, 226)')
     expect(pills[1].attributes('style')).toContain('background-color: rgb(217, 245, 214)')
-    expect(pills[1].get('.level-code-text').text()).toBe('111222222222222222222222')
+    expect(pills[1].get('.rating-tag-label').text()).toBe('111222222222222222222222')
     expect(wrapper.findAll('.level-name').map((name) => name.text())).toEqual(['--', '--'])
   })
 

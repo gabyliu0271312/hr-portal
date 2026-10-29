@@ -25,8 +25,16 @@ function mountDrawer() {
 
 async function select(wrapper: ReturnType<typeof mountDrawer>, label: string, option: string) {
   await wrapper.get(`[aria-label="${label}"]`).trigger('click')
-  const buttons = wrapper.findAll('[role="option"]')
-  await buttons.find(button => button.text() === option)!.trigger('click')
+  await wrapper.vm.$nextTick()
+  const inline = wrapper.findAll('[role="option"]').find(button => button.text() === option)
+  if (inline) {
+    await inline.trigger('click')
+    return
+  }
+  const portalled = [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find(element => element.textContent?.trim() === option)
+  expect(portalled).toBeTruthy()
+  portalled!.click()
+  await wrapper.vm.$nextTick()
 }
 
 describe('PerformanceComparisonRuleDrawer', () => {

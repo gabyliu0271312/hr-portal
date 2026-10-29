@@ -27,5 +27,5 @@ defineEmits<{ (event: 'update:modelValue', value: boolean): void }>()
 </script>
 
 <style scoped>
-.performance-switch-setting-row{display:flex;align-items:center;width:263.333px;max-width:100%;height:22px;box-sizing:border-box;color:#1f2329;font:400 14px/22.001px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}.performance-switch-setting-row__label{font-weight:600;white-space:nowrap}.performance-switch-setting-row__info{margin-left:4px}.performance-switch-setting-row :deep(.performance-switch){flex:0 0 28px;margin-left:8px}
+.performance-switch-setting-row{display:flex;align-items:center;width:263.333px;max-width:100%;height:22px;box-sizing:border-box;color:#1f2329;font:400 14px/22.001px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}.performance-switch-setting-row__label{font-weight:600;white-space:nowrap}.performance-switch-setting-row__info{margin-left:var(--performance-info-icon-gap)}.performance-switch-setting-row :deep(.performance-switch){flex:0 0 28px;margin-left:8px}
 </style>

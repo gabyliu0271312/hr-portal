@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
+import { PERFORMANCE_INFO_PLACEHOLDER } from './performanceInfoPlaceholder'
+
 export interface PerformanceRadioOption {
   value: string
   label: string
   description?: string | null
   disabled?: boolean
   showInfo?: boolean
+  info?: string | string[]
 }
 
 withDefaults(defineProps<{
@@ -35,7 +39,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
         <input type="radio" :name="name" :value="option.value" :checked="modelValue === option.value" :disabled="disabled || option.disabled" @change="emit('update:modelValue', option.value)" />
         <span class="radio-wallpaper" aria-hidden="true"></span>
         <span class="radio-label"><slot name="label" :option="option">{{ option.label }}</slot></span>
-        <svg v-if="option.showInfo" class="info-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" data-icon="InfoOutlined" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 2C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11Zm-1-7.5v-4a1 1 0 1 1 0-2h1.004c.55 0 .998.445.998.996.003 1.668-.002 3.336-.002 5.004h.5a1 1 0 1 1 0 2h-3a1 1 0 1 1 0-2h.5Zm1-7a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" fill="currentColor" /></svg>
+        <PerformanceInfoPopover v-if="option.showInfo || option.info" class="info-icon" :content="option.info || PERFORMANCE_INFO_PLACEHOLDER" @click.prevent.stop />
       </label>
       <slot name="after-option" :option="option" />
     </div>
@@ -55,7 +59,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 .performance-radio-option.disabled.checked .radio-wallpaper { border: 5px solid var(--color-border); }
 .performance-radio-option.disabled input { cursor: not-allowed; }
 .radio-label { white-space: nowrap; }
-.info-icon { flex: 0 0 16px; width: 16px; height: 16px; margin-left: 2px; color: #646a73; }
+.info-icon { display:inline-flex; flex: 0 0 var(--performance-info-icon-size); width: var(--performance-info-icon-size); height: var(--performance-info-icon-size); margin-left: var(--performance-info-icon-gap); color: var(--performance-info-icon-color); }
 .performance-radio-entry { display: contents; }
 .performance-radio-group--card { display: flex; width: 100%; }
 .performance-radio-group--card .performance-radio-entry { display: flex; align-items: center; width: 100%; min-width: 0; padding: var(--spacing-4); box-sizing: border-box; border: 1px solid var(--performance-template-option-border); border-radius: var(--radius-lg); }

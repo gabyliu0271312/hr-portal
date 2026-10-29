@@ -5,7 +5,7 @@ import PerformanceHrbpScopeSummary from './PerformanceHrbpScopeSummary.vue'
 describe('PerformanceHrbpScopeSummary', () => {
   it('renders the captured scope summary and emits settings', async () => {
     const wrapper = mount(PerformanceHrbpScopeSummary, {
-      global: { stubs: { PermissionButton: { template: '<button v-bind="$attrs"><slot /></button>' } } },
+      global: { stubs: { PerformancePermissionButton: { template: '<button v-bind="$attrs"><slot /></button>' } } },
     })
 
     expect(wrapper.text()).toContain('HRBP 可管理的绩效数据范围')

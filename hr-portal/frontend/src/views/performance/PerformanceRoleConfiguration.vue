@@ -95,11 +95,12 @@
                     <button class="role-more-button" type="button" aria-label="更多操作" :disabled="updatingRoleId === row.id">···</button>
                     <template #dropdown>
                       <el-dropdown-menu>
-                        <el-tooltip :content="row.isSystem ? '系统创建的角色不支持删除' : '需要先停用角色，再进行删除'" :disabled="!row.isSystem && !row.isActive" placement="left">
-                          <div :title="row.isSystem ? '系统创建的角色不支持删除' : row.isActive ? '需要先停用角色，再进行删除' : undefined">
-                            <el-dropdown-item :disabled="row.isSystem || row.isActive || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
-                          </div>
-                        </el-tooltip>
+                        <PerformanceDisabledReason
+                          :disabled="row.isSystem || row.isActive"
+                          :reason="row.isSystem ? '系统创建的角色不支持删除' : '需要先停用角色，再进行删除'"
+                        >
+                          <el-dropdown-item :disabled="row.isSystem || row.isActive || updatingRoleId === row.id" @click="openDeleteDialog(row)">删除</el-dropdown-item>
+                        </PerformanceDisabledReason>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -137,6 +138,7 @@ import PerformanceExportIcon from '@/components/performance/PerformanceExportIco
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
+import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
 
 type RoleTab = 'management' | 'assessment'
 

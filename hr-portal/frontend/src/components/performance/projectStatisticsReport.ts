@@ -1,4 +1,5 @@
 import { PERFORMANCE_LEVEL_COLORS } from './performanceColorOptions'
+import { PERFORMANCE_INFO_PLACEHOLDER } from './performanceInfoPlaceholder'
 
 export type ReportHeatLevel = 1 | 2 | 3
 export type ProjectReportDimension = 'department' | 'team' | 'sequence' | 'level' | 'tenure'
@@ -58,6 +59,18 @@ export const reportGroups = [
     { key: 'dimension', label: '绩效维度对比' }, { key: 'history', label: '历史绩效对比' },
   ] },
 ]
+
+export const reportSectionInfo: Record<string, string> = {
+  overview: PERFORMANCE_INFO_PLACEHOLDER,
+  department: PERFORMANCE_INFO_PLACEHOLDER,
+  team: PERFORMANCE_INFO_PLACEHOLDER,
+  sequence: PERFORMANCE_INFO_PLACEHOLDER,
+  level: PERFORMANCE_INFO_PLACEHOLDER,
+  tenure: PERFORMANCE_INFO_PLACEHOLDER,
+  'self-final': PERFORMANCE_INFO_PLACEHOLDER,
+  dimension: PERFORMANCE_INFO_PLACEHOLDER,
+  history: PERFORMANCE_INFO_PLACEHOLDER,
+}
 
 export function reportTotal(counts: Record<string, number>) {
   return Object.values(counts).reduce((sum, count) => sum + count, 0)

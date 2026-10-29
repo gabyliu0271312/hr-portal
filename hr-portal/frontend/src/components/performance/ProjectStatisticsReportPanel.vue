@@ -14,7 +14,7 @@
             <template v-for="(group, groupIndex) in reportGroups" :key="group.key">
               <h2 class="report-primary-heading"><span>{{ group.label }}</span></h2>
               <section v-for="(section, sectionIndex) in group.sections" :key="section.key" :data-report-section="section.key" class="report-section" :aria-label="section.label">
-                <PerformanceReportSectionTitle :label="section.label" />
+                <PerformanceReportSectionTitle :label="section.label" :info="reportSectionInfo[section.key]" />
                 <template v-if="groupIndex === 0 && sectionIndex === 0">
                   <p v-if="data?.source === 'mock'" class="report-source-notice" role="note"><strong>模拟数据</strong> · 总览、部门、团队、序列仅供布局预览，不代表{{ cycleName || '当前周期' }}的真实绩效结果；级别统计单独接入真实数据。</p>
                   <p v-else-if="data?.source === 'api'" class="report-source-notice">数据来源：统计 API</p>
@@ -73,7 +73,7 @@ import ProjectReportDistribution from './ProjectReportDistribution.vue'
 import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import { projectManagementApi } from '@/api/performance'
-import { mockProjectReportComparison, mockProjectReportProvider, reportGroups, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
+import { mockProjectReportComparison, mockProjectReportProvider, reportGroups, reportSectionInfo, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
 const defaultProvider: ProjectReportProvider = async ({ cycleId, dimension = 'department' }) => {

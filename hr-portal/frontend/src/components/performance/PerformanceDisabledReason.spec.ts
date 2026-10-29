@@ -20,7 +20,7 @@ describe('PerformanceDisabledReason', () => {
     })
 
     expect(wrapper.find('[data-disabled-reason]').exists()).toBe(true)
-    expect(wrapper.get('.tooltip-stub').attributes('data-content')).toBe('此评估规则已被使用，不允许删除')
+    expect(wrapper.getComponent(PerformanceInfoPopover).props('content')).toBe('此评估规则已被使用，不允许删除')
   })
 
   it('does not render a tooltip for enabled actions', () => {

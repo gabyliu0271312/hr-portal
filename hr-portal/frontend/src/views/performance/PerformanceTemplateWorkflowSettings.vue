@@ -155,18 +155,15 @@
                 <div class="final-result-setting">
                   <div class="final-result-row">
                     <span class="final-result-label">设置此环节绩效结果为最终结果</span>
-                    <div ref="finalResultSwitchAnchor" class="final-result-switch-anchor" :tabindex="isFinalResultRestricted ? 0 : -1" @mouseenter="scheduleFinalResultTooltip" @mouseleave="hideFinalResultTooltip" @focusin="scheduleFinalResultTooltip" @focusout="hideFinalResultTooltip">
-                      <PerformanceSwitch v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" :aria-describedby="isFinalResultRestricted ? 'restricted-final-result-tooltip' : undefined" />
+                    <div class="final-result-switch-anchor">
+                      <PerformanceInfoPopover v-if="isFinalResultRestricted" :content="finalResultRestrictionMessage" variant="disabled-action" width="auto" :delay="138">
+                        <PerformanceSwitch v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" />
+                      </PerformanceInfoPopover>
+                      <PerformanceSwitch v-else v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" />
                     </div>
                   </div>
                   <div v-if="selectedNode.include_final_result" class="final-result-help">设置了最终绩效结果的环节必须在评估内容中添加评估型问题</div>
                 </div>
-                <Teleport to="body">
-                  <div v-if="isFinalResultRestricted && finalResultTooltipVisible" id="restricted-final-result-tooltip" class="final-result-tooltip-popover" role="tooltip" :style="finalResultTooltipStyle">
-                    <div class="final-result-tooltip-content">{{ finalResultRestrictionMessage }}</div>
-                    <div class="final-result-tooltip-arrow"><svg width="16" height="8" viewBox="0 0 16 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8-.5H0v1c1.553 0 3.033.664 4.065 1.825l2.814 3.166a1.5 1.5 0 002.242 0l2.814-3.166A5.438 5.438 0 0116 .5v-1H8z" /></svg></div>
-                  </div>
-                </Teleport>
               </template>
             </div>
           </div>
@@ -231,6 +228,7 @@ import PerformanceFormField from '@/components/performance/PerformanceFormField.
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
 import PerformanceSwitchSettingRow from '@/components/performance/PerformanceSwitchSettingRow.vue'
+import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopover.vue'
 import WorkflowFixedExecutorField from '@/components/performance/WorkflowFixedExecutorField.vue'
 import WorkflowExecutorField from '@/components/performance/WorkflowExecutorField.vue'
 import PerformanceMultiExecutorField from '@/components/performance/PerformanceMultiExecutorField.vue'
@@ -262,10 +260,6 @@ let popoverResizeObserver: ResizeObserver | null = null
 let popoverCloseTimer: ReturnType<typeof setTimeout> | null = null
 const selectedId = ref<string | null>(null)
 const usageSummary = ref({ cycle_count: 0, project_count: 0 })
-const finalResultSwitchAnchor = ref<HTMLElement | null>(null)
-const finalResultTooltipVisible = ref(false)
-const finalResultTooltipStyle = ref<Record<string, string>>({})
-let finalResultTooltipTimer: ReturnType<typeof setTimeout> | null = null
 const inviteValidationNodeId = ref<string | null>(null)
 const finalResultError = ref('')
 const appealPromptEditorOpen = ref(false)
@@ -532,28 +526,6 @@ function applyExecutorSelectionDefaults(node: PerformanceWorkflowNode) {
     node.include_final_result = false
   }
 }
-function updateFinalResultTooltipPosition() {
-  if (!finalResultTooltipVisible.value || !finalResultSwitchAnchor.value) return
-  const anchorRect = finalResultSwitchAnchor.value.getBoundingClientRect()
-  finalResultTooltipStyle.value = {
-    left: `${anchorRect.left + anchorRect.width / 2 - 209.167}px`,
-    top: `${anchorRect.top - 57.333}px`,
-  }
-}
-function scheduleFinalResultTooltip() {
-  if (!isFinalResultRestricted.value) return
-  if (finalResultTooltipTimer !== null) clearTimeout(finalResultTooltipTimer)
-  finalResultTooltipTimer = setTimeout(() => {
-    finalResultTooltipVisible.value = true
-    finalResultTooltipTimer = null
-    void nextTick(updateFinalResultTooltipPosition)
-  }, 138)
-}
-function hideFinalResultTooltip() {
-  if (finalResultTooltipTimer !== null) clearTimeout(finalResultTooltipTimer)
-  finalResultTooltipTimer = null
-  finalResultTooltipVisible.value = false
-}
 function nodeBeforeConnector(index: number) { return index > 0 ? businessNodes.value[index - 1] : undefined }
 function standardNodeLabel(type: string) { return standardNodeLabels[type] ?? '流程环节' }
 function hasNodeType(type: string) { return businessNodes.value.some((node) => node.node_type === type) }
@@ -561,7 +533,6 @@ function canAddAtConnector(index: number) { const previousType = nodeBeforeConne
 const availableAddableOptions = computed(() => { const index = popoverIndex.value; if (index === null) return []; const previousType = nodeBeforeConnector(index)?.node_type; if (previousType === 'result_view') return hasNodeType('result_reconsideration') ? [] : [resultReconsiderationOption]; if (previousType === 'result_reconsideration') return []; return standardAddableOptions.filter((option) => option.type === 'evaluation' || !hasNodeType(option.type)) })
 function cancelPopoverClose() { if (popoverCloseTimer !== null) { clearTimeout(popoverCloseTimer); popoverCloseTimer = null } }
 function updatePopoverPosition() {
-  updateFinalResultTooltipPosition()
   const canvas = workflowCanvas.value
   const popover = stagePopover.value
   const addCircle = activeConnector?.querySelector<HTMLElement>('.add-circle')
@@ -617,7 +588,7 @@ watch(businessNodes, () => {
   if (inviteValidationNodeId.value && invalidInviteNodeId() !== inviteValidationNodeId.value) inviteValidationNodeId.value = null
 }, { deep: true })
 onMounted(async () => { window.addEventListener('resize', updatePopoverPosition); window.addEventListener('scroll', updatePopoverPosition, true); window.addEventListener('resize', updateAppealPreviewPosition); window.addEventListener('scroll', updateAppealPreviewPosition, true); if (!props.templateId) return; try { const data = await performanceTemplateApi.getWorkflow(props.templateId); usageSummary.value = data.usage_summary; if (data.nodes?.length) { data.nodes.forEach(normalizeNode); businessNodes.value = data.nodes; pruneInviteSelections() } } catch { /* API error is surfaced by the shared client interceptor. */ } })
-onBeforeUnmount(() => { cancelPopoverClose(); hideFinalResultTooltip(); hideAppealPreview(); popoverResizeObserver?.disconnect(); window.removeEventListener('resize', updatePopoverPosition); window.removeEventListener('scroll', updatePopoverPosition, true); window.removeEventListener('resize', updateAppealPreviewPosition); window.removeEventListener('scroll', updateAppealPreviewPosition, true) })
+onBeforeUnmount(() => { cancelPopoverClose(); hideAppealPreview(); popoverResizeObserver?.disconnect(); window.removeEventListener('resize', updatePopoverPosition); window.removeEventListener('scroll', updatePopoverPosition, true); window.removeEventListener('resize', updateAppealPreviewPosition); window.removeEventListener('scroll', updateAppealPreviewPosition, true) })
 async function save() {
   businessNodes.value.forEach(normalizeNode)
   pruneInviteSelections()
@@ -652,7 +623,7 @@ defineExpose({ save })
 .config-panel{display:flex;flex-direction:column;overflow:hidden}.panel-scroll{flex:1 1 auto;min-height:0;overflow:auto;scrollbar-width:none}.panel-scroll::-webkit-scrollbar{width:0;height:0}
 .stage-node:hover,.stage-node:focus-visible{border-color:#3370ff;background:rgba(51,112,255,.08);color:#3370ff}.stage-node:hover .node-icon,.stage-node:hover .node-title,.stage-node:focus-visible .node-icon,.stage-node:focus-visible .node-title{color:#3370ff}.delete-node{display:inline-flex;justify-content:center;align-items:center;height:25px;visibility:hidden;opacity:0;pointer-events:none;transition:color .1s ease-in,background-color .1s ease-in,border-color .1s ease-in,width .2s ease-in}.delete-node::before{position:absolute;top:0;bottom:0;left:-4px;width:4px;content:""}.stage-node:hover .delete-node{visibility:visible;opacity:1;pointer-events:auto}.delete-node:hover,.delete-node:focus-visible{background-color:rgba(31,35,41,.2)}.delete-node svg{display:block;width:16px;height:16px}
 .panel-form > .form-row:nth-of-type(2),.panel-form > .form-row:nth-of-type(3){display:none}.final-result-row{display:flex;align-items:center;gap:8px;color:#1f2329;font-size:14px;line-height:22px}.final-result-label{font-weight:600}.panel-form :deep(.performance-switch){flex:0 0 28px}
-.evaluation-type-row{display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%;margin:0 0 20px;box-sizing:border-box}.evaluation-type-row>.font-medium{margin:0;color:rgba(0,0,0,.85);font:600 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}.ud__radio-group{display:flex;flex-flow:column wrap;gap:8px 24px;width:100%;box-sizing:border-box}.panel-scroll .ud__radio__wrapper{position:relative;display:flex;align-items:center;width:100%;height:22px;margin:0!important;box-sizing:border-box;color:#1f2329;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer}.ud__radio{position:relative;display:block;flex:0 0 16px;width:16px;height:22px}.ud__radio__input{position:absolute;top:50%;left:0;z-index:1;width:16px;height:16px;margin:0;opacity:0;transform:translateY(-50%);cursor:pointer}.ud__radio__wallpaper{position:absolute;top:50%;left:0;display:block;width:16px;height:16px;box-sizing:border-box;border:.666667px solid #bbbfc4;border-radius:999999px;background:#fff;transform:translateY(-50%);transition:background .2s cubic-bezier(.34,.69,.1,1),border .2s cubic-bezier(.34,.69,.1,1)}.ud__radio__checked-ink{position:absolute;top:50%;left:50%;display:block;width:6px;height:6px;border-radius:999999px;background:#fff;opacity:0;transform:translate(-50%,-50%);transition:.2s cubic-bezier(.34,.69,.1,1)}.ud__radio__wrapper--checked .ud__radio__wallpaper{border-color:#3370ff;background:#3370ff}.ud__radio__wrapper--checked .ud__radio__checked-ink{opacity:1}.ud__radio__label-content{display:block;height:22px;margin-left:8px;color:inherit;font:inherit;line-height:22px}.radio-label-inner{display:flex;align-items:center;height:22px;gap:4px}.radio-info-icon{display:block;width:14px;height:14px;color:#646a73;font-size:14px;line-height:14px;cursor:default}.radio-info-icon svg{display:block;width:14px;height:14px}.panel-scroll .ud__radio__wrapper--disable{color:#bbbfc4;cursor:not-allowed}.ud__radio__wrapper--disable .ud__radio__input{cursor:not-allowed}.ud__radio__wrapper--disable .ud__radio__wallpaper{border-color:#bbbfc4;background:#eff0f1;cursor:not-allowed}.ud__radio__wrapper--checked.ud__radio__wrapper--disable .ud__radio__wallpaper{border-color:#bbbfc4;background:#bbbfc4}.ud__radio__wrapper--disable .ud__radio__checked-ink{background:#eff0f1}.final-result-switch-anchor{position:relative;display:block;flex:0 0 28px;width:28px;height:16px}.final-result-switch-anchor:focus-visible{outline:2px solid #1456f0;outline-offset:2px;border-radius:999999px}.final-result-tooltip-popover{position:fixed;z-index:1030;width:271.333px;height:47.333px;box-sizing:border-box;transform-origin:77.0885% 100%;pointer-events:auto}.final-result-tooltip-content{width:100%;height:100%;overflow:hidden;padding:12px 16px;box-sizing:border-box;border:.666667px solid #dee0e3;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.04) 0 8px 24px 8px,rgba(31,35,41,.04) 0 6px 12px,rgba(31,35,41,.06) 0 4px 8px -8px;color:#1f2329;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;white-space:nowrap}.final-result-tooltip-arrow{position:absolute;bottom:0;left:209.167px;line-height:0}.final-result-tooltip-arrow svg{position:absolute;display:flex;transform:translate(-50%,-1px)}.final-result-tooltip-arrow path{fill:#fff;stroke:#dee0e3;stroke-width:.666667px}
+.evaluation-type-row{display:flex;flex-direction:column;align-items:stretch;gap:8px;width:100%;margin:0 0 20px;box-sizing:border-box}.evaluation-type-row>.font-medium{margin:0;color:rgba(0,0,0,.85);font:600 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}.ud__radio-group{display:flex;flex-flow:column wrap;gap:8px 24px;width:100%;box-sizing:border-box}.panel-scroll .ud__radio__wrapper{position:relative;display:flex;align-items:center;width:100%;height:22px;margin:0!important;box-sizing:border-box;color:#1f2329;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;cursor:pointer}.ud__radio{position:relative;display:block;flex:0 0 16px;width:16px;height:22px}.ud__radio__input{position:absolute;top:50%;left:0;z-index:1;width:16px;height:16px;margin:0;opacity:0;transform:translateY(-50%);cursor:pointer}.ud__radio__wallpaper{position:absolute;top:50%;left:0;display:block;width:16px;height:16px;box-sizing:border-box;border:.666667px solid #bbbfc4;border-radius:999999px;background:#fff;transform:translateY(-50%);transition:background .2s cubic-bezier(.34,.69,.1,1),border .2s cubic-bezier(.34,.69,.1,1)}.ud__radio__checked-ink{position:absolute;top:50%;left:50%;display:block;width:6px;height:6px;border-radius:999999px;background:#fff;opacity:0;transform:translate(-50%,-50%);transition:.2s cubic-bezier(.34,.69,.1,1)}.ud__radio__wrapper--checked .ud__radio__wallpaper{border-color:#3370ff;background:#3370ff}.ud__radio__wrapper--checked .ud__radio__checked-ink{opacity:1}.ud__radio__label-content{display:block;height:22px;margin-left:8px;color:inherit;font:inherit;line-height:22px}.radio-label-inner{display:flex;align-items:center;height:22px;gap:4px}.radio-info-icon{display:block;width:14px;height:14px;color:#646a73;font-size:14px;line-height:14px;cursor:default}.radio-info-icon svg{display:block;width:14px;height:14px}.panel-scroll .ud__radio__wrapper--disable{color:#bbbfc4;cursor:not-allowed}.ud__radio__wrapper--disable .ud__radio__input{cursor:not-allowed}.ud__radio__wrapper--disable .ud__radio__wallpaper{border-color:#bbbfc4;background:#eff0f1;cursor:not-allowed}.ud__radio__wrapper--checked.ud__radio__wrapper--disable .ud__radio__wallpaper{border-color:#bbbfc4;background:#bbbfc4}.ud__radio__wrapper--disable .ud__radio__checked-ink{background:#eff0f1}.final-result-switch-anchor{position:relative;display:block;flex:0 0 28px;width:28px;height:16px}.final-result-switch-anchor:focus-visible{outline:2px solid #1456f0;outline-offset:2px;border-radius:999999px}.final-result-switch-anchor{position:relative;display:block;flex:0 0 auto}
 .final-result-setting{width:263.333px;max-width:100%}.final-result-setting .final-result-row{width:100%}.final-result-help{width:263.333px;max-width:100%;min-width:0;min-height:0;margin-top:4px;box-sizing:border-box;color:#646a73;font:400 14px/20px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}
 .previous-node-setting{width:263.333px;max-width:100%;margin:0 0 20px;box-sizing:border-box}.invite-executor-setting{width:263.333px;max-width:100%;margin:0 0 20px;box-sizing:border-box}.invite-scope-panel{width:263.333px;height:98px;margin-top:8px;padding:8px 12px;box-sizing:border-box;border-radius:6px;background:#f8f9fa;color:#1f2329}.invite-scope-panel:has(.invite-role-control){height:134px}.invite-scope-panel--error:has(.invite-role-control){height:156px}.invite-scope-heading{height:22px;margin-bottom:8px;color:#646a73;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif}.invite-scope-radio-group{display:flex;flex-direction:column;gap:8px}.invite-scope-panel .ud__radio__wrapper{height:22px}.invite-role-control{width:239.333px;height:32px;margin-top:4px;padding-left:24px;box-sizing:border-box;line-height:22px}.invite-scope-panel--error .invite-role-control{height:54px}.invite-role-error{display:inline;margin:0;padding:0;color:#f54a45;font:400 14px/22.001px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;text-align:start}
 .calibration-reason-setting{width:271px;max-width:100%;margin:0 0 20px;box-sizing:border-box}.calibration-reason-setting__help{min-width:0;min-height:0;margin-top:4px;box-sizing:border-box;color:#646a73;font:400 14px/20px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}.calibration-reason-setting__required{margin-top:8px}

@@ -27,7 +27,7 @@ describe('PerformanceListToolbar', () => {
     await wrapper.find('input').setValue('成员')
     await wrapper.find('input').trigger('keyup.enter')
 
-    expect(wrapper.emitted('filter')).toHaveLength(2)
+    expect(wrapper.emitted('filter')).toHaveLength(1)
     expect(wrapper.emitted('update:keyword')).toEqual([['成员']])
     expect(wrapper.emitted('search')).toEqual([[]])
   })

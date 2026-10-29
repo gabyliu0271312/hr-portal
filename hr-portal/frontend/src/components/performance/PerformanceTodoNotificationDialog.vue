@@ -8,6 +8,7 @@ import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceTimeField from './PerformanceTimeField.vue'
 import PerformanceButton from './PerformanceButton.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import { defaultTodoNotificationRule, notificationFrequencyOptions, notificationTimezoneOptions, notificationWeekdayOptions } from './performanceTodoNotificationRule'
 
 const props = withDefaults(defineProps<{
@@ -103,7 +104,7 @@ function confirm() {
         <PerformanceRadioGroup v-model="frequency" :options="notificationFrequencyOptions" name="todo-notification-frequency" aria-label="通知频率" :disabled="saving" />
       </PerformanceFormItem>
       <PerformanceFormItem label="通知时间" required :invalid="Boolean(errors.schedule || errors.time || errors.timezone)" :error-message="errors.schedule || errors.time || errors.timezone" error-id="todo-schedule-error">
-        <template #label-extra><span class="todo-notification-info" title="设置环节截止前的提醒日期、时刻和时区。当前仅保存配置，尚未接入发送。" tabindex="0" aria-label="通知时间说明">ⓘ</span></template>
+        <template #label-extra><PerformanceInfoPopover class="todo-notification-info" content="设置环节截止前的提醒日期、时刻和时区。当前仅保存配置，尚未接入发送。" aria-label="通知时间说明" /></template>
         <div class="todo-notification-schedule" :class="`todo-notification-schedule--${frequency}`">
           <span class="todo-notification-prefix">{{ frequency === 'specified' ? '环节截止前第' : '环节截止前每' }}</span>
           <template v-if="frequency === 'specified'">
@@ -123,7 +124,7 @@ function confirm() {
         </div>
       </PerformanceFormItem>
       <PerformanceFormItem label="是否在节假日和周末时屏蔽" required>
-        <template #label-extra><span class="todo-notification-info" title="仅保存屏蔽偏好；节假日日历及实际屏蔽逻辑尚未接入。" tabindex="0" aria-label="节假日屏蔽说明">ⓘ</span></template>
+        <template #label-extra><PerformanceInfoPopover class="todo-notification-info" content="仅保存屏蔽偏好；节假日日历及实际屏蔽逻辑尚未接入。" aria-label="节假日屏蔽说明" /></template>
         <PerformanceRadioGroup v-model="holiday" :options="[{ value: 'yes', label: '屏蔽' }, { value: 'no', label: '不屏蔽' }]" name="todo-notification-holiday" aria-label="节假日和周末屏蔽" :disabled="saving" />
       </PerformanceFormItem>
       <p class="todo-notification-notice">配置保存后可回显，实际通知发送尚未接入。</p>
@@ -150,7 +151,7 @@ function confirm() {
 .todo-notification-schedule--weekly { grid-template-columns: auto minmax(0, 125fr) minmax(0, 203fr) minmax(0, 180fr); }
 .todo-notification-prefix { white-space: nowrap; }
 .todo-notification-timezone { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--spacing-25); margin-top: var(--spacing-25); }
-.todo-notification-info { margin-left: var(--spacing-1); color: var(--performance-settings-text-secondary); font-size: var(--font-size-lg); font-weight: 400; cursor: help; }
+.todo-notification-info { margin-left: var(--performance-info-icon-gap); color: var(--performance-info-icon-color); }
 .todo-notification-notice { margin: 0; color: var(--performance-settings-text-secondary); font-size: var(--font-size-xs); line-height: 20px; }
 .todo-notification-error { margin: 0; color: var(--performance-field-error-color); font-size: var(--font-size-sm); }
 .todo-notification-actions { display: flex; justify-content: flex-end; gap: var(--performance-dialog-footer-gap); }

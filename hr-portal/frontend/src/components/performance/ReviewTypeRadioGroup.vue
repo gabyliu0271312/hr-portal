@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import InfoOutlinedIcon from './InfoOutlinedIcon.vue'
+import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
+import { PERFORMANCE_INFO_PLACEHOLDER } from './performanceInfoPlaceholder'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -30,7 +31,7 @@ function setRef(element: HTMLInputElement | null, index: number) {
       />
       <span class="radio-wallpaper" aria-hidden="true"></span>
       <span>{{ option }}</span>
-      <InfoOutlinedIcon class="info-icon" />
+      <PerformanceInfoPopover class="info-icon" :content="PERFORMANCE_INFO_PLACEHOLDER" @click.prevent.stop />
     </label>
   </div>
 </template>
@@ -81,11 +82,9 @@ function setRef(element: HTMLInputElement | null, index: number) {
   cursor: not-allowed;
 }
 .info-icon {
-  display: block;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
-  margin-left: 4px;
-  color: #646a73;
+  display: inline-flex;
+  flex: 0 0 var(--performance-info-icon-size);
+  margin-left: var(--performance-info-icon-gap);
+  color: var(--performance-info-icon-color);
 }
 </style>

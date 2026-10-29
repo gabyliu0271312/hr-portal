@@ -110,7 +110,7 @@ describe('PerformanceRoleConfiguration', () => {
     const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs }, attachTo: document.body })
     await flushPromises()
     expect(wrapper.find('.dropdown-item[disabled]').exists()).toBe(true)
-    expect(wrapper.find('[title="需要先停用角色，再进行删除"]').exists()).toBe(true)
+    expect(wrapper.findComponent({ name: 'PerformanceDisabledReason' }).props('reason')).toBe('需要先停用角色，再进行删除')
     expect(wrapper.text()).toContain('停用')
     await wrapper.get('.permission-button[aria-label="停用角色"]').trigger('click')
     await flushPromises()

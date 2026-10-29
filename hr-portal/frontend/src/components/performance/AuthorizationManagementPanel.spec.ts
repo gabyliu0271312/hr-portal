@@ -45,8 +45,9 @@ describe('AuthorizationManagementPanel', () => {
 
 describe('extracted shared shells', () => {
   it('PerformanceSurfaceCard reuses the captured white-card shell', () => {
-    expect(surfaceCardSource).toMatch(/padding:\s*20px;[^}]*border-radius:\s*8px/s)
-    expect(surfaceCardSource).toMatch(/box-shadow:\s*rgba\(31, 35, 41, 0\.03\)/)
+    expect(surfaceCardSource).toMatch(/padding:\s*var\(--spacing-5\)/)
+    expect(surfaceCardSource).toMatch(/border-radius:\s*var\(--radius-lg\)/)
+    expect(surfaceCardSource).toMatch(/box-shadow:\s*var\(--shadow-dialog\)/)
     expect(surfaceCardSource).toContain('PerformanceSectionCardHeader')
   })
 

@@ -25,7 +25,7 @@ function timeComponent(value = settings()) {
 describe('calibration phase time linkage', () => {
   it('creates stable IDs without requiring crypto.randomUUID', () => {
     expect(createCalibrationPhaseId(() => 'native-id')).toBe('native-id')
-    expect(createCalibrationPhaseId(undefined)).toMatch(/^phase-[a-z0-9]+-[a-z0-9]+$/)
+    expect(createCalibrationPhaseId(null)).toMatch(/^phase-[a-z0-9]+-[a-z0-9]+$/)
   })
 
   it('initializes one phase for an unconfigured project without changing unrelated nodes', () => {

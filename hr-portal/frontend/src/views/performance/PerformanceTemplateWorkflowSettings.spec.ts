@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { performanceTemplateApi, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceTemplateWorkflowSettings from './PerformanceTemplateWorkflowSettings.vue'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
+import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopover.vue'
 import workflowSource from './PerformanceTemplateWorkflowSettings.vue?raw'
 import infoPopoverSource from '@/components/performance/PerformanceInfoPopover.vue?raw'
 import executorFieldSource from '@/components/performance/WorkflowExecutorField.vue?raw'
@@ -134,18 +135,18 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(workflowSource).toContain('.panel-scroll .ud__radio__wrapper{position:relative;display:flex;align-items:center')
     expect(workflowSource).toContain('.ud__radio__wallpaper{position:absolute;top:50%')
     expect(workflowSource).toContain('.ud__radio__label-content{display:block;height:22px')
-    expect(finalResultSwitch.attributes('disabled')).toBeDefined()
-    expect(finalResultSwitch.attributes('aria-checked')).toBe('false')
+    expect(wrapper.get('.final-result-row .performance-switch').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.final-result-row .performance-switch').attributes('aria-checked')).toBe('false')
 
     await wrapper.get('.final-result-switch-anchor').trigger('mouseenter')
     vi.advanceTimersByTime(137)
     await wrapper.vm.$nextTick()
-    expect(wrapper.find('.final-result-tooltip-popover').exists()).toBe(false)
+    const restrictedInfo = wrapper.findAllComponents(PerformanceInfoPopover).find(component => component.props('content') === '执行人为被评估人时无法开启此功能。')
+    expect(restrictedInfo?.props('variant')).toBe('disabled-action')
+    expect(restrictedInfo?.props('width')).toBe('auto')
     vi.advanceTimersByTime(1)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.final-result-tooltip-popover').text()).toBe('执行人为被评估人时无法开启此功能。')
-    expect(wrapper.get('.final-result-tooltip-arrow svg').attributes('width')).toBe('16')
-    expect(wrapper.get('.final-result-tooltip-arrow path').attributes('d')).toContain('M8-.5H0v1')
+    expect(restrictedInfo?.props('delay')).toBe(138)
 
     await wrapper.get('.final-result-switch-anchor').trigger('mouseleave')
     await wrapper.get('.ud__select__selector').trigger('mouseenter')
@@ -160,7 +161,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     await wrapper.get('.final-result-switch-anchor').trigger('mouseenter')
     vi.advanceTimersByTime(138)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.final-result-tooltip-popover').text()).toBe('执行人为360°评估人时无法开启此功能。')
+    expect(wrapper.findAllComponents(PerformanceInfoPopover).some(component => component.props('content') === '执行人为360°评估人时无法开启此功能。')).toBe(true)
 
     await wrapper.get('.final-result-switch-anchor').trigger('mouseleave')
     await wrapper.get('.ud__select__selector').trigger('mouseenter')
@@ -190,7 +191,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     await wrapper.get('.final-result-switch-anchor').trigger('mouseenter')
     vi.advanceTimersByTime(138)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.final-result-tooltip-popover').text()).toBe('执行人为虚线上级时无法开启此功能。')
+    expect(wrapper.findAllComponents(PerformanceInfoPopover).some(component => component.props('content') === '执行人为虚线上级时无法开启此功能。')).toBe(true)
 
     wrapper.unmount()
     vi.useRealTimers()
@@ -795,11 +796,12 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     vi.advanceTimersByTime(138)
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.get('.invite-info-tooltip').text()).toContain('此设置默认关闭')
-    expect(wrapper.get('.invite-info-tooltip').text()).toContain('可邀请其他环节的执行人角色作为 360° 评估人')
-    expect(wrapper.findAll('.invite-info-line')).toHaveLength(3)
-    expect(infoPopoverSource).toContain('.performance-info-popover{position:fixed;z-index:1030')
-    expect(infoPopoverSource).toContain('width:420px')
+    const inviteInfo = wrapper.findAllComponents(PerformanceInfoPopover).find(component => Array.isArray(component.props('content')))
+    expect(String(inviteInfo?.props('content'))).toContain('此设置默认关闭')
+    expect(String(inviteInfo?.props('content'))).toContain('可邀请其他环节的执行人角色作为 360° 评估人')
+    expect(inviteInfo?.props('content')).toHaveLength(3)
+    expect(infoPopoverSource).toContain('--performance-info-icon-size')
+    expect(infoPopoverSource).toContain('--performance-info-icon-color')
     wrapper.unmount()
     vi.useRealTimers()
   })
@@ -884,7 +886,7 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     await wrapper.get('.previous-node-setting .performance-info-popover__anchor').trigger('mouseenter')
     vi.advanceTimersByTime(124)
     await wrapper.vm.$nextTick()
-    expect(wrapper.get('.previous-node-setting .performance-info-popover').text()).toBe('上一环节的执行人完成环节任务后，当前环节的执行人才可以完成此任务')
+    expect(wrapper.findAllComponents(PerformanceInfoPopover).some(component => component.props('content') === '上一环节的执行人完成环节任务后，当前环节的执行人才可以完成此任务')).toBe(true)
 
     await (wrapper.vm as unknown as { save: () => Promise<void> }).save()
     expect(updateSpy.mock.calls[0][1].nodes[1]).toMatchObject({

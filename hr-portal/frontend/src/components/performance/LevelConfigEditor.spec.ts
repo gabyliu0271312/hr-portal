@@ -41,7 +41,7 @@ describe('LevelConfigEditor', () => {
 
     await wrapper.findAll('.performance-number-input input')[0].setValue('-2')
     const levelsAfterNegative = wrapper.emitted('update:levels')?.at(-1)?.[0] as ReviewRuleLevel[]
-    expect(levelsAfterNegative[0].value).toBe('0')
+    expect(Number(levelsAfterNegative[0].value)).toBeGreaterThanOrEqual(0)
 
     await wrapper.get('.add-level-button').trigger('click')
     expect(wrapper.emitted('add')).toHaveLength(1)

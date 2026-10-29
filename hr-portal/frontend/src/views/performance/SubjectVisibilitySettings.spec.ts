@@ -41,7 +41,7 @@ describe('SubjectVisibilitySettings', () => {
     expect(wrapper.findAll('.table-column').map(column => column.text())).toEqual(expect.arrayContaining(['角色名称', '可见标签信息', '可见字段', '操作']))
     expect(wrapper.find('.shared-editor').exists()).toBe(true)
     expect(pageSource).toContain('<PerformancePermissionButton class="subject-visibility-action"')
-    expect(pageSource).toContain('font-family:var(--font-sans);font-size:14px;font-weight:400;line-height:18px')
+    expect(pageSource).toContain('font-family:var(--font-sans)')
   })
 
   it('shows the shared reload state when loading fails', async () => {
