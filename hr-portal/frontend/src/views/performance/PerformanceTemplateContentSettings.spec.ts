@@ -1051,6 +1051,23 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('.template-section__heading').classes()).not.toContain('is-selected')
   })
 
+  it('shows selected manager levels for evaluation and result-communication stages', async () => {
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [
+        { ...mockNodes[3], executor_label: '实线上级', executor_role_code: 'assessment.line_manager', executor_types: ['DIRECT_MANAGER', 'LEVEL_1_MANAGER'] },
+        { ...mockNodes[5], executor_label: '实线上级', executor_role_code: 'assessment.line_manager', executor_types: ['LEVEL_2_MANAGER'] },
+      ],
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+
+    expect(wrapper.findAll('.stage-card__executor').map(item => item.text())).toEqual([
+      '执行人：直属上级、隔 1 级上级',
+      '执行人：隔 2 级上级',
+    ])
+    wrapper.unmount()
+  })
+
   it('renders the captured result section and keeps non-final contents visible but disabled', async () => {
     const finalContent = { content_id: 'final-content', content_slot: 'fill', type: 'work_summary', name: '终评意见', description: '', items: [{ id: 'final-item', label: '意见', hint: '' }] }
     const otherContent = { ...finalContent, content_id: 'other-content', name: '自评意见' }

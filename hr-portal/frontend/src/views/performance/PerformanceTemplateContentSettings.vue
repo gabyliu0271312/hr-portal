@@ -293,14 +293,19 @@ const finalNode = computed(() => {
   const nodes = workflowNodes.value.filter(node => node.include_final_result)
   return nodes.length === 1 ? nodes[0] : null
 })
-const finalExecutorLabel = computed(() => {
-  const node = finalNode.value
-  if (!node) return '未配置'
-  if (node.executor_label === '实线上级') {
+function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'executor_label' | 'executor_types' | 'executor_role_code'>) {
+  const isLineManager = node.executor_role_code === 'assessment.line_manager'
+    || node.executor_label === '实线上级'
+    || node.executor_types?.some(type => REAL_LINE_MANAGER_LEVEL_OPTIONS.some(option => option.type === type))
+  if (isLineManager) {
     const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
     if (levels.length) return levels.map(option => option.label).join('、')
   }
   return node.executor_label || '未配置'
+}
+const finalExecutorLabel = computed(() => {
+  const node = finalNode.value
+  return node ? executorDisplayLabel(node) : '未配置'
 })
 const finalFillContents = computed(() => {
   const node = finalNode.value
@@ -834,7 +839,7 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
     if (!merged.has(contentId)) merged.set(contentId, { ...cloneContent(content), content_id: contentId })
   })
   contentLibrary.value = [...merged.values()]
-  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label, executorTypes: node.executor_types || [] }))
+  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: executorDisplayLabel(node), executorTypes: node.executor_types || [] }))
 }
 async function save() {
   if (!props.templateId) return
