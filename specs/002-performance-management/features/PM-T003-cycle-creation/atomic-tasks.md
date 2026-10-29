@@ -320,3 +320,15 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
 - 回填/契约：保留 GET 项目对象传回原编辑弹窗，含 data_managers 与原限定范围；原 PATCH 成功后 GET 重读更新标签，取消/失败不变。空数组不补角色；缺失字段沿用后端/弹窗既有 HRBP 默认。
 - 验收：HRBP 单选、项目管理员单选、双选、空数组；实际弹窗组件回显、变更提交/读取更新、再次打开回显、取消及失败保留；保留原管理员名单和限定范围。测试中的后端请求为 mock，不作为真实 SQL/生产证据。
 - 验证：页面 Vitest 10/10 通过（3 项原回归、7 项勾选/展示/编辑链路）。npm run build 的 vue-tsc + Vite 通过（退出码 0），目标文件 git diff --check 通过。F01 原真实浏览器视觉验收保持未完成。本轮不改生产或数据库，未自动提交/推送本轮修复。
+
+### PM-T003-I11-F02 项目管理员真实人员接入（2026-10-29）
+
+- [x] PM-T003-I11-F02 项目管理员字段调用 PerformancePersonSelect
+  - 用户明确：绩效管理后台 → 项目设置 → 编辑项目 → 项目管理员，完成真实人员接入并调用 `PerformancePersonSelect`。开工前已确认两项口径：`administrators` 继续保存 `display_name`（后端按显示姓名匹配的现有权限路径与历史名单不变）；可选人员取周期人员快照（`evaluator-options.people`），不新增全员查询接口。
+  - 允许范围：`PerformanceProjectDialog.vue`、`PerformanceProjectSettingsPage.spec.ts`、本交互/任务记录。不改后端、API 契约、数据库、迁移、权限匹配、全局组件或历史快照。
+  - 契约：弹窗 `form.administrators` 由逗号/顿号文本改为 `string[]`，提交原样数组；选项映射快照 `people` 的 `value`→姓名、`label`→「姓名（工号）」，按姓名去重；快照中缺失的历史姓名按原值回显。选项仍由选择器 `@open` 触发 `open-options` 懒加载，打开弹窗自身不请求接口（与原「值选择器打开才加载」契约一致）。
+  - 测试：`npm run test -- src/views/performance/PerformanceProjectSettingsPage.spec.ts src/views/performance/CycleManagement.spec.ts` → 2 文件 48 项通过（新增 2 项：选择快照人员后提交姓名；快照缺失的已存姓名保持选中并能原样提交）。原用例中 `input[aria-label="项目管理员"]` 与新增人员选择输入同名，改为 `input[type="checkbox"][aria-label="项目管理员"]` 精确定位。
+  - 构建：`npm run build` vue-tsc + Vite 通过（built in 1m 9s）。
+  - PC（本地 dev 栈真实登录 admin，真实接口无夹具）：dev 库原无绩效周期，经 API 建合成周期 `PC验收周期-项目管理员`（快照来自 2219 行实时花名册，619 人）。新建项目弹窗打开「项目管理员」选择器后加载 619 个真实人员选项（`请求 /evaluator-options` 无 pageerror）；选中第一人、填写项目名保存后，DB `administrators` 为 `["michael.chen陈湘宇"]`；进入该项目的「编辑项目」弹窗，人员以可移除标签回显。截图：`hr-portal/.tmp/pm-t003-project-administrator-picker-pc.png`、`pm-t003-project-administrator-saved-pc.png`、`pm-t003-project-administrator-edit-dialog-pc.png`。走查后已通过 API 删除合成项目/周期，dev 库恢复 0 周期 0 项目。
+  - 已知限制：dev 花名册 `full_name` 为「账号+姓名」，因此显示名带账号前缀；不影响本实现，生产为真实姓名。同名人员仍按 PM-T008 Q06 未治理（保存姓名的口径由用户确认）。
+  - 未做：生产部署与生产验收、后端权限匹配治理、同名歧义治理。

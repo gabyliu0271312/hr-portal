@@ -50,6 +50,11 @@ beforeEach(() => {
   mocks.previewEvaluators.mockResolvedValue({ matched_count: 5, task_generation_count: 4, report_count: 5, report_only_count: 1, group_counts: [5] })
   mocks.previewEvaluatorPeople.mockResolvedValue({ items: [{ employee_no: 'E1', display_name: '员工一', direct_supervisor: '经理', company_org: '集团', department: '研发', department_2: '平台', department_3: '后端', job_family: '技术', job_category: '研发', standard_position: '软件工程师', status: 'task', report_only: false }], total: 1, page: 1, page_size: 50 })
   mocks.otherSettings.mockResolvedValue({ manual_result_opening_enabled: true })
+  mocks.listEvaluatorOptions.mockResolvedValue({
+    organization_tree: [],
+    people: [{ value: 'E001', label: '张三（E001）' }, { value: 'E002', label: '李四（E002）' }],
+    employee_types: [],
+  })
 })
 
 describe('project audience visibility', () => {
@@ -230,6 +235,40 @@ describe('project snapshot audience filters', () => {
   })
 })
 
+describe('project administrator person picker', () => {
+  it('loads cycle snapshot people and submits the chosen names', async () => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), administrators: [] })
+    const wrapper = page(true)
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+    await wrapper.get('input[aria-label="项目管理员"]').trigger('click')
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(1)
+    const options = wrapper.findAll('[role="option"]')
+    expect(options.map(option => option.text())).toEqual(['张三（E001）', '李四（E002）'])
+    await options[0].trigger('click')
+    await button(wrapper, '确定').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ administrators: ['张三'] }))
+    wrapper.unmount()
+  })
+
+  it('keeps saved names that are absent from the snapshot selected', async () => {
+    mocks.get.mockResolvedValue({ ...await mocks.get(), administrators: ['王五'] })
+    const wrapper = page(true)
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.performance-select-shell__content').text()).toContain('王五')
+    await button(wrapper, '确定').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ administrators: ['王五'] }))
+    wrapper.unmount()
+  })
+})
+
 describe('project data manager display and editor', () => {
   it.each([
     { selected: ['HRBP'], labels: ['HRBP'] },
@@ -258,10 +297,10 @@ describe('project data manager display and editor', () => {
     const wrapper = page(true)
     await flushPromises()
     await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
-    expect((wrapper.get('input[aria-label="项目管理员"]').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.get('input[type="checkbox"][aria-label="项目管理员"]').element as HTMLInputElement).checked).toBe(true)
     expect((wrapper.get('input[aria-label="HRBP"]').element as HTMLInputElement).checked).toBe(false)
     await wrapper.get('input[aria-label="HRBP"]').setValue(true)
-    await wrapper.get('input[aria-label="项目管理员"]').setValue(false)
+    await wrapper.get('input[type="checkbox"][aria-label="项目管理员"]').setValue(false)
     expect(wrapper.get('.administrator-tags').text()).toBe('项目管理员')
     await button(wrapper, '确定').trigger('click')
     await flushPromises()
@@ -271,7 +310,7 @@ describe('project data manager display and editor', () => {
     expect(wrapper.get('.administrator-tags').text()).toBe('HRBP')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
-    expect((wrapper.get('input[aria-label="项目管理员"]').element as HTMLInputElement).checked).toBe(false)
+    expect((wrapper.get('input[type="checkbox"][aria-label="项目管理员"]').element as HTMLInputElement).checked).toBe(false)
     expect((wrapper.get('input[aria-label="HRBP"]').element as HTMLInputElement).checked).toBe(true)
     wrapper.unmount()
   })
@@ -296,7 +335,7 @@ describe('project data manager display and editor', () => {
     const wrapper = page(true)
     await flushPromises()
     await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
-    await wrapper.get('input[aria-label="项目管理员"]').setValue(true)
+    await wrapper.get('input[type="checkbox"][aria-label="项目管理员"]').setValue(true)
     await button(wrapper, '确定').trigger('click')
     await flushPromises()
     expect(wrapper.get('.administrator-tags').text()).toBe('HRBP')

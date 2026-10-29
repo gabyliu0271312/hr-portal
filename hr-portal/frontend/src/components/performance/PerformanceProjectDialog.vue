@@ -5,6 +5,8 @@ import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformancePermissionButton from './PerformancePermissionButton.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
+import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceSwitch from './PerformanceSwitch.vue'
@@ -29,17 +31,30 @@ const emit = defineEmits<{
   'open-options': []
 }>()
 
-const form = reactive({ name: '', description: '', administrators: '', dataManagers: ['HRBP'] as Array<'PROJECT_ADMIN' | 'HRBP'>, scopeLimited: false, scopeRules: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] as PerformanceAudienceGroup[] })
+const form = reactive({ name: '', description: '', administrators: [] as string[], dataManagers: ['HRBP'] as Array<'PROJECT_ADMIN' | 'HRBP'>, scopeLimited: false, scopeRules: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] as PerformanceAudienceGroup[] })
 const submitted = ref(false)
 const error = computed(() => submitted.value && !form.name.trim() ? '请输入项目名称' : '')
 const dataManagersError = computed(() => !form.dataManagers.length ? '请选择谁可管理人员绩效数据' : '')
 const scopeError = computed(() => submitted.value && form.scopeLimited && (!form.scopeRules.length || form.scopeRules.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length))) ? '请完善限定考核范围条件' : '')
 const dataManagerOptions = [{ value: 'PROJECT_ADMIN' as const, label: '项目管理员' }, { value: 'HRBP' as const, label: 'HRBP' }]
+// 管理员名单保存 display_name，选项来自周期人员快照的「姓名（工号）」，按姓名去重
+const administratorOptions = computed<PerformanceSearchSelectOption[]>(() => {
+  const options: PerformanceSearchSelectOption[] = []
+  const seen = new Set<string>()
+  for (const person of props.evaluatorOptions.people) {
+    const suffix = `（${person.value}）`
+    const name = person.label.endsWith(suffix) ? person.label.slice(0, -suffix.length) : person.label
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    options.push({ value: name, label: person.label })
+  }
+  return options
+})
 
 function syncForm(project = props.project) {
   form.name = project?.name || ''
   form.description = project?.description || ''
-  form.administrators = project?.administrators.join('、') || ''
+  form.administrators = project?.administrators ? [...project.administrators] : []
   form.dataManagers = project?.data_managers ? [...project.data_managers] : ['HRBP']
   form.scopeLimited = project?.scope_limited ?? false
   form.scopeRules = project?.scope_rules?.groups?.length ? JSON.parse(JSON.stringify(project.scope_rules.groups)) : [{ conditions: [{ field: '', operator: 'include', values: [] }] }]
@@ -56,7 +71,7 @@ function submit() {
   emit('submit', {
     name: form.name.trim(),
     description: form.description.trim() || null,
-    administrators: form.administrators.split(/[、,，]/).map(value => value.trim()).filter(Boolean),
+    administrators: [...form.administrators],
     data_managers: form.dataManagers,
     scope_limited: form.scopeLimited,
     scope_rules: form.scopeLimited ? { groups: form.scopeRules } : { groups: [] },
@@ -100,7 +115,16 @@ watch(() => [props.modelValue, props.project], () => {
         <PerformanceTextField v-model="form.description" type="textarea" input-id="project-description" :maxlength="500" show-count />
       </PerformanceFormItem>
       <PerformanceFormItem label="项目管理员">
-        <input id="project-administrators" v-model="form.administrators" placeholder="多个管理员用顿号或逗号分隔" maxlength="500" />
+        <PerformancePersonSelect
+          v-model="form.administrators"
+          aria-label="项目管理员"
+          :options="administratorOptions"
+          placeholder="请选择项目管理员"
+          empty-text="周期人员快照中暂无匹配人员"
+          :disabled="saving"
+          multiple
+          @open="emit('open-options')"
+        />
       </PerformanceFormItem>
       <PerformanceFormItem label="谁可管理人员绩效数据" required :invalid="Boolean(dataManagersError)" :error-message="dataManagersError" error-id="project-data-managers-error">
         <div class="project-data-managers" role="group" aria-label="谁可管理人员绩效数据" aria-required="true" :aria-invalid="Boolean(dataManagersError)">
@@ -148,9 +172,9 @@ watch(() => [props.modelValue, props.project], () => {
 .project-scope-limit__label { display: inline-block; }
 .project-scope-limit__description { margin: var(--spacing-1) 0 var(--spacing-2); color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
 .project-scope-limit__field--invalid .performance-audience-rule-editor { outline: 1px solid var(--performance-field-border-invalid); outline-offset: 1px; }
-.project-dialog-form :deep(#project-name), .project-dialog-form :deep(#project-administrators) { box-sizing: border-box; width: 100%; height: var(--performance-control-height); padding: 4px var(--performance-input-padding-x); border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); color: var(--color-text-primary); font: inherit; line-height: var(--performance-input-line-height); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
-.project-dialog-form :deep(#project-name:focus), .project-dialog-form :deep(#project-administrators:focus) { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: var(--performance-field-focus-ring); }
+.project-dialog-form :deep(#project-name) { box-sizing: border-box; width: 100%; height: var(--performance-control-height); padding: 4px var(--performance-input-padding-x); border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); color: var(--color-text-primary); font: inherit; line-height: var(--performance-input-line-height); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.project-dialog-form :deep(#project-name:focus) { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: var(--performance-field-focus-ring); }
 .project-dialog-form :deep(#project-name[aria-invalid="true"]) { border-color: var(--performance-field-border-invalid); box-shadow: none; }
-.project-dialog-form :deep(#project-name::placeholder), .project-dialog-form :deep(#project-administrators::placeholder) { color: var(--color-text-placeholder); }
+.project-dialog-form :deep(#project-name::placeholder) { color: var(--color-text-placeholder); }
 .project-dialog-footer { display: flex; justify-content: flex-end; gap: var(--performance-button-gap); }
 </style>
