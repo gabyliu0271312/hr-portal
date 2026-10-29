@@ -66,7 +66,7 @@ defineEmits<{ click: [event: MouseEvent] }>()
 .performance-button--text:hover:not(:disabled) { background: var(--performance-button-text-hover-background); }
 .performance-button--text:active:not(:disabled) { background: var(--performance-button-text-active-background); }
 .performance-button--link { min-width: 0; height: var(--performance-button-line-height); padding: 0; border: 0; background: transparent; color: var(--performance-button-text-color); }
-.performance-button--link:disabled { color: var(--performance-button-link-disabled-color); opacity: 1; }
+.performance-button--text:disabled, .performance-button--link:disabled { color: var(--performance-button-link-disabled-color); opacity: 1; }
 .performance-button--danger { border-color: var(--performance-button-danger-background); background: var(--performance-button-danger-background); color: var(--performance-button-danger-text); }
 .performance-button--danger:hover:not(:disabled) { border-color: var(--performance-button-danger-hover-background); background: var(--performance-button-danger-hover-background); }
 .performance-button__spinner { width: 12px; height: 12px; margin-right: var(--spacing-2); border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: performance-button-spin .7s linear infinite; }

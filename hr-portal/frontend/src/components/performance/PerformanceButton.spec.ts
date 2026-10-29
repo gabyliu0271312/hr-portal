@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import PerformanceButton from './PerformanceButton.vue'
+import buttonSource from './PerformanceButton.vue?raw'
 
 describe('PerformanceButton', () => {
   it('maps variants to shared state classes and disables loading actions', () => {
@@ -21,6 +22,15 @@ describe('PerformanceButton', () => {
     expect(wrapper.get('button').attributes('disabled')).toBeDefined()
     await wrapper.get('button').trigger('click')
     expect(wrapper.emitted('click')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each(['text', 'link'] as const)('uses the shared disabled token for %s actions', async variant => {
+    const wrapper = mount(PerformanceButton, { props: { variant, disabled: true }, slots: { default: '删除' } })
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.emitted('click')).toBeUndefined()
+    expect(buttonSource).toContain('.performance-button--text:disabled, .performance-button--link:disabled { color: var(--performance-button-link-disabled-color); opacity: 1; }')
     wrapper.unmount()
   })
 

@@ -476,6 +476,34 @@ async def test_reference_patch_rejects_used_template_before_mutation(workflow_sa
     assert db.commits == 0
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_ids", [[101], []])
+async def test_template_save_locks_question_references_and_rejects_deleted_questions(workflow_save_setup, existing_ids):
+    service, db = workflow_save_setup
+    statements = []
+
+    async def execute(statement):
+        statements.append(statement)
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: existing_ids))
+
+    db.execute = execute
+    final = {
+        **_evaluation("final", "实线上级"),
+        "include_final_result": True,
+        "content": [{"type": "rating", "content_id": "rating-content", "ratingOptionId": "101", "items": []}],
+    }
+    if existing_ids:
+        await service.save_nodes(77, [final], actor_type="PORTAL_USER", actor_ref="9")
+        assert db.commits == 1
+    else:
+        with pytest.raises(TemplateWorkflowValidationError, match="评估题不存在或已被删除"):
+            await service.save_nodes(77, [final], actor_type="PORTAL_USER", actor_ref="9")
+        assert db.commits == 0
+        assert db.added == []
+    from sqlalchemy.dialects import postgresql
+    assert "FOR SHARE" in str(statements[0].compile(dialect=postgresql.dialect()))
+
+
 @pytest.fixture
 def workflow_save_setup(monkeypatch):
     from app.performance.template_workflow_service import PerformanceTemplateWorkflowService
@@ -984,6 +1012,8 @@ class _TemplateMetadataDb:
         return None
 
     async def execute(self, _statement):
+        if "performance_review_questions" in str(_statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [101]))
         return _NoDuplicateResult()
 
     def add(self, value):

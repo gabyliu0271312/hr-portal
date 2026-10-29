@@ -56,6 +56,24 @@ def _rating_reference(content: dict) -> str:
     return str(content.get("ratingOptionId") or ((items[-1].get("ratingOptionId") or items[-1].get("id")) if items else ""))
 
 
+def review_question_ids(value) -> set[int]:
+    if isinstance(value, list):
+        return set().union(*(review_question_ids(item) for item in value))
+    if not isinstance(value, dict):
+        return set()
+    references = [value.get("ratingOptionId")]
+    if value.get("type") == "rating":
+        references.append(_rating_reference(value))
+        for item in value.get("items") or []:
+            if _item_kind(value, item) == "rating":
+                references.append(item.get("ratingOptionId") or item.get("id"))
+    elif value.get("kind") == "rating":
+        references.append(value.get("ratingOptionId") or value.get("id"))
+    return {int(str(reference)) for reference in references if str(reference).isdigit()} | set().union(
+        *(review_question_ids(item) for item in value.values())
+    )
+
+
 def _normalize_rating_item(content: dict) -> None:
     if content.get("type") != "rating":
         return

@@ -11,7 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, require_performance_permission
-from app.performance.models import PerformanceReviewQuestion, PerformanceReviewRule
+from app.performance.models import (
+    PerformanceCycle,
+    PerformanceProjectNodeSnapshot,
+    PerformanceReviewQuestion,
+    PerformanceReviewRule,
+    PerformanceTemplateWorkflow,
+)
+from app.performance.self_summary_service import review_question_ids
 
 
 router = APIRouter(prefix="/performance", tags=["performance-review-questions"])
@@ -252,6 +259,46 @@ def _question_response(
         updated_at=question.updated_at,
         rule=_rule_detail(rule, is_used=True),
     )
+
+
+def _contains_question_reference(value: Any, question_id: int) -> bool:
+    return question_id in review_question_ids(value)
+
+
+async def _question_delete_blocker(db: AsyncSession, question: PerformanceReviewQuestion) -> tuple[str, str] | None:
+    child_id = (
+        await db.execute(
+            select(PerformanceReviewQuestion.id)
+            .where(PerformanceReviewQuestion.parent_question_id == question.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if child_id is not None:
+        return "PERFORMANCE_REVIEW_QUESTION_HAS_CHILDREN", "此评估题存在子题，不允许删除"
+
+    workflows = (await db.execute(select(PerformanceTemplateWorkflow))).scalars().all()
+    referenced = [
+        workflow for workflow in workflows
+        if _contains_question_reference(workflow.nodes, question.id)
+        or _contains_question_reference(workflow.content_library, question.id)
+    ]
+    if referenced:
+        template_ids = {workflow.template_id for workflow in referenced}
+        template_refs = {str(value) for value in template_ids}
+        cycles = (await db.execute(select(PerformanceCycle))).scalars().all()
+        if any((workflow.cycle_count or 0) > 0 for workflow in referenced) or any(
+            cycle.template_id in template_ids
+            or any(str(template_id) in template_refs for template_id in (cycle.template_ids or []))
+            for cycle in cycles
+        ):
+            return "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE", "此评估题已被周期使用，不允许删除"
+
+    snapshots = (await db.execute(select(PerformanceProjectNodeSnapshot.config))).scalars().all()
+    if any(_contains_question_reference(config, question.id) for config in snapshots):
+        return "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE", "此评估题已被周期使用，不允许删除"
+    if referenced:
+        return "PERFORMANCE_REVIEW_QUESTION_IN_TEMPLATE", "此评估题已被模板引用，不允许删除"
+    return None
 
 
 async def _is_rule_used(db: AsyncSession, rule_id: int) -> bool:
@@ -655,3 +702,26 @@ async def update_review_question(
     await db.commit()
     await db.refresh(question)
     return _question_response(question, rule)
+
+
+@router.delete("/review-questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_review_question(
+    question_id: int,
+    _: PerformanceAccessContext = Depends(
+        require_performance_permission("performance.configuration.manage")
+    ),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    question = await db.get(PerformanceReviewQuestion, question_id, with_for_update=True)
+    if question is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "PERFORMANCE_REVIEW_QUESTION_NOT_FOUND", "message": "评估题不存在"},
+        )
+    blocker = await _question_delete_blocker(db, question)
+    if blocker is not None:
+        code, message = blocker
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"code": code, "message": message})
+    await db.delete(question)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -83,17 +83,20 @@ function handleEdit(question: ReviewQuestion) {
   void router.push({ name: 'ReviewQuestionEdit', params: { id: question.id }, query: { name: question.name, type: question.type, remark: question.remark } })
 }
 
-function handleRemove(question: ReviewQuestion) {
-  ElMessageBox.confirm(`确定删除「${question.name}」吗？`, '删除确认', {
-    type: 'warning',
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-  })
-    .then(() => {
-      questions.value = questions.value.filter((item) => item.id !== question.id)
-      ElMessage.success('已删除')
+async function handleRemove(question: ReviewQuestion) {
+  try {
+    await ElMessageBox.confirm(`确定删除「${question.name}」吗？`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
     })
-    .catch(() => {})
+    await performanceReviewQuestionApi.remove(Number(question.id))
+    questions.value = questions.value.filter((item) => item.id !== question.id)
+    ElMessage.success('已删除')
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') return
+    ElMessage.error(error?.response?.data?.detail?.message || '评估题删除失败，请稍后重试')
+  }
 }
 
 </script>

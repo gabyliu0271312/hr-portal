@@ -1,10 +1,15 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { push, replace, route } = vi.hoisted(() => ({
+const { push, replace, route, list, remove, confirm, success, error } = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
   route: { query: {} as Record<string, string> },
+  list: vi.fn(),
+  remove: vi.fn(),
+  confirm: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
 }))
 
 vi.mock('vue-router', () => ({
@@ -13,8 +18,14 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/api/performance', () => ({
-  performanceReviewQuestionApi: { list: vi.fn().mockResolvedValue([]) },
+  performanceReviewQuestionApi: { list, remove },
   performanceReviewRuleApi: { list: vi.fn().mockResolvedValue([]) },
+}))
+
+vi.mock('element-plus', async () => ({
+  ...await vi.importActual<any>('element-plus'),
+  ElMessageBox: { confirm },
+  ElMessage: { success, error },
 }))
 
 import ReviewQuestionManagement from './ReviewQuestionManagement.vue'
@@ -29,7 +40,11 @@ function mountView(realRules = false) {
           template: '<main><h1>{{ title }}</h1><slot name="header" /><slot /></main>',
         },
         PerformanceListToolbar: { template: '<div data-testid="question-toolbar"><slot name="left" /></div>' },
-        ReviewQuestionTable: { template: '<div data-testid="question-table">评估题表格</div>' },
+        ReviewQuestionTable: {
+          props: ['questions'],
+          emits: ['remove'],
+          template: '<div data-testid="question-table">评估题表格<button v-for="question in questions" :key="question.id" data-remove @click="$emit(\'remove\', question)">{{ question.name }}</button></div>',
+        },
         ReviewRuleManagement: {
           emits: ['create', 'edit'],
           template: '<div data-testid="rule-management">评估规则列表<button data-testid="rule-create" @click="$emit(\'create\')">新建规则</button></div>',
@@ -50,6 +65,73 @@ describe('ReviewQuestionManagement', () => {
     push.mockReset()
     replace.mockReset()
     route.query = {}
+    list.mockReset().mockResolvedValue([])
+    remove.mockReset().mockResolvedValue(undefined)
+    confirm.mockReset().mockResolvedValue('confirm')
+    success.mockReset()
+    error.mockReset()
+  })
+
+  it('sends DELETE to the persisted review-question resource', async () => {
+    const { performanceReviewQuestionApi } = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
+    const { api } = await import('@/api/client')
+    const request = vi.spyOn(api, 'delete').mockResolvedValue({ data: undefined })
+    try {
+      await performanceReviewQuestionApi.remove(201)
+      expect(request).toHaveBeenCalledWith('/performance/review-questions/201')
+    } finally {
+      request.mockRestore()
+    }
+  })
+
+  it('removes only after DELETE succeeds and reloads persisted results on reopen', async () => {
+    list.mockResolvedValueOnce([{ id: 201, name: '待删除题目', rule: {} }]).mockResolvedValueOnce([])
+    let finishDelete!: () => void
+    remove.mockImplementationOnce(() => new Promise<void>(resolve => { finishDelete = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-remove]').trigger('click')
+    await flushPromises()
+    expect(remove).toHaveBeenCalledWith(201)
+    expect(wrapper.text()).toContain('待删除题目')
+    expect(success).not.toHaveBeenCalled()
+    finishDelete()
+    await flushPromises()
+    expect(wrapper.find('[data-remove]').exists()).toBe(false)
+    expect(success).toHaveBeenCalledWith('已删除')
+    wrapper.unmount()
+    const reopened = mountView()
+    await flushPromises()
+    expect(reopened.find('[data-remove]').exists()).toBe(false)
+    reopened.unmount()
+  })
+
+  it.each(['此评估题存在子题，不允许删除', '此评估题已被模板引用，不允许删除', '此评估题已被周期使用，不允许删除'])(
+    'keeps the question and shows the rejection: %s', async message => {
+      list.mockResolvedValue([{ id: 201, name: '受保护题目', rule: {} }])
+      remove.mockRejectedValueOnce({ response: { data: { detail: { message } } } })
+      const wrapper = mountView()
+      await flushPromises()
+      await wrapper.get('[data-remove]').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('受保护题目')
+      expect(error).toHaveBeenCalledWith(message)
+      expect(success).not.toHaveBeenCalled()
+      wrapper.unmount()
+    },
+  )
+
+  it('does not call DELETE when confirmation is cancelled', async () => {
+    list.mockResolvedValue([{ id: 201, name: '保留题目', rule: {} }])
+    confirm.mockRejectedValueOnce('cancel')
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('[data-remove]').trigger('click')
+    await flushPromises()
+    expect(remove).not.toHaveBeenCalled()
+    expect(error).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('保留题目')
+    wrapper.unmount()
   })
 
   it('does not mount a second filter panel below the toolbar', () => {

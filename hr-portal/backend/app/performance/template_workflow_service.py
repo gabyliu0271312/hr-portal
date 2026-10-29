@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
-from app.performance.models import PerformanceTemplateWorkflow
+from app.performance.models import PerformanceReviewQuestion, PerformanceTemplateWorkflow
+from app.performance.self_summary_service import review_question_ids
 from app.performance.assessment_roles import normalize_executor_identity
 from app.performance.executor_config import normalize_result_reconsideration_executor
 
@@ -511,6 +512,16 @@ class PerformanceTemplateWorkflowService:
             _validate_content_region_order(node)
         for node in normalized:
             library = _merge_content_library(library, [content for content in (node.get("content") or []) if not ((content.get("content_slot") or "fill") == "reference" and content.get("type") == "reference" and content.get("reference_kind") == "node")])
+        question_ids = review_question_ids([normalized, library])
+        if question_ids:
+            existing_question_ids = set((await self.db.execute(
+                select(PerformanceReviewQuestion.id)
+                .where(PerformanceReviewQuestion.id.in_(question_ids))
+                .order_by(PerformanceReviewQuestion.id)
+                .with_for_update(read=True)
+            )).scalars().all())
+            if question_ids - existing_question_ids:
+                raise TemplateWorkflowValidationError("引用的评估题不存在或已被删除，请重新选择")
         before = deepcopy(record.nodes) if record is not None else []
         if record is None:
             record = PerformanceTemplateWorkflow(template_id=template_id, nodes=normalized, content_library=library)

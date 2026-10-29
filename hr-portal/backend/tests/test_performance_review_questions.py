@@ -14,6 +14,7 @@ from app.performance.review_router import (
     _sub_question_option,
     create_review_question,
     create_review_rule,
+    delete_review_question,
     delete_review_rule,
     list_review_questions,
     update_review_question,
@@ -435,5 +436,176 @@ async def test_list_review_questions_applies_review_type_filter():
     assert result.items == []
     assert "performance_review_rules.review_type = :review_type_1" in str(db.statement)
     assert "performance_review_rules.status = :status_1" in str(db.statement)
+
+
+class _DeleteResult:
+    def __init__(self, values):
+        self.values = values
+
+    def scalar_one_or_none(self):
+        return next(iter(self.values), None)
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.values
+
+
+class _DeleteDb:
+    def __init__(self, question=None, *, children=(), workflows=(), cycles=(), snapshots=()):
+        self.question = question
+        self.children = children
+        self.workflows = workflows
+        self.cycles = cycles
+        self.snapshots = snapshots
+        self.deleted = None
+        self.commits = 0
+        self.get_calls = []
+
+    async def get(self, model, value, **kwargs):
+        self.get_calls.append((model, value, kwargs))
+        return self.question if self.question and self.question.id == value else None
+
+    async def execute(self, statement):
+        sql = str(statement)
+        if "performance_template_workflows" in sql:
+            return _DeleteResult(self.workflows)
+        if "performance_cycles" in sql:
+            return _DeleteResult(self.cycles)
+        if "performance_project_node_snapshots" in sql:
+            return _DeleteResult(self.snapshots)
+        if "parent_question_id =" in sql:
+            return _DeleteResult(self.children)
+        return _DeleteResult([(self.question, _rule())] if self.question else [])
+
+    async def delete(self, question):
+        self.deleted = question
+        self.question = None
+
+    async def commit(self):
+        self.commits += 1
+
+
+def _workflow(*, nodes=(), library=(), cycle_count=0):
+    from app.performance.models import PerformanceTemplateWorkflow
+    return PerformanceTemplateWorkflow(template_id=77, nodes=list(nodes), content_library=list(library), cycle_count=cycle_count)
+
+
+@pytest.mark.parametrize("content", [
+    {"ratingOptionId": "201"},
+    {"items": [{"kind": "rating", "ratingOptionId": 201}]},
+    {"type": "rating", "items": [{"id": "201"}]},
+    {"kind": "rating", "id": "201"},
+    {"template": {"content": [{"ratingOptionId": "0201"}]}},
+])
+def test_question_reference_detection_matches_exact_question_ids(content):
+    from app.performance.review_router import _contains_question_reference
+    assert _contains_question_reference(content, 201)
+    assert not _contains_question_reference(content, 20)
+
+
+@pytest.mark.parametrize("content", [
+    {"remark": "201", "id": "201"},
+    {"type": "custom", "items": [{"kind": "fill", "id": "201"}]},
+    {"kind": "rating", "id": "201", "ratingOptionId": "999"},
+    {"type": "rating", "id": "201", "items": [{"id": "999"}]},
+])
+def test_question_reference_detection_does_not_match_unrelated_text_or_item_ids(content):
+    from app.performance.review_router import _contains_question_reference
+    assert not _contains_question_reference(content, 201)
+
+
+@pytest.mark.asyncio
+async def test_delete_unused_question_persists_and_list_does_not_return_it():
+    question = _question(is_sub_question=False)
+    db = _DeleteDb(question)
+    response = await delete_review_question(question.id, _context(), db)
+    assert response.status_code == 204
+    assert db.deleted is question
+    assert db.commits == 1
+    assert db.get_calls[0][2] == {"with_for_update": True}
+    assert (await list_review_questions(None, _context(), db)).items == []
+
+
+@pytest.mark.asyncio
+async def test_delete_question_rejects_parent_with_children():
+    db = _DeleteDb(_question(is_sub_question=False), children=[301])
+    with pytest.raises(HTTPException) as error:
+        await delete_review_question(201, _context(), db)
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "PERFORMANCE_REVIEW_QUESTION_HAS_CHILDREN"
+    assert db.deleted is None
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("location", ["nodes", "library"])
+async def test_delete_question_rejects_template_references(location):
+    content = {"items": [{"kind": "rating", "ratingOptionId": "201"}]}
+    workflow = _workflow(**({"nodes": [{"content": [content]}]} if location == "nodes" else {"library": [content]}))
+    db = _DeleteDb(_question(), workflows=[workflow])
+    with pytest.raises(HTTPException) as error:
+        await delete_review_question(201, _context(), db)
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "PERFORMANCE_REVIEW_QUESTION_IN_TEMPLATE"
+    assert db.deleted is None
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("usage", ["legacy_template_id", "template_ids", "usage_count", "snapshot_only"])
+async def test_delete_question_rejects_cycle_usage_and_historical_snapshots(usage):
+    from app.performance.models import PerformanceCycle
+    content = {"ratingOptionId": "201"}
+    workflow = _workflow(library=[content], cycle_count=1 if usage == "usage_count" else 0)
+    cycle = PerformanceCycle(template_id=77 if usage == "legacy_template_id" else None, template_ids=[77] if usage == "template_ids" else [])
+    db = _DeleteDb(
+        _question(),
+        workflows=[] if usage == "snapshot_only" else [workflow],
+        cycles=[cycle],
+        snapshots=[{"template": {"content": [content]}}] if usage == "snapshot_only" else [],
+    )
+    with pytest.raises(HTTPException) as error:
+        await delete_review_question(201, _context(), db)
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "PERFORMANCE_REVIEW_QUESTION_IN_CYCLE"
+    assert db.deleted is None
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_question_returns_not_found_without_writing():
+    db = _DeleteDb()
+    with pytest.raises(HTTPException) as error:
+        await delete_review_question(201, _context(), db)
+    assert error.value.status_code == 404
+    assert db.deleted is None
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_question_delete_http_route_enforces_permissions_and_reopen():
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from app.core.db import get_session
+    from app.performance.auth_context import get_performance_access_context
+    from app.performance.review_router import router
+
+    app = FastAPI()
+    app.include_router(router)
+    db = _DeleteDb(_question())
+    context = _context()
+    app.dependency_overrides[get_session] = lambda: db
+    app.dependency_overrides[get_performance_access_context] = lambda: context
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        from dataclasses import replace
+        context = replace(context, permission_codes=())
+        assert (await client.delete("/performance/review-questions/201")).status_code == 403
+        assert db.commits == 0
+        context = _context()
+        assert (await client.delete("/performance/review-questions/201")).status_code == 204
+        assert (await client.get("/performance/review-questions")).json() == {"items": []}
+        assert (await client.delete("/performance/review-questions/201")).status_code == 404
 
 

@@ -916,6 +916,9 @@ export const performanceReviewQuestionApi = {
     const { data } = await api.patch<PerformanceReviewQuestion>(`/performance/review-questions/${id}`, payload)
     return data
   },
+  async remove(id: number): Promise<void> {
+    await api.delete(`/performance/review-questions/${id}`)
+  },
 }
 
 export interface PerformanceTagFillQuestionTag {
