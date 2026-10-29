@@ -8,8 +8,8 @@ from app.core.db import get_session
 from app.core.deps import current_user
 from app.identity_switch.models import IdentitySwitchSession
 from app.identity_switch.service import (
-    audit, can_switch, change_control, control_out, create_session, fail,
-    get_setting, is_admin, require_admin, roster_statement, validate_session,
+    add_favorite, audit, can_switch, change_control, control_out, create_session, fail,
+    get_setting, is_admin, list_favorites, remove_favorite, require_admin, roster_statement, validate_session,
 )
 
 router = APIRouter(tags=["identity-switch"])
@@ -39,6 +39,16 @@ class SessionCreate(BaseModel):
     employee_no: str = Field(min_length=1, max_length=64)
     expected_generation: int = Field(ge=0)
     request_id: str = Field(min_length=1, max_length=64)
+
+
+class FavoriteCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    employee_no: str = Field(min_length=1, max_length=64)
+
+
+async def _require_switch_permission(db, user):
+    if not await can_switch(db, user, await get_setting(db)):
+        fail("SWITCH_PERMISSION_DENIED", "没有身份切换权限")
 
 
 @router.get("/identity-switch/control")
@@ -84,6 +94,24 @@ async def people(q: str = "", page: int = 1, page_size: int = 20, db=Depends(get
 @router.post("/performance/identity-switch/sessions", status_code=201)
 async def start_session(payload: SessionCreate, db=Depends(get_session), user=Depends(current_user)):
     return await create_session(db, user, payload)
+
+
+@router.get("/performance/identity-switch/favorites")
+async def favorites(db=Depends(get_session), user=Depends(current_user)):
+    await _require_switch_permission(db, user)
+    return {"items": await list_favorites(db, user)}
+
+
+@router.post("/performance/identity-switch/favorites", status_code=201)
+async def add_favorite_endpoint(payload: FavoriteCreate, db=Depends(get_session), user=Depends(current_user)):
+    await _require_switch_permission(db, user)
+    return await add_favorite(db, user, payload.employee_no)
+
+
+@router.delete("/performance/identity-switch/favorites/{employee_no}", status_code=204)
+async def delete_favorite(employee_no: str, db=Depends(get_session), user=Depends(current_user)):
+    await _require_switch_permission(db, user)
+    await remove_favorite(db, user, employee_no)
 
 
 @router.get("/performance/identity-switch/session")

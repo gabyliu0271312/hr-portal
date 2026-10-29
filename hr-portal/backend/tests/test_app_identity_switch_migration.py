@@ -64,3 +64,50 @@ async def _scenario():
         async with admin.begin() as db:
             await db.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await admin.dispose()
+
+
+def test_favorites_migration_creates_and_drops_saved_people_table():
+    if settings.APP_ENV.lower() == "prod" or settings.DB_HOST not in ("localhost", "127.0.0.1", "::1"):
+        pytest.skip("requires local non-production PostgreSQL")
+    asyncio.run(_favorites_scenario())
+
+
+async def _favorites_scenario():
+    schema = "pm_t008_favorites_" + uuid4().hex
+    admin = create_async_engine(settings.db_url_async, poolclass=NullPool)
+    engine = None
+    path = Path(__file__).parents[1] / "alembic" / "versions" / "0286_identity_switch_favorites.py"
+    spec = importlib.util.spec_from_file_location("identity_switch_favorites_migration_under_test", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "0285_master_data_module_menus"
+
+    def apply(connection, operation):
+        with Operations.context(MigrationContext.configure(connection)):
+            operation()
+
+    try:
+        async with admin.begin() as db:
+            await db.execute(text(f'CREATE SCHEMA "{schema}"'))
+        engine = create_async_engine(settings.db_url_async, poolclass=NullPool, connect_args={"server_settings": {"search_path": schema}})
+        async with engine.begin() as db:
+            await db.execute(text("CREATE TABLE users (id bigint PRIMARY KEY)"))
+        async with engine.begin() as db:
+            await db.run_sync(lambda connection: apply(connection, migration.upgrade))
+            constraints = (await db.execute(text(
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'app_identity_switch_favorites'::regclass"
+            ))).scalars().all()
+            assert "uq_identity_switch_favorites_operator_employee" in constraints
+            indexes = (await db.execute(text(
+                "SELECT indexname FROM pg_indexes WHERE tablename = 'app_identity_switch_favorites'"
+            ))).scalars().all()
+            assert "ix_app_identity_switch_favorites_operator_user_id" in indexes
+        async with engine.begin() as db:
+            await db.run_sync(lambda connection: apply(connection, migration.downgrade))
+            assert await db.scalar(text("SELECT to_regclass('app_identity_switch_favorites')")) is None
+    finally:
+        if engine:
+            await engine.dispose()
+        async with admin.begin() as db:
+            await db.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await admin.dispose()

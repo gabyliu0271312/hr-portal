@@ -17,9 +17,9 @@ from app.core.db import Base, get_session
 from app.core.jwt import create_access_token
 from app.identity_switch import service
 from app.identity_switch.middleware import IdentitySwitchMiddleware
-from app.identity_switch.models import IdentitySwitchNotificationRun, IdentitySwitchSession, IdentitySwitchSetting
+from app.identity_switch.models import IdentitySwitchFavorite, IdentitySwitchNotificationRun, IdentitySwitchSession, IdentitySwitchSetting
 from app.identity_switch.notifications import receiver_is_safe, record_notification
-from app.identity_switch.router import ControlPatch, SessionCreate, router
+from app.identity_switch.router import ControlPatch, FavoriteCreate, SessionCreate, router
 from app.performance.auth_context import PerformanceAccessContext, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.models import (PerformanceAuditEvent, PerformanceIdentityLink, PerformanceCycle, PerformanceProject, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshot, PerformanceOtherSetting)
 from app.users.models import Menu, Role, RoleAiCapabilityGrant, RoleMenu, User, UserRole
@@ -30,6 +30,8 @@ def test_control_payload_is_strict():
         ControlPatch(expected_revision=1, request_id="test", others_enabled=None)
     with pytest.raises(ValidationError):
         SessionCreate(employee_no="E1", expected_generation=0, request_id="test", operator_user_id=1)
+    with pytest.raises(ValidationError):
+        FavoriteCreate(employee_no="E1", operator_user_id=1)
     with pytest.raises(ValidationError):
         ControlPatch(expected_revision=1, request_id="test")
 
@@ -92,7 +94,7 @@ async def _postgres_scenario(monkeypatch):
         async with admin_engine.begin() as connection:
             await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
         engine = create_async_engine(settings.db_url_async, poolclass=NullPool, connect_args={"server_settings": {"search_path": schema}})
-        tables = [User.__table__, Role.__table__, Menu.__table__, UserRole.__table__, RoleMenu.__table__, RoleAiCapabilityGrant.__table__, PerformanceIdentityLink.__table__, PerformanceAuditEvent.__table__, IdentitySwitchSetting.__table__, IdentitySwitchSession.__table__, IdentitySwitchNotificationRun.__table__]
+        tables = [User.__table__, Role.__table__, Menu.__table__, UserRole.__table__, RoleMenu.__table__, RoleAiCapabilityGrant.__table__, PerformanceIdentityLink.__table__, PerformanceAuditEvent.__table__, IdentitySwitchSetting.__table__, IdentitySwitchSession.__table__, IdentitySwitchNotificationRun.__table__, IdentitySwitchFavorite.__table__]
         def include(table):
             if table in tables:
                 return
@@ -197,6 +199,16 @@ async def _postgres_scenario(monkeypatch):
             assert removed.status_code == 200
             assert (await client.put("/api/v1/roles/2", headers=auth(10), json=payload)).status_code == 200
             assert (await client.get("/api/v1/performance/probe", headers=auth(20) | {"X-App-Switch-Session": old_secret})).status_code == 410
+            assert (await client.get("/api/v1/performance/identity-switch/favorites", headers=auth(20))).json()["items"] == []
+            added = await client.post("/api/v1/performance/identity-switch/favorites", headers=auth(20), json={"employee_no": "E002"})
+            assert added.status_code == 201, added.text
+            assert added.json() == {"employee_no": "E002", "display_name": "employee-two", "organization_label": "B"}
+            assert (await client.post("/api/v1/performance/identity-switch/favorites", headers=auth(20), json={"employee_no": "E002"})).status_code == 201
+            assert [item["employee_no"] for item in (await client.get("/api/v1/performance/identity-switch/favorites", headers=auth(20))).json()["items"]] == ["E002"]
+            assert (await client.get("/api/v1/performance/identity-switch/favorites", headers=auth(10))).json()["items"] == []
+            assert (await client.post("/api/v1/performance/identity-switch/favorites", headers=auth(20), json={"employee_no": "MISSING"})).status_code == 404
+            assert (await client.delete("/api/v1/performance/identity-switch/favorites/E002", headers=auth(20))).status_code == 204
+            assert (await client.get("/api/v1/performance/identity-switch/favorites", headers=auth(20))).json()["items"] == []
             other = await start(20, "tester-new-session")
             assert other.status_code == 201
             closed = await patch(10, 2, "disable", others_enabled=False, confirm_clear=True)

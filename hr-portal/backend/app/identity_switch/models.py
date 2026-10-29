@@ -55,3 +55,15 @@ class IdentitySwitchNotificationRun(Base):
     delivery_error: Mapped[str | None] = mapped_column(String(512))
     delivery_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class IdentitySwitchFavorite(Base):
+    __tablename__ = "app_identity_switch_favorites"
+    __table_args__ = (UniqueConstraint("operator_user_id", "employee_no"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    operator_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    employee_no: Mapped[str] = mapped_column(String(64))
+    display_name: Mapped[str] = mapped_column(String(128))
+    organization_label: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

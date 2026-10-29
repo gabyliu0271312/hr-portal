@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import String, cast, delete, func, select, update
 
 from app.data.employee_roster_contract import employee_roster_table
-from app.identity_switch.models import IdentitySwitchSession, IdentitySwitchSetting
+from app.identity_switch.models import IdentitySwitchFavorite, IdentitySwitchSession, IdentitySwitchSetting
 from app.performance.models import PerformanceAuditEvent
 from app.users.models import Menu, RoleMenu, User
 
@@ -161,7 +161,10 @@ def roster_statement():
 
 async def find_employee(db, employee_no):
     table, number, name = roster_statement()
-    rows = (await db.execute(select(number.label("employee_no"), name.label("display_name")).where(number == employee_no))).mappings().all()
+    statement = select(number.label("employee_no"), name.label("display_name"))
+    if "department" in table.c:
+        statement = statement.add_columns(table.c.department.label("organization_label"))
+    rows = (await db.execute(statement.where(number == employee_no))).mappings().all()
     if not rows:
         fail("SWITCH_TARGET_NOT_FOUND", "员工不存在于当前统一人员名单", 404)
     if len(rows) != 1:
@@ -171,6 +174,46 @@ async def find_employee(db, employee_no):
     if named_admin is not None and await db.scalar(select(func.count()).select_from(table).where(name == rows[0]["display_name"])) != 1:
         fail("SWITCH_TARGET_AMBIGUOUS", "项目管理员名单存在同名歧义，请先修正人员配置", 409)
     return dict(rows[0])
+
+
+def favorite_out(row):
+    return {"employee_no": row.employee_no, "display_name": row.display_name, "organization_label": row.organization_label}
+
+
+async def list_favorites(db, user):
+    rows = (await db.execute(
+        select(IdentitySwitchFavorite)
+        .where(IdentitySwitchFavorite.operator_user_id == user.id)
+        .order_by(IdentitySwitchFavorite.created_at, IdentitySwitchFavorite.id)
+    )).scalars().all()
+    return [favorite_out(row) for row in rows]
+
+
+async def add_favorite(db, user, employee_no):
+    employee = await find_employee(db, employee_no)
+    existing = await db.scalar(select(IdentitySwitchFavorite).where(
+        IdentitySwitchFavorite.operator_user_id == user.id,
+        IdentitySwitchFavorite.employee_no == employee["employee_no"],
+    ))
+    if existing is not None:
+        return favorite_out(existing)
+    favorite = IdentitySwitchFavorite(
+        operator_user_id=user.id,
+        employee_no=employee["employee_no"],
+        display_name=employee["display_name"],
+        organization_label=employee.get("organization_label"),
+    )
+    db.add(favorite)
+    await db.commit()
+    return favorite_out(favorite)
+
+
+async def remove_favorite(db, user, employee_no):
+    await db.execute(delete(IdentitySwitchFavorite).where(
+        IdentitySwitchFavorite.operator_user_id == user.id,
+        IdentitySwitchFavorite.employee_no == employee_no,
+    ))
+    await db.commit()
 
 
 async def create_session(db, user, payload):

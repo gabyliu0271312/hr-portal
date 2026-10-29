@@ -45,6 +45,9 @@ export const identitySwitchApi = {
   updateControl: (value: Partial<Pick<SwitchControl, 'others_enabled' | 'test_delivery_enabled' | 'test_receiver_user_id'>> & { expected_revision: number; request_id: string; confirm_clear?: boolean }) =>
     api.patch<SwitchControl>('/identity-switch/control', value).then(r => r.data),
   people: (q: string, page = 1) => api.get<{ items: SwitchPerson[]; total: number }>('/performance/identity-switch/people', { params: { q, page, page_size: 50 } }).then(r => r.data),
+  favorites: () => api.get<{ items: SwitchPerson[] }>('/performance/identity-switch/favorites').then(r => r.data.items),
+  addFavorite: (employeeNo: string) => api.post<SwitchPerson>('/performance/identity-switch/favorites', { employee_no: employeeNo }).then(r => r.data),
+  removeFavorite: (employeeNo: string) => api.delete(`/performance/identity-switch/favorites/${encodeURIComponent(employeeNo)}`),
   create: (employee_no: string, expected_generation: number) => api.post<EmployeeSwitchSession>('/performance/identity-switch/sessions', { employee_no, expected_generation, request_id: switchRequestId() }).then(r => r.data),
   end: (id: string) => api.delete(`/performance/identity-switch/sessions/${id}`),
   runs: () => api.get<{ items: NotificationTestRun[] }>('/performance/identity-switch/notification-tests').then(r => r.data),
