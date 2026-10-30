@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { performanceApi, performanceNavigationApi, projectManagementApi, type PerformanceNavigationContext, type ProjectManagementOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
@@ -49,6 +50,19 @@ const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationConte
 
 let pinia: Pinia
 
+const ElTableStub = defineComponent({
+  props: { data: { type: Array, default: () => [] } },
+  provide() {
+    return { tableRows: this.data }
+  },
+  template: '<table><thead><tr><slot /></tr></thead><tbody><tr><td><slot name="empty" /></td></tr></tbody></table>',
+})
+
+const ElTableColumnStub = defineComponent({
+  inject: ['tableRows'],
+  template: '<td><slot name="header" /><template v-for="row in tableRows"><slot :row="row" /></template></td>',
+})
+
 function mountView() {
   return mount(ProjectManagement, {
     global: {
@@ -58,6 +72,8 @@ function mountView() {
         'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' },
         'el-dropdown-menu': { template: '<div><slot /></div>' },
         'el-dropdown-item': { template: '<div><slot /></div>', props: ['command'] },
+        ElTable: ElTableStub,
+        ElTableColumn: ElTableColumnStub,
       },
     },
   })
@@ -267,10 +283,9 @@ describe('ProjectManagement', () => {
     await wrapper.findAll('.line-tab')[1].trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.member-table thead .sort-header').map(item => item.text())).toEqual(['姓名', '绩效评级', '360° 评估率', '直属上级', '序列', '职级', '入职日期', '所属部门'])
-    expect(wrapper.get('.member-table tbody .member-state').text()).toBe('暂无成员')
-    expect(wrapper.get('.member-state-cell').attributes('colspan')).toBe('9')
-    expect(wrapper.findAll('.member-table tbody .member-name')).toHaveLength(0)
+    expect(wrapper.findAll('.performance-sort-header .sort-header-label').map(item => item.text())).toEqual(['姓名', '绩效评级', '360° 评估率', '直属上级', '序列', '职级', '入职日期', '所属部门'])
+    expect(wrapper.text()).toContain('暂无成员')
+    expect(wrapper.findAll('.member-name')).toHaveLength(0)
   })
 
   it('opens the statistics preview with the current cycle and no new report request', async () => {

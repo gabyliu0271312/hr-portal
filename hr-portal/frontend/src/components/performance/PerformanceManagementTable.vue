@@ -2,6 +2,7 @@
 import { ElOption, ElSelect, ElTable } from 'element-plus'
 import { computed } from 'vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
+import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 const props = withDefaults(defineProps<{
   rows: unknown[]
@@ -17,6 +18,10 @@ const props = withDefaults(defineProps<{
   showPagination?: boolean
   rowKey?: string
   clickableRows?: boolean
+  sortKey?: string
+  sortOrder?: PerformanceSortOrder
+  sortMode?: 'local' | 'remote'
+  sortValue?: (row: any, key: string) => unknown
 }>(), {
   page: 1,
   pageSize: 10,
@@ -24,6 +29,10 @@ const props = withDefaults(defineProps<{
   showPagination: true,
   rowKey: 'id',
   clickableRows: false,
+  sortKey: '',
+  sortOrder: '',
+  sortMode: 'local',
+  sortValue: undefined,
 })
 
 const emit = defineEmits<{
@@ -31,11 +40,17 @@ const emit = defineEmits<{
   'page-size-change': [pageSize: number]
   'selection-change': [rows: any[]]
   'row-click': [row: any]
+  'sort-change': [payload: { key: string; order: PerformanceSortOrder }]
 }>()
 
 const totalCount = computed(() => props.total ?? props.rows.length)
 const pageCount = computed(() => Math.max(1, Math.ceil(totalCount.value / props.pageSize)))
-const tableRows = computed(() => props.rows as any[])
+const tableRows = computed(() => {
+  if (props.sortMode !== 'local' || !props.sortKey || !props.sortOrder || !props.sortValue) {
+    return props.rows as any[]
+  }
+  return sortPerformanceRows(props.rows as any[], props.sortKey, props.sortOrder, props.sortValue)
+})
 
 function changePage(page: number) {
   if (page >= 1 && page <= pageCount.value && page !== props.page) emit('page-change', page)

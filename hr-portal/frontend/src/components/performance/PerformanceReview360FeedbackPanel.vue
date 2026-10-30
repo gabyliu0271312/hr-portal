@@ -13,7 +13,9 @@ import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
+import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
+import { nextPerformanceSort, type PerformanceSortOrder } from './performanceTableSort'
 
 const props = defineProps<{
   projectId: number | string
@@ -148,8 +150,30 @@ function cellValue(item: PerformanceReview360FeedbackItem, key: string) {
 }
 function applyColumns(keys: string[]) { selectedColumnKeys.value = keys }
 
+const sortKey = ref('')
+const sortOrder = ref<PerformanceSortOrder>('')
+function changeSort(key: string) {
+  const next = nextPerformanceSort(sortKey.value, sortOrder.value, key)
+  sortKey.value = next.key
+  sortOrder.value = next.order
+}
+function sortValue(item: PerformanceReview360FeedbackItem, key: string) {
+  switch (key) {
+    case 'name': return item.display_name
+    case 'status': return item.status === 'completed' ? 1 : 0
+    case 'source_label': return item.source_label
+    case 'relationship': return item.relationship
+    case 'due_at': return item.due_at ? new Date(item.due_at).getTime() : null
+    case 'job_sequence': return item.job_sequence || ''
+    case 'department': return item.department || ''
+    default: return ''
+  }
+}
+
 watch(() => props.projectId, () => { void load() })
 onMounted(() => void load())
+
+defineExpose({ allowVoluntary, openVoluntaryDialog })
 </script>
 
 <template>
@@ -163,11 +187,7 @@ onMounted(() => void load())
       @search="load()"
       @clear="load()"
       @filter="ElMessage.info('筛选功能暂未开放')"
-    >
-      <template #actions>
-        <PerformanceButton v-if="allowVoluntary" variant="primary" aria-label="自愿评估" @click="openVoluntaryDialog">自愿评估</PerformanceButton>
-      </template>
-    </PerformanceListToolbar>
+    />
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
     <PerformanceManagementTable
       :rows="items"
@@ -179,9 +199,21 @@ onMounted(() => void load())
       :show-pagination="false"
       row-key="task_id"
       clickable-rows
+      :sort-key="sortKey"
+      :sort-order="sortOrder"
+      sort-mode="local"
+      :sort-value="sortValue"
       @row-click="openItem"
     >
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="columnMinWidth(column.key)">
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :min-width="columnMinWidth(column.key)">
+        <template #header>
+          <PerformanceSortHeader
+            :label="column.label"
+            :order="sortKey === column.key ? (sortOrder === 'asc' ? 'ascending' : sortOrder === 'desc' ? 'descending' : null) : null"
+            align="left"
+            @click="changeSort(column.key)"
+          />
+        </template>
         <template #default="{ row }">
           <span v-if="column.key === 'name'" class="feedback-panel__identity">{{ row.display_name }}</span>
           <span v-else-if="column.key === 'status'">

@@ -17,6 +17,9 @@
           <span v-else-if="node.status !== 'completed' && node.end_at" class="review-deadline">截止时间：{{ formatDeadline(node.end_at) }}</span>
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
         </div>
+        <div v-if="shows360Feedback" class="review-heading-actions">
+          <PerformanceButton v-if="feedbackPanel?.allowVoluntary" variant="primary" aria-label="自愿评估" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</PerformanceButton>
+        </div>
       </div>
       <div class="review-body">
         <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: shows360Feedback }">
@@ -27,6 +30,7 @@
         />
         <PerformanceReview360FeedbackPanel
           v-else-if="shows360Feedback && props.projectId"
+          ref="feedbackPanel"
           :project-id="props.projectId"
           :node-id="node.node_id"
           @open-task="emit('open-member', { node, member: $event })"
@@ -78,6 +82,7 @@
 import { computed, ref } from 'vue'
 import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
+import PerformanceButton from './PerformanceButton.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'
@@ -101,6 +106,7 @@ const shows360Feedback = computed(() => {
   const node = props.node
   return Boolean(node && node.node_type === 'evaluation' && isReviewer360Node(node))
 })
+const feedbackPanel = ref<InstanceType<typeof PerformanceReview360FeedbackPanel> | null>(null)
 const evaluationTabs: PerformanceLineTab[] = [
   { key: 'members', label: '成员列表' },
   { key: 'matrix', label: '矩阵分析' },
@@ -144,7 +150,7 @@ function formatStartTime(value: string) {
 <style scoped>
 .review-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1; flex-direction: column; overflow: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 0; box-sizing: border-box; background: var(--performance-review-page-bg); scrollbar-width: none; }
 .review-content::-webkit-scrollbar { display: none; }
-.review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }.review-heading-copy { flex: 1; min-width: 0; margin-right: 40px; box-sizing: border-box; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 21px; }.review-heading-copy h2 { min-width: 0; min-height: 0; margin: 0; box-sizing: border-box; color: rgba(0,0,0,.85); font-size: 18px; font-weight: 600; line-height: 26px; }.review-deadline { display: block; min-width: 0; min-height: 0; box-sizing: border-box; color: #646a73; font-size: 12px; font-weight: 400; line-height: 22px; }
+.review-heading { display: flex; flex: none; align-items: flex-start; margin: 0; max-width: none; }.review-heading-copy { flex: 1; min-width: 0; margin-right: 40px; box-sizing: border-box; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 21px; }.review-heading-actions { display: flex; flex: none; align-items: center; gap: 8px; }.review-heading-copy h2 { min-width: 0; min-height: 0; margin: 0; box-sizing: border-box; color: rgba(0,0,0,.85); font-size: 18px; font-weight: 600; line-height: 26px; }.review-deadline { display: block; min-width: 0; min-height: 0; box-sizing: border-box; color: #646a73; font-size: 12px; font-weight: 400; line-height: 22px; }
 .evaluation-workspace { display: flex; width: 100%; min-width: 0; align-self: stretch; flex: 1; flex-direction: column; }
 .evaluation-pane-hint { display: grid; min-height: 360px; place-items: center; margin: 0; color: #8f959e; font-size: 14px; }
 .heading-status { padding: 5px 9px; border-radius: 4px; background: #f1f2f4; color: #646a73; font-size: 12px; }

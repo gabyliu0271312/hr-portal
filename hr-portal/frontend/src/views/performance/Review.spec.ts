@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
@@ -43,6 +44,20 @@ const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationConte
 })
 
 let pinia: Pinia
+
+const ElTableStub = defineComponent({
+  props: { data: { type: Array, default: () => [] } },
+  provide() {
+    return { tableRows: this.data }
+  },
+  template: '<table><thead><tr><slot /></tr></thead><tbody><tr><td><slot name="empty" /></td></tr></tbody></table>',
+})
+
+const ElTableColumnStub = defineComponent({
+  inject: ['tableRows'],
+  template: '<td><slot name="header" /><template v-for="row in tableRows"><slot :row="row" /></template></td>',
+})
+
 function mountView() {
   return mount(Review, {
     global: {
@@ -52,6 +67,8 @@ function mountView() {
         'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' },
         'el-dropdown-menu': { template: '<div><slot /></div>' },
         'el-dropdown-item': { template: '<div><slot /></div>', props: ['command'] },
+        ElTable: ElTableStub,
+        ElTableColumn: ElTableColumnStub,
       },
     },
   })
@@ -457,7 +474,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     await wrapper.findAll('.review-node')[1].trigger('click')
     await flushPromises()
-    await wrapper.get('.member-row-clickable').trigger('click')
+    wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { id: 22, task_id: 22, employee_no: 'E002', display_name: '已完成员工', status: 'completed' })
     await flushPromises()
 
     expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(22, 'E002')
