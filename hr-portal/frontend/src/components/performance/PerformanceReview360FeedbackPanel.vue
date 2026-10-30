@@ -11,6 +11,7 @@ import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
+import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 
 const props = defineProps<{
@@ -160,9 +161,11 @@ onMounted(() => void load())
       v-model:keyword="keyword"
       search-placeholder="搜索成员"
       search-aria-label="搜索成员"
-      :show-filter="false"
+      search-fill
+      search-width="100%"
       @search="load()"
       @clear="load()"
+      @filter="ElMessage.info('筛选功能暂未开放')"
     >
       <template #actions>
         <PerformanceButton v-if="allowVoluntary" variant="primary" aria-label="自愿评估" @click="openVoluntaryDialog">自愿评估</PerformanceButton>
@@ -190,6 +193,14 @@ onMounted(() => void load())
           <span v-else>{{ cellValue(row, column.key) }}</span>
         </template>
       </el-table-column>
+      <template #empty="{ loading: emptyLoading, text }">
+        <div v-if="emptyLoading" class="feedback-empty feedback-empty--text" role="status">{{ text }}</div>
+        <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}</div>
+        <div v-else class="feedback-empty" role="status">
+          <MetricTemplateEmptyIllustration />
+          <p class="feedback-empty__text">暂无 360° 评估邀请，可以自愿评估其他同事</p>
+        </div>
+      </template>
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
 
@@ -233,6 +244,9 @@ onMounted(() => void load())
 .feedback-panel__status { display: inline-flex; align-items: center; min-width: 56px; height: 22px; padding: 0 8px; border-radius: 9999px; font-size: 12px; line-height: 22px; }
 .feedback-panel__status.is-pending { background: #fff0df; color: #d46b08; }
 .feedback-panel__status.is-completed { background: #d5f6f2; color: #024b41; }
+.feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 60px 0; color: #646a73; font-size: 14px; line-height: 22px; text-align: center; }
+.feedback-empty--text { min-height: 300px; display: grid; place-items: center; padding: 0; color: var(--color-text-secondary); }
+.feedback-empty__text { margin: 0; }
 .voluntary-dialog { display: flex; min-height: 0; flex-direction: column; }
 .voluntary-dialog__description { margin: 0 0 12px; color: #646a73; font-size: 13px; line-height: 20px; }
 .voluntary-dialog__state { display: grid; min-height: 200px; place-items: center; color: #8f959e; font-size: 14px; }
