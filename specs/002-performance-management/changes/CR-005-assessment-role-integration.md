@@ -275,3 +275,8 @@ REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞�
 - 排序提示改为 Teleport 到 body 的深色气泡 tooltip（未排序「点击降序」、降序「点击升序」、升序「取消排序」）；
 - 排序箭头激活色按实测改为 `#646a73`，未激活暂用 `#BBBFC4`（待飞书实测确认）；
 - 验证：`vue-tsc`、`npm run build` 通过；SortHeader/ProjectManagement/Review 42 项通过。
+
+### 2026-10-30 补充七：sticky 吸附基准与弹窗宽度
+
+- 实测：滚动容器 `padding-top:20px`，sticky 偏移相对内容区计算，遮罩停在与可视区顶部相差 20px 处，造成 20px 缝隙；已改为遮罩 `top: calc(-1 * 容器padding)`、表头 `top: calc(20px - 容器padding)`，通过 `--performance-table-container-padding` 变量在成员表与 360 表传递；
+- 批量操作条右侧曾用 `window.innerWidth`（含滚动条宽度），比卡片窄约 17px；改为读取卡片 `getBoundingClientRect` + `document.documentElement.clientWidth`，并用 ResizeObserver 监听卡片与表格根节点，弹窗宽度始终与白色容器一致。

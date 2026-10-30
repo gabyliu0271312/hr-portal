@@ -140,10 +140,12 @@ const barStyle = ref<Record<string, string>>({})
 function updateBarPosition() {
   const element = rootRef.value
   if (!element) return
-  const rect = element.getBoundingClientRect()
+  const container = element.parentElement ?? element
+  const rect = container.getBoundingClientRect()
+  const viewportWidth = document.documentElement.clientWidth
   barStyle.value = {
-    left: `${Math.max(0, rect.left - 20)}px`,
-    right: `${Math.max(20, window.innerWidth - rect.right - 20)}px`,
+    left: `${Math.max(0, rect.left)}px`,
+    right: `${Math.max(0, viewportWidth - rect.right)}px`,
   }
 }
 
@@ -234,6 +236,7 @@ onMounted(() => {
   if (rootRef.value && typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(() => { updateBarPosition(); updateHscroll() })
     resizeObserver.observe(rootRef.value)
+    if (rootRef.value.parentElement) resizeObserver.observe(rootRef.value.parentElement)
   }
 })
 onBeforeUnmount(() => {
@@ -473,7 +476,7 @@ function jumpToPage() {
 .selection-bar-slide-enter-from, .selection-bar-slide-leave-to { transform: translateY(100%); opacity: 0; }
 /* 飞书同构原生表格（页面滚动模式） */
 .feishu-table { min-width: 0; }
-.feishu-table__header { position: sticky; top: 20px; z-index: 20; overflow: hidden; background: #fff; box-shadow: 0 1px 0 rgba(31, 35, 41, 0.15); }
+.feishu-table__header { position: sticky; top: calc(20px - var(--performance-table-container-padding, 0px)); z-index: 20; overflow: hidden; background: #fff; box-shadow: 0 1px 0 rgba(31, 35, 41, 0.15); }
 .feishu-table__body { overflow-x: auto; scrollbar-width: none; }
 .feishu-table__body::-webkit-scrollbar { display: none; }
 .feishu-hscroll { position: sticky; bottom: 0; z-index: 19; height: 10px; margin-top: 2px; opacity: 0; transition: opacity .15s ease; }
@@ -494,5 +497,5 @@ thead .feishu-cell.is-fixed-left { z-index: 3; }
 </style>
 
 <style>
-.is-page-scroll .feishu-table__header { position: sticky; top: 20px; z-index: 20; }
+.is-page-scroll .feishu-table__header { position: sticky; top: calc(20px - var(--performance-table-container-padding, 0px)); z-index: 20; }
 </style>
