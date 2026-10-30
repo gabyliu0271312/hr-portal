@@ -21,11 +21,9 @@ const props = withDefaults(defineProps<{
   projectId: number | string
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all' }
   showExport?: boolean
-  searchWidth?: string
 }>(), {
   reviewContext: undefined,
   showExport: true,
-  searchWidth: '224px',
 })
 const emit = defineEmits<{
   filter: []
@@ -218,7 +216,9 @@ onMounted(() => void loadMembers())
       class="member-list-toolbar"
       search-placeholder="搜索成员"
       search-aria-label="搜索成员"
-      :search-width="searchWidth"
+      search-fill
+      search-width="100%"
+      :gap="12"
       @search="page = 1; loadMembers()"
       @clear="page = 1; loadMembers()"
       @filter="emit('filter')"

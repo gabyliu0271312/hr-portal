@@ -280,3 +280,33 @@ REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞�
 
 - 实测：滚动容器 `padding-top:20px`，sticky 偏移相对内容区计算，遮罩停在与可视区顶部相差 20px 处，造成 20px 缝隙；已改为遮罩 `top: calc(-1 * 容器padding)`、表头 `top: calc(20px - 容器padding)`，通过 `--performance-table-container-padding` 变量在成员表与 360 表传递；
 - 批量操作条右侧曾用 `window.innerWidth`（含滚动条宽度），比卡片窄约 17px；改为读取卡片 `getBoundingClientRect` + `document.documentElement.clientWidth`，并用 ResizeObserver 监听卡片与表格根节点，弹窗宽度始终与白色容器一致。
+
+### 2026-10-31 补充：表格宽度、表头分隔线与选中态对齐飞书
+
+按 REA 采集（成员表表体 `width:max-content;min-width:100%`，表头 `table-layout:fixed`，表头容器无阴影、单元格有下边框，选中行无底色）：
+
+- 表头与表体均改为 `width:100%; min-width: <列宽和>`，大屏自动铺满，窄屏按列宽横向滚动，两表同布局保持列对齐；
+- 表头容器去掉 `box-shadow`，仅保留单元格 `border-bottom`；新增表头 `border-top`，还原「N 个结果」与表头之间的分隔线；
+- 移除选中行常驻底色（保留选中类名，与飞书 `ud__table-row-selected` 一致），补充行 hover `#f5f6f7`（固定列同步生效）；el-table 分支同步移除选中底色。
+- 验证：`vue-tsc`、`npm run build` 通过；ProjectManagement/Review 40 项通过。
+
+### 2026-10-31 补充：工具栏搜索框拉伸与间距对齐
+
+飞书成员列表工具栏为「搜索 flex-1 + 筛选/导出固定宽靠右，间距 12px」，整行与表格内容左右对齐。
+
+- `PerformanceListToolbar` 新增 `gap` 属性（默认 8，其他页面不变）；
+- 成员表与 360 表工具栏改为 `search-fill` + `search-width="100%"`、`gap=12`，搜索框拉伸填满，筛选/导出靠右并随卡片宽度对齐；
+- 移除 `ProjectMemberListPanel` 的 `searchWidth` 属性及评审页传入的 `calc(100% - 88px)`，两种模式共用同一套拉伸逻辑。
+- 验证：`vue-tsc`、`npm run build` 通过；ListToolbar/ProjectManagement/Review 41 项通过。
+
+### 2026-10-31 补充：行光标与飞书一致
+
+飞书采集到每个数据行都带 `cursor-pointer`（`basic-table-row cursor-pointer`），姓名列员工卡片继承该光标。原生表格行改为始终 `cursor: pointer`（项目管理与绩效评估一致），行点击行为不变。
+
+### 2026-10-31 补充：搜索框激活态与聚焦色 token
+
+飞书实测（聚焦搜索框）：`borderColor: rgb(208,211,214)`（#D0D3D6）、`boxShadow: none`、`borderRadius: 6px`，即搜索框聚焦不变色、不加外圈。
+
+- `PerformanceSearchInput` 聚焦改为保持默认边框、`box-shadow: none`，与飞书一致；
+- 全局 `--performance-control-focus-border` 由 `#336df4`（不在飞书采集色板内）改为 `var(--color-primary)`（#3370FF），其他下拉/输入控件的聚焦边框随之对齐。
+- 验证：`vue-tsc`、`npm run build` 通过；ListToolbar/ProjectManagement/Review 41 项通过。

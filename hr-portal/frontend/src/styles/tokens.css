@@ -97,7 +97,7 @@
   --performance-formula-example-number: #de7802;
   --performance-control-radius: var(--radius-md);
   --performance-control-border: var(--color-line-control);
-  --performance-control-focus-border: #336df4;
+  --performance-control-focus-border: var(--color-primary);
   --performance-control-focus-ring: var(--shadow-focus);
   --performance-input-height: 31px;
   --performance-input-compact-height: 30px;

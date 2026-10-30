@@ -92,4 +92,5 @@ onBeforeUnmount(cleanup)
 .performance-popover__arrow path{fill:var(--performance-popover-background);stroke:var(--performance-popover-border);stroke-width:var(--performance-popover-border-width)}
 .performance-popover[data-placement="bottom"]>.performance-popover__arrow{top:0;bottom:auto}
 .performance-popover[data-placement="bottom"]>.performance-popover__arrow svg{transform:translate(-50%,1px) rotate(180deg)}
+.performance-popover.is-dark { --performance-popover-background: #1f2329; --performance-popover-border: #1f2329; --performance-popover-border-width: 0px; --performance-popover-radius: 4px; --performance-popover-padding-y: 4px; --performance-popover-padding-x: 8px; --performance-popover-shadow: none; --performance-popover-min-width: 0; color: #fff; }
 </style>

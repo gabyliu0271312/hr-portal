@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
+import PerformancePopover from './PerformancePopover.vue'
 import { performanceColumnWidth, type PerformanceTableColumn } from './performanceTableColumns'
 import { nextPerformanceSort, sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
@@ -86,6 +87,13 @@ function fixedLeft(column: PerformanceTableColumn) {
 function cellStyle(column: PerformanceTableColumn) {
   return column.fixed ? { left: `${fixedLeft(column)}px` } : undefined
 }
+function isLastFixed(column: PerformanceTableColumn) {
+  const index = nativeColumns.value.indexOf(column)
+  for (let position = index + 1; position < nativeColumns.value.length; position += 1) {
+    if (nativeColumns.value[position].fixed) return false
+  }
+  return true
+}
 function orderOf(key: string): 'ascending' | 'descending' | null {
   if (props.sortKey !== key || !props.sortOrder) return null
   return props.sortOrder === 'asc' ? 'ascending' : 'descending'
@@ -152,6 +160,23 @@ function updateBarPosition() {
 const hscrollTrackRef = ref<HTMLElement | null>(null)
 const hscrollVisible = ref(false)
 const hscrollActive = ref(false)
+const isPingLeft = ref(false)
+const cellTooltip = ref<{ visible: boolean; text: string; anchor: HTMLElement | null }>({ visible: false, text: '', anchor: null })
+function onCellEnter(event: MouseEvent) {
+  const cell = event.currentTarget as HTMLElement
+  const content = cell.querySelector<HTMLElement>('.feishu-cell__content')
+  if (!content) return
+  const overflowing = content.scrollWidth > content.clientWidth
+    || Array.from(content.querySelectorAll<HTMLElement>('*')).some(element => element.scrollWidth > element.clientWidth)
+  if (!overflowing) {
+    cellTooltip.value.visible = false
+    return
+  }
+  cellTooltip.value = { visible: true, text: (content.textContent || '').trim(), anchor: cell }
+}
+function hideCellTooltip() {
+  cellTooltip.value.visible = false
+}
 const hscrollThumbStyle = ref<Record<string, string>>({})
 let hideTimer: number | undefined
 let draggingThumb = false
@@ -161,6 +186,7 @@ let hscrollMeasureRetry = 0
 function updateHscroll() {
   const body = bodyWrapRef.value
   if (!body) return
+  isPingLeft.value = body.scrollLeft > 0
   const overflow = body.scrollWidth - body.clientWidth
   hscrollActive.value = overflow > 0
   if (overflow <= 0) return
@@ -189,6 +215,7 @@ function onBodyScroll() {
   syncHeaderScroll()
   updateHscroll()
   showHscroll()
+  hideCellTooltip()
 }
 function onThumbDown(event: PointerEvent) {
   draggingThumb = true
@@ -233,6 +260,7 @@ onMounted(() => {
   updateBarPosition()
   void nextTick(updateHscroll)
   window.addEventListener('resize', updateBarPosition)
+  window.addEventListener('scroll', hideCellTooltip, { capture: true })
   if (rootRef.value && typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(() => { updateBarPosition(); updateHscroll() })
     resizeObserver.observe(rootRef.value)
@@ -242,6 +270,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.clearTimeout(hideTimer)
   window.removeEventListener('resize', updateBarPosition)
+  window.removeEventListener('scroll', hideCellTooltip, { capture: true } as EventListenerOptions)
   resizeObserver?.disconnect()
 })
 function rowClassName({ row }: { row: any }) {
@@ -292,11 +321,11 @@ function jumpToPage() {
 </script>
 
 <template>
-  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page' }" :aria-label="tableAriaLabel" @mouseenter="showHscroll" @mouseleave="scheduleHscrollHide">
+  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-ping-left': isPingLeft }" :aria-label="tableAriaLabel" @mouseenter="showHscroll" @mouseleave="scheduleHscrollHide">
     <template v-if="useNativeTable">
       <div class="feishu-table">
         <div ref="headerWrapRef" class="feishu-table__header">
-          <table class="feishu-table__table" :style="{ width: `${totalWidth}px` }">
+          <table class="feishu-table__table" :style="{ width: '100%', minWidth: `${totalWidth}px` }">
             <colgroup>
               <col v-if="selectable" :style="{ width: `${selectionWidth}px` }">
               <col v-for="column in nativeColumns" :key="column.key" :style="{ width: `${columnWidth(column)}px` }">
@@ -310,7 +339,7 @@ function jumpToPage() {
                   v-for="column in nativeColumns"
                   :key="column.key"
                   class="feishu-cell"
-                  :class="{ 'is-fixed-left': column.fixed, 'is-align-right': column.align === 'right' }"
+                  :class="{ 'is-fixed-left': column.fixed, 'is-last-fixed': column.fixed && isLastFixed(column), 'is-align-right': column.align === 'right' }"
                   :style="cellStyle(column)"
                 >
                   <PerformanceSortHeader
@@ -327,7 +356,7 @@ function jumpToPage() {
           </table>
         </div>
         <div ref="bodyWrapRef" class="feishu-table__body" @scroll="onBodyScroll">
-          <table class="feishu-table__table" :style="{ width: `${totalWidth}px` }">
+          <table class="feishu-table__table" :style="{ width: '100%', minWidth: `${totalWidth}px` }">
             <colgroup>
               <col v-if="selectable" :style="{ width: `${selectionWidth}px` }">
               <col v-for="column in nativeColumns" :key="column.key" :style="{ width: `${columnWidth(column)}px` }">
@@ -357,10 +386,12 @@ function jumpToPage() {
                     v-for="column in nativeColumns"
                     :key="column.key"
                     class="feishu-cell"
-                    :class="{ 'is-fixed-left': column.fixed, 'is-align-right': column.align === 'right' }"
+                    :class="{ 'is-fixed-left': column.fixed, 'is-last-fixed': column.fixed && isLastFixed(column), 'is-align-right': column.align === 'right' }"
                     :style="cellStyle(column)"
+                    @mouseenter="onCellEnter"
+                    @mouseleave="hideCellTooltip"
                   >
-                    <slot name="cell" :row="row as any" :column="column">{{ (row as any)[column.key] ?? '' }}</slot>
+                    <div class="feishu-cell__content"><slot name="cell" :row="row as any" :column="column">{{ (row as any)[column.key] ?? '' }}</slot></div>
                   </td>
                 </tr>
               </template>
@@ -435,6 +466,8 @@ function jumpToPage() {
         <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
       </div>
     </Transition>
+
+    <PerformancePopover :visible="cellTooltip.visible" :anchor="cellTooltip.anchor" width="auto" :gap="8" name="performance-cell-tooltip" @close="hideCellTooltip" @mouseleave="hideCellTooltip">{{ cellTooltip.text }}</PerformancePopover>
   </div>
 </template>
 
@@ -451,7 +484,6 @@ function jumpToPage() {
 :deep(.el-table td.el-table-column--selection > .cell) { display: flex; align-items: center; padding-left: 12px !important; padding-right: 0 !important; }
 :deep(.el-table th.el-table-column--selection .el-checkbox),
 :deep(.el-table td.el-table-column--selection .el-checkbox) { margin: 0; }
-:deep(.el-table__row.is-selected-row > td.el-table__cell) { background: #f5f6f7; }
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
 :deep(.is-clickable-row) { cursor: pointer; }
@@ -476,7 +508,7 @@ function jumpToPage() {
 .selection-bar-slide-enter-from, .selection-bar-slide-leave-to { transform: translateY(100%); opacity: 0; }
 /* 飞书同构原生表格（页面滚动模式） */
 .feishu-table { min-width: 0; }
-.feishu-table__header { position: sticky; top: calc(20px - var(--performance-table-container-padding, 0px)); z-index: 20; overflow: hidden; background: #fff; box-shadow: 0 1px 0 rgba(31, 35, 41, 0.15); }
+.feishu-table__header { position: sticky; top: calc(20px - var(--performance-table-container-padding, 0px)); z-index: 20; overflow: hidden; border-top: 1px solid rgba(31, 35, 41, 0.15); background: #fff; }
 .feishu-table__body { overflow-x: auto; scrollbar-width: none; }
 .feishu-table__body::-webkit-scrollbar { display: none; }
 .feishu-hscroll { position: sticky; bottom: 0; z-index: 19; height: 10px; margin-top: 2px; opacity: 0; transition: opacity .15s ease; }
@@ -485,14 +517,17 @@ function jumpToPage() {
 .feishu-hscroll__thumb:hover { background: rgba(31, 35, 41, 0.45); }
 .feishu-table__table { table-layout: fixed; border-collapse: separate; border-spacing: 0; }
 .feishu-cell { height: 52px; padding: 12px; box-sizing: border-box; border-bottom: 1px solid rgba(31, 35, 41, 0.08); background: #fff; color: #1f2329; font-size: 14px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feishu-cell__content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 thead .feishu-cell { height: 47px; color: #646a73; border-bottom-color: rgba(31, 35, 41, 0.15); }
 thead .feishu-cell:hover { background: #f5f6f7; }
 .feishu-cell.is-align-right { text-align: right; }
 .feishu-cell--selection { padding: 12px; }
 .feishu-cell.is-fixed-left { position: sticky; z-index: 2; background: #fff; }
+.feishu-cell.is-fixed-left.is-last-fixed::after { content: ''; position: absolute; top: 0; right: -1px; bottom: 0; width: 1px; background: #bbbfc4; box-shadow: 1px 0 2px -2px rgba(31, 35, 41, 0.02), 2px 0 4px 0 rgba(31, 35, 41, 0.02), 2px 0 8px 2px rgba(31, 35, 41, 0.02); display: none; opacity: 0; transition: opacity .3s; }
+.is-ping-left .feishu-cell.is-fixed-left.is-last-fixed::after { display: block; opacity: 1; }
 thead .feishu-cell.is-fixed-left { z-index: 3; }
-.feishu-row.is-selected-row > .feishu-cell { background: #f5f6f7; }
-.feishu-row.is-clickable { cursor: pointer; }
+.feishu-row:hover > .feishu-cell { background: #f5f6f7; }
+.feishu-row { cursor: pointer; }
 .feishu-table__state { height: 220px; text-align: center; color: #646a73; }
 </style>
 

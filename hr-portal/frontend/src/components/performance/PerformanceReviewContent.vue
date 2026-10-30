@@ -43,7 +43,6 @@
                 :project-id="props.projectId"
                 :review-context="{ nodeId: node.node_id, state: 'all' }"
                 :show-export="false"
-                search-width="calc(100% - 88px)"
                 @select-member="emit('open-member', { node, member: $event })"
               />
               <p v-else class="evaluation-pane-hint">该页签内容将在后续迭代中开发</p>

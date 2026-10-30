@@ -12,6 +12,7 @@ withDefaults(defineProps<{
   filterVariant?: 'default' | 'icon-only'
   filterLabel?: string
   searchFill?: boolean
+  gap?: number
 }>(), {
   searchPlaceholder: '通过名称、备注搜索',
   searchAriaLabel: '搜索',
@@ -21,6 +22,7 @@ withDefaults(defineProps<{
   filterVariant: 'default',
   filterLabel: '筛选',
   searchFill: false,
+  gap: 8,
 })
 
 const emit = defineEmits<{
@@ -32,7 +34,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="list-toolbar">
+  <div class="list-toolbar" :style="{ gap: `${gap}px` }">
     <slot name="left" />
     <div v-if="!searchFill" class="toolbar-spacer"></div>
     <PerformanceSearchInput

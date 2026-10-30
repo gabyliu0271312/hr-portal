@@ -183,6 +183,7 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       search-aria-label="搜索成员"
       search-fill
       search-width="100%"
+      :gap="12"
       @search="page = 1; load()"
       @clear="page = 1; load()"
       @filter="ElMessage.info('筛选功能暂未开放')"
