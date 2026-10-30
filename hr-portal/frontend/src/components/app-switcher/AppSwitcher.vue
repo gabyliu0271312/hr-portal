@@ -45,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { APP_CATALOG, type AppMeta } from '@/constants/appCatalog'
@@ -78,6 +78,14 @@ function toggle() {
   // 单应用时点击无反应：不打开弹窗、不跳转
   if (availableApps.value.length <= 1) return
   open.value = true
+  void nextTick(positionPanel)
+}
+
+function positionPanel() {
+  if (!panel.value || !trigger.value) return
+  const rect = trigger.value.getBoundingClientRect()
+  panel.value.style.left = `${Math.max(8, rect.left)}px`
+  panel.value.style.top = `${rect.bottom + 6}px`
 }
 
 function close() {
@@ -109,7 +117,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onOutsideClick))
 .app-switcher__trigger:hover { background: #f1f2f4; color: var(--color-primary); }
 .app-switcher__trigger:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
-.app-switcher__panel { position: fixed; z-index: 3000; width: 320px; max-width: calc(100vw - 24px); padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-lg, 8px); background: var(--color-bg-card); box-shadow: var(--shadow-popover, 0 8px 20px rgba(31, 35, 41, 0.10)); }
+.app-switcher__panel { position: fixed; top: 48px; left: 16px; z-index: 3000; width: 320px; max-width: calc(100vw - 24px); padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-lg, 8px); background: var(--color-bg-card); box-shadow: var(--shadow-popover, 0 8px 20px rgba(31, 35, 41, 0.10)); }
 .app-switcher__title { padding: 4px 8px 10px; color: var(--color-text-secondary); font-size: 13px; }
 .app-switcher__list { display: flex; flex-direction: column; gap: 4px; }
 .app-switcher__item { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border: 0; border-radius: var(--radius-md, 6px); background: transparent; color: var(--color-text-primary); cursor: pointer; font-size: 14px; text-align: left; }
