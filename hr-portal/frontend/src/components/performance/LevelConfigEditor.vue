@@ -139,7 +139,7 @@ function removeLevel(index: number) {
 .level-content-grid.quantified { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr) 112px 112px; }
 .level-code-control, .quantified-score-control { min-width: 0; }
 .native-input { width: 100%; height: 32px; padding: 4px 11px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; outline: none; color: #1f2329; font: 400 14px/22px inherit; }
-.native-input:focus { border-color: #1456f0; }
+.native-input:focus { border-color: var(--performance-field-border-focus); }
 .native-input.error { border-color: #f54a45; }
 .error-text { display: block; margin-top: 4px; color: #f54a45; font-size: 12px; line-height: 18px; }
 .mt-1.text-R-500 { min-width: 0; min-height: 0; margin-top: 2px; box-sizing: border-box; color: #f54a45; font: 400 14px/21px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; white-space: pre-line; }

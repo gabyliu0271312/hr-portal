@@ -116,13 +116,13 @@ defineEmits<{ 'update:modelValue': [value: boolean] }>()
 .project-role-dialog__delete { display: none; align-items: center; flex: 0 0 48px; height: 32px; margin-top: 4px; outline: 0; }
 .project-role-dialog__language-button { display: inline-flex; justify-content: center; align-items: center; min-width: 0; min-height: 0; padding: 2px 4px; box-sizing: border-box; border: 0; border-radius: 6px; background: transparent; color: #3370ff; line-height: 18px; cursor: pointer; transition: color .1s ease-in, background-color .1s ease-in, border-color .1s ease-in; }
 .project-role-dialog__add { margin-top: 4px; column-gap: 4px; }
-.project-role-dialog__language-button:hover, .project-role-dialog__language-button:focus-visible { outline: 0; background: #f0f5ff; color: #1456f0; }
+.project-role-dialog__language-button:hover, .project-role-dialog__language-button:focus-visible { outline: 0; background: #f0f5ff; color: var(--color-primary); }
 .project-role-dialog__language { position: absolute; bottom: 24px; left: 20px; width: 96px; height: 22px; box-sizing: border-box; }
 .project-role-dialog__language-button { color: #3370ff; }
 .project-role-dialog__add :deep(svg) { width: 14px; height: 14px; }
 .project-role-dialog__footer-buttons { display: flex; flex-direction: row-reverse; flex-wrap: wrap; overflow: hidden; margin-bottom: -12px; }
 .project-role-dialog__confirm, .project-role-dialog__cancel { display: flex; justify-content: center; align-items: center; min-width: 80px; height: 32px; margin-bottom: 12px; margin-left: 12px; padding: 4px 11px; box-sizing: border-box; border-radius: 6px; font: 400 14px/22px var(--font-sans); white-space: nowrap; cursor: pointer; transition: color .1s ease-in, background-color .1s ease-in, border-color .1s ease-in; }
-.project-role-dialog__confirm { border: .666667px solid #1456f0; background: #1456f0; color: #fff; }
+.project-role-dialog__confirm { border: .666667px solid var(--color-primary); background: var(--color-primary); color: #fff; }
 .project-role-dialog__cancel { border: .666667px solid #d0d3d6; background: #fff; color: #1f2329; }
 .project-role-dialog__confirm:hover { background: #3370ff; border-color: #3370ff; }
 .project-role-dialog__cancel:hover { background: #f5f6f7; }

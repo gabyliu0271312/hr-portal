@@ -179,10 +179,10 @@ onBeforeUnmount(() => { requestIds.department++; requestIds.team++; requestIds.s
 .report-filter-button:hover { background: #eff0f1; }
 .report-filter-button:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
 .report-source-notice { margin: 0 0 20px; color: #646a73; font-size: 12px; }
-.report-source-notice strong { padding: 2px 6px; border-radius: 4px; background: #eff3ff; color: #1456f0; font-weight: 500; }
+.report-source-notice strong { padding: 2px 6px; border-radius: 4px; background: #eff3ff; color: var(--color-primary); font-weight: 500; }
 .report-feedback { position: absolute; top: 36px; right: 0; width: max-content; max-width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 0; background: #f5f7fa; border: 1px solid #dee0e3; border-radius: 6px; color: #646a73; font-size: 13px; }
 .report-state { padding: 24px 0; color: #646a73; text-align: center; }
-.report-state button { padding: 6px 12px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1456f0; cursor: pointer; }
+.report-state button { padding: 6px 12px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: var(--color-primary); cursor: pointer; }
 .report-placeholder { display: flex; flex-direction: column; justify-content: center; gap: 8px; margin: 0; padding: 32px 20px; background: #f8f9fa; border-radius: 6px; color: #646a73; font-size: 14px; }
 .report-placeholder small { font-size: 12px; color: #8f959e; }
 </style>

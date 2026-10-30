@@ -743,8 +743,8 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
 .language-options input[type='checkbox']:checked,
 .language-options input[type='checkbox']:checked:disabled {
-  border-color: #1456f0;
-  background: #1456f0;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
 }
 
 .language-options input[type='checkbox']:checked::after {
@@ -910,9 +910,9 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
 .year-options button:hover,
 .year-options button.active {
-  color: #1456f0;
+  color: var(--color-primary);
   background: #f0f5ff;
-  border-color: #1456f0;
+  border-color: var(--color-primary);
 }
 
 .period-panel {
@@ -975,7 +975,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 
 .period-group-options button:hover,
 .period-group-options button.active {
-  color: #1456f0;
+  color: var(--color-primary);
   background: #edf3ff;
 }
 
@@ -1160,7 +1160,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
   cursor: pointer;
 }
 
-.form-footer .cycle-save-button:hover:not(:disabled) { border-color: #1456f0; background: #1456f0; }
+.form-footer .cycle-save-button:hover:not(:disabled) { border-color: var(--color-primary); background: var(--color-primary); }
 .form-footer .cycle-save-button:active:not(:disabled) { border-color: #0442d2; background: #0442d2; }
 .form-footer .cycle-save-button:disabled { opacity: .6; cursor: not-allowed; }
 

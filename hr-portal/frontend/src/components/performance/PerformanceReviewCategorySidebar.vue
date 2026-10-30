@@ -232,7 +232,7 @@ const statusLabel: Record<PerformanceReviewNode['status'], string> = {
 .review-node { display: flex; width: calc(100% - 16px); min-height: 38px; align-items: stretch; margin: 1px 8px; padding: 0 8px 0 40px; border: 0; border-radius: 6px; background: transparent; color: #1f2329; cursor: pointer; font-size: 14px; font-weight: 400; line-height: 22px; text-align: left; transition: color .1s linear, background .1s linear; }
 .node-group { display: flex; width: 100%; min-width: 0; min-height: 38px; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 0; border-radius: 4px; box-sizing: border-box; font: inherit; }
 .review-node:hover:not(.active) { background: rgba(31, 35, 41, 0.1); }
-.review-node.active { background: rgba(20, 86, 240, 0.15); color: #1456f0; font-weight: 500; }
+.review-node.active { background: rgba(20, 86, 240, 0.15); color: var(--color-primary); font-weight: 500; }
 .node-label { min-width: 0; margin-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; }
 .review-node em { display: flex; max-width: 100%; flex: 0 0 auto; align-items: center; overflow: hidden; padding: 0 6px; border-radius: 4px; color: #1f2329; font-size: 12px; font-style: normal; font-weight: 400; line-height: 22px; white-space: nowrap; }
 .review-node em.status-pending { background: #feead2; color: #6b3900; }

@@ -132,7 +132,7 @@ function selectRating(item: FillItem, value: string) { const option = props.rati
 .fill-item-fields .type-field legend { margin-bottom: 8px; font-weight: 600; }
 .fill-item-fields .type-field i { margin-left: 2px; color: #f54a45; font-style: normal; }
 .question-type-option { display: inline-flex; align-items: center; height: 22px; margin-right: 24px; color: #1f2329; line-height: 22px; cursor: pointer; }
-.question-type-option input { width: 16px; height: 16px; margin: 0 8px 0 0; accent-color: #1456f0; }
+.question-type-option input { width: 16px; height: 16px; margin: 0 8px 0 0; accent-color: var(--color-primary); }
 .fill-item-fields .inside-select, .saved-item > .inside-select { margin: 18px 20px; }
 .fill-item-fields .default-all { margin: 16px 0 0; }
 .drag-instruction, .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

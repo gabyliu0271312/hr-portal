@@ -89,5 +89,5 @@ onMounted(loadMetricSettings)
 .assessment-method-settings-page{min-height:0;color:#1f2329;font-family:var(--font-sans)}
 .assessment-method-settings-page>h1{margin:0 0 16px;color:#1f2329;font-size:20px;font-weight:600;line-height:28px}
 .assessment-method-settings-page__error{display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px 16px;border-radius:8px;background:#fff1f0;color:#d54941;font-size:14px;line-height:21px}
-.assessment-method-settings-page__error button{padding:0;border:0;background:transparent;color:#1456f0;cursor:pointer;font:inherit}
+.assessment-method-settings-page__error button{padding:0;border:0;background:transparent;color:var(--color-primary);cursor:pointer;font:inherit}
 </style>

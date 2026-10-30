@@ -166,7 +166,7 @@ watch(() => [props.calculationRule, props.options.map((option) => String(option.
 .is-condition .sub-question-header + .sub-question-row { margin-top: 8px; }
 .is-condition .sub-question-row + .sub-question-row { margin-top: 12px; }
 .derived-cell { display: flex; align-items: center; width: 100%; height: 32px; padding: 4px 11px; overflow: hidden; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; background: #f1f2f3; color: #8f959e; font: 400 14px/22px inherit; text-overflow: ellipsis; white-space: nowrap; }
-.new-sub-question { display: block; width: 110px; height: 22px; margin: 8px 0 0 -4px; padding: 0; border: 0; background: transparent; color: #1456f0; font: 400 14px/22px inherit; cursor: pointer; }
+.new-sub-question { display: block; width: 110px; height: 22px; margin: 8px 0 0 -4px; padding: 0; border: 0; background: transparent; color: var(--color-primary); font: 400 14px/22px inherit; cursor: pointer; }
 .new-sub-question:hover { color: #0d3fb8; }
 .sub-question-validation { width: 100%; height: 21px; margin-top: 2px; color: #f54a45; font-size: 14px; font-weight: 400; line-height: 21px; }
 .sub-question-row.is-dragging { border-radius: 6px; background: #fff; box-shadow: 0 4px 12px rgba(31,35,41,.12); }
@@ -176,10 +176,10 @@ watch(() => [props.calculationRule, props.options.map((option) => String(option.
 .sub-question-picker-options { flex: 1 1 auto; overflow: auto; }
 .sub-question-picker-option { position: relative; display: flex; flex-direction: column; width: 100%; min-height: 50px; padding: 4px 16px; border: 0; background: #fff; color: #1f2329; text-align: left; cursor: pointer; }
 .sub-question-picker-option:hover { background: rgba(31,35,41,.08); }
-.sub-question-picker-option.selected { color: #1456f0; }
+.sub-question-picker-option.selected { color: var(--color-primary); }
 .sub-question-picker-option-main { max-width: calc(100% - 24px); overflow: hidden; font-size: 14px; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
 .sub-question-picker-option-summary { color: #8f959e; font-size: 12px; line-height: 20px; }
 .sub-question-picker-option-check { position: absolute; top: 14px; right: 16px; color: #3370ff; font-size: 16px; line-height: 22px; }
 .sub-question-picker-empty { padding: 16px; color: #8f959e; font-size: 14px; line-height: 22px; }
-.sub-question-picker-create { flex: 0 0 42px; height: 42px; padding: 0 16px; border: 0; border-top: 1px solid #f1f2f3; background: #fff; color: #1456f0; text-align: left; font: 400 14px/22px inherit; cursor: pointer; }
+.sub-question-picker-create { flex: 0 0 42px; height: 42px; padding: 0 16px; border: 0; border-top: 1px solid #f1f2f3; background: #fff; color: var(--color-primary); text-align: left; font: 400 14px/22px inherit; cursor: pointer; }
 </style>

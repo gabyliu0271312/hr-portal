@@ -126,7 +126,7 @@ function close(reason: 'cancel') {
 
 .reference-option-card__checkbox { position: relative; flex: 0 0 16px; width: 16px; height: 16px; }
 .reference-option-card__wallpaper { position: absolute; inset: 0; display: block; box-sizing: border-box; border: 1px solid #8f959e; border-radius: 4px; background: #fff; color: #fff; transition: 0.2s cubic-bezier(0.34, 0.69, 0.1, 1); }
-.reference-option-card__wallpaper--checked { border-color: transparent; background: #1456f0; }
+.reference-option-card__wallpaper--checked { border-color: transparent; background: var(--color-primary); }
 .reference-option-card__checked-svg { position: absolute; top: 50%; left: 50%; width: 12px; height: 12px; overflow: hidden; transform: translate(-50%, -50%); }
 
 .reference-option-card__text { display: block; margin-left: 12px; font-size: 14px; font-weight: 400; line-height: 21px; color: #1f2329; }
@@ -134,7 +134,7 @@ function close(reason: 'cancel') {
 .reference-option-card__description { display: block; margin-top: 4px; font-size: 14px; line-height: 21px; color: #646a73; }
 
 .reference-drawer__footer { position: absolute; right: 0; bottom: 0; left: 0; z-index: 2; height: 62px; padding: 10px 0 20px 24px; box-sizing: border-box; background: #fff; }
-.reference-drawer__confirm { display: inline-flex; justify-content: center; align-items: center; min-width: 80px; height: 32px; margin-right: 12px; padding: 4px 11px; box-sizing: border-box; border: 1px solid #1456f0; border-radius: 6px; background: #1456f0; color: #fff; font-size: 14px; font-weight: 400; line-height: 22px; white-space: nowrap; cursor: pointer; transition: color 0.1s ease-in, background-color 0.1s ease-in, border-color 0.1s ease-in; }
+.reference-drawer__confirm { display: inline-flex; justify-content: center; align-items: center; min-width: 80px; height: 32px; margin-right: 12px; padding: 4px 11px; box-sizing: border-box; border: 1px solid var(--color-primary); border-radius: 6px; background: var(--color-primary); color: #fff; font-size: 14px; font-weight: 400; line-height: 22px; white-space: nowrap; cursor: pointer; transition: color 0.1s ease-in, background-color 0.1s ease-in, border-color 0.1s ease-in; }
 .reference-drawer__confirm:active { background: #0442d2; border-color: #0442d2; }
 .reference-drawer__cancel { display: inline-flex; justify-content: center; align-items: center; min-width: 80px; height: 32px; padding: 4px 11px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; white-space: nowrap; cursor: pointer; transition: color 0.1s ease-in, background-color 0.1s ease-in, border-color 0.1s ease-in; }
 .reference-drawer__cancel:hover { background: #eff0f1; }

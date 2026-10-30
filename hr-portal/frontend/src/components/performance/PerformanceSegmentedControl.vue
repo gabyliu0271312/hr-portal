@@ -54,8 +54,8 @@ function select(option: PerformanceSegmentedOption) {
 .segmented-control.size-sm .segment { padding: 2px 8px; font-size: 12px; font-weight: 500; line-height: 20px; }
 .segment:hover { background: #e1eaff; border-color: #3370ff; color: #3370ff; }
 .segment:active { background: #bacefd; border-color: #3370ff; color: #3370ff; }
-.segment.checked { border-color: #3370ff; color: #1456f0; font-weight: 500; }
-.segment.checked:hover { background: #e1eaff; border-color: #3370ff; color: #1456f0; }
+.segment.checked { border-color: #3370ff; color: var(--color-primary); font-weight: 500; }
+.segment.checked:hover { background: #e1eaff; border-color: #3370ff; color: var(--color-primary); }
 .segment-icon { display: inline-flex; flex: 0 0 auto; margin-right: 4px; }
 .segmented-control.size-md .segment-icon { width: 14px; height: 14px; }
 .segmented-control.size-sm .segment-icon { width: 12px; height: 12px; }

@@ -23,5 +23,5 @@ function changePage(page: number) {
 </script>
 
 <style scoped>
-.performance-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:28px;margin-top:10px;color:#1f2329;font-size:14px}.performance-pagination button{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;cursor:pointer}.performance-pagination button:disabled{color:#bbbfc4;cursor:not-allowed}.performance-pagination svg{width:12px;height:12px}.performance-pagination .current-page{border-color:#1456f0;color:#1456f0;cursor:default}
+.performance-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:28px;margin-top:10px;color:#1f2329;font-size:14px}.performance-pagination button{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;cursor:pointer}.performance-pagination button:disabled{color:#bbbfc4;cursor:not-allowed}.performance-pagination svg{width:12px;height:12px}.performance-pagination .current-page{border-color:var(--color-primary);color:var(--color-primary);cursor:default}
 </style>

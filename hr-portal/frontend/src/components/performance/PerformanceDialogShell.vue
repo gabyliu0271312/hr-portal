@@ -66,7 +66,7 @@ function close() {
 <style scoped>
 .performance-dialog-overlay { position: fixed; inset: 0; z-index: var(--performance-confirm-z-index); display: grid; place-items: center; padding: var(--spacing-4); box-sizing: border-box; background: var(--performance-dialog-overlay); }
 .performance-dialog { position: relative; display: flex; max-width: calc(100vw - 32px); max-height: calc(100vh - 28px); flex-direction: column; overflow: hidden; box-sizing: border-box; border-radius: var(--performance-dialog-radius); background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); box-shadow: var(--performance-dialog-shadow); }
-.performance-dialog__header { position: relative; flex: 0 0 var(--performance-dialog-header-height); min-height: var(--performance-dialog-header-height); padding: var(--spacing-6) var(--performance-dialog-header-padding-right) var(--spacing-6) var(--performance-dialog-padding); box-sizing: border-box; }
+.performance-dialog__header { position: relative; flex: 0 0 auto; min-height: var(--performance-dialog-header-height); padding: var(--spacing-6) var(--performance-dialog-header-padding-right) var(--spacing-6) var(--performance-dialog-padding); box-sizing: border-box; }
 .performance-dialog--auto-header .performance-dialog__header { flex: 0 0 auto; min-height: 0; }
 .performance-dialog__header h2 { margin: 0; color: var(--color-text-primary); font-size: var(--font-size-lg); font-weight: 600; line-height: 24px; }
 .performance-dialog__description { min-width: 0; margin-top: 4px; color: var(--color-text-secondary); font-size: var(--font-size-md); font-weight: 400; line-height: 22px; }

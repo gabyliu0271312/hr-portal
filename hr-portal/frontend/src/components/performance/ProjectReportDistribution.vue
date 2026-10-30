@@ -56,7 +56,7 @@ const ticks = computed(() => Array.from({ length: maximum.value / 10 + 1 }, (_, 
 .count-info { display: flex; gap: 16px; flex-wrap: wrap; color: #646a73; font-size: 13px; }
 .axis-name { color: #646a73; font-size: 12px; }
 .comparison-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 24px 40px; }
-.comparison-button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #3370ff; border-radius: 6px; background: #fff; color: #1456f0; padding: 3px 8px; font: inherit; line-height: 20px; cursor: pointer; }
+.comparison-button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #3370ff; border-radius: 6px; background: #fff; color: var(--color-primary); padding: 3px 8px; font: inherit; line-height: 20px; cursor: pointer; }
 .comparison-button :deep(svg) { width: 14px; height: 14px; }
 .summary-tag { padding: 2px 8px; background: #eff3ff; color: #1f2329; border-radius: 4px; font-size: 12px; }
 .distribution-figure { margin: 0; }

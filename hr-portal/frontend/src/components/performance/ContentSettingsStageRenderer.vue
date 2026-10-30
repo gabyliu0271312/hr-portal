@@ -24,7 +24,7 @@ defineEmits<{ 'update:activeTab': [value: string] }>()
 .content-tabs__divider { position: absolute; right: 0; top: 46px; left: 0; z-index: 0; height: .666667px; background: rgba(31, 35, 41, .15); }
 .content-tab { position: relative; z-index: 1; display: inline-flex; align-items: center; max-width: 240px; height: 46px; margin-right: 28px; padding: 12px 0; box-sizing: border-box; border: 0; background: transparent; color: #1f2329; font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; cursor: pointer; }
 .content-tab:last-of-type { margin-right: 0; }
-.content-tab--active { color: #1456f0; font-weight: 500; }
-.content-tab--active::after { position: absolute; right: 0; bottom: 1px; left: 0; z-index: 2; height: 3px; background: #1456f0; content: ''; }
+.content-tab--active { color: var(--color-primary); font-weight: 500; }
+.content-tab--active::after { position: absolute; right: 0; bottom: 1px; left: 0; z-index: 2; height: 3px; background: var(--color-primary); content: ''; }
 
 </style>

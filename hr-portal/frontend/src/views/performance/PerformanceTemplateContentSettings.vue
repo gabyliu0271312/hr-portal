@@ -1028,7 +1028,7 @@ onMounted(async () => {
 }
 
 .content-tab:last-of-type { margin-right: 0; }
-.content-tab--active { color: #1456f0; font-weight: 500; }
+.content-tab--active { color: var(--color-primary); font-weight: 500; }
 .content-tab--active::after {
   position: absolute;
   right: 0;
@@ -1036,7 +1036,7 @@ onMounted(async () => {
   left: 0;
   z-index: 2;
   height: 3px;
-  background: #1456f0;
+  background: var(--color-primary);
   content: '';
   transition: width 0.3s cubic-bezier(.34, .69, .1, 1), left 0.3s cubic-bezier(.34, .69, .1, 1);
 }

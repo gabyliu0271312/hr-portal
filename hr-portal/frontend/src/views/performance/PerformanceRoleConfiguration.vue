@@ -277,13 +277,13 @@ function notifyUnavailable(action: string) {
 .role-page-title { margin: 0 0 16px; font-size: 20px; font-weight: 600; line-height: 28px; }
 .role-tabs { display: flex; height: 48px; align-items: stretch; border-bottom: 1px solid rgba(31, 35, 41, .15); }
 .role-tab { position: relative; min-width: 104px; padding: 0 16px; border: 0; background: transparent; color: #646a73; cursor: pointer; font: 400 16px/24px var(--font-sans); }
-.role-tab.active { color: #1456f0; font-weight: 600; }
+.role-tab.active { color: var(--color-primary); font-weight: 600; }
 .role-tab.active::after { position: absolute; right: 16px; bottom: -1px; left: 16px; height: 3px; border-radius: 3px 3px 0 0; background: #3370ff; content: ''; }
 .role-card { box-sizing: border-box; margin-top: 16px; padding: 10px; border-radius: 8px; background: #fff; box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
 .role-toolbar :deep(.list-toolbar) { margin-bottom: 8px; }
 .role-export-button { display: inline-flex; height: 32px; align-items: center; gap: 4px; padding: 4px 11px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; cursor: pointer; font: 400 14px/22px var(--font-sans); }
 .role-export-button:hover { background: #f2f3f5; }
-.role-name-button { padding: 0; border: 0; background: transparent; color: #1456f0; cursor: pointer; font: inherit; text-align: left; }
+.role-name-button { padding: 0; border: 0; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; text-align: left; }
 .role-name-button:hover { color: #3370ff; }
 .role-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .role-status i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #34c759; }

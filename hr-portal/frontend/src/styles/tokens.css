@@ -97,7 +97,7 @@
   --performance-formula-example-number: #de7802;
   --performance-control-radius: var(--radius-md);
   --performance-control-border: var(--color-line-control);
-  --performance-control-focus-border: var(--color-primary-hover);
+  --performance-control-focus-border: #336df4;
   --performance-control-focus-ring: var(--shadow-focus);
   --performance-input-height: 31px;
   --performance-input-compact-height: 30px;
@@ -122,7 +122,7 @@
   --performance-info-icon-size: 16px;
   --performance-info-icon-gap: var(--spacing-1);
   --performance-info-icon-color: #646a73;
-  --performance-line-tabs-ink: #1456f0;
+  --performance-line-tabs-ink: var(--color-primary);
   --performance-line-tabs-text: #1f2329;
   --performance-line-tabs-divider: rgba(31, 35, 41, 0.15);
   --performance-line-tabs-surface: var(--performance-page-surface);
@@ -396,8 +396,8 @@
 
   /* Motion */
   --duration-fast: 120ms;
-  --duration-base: 180ms;
-  --ease-standard: ease;
+  --duration-base: 200ms;
+  --ease-standard: cubic-bezier(0.34, 0.69, 0.1, 1);
 
   /* Layout */
   --layout-topbar-height: 56px;

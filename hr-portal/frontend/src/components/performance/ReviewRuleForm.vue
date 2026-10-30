@@ -290,10 +290,10 @@ defineExpose({ submit, preview, form })
 .language-control { display: flex; align-items: center; gap: 24px; }
 .language-control :deep(.performance-checkbox) { width: auto; }
 .native-input { width: 100%; height: 32px; padding: 4px 11px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; outline: none; color: #1f2329; font: 400 14px/22px inherit; }
-.native-input:focus { border-color: #1456f0; }
+.native-input:focus { border-color: var(--performance-field-border-focus); }
 .native-input.error { border-color: #f54a45; }
 .native-textarea { display: block; width: 100%; height: auto; min-height: 49px; padding: 4px 11px 22px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; outline: none; field-sizing: content; resize: none; overflow-y: hidden; color: #1f2329; font: 400 14px/22px inherit; }
-.native-textarea:focus { border-color: #1456f0; }
+.native-textarea:focus { border-color: var(--performance-field-border-focus); }
 .native-textarea:disabled { background: #f5f6f7; color: #8f959e; cursor: not-allowed; }
 .textarea-wrap { position: relative; }
 .count { position: absolute; right: 8px; bottom: 8px; padding: 0 4px; border-radius: 4px; background: #eff0f1; color: #646a73; font-size: 10px; line-height: 16px; }

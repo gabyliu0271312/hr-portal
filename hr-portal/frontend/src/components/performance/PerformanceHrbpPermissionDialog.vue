@@ -156,7 +156,7 @@ watch(() => props.initialValue, () => {
 .hrbp-permission-dialog__invisible-select { margin-bottom: 4px; }
 .hrbp-permission-dialog__actions { display: flex; flex-direction: row-reverse; flex-wrap: wrap; overflow: hidden; margin-bottom: -12px; }
 .hrbp-permission-dialog__button { min-width: 80px; height: 32px; margin-bottom: 12px; margin-left: 12px; padding: 4px 11px; box-sizing: border-box; border: 1px solid; border-radius: 6px; font: 400 14px/22px var(--font-sans); white-space: nowrap; cursor: pointer; }
-.hrbp-permission-dialog__button--primary { border-color: #1456f0; background: #1456f0; color: #fff; }
+.hrbp-permission-dialog__button--primary { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
 .hrbp-permission-dialog__button--secondary { border-color: #d0d3d6; background: #fff; color: #1f2329; }
 .hrbp-permission-dialog__button:disabled { cursor: not-allowed; opacity: .6; }
 </style>

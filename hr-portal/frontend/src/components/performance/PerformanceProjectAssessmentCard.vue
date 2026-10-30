@@ -79,7 +79,7 @@ defineEmits<{
 
 <style scoped>
 .assessment-project-card{box-sizing:border-box;width:100%;margin-bottom:16px;padding:20px;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px;color:#1f2329;font-family:var(--font-sans)}
-.assessment-project-card__help,.assessment-project-card__example{display:inline-flex;align-items:center;padding:0;border:0;background:transparent;color:#1456f0;font:400 14px/22px var(--font-sans);text-decoration:none;cursor:pointer}
+.assessment-project-card__help,.assessment-project-card__example{display:inline-flex;align-items:center;padding:0;border:0;background:transparent;color:var(--color-primary);font:400 14px/22px var(--font-sans);text-decoration:none;cursor:pointer}
 .assessment-project-card__help:hover,.assessment-project-card__example:hover{color:#3370ff}
 .assessment-project-card__divider{height:0;margin:20px 0;border-top:1px solid rgba(31,35,41,.15)}
 .assessment-project-card__divider--dashed{border-top-style:dashed}
@@ -91,7 +91,7 @@ defineEmits<{
 .assessment-project-card__source-label{margin-bottom:4px;font-size:14px;line-height:21px;color:#1f2329}
 .assessment-project-card__role-summary{padding:16px 12px;border-radius:6px;background:#f8f9fa;font-size:14px;line-height:21px;color:#1f2329}
 .assessment-project-card__role-summary-header{display:flex;align-items:center;justify-content:space-between;color:#646a73}
-.assessment-project-card__edit{display:inline-flex;align-items:center;gap:4px;padding:2px 4px;border:0;background:transparent;color:#1456f0;cursor:pointer}
+.assessment-project-card__edit{display:inline-flex;align-items:center;gap:4px;padding:2px 4px;border:0;background:transparent;color:var(--color-primary);cursor:pointer}
 .assessment-project-card__edit:hover{color:#3370ff}
 .assessment-project-card__visibility-checkbox{width:16px;flex:0 0 16px}
 .assessment-project-card__visibility-copy{margin-left:0;font-size:14px;line-height:21px;color:#1f2329}

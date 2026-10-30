@@ -392,7 +392,7 @@ onMounted(async () => {
 .todo-card { display: flex; min-width: 0; min-height: 0; flex-direction: column; border: 0.666667px solid #dee0e3; border-radius: 8px; background: #fff; box-shadow: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; }
 .todo-tabs { position: relative; display: flex; height: 52px; align-items: flex-start; gap: 0; margin-bottom: 12px; padding: 4px 0 0 16px; border-bottom: 1px solid rgba(31, 35, 41, 0.15); }
 .todo-tabs button { position: relative; display: inline-flex; height: 48px; max-width: 240px; align-items: center; margin-right: 28px; padding: 12px 0; border: 0; background: transparent; color: #1f2329; cursor: pointer; font-family: inherit; font-size: 16px; font-weight: 400; line-height: 24px; transition: color .1s linear, background-color .1s linear, border-color .1s linear; }
-.todo-tabs button.active { color: #1456f0; font-weight: 600; }
+.todo-tabs button.active { color: var(--color-primary); font-weight: 600; }
 .todo-tabs button.active::after { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: #3370ff; content: ''; }
 .todo-list { padding: 8px 20px 0; }
 .todo-empty { display: flex; align-items: center; justify-content: center; margin: 30px 0; padding: 0 20px; color: rgba(0, 0, 0, 0.65); font-size: 14px; line-height: 21px; }

@@ -315,7 +315,7 @@ onMounted(loadSettings)
 .permission-settings-card__error button { padding: 0; border: 0; background: transparent; color: #3370ff; cursor: pointer; }
 .permission-settings-editor__actions { display: flex; justify-content: flex-end; gap: var(--performance-button-gap); }
 .permission-settings-editor__button { min-width: 80px; height: 32px; padding: 4px 11px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font: 400 14px/22px var(--font-sans); cursor: pointer; }
-.permission-settings-editor__button--primary { border-color: #1456f0; background: #1456f0; color: #fff; }
+.permission-settings-editor__button--primary { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
 .permission-settings-editor__button:disabled { cursor: not-allowed; opacity: .6; }
 @media (max-width: 720px) { .permission-settings-card { padding: 16px; }.permission-settings-card__rule { align-items: flex-start; }.permission-settings-card__rule :deep(.performance-switch) { margin-top: 3px; } }
 </style>

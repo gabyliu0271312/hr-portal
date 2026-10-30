@@ -137,7 +137,7 @@ function removeInterval(index: number) {
 .interval-operator__sign { line-height: 22px; }
 .interval-operator__score { line-height: 18.6667px; }
 .interval-row > input { width: 100%; height: 32px; padding: 4px 11px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; outline: none; color: #1f2329; font: 400 14px/22px inherit; }
-.interval-row > input:focus { border-color: #1456f0; }
+.interval-row > input:focus { border-color: var(--performance-field-border-focus); }
 .interval-row > input.error { border-color: #f54a45; }
 .interval-error { display: block; grid-row: 2; margin-top: 4px; color: #f54a45; font-size: 12px; line-height: 18px; }
 .interval-boundary-error { grid-column: 1; }
