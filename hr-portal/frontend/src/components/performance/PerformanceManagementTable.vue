@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElOption, ElSelect, ElTable } from 'element-plus'
+import { ElOption, ElSelect, ElTable, type TableInstance } from 'element-plus'
 import { computed, ref } from 'vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
@@ -24,6 +24,7 @@ const props = withDefaults(defineProps<{
   sortValue?: (row: any, key: string) => unknown
   scrollMode?: 'inner' | 'page'
   fit?: boolean
+  showSelectionBar?: boolean
 }>(), {
   page: 1,
   pageSize: 10,
@@ -37,6 +38,7 @@ const props = withDefaults(defineProps<{
   sortValue: undefined,
   scrollMode: 'inner',
   fit: true,
+  showSelectionBar: false,
 })
 
 const emit = defineEmits<{
@@ -58,6 +60,22 @@ const tableRows = computed(() => {
 
 function changePage(page: number) {
   if (page >= 1 && page <= pageCount.value && page !== props.page) emit('page-change', page)
+}
+
+const tableRef = ref<TableInstance | null>(null)
+const selectedRows = ref<any[]>([])
+function onSelectionChange(rows: any[]) {
+  selectedRows.value = rows
+  emit('selection-change', rows)
+}
+function clearSelection() {
+  tableRef.value?.clearSelection()
+}
+function rowClassName({ row }: { row: any }) {
+  const classes: string[] = []
+  if (props.clickableRows) classes.push('is-clickable-row')
+  if (props.showSelectionBar && selectedRows.value.includes(row)) classes.push('is-selected-row')
+  return classes.join(' ') || undefined
 }
 
 const jumpText = ref('')
@@ -95,8 +113,9 @@ function jumpToPage() {
 
 <template>
   <div class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page' }" :aria-label="tableAriaLabel">
+    <div v-if="scrollMode === 'page'" class="table-sticky-mask" aria-hidden="true"></div>
     <div class="table-scroll">
-      <el-table v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="clickableRows ? 'is-clickable-row' : undefined" @selection-change="emit('selection-change', $event)" @row-click="emit('row-click', $event)">
+      <el-table ref="tableRef" v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="rowClassName" @selection-change="onSelectionChange" @row-click="emit('row-click', $event)">
         <slot />
         <template #empty>
           <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
@@ -132,11 +151,19 @@ function jumpToPage() {
       </el-select>
       <span class="pagination-jump">跳至 <input v-model="jumpText" class="pagination-jump-input" type="text" inputmode="numeric" aria-label="跳至页码" @keyup.enter="jumpToPage" @blur="jumpToPage" /> 页</span>
     </div>
+
+    <div v-if="showSelectionBar && selectedRows.length" class="selection-bar" :aria-label="`已选择 ${selectedRows.length} 条`">
+      <slot name="selection-actions" />
+      <span class="selection-bar__count">已选择 {{ selectedRows.length }} 条</span>
+      <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .performance-management-table { min-height: 0; display: flex; flex-direction: column; }
+/* 表头吸附时覆盖其上方 20px 缝隙，防止内容漏出（对齐飞书 sticky 白色遮罩） */
+.table-sticky-mask { position: sticky; top: 0; z-index: 19; flex: none; height: 20px; background: var(--color-bg-card, #fff); }
 /* 单一横向滚动容器：由 el-table 内部滚动区承担（等价采集契约 ud__table-content），外层一律不滚动，避免双滚动条 */
 .table-scroll { overflow: visible; }
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
@@ -159,11 +186,16 @@ function jumpToPage() {
 .is-page-scroll :deep(.el-table__header-wrapper) { position: sticky; top: 20px; z-index: 20; background: #fff; box-shadow: 0 1px 0 rgba(31, 35, 41, 0.15); }
 .is-page-scroll :deep(.el-scrollbar__bar.is-vertical) { display: none; }
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
-:deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
+:deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px 0; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
 :deep(.el-table th.el-table__cell:hover) { background: #f5f6f7; }
 :deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
-:deep(.el-table .el-table-column--selection > .cell) { padding-right: 0; padding-left: 0; }
+:deep(.el-table .el-table-column--selection > .cell) { padding-left: 12px; padding-right: 0; }
+:deep(.el-table__row.is-selected-row > td.el-table__cell) { background: #f5f6f7; }
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
+.selection-bar { display: flex; align-items: center; gap: 12px; margin-top: 30px; }
+.selection-bar__count { margin-left: 12px; color: #646a73; font-size: 14px; line-height: 22px; }
+.selection-bar__clear { padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: #1456f0; font: inherit; font-size: 14px; line-height: 18px; cursor: pointer; }
+.selection-bar__clear:hover, .selection-bar__clear:focus-visible { background: #eff0f1; outline: 0; }
 </style>
 
 <style>

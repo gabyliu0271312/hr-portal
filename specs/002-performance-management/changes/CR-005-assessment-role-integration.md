@@ -223,3 +223,16 @@ REA 复核飞书成员列表（evidence `ev_e7649ce…6895b`）：406 个结果�
 - `PerformanceSortHeader` 改为 inline-flex，排序箭头紧跟文字（8px），不再 `space-between` 拉开；箭头区域增加提示：未排序「点击降序」、降序「点击升序」、升序「取消排序」；
 - 同步更新 ProjectManagement/Review 的 sticky 断言；
 - 验证：`vue-tsc`、`npm run build` 通过；绩效 `.spec.ts` 1054/1058 通过，4 项失败均为并行会话的 token/弹窗断言，与本轮表格改动无关。
+
+### 2026-10-30 补充三：sticky 遮罩、勾选框对齐与批量操作条
+
+REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞书实现：
+
+- 表头之上有 `position: sticky; top:0; z-index:19; height:20px; background:#fff` 的白色遮罩，盖住表头与顶部之间 20px 缝隙；
+- 表头与表体勾选框同在 12px 内边距下对齐；表头勾选框为全选/半选状态；
+- 勾选后底部出现操作条：`授权他人处理`、`转交他人处理`（outlined primary）、`已选择 N 条`、`清除`（text），位于分页之后，间距 30px；
+- 选中行整行浅灰高亮。
+
+实现：公共表格 page 模式增加 sticky 遮罩；修正表头 `th` 双重内边距（12+12）为单层 12，勾选框与表头文字对齐；新增 `showSelectionBar` 与 `#selection-actions` 插槽，成员表提供两个操作按钮（本轮不接业务逻辑），`清除` 调用 el-table `clearSelection`；新增选中行高亮。
+
+验证：`vue-tsc`、`npm run build` 通过；绩效 `.spec.ts` 1054/1058 通过，4 项失败为并行会话的 token/弹窗断言，与表格无关。

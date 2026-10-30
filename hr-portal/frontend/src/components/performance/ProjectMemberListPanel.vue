@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, performanceWorkbenchApi, type ProjectMember, type PerformanceWorkbenchTaskPerson } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
+import PerformanceButton from './PerformanceButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
@@ -32,6 +33,8 @@ const emit = defineEmits<{
   export: []
   'columns-change': [keys: string[]]
   'select-member': [member: MemberRow]
+  'authorize-selected': []
+  'transfer-selected': []
 }>()
 const keyword = ref('')
 const members = ref<MemberRow[]>([])
@@ -234,6 +237,7 @@ onMounted(() => void loadMembers())
       sort-mode="remote"
       scroll-mode="page"
       :fit="false"
+      :show-selection-bar="!reviewContext"
       row-key="id"
       :clickable-rows="Boolean(reviewContext)"
       class="member-table"
@@ -261,6 +265,10 @@ onMounted(() => void loadMembers())
         <div v-if="loading" class="member-state" role="status">正在加载成员…</div>
         <div v-else-if="error" class="member-state member-state--error" role="alert">{{ error }}</div>
         <div v-else class="member-state">暂无成员</div>
+      </template>
+      <template #selection-actions>
+        <PerformanceButton variant="outline-primary" aria-label="授权他人处理" @click="emit('authorize-selected')">授权他人处理</PerformanceButton>
+        <PerformanceButton variant="outline-primary" aria-label="转交他人处理" @click="emit('transfer-selected')">转交他人处理</PerformanceButton>
       </template>
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
