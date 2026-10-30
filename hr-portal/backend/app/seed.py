@@ -198,6 +198,23 @@ MENU_TREE: list[dict] = [
             },
         ],
     },
+    # 一级 7：创梦人力（独立业务应用入口）
+    {
+        "code": "people",
+        "label": "创梦人力",
+        "icon": "User",
+        "children": [
+            {
+                "code": "people.access",
+                "label": "应用入口",
+                "icon": "Guide",
+                "children": [
+                    {"code": "people.app", "label": "创梦人力入口", "icon": "User"},
+                    {"code": "people.admin", "label": "创梦人力后台", "icon": "Setting"},
+                ],
+            },
+        ],
+    },
 ]
 
 

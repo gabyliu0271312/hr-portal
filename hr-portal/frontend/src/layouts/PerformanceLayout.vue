@@ -2,7 +2,7 @@
   <el-container class="performance-app">
     <div class="performance-header">
       <div class="header-left">
-        <button class="launcher" type="button" aria-label="应用启动器" @click="router.push('/home')"><i v-for="index in 9" :key="index"></i></button>
+        <AppSwitcher current="performance" />
         <PerformanceBrand label="创梦绩效" />
         <nav class="performance-tabs">
           <button
@@ -77,6 +77,7 @@ import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
 import { openPerformanceSettingsInNewTab } from '@/utils/performanceSettingsNavigation'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
 import PerformanceBrand from '@/components/performance/PerformanceBrand.vue'
+import AppSwitcher from '@/components/app-switcher/AppSwitcher.vue'
 import PerformanceIdentitySwitchDialog from '@/components/performance/PerformanceIdentitySwitchDialog.vue'
 import PerformanceIdentitySwitchRecords from '@/components/performance/PerformanceIdentitySwitchRecords.vue'
 import { identitySwitchApi, type SwitchCapability } from '@/api/identitySwitch'
@@ -246,9 +247,6 @@ onUnmounted(() => { if (heartbeat) clearInterval(heartbeat) })
   align-items: center;
   gap: 0;
 }
-.launcher { display: grid; width: 32px; height: 32px; grid-template-columns: repeat(3, 4px); grid-template-rows: repeat(3, 4px); place-content: center; gap: 4px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #646a73; cursor: pointer; }
-.launcher i { display: block; width: 4px; height: 4px; border-radius: 1px; background: currentColor; }
-.launcher:hover { background: #f1f2f4; color: var(--color-primary); }
 .portal-link {
   padding: 0;
   border: 0;

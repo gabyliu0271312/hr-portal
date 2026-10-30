@@ -1,9 +1,11 @@
 <template>
   <el-container style="height: 100vh; flex-direction: column">
-    <!-- 顶部一级导航：tabs -->
+    <!-- 顶部一级导航：应用切换 + 品牌 + tabs -->
     <div class="app-header">
       <div class="header-left">
-        <span class="system-name" @click="router.push('/home')">HR Portal · 人力资源门户</span>
+        <AppSwitcher current="portal" />
+        <AppBrand app-key="portal" label="HR Portal" />
+        <span class="system-name" @click="router.push('/home')">人力资源门户</span>
         <nav class="top-tabs">
           <span
             v-for="g in tabGroups"
@@ -78,7 +80,10 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { Avatar } from '@element-plus/icons-vue'
 import { authApi } from '@/api/auth'
 import { MENU_ROUTE_MAP } from '@/constants/menuRoutes'
+import { APP_TOP_TAB_CODES } from '@/constants/appCatalog'
 import GlobalAiAssistant from '@/components/GlobalAiAssistant.vue'
+import AppSwitcher from '@/components/app-switcher/AppSwitcher.vue'
+import AppBrand from '@/components/app-switcher/AppBrand.vue'
 import { PASSWORD_POLICY_HINT, validatePasswordPolicy } from '@/utils/passwordPolicy'
 import { shouldHideAppAside } from '@/utils/layoutVisibility'
 
@@ -99,9 +104,11 @@ interface TabMenu extends LeafMenu {
   children: GroupMenu[]
 }
 
-/** 把后端三层菜单结构组织成 TabMenu[] */
+/** 把后端三层菜单结构组织成 TabMenu[]；应用级一级 Tab（绩效/人力）收敛到左上角应用弹窗，不在顶部导航展示 */
 const tabGroups = computed<TabMenu[]>(() => {
-  return userStore.topMenus.map((tab) => {
+  return userStore.topMenus
+    .filter((tab) => !APP_TOP_TAB_CODES.includes(tab.code))
+    .map((tab) => {
     const groups = userStore.childrenOf(tab.id).map<GroupMenu>((g) => {
       const leaves = userStore.childrenOf(g.id).map<LeafMenu>((leaf) => ({
         id: leaf.id,

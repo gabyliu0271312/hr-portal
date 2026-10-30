@@ -722,6 +722,23 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
+    path: '/people',
+    component: () => import('@/layouts/PeopleLayout.vue'),
+    meta: { label: '创梦人力', menuCode: 'people.app' },
+    children: [
+      {
+        path: '',
+        redirect: '/people/overview',
+      },
+      {
+        path: 'overview',
+        name: 'PeopleOverview',
+        component: () => import('@/views/master-data/Overview.vue'),
+        meta: { label: '主数据概览', menuCode: 'people.app' },
+      },
+    ],
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/home',
   },

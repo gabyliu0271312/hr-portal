@@ -24,6 +24,8 @@ export const MENU_ROUTE_MAP: Record<string, string> = {
   'report.list': '/report/list',
   'performance.app': '/performance',
   'performance.admin': '/performance/settings',
+  'people.app': '/people',
+  'people.admin': '/people',
   'cost_allocation.app': '/cost-allocation-system',
   'cost_allocation.admin': '/cost-allocation-system/admin',
   // UCP — 数据连接平台（导航重构：7项四字菜单）
