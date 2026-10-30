@@ -185,3 +185,22 @@
 - 后端 `tests/test_performance_projects.py`、`tests/test_performance_snapshot_service.py` 314 passed / 5 skipped；前端 `npm run build` 通过。
 - 临时验收数据已清理（不可变审计事件保留）；本地模板 77 脏标签按原值恢复。
 - 未完成：真实浏览器登录截图验收、生产部署、匿名评估与周期三开关。
+
+## 2026-10-30 成员表与 360°反馈表对齐飞书表格规范
+
+REA 复核飞书成员列表（evidence `ev_e7649ce…6895b`）：406 个结果、每页 50 行、9 页；分页为「上一页 + 页码 + 下一页 | 50 条/页 | 跳至 N 页」；表头 `position: sticky; top: 20px` 随页面滚动，没有表格内纵向滚动条；横向滚动条隐藏；左侧勾选列与姓名列固定。
+
+### 改动
+
+- `PerformanceManagementTable`：
+  - 新增 `scroll-mode`（`inner` 默认 / `page`）：`page` 模式取消 `max-height`，表头 sticky 到滚动容器顶部，隐藏纵向/横向滚动条（保留滚动能力），`el-table` 与 inner-wrapper 改为可见溢出；
+  - 分页改为飞书样式：上一页/页码（7 页以上省略号）/下一页 + 每页条数 + 跳至 N 页，移除“共 N 条”文案。
+- `ProjectMemberListPanel`：成员表使用 `scroll-mode="page"`；勾选列改为 el-table 真实多选（含全选）；姓名列固定左侧（224px）；移除卡片 `overflow:hidden` 以免破坏 sticky。
+- `PerformanceReview360FeedbackPanel`：启用同一公共表格分页（本地分页、每页 50），排序改为整表排序后切页；成员表与 360 表使用同一表格组件与分页形态。
+- 配套更新 `ReviewRuleTable.spec.ts` / `ReviewQuestionTable.spec.ts` 的分页断言。
+
+### 验证（本地，2026-10-30）
+
+- `vue-tsc --noEmit` 与 `npm run build` 通过；
+- 绩效模块 `.spec.ts` 132 个文件、1058 项测试中 1057 通过；唯一失败为 `PerformanceSegmentedControl` 的分段控件颜色断言（与本轮表格改动无关）。
+- 未完成：部署后的真实浏览器视觉验收（表头吸附、滚动条隐藏、50 行分页）。

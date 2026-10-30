@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, performanceWorkbenchApi, type ProjectMember, type PerformanceWorkbenchTaskPerson } from '@/api/performance'
-import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -243,6 +242,7 @@ onMounted(() => void loadMembers())
       :sort-key="sortBy"
       :sort-order="sortOrder"
       sort-mode="remote"
+      scroll-mode="page"
       row-key="id"
       :clickable-rows="Boolean(reviewContext)"
       class="member-table"
@@ -250,11 +250,8 @@ onMounted(() => void loadMembers())
       @page-size-change="changePageSize"
       @row-click="onRowClick"
     >
-      <el-table-column width="40" class-name="selection-cell">
-        <template #header><PerformanceCheckbox :model-value="false" label="全选成员" /></template>
-        <template #default="{ row }"><PerformanceCheckbox :model-value="false" :label="`选择${row.display_name}`" /></template>
-      </el-table-column>
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :min-width="columnMinWidth(column.key)">
+      <el-table-column type="selection" width="40" fixed="left" />
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :min-width="columnMinWidth(column.key)" :width="column.key === 'name' ? 224 : undefined" :fixed="column.key === 'name' ? 'left' : undefined">
         <template #header>
           <PerformanceSortHeader
             :label="column.label"
@@ -280,11 +277,10 @@ onMounted(() => void loadMembers())
 </template>
 
 <style scoped>
-.member-list-panel { min-width:0; overflow:hidden; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:20px; color:#1f2329; }
+.member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:20px; color:#1f2329; }
 .member-list-toolbar{display:flex;align-items:center;gap:12px;height:32px;margin-bottom:16px}.member-action-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 80px;height:32px;padding:4px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;cursor:pointer;font:400 14px/22px inherit}.export-icon{display:block;flex:0 0 14px;width:14px;height:14px;margin-right:4px}
 .member-identity{display:flex;align-items:center;min-width:0}.member-avatar{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:#e5eaf5;color:#3b5b92;font-size:13px}.member-name{min-width:0;margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
 .table-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .member-state{display:grid;min-height:220px;place-items:center;color:#646a73;font-size:14px}.member-state--error{color:#d14343}
-.member-table :deep(.selection-cell .performance-checkbox__label){display:none}
 </style>

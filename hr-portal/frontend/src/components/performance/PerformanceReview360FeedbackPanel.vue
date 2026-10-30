@@ -15,7 +15,7 @@ import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
-import { nextPerformanceSort, type PerformanceSortOrder } from './performanceTableSort'
+import { nextPerformanceSort, sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 const props = defineProps<{
   projectId: number | string
@@ -152,10 +152,13 @@ function applyColumns(keys: string[]) { selectedColumnKeys.value = keys }
 
 const sortKey = ref('')
 const sortOrder = ref<PerformanceSortOrder>('')
+const page = ref(1)
+const pageSize = ref(50)
 function changeSort(key: string) {
   const next = nextPerformanceSort(sortKey.value, sortOrder.value, key)
   sortKey.value = next.key
   sortOrder.value = next.order
+  page.value = 1
 }
 function sortValue(item: PerformanceReview360FeedbackItem, key: string) {
   switch (key) {
@@ -169,8 +172,10 @@ function sortValue(item: PerformanceReview360FeedbackItem, key: string) {
     default: return ''
   }
 }
+const sortedItems = computed(() => sortPerformanceRows(items.value, sortKey.value, sortOrder.value, sortValue))
+const pagedItems = computed(() => sortedItems.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
-watch(() => props.projectId, () => { void load() })
+watch(() => props.projectId, () => { page.value = 1; void load() })
 onMounted(() => void load())
 
 defineExpose({ allowVoluntary, openVoluntaryDialog })
@@ -184,25 +189,26 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       search-aria-label="搜索成员"
       search-fill
       search-width="100%"
-      @search="load()"
-      @clear="load()"
+      @search="page = 1; load()"
+      @clear="page = 1; load()"
       @filter="ElMessage.info('筛选功能暂未开放')"
     />
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
     <PerformanceManagementTable
-      :rows="items"
+      :rows="pagedItems"
       :loading="loading"
       loading-text="正在加载 360° 评估…"
       :empty-text="error || '暂无 360° 评估邀请，可以自愿评估其他同事'"
       table-aria-label="360° 评估列表"
       pagination-aria-label="360° 评估列表分页"
-      :show-pagination="false"
+      :page="page"
+      :page-size="pageSize"
+      :total="total"
+      scroll-mode="page"
       row-key="task_id"
       clickable-rows
-      :sort-key="sortKey"
-      :sort-order="sortOrder"
-      sort-mode="local"
-      :sort-value="sortValue"
+      @page-change="page = $event"
+      @page-size-change="pageSize = $event; page = 1"
       @row-click="openItem"
     >
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :min-width="columnMinWidth(column.key)">

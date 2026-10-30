@@ -82,6 +82,6 @@ describe('ReviewQuestionTable', () => {
       global: { stubs: { 'el-table': ElTableStub, 'el-table-column': ElTableColumnStub, 'el-select': { template: '<select />' }, 'el-option': true } },
     })
     expect(wrapper.text()).toContain('正在加载评估题...')
-    expect(wrapper.get('[aria-label="评估题分页"]').text()).toContain('共 0 条')
+    expect(wrapper.get('[aria-label="评估题分页"] .page-number.current').text()).toBe('1')
   })
 })

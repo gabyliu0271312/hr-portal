@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElOption, ElSelect, ElTable } from 'element-plus'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<{
   sortOrder?: PerformanceSortOrder
   sortMode?: 'local' | 'remote'
   sortValue?: (row: any, key: string) => unknown
+  scrollMode?: 'inner' | 'page'
 }>(), {
   page: 1,
   pageSize: 10,
@@ -33,6 +34,7 @@ const props = withDefaults(defineProps<{
   sortOrder: '',
   sortMode: 'local',
   sortValue: undefined,
+  scrollMode: 'inner',
 })
 
 const emit = defineEmits<{
@@ -55,12 +57,44 @@ const tableRows = computed(() => {
 function changePage(page: number) {
   if (page >= 1 && page <= pageCount.value && page !== props.page) emit('page-change', page)
 }
+
+const jumpText = ref('')
+type PageItem = { type: 'page'; page: number } | { type: 'jump'; key: string }
+const pageItems = computed<PageItem[]>(() => {
+  const count = pageCount.value
+  const current = Math.min(Math.max(props.page, 1), count)
+  const pages = new Set<number>([1, count, current])
+  if (count <= 7) {
+    for (let index = 1; index <= count; index += 1) pages.add(index)
+  } else if (current <= 4) {
+    ;[2, 3, 4, 5].forEach(page => pages.add(page))
+  } else if (current >= count - 3) {
+    ;[count - 4, count - 3, count - 2, count - 1].forEach(page => pages.add(page))
+  } else {
+    ;[current - 1, current + 1].forEach(page => pages.add(page))
+  }
+  const ordered = [...pages].filter(page => page >= 1 && page <= count).sort((left, right) => left - right)
+  const items: PageItem[] = []
+  ordered.forEach((page, index) => {
+    if (index > 0 && page - ordered[index - 1] > 1) items.push({ type: 'jump', key: `jump-${page}` })
+    items.push({ type: 'page', page })
+  })
+  return items
+})
+
+function jumpToPage() {
+  const value = Number(jumpText.value)
+  jumpText.value = ''
+  if (!Number.isFinite(value)) return
+  const target = Math.min(Math.max(Math.trunc(value), 1), pageCount.value)
+  changePage(target)
+}
 </script>
 
 <template>
-  <div class="performance-management-table" :aria-label="tableAriaLabel">
+  <div class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page' }" :aria-label="tableAriaLabel">
     <div class="table-scroll">
-      <el-table v-loading="loading" :data="tableRows" style="width: 100%" :max-height="maxHeight" :row-key="rowKey" table-layout="fixed" :row-class-name="clickableRows ? 'is-clickable-row' : undefined" @selection-change="emit('selection-change', $event)" @row-click="emit('row-click', $event)">
+      <el-table v-loading="loading" :data="tableRows" style="width: 100%" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="clickableRows ? 'is-clickable-row' : undefined" @selection-change="emit('selection-change', $event)" @row-click="emit('row-click', $event)">
         <slot />
         <template #empty>
           <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
@@ -73,17 +107,28 @@ function changePage(page: number) {
     </div>
 
     <div v-if="showPagination" class="table-pagination" :aria-label="paginationAriaLabel">
-      <span class="pagination-total">共 {{ totalCount }} 条</span>
-      <button class="pagination-arrow" type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)">
-        <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="LeftBoldOutlined"><path d="m16.314 3.515-.707-.707a1 1 0 0 0-1.414 0l-7.779 7.778a2 2 0 0 0 0 2.829l7.779 7.778a1 1 0 0 0 1.414 0l.707-.707a1 1 0 0 0 0-1.414L9.243 12l7.07-7.072a1 1 0 0 0 0-1.414Z" fill="currentColor" /></svg>
-      </button>
-      <button class="page-current" type="button" aria-current="page">{{ page }}</button>
-      <button class="pagination-arrow" type="button" aria-label="下一页" :disabled="page >= pageCount" @click="changePage(page + 1)">
-        <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="RightBoldOutlined"><path d="m7.586 20.486.707.707a1 1 0 0 0 1.414 0l7.778-7.778a2 2 0 0 0 0-2.829L9.707 2.808a1 1 0 0 0-1.414 0l-.707.707a1 1 0 0 0 0 1.414l7.07 7.072-7.07 7.07a1 1 0 0 0 0 1.415Z" fill="currentColor" /></svg>
-      </button>
+      <ul class="pagination-list">
+        <li>
+          <button class="pagination-arrow" type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)">
+            <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="LeftBoldOutlined"><path d="m16.314 3.515-.707-.707a1 1 0 0 0-1.414 0l-7.779 7.778a2 2 0 0 0 0 2.829l7.779 7.778a1 1 0 0 0 1.414 0l.707-.707a1 1 0 0 0 0-1.414L9.243 12l7.07-7.072a1 1 0 0 0 0-1.414Z" fill="currentColor" /></svg>
+          </button>
+        </li>
+        <template v-for="item in pageItems" :key="item.type === 'page' ? `page-${item.page}` : item.key">
+          <li v-if="item.type === 'jump'" class="pagination-ellipsis" aria-hidden="true">…</li>
+          <li v-else>
+            <button class="page-number" :class="{ current: item.page === page }" type="button" :aria-current="item.page === page ? 'page' : undefined" :aria-label="`第 ${item.page} 页`" @click="changePage(item.page)">{{ item.page }}</button>
+          </li>
+        </template>
+        <li>
+          <button class="pagination-arrow" type="button" aria-label="下一页" :disabled="page >= pageCount" @click="changePage(page + 1)">
+            <svg viewBox="0 0 24 24" aria-hidden="true" data-icon="RightBoldOutlined"><path d="m7.586 20.486.707.707a1 1 0 0 0 1.414 0l7.778-7.778a2 2 0 0 0 0-2.829L9.707 2.808a1 1 0 0 0-1.414 0l-.707.707a1 1 0 0 0 0 1.414l7.07 7.072-7.07 7.07a1 1 0 0 0 0 1.415Z" fill="currentColor" /></svg>
+          </button>
+        </li>
+      </ul>
       <el-select popper-class="performance-token-select-popper" class="page-size-select performance-token-select" :model-value="pageSize" :suffix-icon="DownBoldOutlinedIcon" size="small" aria-label="每页条数" @change="emit('page-size-change', $event)">
         <el-option v-for="size in [10, 20, 50, 100]" :key="size" :label="`${size} 条/页`" :value="size" />
       </el-select>
+      <span class="pagination-jump">跳至 <input v-model="jumpText" class="pagination-jump-input" type="text" inputmode="numeric" aria-label="跳至页码" @keyup.enter="jumpToPage" @blur="jumpToPage" /> 页</span>
     </div>
   </div>
 </template>
@@ -94,13 +139,25 @@ function changePage(page: number) {
 .table-scroll { overflow: visible; }
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
 :deep(.is-clickable-row) { cursor: pointer; }
-.table-pagination { min-height: 28px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 16px 0; color: #1f2329; font-size: 14px; }
-.pagination-total { margin-right: 2px; }
-.pagination-arrow, .page-current { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; }
+.table-pagination { min-height: 28px; display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 16px 0; color: #1f2329; font-size: 14px; }
+.pagination-list { display: flex; align-items: center; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.pagination-arrow, .page-number, .pagination-ellipsis { min-width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #1f2329; font: inherit; }
+.pagination-arrow { border-color: #d0d3d6; background: #fff; }
 .pagination-arrow svg { width: 12px; height: 12px; }
 .pagination-arrow:disabled { color: #bbbfc4; cursor: not-allowed; }
-.page-current { border-color: #3370ff; color: #3370ff; }
-.page-size-select { width: 88px; margin-left: 2px; }
+.page-number { cursor: pointer; }
+.page-number:hover { background: #eff0f1; }
+.page-number.current { border-color: #3370ff; color: #3370ff; font-weight: 600; }
+.page-size-select { width: 96px; }
+.pagination-jump { display: inline-flex; align-items: center; gap: 4px; color: #1f2329; }
+.pagination-jump-input { width: 44px; height: 28px; padding: 0 6px; border: 1px solid #d0d3d6; border-radius: 6px; box-sizing: border-box; font: inherit; text-align: center; }
+.is-page-scroll { overflow: visible; }
+.is-page-scroll :deep(.el-table) { overflow: visible; }
+.is-page-scroll :deep(.el-table__inner-wrapper) { overflow: visible; }
+.is-page-scroll :deep(.el-table__header-wrapper) { position: sticky; top: 0; z-index: 3; background: #fff; }
+.is-page-scroll :deep(.el-scrollbar__bar) { display: none; }
+.is-page-scroll :deep(.el-scrollbar__wrap) { scrollbar-width: none; }
+.is-page-scroll :deep(.el-scrollbar__wrap)::-webkit-scrollbar { display: none; }
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
 :deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
