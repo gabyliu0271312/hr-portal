@@ -116,13 +116,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onOutsideClick))
 .app-switcher__trigger:hover { background: #f1f2f4; color: var(--color-primary); }
 .app-switcher__trigger:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
-.app-switcher__panel { position: fixed; top: 48px; left: 16px; z-index: 3000; width: 440px; max-width: calc(100vw - 24px); padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius-lg, 8px); background: var(--color-bg-card); box-shadow: var(--shadow-popover, 0 8px 20px rgba(31, 35, 41, 0.10)); }
-.app-switcher__title { padding: 0 4px 12px; color: var(--color-text-secondary); font-size: 13px; }
-.app-switcher__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-.app-switcher__item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px 12px; border: 0; border-radius: var(--radius-md, 8px); background: transparent; color: var(--color-text-primary); cursor: pointer; font-size: 13px; text-align: center; }
+.app-switcher__panel { position: fixed; top: 48px; left: 16px; z-index: 3000; width: 312px; max-width: calc(100vw - 24px); padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-lg, 8px); background: var(--color-bg-card); box-shadow: var(--shadow-popover, 0 8px 20px rgba(31, 35, 41, 0.10)); }
+.app-switcher__title { padding: 0 4px 8px; color: var(--color-text-secondary); font-size: 12px; }
+.app-switcher__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.app-switcher__item { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px 8px; border: 0; border-radius: var(--radius-md, 6px); background: transparent; color: var(--color-text-primary); cursor: pointer; font-size: 12px; text-align: center; }
 .app-switcher__item:hover { background: var(--color-bg-hover); color: var(--color-primary); }
 .app-switcher__item--active { background: var(--color-primary-light); color: var(--color-primary); }
-.app-switcher__item-icon { width: 40px; height: 40px; }
+.app-switcher__item-icon { width: 36px; height: 36px; }
 
 .app-switcher-enter-active, .app-switcher-leave-active { transition: opacity 140ms ease, transform 140ms ease; }
 .app-switcher-enter-from, .app-switcher-leave-to { opacity: 0; transform: translateY(-4px); }
