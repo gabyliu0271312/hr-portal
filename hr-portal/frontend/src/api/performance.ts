@@ -229,6 +229,62 @@ export const performanceReview360InviteApi = {
   },
 }
 
+export interface PerformanceReview360FeedbackItem {
+  task_id: number
+  employee_no: string
+  display_name: string
+  department: string | null
+  job_sequence: string | null
+  position_level: string | null
+  status: 'pending' | 'completed'
+  source_label: string
+  relationship: string
+  due_at: string | null
+}
+
+export interface PerformanceReview360FeedbackList {
+  items: PerformanceReview360FeedbackItem[]
+  total: number
+  node_id: string | null
+  allow_voluntary_evaluation: boolean
+}
+
+export interface PerformanceReview360VoluntaryCandidate {
+  employee_no: string
+  display_name: string
+  department: string | null
+  job_sequence: string | null
+}
+
+export interface PerformanceReview360VoluntaryCandidates {
+  items: PerformanceReview360VoluntaryCandidate[]
+  total: number
+}
+
+export interface PerformanceReview360VoluntaryResult {
+  task_id: number
+  target_employee_no: string
+}
+
+export const performanceReview360FeedbackApi = {
+  async list(projectId: number | string, keyword?: string): Promise<PerformanceReview360FeedbackList> {
+    const { data } = await api.get<PerformanceReview360FeedbackList>(`/performance/review-360/feedback/projects/${projectId}`, {
+      params: keyword ? { keyword } : undefined,
+    })
+    return data
+  },
+  async candidates(projectId: number | string, keyword?: string): Promise<PerformanceReview360VoluntaryCandidates> {
+    const { data } = await api.get<PerformanceReview360VoluntaryCandidates>(`/performance/review-360/feedback/projects/${projectId}/candidates`, {
+      params: keyword ? { keyword } : undefined,
+    })
+    return data
+  },
+  async start(projectId: number | string, targetEmployeeNo: string): Promise<PerformanceReview360VoluntaryResult> {
+    const { data } = await api.post<PerformanceReview360VoluntaryResult>(`/performance/review-360/feedback/projects/${projectId}/voluntary`, { target_employee_no: targetEmployeeNo })
+    return data
+  },
+}
+
 export const performanceReviewApi = {
   async overview(projectId?: number, taskId?: number, cycleId?: number): Promise<PerformanceReviewOverview> {
     const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', {

@@ -9,8 +9,9 @@ import {
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import PerformanceManagementTable from './PerformanceManagementTable.vue'
+import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
-import PerformanceColumnVisibilityIcon from './PerformanceColumnVisibilityIcon.vue'
 
 const props = defineProps<{
   projectId: number | string
@@ -186,33 +187,37 @@ onMounted(() => void load())
         <PerformanceButton variant="primary" aria-label="邀请 360° 评估人" @click="openInviteDrawer">邀请评估人</PerformanceButton>
       </template>
     </PerformanceListToolbar>
-    <div class="invite-panel__summary">
-      <span>{{ total }}个结果</span>
-      <button class="invite-panel__column-button" type="button" @click="columnDrawerOpen = true"><PerformanceColumnVisibilityIcon /><span>{{ hiddenColumnCount }} 列被隐藏</span></button>
-    </div>
+    <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
     <p v-if="minimumHint || maximumHint || secondPromptHint" class="invite-panel__hint">
       <span v-if="minimumHint" class="invite-panel__hint-item" :class="{ 'is-incomplete': total < minimumInvitedCount }">{{ minimumHint }}</span>
       <span v-if="maximumHint" class="invite-panel__hint-item">{{ maximumHint }}</span>
       <span v-if="secondPromptHint" class="invite-panel__hint-item">{{ secondPromptHint }}</span>
     </p>
-    <div style="overflow-x: auto">
-      <el-table :data="items" v-loading="loading" style="width: 100%" max-height="600" :empty-text="error || '暂无 360° 评估邀请，可以邀请其他同事'">
-        <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="columnMinWidth(column.key)">
-          <template #default="{ row }">
-            <span v-if="column.key === 'name'" class="invite-panel__identity">{{ row.display_name }}</span>
-            <span v-else-if="column.key === 'status'">
-              <span class="invite-panel__status" :class="`is-${row.status}`">{{ cellValue(row, column.key) }}</span>
-            </span>
-            <span v-else>{{ cellValue(row, column.key) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
-          <template #default="{ row }">
-            <PerformanceButton variant="text" size="small" :disabled="row.status === 'completed' || Boolean(revoking)" aria-label="撤销邀请" @click="revoke(row.employee_no)">撤销</PerformanceButton>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+    <PerformanceManagementTable
+      :rows="items"
+      :loading="loading"
+      loading-text="正在加载 360° 评估邀请…"
+      :empty-text="error || '暂无 360° 评估邀请，可以邀请其他同事'"
+      table-aria-label="360° 评估邀请列表"
+      pagination-aria-label="360° 评估邀请列表分页"
+      :show-pagination="false"
+      row-key="employee_no"
+    >
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="columnMinWidth(column.key)">
+        <template #default="{ row }">
+          <span v-if="column.key === 'name'" class="invite-panel__identity">{{ row.display_name }}</span>
+          <span v-else-if="column.key === 'status'">
+            <span class="invite-panel__status" :class="`is-${row.status}`">{{ cellValue(row, column.key) }}</span>
+          </span>
+          <span v-else>{{ cellValue(row, column.key) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="{ row }">
+          <PerformanceButton variant="text" size="small" :disabled="row.status === 'completed' || Boolean(revoking)" aria-label="撤销邀请" @click="revoke(row.employee_no)">撤销</PerformanceButton>
+        </template>
+      </el-table-column>
+    </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
 
     <PerformanceDrawerShell v-model="inviteDrawerOpen" width="560px" variant="captured" title="邀请 360° 评估人" aria-label="邀请 360° 评估人">
@@ -250,9 +255,6 @@ onMounted(() => void load())
 
 <style scoped>
 .invite-panel { min-width: 0; padding: 20px; box-sizing: border-box; border-radius: 8px; background: #fff; color: #1f2329; box-shadow: rgba(31,35,41,.03) 0 4px 16px 4px, rgba(31,35,41,.02) 0 4px 8px, rgba(31,35,41,.02) 0 2px 4px -4px; }
-.invite-panel__summary { display: flex; align-items: center; justify-content: space-between; height: 22px; margin-bottom: 12px; font-size: 14px; line-height: 22px; }
-.invite-panel__column-button { display: inline-flex; align-items: center; height: 22px; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: #1456f0; cursor: pointer; font: inherit; }
-.invite-panel__column-button svg { flex: 0 0 16px; width: 16px; height: 16px; margin-right: 4px; }
 .invite-panel__hint { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 12px; font-size: 13px; line-height: 20px; }
 .invite-panel__hint-item { color: #646a73; }
 .invite-panel__hint-item.is-incomplete { color: #d14343; }

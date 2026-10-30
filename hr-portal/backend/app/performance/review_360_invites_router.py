@@ -6,7 +6,7 @@ who invited the reviewer and when.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,6 +34,7 @@ from app.performance.models import (
     PerformanceProjectMember,
     PerformanceProjectMemberSnapshot,
     PerformanceProjectNodeSnapshot,
+    PerformanceOtherSetting,
     PROJECT_STATUS_STARTED,
 )
 from app.performance.project_service import _parse_time
@@ -263,9 +264,13 @@ def _invite_count_for_limit(
     )
 
 
-async def _invite_settings(project: PerformanceProject) -> dict:
-    flow_settings = ((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}
-    for value in flow_settings.values():
+def _invite_settings(project: PerformanceProject, node_id: str | None = None) -> dict:
+    settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {})
+    if node_id:
+        invite = ((settings.get(node_id) or {}).get("invite") or {})
+        if invite:
+            return invite
+    for value in settings.values():
         if (value or {}).get("invite"):
             return (value or {})["invite"]
     return {}
@@ -323,7 +328,7 @@ async def list_invites(
         if task.member_snapshot_id == member_snapshot_id:
             tasks_by_handler.setdefault(str(task.handler_ref), []).append(task)
     people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
-    invite_settings = await _invite_settings(project)
+    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None)
     minimum_count = int(invite_settings.get("minimum_invited_count") or 0)
     maximum_count = invite_settings.get("maximum_invited_count")
     maximum_mode = invite_settings.get("maximum_invite_mode") or "SUGGESTED"
@@ -438,7 +443,7 @@ async def submit_invites(
             continue
         accepted.append(employee_no)
 
-    invite_settings = await _invite_settings(project)
+    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None)
     maximum_count = invite_settings.get("maximum_invited_count")
     maximum_mode = invite_settings.get("maximum_invite_mode") or "SUGGESTED"
     exclude_default = bool(invite_settings.get("exclude_default_invite_from_limit", False))

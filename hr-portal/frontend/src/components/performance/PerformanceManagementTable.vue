@@ -15,17 +15,22 @@ const props = withDefaults(defineProps<{
   total?: number
   maxHeight?: number | string
   showPagination?: boolean
+  rowKey?: string
+  clickableRows?: boolean
 }>(), {
   page: 1,
   pageSize: 10,
   maxHeight: 600,
   showPagination: true,
+  rowKey: 'id',
+  clickableRows: false,
 })
 
 const emit = defineEmits<{
   'page-change': [page: number]
   'page-size-change': [pageSize: number]
   'selection-change': [rows: any[]]
+  'row-click': [row: any]
 }>()
 
 const totalCount = computed(() => props.total ?? props.rows.length)
@@ -40,7 +45,7 @@ function changePage(page: number) {
 <template>
   <div class="performance-management-table" :aria-label="tableAriaLabel">
     <div class="table-scroll">
-      <el-table :data="tableRows" style="width: 100%" :max-height="maxHeight" row-key="id" table-layout="fixed" @selection-change="emit('selection-change', $event)">
+      <el-table v-loading="loading" :data="tableRows" style="width: 100%" :max-height="maxHeight" :row-key="rowKey" table-layout="fixed" :row-class-name="clickableRows ? 'is-clickable-row' : undefined" @selection-change="emit('selection-change', $event)" @row-click="emit('row-click', $event)">
         <slot />
         <template #empty>
           <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
@@ -73,6 +78,7 @@ function changePage(page: number) {
 /* 单一横向滚动容器：由 el-table 内部滚动区承担（等价采集契约 ud__table-content），外层一律不滚动，避免双滚动条 */
 .table-scroll { overflow: visible; }
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
+:deep(.is-clickable-row) { cursor: pointer; }
 .table-pagination { min-height: 28px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 16px 0; color: #1f2329; font-size: 14px; }
 .pagination-total { margin-right: 2px; }
 .pagination-arrow, .page-current { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; }

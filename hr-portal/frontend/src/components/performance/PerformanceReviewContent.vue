@@ -19,11 +19,17 @@
         </div>
       </div>
       <div class="review-body">
-        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite' }">
+        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: shows360Feedback }">
         <PerformanceReview360InvitePanel
           v-if="node.node_type === 'reviewer_360_invite' && props.projectId"
           :project-id="props.projectId"
           :node-id="node.node_id"
+        />
+        <PerformanceReview360FeedbackPanel
+          v-else-if="shows360Feedback && props.projectId"
+          :project-id="props.projectId"
+          :node-id="node.node_id"
+          @open-task="emit('open-member', { node, member: $event })"
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
@@ -75,8 +81,9 @@ import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNoti
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'
+import PerformanceReview360FeedbackPanel from './PerformanceReview360FeedbackPanel.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
-import { isSelfEvaluationNode } from './performanceExecutorOptions'
+import { isReviewer360Node, isSelfEvaluationNode } from './performanceExecutorOptions'
 
 const props = defineProps<{
   loading: boolean
@@ -89,6 +96,10 @@ const props = defineProps<{
 const showsEvaluationWorkspace = computed(() => {
   const node = props.node
   return Boolean(node && node.task_kind === 'evaluation' && node.status !== 'not_started' && !isSelfEvaluationNode(node))
+})
+const shows360Feedback = computed(() => {
+  const node = props.node
+  return Boolean(node && node.node_type === 'evaluation' && isReviewer360Node(node))
 })
 const evaluationTabs: PerformanceLineTab[] = [
   { key: 'members', label: '成员列表' },
@@ -144,6 +155,7 @@ function formatStartTime(value: string) {
 .review-panel.completed { align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
 .review-panel.evaluation { align-items: stretch; justify-content: flex-start; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .review-panel.invite { align-items: stretch; justify-content: flex-start; padding: 0; }
+.review-panel.feedback { align-items: stretch; justify-content: flex-start; padding: 0; }
 .completed-content { width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
 .completed-fallback { margin: auto !important; }
 .review-panel p, .review-state p { margin: 8px 0 20px; color: #646a73; font-size: 16px; font-weight: 400; line-height: 24px; text-align: center; }
