@@ -120,6 +120,8 @@ async def session_context(request: Request, db=Depends(get_session), user=Depend
     if not secret:
         fail("SWITCH_SESSION_REQUIRED", "未提供切换会话", 422)
     session, employee = await validate_session(db, user, secret)
+    # 心跳是持续续期的主要载体，get_session 正常路径不提交，必须在此显式提交续期结果
+    await db.commit()
     return {"session_id": session.id, "effective_identity": employee, "expires_at": session.expires_at, "mode": "TARGET_POLICY"}
 
 

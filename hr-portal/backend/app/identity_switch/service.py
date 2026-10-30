@@ -241,16 +241,19 @@ async def create_session(db, user, payload):
 
 
 async def _renew_switch_session(db, session):
-    """活跃会话续期：把到期时间顺延为 now+30min，闲置 30 分钟才失效。
+    """活跃会话续期：剩余不足 25 分钟时把到期时间顺延为 now+30min，闲置 30 分钟才失效。
 
-    仅当新到期时间确实更晚才写库；调用前须已通过失效检查，不会把已到期会话救活。
+    调用前须已通过失效检查，不会把已到期会话救活。写库依赖调用方事务提交：
+    心跳接口显式 commit，业务写接口随自身事务提交。
     """
-    new_expiry = datetime.now(UTC) + timedelta(minutes=30)
-    if new_expiry > session.expires_at:
-        await db.execute(update(IdentitySwitchSession).where(
-            IdentitySwitchSession.id == session.id,
-        ).values(expires_at=new_expiry))
-        session.expires_at = new_expiry
+    now = datetime.now(UTC)
+    if session.expires_at - now >= timedelta(minutes=25):
+        return
+    new_expiry = now + timedelta(minutes=30)
+    await db.execute(update(IdentitySwitchSession).where(
+        IdentitySwitchSession.id == session.id,
+    ).values(expires_at=new_expiry))
+    session.expires_at = new_expiry
 
 
 async def validate_session(db, user, secret):

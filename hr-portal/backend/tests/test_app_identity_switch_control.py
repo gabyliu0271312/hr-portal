@@ -149,7 +149,6 @@ async def _postgres_scenario(monkeypatch):
             async with factory() as db:
                 try:
                     yield db
-                    await db.commit()
                 except Exception:
                     await db.rollback()
                     raise
@@ -173,13 +172,13 @@ async def _postgres_scenario(monkeypatch):
             target = await client.get("/api/v1/performance/probe", headers=own_header)
             assert target.status_code == 200, target.text
             assert target.json() == {"employee_no": "E001", "operator": 10, "permissions": [], "preview": False}
-            # 活跃续期：30 分钟固定到期改为每次校验顺延，使用中的会话不应被拦腰截断
+            # 活跃续期：心跳接口须把续期持久化（生产 get_session 不提交，靠接口显式 commit）
             async with factory() as db:
                 session_row = await db.get(IdentitySwitchSession, own.json()["session_id"])
                 # 模拟会话已用 29 分钟、只剩 1 分钟到期
                 session_row.expires_at = datetime.now(UTC) + timedelta(minutes=1)
                 await db.commit()
-            renewed = await client.get("/api/v1/performance/probe", headers=own_header)
+            renewed = await client.get("/api/v1/performance/identity-switch/session", headers=own_header)
             assert renewed.status_code == 200, renewed.text
             async with factory() as db:
                 session_row = await db.get(IdentitySwitchSession, own.json()["session_id"])
