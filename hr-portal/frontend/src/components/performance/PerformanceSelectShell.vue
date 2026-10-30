@@ -15,7 +15,7 @@
       <button v-if="selectedItems.length && selectionStyle !== 'plain'" class="performance-select-shell__clear" type="button" :disabled="disabled" :aria-label="clearLabel" @click.stop="clearAll">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" /><path d="m8 8 8 8M16 8l-8 8" stroke="white" stroke-width="2" /></svg>
       </button>
-      <DownBoldOutlinedIcon :size="12" class="performance-select-shell__arrow" />
+      <DownBoldOutlinedIcon v-if="!hideArrow" :size="12" class="performance-select-shell__arrow" />
     </div>
     <div ref="measureRoot" class="performance-select-shell__measure" aria-hidden="true" inert>
       <span v-for="item in selectedItems" :key="item.value" class="performance-select-shell__measure-tag"><PerformanceSelectTag :label="item.label" :closable="selectionStyle !== 'plain'" measuring /></span>
@@ -49,11 +49,12 @@ const props = withDefaults(defineProps<{
   popupMaxHeight?: number
   selectionStyle?: 'tags' | 'plain'
   openOnFocus?: boolean
+  hideArrow?: boolean
   disabledSurface?: 'muted' | 'white'
   disabled?: boolean
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, disabledSurface: 'muted', disabled: false,
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, hideArrow: false, disabledSurface: 'muted', disabled: false,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: [] }>()
 const root = ref<HTMLElement | null>(null)

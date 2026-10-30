@@ -8,7 +8,8 @@ import {
 } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceButton from './PerformanceButton.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import PerformanceDialogShell from './PerformanceDialogShell.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
@@ -59,19 +60,19 @@ async function load() {
 }
 
 const dialogOpen = ref(false)
-const candidateKeyword = ref('')
 const candidates = ref<PerformanceReview360VoluntaryCandidate[]>([])
 const candidateLoading = ref(false)
-const selectedTarget = ref<string>('')
+const selectedTarget = ref<string | null>(null)
 const submitting = ref(false)
-
+const candidateOptions = computed(() => candidates.value.map(candidate => ({
+  value: candidate.employee_no,
+  label: `${candidate.display_name} · ${candidate.employee_no}${candidate.department ? ' · ' + candidate.department : ''}`,
+})))
 async function loadCandidates() {
   candidateLoading.value = true
   try {
-    const result = await performanceReview360FeedbackApi.candidates(props.projectId, candidateKeyword.value.trim() || undefined)
+    const result = await performanceReview360FeedbackApi.candidates(props.projectId)
     candidates.value = result.items
-    const available = new Set(result.items.map(item => item.employee_no))
-    if (!available.has(selectedTarget.value)) selectedTarget.value = ''
   } catch {
     candidates.value = []
   } finally {
@@ -79,12 +80,8 @@ async function loadCandidates() {
   }
 }
 function openVoluntaryDialog() {
-  candidateKeyword.value = ''
-  selectedTarget.value = ''
+  selectedTarget.value = null
   dialogOpen.value = true
-  void loadCandidates()
-}
-function searchCandidates() {
   void loadCandidates()
 }
 async function confirmVoluntary() {
@@ -204,59 +201,34 @@ onMounted(() => void load())
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
 
-    <PerformanceDrawerShell v-model="dialogOpen" width="560px" variant="captured" title="自愿评估" aria-label="自愿评估">
-      <div class="voluntary-dialog">
-        <p class="voluntary-dialog__description">你可以自愿评估其他同事，为 Ta 本次绩效提供更加全面的 360° 评估信息</p>
-        <PerformanceListToolbar
-          v-model:keyword="candidateKeyword"
-          search-placeholder="搜索要评估的同事"
-          search-aria-label="搜索要评估的同事"
-          :show-filter="false"
-          @search="searchCandidates"
-          @clear="searchCandidates"
-        />
-        <div v-if="candidateLoading" class="voluntary-dialog__state">正在加载成员…</div>
-        <div v-else-if="!candidates.length" class="voluntary-dialog__state">暂无可评估的同事</div>
-        <ul v-else class="voluntary-dialog__list">
-          <li v-for="candidate in candidates" :key="candidate.employee_no">
-            <label class="voluntary-candidate" :class="{ 'is-selected': selectedTarget === candidate.employee_no }">
-              <input type="radio" name="voluntary-target" :value="candidate.employee_no" :checked="selectedTarget === candidate.employee_no" :aria-label="`评估${candidate.display_name}`" @change="selectedTarget = candidate.employee_no">
-              <span class="voluntary-candidate__avatar">{{ candidate.display_name.slice(-1) }}</span>
-              <span class="voluntary-candidate__copy">
-                <span class="voluntary-candidate__name">{{ candidate.display_name }}</span>
-                <span class="voluntary-candidate__meta">{{ candidate.job_sequence || '--' }}<template v-if="candidate.department"> · {{ candidate.department }}</template></span>
-              </span>
-            </label>
-          </li>
-        </ul>
+    <PerformanceDialogShell v-model="dialogOpen" title="自愿评估" width="600px" :loading="submitting">
+      <template #description>你可以自愿评估其他同事，为 Ta 本次绩效提供更加全面的 360° 评估信息</template>
+      <PerformancePersonSelect
+        v-model="selectedTarget"
+        :options="candidateOptions"
+        :empty-text="candidateLoading ? '正在加载成员…' : '暂无可评估的同事'"
+        hide-arrow
+        placeholder="搜索要评估的同事"
+        aria-label="搜索要评估的同事"
+      />
+      <template #footer>
         <div class="voluntary-dialog__footer">
           <PerformanceButton variant="secondary" @click="dialogOpen = false">取消</PerformanceButton>
           <PerformanceButton variant="primary" :disabled="!selectedTarget" :loading="submitting" @click="confirmVoluntary">前往评估</PerformanceButton>
         </div>
-      </div>
-    </PerformanceDrawerShell>
+      </template>
+    </PerformanceDialogShell>
   </section>
 </template>
 
 <style scoped>
-.feedback-panel { min-width: 0; padding: 20px; box-sizing: border-box; border-radius: 8px; background: #fff; color: #1f2329; box-shadow: rgba(31,35,41,.03) 0 4px 16px 4px, rgba(31,35,41,.02) 0 4px 8px, rgba(31,35,41,.02) 0 2px 4px -4px; }
+.feedback-panel { min-width: 0; padding: var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); }
 .feedback-panel__identity { font-weight: 500; }
-.feedback-panel__status { display: inline-flex; align-items: center; min-width: 56px; height: 22px; padding: 0 8px; border-radius: 9999px; font-size: 12px; line-height: 22px; }
-.feedback-panel__status.is-pending { background: #fff0df; color: #d46b08; }
-.feedback-panel__status.is-completed { background: #d5f6f2; color: #024b41; }
-.feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 60px 0; color: #646a73; font-size: 14px; line-height: 22px; text-align: center; }
+.feedback-panel__status { display: inline-flex; align-items: center; min-width: 56px; height: 22px; padding: 0 var(--spacing-2); border-radius: 9999px; font-size: var(--font-size-xs); line-height: 22px; }
+.feedback-panel__status.is-pending { background: var(--color-warning-light); color: var(--color-warning); }
+.feedback-panel__status.is-completed { background: var(--color-success-light); color: var(--color-success); }
+.feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); padding: 60px 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: 22px; text-align: center; }
 .feedback-empty--text { min-height: 300px; display: grid; place-items: center; padding: 0; color: var(--color-text-secondary); }
 .feedback-empty__text { margin: 0; }
-.voluntary-dialog { display: flex; min-height: 0; flex-direction: column; }
-.voluntary-dialog__description { margin: 0 0 12px; color: #646a73; font-size: 13px; line-height: 20px; }
-.voluntary-dialog__state { display: grid; min-height: 200px; place-items: center; color: #8f959e; font-size: 14px; }
-.voluntary-dialog__list { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
-.voluntary-candidate { display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 6px; border-bottom: 1px solid rgba(31,35,41,.08); cursor: pointer; }
-.voluntary-candidate.is-selected { background: #f0f4ff; }
-.voluntary-candidate input { flex: 0 0 16px; width: 16px; height: 16px; margin: 0; accent-color: #3370ff; }
-.voluntary-candidate__avatar { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; background: #e5eaf5; color: #3b5b92; font-size: 13px; }
-.voluntary-candidate__copy { display: flex; min-width: 0; flex-direction: column; }
-.voluntary-candidate__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1f2329; font-size: 14px; line-height: 22px; }
-.voluntary-candidate__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #646a73; font-size: 12px; line-height: 20px; }
-.voluntary-dialog__footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid rgba(31,35,41,.08); }
+.voluntary-dialog__footer { display: flex; justify-content: flex-end; gap: var(--performance-dialog-footer-gap); }
 </style>

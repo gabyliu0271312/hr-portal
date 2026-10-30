@@ -1,10 +1,10 @@
 <template>
-  <PerformanceSearchSelect v-bind="$attrs" :model-value="modelValue" :options="options" :aria-label="ariaLabel" :placeholder="placeholder" :multiple="multiple" :disabled="disabled" @open="$emit('open')" @search="$emit('search', $event)" @update:model-value="$emit('update:modelValue', $event)" />
+  <PerformanceSearchSelect v-bind="$attrs" :model-value="modelValue" :options="options" :aria-label="ariaLabel" :placeholder="placeholder" :multiple="multiple" :disabled="disabled" :hide-arrow="hideArrow" @open="$emit('open')" @search="$emit('search', $event)" @update:model-value="$emit('update:modelValue', $event)" />
 </template>
 
 <script setup lang="ts">
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 
-defineProps<{ modelValue: string | string[] | null; options: PerformanceSearchSelectOption[]; ariaLabel?: string; placeholder?: string; multiple?: boolean; disabled?: boolean }>()
+defineProps<{ modelValue: string | string[] | null; options: PerformanceSearchSelectOption[]; ariaLabel?: string; placeholder?: string; multiple?: boolean; disabled?: boolean; hideArrow?: boolean }>()
 defineEmits<{ 'update:modelValue': [value: string | string[] | null]; open: []; search: [value: string] }>()
 </script>
