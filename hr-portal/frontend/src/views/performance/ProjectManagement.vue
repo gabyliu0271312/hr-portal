@@ -25,7 +25,7 @@
       <template v-else>
         <div v-if="!selectedProject" class="cycle-overview">
           <PerformancePageTitle title="周期概览" />
-          <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
+          <PerformanceLineTabs v-model="activeTab" :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="emit('authorization-view', $event)" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" />

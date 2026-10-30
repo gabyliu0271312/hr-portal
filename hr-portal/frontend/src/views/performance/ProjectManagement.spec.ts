@@ -223,7 +223,7 @@ describe('ProjectManagement', () => {
     const tabs = wrapper.findAll('.line-tab')
     expect(tabs.map(item => item.text())).toEqual(['总览', '成员列表', '矩阵分析', '统计报表'])
     expect(tabs[0].classes()).toContain('active')
-    expect(wrapper.find('.line-tabs').classes()).toContain('sticky')
+    expect(wrapper.find('.line-tabs').classes()).not.toContain('sticky')
 
     const lineTabs = wrapper.findAllComponents({ name: 'PerformanceLineTabs' })
     expect(lineTabs).toHaveLength(1)

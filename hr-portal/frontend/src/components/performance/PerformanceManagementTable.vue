@@ -156,10 +156,11 @@ function jumpToPage() {
 .is-page-scroll { overflow: visible; }
 .is-page-scroll :deep(.el-table) { overflow: visible; }
 .is-page-scroll :deep(.el-table__inner-wrapper) { overflow: visible; }
-.is-page-scroll :deep(.el-table__header-wrapper) { position: sticky; top: 0; z-index: 3; background: #fff; }
+.is-page-scroll :deep(.el-table__header-wrapper) { position: sticky; top: 20px; z-index: 20; background: #fff; box-shadow: 0 1px 0 rgba(31, 35, 41, 0.15); }
 .is-page-scroll :deep(.el-scrollbar__bar.is-vertical) { display: none; }
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
+:deep(.el-table th.el-table__cell:hover) { background: #f5f6f7; }
 :deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
 :deep(.el-table .el-table-column--selection > .cell) { padding-right: 0; padding-left: 0; }
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
@@ -169,5 +170,5 @@ function jumpToPage() {
 /* 页面滚动模式下必须解除 el-table 自身的滚动容器，表头才能相对内容区吸附 */
 .is-page-scroll .el-table,
 .is-page-scroll .el-table__inner-wrapper { overflow: visible; }
-.is-page-scroll .el-table__header-wrapper { position: sticky; top: 0; z-index: 3; background: #fff; }
+.is-page-scroll .el-table__header-wrapper { position: sticky; top: 20px; z-index: 20; background: #fff; box-shadow: 0 1px 0 rgba(31, 35, 41, 0.15); }
 </style>

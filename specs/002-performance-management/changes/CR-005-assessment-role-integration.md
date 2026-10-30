@@ -213,3 +213,13 @@ REA 复核飞书成员列表（evidence `ev_e7649ce…6895b`）：406 个结果�
 - sticky 表头增加非 scoped 兜底规则，解除 `.el-table`/`.el-table__inner-wrapper` 的 overflow 限制，表头相对内容区吸附；
 - 验证：`vue-tsc`、`npm run build` 通过；绩效 `.spec.ts` 1055/1058 通过，3 项失败为并行会话的 token/CSS 断言（PerformanceSegmentedControl、PerformanceReferenceContentDrawer、PerformanceTemplateManagement），与本轮表格改动无关。
 - 未完成：部署后的真实浏览器视觉验收。
+
+### 2026-10-30 补充二：表头吸附（方案 B）与排序表头细节
+
+- 根因：表头 sticky 与 `PerformanceLineTabs` 的 sticky 标签栏在同一滚动容器内，标签栏 `z-index:30`、吸附后覆盖滚动区顶部约 40px，表头 `z-index:3` 被完全遮住；
+- 方案 B：移除项目管理页与评估工作区标签栏的 `sticky`（标签栏随内容滚动），与飞书“导航不在滚动容器内”结构一致；
+- 表格 page 模式表头吸附位置改为 `top:20px`、`z-index:20`，并加底部 1px 分隔阴影；
+- 表头单元格增加 hover 背景 `#f5f6f7`；
+- `PerformanceSortHeader` 改为 inline-flex，排序箭头紧跟文字（8px），不再 `space-between` 拉开；箭头区域增加提示：未排序「点击降序」、降序「点击升序」、升序「取消排序」；
+- 同步更新 ProjectManagement/Review 的 sticky 断言；
+- 验证：`vue-tsc`、`npm run build` 通过；绩效 `.spec.ts` 1054/1058 通过，4 项失败均为并行会话的 token/弹窗断言，与本轮表格改动无关。

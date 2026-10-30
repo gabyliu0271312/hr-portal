@@ -91,7 +91,8 @@ describe('PerformanceReview', () => {
   it('removes the old white panel decoration from the evaluation workspace', () => {
     expect(reviewContentSource).toMatch(/\.review-panel\.evaluation\s*\{[^}]*align-items:\s*stretch;[^}]*padding:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s)
     expect(reviewContentSource).toMatch(/\.evaluation-workspace\s*\{[^}]*width:\s*100%;[^}]*align-self:\s*stretch/s)
-    expect(reviewContentSource).toContain(':tabs="evaluationTabs" sticky flush')
+    expect(reviewContentSource).toContain(':tabs="evaluationTabs" flush')
+    expect(reviewContentSource).not.toContain(':tabs="evaluationTabs" sticky flush')
     expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*padding:\s*var\(--performance-review-surface-inset\)/s)
   })
 

@@ -37,7 +37,7 @@
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
-            <PerformanceLineTabs v-model="evaluationTab" :tabs="evaluationTabs" sticky flush>
+            <PerformanceLineTabs v-model="evaluationTab" :tabs="evaluationTabs" flush>
               <ProjectMemberListPanel
                 v-if="evaluationTab === 'members' && props.projectId && node.node_id"
                 :project-id="props.projectId"
