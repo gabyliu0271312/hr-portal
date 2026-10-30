@@ -3755,6 +3755,20 @@ def test_calibration_phase_times_allow_partial_drafts_without_inventing_an_envel
     assert timing["start_at"] == timing["end_at"] == ""
 
 
+def test_calibration_phase_times_drop_orphan_entries_without_calibration_config():
+    # 历史残留：node_times 带 phase_times 但 node_settings 无对应校准配置，直接收敛不报错
+    flow = calibration_phase_time_settings()
+    flow["node_times"]["orphan-node"] = {"start_at": "", "end_at": "", "phase_times": {"phase-1": {"start_at": "2026-10-01T09:00+08:00", "end_at": "2026-10-05T18:00+08:00"}}}
+    normalized = PerformanceProjectService._validate_flow_settings(flow)
+    assert "phase_times" not in normalized["node_times"]["orphan-node"]
+    # 节点存在于 node_settings 但 calibration 为空（无 phases）时同样收敛
+    flow2 = calibration_phase_time_settings()
+    flow2["node_settings"]["calibration-1"] = {}
+    flow2["node_times"]["calibration-1"] = {"phase_times": {"phase-1": {"start_at": "", "end_at": ""}}}
+    normalized2 = PerformanceProjectService._validate_flow_settings(flow2)
+    assert "phase_times" not in normalized2["node_times"]["calibration-1"]
+
+
 def test_calibration_phase_times_preserve_omitted_map_and_prune_deleted_phase_by_id():
     saved = PerformanceProjectService._validate_flow_settings(calibration_phase_time_settings())
     flow = calibration_phase_time_settings()

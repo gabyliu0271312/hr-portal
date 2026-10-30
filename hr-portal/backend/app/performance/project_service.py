@@ -704,11 +704,16 @@ class PerformanceProjectService:
                 raise ProjectValidationError("流程节点截止时间必须晚于开始时间")
             normalized_times[node_id] = values
             if "phase_times" in raw and not normalized_nodes.get(node_id, {}).get("calibration"):
-                raise ProjectValidationError("阶段时间必须对应校准环节")
+                # 历史数据可能残留无校准配置的 phase_times（前端旧版同步不清理孤儿 key），
+                # 直接丢弃收敛，避免项目保存被永久 422 卡死
+                raw.pop("phase_times", None)
         previous_times = (existing_flow_settings or {}).get("node_times") or {}
         previous_nodes = (existing_flow_settings or {}).get("node_settings") or {}
         for node_id, setting in normalized_nodes.items():
             phases = (setting.get("calibration") or {}).get("phases") or []
+            if not phases:
+                # 无校准配置的节点不参与阶段时间合并；其 previous 若残留孤儿 phase_times 一并忽略
+                continue
             raw = node_times.get(node_id) or {}
             previous = previous_times.get(node_id) or {}
             if "phase_times" not in raw and "phase_times" not in previous:

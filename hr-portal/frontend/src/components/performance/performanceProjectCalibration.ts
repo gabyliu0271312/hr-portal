@@ -27,6 +27,12 @@ export function ensureCalibrationPhaseIds(settings: NodeSettings) {
 }
 
 export function syncCalibrationPhaseTimes(settings: NodeSettings, times: Record<string, PerformanceProjectNodeTime>) {
+  const calibrationIds = new Set(Object.entries(settings).filter(([, setting]) => setting.calibration?.phases?.length).map(([nodeId]) => nodeId))
+  // 清理不属于任何校准节点的孤儿 phase_times（历史残留：旧版同步不清理，会让保存被后端拒绝）
+  for (const nodeId of Object.keys(times)) {
+    if (calibrationIds.has(nodeId) || !times[nodeId]?.phase_times) continue
+    delete times[nodeId].phase_times
+  }
   for (const [nodeId, setting] of Object.entries(settings)) {
     const phases = setting.calibration?.phases
     if (!phases?.length) continue

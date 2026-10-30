@@ -155,6 +155,19 @@ describe('calibration phase time linkage', () => {
     wrapper.unmount()
   })
 
+  it('drops orphan phase_times not backed by any calibration node', () => {
+    const value = settings()
+    value.node_times.orphan = { start_at: '2026-10-01T00:00', end_at: '2026-10-02T00:00', phase_times: { 'phase-1': { start_at: '2026-10-01T00:00', end_at: '2026-10-02T00:00' } } }
+    syncCalibrationPhaseTimes(value.node_settings, value.node_times)
+    expect(value.node_times.orphan.phase_times).toBeUndefined()
+    expect(value.node_times.orphan).toEqual({ start_at: '2026-10-01T00:00', end_at: '2026-10-02T00:00' })
+    // 校准节点删除后 phase_times 不再残留
+    delete value.node_settings.calibration
+    value.node_times.calibration = { start_at: '', end_at: '', phase_times: { 'phase-1': { start_at: '', end_at: '' } } }
+    syncCalibrationPhaseTimes(value.node_settings, value.node_times)
+    expect(value.node_times.calibration.phase_times).toBeUndefined()
+  })
+
   it('retains loading, error, and empty states', async () => {
     const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [], loading: true } })
     expect(wrapper.text()).toContain('正在加载流程节点')
