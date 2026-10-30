@@ -5,11 +5,10 @@ import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceButton from './PerformanceButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
-import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import PerformanceExportIcon from './PerformanceExportIcon.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
-import { performanceColumnWidth } from './performanceTableColumns'
-import { nextPerformanceSort, sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
+import { type PerformanceTableColumn } from './performanceTableColumns'
+import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 type MemberRow = ProjectMember & {
   task_id?: number
@@ -173,10 +172,16 @@ const cellValue = (member: MemberRow, key: string) => {
 }
 function applyColumns(keys: string[]) { selectedColumnKeys.value = keys; emit('columns-change', keys) }
 
-function changeSort(key: string) {
-  const next = nextPerformanceSort(sortBy.value, sortOrder.value, key)
-  sortBy.value = next.key
-  sortOrder.value = next.order
+const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.value.map(column => ({
+  key: column.key,
+  label: column.label,
+  sortable: true,
+  fixed: column.key === 'name',
+})))
+
+function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder }) {
+  sortBy.value = order ? key : ''
+  sortOrder.value = order
   page.value = 1
   if (!props.reviewContext) void loadMembers()
 }
@@ -235,33 +240,23 @@ onMounted(() => void loadMembers())
       :total="total"
       :sort-key="sortBy"
       :sort-order="sortOrder"
-      sort-mode="remote"
       scroll-mode="page"
-      :fit="false"
+      :columns="tableColumns"
+      :selectable="!reviewContext"
+      selection-key="id"
       :show-selection-bar="!reviewContext"
       row-key="id"
       :clickable-rows="Boolean(reviewContext)"
-      class="member-table"
       @page-change="changePage"
       @page-size-change="changePageSize"
       @row-click="onRowClick"
+      @sort-change="onSortChange"
     >
-      <el-table-column type="selection" :width="performanceColumnWidth('selection')" fixed="left" />
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :width="performanceColumnWidth(column.key)" :fixed="column.key === 'name' ? 'left' : undefined">
-        <template #header>
-          <PerformanceSortHeader
-            :label="column.label"
-            :order="sortBy === column.key ? (sortOrder === 'asc' ? 'ascending' : sortOrder === 'desc' ? 'descending' : null) : null"
-            align="left"
-            @click="changeSort(column.key)"
-          />
-        </template>
-        <template #default="{ row }">
-          <div v-if="column.key === 'name'" class="member-identity"><span class="member-avatar">{{ avatarText(row) }}</span><span class="member-name">{{ row.display_name }}</span></div>
-          <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
-          <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>
-        </template>
-      </el-table-column>
+      <template #cell="{ row, column }">
+        <div v-if="column.key === 'name'" class="member-identity"><span class="member-avatar">{{ avatarText(row) }}</span><span class="member-name">{{ row.display_name }}</span></div>
+        <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
+        <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>
+      </template>
       <template #empty>
         <div v-if="loading" class="member-state" role="status">正在加载成员…</div>
         <div v-else-if="error" class="member-state member-state--error" role="alert">{{ error }}</div>

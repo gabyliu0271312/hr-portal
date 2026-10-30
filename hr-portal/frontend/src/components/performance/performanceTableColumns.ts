@@ -1,6 +1,5 @@
 /** 绩效表格列宽标准（对齐飞书采集值），页面与公共表格共用。 */
-export const PERFORMANCE_COLUMN_WIDTHS: Record<string, number> = {
-  selection: 40,
+export const PERFORMANCE_COLUMN_WIDTHS: Record<string, number> = {  selection: 40,
   name: 224,
   status: 144,
   source_label: 144,
@@ -17,4 +16,13 @@ export const PERFORMANCE_COLUMN_WIDTHS: Record<string, number> = {
 
 export function performanceColumnWidth(key: string): number {
   return PERFORMANCE_COLUMN_WIDTHS[key] ?? 120
+}
+
+export interface PerformanceTableColumn {
+  key: string
+  label: string
+  width?: number
+  fixed?: boolean
+  sortable?: boolean
+  align?: 'left' | 'right'
 }

@@ -13,10 +13,9 @@ import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
-import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
-import { performanceColumnWidth } from './performanceTableColumns'
-import { nextPerformanceSort, sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
+import { type PerformanceTableColumn } from './performanceTableColumns'
+import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 const props = defineProps<{
   projectId: number | string
@@ -144,10 +143,14 @@ const sortKey = ref('')
 const sortOrder = ref<PerformanceSortOrder>('')
 const page = ref(1)
 const pageSize = ref(50)
-function changeSort(key: string) {
-  const next = nextPerformanceSort(sortKey.value, sortOrder.value, key)
-  sortKey.value = next.key
-  sortOrder.value = next.order
+const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.value.map(column => ({
+  key: column.key,
+  label: column.label,
+  sortable: true,
+})))
+function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder }) {
+  sortKey.value = order ? key : ''
+  sortOrder.value = order
   page.value = 1
 }
 function sortValue(item: PerformanceReview360FeedbackItem, key: string) {
@@ -196,30 +199,23 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       :page-size="pageSize"
       :total="total"
       scroll-mode="page"
-      :fit="false"
+      :columns="tableColumns"
       row-key="task_id"
       clickable-rows
+      :sort-key="sortKey"
+      :sort-order="sortOrder"
+      @sort-change="onSortChange"
       @page-change="page = $event"
       @page-size-change="pageSize = $event; page = 1"
       @row-click="openItem"
     >
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :width="performanceColumnWidth(column.key)">
-        <template #header>
-          <PerformanceSortHeader
-            :label="column.label"
-            :order="sortKey === column.key ? (sortOrder === 'asc' ? 'ascending' : sortOrder === 'desc' ? 'descending' : null) : null"
-            align="left"
-            @click="changeSort(column.key)"
-          />
-        </template>
-        <template #default="{ row }">
-          <span v-if="column.key === 'name'" class="feedback-panel__identity">{{ row.display_name }}</span>
-          <span v-else-if="column.key === 'status'">
-            <span class="feedback-panel__status" :class="`is-${row.status}`">{{ cellValue(row, column.key) }}</span>
-          </span>
-          <span v-else>{{ cellValue(row, column.key) }}</span>
-        </template>
-      </el-table-column>
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'name'" class="feedback-panel__identity">{{ row.display_name }}</span>
+        <span v-else-if="column.key === 'status'">
+          <span class="feedback-panel__status" :class="`is-${row.status}`">{{ cellValue(row, column.key) }}</span>
+        </span>
+        <span v-else>{{ cellValue(row, column.key) }}</span>
+      </template>
       <template #empty="{ loading: emptyLoading, text }">
         <div v-if="emptyLoading" class="feedback-empty feedback-empty--text" role="status">{{ text }}</div>
         <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}</div>

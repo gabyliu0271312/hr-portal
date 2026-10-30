@@ -252,3 +252,26 @@ REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞�
 - 批量操作条改为 `position: sticky; bottom: 0; z-index: 21`，勾选后从内容区底部吸附滑出（带 0.2s 位移动画），不需要滚动到表格末尾。
 
 验证：`vue-tsc`、`npm run build` 通过；ProjectManagement/Review 相关 40 项测试通过。
+
+### 2026-10-30 补充五：page 模式改为飞书同构原生表格
+
+为避免 Element Plus 内部结构导致的反复偏差，`PerformanceManagementTable` 的 `scroll-mode="page"` 在传入 `columns` 时改用飞书同构实现，不再使用 el-table：
+
+- 表头与表体为两张独立 table，表头 `position: sticky; top: 20px; z-index: 20`，位于卡片顶部的 20px sticky 白色遮罩之下；
+- 选择列为自绘复选框（复用 `PerformanceCheckbox` 的 UD 结构），表头全选/半选、行内单选，表头与行内同盒模型（单元格 12px 内边距），天然对齐；
+- 列宽来自 `performanceTableColumns` 标准（40/224/144/144/104/124/134/224），固定姓名列用 sticky left，表体横向滚动、表头 JS 同步；
+- 排序表头复用 `PerformanceSortHeader`（箭头紧贴文字、hover、状态提示）；
+- 批量操作条 `sticky bottom:0`，全宽覆盖卡片内边距，勾选后滑出；
+- 行点击、空态插槽、分页（页码/跳页/条页）保持原有契约。
+
+成员表与 360°反馈表均改为传 `columns` + `#cell` 插槽；其他 15 个使用方仍走原 el-table 分支（inner 模式），不受影响。
+
+验证：`vue-tsc`、`npm run build` 通过；ProjectManagement/Review 40 项通过；绩效 `.spec.ts` 1054/1058 通过（4 项为并行会话 token/弹窗断言）。
+
+### 2026-10-30 补充六：按需横向滚动条、固定操作条与气泡提示
+
+- 横向滚动条改为飞书式：隐藏原生滚动条（`scrollbar-width:none` + `::-webkit-scrollbar`），在表格底部提供自定义横滚条，悬停/滚动时出现、空闲 1 秒淡出，支持拖动与点击轨道，并随页面吸附在可视区底部；选中操作条出现时上移避让；
+- 批量操作条改为 `position: fixed`，按表格内容区左右边界计算 left/right，底部滑入，表格内留 30px 占位；
+- 排序提示改为 Teleport 到 body 的深色气泡 tooltip（未排序「点击降序」、降序「点击升序」、升序「取消排序」）；
+- 排序箭头激活色按实测改为 `#646a73`，未激活暂用 `#BBBFC4`（待飞书实测确认）；
+- 验证：`vue-tsc`、`npm run build` 通过；SortHeader/ProjectManagement/Review 42 项通过。
