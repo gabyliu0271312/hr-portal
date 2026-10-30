@@ -5,7 +5,6 @@
       <div class="header-left">
         <AppSwitcher current="portal" />
         <AppBrand app-key="portal" label="HR Portal" />
-        <span class="system-name" @click="router.push('/home')">人力资源门户</span>
         <nav class="top-tabs">
           <span
             v-for="g in tabGroups"
@@ -260,56 +259,60 @@ async function handleCommand(cmd: string) {
 
 <style scoped>
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: 56px;
-  padding: 0 24px;
+  padding: 0 16px;
+  box-sizing: border-box;
+  border-bottom: 0;
   background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
+  color: rgba(0, 0, 0, 0.65);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 21px;
+  box-shadow: rgba(31, 35, 41, 0.02) 0 2px 4px -4px, rgba(31, 35, 41, 0.02) 0 4px 8px 0, rgba(31, 35, 41, 0.03) 0 4px 16px 4px;
   flex-shrink: 0;
 }
 .header-left {
   display: flex;
   align-items: center;
-  gap: 32px;
-}
-.system-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.system-name:hover {
-  color: var(--color-primary);
+  gap: 0;
 }
 .top-tabs {
   display: flex;
-  gap: 4px;
+  gap: 0;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0 16px;
 }
 .tab-item {
-  padding: 6px 16px;
-  font-size: 14px;
+  position: relative;
+  height: 56px;
+  padding: 0 16px;
   color: var(--color-text-regular);
   cursor: pointer;
-  border-radius: 4px;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 56px;
+  white-space: nowrap;
   transition: all 0.15s;
-  position: relative;
 }
-.tab-item:hover {
-  color: var(--color-primary);
-  background: var(--color-bg-hover);
-}
+.tab-item:hover,
 .tab-item.active {
   color: var(--color-primary);
+}
+.tab-item.active {
   font-weight: 500;
 }
 .tab-item.active::after {
   content: '';
   position: absolute;
-  bottom: -10px;
+  top: 53px;
   left: 50%;
   transform: translateX(-50%);
   width: 60%;
