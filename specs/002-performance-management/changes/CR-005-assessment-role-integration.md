@@ -236,3 +236,19 @@ REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞�
 实现：公共表格 page 模式增加 sticky 遮罩；修正表头 `th` 双重内边距（12+12）为单层 12，勾选框与表头文字对齐；新增 `showSelectionBar` 与 `#selection-actions` 插槽，成员表提供两个操作按钮（本轮不接业务逻辑），`清除` 调用 el-table `clearSelection`；新增选中行高亮。
 
 验证：`vue-tsc`、`npm run build` 通过；绩效 `.spec.ts` 1054/1058 通过，4 项失败为并行会话的 token/弹窗断言，与表格无关。
+
+### 2026-10-30 补充四：按飞书结构修正遮罩、勾选框与操作条
+
+实测（用户页面脚本）暴露三处与飞书结构不一致：
+
+- 遮罩位于表格内部（汇总/工具栏之下），滚动时工具栏与汇总先进入 0–20px 带，遮罩尚未吸附，导致内容漏出；
+- 表头与行内勾选框水平相差 12px（Element Plus 选择列盒模型与自定义 padding 叠加）；
+- 批量操作条位于文档流末尾，需要滚动到底部才出现。
+
+按飞书结构调整：
+
+- 遮罩移到卡片第一个子元素，`sticky top:0; z-index:19; height:20px; margin:0 -20px`，全宽覆盖卡片顶部；卡片上内边距改为 0，由遮罩提供 20px 顶部空间（成员表与 360 表一致）；
+- 选择列 th/td 统一盒模型：单元格 padding 归零，`.cell` 左内边距 12px（`!important`），复选框 margin 0，表头与行内勾选框同起点；
+- 批量操作条改为 `position: sticky; bottom: 0; z-index: 21`，勾选后从内容区底部吸附滑出（带 0.2s 位移动画），不需要滚动到表格末尾。
+
+验证：`vue-tsc`、`npm run build` 通过；ProjectManagement/Review 相关 40 项测试通过。

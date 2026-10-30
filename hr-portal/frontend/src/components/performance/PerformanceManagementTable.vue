@@ -113,7 +113,6 @@ function jumpToPage() {
 
 <template>
   <div class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page' }" :aria-label="tableAriaLabel">
-    <div v-if="scrollMode === 'page'" class="table-sticky-mask" aria-hidden="true"></div>
     <div class="table-scroll">
       <el-table ref="tableRef" v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="rowClassName" @selection-change="onSelectionChange" @row-click="emit('row-click', $event)">
         <slot />
@@ -152,18 +151,18 @@ function jumpToPage() {
       <span class="pagination-jump">跳至 <input v-model="jumpText" class="pagination-jump-input" type="text" inputmode="numeric" aria-label="跳至页码" @keyup.enter="jumpToPage" @blur="jumpToPage" /> 页</span>
     </div>
 
-    <div v-if="showSelectionBar && selectedRows.length" class="selection-bar" :aria-label="`已选择 ${selectedRows.length} 条`">
-      <slot name="selection-actions" />
-      <span class="selection-bar__count">已选择 {{ selectedRows.length }} 条</span>
-      <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
-    </div>
+    <Transition name="selection-bar-slide">
+      <div v-if="showSelectionBar && selectedRows.length" class="selection-bar" :aria-label="`已选择 ${selectedRows.length} 条`">
+        <slot name="selection-actions" />
+        <span class="selection-bar__count">已选择 {{ selectedRows.length }} 条</span>
+        <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
 .performance-management-table { min-height: 0; display: flex; flex-direction: column; }
-/* 表头吸附时覆盖其上方 20px 缝隙，防止内容漏出（对齐飞书 sticky 白色遮罩） */
-.table-sticky-mask { position: sticky; top: 0; z-index: 19; flex: none; height: 20px; background: var(--color-bg-card, #fff); }
 /* 单一横向滚动容器：由 el-table 内部滚动区承担（等价采集契约 ud__table-content），外层一律不滚动，避免双滚动条 */
 .table-scroll { overflow: visible; }
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
@@ -189,10 +188,17 @@ function jumpToPage() {
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px 0; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
 :deep(.el-table th.el-table__cell:hover) { background: #f5f6f7; }
 :deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
-:deep(.el-table .el-table-column--selection > .cell) { padding-left: 12px; padding-right: 0; }
+:deep(.el-table th.el-table-column--selection),
+:deep(.el-table td.el-table-column--selection) { padding-left: 0 !important; padding-right: 0 !important; }
+:deep(.el-table th.el-table-column--selection > .cell),
+:deep(.el-table td.el-table-column--selection > .cell) { display: flex; align-items: center; padding-left: 12px !important; padding-right: 0 !important; }
+:deep(.el-table th.el-table-column--selection .el-checkbox),
+:deep(.el-table td.el-table-column--selection .el-checkbox) { margin: 0; }
 :deep(.el-table__row.is-selected-row > td.el-table__cell) { background: #f5f6f7; }
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
-.selection-bar { display: flex; align-items: center; gap: 12px; margin-top: 30px; }
+.selection-bar { position: sticky; bottom: 0; z-index: 21; display: flex; align-items: center; gap: 12px; margin-top: 30px; padding: 8px 0; background: #fff; }
+.selection-bar-slide-enter-active, .selection-bar-slide-leave-active { transition: transform .2s ease, opacity .2s ease; }
+.selection-bar-slide-enter-from, .selection-bar-slide-leave-to { transform: translateY(100%); opacity: 0; }
 .selection-bar__count { margin-left: 12px; color: #646a73; font-size: 14px; line-height: 22px; }
 .selection-bar__clear { padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: #1456f0; font: inherit; font-size: 14px; line-height: 18px; cursor: pointer; }
 .selection-bar__clear:hover, .selection-bar__clear:focus-visible { background: #eff0f1; outline: 0; }

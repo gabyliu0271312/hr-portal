@@ -207,6 +207,7 @@ onMounted(() => void loadMembers())
 
 <template>
   <section class="member-list-panel" aria-label="成员列表">
+    <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
       v-model:keyword="keyword"
       class="member-list-toolbar"
@@ -276,7 +277,8 @@ onMounted(() => void loadMembers())
 </template>
 
 <style scoped>
-.member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:20px; color:#1f2329; }
+.member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; }
+.card-sticky-mask { position: sticky; top: 0; z-index: 19; flex: none; height: 20px; margin: 0 -20px; border-radius: 8px 8px 0 0; background: var(--color-bg-card, #fff); }
 .member-list-toolbar{display:flex;align-items:center;gap:12px;height:32px;margin-bottom:16px}.member-action-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 80px;height:32px;padding:4px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;cursor:pointer;font:400 14px/22px inherit}.export-icon{display:block;flex:0 0 14px;width:14px;height:14px;margin-right:4px}
 .member-identity{display:flex;align-items:center;min-width:0}.member-avatar{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:#e5eaf5;color:#3b5b92;font-size:13px}.member-name{min-width:0;margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
