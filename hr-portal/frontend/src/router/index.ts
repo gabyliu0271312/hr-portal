@@ -738,21 +738,32 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/master-data/Overview.vue'),
         meta: { label: '主数据概览', menuCode: 'people.app' },
       },
+    ],
+  },
+  {
+    path: '/people/settings',
+    component: () => import('@/layouts/PeopleAdminLayout.vue'),
+    meta: { label: '创梦人力后台', requiresPeopleAdmin: true },
+    children: [
+      {
+        path: '',
+        redirect: '/people/settings/master-data',
+      },
       {
         path: 'master-data',
-        name: 'PeopleMasterData',
+        name: 'PeopleAdminMasterData',
         component: () => import('@/views/system/MasterDataEntities.vue'),
         meta: { label: '主数据定义', menuCode: 'system.master_entities' },
       },
       {
         path: 'field-settings',
-        name: 'PeopleFieldSettings',
+        name: 'PeopleAdminFieldSettings',
         component: () => import('@/views/warehouse/WarehouseStandardFields.vue'),
         meta: { label: '字段设置', menuCode: 'warehouse.standard_fields.catalog' },
       },
       {
         path: 'field-categories',
-        name: 'PeopleFieldCategories',
+        name: 'PeopleAdminFieldCategories',
         component: () => import('@/views/system/FieldCategory.vue'),
         meta: { label: '字段分类', menuCode: 'system.field_categories' },
       },
@@ -816,6 +827,10 @@ router.beforeEach(async (to) => {
     } catch {
       return { name: 'Home' }
     }
+  }
+
+  if (to.meta.requiresPeopleAdmin && !menuCodes.includes('people.admin')) {
+    return { name: 'Home' }
   }
 
   return true

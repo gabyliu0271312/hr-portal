@@ -13,7 +13,8 @@
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+              <el-dropdown-item v-if="canAdmin" command="settings">后台管理</el-dropdown-item>
+              <el-dropdown-item command="logout" :divided="canAdmin">退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -26,12 +27,6 @@
         <div class="menu-item" :class="{ active: isActive('/people/overview') }" @click="router.push('/people/overview')">
           主数据概览
         </div>
-        <template v-if="hasAdminCode">
-          <div class="aside-title aside-title--spaced">创梦人力后台</div>
-          <div v-if="hasMasterData" class="menu-item" :class="{ active: isActive('/people/master-data') }" @click="router.push('/people/master-data')">主数据定义</div>
-          <div v-if="hasFieldSettings" class="menu-item" :class="{ active: isActive('/people/field-settings') }" @click="router.push('/people/field-settings')">字段设置</div>
-          <div v-if="hasFieldCategories" class="menu-item" :class="{ active: isActive('/people/field-categories') }" @click="router.push('/people/field-categories')">字段分类</div>
-        </template>
       </el-aside>
 
       <el-main class="people-main">
@@ -52,16 +47,17 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const userInitial = computed(() => userStore.user?.display_name?.trim().slice(0, 1) || '我')
-const hasAdminCode = computed(() => userStore.menus.some(m => m.code === 'people.admin'))
-const hasMasterData = computed(() => userStore.menus.some(m => m.code === 'system.master_entities'))
-const hasFieldSettings = computed(() => userStore.menus.some(m => m.code === 'warehouse.standard_fields.catalog'))
-const hasFieldCategories = computed(() => userStore.menus.some(m => m.code === 'system.field_categories'))
+const canAdmin = computed(() => userStore.menus.some(m => m.code === 'people.admin'))
 
 function isActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
 }
 
-async function handleUserCommand(command: 'logout') {
+async function handleUserCommand(command: 'settings' | 'logout') {
+  if (command === 'settings') {
+    window.open('/people/settings', '_blank', 'noopener')
+    return
+  }
   await userStore.logout()
   await router.replace({ name: 'Login' })
 }
@@ -84,7 +80,6 @@ async function handleUserCommand(command: 'logout') {
 .people-body { flex: 1; min-height: 0; }
 .people-aside { border-right: 1px solid var(--color-border); background: var(--color-bg-card); padding: 14px 0; overflow-y: auto; }
 .aside-title { padding: 0 20px 10px; color: var(--color-text-secondary); font-size: 12px; font-weight: 700; }
-.aside-title--spaced { margin-top: 10px; }
 .menu-item { padding: 9px 20px; border-left: 2px solid transparent; color: var(--color-text-regular); cursor: pointer; font-size: 14px; }
 .menu-item:hover { background: var(--color-bg-hover); color: var(--color-primary); }
 .menu-item.active { border-left-color: var(--color-primary); background: var(--color-primary-light); color: var(--color-primary); font-weight: 700; }

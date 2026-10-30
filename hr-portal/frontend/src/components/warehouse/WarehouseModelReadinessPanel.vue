@@ -143,7 +143,7 @@ watch(() => [props.modelId, props.modelVersion], () => { void load() }, { immedi
         <strong>字段与结构问题</strong>
         <div class="section-actions">
           <el-button text type="primary" @click="emit('navigate', 'fields')">前往输出字段</el-button>
-          <el-button text type="primary" @click="router.push('/people/field-settings')">前往标准字段目录</el-button>
+          <el-button text type="primary" @click="router.push('/people/settings/field-settings')">前往标准字段目录</el-button>
         </div>
       </div>
       <p class="readiness-panel__note">输出字段需确认到有效标准字段；类型、敏感分类、来源身份和权限锚点必须与当前物理结构一致。输出字段本身请回到“输出字段”步骤修复。</p>

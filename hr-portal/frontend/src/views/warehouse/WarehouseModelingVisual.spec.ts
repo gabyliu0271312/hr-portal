@@ -196,7 +196,7 @@ describe('R17 model checks remain read-only until an explicit governance action'
     expect(wrapper.text()).toContain('前往数据清洗')
     expect(wrapper.text()).toContain('返回数据建模')
     await button(wrapper, '前往标准字段目录').trigger('click')
-    expect(mocks.push).toHaveBeenCalledWith('/people/field-settings')
+    expect(mocks.push).toHaveBeenCalledWith('/people/settings/field-settings')
     wrapper.unmount()
   })
 
