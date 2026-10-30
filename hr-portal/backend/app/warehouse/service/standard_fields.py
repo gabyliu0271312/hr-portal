@@ -132,8 +132,9 @@ async def _definition_entity(db, payload, user, field=None):
         if not await user_has_op(user, db, "warehouse.standard_fields.catalog", "V"):
             _error(403, "standard_field_view_denied", "无标准字段查看权限")
         entity = await require_entity(db, target, user, "C" if field is None else "U", active=True, lock=True)
-        if entity.published_at is not None:
-            _error(409, "standard_field_entity_published", "实体已发布；本卡不支持修改其字段合同，请先完成定义升级影响核对")
+        if entity.published_at is not None and field is not None:
+            # B17：已发布实体允许新增归属字段（新建时 field=None）；已有字段的编辑/迁移/删除仍拒绝（破坏性变更另批）
+            _error(409, "standard_field_entity_published", "实体已发布；已有字段合同不能修改，仅允许新增归属字段")
     code = field.field_code if field is not None else payload.field_code
     if code == "work_location" and (field is None or target is not None) and (entity is None or entity.entity_code != "person"):
         _error(422, "work_location_entity", "工作地枚举必须归属于Person定义")

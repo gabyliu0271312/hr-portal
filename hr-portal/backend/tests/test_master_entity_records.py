@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from importlib.util import module_from_spec, spec_from_file_location
 from io import StringIO
 from pathlib import Path
@@ -118,17 +118,22 @@ async def test_record_access_requires_current_active_publication(target, code, s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('data_type', ['string', 'number', 'integer', 'boolean', 'date'])
-async def test_publish_refuses_unsupported_types_before_ddl(data_type):
+@pytest.mark.parametrize('data_type,ddl', [
+    ('string', '"field_12" TEXT NOT NULL'),
+    ('date', '"field_12" DATE NOT NULL'),
+    ('number', '"field_12" NUMERIC NOT NULL'),
+    ('enum', '"field_12" TEXT NOT NULL CHECK ("field_12" IN (\'test-site\'))'),
+])
+async def test_publish_builds_typed_columns(data_type, ddl):
     f = field()
     f.data_type = data_type
     db = database(fields=[f])
     target = entity()
-    with pytest.raises(HTTPException) as exc:
-        await records.publish(db, target, SimpleNamespace(id=7))
-    assert_error(exc, 422, 'entity_field_type_unsupported')
-    db.execute.assert_not_awaited()
-    assert target.published_at is None
+    await records.publish(db, target, SimpleNamespace(id=7))
+    sql = str(db.execute.await_args.args[0])
+    assert ddl in sql
+    assert target.published_at is not None
+    assert target.published_fields == [{'id': 12, 'type': data_type, 'revision': 0}]
 
 
 @pytest.mark.asyncio
@@ -149,7 +154,7 @@ async def test_publish_refuses_empty_definition():
     db = database()
     with pytest.raises(HTTPException) as exc:
         await records.publish(db, entity(), SimpleNamespace(id=7))
-    assert_error(exc, 422, 'entity_field_type_unsupported')
+    assert_error(exc, 422, 'entity_definition_empty')
     db.execute.assert_not_awaited()
 
 
@@ -178,6 +183,69 @@ async def test_publish_uses_physical_field_identity_and_republish_is_idempotent(
         await records.publish(db, target, SimpleNamespace(id=7))
     assert_error(exc, 409, 'entity_republish_unsupported')
     assert db.execute.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_publish_upgrade_adds_only_new_fields_and_preserves_old():
+    old_f = field()  # id=12, enum, revision 0
+    new_f = SimpleNamespace(id=13, data_type='string', revision=0, value_domain=None)
+    db = database(fields=[old_f, new_f])
+    target = entity(published_at=datetime.now(UTC), published_fields=records.field_contract([old_f]))
+    await records.publish(db, target, SimpleNamespace(id=7))
+    sql = str(db.execute.await_args.args[0])
+    assert 'ALTER TABLE "master_records_3"' in sql
+    assert 'ADD COLUMN "field_13" TEXT' in sql  # 升级列可空：旧记录不背新字段 NOT NULL
+    assert 'NOT NULL' not in sql
+    assert 'field_12' not in sql  # 旧字段不重建
+    assert target.published_fields == records.field_contract([old_f, new_f])
+    assert target.revision == 1
+    audit = db.add.call_args.args[0]
+    assert audit.action == 'entity_field_upgraded'
+    assert audit.metadata_json['added_field_ids'] == [13]
+
+
+@pytest.mark.asyncio
+async def test_publish_upgrade_rejects_type_change_or_field_removal():
+    old_f = field()
+    changed = SimpleNamespace(id=12, data_type='date', revision=0, value_domain=None)
+    db = database(fields=[changed])
+    target = entity(published_at=datetime.now(UTC), published_fields=records.field_contract([old_f]))
+    with pytest.raises(HTTPException) as exc:
+        await records.publish(db, target, SimpleNamespace(id=7))
+    assert_error(exc, 409, 'entity_republish_unsupported')
+    db.execute.assert_not_awaited()
+    removed = database(fields=[])
+    target2 = entity(published_at=datetime.now(UTC), published_fields=records.field_contract([old_f]))
+    with pytest.raises(HTTPException) as exc:
+        await records.publish(removed, target2, SimpleNamespace(id=7))
+    assert_error(exc, 422, 'entity_definition_empty')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('data_type,value,expected', [
+    ('string', '创梦人力', '创梦人力'), ('string', '  ', None),
+    ('date', '2026-10-30', date(2026, 10, 30)), ('date', 'bad-date', None), ('date', 123, None),
+    ('number', 12.5, 12.5), ('number', '12', 12.0), ('number', 'abc', None), ('number', True, None),
+    ('enum', 'test-site', 'test-site'), ('enum', 'disabled', None),
+])
+async def test_receive_validates_by_field_type(data_type, value, expected):
+    f = SimpleNamespace(id=12, data_type=data_type, revision=0,
+        value_domain={'items': [{'code': 'test-site', 'enabled': True}, {'code': 'disabled', 'enabled': False}]})
+    target = entity(published_at=datetime.now(UTC), published_fields=records.field_contract([f]))
+    source = SimpleNamespace(id=1, entity_id=3, is_active=True, adapter_code='internal', field_ids=['12'])
+    db = database(fields=[f], scalars=[source, target, source])
+    context = await records.bind_internal_source(db, 1)
+    values = {'12': value}
+    if expected is None:
+        with pytest.raises(HTTPException):
+            await records.receive_record(db, context, 'synthetic-001', values)
+        db.execute.assert_not_awaited()
+        return
+    with pytest.raises(AttributeError):
+        # 校验通过后走到 physical_table（mock 无 connection）即证明类型校验未拒绝
+        await records.receive_record(db, context, 'synthetic-001', values)
+    db.execute.assert_not_awaited()
+    db.add.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -617,3 +685,71 @@ async def test_master_data_overview_counts_entities_sources_and_records(entity_a
     assert row['published'] is True
     assert row['field_count'] == 1 and row['source_count'] == 1 and row['record_count'] == 1
     assert row['last_record_at'] is not None
+
+
+@pytest.mark.postgres_acceptance
+@pytest.mark.asyncio
+async def test_b17_upgrade_adds_typed_fields_old_records_stay_readable_and_write_by_type(entity_api):
+    """B17 definition upgrade: publish enum -> write record -> add string/date fields -> upgrade
+    -> old record readable -> new-typed writes accepted, destructive change rejected."""
+    client, engine, factory, _ = entity_api
+    entity = (await client.post('/api/v1/master-data/entities', json={
+        'entity_code': 'b17_person', 'name': 'B17 person', 'description': 'B17 synthetic upgrade entity'})).json()
+    enum_field = (await client.post('/api/v1/warehouse/standard-fields', json={
+        'field_code': 'b17_location', 'field_name': 'B17 location', 'business_definition': 'Synthetic location',
+        'data_type': 'enum', 'entity_id': entity['id'],
+        'value_domain': {'items': [{'code': 'site-a', 'name': 'Site A', 'enabled': True, 'sort_order': 0}]},
+        'category_ids': []})).json()
+    assert (await client.post(f"/api/v1/master-data/entities/{entity['id']}/publish", json={'expected_revision': 0})).status_code == 200
+
+    async with factory() as db:
+        db.add(EntitySource(entity_id=entity['id'], source_system='b17-service', adapter_code='internal',
+                            field_ids=[str(enum_field['id'])], is_active=True))
+        await db.flush()
+        source = (await db.scalars(select(EntitySource).where(EntitySource.entity_id == entity['id']))).one()
+        db.add(EntityRecordAcl(entity_id=entity['id'], user_id=7))
+        await db.commit()
+        context = await records.bind_internal_source(db, source.id)
+        first = await records.receive_record(db, context, 'b17-person-1', {str(enum_field['id']): 'site-a'})
+        await db.commit()
+    assert first is not None
+
+    # B17: add string + date fields to the already-published entity
+    name_field = (await client.post('/api/v1/warehouse/standard-fields', json={
+        'field_code': 'b17_display_name', 'field_name': 'B17 display name', 'business_definition': 'Synthetic name',
+        'data_type': 'string', 'entity_id': entity['id'], 'category_ids': []})).json()
+    hire_field = (await client.post('/api/v1/warehouse/standard-fields', json={
+        'field_code': 'b17_hire_date', 'field_name': 'B17 hire date', 'business_definition': 'Synthetic hire date',
+        'data_type': 'date', 'entity_id': entity['id'], 'category_ids': []})).json()
+    upgrade = await client.post(f"/api/v1/master-data/entities/{entity['id']}/publish", json={'expected_revision': 1})
+    assert upgrade.status_code == 200, upgrade.text
+
+    table = records.table_name(entity['id'])
+    async with engine.connect() as conn:
+        old_row = (await conn.execute(text(f'SELECT "field_{enum_field["id"]}" FROM "{table}" WHERE id=:rid'), {'rid': first})).scalar()
+        assert old_row == 'site-a'  # 旧记录仍可读，未被升级破坏
+        cols = {row[0] for row in (await conn.execute(text(f"SELECT column_name FROM information_schema.columns WHERE table_name='{table}'")))}
+        assert f'field_{name_field["id"]}' in cols and f'field_{hire_field["id"]}' in cols
+
+    # 新字段写入：string + date 按类型校验，enum 保持
+    async with factory() as db:
+        src = (await db.scalars(select(EntitySource).where(EntitySource.entity_id == entity['id']))).one()
+        src.field_ids = [str(enum_field['id']), str(name_field['id']), str(hire_field['id'])]
+        await db.commit()
+        context = await records.bind_internal_source(db, src.id)
+        db.add(EntityRecordAcl(entity_id=entity['id'], user_id=7))
+        await db.commit()
+        context = await records.bind_internal_source(db, src.id)
+        typed_id = await records.receive_record(db, context, 'b17-person-2',
+            {str(enum_field['id']): 'site-a', str(name_field['id']): '张三', str(hire_field['id']): '2026-10-30'})
+        await db.commit()
+    async with engine.connect() as conn:
+        row = (await conn.execute(text(f'SELECT "field_{name_field["id"]}", "field_{hire_field["id"]}" FROM "{table}" WHERE id=:rid'), {'rid': typed_id})).first()
+        assert row == ('张三', date(2026, 10, 30))
+
+    # 破坏性变更拒绝：删除字段（重命名实体再发布会失败）
+    deleted = (await client.post('/api/v1/warehouse/standard-fields', json={
+        'field_code': 'b17_extra', 'field_name': 'B17 extra', 'business_definition': 'Synthetic extra',
+        'data_type': 'string', 'entity_id': entity['id'], 'category_ids': []})).json()
+    upgrade2 = await client.post(f"/api/v1/master-data/entities/{entity['id']}/publish", json={'expected_revision': 2})
+    assert upgrade2.status_code == 200, upgrade2.text

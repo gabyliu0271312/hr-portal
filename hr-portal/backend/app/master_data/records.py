@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 import hashlib
 import json
 
@@ -64,26 +64,93 @@ def validate_enum(field, value):
     return value
 
 
+def _digest_value(value):
+    """Canonical JSON-safe representation of a validated value for the payload digest."""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, float):
+        return format(value, '.17g')
+    return value
+
+
+def _validate_value(field, value):
+    """Type-dispatch record value validation for published contract fields."""
+    if field.data_type == "enum":
+        return validate_enum(field, value)
+    if field.data_type == "string":
+        if type(value) is not str or not value.strip():
+            _error(422, "record_string_invalid", "字符串字段不允许空值")
+        return value
+    if field.data_type == "date":
+        if type(value) is not str:
+            _error(422, "record_date_invalid", "日期字段必须是 ISO 日期字符串")
+        try:
+            return datetime.fromisoformat(value).date()
+        except ValueError:
+            _error(422, "record_date_invalid", "日期字段格式无效，须为 YYYY-MM-DD")
+    if field.data_type == "number":
+        if type(value) is bool:
+            _error(422, "record_number_invalid", "数值字段格式无效")
+        if type(value) in {int, float} or (type(value) is str and value.strip()):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                pass
+        _error(422, "record_number_invalid", "数值字段格式无效")
+    _error(422, "record_type_unsupported", f"不支持写入字段类型 {field.data_type}")
+
+
+def _column_sql(field, *, nullable=False):
+    """Generate physical column DDL for a standard field by type.
+
+    enum -> TEXT + enabled-code CHECK; string/text -> TEXT; date -> DATE; number -> NUMERIC.
+    nullable=True is used for the definition-upgrade path: existing records predate the new
+    field, so PostgreSQL cannot add a NOT NULL column without a DEFAULT.
+    """
+    col = quote_ident(column_name(field.id))
+    null_clause = "" if nullable else " NOT NULL"
+    if field.data_type == "enum":
+        items = (field.value_domain or {}).get("items", [])
+        allowed = [item["code"] for item in items if item.get("enabled", True)]
+        options = ", ".join(str(literal(code).compile(dialect=dialect(), compile_kwargs={"literal_binds": True})) for code in allowed).replace(":", "\\:")
+        return f"{col} {postgres_type(field.data_type)}{null_clause} CHECK ({col} IN ({options}))"
+    return f"{col} {postgres_type(field.data_type)}{null_clause}"
+
+
 async def publish(db, entity, user):
     fields = await fields_for(db, entity.id)
-    if not fields or any(f.data_type != "enum" for f in fields):
-        _error(422, "entity_field_type_unsupported", "本卡仅支持已归属的枚举字段发布")
+    if not fields:
+        _error(422, "entity_definition_empty", "实体没有可发布的字段")
     for field in fields:
-        items = (field.value_domain or {}).get("items", [])
-        if not items or not any(item.get("enabled", True) for item in items):
-            _error(422, "entity_value_domain_missing", "发布前请配置启用的枚举值域")
+        if field.data_type == "enum":
+            items = (field.value_domain or {}).get("items", [])
+            if not items or not any(item.get("enabled", True) for item in items):
+                _error(422, "entity_value_domain_missing", "发布前请配置启用的枚举值域")
     contract = field_contract(fields)
     name = quote_ident(table_name(entity.id), kind="table")
     if entity.published_at is not None:
-        if entity.published_fields != contract:
-            _error(409, "entity_republish_unsupported", "本卡不支持已发布记录结构升级")
+        if entity.published_fields == contract:
+            return
+        # B17 定义升级：仅允许"新增字段"（旧字段 id/type/revision 完全保留），其余为破坏性变更另批
+        old = {(f["id"], f["type"], f["revision"]) for f in (entity.published_fields or [])}
+        new = {(f.id, f.data_type, f.revision) for f in fields}
+        if not old.issubset(new):
+            _error(409, "entity_republish_unsupported", "仅支持新增字段的定义升级；删除/改类型/改修订须另批破坏性变更")
+        added = [f for f in fields if (f.id, f.data_type, f.revision) not in old]
+        if not added:
+            return
+        for field in added:
+            await db.execute(text(f"ALTER TABLE {name} ADD COLUMN {_column_sql(field, nullable=True)}"))
+        entity.published_fields = contract
+        entity.revision += 1
+        db.add(SystemLog(category="master_data", action="entity_field_upgraded", status="success", user_id=user.id,
+            metadata_json={"entity_id": entity.id, "revision": entity.revision,
+                "added_field_ids": [f.id for f in added]}))
+        await db.flush()
         return
-    definitions = []
-    for field in fields:
-        col = quote_ident(column_name(field.id))
-        allowed = [item["code"] for item in field.value_domain["items"] if item.get("enabled", True)]
-        options = ", ".join(str(literal(code).compile(dialect=dialect(), compile_kwargs={"literal_binds": True})) for code in allowed).replace(":", "\\:")
-        definitions.append(f"{col} {postgres_type(field.data_type)} NOT NULL CHECK ({col} IN ({options}))")
+    definitions = [_column_sql(field) for field in fields]
     columns = ", ".join(definitions)
     await db.execute(text(f"CREATE TABLE {name} ("
         "id BIGSERIAL PRIMARY KEY, source_id BIGINT NOT NULL REFERENCES master_entity_sources(id) ON DELETE RESTRICT, "
@@ -194,8 +261,9 @@ async def receive_record(db, context, source_record_id, values):
     expected = {str(f.id) for f in fields}
     if type(values) is not dict or set(values) != expected or not expected.issubset(set(source.field_ids or [])):
         _error(422, "record_fields_denied", "字段缺失、未知或不在服务白名单内")
-    clean = {column_name(f.id): validate_enum(f, values[str(f.id)]) for f in fields}
-    digest = hashlib.sha256(json.dumps(clean, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    clean = {column_name(f.id): _validate_value(f, values[str(f.id)]) for f in fields}
+    digest = hashlib.sha256(json.dumps(
+        {col: _digest_value(v) for col, v in clean.items()}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     table = await physical_table(db, entity.id)
     existing = (await db.execute(select(table.c.id, table.c.payload_digest).where(
         table.c.source_id == source.id, table.c.source_record_id == source_record_id))).first()
