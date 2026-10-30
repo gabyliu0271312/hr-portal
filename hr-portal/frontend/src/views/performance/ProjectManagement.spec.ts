@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { projectManagementApi, type ProjectManagementOverview } from '@/api/performance'
+import { createPinia, setActivePinia, type Pinia } from 'pinia'
+import { performanceApi, performanceNavigationApi, projectManagementApi, type PerformanceNavigationContext, type ProjectManagementOverview } from '@/api/performance'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
 const replace = vi.fn()
@@ -35,9 +37,22 @@ const overviewOf = (overrides: Partial<ProjectManagementOverview> = {}): Project
   ...overrides,
 })
 
+const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationContext> = {}): PerformanceNavigationContext => ({
+  cycles: overviewOf().cycles,
+  active_cycle: overviewOf().active_cycle,
+  can_review: true,
+  can_manage: true,
+  review_projects: [],
+  ...overrides,
+  ...(cycleId === 2 ? { active_cycle: overviewOf().cycles[1] } : {}),
+})
+
+let pinia: Pinia
+
 function mountView() {
   return mount(ProjectManagement, {
     global: {
+      plugins: [pinia],
       stubs: {
         'el-icon': { template: '<span><slot /></span>' },
         'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' },
@@ -50,6 +65,13 @@ function mountView() {
 
 describe('ProjectManagement', () => {
   beforeEach(() => {
+    pinia = createPinia()
+    setActivePinia(pinia)
+    localStorage.clear()
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1))
+    vi.spyOn(performanceApi, 'getAccessContext').mockResolvedValue({ subject_type: 'PORTAL_USER', subject_id: 1, display_name: '测试用户', account_type: null, portal_entry_permissions: ['performance.app'], permission_codes: [] })
+    vi.spyOn(performanceNavigationApi, 'get').mockImplementation(async cycleId => navigationOf(cycleId || 1))
     vi.mocked(mockedApi.overview).mockReset()
     vi.mocked(mockedApi.members).mockReset()
     vi.mocked(mockedApi.matrix).mockReset()
@@ -84,7 +106,7 @@ describe('ProjectManagement', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(mockedApi.overview).toHaveBeenCalledWith(undefined)
+    expect(mockedApi.overview).toHaveBeenCalledWith(1)
     const labels = wrapper.findAll('.review-node').map(item => item.text())
     expect(labels).toEqual(['周期概览', '产品中心项目', '研发中心项目'])
     const categoryToggle = wrapper.find('.category-toggle')
@@ -94,6 +116,7 @@ describe('ProjectManagement', () => {
 
   it('shows empty state when no involved cycle exists', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ cycles: [], active_cycle: null, projects: [] }))
+    usePerformanceProjectContextStore().setNavigation(navigationOf(0, { cycles: [], active_cycle: null }))
     const wrapper = mountView()
     await flushPromises()
 
@@ -136,6 +159,41 @@ describe('ProjectManagement', () => {
     expect(replace).toHaveBeenCalled()
     const labels = wrapper.findAll('.review-node').map(item => item.text())
     expect(labels).toEqual(['周期概览', '运营中心项目'])
+  })
+
+  it('uses the shared active cycle and redirects when management access is absent', async () => {
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1, { can_manage: false }))
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(replace).toHaveBeenCalledWith('/performance/workbench')
+    expect(mockedApi.overview).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('switches the shared cycle through the project-management selector', async () => {
+    const context = usePerformanceProjectContextStore()
+    vi.mocked(mockedApi.overview).mockResolvedValueOnce(overviewOf()).mockResolvedValue(overviewOf({
+      active_cycle: overviewOf().cycles[1],
+      projects: [{ project_id: 5, project_name: '运营中心项目', project_ref: 'project:c', status: 'STARTED' }],
+    }))
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.findComponent({ name: 'PerformanceReviewCategorySidebar' }).vm.$emit('select-filter', 2)
+    await flushPromises()
+
+    expect(context.activeCycleId).toBe(2)
+    expect(performanceNavigationApi.get).toHaveBeenCalledWith(2)
+    expect(mockedApi.overview).toHaveBeenLastCalledWith(2)
+  })
+
+  it('renders only categories with nodes in the shared management sidebar', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ category: { key: 'admin', label: '项目管理员' }, projects: [] }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('.category-toggle')).toHaveLength(1)
   })
 
   it('renders the cycle overview title above the line tabs with 总览 active', async () => {

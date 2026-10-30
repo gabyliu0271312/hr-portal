@@ -5,23 +5,23 @@
     </section>
     <section class="workbench-main">
       <div class="cycle-picker-row">
-        <el-dropdown trigger="click" @command="selectProject">
+        <el-dropdown trigger="click" @command="selectCycle">
           <button class="cycle-picker" type="button">
-            <span class="cycle-picker-text">{{ activeProject?.cycle_name || '我的绩效项目' }}</span>
+            <span class="cycle-picker-text">{{ activeCycle?.cycle_name || '我的绩效周期' }}</span>
             <DownOutlinedIcon class="cycle-picker-icon" />
           </button>
           <template #dropdown>
             <el-dropdown-menu class="project-menu">
               <el-dropdown-item
-                v-for="project in projects"
-                :key="project.project_id"
-                :command="project.project_id"
-                :class="{ selected: project.project_id === activeProject?.project_id }"
+                v-for="cycle in projectContext.cycles"
+                :key="cycle.cycle_id"
+                :command="cycle.cycle_id"
+                :class="{ selected: cycle.cycle_id === projectContext.activeCycleId }"
               >
                 <div class="project-option">
-                  <strong>{{ project.project_name }}</strong>
-                  <span>{{ formatRange(project.cycle_start_at, project.cycle_end_at) }}</span>
-                  <em v-if="project.project_id === activeProject?.project_id">{{ project.project_status === 'STARTED' ? '进行中' : project.project_status }}</em>
+                  <strong>{{ cycle.cycle_name }}</strong>
+                  <span>{{ formatRange(cycle.cycle_start_at, cycle.cycle_end_at) }}</span>
+                  <em v-if="cycle.cycle_id === projectContext.activeCycleId">当前周期</em>
                 </div>
               </el-dropdown-item>
             </el-dropdown-menu>
@@ -29,6 +29,10 @@
         </el-dropdown>
       </div>
 
+      <p v-if="error" role="alert">{{ error }} <button type="button" @click="loadCycle">重新加载</button></p>
+      <el-select v-if="projects.length > 1" :model-value="activeProjectId" aria-label="当前周期项目" @change="selectProject">
+        <el-option v-for="project in projects" :key="project.project_id" :label="project.project_name" :value="project.project_id" />
+      </el-select>
       <div class="timeline-card">
         <div class="timeline-card-content">
           <PerformanceWorkbenchTimeline :key="activeProjectId ?? 'empty'" :nodes="visibleNodes" />
@@ -129,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component } from 'vue'
+import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { Document, Tickets, User } from '@element-plus/icons-vue'
@@ -161,12 +165,15 @@ if (Number.isFinite(routeProjectId) && routeProjectId > 0) projectContext.setAct
 const todoTab = ref<'pending' | 'completed'>('pending')
 const projects = ref<PerformanceWorkbenchProject[]>(projectContext.workbenchProjects || [])
 const activeProjectId = computed(() => projectContext.activeProjectId)
+const activeCycleId = computed(() => projectContext.activeCycleId)
 const visibleNodes = ref<Array<PerformanceWorkbenchTimelineNode & { ended: boolean; current: boolean; range: string }>>([])
 const pendingTodos = ref<PerformanceWorkbenchTaskGroup[]>([])
 const completedTodos = ref<PerformanceWorkbenchTaskGroup[]>([])
 const loading = ref(true)
+const error = ref('')
 const devAdminDebug = ref(false)
-const activeProject = computed(() => projects.value.find((project) => project.project_id === activeProjectId.value) || projects.value[0])
+const activeCycle = computed(() => projectContext.cycles.find(cycle => cycle.cycle_id === projectContext.activeCycleId))
+const activeProject = computed(() => projects.value.find((project) => project.project_id === activeProjectId.value))
 const visibleTodos = computed<Todo[]>(() => (todoTab.value === 'pending' ? pendingTodos.value : completedTodos.value).map((todo) => {
   const dueAt = todo.due_at || visibleNodes.value.find((node) => node.node_id === todo.node_id)?.end_at || null
   return {
@@ -183,6 +190,14 @@ const completedCount = computed(() => completedTodos.value.length)
 const announcements = ref<PerformanceWorkbenchAnnouncementFeedItem[]>([])
 const announcementEnabled = ref(true)
 const announcementLoading = ref(false)
+let selectionVersion = 0
+
+watch(activeCycleId, () => {
+  projects.value = []
+  visibleNodes.value = []
+  pendingTodos.value = []
+  completedTodos.value = []
+})
 
 function formatDateTime(value: string | null) {
   if (!value) return null
@@ -291,20 +306,19 @@ function openTodo(todo: Todo, event?: MouseEvent) {
   event?.stopPropagation()
   void router.push(todoHref(todo))
 }
-onMounted(async () => {
-  void performanceApi.getAccessContext()
-    .then((context) => { devAdminDebug.value = Boolean(context.dev_admin_debug) })
-    .catch(() => { devAdminDebug.value = false })
-  const cachedProjects = projectContext.workbenchProjects
-  if (cachedProjects) projects.value = cachedProjects
-  const cachedProjectId = activeProjectId.value
-  const cachedSnapshot = projectContext.workbenchSnapshot(cachedProjectId)
-  if (cachedSnapshot) {
-    applyProjectSnapshot(cachedSnapshot)
-    loading.value = false
-  }
+async function loadCycle() {
+  const version = ++selectionVersion
+  const cycleId = projectContext.activeCycleId
+  if (!cycleId) { error.value = '当前没有可用的绩效周期'; loading.value = false; return }
+  projects.value = []
+  visibleNodes.value = []
+  pendingTodos.value = []
+  completedTodos.value = []
+  loading.value = true
+  error.value = ''
   try {
-    const loadedProjects = await performanceWorkbenchApi.listProjects()
+    const loadedProjects = await performanceWorkbenchApi.listProjects(undefined, cycleId)
+    if (version !== selectionVersion || cycleId !== projectContext.activeCycleId) return
     projects.value = loadedProjects
     projectContext.setWorkbenchProjects(loadedProjects)
     const preferredId = activeProjectId.value && loadedProjects.some(project => project.project_id === activeProjectId.value)
@@ -316,15 +330,43 @@ onMounted(async () => {
       await loadAnnouncements(null)
       return
     }
-    if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, project_id: String(preferredId) } })
+    if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
     await loadAnnouncements(preferredProject?.cycle_ref)
     const snapshot = projectContext.workbenchSnapshot(preferredId)
     if (snapshot) {
       applyProjectSnapshot(snapshot)
-      loading.value = false
       await loadProject(preferredId)
     } else await loadProject(preferredId)
-  } catch { ElMessage.error('工作台数据加载失败') } finally { loading.value = false }
+  } catch {
+    if (version === selectionVersion) error.value = '工作台数据加载失败，请稍后重试'
+  } finally {
+    if (version === selectionVersion) loading.value = false
+  }
+}
+async function selectCycle(rawCycleId: number | string) {
+  const cycleId = Number(rawCycleId)
+  if (!Number.isFinite(cycleId) || cycleId <= 0 || cycleId === projectContext.activeCycleId) return
+  try {
+    await projectContext.selectCycle(cycleId)
+    if (projectContext.activeCycleId !== cycleId) return
+    await router.replace({ query: { cycle_id: String(cycleId) } })
+    await loadCycle()
+  } catch { error.value = projectContext.navigationError || '工作台数据加载失败，请稍后重试' }
+}
+onMounted(async () => {
+  void performanceApi.getAccessContext()
+    .then((context) => { devAdminDebug.value = Boolean(context.dev_admin_debug) })
+    .catch(() => { devAdminDebug.value = false })
+  try {
+    const routeCycleId = Number(route.query.cycle_id)
+    if (!projectContext.navigationReady) await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+    const cycleId = projectContext.activeCycleId
+    if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined } })
+    await loadCycle()
+  } catch {
+    error.value = projectContext.navigationError || '工作台数据加载失败，请稍后重试'
+    loading.value = false
+  }
 })
 </script>
 

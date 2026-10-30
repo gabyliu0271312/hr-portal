@@ -12,7 +12,10 @@
     </section>
     <template v-else>
     <PerformanceReviewCategorySidebar
-      :categories="overview?.categories || emptyCategories"
+      :categories="visibleCategories"
+      :filter-options="cycleOptions"
+      :active-filter-value="projectContext.activeCycleId ?? undefined"
+      @select-filter="selectCycle"
       :projects="overview?.projects || []"
       :active-project="overview?.active_project || null"
       :selected-node-id="selectedNodeId"
@@ -51,7 +54,6 @@ import {
   performanceReviewApi,
   projectManagementApi,
   type PerformanceReferenceTab,
-  type PerformanceReviewCategory,
   type PerformanceReviewMemberContext,
   type PerformanceReviewNode,
   type PerformanceReviewOverview,
@@ -95,14 +97,9 @@ async function loadMyResults() {
     resultLoading.value = false
   }
 }
-const emptyCategories: PerformanceReviewCategory[] = [
-  { key: 'mine', label: '我的绩效', nodes: [] },
-  { key: 'others', label: '给他人的评估', nodes: [] },
-  { key: 'team', label: '我团队的绩效', nodes: [] },
-  { key: 'other', label: '其他事项', nodes: [] },
-]
-
-const allNodes = computed(() => overview.value?.categories.flatMap(category => category.nodes) || [])
+const visibleCategories = computed(() => (overview.value?.categories || []).filter(category => category.nodes.length > 0))
+const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
+const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes))
 const selectedNode = computed(() => allNodes.value.find(node => node.node_id === selectedNodeId.value) || allNodes.value[0] || null)
 const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number } | null>(null)
 const drawerOpen = computed({ get: () => Boolean(drawerMember.value), set: value => { if (!value) drawerMember.value = null } })
@@ -113,7 +110,7 @@ function applyOverview(loaded: PerformanceReviewOverview) {
   if (projectId) {
     projectContext.setActiveProjectId(projectId)
     projectContext.setReviewOverview(loaded)
-    if (String(route.query.project_id || '') !== String(projectId)) void router.replace({ query: { ...route.query, project_id: String(projectId) } })
+    if (String(route.query.project_id || '') !== String(projectId)) void router.replace({ query: { ...route.query, cycle_id: projectContext.activeCycleId ? String(projectContext.activeCycleId) : undefined, project_id: String(projectId) } })
   }
   const rememberedNode = projectContext.selectedReviewNode(projectId)
   if (!allNodes.value.some(node => node.node_id === selectedNodeId.value)) {
@@ -129,15 +126,35 @@ async function loadOverview(projectId?: number, silent = false) {
   if (!silent) loading.value = true
   if (!silent) error.value = ''
   try {
-    const loaded = await performanceReviewApi.overview(projectId, routeTaskId())
+    const loaded = await performanceReviewApi.overview(projectId, routeTaskId(), projectContext.activeCycleId || undefined)
     if (projectId && activeProjectId.value !== projectId) return
     applyOverview(loaded)
     error.value = ''
+    if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0)) {
+      const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
+      if (!navigation.can_review) await router.replace('/performance/workbench')
+    }
   } catch {
     if (!silent) error.value = '绩效评估加载失败，请稍后重试'
   } finally {
     if (!silent) loading.value = false
   }
+}
+async function selectCycle(rawCycleId: number | string) {
+  const cycleId = Number(rawCycleId)
+  if (!Number.isFinite(cycleId) || cycleId <= 0 || cycleId === projectContext.activeCycleId) return
+  overview.value = null
+  selectedNodeId.value = ''
+  drawerMember.value = null
+  loading.value = true
+  try {
+    const navigation = await projectContext.selectCycle(cycleId)
+    if (projectContext.activeCycleId !== cycleId) return
+    if (!navigation.can_review) { await router.replace('/performance/workbench'); return }
+    await router.replace({ query: { cycle_id: String(cycleId) } })
+    await loadOverview()
+  } catch { error.value = '绩效评估加载失败，请稍后重试' }
+  finally { loading.value = false }
 }
 async function selectProject(rawProjectId: number | string) {
   const projectId = Number(rawProjectId)
@@ -145,8 +162,7 @@ async function selectProject(rawProjectId: number | string) {
   const unchanged = projectId === activeProjectId.value && overview.value?.active_project?.project_id === projectId
   projectContext.setActiveProjectId(projectId)
   selectedNodeId.value = projectContext.selectedReviewNode(projectId)
-  const { node: _node, task_id: _taskId, ...query } = route.query
-  await router.replace({ query: { ...query, project_id: String(projectId) } })
+  await router.replace({ query: { cycle_id: String(projectContext.activeCycleId), project_id: String(projectId) } })
   if (unchanged) return
   const cached = projectContext.reviewOverview(projectId)
   if (cached) {
@@ -195,8 +211,16 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
   await router.replace({ query: { ...route.query, project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
   await router.push(taskRoute)
 }
-onMounted(() => {
+onMounted(async () => {
+  const routeCycleId = Number(route.query.cycle_id)
+  try {
+    if (!projectContext.navigationReady) await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+  } catch { error.value = projectContext.navigationError || '绩效评估加载失败，请稍后重试'; loading.value = false; return }
+  if (projectContext.navigation && !projectContext.navigation.can_review) { await router.replace('/performance/workbench'); return }
   if (route.query.entry === 'results') { void loadMyResults(); return }
+  if (projectContext.navigation && !projectContext.navigation.review_projects.some(project => project.project_id === activeProjectId.value)) {
+    projectContext.setActiveProjectId(projectContext.navigation.review_projects[0]?.project_id ?? null)
+  }
   const cached = projectContext.reviewOverview(activeProjectId.value)
   if (cached) {
     applyOverview(cached)

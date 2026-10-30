@@ -18,6 +18,30 @@ export interface PerformanceWorkbenchProject {
   participation_roles?: string[]
 }
 
+export interface PerformanceCycleNavigationItem {
+  cycle_id: number
+  cycle_name: string
+  cycle_start_at: string
+  cycle_end_at: string
+}
+
+export interface PerformanceNavigationContext {
+  cycles: PerformanceCycleNavigationItem[]
+  active_cycle: PerformanceCycleNavigationItem | null
+  can_review: boolean
+  can_manage: boolean
+  review_projects: Array<Pick<PerformanceWorkbenchProject, 'project_id' | 'project_name' | 'cycle_name' | 'cycle_start_at' | 'cycle_end_at'>>
+}
+
+export const performanceNavigationApi = {
+  async get(cycleId?: number): Promise<PerformanceNavigationContext> {
+    const { data } = await api.get<PerformanceNavigationContext>('/performance/navigation', {
+      params: cycleId ? { cycle_id: cycleId } : undefined,
+    })
+    return data
+  },
+}
+
 export interface PerformanceWorkbenchTimelineNode {
   node_id: string
   node_name: string
@@ -135,9 +159,9 @@ export interface PerformanceReviewOverview {
 }
 
 export const performanceReviewApi = {
-  async overview(projectId?: number, taskId?: number): Promise<PerformanceReviewOverview> {
+  async overview(projectId?: number, taskId?: number, cycleId?: number): Promise<PerformanceReviewOverview> {
     const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', {
-      params: projectId || taskId ? { ...(projectId ? { project_id: projectId } : {}), ...(taskId ? { task_id: taskId } : {}) } : undefined,
+      params: projectId || taskId || cycleId ? { ...(projectId ? { project_id: projectId } : {}), ...(taskId ? { task_id: taskId } : {}), ...(cycleId ? { cycle_id: cycleId } : {}) } : undefined,
     })
     return data
   },
@@ -569,6 +593,7 @@ export interface ProjectManagementCompletionNode {
 export interface ProjectManagementOverview {
   cycles: ProjectManagementCycle[]
   active_cycle: ProjectManagementCycle | null
+  has_management_access?: boolean
   projects: ProjectManagementProject[]
   completion_nodes?: ProjectManagementCompletionNode[]
   hrbp_scope: string[]
@@ -761,9 +786,9 @@ export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }
 
 export const performanceWorkbenchApi = {
-  async listProjects(keyword?: string): Promise<PerformanceWorkbenchProject[]> {
+  async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {
     const { data } = await api.get<PerformanceWorkbenchProject[]>('/performance/workbench/projects', {
-      params: keyword ? { keyword } : undefined,
+      params: { ...(keyword ? { keyword } : {}), ...(cycleId ? { cycle_id: cycleId } : {}) },
     })
     return data
   },

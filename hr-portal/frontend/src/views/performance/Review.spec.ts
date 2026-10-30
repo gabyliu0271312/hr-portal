@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
@@ -29,6 +29,18 @@ const overview: PerformanceReviewOverview = {
     { key: 'other', label: '其他事项', nodes: [{ node_id: 'appeal', node_name: '结果复议处理环节', node_type: 'result_reconsideration', executor_label: '', status: 'pending', start_at: null, end_at: null, action_url: '/performance/review?node=appeal' }] },
   ],
 }
+
+const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationContext> = {}): PerformanceNavigationContext => ({
+  cycles: [
+    { cycle_id: 1, cycle_name: '2025周期', cycle_start_at: '2025-01-01', cycle_end_at: '2025-12-31' },
+    { cycle_id: 2, cycle_name: '2026周期', cycle_start_at: '2026-01-01', cycle_end_at: '2026-12-31' },
+  ],
+  active_cycle: cycleId ? { cycle_id: cycleId, cycle_name: cycleId === 1 ? '2025周期' : '2026周期', cycle_start_at: cycleId === 1 ? '2025-01-01' : '2026-01-01', cycle_end_at: cycleId === 1 ? '2025-12-31' : '2026-12-31' } : null,
+  can_review: true,
+  can_manage: true,
+  review_projects: [overview.projects[0]],
+  ...overrides,
+})
 
 let pinia: Pinia
 function mountView() {
@@ -74,6 +86,9 @@ describe('PerformanceReview', () => {
     push.mockReset()
     replace.mockReset()
     vi.restoreAllMocks()
+    vi.spyOn(performanceNavigationApi, 'get').mockImplementation(async (cycleId) => navigationOf(cycleId || 1))
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1))
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
   })
@@ -127,6 +142,7 @@ describe('PerformanceReview', () => {
     expect(wrapper.text()).toContain('工作总结环节')
     expect(wrapper.get('.review-sidebar').attributes('style')).toBeUndefined()
     expect(wrapper.findAll('.category-icon svg')).toHaveLength(4)
+    expect(performanceReviewApi.overview).toHaveBeenCalledWith(1, undefined, 1)
     expect(usePerformanceProjectContextStore().activeProjectId).toBe(1)
   })
 
@@ -141,7 +157,7 @@ describe('PerformanceReview', () => {
 
     expect(wrapper.text()).toContain('半年度绩效评估模板')
     expect(wrapper.text()).not.toContain('正在加载绩效评估')
-    expect(performanceReviewApi.overview).toHaveBeenCalledWith(1, undefined)
+    expect(performanceReviewApi.overview).toHaveBeenCalledWith(1, undefined, 1)
   })
 
   it('renders the captured sidebar edge button without clipping it', () => {
@@ -479,6 +495,46 @@ describe('PerformanceReview', () => {
     await flushPromises()
 
     expect(wrapper.find('.evaluation-workspace').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('hides empty evaluation categories while preserving categories with nodes', async () => {
+    const withEmptyCategory = structuredClone(overview)
+    withEmptyCategory.categories = [
+      ...withEmptyCategory.categories.slice(0, 1),
+      { key: 'empty', label: '空评估分组', nodes: [] },
+      ...withEmptyCategory.categories.slice(1),
+    ]
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce(withEmptyCategory)
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('空评估分组')
+    expect(wrapper.findAll('.category-toggle')).toHaveLength(4)
+  })
+
+  it('switches the shared cycle from the review selector and loads that cycle overview', async () => {
+    const context = usePerformanceProjectContextStore()
+    vi.mocked(performanceNavigationApi.get).mockImplementation(async (cycleId) => navigationOf(cycleId || 1))
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(overview)
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'PerformanceReviewCategorySidebar' }).vm.$emit('select-filter', 2)
+    await flushPromises()
+
+    expect(context.activeCycleId).toBe(2)
+    expect(performanceNavigationApi.get).toHaveBeenCalledWith(2)
+    expect(performanceReviewApi.overview).toHaveBeenLastCalledWith(undefined, undefined, 2)
+  })
+
+  it('redirects to the workbench when the selected cycle has no review access', async () => {
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1, { can_review: false }))
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(replace).toHaveBeenCalledWith('/performance/workbench')
     wrapper.unmount()
   })
 

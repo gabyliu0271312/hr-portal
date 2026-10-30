@@ -22,6 +22,7 @@ from app.performance.self_summary_service import build_self_summary_schema, hydr
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
+from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
 
 router = APIRouter(prefix="/performance", tags=["performance-projects"])
 
@@ -1864,80 +1865,69 @@ async def _person_hrbp_project_refs(db: AsyncSession, actor_ref: str) -> set[str
     return refs
 
 
+@router.get("/navigation")
+async def frontend_navigation(
+    cycle_id: int | None = Query(default=None, ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    access = await resolve_frontend_access(db, context)
+    cycles = [cycle_payload(cycle) for cycle in access.cycles]
+    active_cycle = None
+    if cycle_id is not None:
+        active_cycle = next((item for item in cycles if item["cycle_id"] == cycle_id), None)
+        if active_cycle is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    elif cycles:
+        active_cycle = cycles[0]
+    active_cycle_id = active_cycle["cycle_id"] if active_cycle else None
+    return {
+        "cycles": cycles,
+        "active_cycle": active_cycle,
+        "can_review": bool(active_cycle_id and any(cycle.id == active_cycle_id for _project, cycle in access.review_projects)),
+        "can_manage": bool(active_cycle and next((cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle_id), None) in access.manageable_cycle_refs),
+        "review_projects": [
+            project_payload(project, cycle)
+            for project, cycle in access.review_projects
+            if cycle.id == active_cycle_id
+        ],
+    }
+
+
 @router.get("/project-management/overview")
 async def project_management_overview(
     cycle_id: int | None = Query(default=None, ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    hrbp_refs = set()
-    scopes = {}
-    project_statement = (
-        select(PerformanceProject, PerformanceCycle)
-        .join(PerformanceCycle, PerformanceCycle.cycle_ref == PerformanceProject.cycle_ref)
-        .where(PerformanceProject.status == PROJECT_STATUS_STARTED)
-    )
-    project_rows = (await db.execute(project_statement.order_by(PerformanceCycle.start_at.desc(), PerformanceProject.id))).all()
-    visible_rows = []
-    for project, cycle in project_rows:
-        try:
-            scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
-        except HTTPException as exc:
-            if exc.status_code != status.HTTP_403_FORBIDDEN:
-                raise
-            try:
-                scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
-            except HTTPException as data_exc:
-                if data_exc.status_code != status.HTTP_403_FORBIDDEN:
-                    raise
-                continue
-        else:
-            scopes[project.id] = scope
-        if scope is not None:
-            hrbp_refs.add(project.project_ref)
-        visible_rows.append((project, cycle))
-
-    cycles: dict[int, dict] = {}
-    projects_by_cycle: dict[int, list[dict]] = {}
-    for project, cycle in visible_rows:
-        cycles[cycle.id] = {
-            "cycle_id": cycle.id,
-            "cycle_name": cycle.name,
-            "cycle_start_at": cycle.start_at,
-            "cycle_end_at": cycle.end_at,
-        }
-        projects_by_cycle.setdefault(cycle.id, []).append({
-            "project_id": project.id,
-            "project_name": project.name,
-            "project_ref": project.project_ref,
-            "status": project.status,
-        })
-    for projects in projects_by_cycle.values():
-        projects.sort(key=lambda item: item["project_name"])
-
-    active_cycle = None
-    if cycle_id is not None:
-        if cycle_id not in cycles:
-            found = next((row[1] for row in visible_rows if row[1].id == cycle_id), None)
-            if found is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
-            active_cycle = {"cycle_id": found.id, "cycle_name": found.name, "cycle_start_at": found.start_at, "cycle_end_at": found.end_at}
-        else:
-            active_cycle = cycles[cycle_id]
-    elif cycles:
-        active_cycle = next(iter(cycles.values()))
-
-    active_projects = [
-        project for project, cycle in visible_rows
-        if active_cycle is not None and cycle.id == active_cycle["cycle_id"] and project.id in scopes
-    ]
+    access = await resolve_frontend_access(db, context)
+    cycles = [cycle_payload(cycle) for cycle in access.cycles]
+    active_cycle = next((item for item in cycles if item["cycle_id"] == cycle_id), None) if cycle_id is not None else (cycles[0] if cycles else None)
+    if cycle_id is not None and active_cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    if active_cycle is None:
+        return {"cycles": [], "active_cycle": None, "projects": [], "completion_nodes": [], "hrbp_scope": [], "category": dict(_PROJECT_MANAGEMENT_CATEGORY)}
+    managed = [(project, cycle) for project, cycle in access.manage_projects if cycle.id == active_cycle["cycle_id"]]
+    active_ref = next(cycle.cycle_ref for cycle in access.cycles if cycle.id == active_cycle["cycle_id"])
+    if active_ref not in access.manageable_cycle_refs:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    scopes = {project.id: access.management_scopes[project.id] for project, _cycle in managed if "performance.frontend.progress" in access.management_features.get(project.id, set())}
+    projects = [{
+        "project_id": project.id,
+        "project_name": project.name,
+        "project_ref": project.project_ref,
+        "status": project.status,
+    } for project, _cycle in managed]
+    projects.sort(key=lambda item: item["project_name"])
+    active_projects = [project for project, _cycle in managed if project.id in scopes]
     completion_nodes = await _project_completion_nodes(active_projects, db, scopes=scopes) if active_projects else []
+    hrbp_scope = sorted(project.project_ref for project, _cycle in managed if access.management_scopes.get(project.id) is not None)
     return {
-        "cycles": list(cycles.values()),
+        "cycles": cycles,
         "active_cycle": active_cycle,
-        "projects": projects_by_cycle.get(active_cycle["cycle_id"], []) if active_cycle else [],
+        "projects": projects,
         "completion_nodes": completion_nodes,
-        "hrbp_scope": sorted(hrbp_refs),
+        "hrbp_scope": hrbp_scope,
         "category": dict(_PROJECT_MANAGEMENT_CATEGORY),
     }
 
@@ -2042,22 +2032,7 @@ def _task_entry_mode(task: PerformanceNodeTask | None) -> str:
 
 
 def _review_node_category(node_type: str, role_code: str | None, *, has_task: bool) -> str | None:
-    if node_type in {"work_summary", "reviewer_360_invite", "result_view"}:
-        return "mine"
-    if node_type == "result_reconsideration":
-        return "other"
-    if node_type in {"reviewer_360_confirm", "calibration", "result_communication"}:
-        return "team"
-    if node_type == "evaluation":
-        if role_code == ROLE_REVIEWEE:
-            return "mine"
-        if role_code == ROLE_REVIEWER_360:
-            return "others" if has_task else None
-        if role_code == ROLE_METRIC_EVALUATOR:
-            return "others" if has_task else None
-        if role_code in MANAGER_ROLE_CODES:
-            return "team"
-    return None
+    return review_node_category(node_type, role_code, has_task=has_task)
 
 
 def _review_node_status(start_at: str | None, end_at: str | None, now: datetime | None = None) -> str:
@@ -2115,10 +2090,10 @@ def _task_completed(task: PerformanceNodeTask) -> bool:
 
 def _review_tasks_status(tasks: list[PerformanceNodeTask], start_at: str | None, end_at: str | None, now: datetime | None = None) -> str:
     current = now or datetime.now(UTC)
-    if _review_node_status(start_at, end_at, current) == "not_started":
-        return "not_started"
     if tasks and all(_task_completed(task) for task in tasks):
         return "completed"
+    if _review_node_status(start_at, end_at, current) == "not_started":
+        return "not_started"
     return _review_node_status(start_at, end_at, current)
 
 
@@ -2128,45 +2103,26 @@ async def review_overview(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
     task_id: int | None = Query(default=None, ge=1),
+    cycle_id: int | None = Query(default=None, ge=1),
 ):
-    actor = await resolve_trusted_performance_actor(db, context)
-    is_admin_preview = _is_admin_preview(context)
-    member_exists = (
-        select(PerformanceProjectMember.id)
-        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-        .where(PerformanceProjectMemberSnapshot.project_id == PerformanceProject.id)
-    )
-    project_statement = (
-        select(PerformanceProject, PerformanceCycle)
-        .join(PerformanceCycle, PerformanceCycle.cycle_ref == PerformanceProject.cycle_ref)
-        .where(PerformanceProject.status == PROJECT_STATUS_STARTED, member_exists.exists())
-    )
-    if not is_admin_preview:
-        task_exists = select(PerformanceNodeTask.id).where(
-            PerformanceNodeTask.project_id == PerformanceProject.id,
-            PerformanceNodeTask.handler_ref == actor.actor_ref,
-        ).exists()
-        project_statement = project_statement.where(or_(
-            member_exists.where((PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id)).exists(),
-            task_exists,
-        ))
-    if project_id is not None:
-        project_statement = project_statement.where(PerformanceProject.id == project_id)
-    project_rows = (await db.execute(project_statement.order_by(PerformanceProject.updated_at.desc()))).all()
-    projects = [
-        {
-            "project_id": project.id,
-            "project_name": project.name,
-            "cycle_name": cycle.name,
-            "cycle_start_at": cycle.start_at,
-            "cycle_end_at": cycle.end_at,
-        }
-        for project, cycle in project_rows
-    ]
-    if not project_rows:
-        return {"projects": [], "active_project": None, "template_name": "", "categories": [{"key": key, "label": label, "nodes": []} for key, label in _REVIEW_CATEGORY_LABELS.items()]}
-
-    project, cycle = project_rows[0]
+    access = await resolve_frontend_access(db, context)
+    cycle_id = cycle_id if isinstance(cycle_id, int) else None
+    task_id = task_id if isinstance(task_id, int) else None
+    if cycle_id is not None and cycle_id not in access.cycle_ids:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    project_rows = [(project, cycle) for project, cycle in access.review_projects if cycle_id is None or cycle.id == cycle_id]
+    projects = [project_payload(project, cycle) for project, cycle in project_rows]
+    selected = next((row for row in project_rows if row[0].id == project_id), None) if project_id is not None else (project_rows[0] if project_rows else None)
+    if project_id is not None and cycle_id is not None:
+        requested = await db.get(PerformanceProject, project_id)
+        selected_cycle = next(cycle for cycle in access.cycles if cycle.id == cycle_id)
+        if requested is None or requested.cycle_ref != selected_cycle.cycle_ref:
+            raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
+    if selected is None:
+        if project_id is not None:
+            raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
+        return {"projects": projects, "active_project": None, "template_name": "", "categories": []}
+    project, cycle = selected
     template_id = (project.settings or {}).get("template_id")
     template = await db.get(PerformanceTemplate, int(template_id)) if template_id else None
     workflow = await db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
@@ -2178,23 +2134,10 @@ async def review_overview(
             .order_by(PerformanceProjectNodeSnapshot.node_order)
         )
     ).scalars().all()
-    member_rows = (
-        await db.execute(
-            select(PerformanceProjectMember).join(
-                PerformanceProjectMemberSnapshot,
-                PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
-            ).where(
-                PerformanceProjectMemberSnapshot.project_id == project.id,
-                (PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id),
-            )
-        )
-    ).scalars().all()
-    handler_refs = {actor.actor_ref}
-    handler_refs.update(member.employee_no for member in member_rows)
-    task_query = select(PerformanceNodeTask).where(PerformanceNodeTask.project_id == project.id)
-    if not is_admin_preview:
-        task_query = task_query.where(PerformanceNodeTask.handler_ref.in_(handler_refs))
+    task_ids = access.task_ids_by_project.get(project.id, set())
+    task_query = select(PerformanceNodeTask).where(PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.id.in_(task_ids))
     tasks = (await db.execute(task_query.order_by(PerformanceNodeTask.id))).scalars().all()
+    tasks = [task for task in tasks if task.id in task_ids]
     tasks_by_node = {}
     for task in tasks:
         tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
@@ -2204,12 +2147,13 @@ async def review_overview(
     for node in snapshots:
         raw_node = (node.config or {}).get("template") or {}
         timing = _node_timing(project, node) or {}
-        category = _review_node_category(node.node_type, node_role_code(raw_node), has_task=bool(tasks_by_node.get(node.id)))
-        if category is None:
+        node_tasks = tasks_by_node.get(node.id, [])
+        voluntary = node.id in access.voluntary_node_ids_by_project.get(project.id, set())
+        category = _review_node_category(node.node_type, node_role_code(raw_node), has_task=bool(node_tasks) or voluntary)
+        if category is None or node.id not in access.visible_node_ids_by_project.get(project.id, set()):
             continue
         start_at = timing.get("start_at")
         end_at = timing.get("end_at") or timing.get("appeal_deadline")
-        node_tasks = tasks_by_node.get(node.id, [])
         if node.node_type == "calibration" and task_id is None:
             actionable = [task for task in node_tasks if not _task_completed(task) and _task_is_available(task, node, project, now)]
             node_tasks = actionable or [task for task in node_tasks if not _task_completed(task)] or node_tasks
@@ -2226,7 +2170,7 @@ async def review_overview(
             "task_kind": selected_task_kind,
             "entry_mode": _task_entry_mode(selected_task),
             "executor_label": raw_node.get("executor_label") or "",
-            "executor_role_code": raw_node.get("executor_role_code"),
+            "executor_role_code": node_role_code({"node_type": node.node_type, **raw_node}),
             "phase_id": getattr(selected_task, "phase_id", "") or None,
             "status": _review_tasks_status(tasks_by_node.get(node.id, []), start_at, end_at, now) if is_template_task and node.node_type == "evaluation" else (_review_task_status(selected_task, start_at, end_at, now) if is_template_task else _review_node_status(start_at, end_at, now)),
             "start_at": start_at,
@@ -2254,7 +2198,7 @@ async def review_overview(
         },
         "template_name": template.name if template else "",
         "workflow_node_count": len((workflow.nodes if workflow else []) or []),
-        "categories": list(categories.values()),
+        "categories": [category for category in categories.values() if category["nodes"]],
     }
 
 
@@ -2265,38 +2209,24 @@ async def workbench_projects(
     page_size: int = Query(default=20, ge=1, le=100),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    cycle_id: int | None = Query(default=None, ge=1),
 ):
-    actor = await resolve_trusted_performance_actor(db, context)
-    is_admin_preview = _is_admin_preview(context)
-    member_exists = (
-        select(PerformanceProjectMember.id)
-        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
-        .where(PerformanceProjectMemberSnapshot.project_id == PerformanceProject.id)
-    )
-    stmt = (
-        select(PerformanceProject, PerformanceCycle)
-        .join(PerformanceCycle, PerformanceCycle.cycle_ref == PerformanceProject.cycle_ref)
-        .where(PerformanceProject.status == PROJECT_STATUS_STARTED, member_exists.exists())
-    )
-    if not is_admin_preview:
-        task_exists = select(PerformanceNodeTask.id).where(
-            PerformanceNodeTask.project_id == PerformanceProject.id,
-            PerformanceNodeTask.handler_ref == actor.actor_ref,
-        ).exists()
-        stmt = stmt.where(or_(
-            member_exists.where((PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id)).exists(),
-            task_exists,
-        ))
+    access = await resolve_frontend_access(db, context)
+    cycle_id = cycle_id if isinstance(cycle_id, int) else None
+    if cycle_id is not None and cycle_id not in access.cycle_ids:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    rows = [(project, cycle) for project, cycle in access.workbench_projects if cycle_id is None or cycle.id == cycle_id]
     if keyword:
-        stmt = stmt.where(PerformanceProject.name.ilike(f"%{keyword.strip()}%"))
-    rows = (await db.execute(stmt.order_by(PerformanceProject.updated_at.desc()).offset((page - 1) * page_size).limit(page_size))).all()
+        rows = [row for row in rows if keyword.strip().casefold() in row[0].name.casefold()]
+    rows = rows[(page - 1) * page_size:page * page_size]
     result = []
     for project, cycle in rows:
+        actor_ref = access.actor_refs_by_cycle.get(project.cycle_ref, access.actor_ref)
         opened = False
-        if getattr(actor, "actor_type", "EMPLOYEE") == "EMPLOYEE":
+        if actor_ref:
             opened = await db.scalar(select(PerformanceResultOpening.id).where(
                 PerformanceResultOpening.project_id == project.id,
-                PerformanceResultOpening.employee_no == actor.actor_ref,
+                PerformanceResultOpening.employee_no == actor_ref,
             ).limit(1)) is not None
         result.append({"project_id": project.id, "project_name": project.name, "cycle_ref": project.cycle_ref, "cycle_name": cycle.name, "cycle_start_at": cycle.start_at, "cycle_end_at": cycle.end_at, "project_status": project.status, "result_published": opened, "participation_roles": []})
     return result
@@ -2304,28 +2234,9 @@ async def workbench_projects(
 
 @router.get("/workbench/projects/{project_id}/timeline")
 async def workbench_timeline(project_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
-    actor = await resolve_trusted_performance_actor(db, context)
-    is_admin_preview = _is_admin_preview(context)
-    member_allowed = select(PerformanceProjectMember.id).join(
-        PerformanceProjectMemberSnapshot,
-        PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
-    ).where(
-        PerformanceProjectMemberSnapshot.project_id == project_id,
-        (PerformanceProjectMember.employee_no == context.effective_employee_no if getattr(context, "effective_employee_no", None) else PerformanceProjectMember.portal_user_id == context.subject_id),
-    ).exists()
-    task_allowed = select(PerformanceNodeTask.id).where(
-        PerformanceNodeTask.project_id == project_id,
-        PerformanceNodeTask.handler_ref == actor.actor_ref,
-    ).exists()
-    if is_admin_preview:
-        allowed = await db.scalar(select(PerformanceProjectMemberSnapshot.id).where(PerformanceProjectMemberSnapshot.project_id == project_id).limit(1))
-    else:
-        allowed = await db.scalar(select(PerformanceProjectMemberSnapshot.id).where(
-            PerformanceProjectMemberSnapshot.project_id == project_id,
-            or_(member_allowed, task_allowed),
-        ).limit(1))
-    project = await db.get(PerformanceProject, project_id)
-    if project is None or project.status != PROJECT_STATUS_STARTED or allowed is None:
+    access = await resolve_frontend_access(db, context)
+    project = next((project for project, _cycle in access.workbench_projects if project.id == project_id), None)
+    if project is None:
         raise HTTPException(status_code=403, detail="无权查看当前项目工作台")
     template_names = await _template_node_names(db, project)
     nodes = (await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project_id, PerformanceProjectNodeSnapshot.node_type.not_in({"result_reconsideration"})).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all()
@@ -2343,7 +2254,7 @@ async def workbench_timeline(project_id: int, context: PerformanceAccessContext 
 async def workbench_tasks(project_id: int | None = None, state: str = Query(default="pending", pattern="^(pending|completed)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
-    is_admin_preview = _is_admin_preview(context)
+    is_admin_preview = False
     stmt = select(PerformanceProjectNodeSnapshot, PerformanceNodeTask).join(PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(PerformanceProject.status == PROJECT_STATUS_STARTED, PerformanceProjectNodeSnapshot.node_type.not_in({"result_view", "result_reconsideration"}))
     if not is_admin_preview:
         stmt = stmt.where(PerformanceNodeTask.handler_ref == handler)
@@ -2383,7 +2294,7 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
 async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100)):
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
-    is_admin_preview = _is_admin_preview(context)
+    is_admin_preview = False
     scope = (
         PerformanceNodeTask.project_id == project_id,
         PerformanceProjectNodeSnapshot.project_id == project_id,

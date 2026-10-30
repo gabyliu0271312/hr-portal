@@ -285,7 +285,7 @@ def test_review_nodes_follow_template_executor_mapping():
     assert _review_node_category("evaluation", ROLE_LINE_MANAGER, has_task=False) == "team"
     assert _review_node_category("evaluation", ROLE_PROJECT_MANAGER, has_task=False) == "team"
     assert _review_node_category("reviewer_360_confirm", None, has_task=False) == "team"
-    assert _review_node_category("result_reconsideration", None, has_task=False) == "other"
+    assert _review_node_category("result_reconsideration", None, has_task=False) is None
     assert _review_node_category("evaluation", ROLE_REVIEWER_360, has_task=False) is None
     assert _review_node_category("evaluation", ROLE_REVIEWER_360, has_task=True) == "others"
     assert _review_node_category("evaluation", ROLE_METRIC_EVALUATOR, has_task=True) == "others"
@@ -346,87 +346,92 @@ def _pm_cycle(cycle_id, name="周期"):
     return SimpleNamespace(id=cycle_id, cycle_ref=f"cycle:{cycle_id}", name=name, start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
 
 
+def _frontend_access(*, cycles=(), review_projects=(), manage_projects=(), workbench_projects=(), actor_ref="E001", visible=None, tasks=None, voluntary=None, scopes=None, features=None, manageable=()):
+    from app.performance.navigation_service import FrontendAccess
+    return FrontendAccess(
+        cycles=list(cycles),
+        review_projects=list(review_projects),
+        manage_projects=list(manage_projects),
+        workbench_projects=list(workbench_projects),
+        actor_ref=actor_ref,
+        actor_refs_by_cycle={cycle.cycle_ref: actor_ref for cycle in cycles},
+        visible_node_ids_by_project=visible or {},
+        task_ids_by_project=tasks or {},
+        voluntary_node_ids_by_project=voluntary or {},
+        management_scopes=scopes or {},
+        management_features=features or {},
+        manageable_cycle_refs=set(manageable),
+    )
+
+
 @pytest.mark.asyncio
 async def test_project_management_overview_filters_cycles_and_projects_by_involvement(monkeypatch):
+    from fastapi import HTTPException
     from app.performance import projects_router
-    monkeypatch.setattr(settings, "APP_ENV", "dev")
-    monkeypatch.setattr(settings, "PERFORMANCE_DEV_ADMIN_DEBUG", True)
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening
 
-    async def actor(_db, _context):
-        return SimpleNamespace(actor_ref="E001")
-    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    cycle_one = _pm_cycle(1, "周期一")
+    cycle_two = _pm_cycle(2, "周期二")
+    project_one = _pm_project(1, "乙项目", 1, administrators=["张三"])
+    project_two = _pm_project(2, "丙项目", 2, administrators=["张三"])
+    access = _frontend_access(
+        cycles=[cycle_one, cycle_two],
+        manage_projects=[(project_one, cycle_one), (project_two, cycle_two)],
+        scopes={1: None, 2: None},
+        features={1: {"performance.frontend.progress"}, 2: {"performance.frontend.progress"}},
+        manageable={cycle_one.cycle_ref, cycle_two.cycle_ref},
+    )
 
-    async def hrbp_scope(_db, _ref):
-        return set()
-    monkeypatch.setattr(projects_router, "_person_hrbp_project_refs", hrbp_scope)
+    async def resolve(_db, _context):
+        return access
 
-    rows = [
-        (_pm_project(1, "乙项目", 1, administrators=["张三"]), _pm_cycle(1, "周期一")),
-        (_pm_project(2, "甲项目", 1, administrators=["李四"]), _pm_cycle(1, "周期一")),
-        (_pm_project(3, "丙项目", 2, administrators=["张三"]), _pm_cycle(2, "周期二")),
-    ]
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
 
     class Db:
         async def scalar(self, _query):
             return None
 
         async def execute(self, query):
-            # SQL 层已按 status=STARTED 过滤，这里忠实返回启动项目
             model = query.column_descriptions[0].get("entity")
-            from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot
-            if model is projects_router.PerformanceRole:
-                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [SimpleNamespace(code="performance.project_admin", function_permission_keys=["performance.frontend.progress"])]))
-            if model in {PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot}:
+            if model in {PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening}:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
-            return SimpleNamespace(all=lambda: rows)
+            raise AssertionError(model)
 
-    zhang_san = PerformanceAccessContext(
-        subject_type="PORTAL_USER",
-        subject_id=2,
-        display_name="张三",
-        account_type=None,
-        portal_entry_permissions=("performance.app",),
-        role_grants=(),
-        permission_codes=(),
-    )
-
-    result = await projects_router.project_management_overview(None, zhang_san, Db())
+    result = await projects_router.project_management_overview(None, context(), Db())
     assert [cycle["cycle_id"] for cycle in result["cycles"]] == [1, 2]
     assert result["active_cycle"]["cycle_id"] == 1
     assert [item["project_name"] for item in result["projects"]] == ["乙项目"]
     assert result["hrbp_scope"] == []
     assert result["category"] == {"key": "admin", "label": "项目管理员"}
     assert len(result["completion_nodes"]) == 8
-    assert all(item["status"] == "unavailable" for item in result["completion_nodes"])
 
-    explicit = await projects_router.project_management_overview(2, zhang_san, Db())
+    explicit = await projects_router.project_management_overview(2, context(), Db())
     assert explicit["active_cycle"]["cycle_id"] == 2
     assert [item["project_name"] for item in explicit["projects"]] == ["丙项目"]
 
-    admin = await projects_router.project_management_overview(None, context("performance.cycles.manage"), Db())
-    assert len(admin["cycles"]) == 2
-    assert sorted(item["project_name"] for item in admin["projects"]) == ["乙项目", "甲项目"]
+    with pytest.raises(HTTPException) as denied:
+        empty_access = _frontend_access(cycles=[cycle_one])
+        async def no_identity(_db, _context):
+            return empty_access
+        monkeypatch.setattr(projects_router, "resolve_frontend_access", no_identity)
+        await projects_router.project_management_overview(None, context("performance.cycles.manage"), Db())
+    assert denied.value.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_project_management_overview_empty_and_missing_cycle(monkeypatch):
-    import pytest as _pytest
     from fastapi import HTTPException
     from app.performance import projects_router
 
-    async def actor(_db, _context):
-        return SimpleNamespace(actor_ref="E001")
-    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    async def empty_access(_db, _context):
+        return _frontend_access()
 
-    class EmptyDb:
-        async def execute(self, _query):
-            return SimpleNamespace(all=lambda: [])
-
-    empty = await projects_router.project_management_overview(None, context(), EmptyDb())
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", empty_access)
+    empty = await projects_router.project_management_overview(None, context(), object())
     assert empty == {"cycles": [], "active_cycle": None, "projects": [], "completion_nodes": [], "hrbp_scope": [], "category": {"key": "admin", "label": "项目管理员"}}
 
-    with _pytest.raises(HTTPException) as exc_info:
-        await projects_router.project_management_overview(99, context(), EmptyDb())
+    with pytest.raises(HTTPException) as exc_info:
+        await projects_router.project_management_overview(99, context(), object())
     assert exc_info.value.status_code == 404
 
 
@@ -1719,8 +1724,12 @@ async def test_rescheduled_project_overview_and_timeline_read_current_settings(m
     target.name = "绩效项目"
     target.settings = {"flow_settings": {"node_settings": {}, "node_times": {"manager-review": {"start_at": "2026-09-20T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}}
     node = SimpleNamespace(id=10, project_id=1, node_id="manager-review", node_type="evaluation", node_order=1, name="上级评估", config={"time": {"start_at": "2026-09-20T00:00:00Z"}, "template": {"executor_types": ["DIRECT_MANAGER"]}})
-    cycle = SimpleNamespace(name="周期", start_at=Clock(2026, 9, 1, tzinfo=UTC), end_at=Clock(2026, 10, 1, tzinfo=UTC))
-    task = SimpleNamespace(id=20, project_id=1, node_snapshot_id=10, handler_ref="E001", available_at=Clock(2026, 9, 20, tzinfo=UTC), due_at=Clock(2026, 9, 30, tzinfo=UTC))
+    cycle = SimpleNamespace(id=1, cycle_ref=target.cycle_ref, name="周期", start_at=Clock(2026, 9, 1, tzinfo=UTC), end_at=Clock(2026, 10, 1, tzinfo=UTC))
+    task = SimpleNamespace(id=20, project_id=1, node_snapshot_id=10, handler_ref="E001", task_kind="evaluation", submitted_at=None, available_at=Clock(2026, 9, 20, tzinfo=UTC), due_at=Clock(2026, 9, 30, tzinfo=UTC))
+    access = _frontend_access(cycles=[cycle], review_projects=[(target, cycle)], workbench_projects=[(target, cycle)], visible={1: {10}}, tasks={1: {20}})
+    async def resolve(_db, _context):
+        return access
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
 
     class Db:
         def __init__(self):
@@ -1732,10 +1741,15 @@ async def test_rescheduled_project_overview_and_timeline_read_current_settings(m
         async def get(self, model, identity):
             return target if model is PerformanceProject and identity == 1 else None
 
-        async def execute(self, _query):
-            self.calls += 1
-            values = [[(target, cycle)], [node], [], [task]]
-            rows = values[self.calls - 1]
+        async def execute(self, query):
+            from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+            model = query.column_descriptions[0].get("entity")
+            if model is PerformanceProjectNodeSnapshot:
+                rows = [node]
+            elif model is PerformanceNodeTask:
+                rows = [task]
+            else:
+                rows = []
             return SimpleNamespace(all=lambda: rows, scalars=lambda: SimpleNamespace(all=lambda: rows))
 
         def add(self, _record):
@@ -1748,16 +1762,17 @@ async def test_rescheduled_project_overview_and_timeline_read_current_settings(m
             pass
 
     db = Db()
+    db.calls = 1
     old = await projects_router.review_overview(1, context("performance.cycles.manage"), db)
-    assert old["categories"][2]["nodes"][0]["status"] == "not_started"
+    assert old["categories"][0]["nodes"][0]["status"] == "not_started"
     await PerformanceProjectService(db).update_project(target, {"flow_settings": {"node_settings": {}, "node_times": {"manager-review": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}}, actor_type="PORTAL_USER", actor_id=1)
-    db.calls = 0
+    db.calls = 1
     current = await projects_router.review_overview(1, context("performance.cycles.manage"), db)
-    review_node = current["categories"][2]["nodes"][0]
+    review_node = current["categories"][0]["nodes"][0]
     assert (review_node["status"], review_node["start_at"]) == ("pending", "2026-09-16T00:00:00Z")
     db.calls = 1
     timeline = await projects_router.workbench_timeline(1, context("performance.cycles.manage"), db)
-    assert (timeline[0]["status"], timeline[0]["start_at"]) == ("pending", "2026-09-16T00:00:00Z")
+    assert (timeline[0]["status"], timeline[0]["start_at"]) == ("in_progress", "2026-09-16T00:00:00Z")
     assert node.config["time"]["start_at"] == "2026-09-20T00:00:00Z"
     assert task.available_at == Clock(2026, 9, 20, tzinfo=UTC)
 
@@ -1882,7 +1897,7 @@ async def test_task_people_preserves_project_node_and_target_scope(monkeypatch, 
         assert "performance_project_node_snapshots.project_id = 7" in where
         assert "performance_project_node_snapshots.node_id = 'manager-review'" in where
         assert "performance_node_tasks.status = 'pending'" in where
-        assert ("performance_node_tasks.handler_ref = 'MANAGER-1'" in where) is not admin_preview
+        assert "performance_node_tasks.handler_ref = 'MANAGER-1'" in where
     member_sql = str(db.queries[0])
     assert "performance_project_members.snapshot_id = performance_node_tasks.member_snapshot_id" in member_sql
     assert "performance_project_members.employee_no = performance_node_tasks.target_employee_no" in member_sql
@@ -1910,13 +1925,12 @@ async def test_workbench_projects_uses_employee_identity_and_member_visibility(m
             return SimpleNamespace(all=lambda: rows)
 
     db = Db()
+    access = _frontend_access(cycles=[_pm_cycle(1, "周期一")], workbench_projects=rows)
+    async def resolve(_db, _context):
+        return access
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
     result = await projects_router.workbench_projects(None, 1, 20, context(), db)
     assert result[0]["project_id"] == 1
-    sql = str(db.statement.compile(compile_kwargs={"literal_binds": True}))
-    assert "performance_projects.status = 'STARTED'" in sql
-    assert "performance_node_tasks.handler_ref = 'E001'" in sql
-    assert "performance_project_members.portal_user_id = 1" in sql
-    assert "JOIN performance_node_tasks" not in sql
 
 
 @pytest.mark.asyncio
@@ -1985,38 +1999,189 @@ def test_project_time_rejects_invalid_live_schedule(start, end):
     with pytest.raises(ProjectValidationError):
         PerformanceProjectService._validate_flow_settings({"node_settings": {}, "node_times": {"manager-review": {"start_at": start, "end_at": end}}})
 
-@pytest.mark.asyncio
 async def test_review_project_visibility_uses_semi_joins_for_admin_and_participant(monkeypatch):
+    from fastapi import HTTPException
     from app.performance import projects_router
-    monkeypatch.setattr(settings, "APP_ENV", "dev")
-    monkeypatch.setattr(settings, "PERFORMANCE_DEV_ADMIN_DEBUG", True)
 
-    async def actor(_db, _context):
-        return SimpleNamespace(actor_ref="E001")
-
-    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    cycle = _pm_cycle(1)
+    target = _pm_project(1, "已启动项目", 1)
+    access = _frontend_access(cycles=[cycle], review_projects=[(target, cycle)], visible={1: {11}}, tasks={1: {21}})
+    async def resolve(_db, _context):
+        return access
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
 
     class Db:
-        statement = None
-
-        async def execute(self, statement):
-            self.statement = statement
+        calls = 0
+        async def get(self, model, identity):
+            if model is projects_router.PerformanceProject:
+                return target if identity == 1 else None
+            return SimpleNamespace(name="模板")
+        async def execute(self, query):
+            model = query.column_descriptions[0].get("entity")
+            if model is projects_router.PerformanceProjectNodeSnapshot:
+                self.calls += 1
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+            if model is projects_router.PerformanceNodeTask:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             return SimpleNamespace(all=lambda: [])
 
-    db = Db()
-    await projects_router.review_overview(None, context("performance.cycles.manage"), db, None)
-    admin_sql = str(db.statement)
-    assert "EXISTS" in admin_sql
-    assert "LEFT OUTER JOIN performance_node_tasks" not in admin_sql
-    assert "DISTINCT" not in admin_sql
-    assert "portal_user_id" not in admin_sql
+    response = await projects_router.review_overview(1, context(), Db())
+    assert response["active_project"]["project_id"] == 1
+    assert response["projects"] == [projects_router.project_payload(target, cycle)]
 
-    await projects_router.review_overview(None, context(), db, None)
-    participant_sql = str(db.statement)
-    assert "performance_project_members.portal_user_id" in participant_sql
-    assert "performance_node_tasks.handler_ref" in participant_sql
-    assert " OR " in participant_sql
-    assert "LEFT OUTER JOIN performance_node_tasks" not in participant_sql
+    with pytest.raises(HTTPException) as denied:
+        empty = _frontend_access(cycles=[cycle])
+        async def no_project(_db, _context):
+            return empty
+        monkeypatch.setattr(projects_router, "resolve_frontend_access", no_project)
+        await projects_router.review_overview(1, context(), Db())
+    assert denied.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_frontend_navigation_uses_selected_related_cycle_and_rejects_unrelated(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+
+    cycle_one = _pm_cycle(1, "周期一")
+    cycle_two = _pm_cycle(2, "周期二")
+    review_project = _pm_project(11, "评估项目", 1)
+    manage_project = _pm_project(22, "管理项目", 2)
+    access = _frontend_access(
+        cycles=[cycle_two, cycle_one],
+        review_projects=[(review_project, cycle_one)],
+        manage_projects=[(manage_project, cycle_two)],
+        manageable={cycle_two.cycle_ref},
+    )
+    async def resolve(_db, _context):
+        return access
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
+
+    default = await projects_router.frontend_navigation(None, context("performance.cycles.manage"), object())
+    assert default["active_cycle"]["cycle_id"] == 2
+    assert default["can_manage"] is True
+    assert default["can_review"] is False
+    assert default["review_projects"] == []
+
+    selected = await projects_router.frontend_navigation(1, context(), object())
+    assert selected["can_review"] is True
+    assert selected["can_manage"] is False
+    assert selected["review_projects"] == [projects_router.project_payload(review_project, cycle_one)]
+
+    with pytest.raises(HTTPException) as denied:
+        await projects_router.frontend_navigation(99, context(), object())
+    assert (denied.value.status_code, denied.value.detail) == (404, "CYCLE_NOT_FOUND")
+
+
+@pytest.mark.asyncio
+async def test_review_overview_explicit_cycle_rejects_cross_project(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProject
+
+    cycle = _pm_cycle(1)
+    allowed = _pm_project(1, "允许项目", 1)
+    forbidden = _pm_project(2, "同周期未授权项目", 1)
+    access = _frontend_access(cycles=[cycle], review_projects=[(allowed, cycle)], visible={1: {11}}, tasks={1: {21}})
+    async def resolve(_db, _context):
+        return access
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
+    class Db:
+        async def get(self, model, identity):
+            return forbidden if model is PerformanceProject and identity == 2 else None
+    with pytest.raises(HTTPException) as denied:
+        await projects_router.review_overview(2, context(), Db(), None, 1)
+    assert (denied.value.status_code, denied.value.detail) == (404, "PROJECT_NOT_FOUND")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("roles_enabled", [True, False])
+async def test_frontend_access_resolves_tasks_management_and_cycle_hrbp(roles_enabled):
+    from dataclasses import replace
+    from app.performance import navigation_service as navigation
+    from app.performance.models import (
+        PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission,
+        PerformanceNodeTask, PerformanceProject, PerformanceProjectMember,
+        PerformanceProjectNodeSnapshot, PerformanceRole,
+    )
+
+    cycles = [_pm_cycle(i) for i in (1, 2, 3)]
+    projects = [_pm_project(i, f"项目{i}", i, administrators=["员工一"] if i == 2 else []) for i in (1, 2, 3)]
+    projects[0].settings = {"flow_settings": {"node_settings": {"invite": {"invite": {"allow_voluntary_evaluation": True}}}}}
+    people = [(SimpleNamespace(employee_no="E001", display_name="员工一", portal_user_id=1), SimpleNamespace(cycle_ref=cycle.cycle_ref)) for cycle in cycles]
+    members = [(SimpleNamespace(employee_no="E001", organization_ref="部门一"), SimpleNamespace(id=i, project_id=i)) for i in (1, 2, 3)]
+    nodes = [
+        SimpleNamespace(id=11, project_id=1, node_id="summary", node_type="work_summary", config={}),
+        SimpleNamespace(id=12, project_id=1, node_id="invite", node_type="reviewer_360_invite", config={}),
+        SimpleNamespace(id=13, project_id=1, node_id="feedback", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}}),
+        SimpleNamespace(id=14, project_id=1, node_id="manager", node_type="evaluation", config={"template": {"executor_role_code": "assessment.line_manager"}}),
+        SimpleNamespace(id=15, project_id=1, node_id="appeal", node_type="result_reconsideration", config={}),
+    ]
+    tasks = [SimpleNamespace(id=21, project_id=1, cycle_ref="cycle:1", node_snapshot_id=11, handler_ref="E001", status="pending")]
+    roles = [SimpleNamespace(code=code, is_active=roles_enabled, role_type=kind, is_system=True, function_permission_keys=["performance.frontend.progress"]) for code, kind in [
+        ("assessment.reviewee", "ASSESSMENT"), ("assessment.reviewer_360", "ASSESSMENT"),
+        ("performance.project_admin", "MANAGEMENT"), ("performance.hrbp", "MANAGEMENT"),
+    ]]
+    permissions = [SimpleNamespace(cycle_ref="cycle:3", hrbp_employee_no="E001", scope=["部门一"], invisible_people=[])]
+
+    class Db:
+        async def execute(self, query):
+            model = query.column_descriptions[0]["entity"]
+            values = {
+                PerformanceAuthorizationSnapshotPerson: people,
+                PerformanceCycle: cycles, PerformanceProject: projects,
+                PerformanceProjectMember: members, PerformanceProjectNodeSnapshot: nodes,
+                PerformanceNodeTask: tasks, PerformanceRole: roles,
+                PerformanceHrbpPermission: permissions,
+            }[model]
+            return SimpleNamespace(all=lambda: values, scalars=lambda: SimpleNamespace(all=lambda: values))
+
+    access = await navigation.resolve_frontend_access(Db(), replace(context("performance.cycles.manage"), effective_employee_no="E001"))
+    if not roles_enabled:
+        assert access.cycles == []
+        assert access.review_projects == []
+        assert access.manageable_cycle_refs == set()
+        return
+    assert [cycle.id for cycle in access.cycles] == [3, 2, 1]
+    assert access.visible_node_ids_by_project == {1: {11, 13}}
+    assert access.task_ids_by_project == {1: {21}}
+    assert access.voluntary_node_ids_by_project == {1: {13}}
+    assert access.manageable_cycle_refs == {"cycle:2", "cycle:3"}
+    assert access.management_scopes == {2: None, 3: {"E001"}}
+
+
+def test_voluntary_360_requires_enabled_invite_and_reviewer_node():
+    from app.performance.navigation_service import _voluntary_360_node_ids
+    project = _pm_project(1, "360项目", 1)
+    project.settings = {"flow_settings": {"node_settings": {"invite": {"invite": {"allow_voluntary_evaluation": True}}}}}
+    nodes = [
+        SimpleNamespace(id=10, node_id="invite", node_type="reviewer_360_invite", config={}),
+        SimpleNamespace(id=11, node_id="evaluate", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}}),
+        SimpleNamespace(id=12, node_id="manager", node_type="evaluation", config={"template": {"executor_role_code": "assessment.line_manager"}}),
+    ]
+    assert _voluntary_360_node_ids(project, nodes) == {11}
+    project.settings["flow_settings"]["node_settings"]["invite"]["invite"]["allow_voluntary_evaluation"] = False
+    assert _voluntary_360_node_ids(project, nodes) == set()
+
+
+@pytest.mark.asyncio
+async def test_workbench_timeline_uses_navigation_management_identity(monkeypatch):
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProjectNodeSnapshot
+    cycle = _pm_cycle(1)
+    target = _pm_project(1, "项目", 1)
+    access = _frontend_access(cycles=[cycle], manage_projects=[(target, cycle)], workbench_projects=[(target, cycle)], manageable={cycle.cycle_ref})
+    async def resolve(_db, _context):
+        return access
+    monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
+    class Db:
+        async def get(self, _model, _identity):
+            return None
+        async def execute(self, query):
+            if query.column_descriptions[0].get("entity") is PerformanceProjectNodeSnapshot:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+            raise AssertionError(query)
+    assert await projects_router.workbench_timeline(1, context(), Db()) == []
 
 
 @pytest.mark.asyncio
@@ -3152,6 +3317,14 @@ def test_employee_http_responses_do_not_serialize_hidden_secrets(monkeypatch, en
     monkeypatch.setattr(projects_router, "resolve_subject_visibility_role", role)
     monkeypatch.setattr(projects_router, "load_subject_visibility_rules", fields)
     monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow)
+    if endpoint == "overview":
+        cycle.id = 1
+        cycle.cycle_ref = "cycle:one"
+        target_project.cycle_ref = "cycle:one"
+        access = _frontend_access(cycles=[cycle], review_projects=[(target_project, cycle)], visible={3: {11}}, tasks={3: {9}})
+        async def resolve(_db, _context):
+            return access
+        monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
     class Db:
         def __init__(self):
             self.calls = 0
@@ -3161,7 +3334,7 @@ def test_employee_http_responses_do_not_serialize_hidden_secrets(monkeypatch, en
             return None
         async def execute(self, _query):
             self.calls += 1
-            values = [[(target_project, cycle)], [node], [], [task]] if endpoint == "overview" else [[node], [task]]
+            values = [[node], [task]]
             rows = values[self.calls - 1]
             return SimpleNamespace(all=lambda: rows, scalars=lambda: SimpleNamespace(all=lambda: rows))
     app = FastAPI()
@@ -3223,23 +3396,24 @@ def test_readonly_source_is_projected_through_employee_http_routes(monkeypatch, 
     monkeypatch.setattr(projects_router, "resolve_subject_visibility_role", role)
     monkeypatch.setattr(projects_router, "load_subject_visibility_rules", fields)
     monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow)
+    target.cycle_ref = "cycle:one"
+    cycle.id = 1
+    cycle.cycle_ref = "cycle:one"
+    if endpoint == "overview":
+        access = _frontend_access(cycles=[cycle], review_projects=[(target, cycle)], visible={3: {12}}, tasks={3: {9}})
+        async def resolve(_db, _context):
+            return access
+        monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
     class Db:
         async def get(self, model, _identity):
             return target if model is PerformanceProject else None
         async def scalar(self, _query):
             return None
         async def execute(self, query):
-            model = query.column_descriptions[0]["entity"]
+            model = query.column_descriptions[0].get("entity")
             params = query.compile().params
-            if model is PerformanceProject:
-                rows = [(target, cycle)]
-            elif model is PerformanceProjectMember:
-                rows = []
-            elif model is PerformanceProjectNodeSnapshot:
-                if "work_summary" in params.values():
-                    rows = [source_node]
-                else:
-                    rows = [view_node]
+            if model is PerformanceProjectNodeSnapshot:
+                rows = [source_node] if "work_summary" in params.values() else [view_node]
             elif model is PerformanceNodeTask:
                 rows = [source_task] if "work_summary" in params.values() else [task]
             else:

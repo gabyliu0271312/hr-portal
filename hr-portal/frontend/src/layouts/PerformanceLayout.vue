@@ -11,7 +11,7 @@
             class="tab-button"
             :class="{ active: isActive(tab.path) }"
             type="button"
-            @click="router.push(tab.path)"
+            @click="selectTab(tab)"
           >
             {{ tab.label }}
           </button>
@@ -91,15 +91,16 @@ interface PerformanceMenuItem {
 }
 
 interface PerformanceTab {
+  key: 'workbench' | 'review' | 'project-management'
   label: string
   path: string
   menu: PerformanceMenuItem[]
-  adminOnly?: boolean
 }
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const projectContext = usePerformanceProjectContextStore()
 
 const performanceContext = ref<PerformanceAccessContext | null>(null)
 const canAdmin = computed(() =>
@@ -112,6 +113,7 @@ const isProjectManagement = computed(() => route.path === '/performance/project-
 
 const tabs = computed<PerformanceTab[]>(() => [
   {
+    key: 'workbench',
     label: '工作台',
     path: '/performance/workbench',
     menu: [
@@ -122,6 +124,7 @@ const tabs = computed<PerformanceTab[]>(() => [
     ],
   },
   {
+    key: 'review',
     label: '绩效评估',
     path: '/performance/review',
     menu: [
@@ -136,13 +139,19 @@ const tabs = computed<PerformanceTab[]>(() => [
     ],
   },
   {
+    key: 'project-management',
     label: '项目管理',
     path: '/performance/project-management',
     menu: [],
   },
 ])
 
-const visibleTabs = computed(() => tabs.value.filter((tab) => !tab.adminOnly || canAdmin.value))
+const visibleTabs = computed(() => {
+  if (projectContext.navigationLoading) return [tabs.value[0]]
+  if (projectContext.navigation?.active_cycle?.cycle_id !== projectContext.activeCycleId) return [tabs.value[0]]
+  return tabs.value.filter(tab => tab.key === 'workbench'
+    || (tab.key === 'review' ? projectContext.navigation?.can_review : projectContext.navigation?.can_manage))
+})
 const activeTab = computed(() =>
   visibleTabs.value.find((tab) => route.path === tab.path || route.path.startsWith(`${tab.path}/`))
     || visibleTabs.value[0]
@@ -151,6 +160,10 @@ const activeMenu = computed(() => activeTab.value?.menu ?? [])
 
 function isActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`)
+}
+
+function selectTab(tab: PerformanceTab) {
+  router.push(tab.path)
 }
 
 async function handleUserCommand(command: 'settings' | 'logout' | 'switch' | 'restore' | 'switch-records') {
@@ -168,7 +181,6 @@ async function handleUserCommand(command: 'settings' | 'logout' | 'switch' | 're
 const switchDialog = ref(false)
 const recordsDialog = ref(false)
 const switchCapability = ref<SwitchCapability | null>(null)
-const projectContext = usePerformanceProjectContextStore()
 let heartbeat: ReturnType<typeof setInterval> | undefined
 async function checkSwitchSession() {
   const session = employeeSwitchSession.value
@@ -206,6 +218,11 @@ watch(employeeSwitchEpoch, () => {
   projectContext.resetIdentity()
   performanceContext.value = null
   void refreshIdentity()
+})
+watch([() => projectContext.navigation, () => route.path], () => {
+  if (!projectContext.navigation || projectContext.navigationLoading) return
+  const routeTab = tabs.value.find(tab => route.path === tab.path || route.path.startsWith(`${tab.path}/`))
+  if (routeTab && !visibleTabs.value.some(tab => tab.key === routeTab.key)) void router.replace('/performance/workbench')
 })
 onMounted(() => {
   void refreshIdentity()

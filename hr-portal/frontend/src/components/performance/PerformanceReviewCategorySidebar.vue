@@ -17,9 +17,26 @@
           </template>
         </el-dropdown>
       </div>
+      <div v-if="filterOptions && projects.length > 1 && !sidebarCollapsed" class="project-section">
+        <el-dropdown trigger="click" @command="emit('select-project', $event)">
+          <button class="cycle-picker project-picker" type="button">
+            <span>{{ activeProject?.project_name || '选择项目' }}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor" /></svg>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="project in projects" :key="project.project_id" :command="project.project_id">
+                <span>{{ project.project_name }}</span>
+                <small>{{ project.cycle_name }}</small>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
       <div v-if="!sidebarCollapsed" class="sidebar-divider" aria-hidden="true"></div>
 
-      <div v-for="category in categories" :key="category.key" class="review-category">
+      <div v-if="!props.categories.length && !loading" class="sidebar-empty" role="status">当前周期暂无可处理的绩效评估任务</div>
+      <div v-for="category in visibleCategories" :key="category.key" class="review-category">
         <button
           class="category-toggle"
           :class="{ active: category.nodes.some(node => node.node_id === selectedNodeId) }"
@@ -111,9 +128,8 @@ const emit = defineEmits<{
 
 const filterLabel = computed(() => {
   if (props.filterOptions) {
-    if (props.loading) return '加载中…'
     const active = props.filterOptions.find(option => String(option.value) === String(props.activeFilterValue))
-    return active?.label || props.filterPlaceholder
+    return active?.label || (props.loading ? '加载中…' : props.filterPlaceholder)
   }
   return props.activeProject?.cycle_name || (props.loading ? '加载中…' : '暂无绩效周期')
 })
@@ -128,6 +144,7 @@ const filterOptions = computed<SidebarFilterOption[]>(() => {
 })
 
 const collapsed = ref<Record<string, boolean>>({})
+const visibleCategories = computed(() => props.categories.filter(category => category.nodes.length > 0))
 const sidebarCollapsed = ref(false)
 const sidebarRoot = ref<HTMLElement | null>(null)
 const openFlyoutKey = ref<string | null>(null)
@@ -197,7 +214,9 @@ const statusLabel: Record<PerformanceReviewNode['status'], string> = {
 .flyout-node.active { background: #e1eaff; color: #3370ff; font-weight: 500; }
 .flyout-empty { margin: 8px; color: #8f959e; font-size: 12px; }
 .is-collapsed.has-flyout .sidebar-collapse { right: -204px; z-index: 6; }
-.cycle-section { padding: 0 16px 8px; }
+.cycle-section, .project-section { padding: 0 16px 8px; }
+.project-picker { font-weight: 400; }
+.sidebar-empty { padding: 12px 16px; color: #8f959e; font-size: 12px; line-height: 20px; }
 .cycle-picker { display: flex; width: 100%; align-items: center; justify-content: flex-start; gap: 8px; height: 30px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #1f2329; cursor: pointer; font-size: 14px; font-weight: 600; line-height: 26px; text-align: left; }
 .cycle-picker:hover { background: rgba(31, 35, 41, 0.06); }
 .cycle-picker svg { color: #646a73; }

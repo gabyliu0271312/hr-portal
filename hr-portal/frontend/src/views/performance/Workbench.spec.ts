@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
+import { performanceApi, performanceNavigationApi, performanceWorkbenchApi, type PerformanceNavigationContext, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import Workbench from './Workbench.vue'
 
@@ -23,13 +23,27 @@ const pending: PerformanceWorkbenchTaskGroup[] = [
   { task_id: 11, node_id: 'summary', node_type: 'work_summary', node_name: '工作总结', pending_count: 1, completed_count: 0, overdue_count: 0, available_at: null, due_at: null, action_url: '/performance/review' },
 ]
 
+const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationContext> = {}): PerformanceNavigationContext => ({
+  cycles: [
+    { cycle_id: 1, cycle_name: '2025周期', cycle_start_at: '2025-01-01', cycle_end_at: '2025-12-31' },
+    { cycle_id: 2, cycle_name: '2026周期', cycle_start_at: '2026-01-01', cycle_end_at: '2026-12-31' },
+  ],
+  active_cycle: cycleId ? { cycle_id: cycleId, cycle_name: cycleId === 1 ? '2025周期' : '2026周期', cycle_start_at: cycleId === 1 ? '2025-01-01' : '2026-01-01', cycle_end_at: cycleId === 1 ? '2025-12-31' : '2026-12-31' } : null,
+  can_review: true,
+  can_manage: true,
+  review_projects: [],
+  ...overrides,
+})
+
 let pinia: Pinia
 function mountView() {
   return mount(Workbench, {
     global: {
       plugins: [pinia],
       stubs: {
-        'el-dropdown': { template: '<div><slot /><button class="select-project-one" @click="$emit(\'command\', 1)">切换</button><slot name="dropdown" /></div>', emits: ['command'] },
+        'el-dropdown': { template: '<div><slot /><button class="select-cycle-two" @click="$emit(\'command\', 2)">切换周期</button><slot name="dropdown" /></div>', emits: ['command'] },
+        'el-select': { template: '<button class="select-project-one" @click="$emit(\'change\', 1)">切换项目</button>', emits: ['change'] },
+        'el-option': { template: '<span />', props: ['label', 'value'] },
         'el-dropdown-menu': { template: '<div><slot /></div>' },
         'el-dropdown-item': { template: '<div><slot /></div>', props: ['command'] },
         'el-icon': { template: '<span><slot /></span>' },
@@ -56,21 +70,25 @@ describe('PerformanceWorkbench project context', () => {
       permission_codes: [],
       dev_admin_debug: false,
     })
-    vi.spyOn(performanceWorkbenchApi, 'listProjects').mockResolvedValue(projects)
+    vi.spyOn(performanceNavigationApi, 'get').mockImplementation(async (cycleId) => navigationOf(cycleId || 1))
+    const context = usePerformanceProjectContextStore()
+    context.setNavigation(navigationOf(1))
+    vi.spyOn(performanceWorkbenchApi, 'listProjects').mockImplementation(async (_keyword, cycleId) => cycleId === 2 ? [projects[1]] : [projects[0]])
     vi.spyOn(performanceWorkbenchApi, 'timeline').mockResolvedValue(timeline)
     vi.spyOn(performanceWorkbenchApi, 'tasks').mockImplementation(async (_projectId, state) => state === 'pending' ? pending : [])
     vi.spyOn(performanceWorkbenchApi, 'announcements').mockResolvedValue({ announcement_enabled: true, items: [] })
   })
 
-  it('uses the project selected in performance review and keeps it in the URL', async () => {
+  it('uses the project and cycle selected in performance review and keeps them in the URL', async () => {
     const context = usePerformanceProjectContextStore()
+    context.setActiveCycleId(2)
     context.setActiveProjectId(2)
     const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.get('.cycle-picker-text').text()).toBe('2026周期')
     expect(performanceWorkbenchApi.timeline).toHaveBeenCalledWith(2)
-    expect(replace).toHaveBeenCalledWith({ query: { project_id: '2' } })
+    expect(replace).toHaveBeenLastCalledWith({ query: { cycle_id: '2', project_id: '2' } })
     expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
     expect(wrapper.get('.timeline-node').classes()).toContain('current')
   })
@@ -91,7 +109,9 @@ describe('PerformanceWorkbench project context', () => {
   })
 
   it('renders announcements returned by workbench settings for the active cycle', async () => {
-    usePerformanceProjectContextStore().setActiveProjectId(2)
+    const context = usePerformanceProjectContextStore()
+    context.setActiveCycleId(2)
+    context.setActiveProjectId(2)
     vi.mocked(performanceWorkbenchApi.announcements).mockResolvedValue({
       announcement_enabled: true,
       items: [{ id: 7, title: '绩效面谈指引', link: '/performance/review', cycle_label: '所有周期', require_ack: false, display_order: 0, updated_at: '2026-09-22T00:00:00Z' }],
@@ -114,6 +134,7 @@ describe('PerformanceWorkbench project context', () => {
 
   it('updates the shared project when the workbench selector changes', async () => {
     const context = usePerformanceProjectContextStore()
+    vi.mocked(performanceWorkbenchApi.listProjects).mockResolvedValue(projects)
     context.setActiveProjectId(2)
     const wrapper = mountView()
     await flushPromises()
@@ -123,5 +144,18 @@ describe('PerformanceWorkbench project context', () => {
     expect(context.activeProjectId).toBe(1)
     expect(replace).toHaveBeenLastCalledWith({ query: { project_id: '1' } })
     expect(performanceWorkbenchApi.timeline).toHaveBeenCalledWith(1)
+  })
+
+  it('switches the shared cycle from the workbench selector and reloads that cycle projects', async () => {
+    const context = usePerformanceProjectContextStore()
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.select-cycle-two').trigger('click')
+    await flushPromises()
+
+    expect(context.activeCycleId).toBe(2)
+    expect(performanceNavigationApi.get).toHaveBeenCalledWith(2)
+    expect(performanceWorkbenchApi.listProjects).toHaveBeenLastCalledWith(undefined, 2)
+    expect(wrapper.get('.cycle-picker-text').text()).toBe('2026周期')
   })
 })

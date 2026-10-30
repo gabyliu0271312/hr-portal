@@ -70,6 +70,7 @@ import PerformanceReminderPanel from '@/components/performance/PerformanceRemind
 import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import type { AuthorizationItem } from '@/components/performance/AuthorizationManagementPanel.vue'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const OVERVIEW_NODE_ID = 'cycle-overview'
 const OVERVIEW_TABS: PerformanceLineTab[] = [
@@ -81,6 +82,7 @@ const OVERVIEW_TABS: PerformanceLineTab[] = [
 
 const route = useRoute()
 const router = useRouter()
+const projectContext = usePerformanceProjectContextStore()
 const emit = defineEmits<{
   'completion-action': [payload: { action: 'remind' | 'enable-result'; nodeKey: string }]
   'authorization-view': [item: AuthorizationItem]
@@ -88,7 +90,7 @@ const emit = defineEmits<{
   'member-export': []
 }>()
 const overview = ref<ProjectManagementOverview | null>(null)
-const activeCycleId = ref<number | null>(null)
+const activeCycleId = computed(() => projectContext.activeCycleId)
 const selectedKey = ref('')
 const activeTab = ref('overview')
 const overviewTabs = OVERVIEW_TABS
@@ -143,9 +145,7 @@ const authorizations = ref<AuthorizationItem[]>([
   { key: 'calibration-auth', title: '校准任务授权', description: '可协助校准人将任务授权他人校准' },
 ])
 
-const filterOptions = computed(() =>
-  (overview.value?.cycles || []).map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })),
-)
+const filterOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
 
 const menuNodes = computed<PerformanceReviewNode[]>(() => [
   { node_id: OVERVIEW_NODE_ID, node_name: '周期概览', node_type: 'cycle_overview', executor_label: '', status: 'pending', start_at: null, end_at: null, action_url: '' } as PerformanceReviewNode,
@@ -178,7 +178,7 @@ const memberProjectId = computed(() => selectedProject.value?.project_id ?? over
 
 function applyOverview(loaded: ProjectManagementOverview) {
   overview.value = loaded
-  activeCycleId.value = loaded.active_cycle?.cycle_id ?? null
+  if (loaded.active_cycle) projectContext.setActiveCycleId(loaded.active_cycle.cycle_id)
   if (!menuNodes.value.some(node => node.node_id === selectedKey.value)) {
     selectedKey.value = OVERVIEW_NODE_ID
   }
@@ -201,8 +201,15 @@ async function selectCycle(rawCycleId: number | string) {
   const cycleId = Number(rawCycleId)
   if (!Number.isFinite(cycleId) || cycleId <= 0 || cycleId === activeCycleId.value) return
   selectedKey.value = OVERVIEW_NODE_ID
-  await router.replace({ query: { ...route.query, cycle_id: String(cycleId), node: undefined } })
-  await loadOverview(cycleId)
+  loading.value = true
+  try {
+    const navigation = await projectContext.selectCycle(cycleId)
+    if (projectContext.activeCycleId !== cycleId) return
+    if (!navigation.can_manage) { await router.replace('/performance/workbench'); return }
+    await router.replace({ query: { cycle_id: String(cycleId) } })
+    await loadOverview(cycleId)
+  } catch { error.value = '项目管理加载失败，请稍后重试' }
+  finally { loading.value = false }
 }
 
 async function selectNode(node: PerformanceReviewNode) {
@@ -264,11 +271,15 @@ function closeReminder() {
 function handleReminderFilter() {}
 function handleReminderExport() {}
 
-onMounted(() => {
+onMounted(async () => {
   const routeCycleId = Number(route.query.cycle_id)
-  const routeProjectId = Number(route.query.project_id)
-  if (Number.isFinite(routeProjectId) && routeProjectId > 0) selectedKey.value = `project-${routeProjectId}`
-  void loadOverview(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+  try {
+    if (!projectContext.navigationReady) await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+    if (projectContext.navigation && !projectContext.navigation.can_manage) { await router.replace('/performance/workbench'); return }
+    const cycleId = projectContext.activeCycleId
+    if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { cycle_id: cycleId ? String(cycleId) : undefined } })
+    await loadOverview(cycleId)
+  } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }
 })
 </script>
 
