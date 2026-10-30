@@ -40,7 +40,7 @@ const emit = defineEmits<{
 <style scoped>
 .performance-search-input { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--performance-control-height); padding: 4px 8px 4px var(--performance-input-padding-x); background: var(--color-bg-card); border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius); color: var(--color-text-primary); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
 .performance-search-input.is-compact { height: var(--performance-input-compact-height); }
-.performance-search-input:focus-within { border-color: var(--performance-field-border); outline: 0; box-shadow: none; }
+.performance-search-input:focus-within { border-color: var(--performance-field-border-focus); outline: 0; box-shadow: none; }
 .search-icon { flex: 0 0 var(--performance-icon-size); width: var(--performance-icon-size); height: var(--performance-icon-size); color: var(--color-text-secondary); }
 .performance-search-input input { min-width: 0; flex: 1; height: var(--performance-input-line-height); margin-left: var(--performance-field-label-gap); padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; line-height: var(--performance-input-line-height); }
 .performance-search-input input::placeholder { color: var(--color-text-placeholder); }

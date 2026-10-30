@@ -305,8 +305,18 @@ REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞�
 
 ### 2026-10-31 补充：搜索框激活态与聚焦色 token
 
-飞书实测（聚焦搜索框）：`borderColor: rgb(208,211,214)`（#D0D3D6）、`boxShadow: none`、`borderRadius: 6px`，即搜索框聚焦不变色、不加外圈。
+飞书实测（点击聚焦搜索框）：蓝框不在内部 input 上，而在外层 `ud__select__selector.ud__select__selector-focus` 上 —— `1px solid rgb(51,109,244)`（#336DF4）、`boxShadow: none`、`outline: none`。此前采集到的 `rgb(208,211,214)`（#D0D3D6）是未聚焦的默认边框色。
 
-- `PerformanceSearchInput` 聚焦改为保持默认边框、`box-shadow: none`，与飞书一致；
-- 全局 `--performance-control-focus-border` 由 `#336df4`（不在飞书采集色板内）改为 `var(--color-primary)`（#3370FF），其他下拉/输入控件的聚焦边框随之对齐。
-- 验证：`vue-tsc`、`npm run build` 通过；ListToolbar/ProjectManagement/Review 41 项通过。
+- `PerformanceSearchInput` 聚焦改为 `border-color: var(--performance-field-border-focus)`、`outline: 0`、`box-shadow: none`；
+- `--performance-control-focus-border` 定为实测色 `#336df4`，其他下拉/输入控件的聚焦边框随之对齐。
+- 验证：`vue-tsc`、`npm run build` 通过；ListToolbar/ProjectManagement/Review 41 项通过（该轮焦点色为灰色版本，已由下条记录修正）。
+
+### 2026-10-31 补充：冻结列分隔线（修正为真实生效）
+
+飞书 `.ud__table-cell-fix-left::after` 默认 `display:none`，仅当容器带 `ud__table-ping-left`（横滚 `scrollLeft > 0`）时 `display:block; opacity:1`；线为 `1px #BBBFC4` + 三段 2% 阴影，表头 `top:-1px`。定位到三处差异：
+
+1. `.feishu-cell` 的 `overflow:hidden` 把画在 `right:-1px` 的分隔线与阴影整条裁掉 → 冻结列单元格改为 `overflow:visible`，文本截断仍由 `.feishu-cell__content` 与排序表头自身的省略号负责；
+2. 360° 反馈成员表 `tableColumns` 未设 `fixed`，冻结列与分隔线都不存在 → 补 `fixed: column.key === 'name'`，与项目管理成员表一致；
+3. 表头分隔线飞书为 `top:-1px` → 表头补 1px 上移。
+
+`is-ping-left` 由 `updateHscroll` 在 `body.scrollLeft > 0` 时挂到表格根节点，`scrollLeft` 归零即移除，与飞书一致。

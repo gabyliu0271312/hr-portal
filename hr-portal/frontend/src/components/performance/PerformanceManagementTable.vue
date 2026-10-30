@@ -522,9 +522,10 @@ thead .feishu-cell { height: 47px; color: #646a73; border-bottom-color: rgba(31,
 thead .feishu-cell:hover { background: #f5f6f7; }
 .feishu-cell.is-align-right { text-align: right; }
 .feishu-cell--selection { padding: 12px; }
-.feishu-cell.is-fixed-left { position: sticky; z-index: 2; background: #fff; }
+.feishu-cell.is-fixed-left { position: sticky; z-index: 2; background: #fff; overflow: visible; }
 .feishu-cell.is-fixed-left.is-last-fixed::after { content: ''; position: absolute; top: 0; right: -1px; bottom: 0; width: 1px; background: #bbbfc4; box-shadow: 1px 0 2px -2px rgba(31, 35, 41, 0.02), 2px 0 4px 0 rgba(31, 35, 41, 0.02), 2px 0 8px 2px rgba(31, 35, 41, 0.02); display: none; opacity: 0; transition: opacity .3s; }
 .is-ping-left .feishu-cell.is-fixed-left.is-last-fixed::after { display: block; opacity: 1; }
+thead .feishu-cell.is-fixed-left.is-last-fixed::after { top: -1px; }
 thead .feishu-cell.is-fixed-left { z-index: 3; }
 .feishu-row:hover > .feishu-cell { background: #f5f6f7; }
 .feishu-row { cursor: pointer; }

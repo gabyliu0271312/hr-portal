@@ -147,6 +147,7 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
   key: column.key,
   label: column.label,
   sortable: true,
+  fixed: column.key === 'name',
 })))
 function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder }) {
   sortKey.value = order ? key : ''
