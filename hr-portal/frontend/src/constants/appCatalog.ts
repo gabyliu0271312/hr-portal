@@ -15,4 +15,4 @@ export const APP_CATALOG: AppMeta[] = [
 ]
 
 /** Portal 顶部导航不展示的应用级一级菜单 code（统一收敛到左上角应用弹窗） */
-export const APP_TOP_TAB_CODES = ['performance', 'people']
+export const APP_TOP_TAB_CODES = ['performance', 'people', 'master_data']
