@@ -59,7 +59,7 @@
       </el-aside>
 
       <el-main :class="['performance-main', { 'review-main': isReview || isProjectManagement }]">
-        <router-view :key="`${employeeSwitchEpoch}:${route.fullPath}`" />
+        <router-view :key="employeeSwitchEpoch" />
       </el-main>
     </el-container>
     <GlobalAiAssistant v-if="!employeeSwitchSession" />

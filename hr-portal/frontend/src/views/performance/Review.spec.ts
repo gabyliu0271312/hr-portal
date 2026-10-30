@@ -46,6 +46,11 @@ function mountView() {
 }
 
 describe('PerformanceReview', () => {
+  it('uses the identity epoch as the view key without remounting on query navigation', () => {
+    expect(performanceLayoutSource).toContain('<router-view :key="employeeSwitchEpoch" />')
+    expect(performanceLayoutSource).not.toContain('route.fullPath')
+  })
+
   it('uses the same outer card width and scrollbar behavior for every node state', () => {
     expect(performanceLayoutSource).toMatch(/\.review-main\s*\{[^}]*scrollbar-gutter:\s*auto/s)
     expect(reviewSource).toContain(':global(html:has(.review-page)) { scrollbar-gutter: auto; }')
