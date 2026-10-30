@@ -20,6 +20,8 @@ export interface StandardFieldSummary {
   id: number
   entity_id?: number | null
   entity_name?: string | null
+  group_id?: number | null
+  group_name?: string | null
   field_code: string
   field_name: string
   business_definition: string
@@ -28,6 +30,25 @@ export interface StandardFieldSummary {
   value_domain: StandardFieldValueDomain | null
   revision: number
   is_active: boolean
+}
+
+export interface FieldGroup {
+  id: number
+  name: string
+  display_order: number
+  is_active: boolean
+  field_count: number
+}
+
+export interface FieldGroupListResponse {
+  items: FieldGroup[]
+  total: number
+}
+
+export interface FieldGroupPayload {
+  name: string
+  display_order?: number
+  is_active?: boolean
 }
 
 export type StandardFieldBindingStatus = 'unmapped' | 'suggested' | 'confirmed' | 'invalid'
@@ -83,6 +104,7 @@ export interface StandardFieldListResponse {
 
 export interface StandardFieldDefinitionPayload {
   entity_id?: number | null
+  group_id?: number | null
   field_code?: string
   field_name: string
   business_definition: string
@@ -93,8 +115,17 @@ export interface StandardFieldDefinitionPayload {
 }
 
 export const standardFieldsApi = {
-  list(params: { entity_id?: number; keyword?: string; is_active?: boolean; offset?: number; limit?: number } = {}) {
+  list(params: { entity_id?: number; group_id?: number; keyword?: string; is_active?: boolean; offset?: number; limit?: number } = {}) {
     return api.get<StandardFieldListResponse>('/warehouse/standard-fields', { params }).then(r => r.data)
+  },
+  groups() {
+    return api.get<FieldGroupListResponse>('/warehouse/standard-fields/groups').then(r => r.data)
+  },
+  createGroup(payload: FieldGroupPayload) {
+    return api.post<FieldGroup>('/warehouse/standard-fields/groups', payload).then(r => r.data)
+  },
+  updateGroup(groupId: number, payload: FieldGroupPayload) {
+    return api.put<FieldGroup>(`/warehouse/standard-fields/groups/${groupId}`, payload).then(r => r.data)
   },
   get(id: number) {
     return api.get<StandardFieldDetail>(`/warehouse/standard-fields/${id}`).then(r => r.data)

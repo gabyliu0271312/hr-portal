@@ -2,18 +2,19 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
-import { standardFieldsApi, type StandardFieldDefinitionPayload, type StandardFieldDetail, type StandardFieldSummary } from '@/api/standardFields'
+import { standardFieldsApi, type FieldGroup, type StandardFieldDefinitionPayload, type StandardFieldDetail, type StandardFieldSummary } from '@/api/standardFields'
 import { fieldCategoriesApi, type FieldCategory } from '@/api/field_categories'
 import { useUserStore } from '@/stores/user'
 import { masterDataApi, type EntityDefinition } from '@/api/masterData'
 import StandardFieldDefinitionForm from './StandardFieldDefinitionForm.vue'
 import StandardFieldValueDomain from './StandardFieldValueDomain.vue'
 
-const props = defineProps<{ modelValue: boolean; fieldId: number | null; entityId?: number }>()
+const props = defineProps<{ modelValue: boolean; fieldId: number | null; entityId?: number; groupId?: number }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; changed: [] }>()
 const userStore = useUserStore()
 const detail = ref<StandardFieldDetail | null>(null)
 const categories = ref<FieldCategory[]>([])
+const groups = ref<FieldGroup[]>([])
 const entities = ref<EntityDefinition[]>([])
 const canEntityView = computed(() => userStore.menus.some(menu => menu.code === 'system.master_entities'))
 const loading = ref(false)
@@ -40,6 +41,7 @@ function message(cause: any, fallback: string) {
 
 function fill(field?: StandardFieldSummary) {
   form.entity_id = field?.entity_id || props.entityId || null
+  form.group_id = field?.group_id ?? (!props.fieldId ? props.groupId ?? null : null)
   form.field_code = detail.value?.field_code || ''
   form.field_name = field?.field_name || ''
   form.business_definition = field?.business_definition || ''
@@ -50,20 +52,22 @@ function fill(field?: StandardFieldSummary) {
 
 async function load() {
   const current = ++requestId
-  detail.value = null; categories.value = []; entities.value = []; loading.value = false; error.value = ''
+  detail.value = null; categories.value = []; groups.value = []; entities.value = []; loading.value = false; error.value = ''
   mode.value = 'view'; fill()
   if (!props.modelValue || !canView.value) return
   loading.value = true
   try {
-    const [record, categoryList, entityList] = await Promise.all([
+    const [record, categoryList, entityList, groupList] = await Promise.all([
       props.fieldId ? standardFieldsApi.get(props.fieldId) : Promise.resolve(null),
       fieldCategoriesApi.list().catch(() => [] as FieldCategory[]),
       canEntityView.value ? masterDataApi.list({ limit: 100 }) : Promise.resolve({ items: [] as EntityDefinition[], total: 0 }),
+      standardFieldsApi.groups().catch(() => ({ items: [] as FieldGroup[], total: 0 })),
     ])
     if (current !== requestId) return
     detail.value = record
     categories.value = categoryList
     entities.value = entityList.items
+    groups.value = groupList.items.filter(g => g.is_active)
     fill(record || undefined)
     mode.value = props.fieldId ? 'view' : 'create'
   } catch (cause: any) {
@@ -85,6 +89,7 @@ function normalizedForm(): StandardFieldDefinitionPayload {
   const valueDomain = form.value_domain ? { items: (form.value_domain.items || []).map(item => ({ code: item.code.trim(), name: item.name.trim(), enabled: item.enabled, sort_order: item.sort_order })) } : null
   return {
     ...(form.entity_id ? { entity_id: form.entity_id } : {}),
+    ...(form.group_id ? { group_id: form.group_id } : {}),
     field_name: form.field_name.trim(), business_definition: form.business_definition.trim(),
     data_type: form.data_type, category_ids: [...(form.category_ids || [])], value_domain: valueDomain,
   }
@@ -137,12 +142,13 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
       <p v-if="!canView" role="alert">无权限查看标准字段目录。</p>
       <p v-else-if="migrationRequired" role="status">旧格式值域仅支持读取，请先完成值域格式迁移；定义暂不可保存。</p>
       <template v-if="canView && !loading">
-        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" :entities="entities" :entity-locked="!!detail?.entity_id" @update:model-value="Object.assign(form, $event)" @submit="save" />
+        <StandardFieldDefinitionForm v-if="writable() && mode !== 'view'" :model-value="form" :mode="mode" :saving="saving" :categories="categories" :groups="groups" :entities="entities" :entity-locked="!!detail?.entity_id" @update:model-value="Object.assign(form, $event)" @submit="save" />
         <template v-else-if="detail">
           <section class="field-summary">
             <div><span>字段编码</span><strong>{{ detail.field_code }}</strong></div>
             <div><span>字段名称</span><strong>{{ detail.field_name }}</strong></div>
             <div><span>归属实体</span><strong>{{ detail.entity_name || '未归属' }}</strong></div>
+            <div><span>业务分组</span><strong>{{ detail.group_name || '未分组' }}</strong></div>
             <div><span>数据类型</span><strong>{{ detail.data_type }}</strong></div>
             <div class="field-summary__definition"><span>业务定义</span><p>{{ detail.business_definition }}</p></div>
             <div><span>敏感字段分类</span><strong>{{ categoryNames.length ? categoryNames.join('、') : '未分类' }}</strong></div>

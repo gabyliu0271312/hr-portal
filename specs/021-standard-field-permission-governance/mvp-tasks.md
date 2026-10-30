@@ -74,6 +74,7 @@ R08的分摊内部依赖只能服务获准分摊结果，独立工资/奖金输�
 - [x] **B01.b 发布实体并由Person服务写入首条记录**（FR-B01/B02/B04/B05；AC-B01/B02/B04/B05）：将B01.a实体发布，由受控Person服务写入一条来源身份明确、字段白名单受控的记录并在业务入口查询；未发布、无实体/记录/字段权及伪造服务写者拒绝，无半写。必需隔离真库/API+原入口PC。**2026-10-29验收：代码+隔离PG/API+原入口PC均完成并推送**，用户已批准Person服务写入及原人员权限入口的最小稳定ID衔接；发布、实体列记录、来源写者/字段白名单、独立记录资源权与人员D同卡补齐。仅隔离合成来源验收，不迁移旧授权或接管真实员工。准备结论见§9.6，本次实现与验收见§9.7。
 - [x] **B01.c 主数据模块壳（只读概览）**：新增顶级菜单「主数据」→「主数据概览」，按实体展示发布状态、字段数、来源数、记录数、最近写入时间，回答“接入了吗”；记录钻取复用受控记录接口。实体由后端统一建立，前端不提供创建入口；标准字段建设后续迁入。**2026-10-29开发/PG/API/PC通过并推送`ded9aa4`；迁移`0285`未部署**，证据见§9.8。
 - [x] **B17 一次定义升级安全使用**（FR-B02/B04/B06；AC-B02/B04/B06）：已发布实体仅允许新增字段的定义升级，旧字段 id/type/revision 完全保留；破坏性变更（删除/改类型/改修订）拒绝；旧记录可读、新类型字段按约束写入、升级后来源白名单须同步扩展。**2026-10-30开发/隔离PG/API/PC通过，未部署**，证据见§9.9。
+- [ ] **B01.d 创梦人力字段设置分组化 + 入口收拢**（FR-B01/B04/B12；AC-B01/B04/B12适用子项）：主数据定义/标准字段/字段分类入口迁入创梦人力后台，复用旧菜单码只挪位置；字段设置按全局一套分组（工作信息/个人信息/银行卡/证件/教育经历/工作经历/紧急联系人/家庭成员/合同信息/资料附件）组织，后端新增 `field_groups` 全局表 + 标准字段 `group_id` 归属 + 按分组过滤接口，前端每组独立添加/设置字段；分组不是字段分类（敏感分类独立保留）。不做表单预览联动。**2026-10-30开发+隔离PG/API+前端测试完成，未走查PC、未部署**，证据见§9.10。
 - [ ] **B02 同记录编辑与停用**（FR-B02/B04/B05；AC-B02/B04/B05）：同一记录编辑/停用保持record_id；无权限、过期版本和受限引用拒绝。必需API/真库+PC。
 - [ ] **B03.a 首个必要字段约束**（FR-B02；AC-B02）：从首实例只选一项确有需要的必填/类型/唯一约束；正例可写，非法/冲突提交拒绝且旧值不变。先核查现有列与数据，不扩全类型框架。
 
@@ -212,7 +213,7 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 | 卡 | 用户场景 | 重点需求 | 对应验收条件 | 当前卡片状态 |
 | --- | --- | --- | --- | --- |
 | B00 | US-B01、US-B02、US-B06、US-B07 | FR-B01、FR-B03、FR-B04、FR-B05、FR-B12、FR-B13 | AC-B01/AC-B03/AC-B04/AC-B05/AC-B12/AC-B13的首实体、归属和通用树设计证据 | 完成：B00.a只读调查和首版准备合同冻结，证据见§9.3/§9.4；仅完成准备，不等于业务实现或来源接管 |
-| B01 | US-B01、US-B06 | FR-B01、FR-B02、FR-B04、FR-B05、FR-B12 | AC-B01、AC-B02、AC-B04、AC-B05、AC-B12；a归属定义、b发布记录分开验收 | B01.a通过，证据见§9.5；B01.b通过（代码3a9f383/遮蔽修复c92b37b、隔离PG/API 105通过、原入口PC三页走查），证据见§9.7 |
+| B01 | US-B01、US-B06 | FR-B01、FR-B02、FR-B04、FR-B05、FR-B12 | AC-B01、AC-B02、AC-B04、AC-B05、AC-B12；a归属定义、b发布记录分开验收 | B01.a通过，证据见§9.5；B01.b通过（代码3a9f383/遮蔽修复c92b37b、隔离PG/API 105通过、原入口PC三页走查），证据见§9.7；B01.d分组化+入口收拢开发+隔离PG/API+前端测试完成、未走查PC未部署，证据见§9.10 |
 | B02 | US-B01 | FR-B02、FR-B04、FR-B05 | AC-B02、AC-B04、AC-B05 | 待开发 |
 | B03 | US-B01 | FR-B02 | AC-B02的本实例约束/类型 | 待开发，一种约束一实例 |
 | B04 | US-B02 | FR-B02、FR-B03、FR-B04、FR-B05、FR-B06 | AC-B02、AC-B03、AC-B04、AC-B05、AC-B06 | 待开发，Person/Employment业务模型已确认 |
@@ -726,3 +727,19 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **回归判定（用户关注点）**：全量 PG 套件 57 failed/99 errors 中，属本次改动文件的仅 2 个 records 用例（本轮已修复，92 passed 复核）；其余失败集中在 `test_standard_field_catalog.py`（git 未修改、全量前已存在）与 allocation/ai_controlled/ucp/quality/performance 等文件——A/B 验证（stash 本次三文件改动后同批重跑，失败集 8/8 原样复现）证明**非 B17 引入回归**。`mapping_version_lifecycle`/`warehouse_result_detail` 单独重跑通过，属全量并发偶发。
 - **部署状态**：本次改动**未提交推送、未部署**；隔离库与本地 dev 库已验证，生产未连接、未读员工行。上线需按版本推送+部署流程执行，生产验收另按 B18 模板。
 - **未做/停止**：不接真实来源、不接管员工、不切组织/中心/报表、不做真实加字段或编辑停用、不做破坏性变更批量升级；敏感字段/范围消费与生产写者验收留待后续具名卡。
+
+### 9.10 B01.d 创梦人力字段设置分组化 + 入口收拢（2026-10-30，开发+隔离PG/API+前端测试完成，未走查PC、未部署）
+
+- **目标/范围**：对应 FR-B01/B04/B12 与 AC-B01/B04/B12 适用子项：主数据定义/标准字段目录/字段分类入口迁入创梦人力后台，**复用旧菜单 code 只挪位置**（`system.master_entities`/`warehouse.standard_fields.catalog`/`system.field_categories` 均不变，仅 parent 挪到 `people.admin`「创梦人力后台」分组）；字段设置按**全局一套分组**（工作信息/个人信息/银行卡信息/证件信息/教育经历/工作经历/紧急联系人/家庭成员/合同信息/资料附件，对齐飞书人事字段设置）组织，后端新增 `field_groups` 全局表 + 标准字段 `group_id` 归属 + 按分组过滤接口；前端每组独立添加/设置字段。分组**不是**字段分类（敏感分类独立保留）。不做表单预览联动（已明确排除）。
+- **角色/入口**：配置管理员在创梦人力后台侧栏（创梦人力→应用入口→创梦人力后台）进入主数据定义/标准字段目录/字段分类；字段设置在标准字段目录页按分组 tab 过滤、新增默认落入当前分组、抽屉可改业务分组。
+- **实现（代码）**：
+  - 后端 `alembic/versions/0287_field_groups.py`：`field_groups` 全局表（name 唯一、display_order、is_active）+ `standard_fields.group_id` FK（RESTRICT），种子 10 分组（工作信息1/个人信息2/银行卡信息3/证件信息4/教育经历5/工作经历6/紧急联系人7/家庭成员8/合同信息9/资料附件10）。
+  - `app/warehouse/service/standard_fields.py`：分组 CRUD（重名校验 409 `field_group_name_exists`、404 未知分组）、`field_count` 统计、列表按 `display_order` 排序；`list_standard_fields` 支持 `group_id` 过滤并在摘要回填 `group_name`。
+  - `app/warehouse/standard_fields_router.py`：`/groups` GET/POST + `/groups/{group_id}` PUT（静态路由注册在 `/{field_id}` 之前避免冲突），权限沿用 CATALOG_MENU V/C/U。
+  - `app/seed.py`：MENU_TREE 把三个叶子移入 `people.admin`（该分组由原空叶子升级为带子项分组），`warehouse.standard_fields` 分组整体失去子集后由 `_retire_legacy_menus` 退役（空叶子或空分组才删，RoleMenu 级联清理，顺序在超管授权之后避免 FK 冲突）；旧菜单 code 全部不变。
+  - 前端 `router/index.ts` + `constants/menuRoutes.ts`：新增 `/people/master-data`、`/people/field-settings`、`/people/field-categories` 路由，MENU_ROUTE_MAP 三码统一指向；`layouts/PeopleLayout.vue` 侧栏新增「创梦人力后台」区块（主数据定义/字段设置/字段分类，逐项权限检查）；`WarehouseStandardFields.vue` 分组 tabs（全部+10组，带 field_count）、新建默认落当前组、列表/抽屉回填业务分组；`StandardFieldDrawer.vue`/`StandardFieldDefinitionForm.vue` 业务分组选择器（放表单末尾，保持既有测试输入索引假设）；`EntityFieldReferences.vue`/`WarehouseModelReadinessPanel.vue` 跳转目标改为 `/people/field-settings`；删除残留 `api/standardFields.js`（js/ts 遮蔽坑）。
+- **隔离 PG/API 证据（隔离库 127.0.0.1:15432）**：迁移 `0287` 应用成功（alembic current 到 0287）；`test_standard_field_direct_identity.py` + `test_standard_field_catalog.py` → **66 passed / 0 failed**（9.7s）。覆盖：分组列表带 field_count、重名 409、未知分组 404、更新分组、`group_id` 过滤、摘要回填 `group_name`、字段归属分组。seed 幂等重跑验证：三叶子落在 `people.admin` 下、`warehouse.standard_fields` 退役、无孤儿 `role_menus`。
+- **前端测试/构建证据**：受影响 specs **70 passed**（menuRoutes 5、MasterDataEntities 6、ScopeGovernance 44、WarehouseModelingVisual 15）；`vue-tsc --noEmit` 干净。全量前端套件 51 failures 经 stash A/B 验证为**既有基线失败**（performance .spec.js、WarehouseAuthorizationContractForm、CostCenterMappingWorkspace），非本轮引入。
+- **PC 证据（待补）**：本轮完成路由/侧栏/分组 UI 的组件级与类型验证，**未做真实登录的创梦人力后台入口走查**，记录区与分组切换的 PC 截图待用户登录确认后补入。
+- **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。菜单 code 投产未改，仅 parent_id/display_order 在下次 seed 执行时生效；上线需按版本推送+部署流程执行，生产验收另按 B18 模板。
+- **未做/停止**：不做表单预览联动；不把分组当字段分类；不接真实来源、不接管员工、不切组织/中心/报表；旧菜单 code 不修改；分组管理（新增/改名/排序 UI）与每分组「设置」按钮的飞书式完整交互留待后续卡，本轮仅 tab 过滤+抽屉归属。

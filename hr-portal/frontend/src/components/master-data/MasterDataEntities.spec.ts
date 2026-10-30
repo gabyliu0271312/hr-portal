@@ -44,7 +44,7 @@ describe('B01 entity definitions and catalog ownership', () => {
     const wrapper = mount(EntityFieldReferences, { ...options, props: { entity } }); await flushPromises()
     expect(mocks.get).toHaveBeenCalledWith('/warehouse/standard-fields', { params: { entity_id: 1, offset: 0, limit: 20 } })
     await button(wrapper, '前往标准字段目录').trigger('click')
-    expect(mocks.push).toHaveBeenCalledWith({ path: '/warehouse/standard-fields', query: { entity_id: 1 } })
+    expect(mocks.push).toHaveBeenCalledWith({ path: '/people/field-settings', query: { entity_id: 1 } })
     expect(mocks.post).not.toHaveBeenCalled(); wrapper.unmount()
   })
   it('does not request metadata when view permissions are absent', async () => {

@@ -5,9 +5,9 @@ import DefaultLayout from '@/layouts/Default.vue'
 import { MENU_ROUTE_MAP } from './menuRoutes'
 
 describe('standard field navigation', () => {
-  it('maps both the group and catalog to the warehouse page', () => {
-    expect(MENU_ROUTE_MAP['warehouse.standard_fields']).toBe('/warehouse/standard-fields')
-    expect(MENU_ROUTE_MAP['warehouse.standard_fields.catalog']).toBe('/warehouse/standard-fields')
+  it('maps both the group and catalog to the people field settings', () => {
+    expect(MENU_ROUTE_MAP['warehouse.standard_fields']).toBe('/people/field-settings')
+    expect(MENU_ROUTE_MAP['warehouse.standard_fields.catalog']).toBe('/people/field-settings')
   })
 })
 
@@ -32,7 +32,7 @@ vi.mock('@/components/GlobalAiAssistant.vue', () => ({ default: { template: '<di
 
 const systemEntries = [
   ['身份管理', 'system.identity_management', '/system/identity-management'],
-  ['主数据定义', 'system.master_entities', '/system/master-entities'],
+  ['主数据定义', 'system.master_entities', '/people/master-data'],
 ] as const
 
 describe('system sidebar navigation', () => {

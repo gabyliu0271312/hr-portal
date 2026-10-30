@@ -5,6 +5,10 @@ from app.core.db import get_session
 from app.core.deps import require_op
 from app.users.models import User
 from app.warehouse.schemas import (
+    FieldGroupCreateIn,
+    FieldGroupListOut,
+    FieldGroupOut,
+    FieldGroupUpdateIn,
     StandardFieldBindingActionIn,
     StandardFieldBindingCandidateOut,
     StandardFieldBindingCreateIn,
@@ -21,9 +25,37 @@ router = APIRouter(prefix="/standard-fields")
 CATALOG_MENU = "warehouse.standard_fields.catalog"
 
 
+@router.get("/groups", response_model=FieldGroupListOut)
+async def list_groups(
+    user: User = Depends(require_op(CATALOG_MENU, "V")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.list_field_groups(db, user=user)
+
+
+@router.post("/groups", response_model=FieldGroupOut, status_code=201)
+async def create_group(
+    payload: FieldGroupCreateIn,
+    user: User = Depends(require_op(CATALOG_MENU, "C")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.create_field_group(db, payload, user)
+
+
+@router.put("/groups/{group_id}", response_model=FieldGroupOut)
+async def update_group(
+    payload: FieldGroupUpdateIn,
+    group_id: int = Path(..., gt=0),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await service.update_field_group(db, group_id, payload, user)
+
+
 @router.get("", response_model=StandardFieldListOut)
 async def list_fields(
     entity_id: int | None = Query(None, gt=0),
+    group_id: int | None = Query(None, gt=0),
     keyword: str | None = Query(None, min_length=1, max_length=128),
     is_active: bool | None = Query(None),
     offset: int = Query(0, ge=0),
@@ -31,7 +63,7 @@ async def list_fields(
     user: User = Depends(require_op(CATALOG_MENU, "V")),
     db: AsyncSession = Depends(get_session),
 ):
-    return await service.list_standard_fields(db, keyword, is_active, offset, limit, user=user, entity_id=entity_id)
+    return await service.list_standard_fields(db, keyword, is_active, offset, limit, user=user, entity_id=entity_id, group_id=group_id)
 
 
 @router.get("/{field_id}", response_model=StandardFieldDetailOut)

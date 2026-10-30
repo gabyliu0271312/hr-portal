@@ -33,7 +33,7 @@ onBeforeUnmount(() => { ++request })
 
 <template>
   <section class="entity-fields">
-    <div class="entity-fields__heading"><strong>{{ entity.name }} · 字段引用</strong><PermissionButton v-if="canRead" menu="warehouse.standard_fields.catalog" op="V" @click="router.push({ path: '/warehouse/standard-fields', query: { entity_id: entity.id } })">前往标准字段目录</PermissionButton></div>
+    <div class="entity-fields__heading"><strong>{{ entity.name }} · 字段引用</strong><PermissionButton v-if="canRead" menu="warehouse.standard_fields.catalog" op="V" @click="router.push({ path: '/people/field-settings', query: { entity_id: entity.id } })">前往标准字段目录</PermissionButton></div>
     <p>这里只展示业务归属。工作地枚举及其选项统一在数据仓库 → 标准字段目录维护；本页不新增人员记录。</p>
     <el-alert v-if="!canRead" title="需要主数据定义和标准字段目录查看权限才能读取字段引用。" type="info" :closable="false" />
     <template v-else>

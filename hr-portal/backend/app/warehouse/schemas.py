@@ -1724,6 +1724,7 @@ class StandardFieldValueDomainIn(BaseModel):
 class StandardFieldDefinitionIn(BaseModel):
     model_config = {"extra": "forbid"}
     entity_id: int | None = Field(default=None, gt=0, strict=True)
+    group_id: int | None = Field(default=None, gt=0, strict=True)
     field_name: str = Field(min_length=1, max_length=128)
     business_definition: str = Field(min_length=1, max_length=4000)
     data_type: Literal["string", "number", "date", "datetime", "bool", "enum"]
@@ -1758,6 +1759,8 @@ class StandardFieldSummaryOut(BaseModel):
     id: int
     entity_id: int | None = None
     entity_name: str | None = None
+    group_id: int | None = None
+    group_name: str | None = None
     field_code: str
     field_name: str
     business_definition: str
@@ -1784,6 +1787,33 @@ class StandardFieldDetailOut(StandardFieldSummaryOut):
 
 class StandardFieldListOut(BaseModel):
     items: list[StandardFieldSummaryOut]
+    total: int
+
+
+class FieldGroupCreateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    name: str = Field(min_length=1, max_length=64)
+    display_order: int = Field(default=0, ge=0)
+
+
+class FieldGroupUpdateIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    name: str = Field(min_length=1, max_length=64)
+    display_order: int = Field(default=0, ge=0)
+    is_active: bool = True
+
+
+class FieldGroupOut(BaseModel):
+    model_config = {"from_attributes": True}
+    id: int
+    name: str
+    display_order: int
+    is_active: bool
+    field_count: int = 0
+
+
+class FieldGroupListOut(BaseModel):
+    items: list[FieldGroupOut]
     total: int
 
 

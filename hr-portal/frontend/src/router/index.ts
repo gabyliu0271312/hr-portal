@@ -738,6 +738,24 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/master-data/Overview.vue'),
         meta: { label: '主数据概览', menuCode: 'people.app' },
       },
+      {
+        path: 'master-data',
+        name: 'PeopleMasterData',
+        component: () => import('@/views/system/MasterDataEntities.vue'),
+        meta: { label: '主数据定义', menuCode: 'system.master_entities' },
+      },
+      {
+        path: 'field-settings',
+        name: 'PeopleFieldSettings',
+        component: () => import('@/views/warehouse/WarehouseStandardFields.vue'),
+        meta: { label: '字段设置', menuCode: 'warehouse.standard_fields.catalog' },
+      },
+      {
+        path: 'field-categories',
+        name: 'PeopleFieldCategories',
+        component: () => import('@/views/system/FieldCategory.vue'),
+        meta: { label: '字段分类', menuCode: 'system.field_categories' },
+      },
     ],
   },
   {

@@ -4,13 +4,15 @@ import { useUserStore } from '@/stores/user'
 import { useRoute } from 'vue-router'
 import { masterDataApi, type EntityDefinition } from '@/api/masterData'
 import PermissionButton from '@/components/PermissionButton.vue'
-import { standardFieldsApi, type StandardFieldSummary } from '@/api/standardFields'
+import { standardFieldsApi, type StandardFieldSummary, type FieldGroup } from '@/api/standardFields'
 import StandardFieldDrawer from '@/components/warehouse/StandardFieldDrawer.vue'
 
 const userStore = useUserStore()
 const route = useRoute()
 const entities = ref<EntityDefinition[]>([])
 const entityId = ref<number | undefined>()
+const groups = ref<FieldGroup[]>([])
+const groupId = ref<number | ''>('')
 const canEntityView = computed(() => userStore.menus.some(m => m.code === 'system.master_entities'))
 const canView = computed(() => userStore.menus.some(menu => menu.code === 'warehouse.standard_fields.catalog'))
 const rows = ref<StandardFieldSummary[]>([])
@@ -27,6 +29,16 @@ const types: Record<string, string> = { string: '字符串', number: '数值', d
 let requestId = 0
 let entityRequestId = 0
 
+async function loadGroups() {
+  if (!canView.value) { groups.value = []; return }
+  try {
+    const response = await standardFieldsApi.groups()
+    groups.value = response.items.filter(g => g.is_active)
+  } catch {
+    groups.value = []
+  }
+}
+
 async function load() {
   const current = ++requestId
   if (!canView.value) { rows.value = []; total.value = 0; return }
@@ -35,6 +47,7 @@ async function load() {
   try {
     const response = await standardFieldsApi.list({
       entity_id: entityId.value,
+      group_id: groupId.value === '' ? undefined : groupId.value,
       keyword: keyword.value.trim() || undefined,
       is_active: status.value === '' ? undefined : status.value,
       offset: (page.value - 1) * pageSize.value,
@@ -52,12 +65,13 @@ async function load() {
   }
 }
 function search() { page.value = 1; void load() }
+function switchGroup(id?: number) { groupId.value = id ?? ''; page.value = 1; void load() }
 function openCreate() { if (entityId.value && (!canEntityView.value || !userStore.hasOp('system.master_entities', 'C'))) return; selectedId.value = null; drawerOpen.value = true }
 function openDetail(id: number) { selectedId.value = id; drawerOpen.value = true }
-function updated() { void load() }
+function updated() { void loadGroups(); void load() }
 watch(() => [canView.value, canEntityView.value, userStore.user?.id], async () => {
   const current = ++entityRequestId
-  entities.value = []; drawerOpen.value = false; page.value = 1; void load()
+  entities.value = []; drawerOpen.value = false; page.value = 1; void loadGroups(); void load()
   if (canView.value && canEntityView.value) {
     try { const result = await masterDataApi.list({ limit: 100 }); if (current === entityRequestId) entities.value = result.items }
     catch { if (current === entityRequestId) entities.value = [] }
@@ -80,6 +94,10 @@ onBeforeUnmount(() => { ++requestId; ++entityRequestId })
       </template>
       <p v-if="!canView" role="alert">无权限查看标准字段目录。</p>
       <template v-else>
+        <el-tabs v-if="groups.length" v-model="groupId" class="field-group-tabs" @tab-change="(id: any) => switchGroup(id === '' ? undefined : Number(id))">
+          <el-tab-pane label="全部" name="" />
+          <el-tab-pane v-for="group in groups" :key="group.id" :name="String(group.id)" :label="`${group.name} (${group.field_count})`" />
+        </el-tabs>
         <el-form inline @submit.prevent="search">
           <el-form-item v-if="canEntityView" label="归属实体"><el-select v-model="entityId" clearable placeholder="全部可访问字段" style="width: 180px" @change="search"><el-option v-for="entity in entities" :key="entity.id" :value="entity.id" :label="entity.name" /></el-select></el-form-item>
           <el-form-item label="搜索"><el-input v-model="keyword" clearable placeholder="编码、名称或业务定义" @keyup.enter="search" /></el-form-item>
@@ -96,6 +114,7 @@ onBeforeUnmount(() => { ++requestId; ++entityRequestId })
             <el-table-column prop="field_code" label="字段编码" min-width="160" />
             <el-table-column prop="field_name" label="字段名称" min-width="170" />
             <el-table-column prop="entity_name" label="归属实体" min-width="130"><template #default="{ row }">{{ row.entity_name || '未归属' }}</template></el-table-column>
+            <el-table-column label="业务分组" min-width="120"><template #default="{ row }">{{ row.group_name || '未分组' }}</template></el-table-column>
             <el-table-column label="数据类型" min-width="105"><template #default="{ row }">{{ types[row.data_type] || row.data_type }}</template></el-table-column>
             <el-table-column prop="business_definition" label="业务定义" min-width="260" show-overflow-tooltip />
             <el-table-column label="敏感分类" min-width="110"><template #default="{ row }">{{ row.category_ids?.length ? `${row.category_ids.length} 个` : '未分类' }}</template></el-table-column>
@@ -105,7 +124,7 @@ onBeforeUnmount(() => { ++requestId; ++entityRequestId })
         <div class="standard-fields-pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next" /></div>
       </template>
     </el-card>
-    <StandardFieldDrawer v-model="drawerOpen" :field-id="selectedId" :entity-id="entityId" @changed="updated" />
+    <StandardFieldDrawer v-model="drawerOpen" :field-id="selectedId" :entity-id="entityId" :group-id="groupId === '' ? undefined : Number(groupId)" @changed="updated" />
   </div>
 </template>
 

@@ -322,7 +322,8 @@ function standardSetup(item = definition()) {
     url === '/datasets' ? [{ id: 10, name: '费用分类' }, { id: 15, name: '分摊' }]
       : url.endsWith('_visible-tables') ? [{ table_name: 'emp_monthly_cost_class', label: '费用分类来源' }]
         : url.endsWith('binding-candidates') ? [candidate()]
-          : url === '/field-categories' ? [] : standardDetail(item),
+          : url === '/field-categories' ? []
+            : url === '/warehouse/standard-fields/groups' ? { items: [], total: 0 } : standardDetail(item),
   }))
 }
 function standardDrawer(item = definition()) {

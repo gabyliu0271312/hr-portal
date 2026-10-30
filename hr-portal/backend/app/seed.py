@@ -47,7 +47,6 @@ MENU_TREE: list[dict] = [
                     {"code": "system.roles", "label": "角色配置", "icon": "Avatar"},
                     {"code": "system.identity_management", "label": "身份管理", "icon": "Switch"},
                     {"code": "system.scopes", "label": "管理单元", "icon": "Connection"},
-                    {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
                     {"code": "system.field_columns", "label": "字段管理", "icon": "Grid"},
                 ],
             },
@@ -69,7 +68,6 @@ MENU_TREE: list[dict] = [
                 "label": "参数配置",
                 "icon": "Operation",
                 "children": [
-                    {"code": "system.master_entities", "label": "主数据定义", "icon": "Collection"},
                     {"code": "system.compensation_caps", "label": "补偿金规则维护", "icon": "Money"},
                     {"code": "system.document_templates", "label": "模板维护", "icon": "Document"},
                     {"code": "system.ai_config", "label": "AI 基础配置", "icon": "Cpu"},
@@ -113,9 +111,6 @@ MENU_TREE: list[dict] = [
         "icon": "DataBoard",
         "children": [
             {"code": "warehouse.assets", "label": "数据资产", "icon": "Folder"},
-            {"code": "warehouse.standard_fields", "label": "标准字段", "icon": "Collection", "children": [
-                {"code": "warehouse.standard_fields.catalog", "label": "标准字段目录", "icon": "List"},
-            ]},
             {"code": "warehouse.cleaning", "label": "数据清洗", "icon": "Brush"},
             {"code": "warehouse.modeling", "label": "数据建模", "icon": "Edit"},
             {"code": "warehouse.metrics", "label": "指标管理", "icon": "TrendCharts"},
@@ -210,7 +205,17 @@ MENU_TREE: list[dict] = [
                 "icon": "Guide",
                 "children": [
                     {"code": "people.app", "label": "创梦人力入口", "icon": "User"},
-                    {"code": "people.admin", "label": "创梦人力后台", "icon": "Setting"},
+                    # B01.d：三个主数据/字段设置功能收敛进创梦人力后台（复用旧菜单 code 只挪位置）
+                    {
+                        "code": "people.admin",
+                        "label": "创梦人力后台",
+                        "icon": "Setting",
+                        "children": [
+                            {"code": "system.master_entities", "label": "主数据定义", "icon": "Collection"},
+                            {"code": "warehouse.standard_fields.catalog", "label": "标准字段目录", "icon": "List"},
+                            {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
+                        ],
+                    },
                 ],
             },
         ],
@@ -310,6 +315,39 @@ async def _ensure_menus(db: AsyncSession) -> dict[str, Menu]:
 
     await db.commit()
     return by_code
+
+
+def _menu_codes(node: dict) -> set[str]:
+    codes = {node["code"]}
+    for child in node.get("children", []):
+        codes |= _menu_codes(child)
+    return codes
+
+
+async def _retire_legacy_menus(db: AsyncSession, by_code: dict[str, Menu]) -> None:
+    """清理已从 MENU_TREE 移除的旧菜单（仅删叶子或失去全部子集的空分组），
+    避免旧入口残留在既有库。RoleMenu 级联删除。"""
+    kept_codes = set()
+    for top in MENU_TREE:
+        kept_codes |= _menu_codes(top)
+    doomed: list[Menu] = []
+    for code, menu in by_code.items():
+        if code in kept_codes:
+            continue
+        if code == "warehouse.standard_fields":
+            # 该分组曾收纳标准字段目录，现已整体迁入创梦人力后台；分组本身失去子集，旧入口须移除
+            has_children = await db.scalar(select(Menu.id).where(Menu.parent_id == menu.id).limit(1))
+            if not has_children:
+                doomed.append(menu)
+            continue
+        children = await db.scalar(select(Menu.id).where(Menu.parent_id == menu.id).limit(1))
+        if not children:
+            doomed.append(menu)
+    for menu in doomed:
+        await db.execute(delete(Menu).where(Menu.id == menu.id))
+        logger.info("[seed] retired legacy menu: %s", menu.code)
+
+
 async def _ensure_super_role(db: AsyncSession, menus: dict[str, Menu]) -> Role:
     """超级管理员角色，全菜单全操作"""
     role = (
@@ -387,6 +425,8 @@ async def run_seed(session_factory) -> None:
     async with session_factory() as db:
         menus = await _ensure_menus(db)
         super_role = await _ensure_super_role(db, menus)
+        # 先完成角色授权（引用全部菜单），再退役旧菜单，RoleMenu 级联删除
+        await _retire_legacy_menus(db, menus)
         admin = await _ensure_admin_user(db, super_role)
         from app.identity_switch.models import IdentitySwitchSetting
         switch_setting = await db.get(IdentitySwitchSetting, 1)

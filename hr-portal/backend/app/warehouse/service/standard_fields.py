@@ -9,10 +9,11 @@ from app.core.deps import user_has_op
 from app.master_data.access import ENTITY_MENU, require_entity
 from app.master_data.models import EntityDefinition
 from app.data.column_roles import is_technical_column
-from app.data.models import StandardField, StandardFieldBinding, StandardFieldCategory
+from app.data.models import FieldGroup, StandardField, StandardFieldBinding, StandardFieldCategory
 from app.field_category.models import FieldCategory
 from app.system.models import SystemLog
 from app.warehouse.schemas import (
+    FieldGroupCreateIn, FieldGroupListOut, FieldGroupOut, FieldGroupUpdateIn,
     StandardFieldBindingCandidateOut, StandardFieldBindingOut, StandardFieldBindingRefOut,
     StandardFieldDetailOut, StandardFieldListOut, StandardFieldSummaryOut,
 )
@@ -60,21 +61,41 @@ async def _category_map(db, field_ids):
     return result
 
 
+async def _group_map(db, field_ids):
+    if not field_ids:
+        return {}
+    rows = (await db.execute(select(StandardField.id, FieldGroup.name).join(
+        FieldGroup, FieldGroup.id == StandardField.group_id,
+    ).where(StandardField.id.in_(field_ids), StandardField.group_id.is_not(None)))).all()
+    return {field_id: name for field_id, name in rows}
+
+
+async def _ensure_group(db, group_id):
+    group = await db.scalar(select(FieldGroup).where(FieldGroup.id == group_id))
+    if group is None or not group.is_active:
+        _error(400, "field_group_invalid", "字段分组不存在或已停用")
+    return group
+
+
 def _summary(field, categories):
     return StandardFieldSummaryOut(
         id=field.id, field_code=field.field_code, field_name=field.display_name,
         entity_id=getattr(field, "entity_id", None), entity_name=getattr(field, "_entity_name", None),
+        group_id=getattr(field, "group_id", None), group_name=getattr(field, "_group_name", None),
         business_definition=field.business_definition, data_type=field.data_type,
         value_domain=field.value_domain, category_ids=categories,
         revision=field.revision, is_active=field.is_active,
     )
 
 
-async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit=50, *, user=None, entity_id=None):
+async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit=50, *, user=None, entity_id=None, group_id=None):
     stmt = select(StandardField)
     if entity_id is not None:
         await require_entity(db, entity_id, user)
         stmt = stmt.where(StandardField.entity_id == entity_id)
+    if group_id is not None:
+        await _ensure_group(db, group_id)
+        stmt = stmt.where(StandardField.group_id == group_id)
     if user is not None and await user_has_op(user, db, ENTITY_MENU, "V"):
         owned = select(EntityDefinition.id).where(EntityDefinition.owner_user_id == user.id)
         stmt = stmt.where(or_(StandardField.entity_id.is_(None), StandardField.entity_id.in_(owned)))
@@ -93,6 +114,9 @@ async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit
         names = dict((await db.execute(select(EntityDefinition.id, EntityDefinition.name).where(EntityDefinition.id.in_(ids)))).all())
         for field in fields:
             field._entity_name = names.get(field.entity_id)
+    group_names = await _group_map(db, [field.id for field in fields])
+    for field in fields:
+        field._group_name = group_names.get(field.id)
     categories = await _category_map(db, [field.id for field in fields])
     return StandardFieldListOut(total=total, items=[_summary(field, categories.get(field.id, [])) for field in fields])
 
@@ -100,6 +124,8 @@ async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit
 async def read_standard_field(db, field_id, *, user=None):
     field = await _field(db, field_id, user=user)
     categories = await _category_map(db, [field_id])
+    group_names = await _group_map(db, [field_id])
+    field._group_name = group_names.get(field_id)
     bindings = (await db.execute(select(StandardFieldBinding).where(
         StandardFieldBinding.standard_field_id == field_id,
     ).order_by(StandardFieldBinding.id))).scalars().all()
@@ -114,6 +140,8 @@ async def _validate_definition(db, payload, field_code=None):
         _error(422, "work_location_type", "工作地标准字段必须使用枚举类型")
     if payload.value_domain is not None and payload.data_type != "enum":
         _error(422, "standard_field_value_domain_requires_enum", "仅enum标准字段允许维护枚举值域")
+    if payload.group_id is not None:
+        await _ensure_group(db, payload.group_id)
     if payload.category_ids:
         existing = (await db.execute(select(FieldCategory.id).where(FieldCategory.id.in_(payload.category_ids)))).scalars().all()
         if set(existing) != set(payload.category_ids):
@@ -170,7 +198,7 @@ async def create_standard_field(db, payload, user):
         entity_id = await _definition_entity(db, payload, user)
         if await db.scalar(select(StandardField.id).where(StandardField.field_code == payload.field_code)):
             _error(409, "standard_field_code_exists", "标准字段编码已存在")
-        field = StandardField(field_code=payload.field_code, created_by=user.id, entity_id=entity_id)
+        field = StandardField(field_code=payload.field_code, created_by=user.id, entity_id=entity_id, group_id=payload.group_id)
         _apply_definition(field, payload)
         db.add(field)
         await db.flush()
@@ -200,6 +228,8 @@ async def update_standard_field(db, field_id, payload, user):
             _error(422, "standard_field_value_domain_requires_enum", "改变枚举类型时须明确清空值域")
         _apply_definition(field, payload)
         field.entity_id = entity_id
+        if "group_id" in payload.model_fields_set:
+            field.group_id = payload.group_id
         field.revision += 1
         field.updated_at = datetime.now(UTC)
         if "category_ids" in payload.model_fields_set:
@@ -513,3 +543,46 @@ async def _require_binding_target(db, target, user, *, allow_hidden_anchor: bool
 def _physical_source_identity(table_name, column_code):
     from hashlib import sha256
     return "table:" + sha256(f"{table_name}\x00{column_code}".encode("utf-8")).hexdigest()
+
+
+async def _field_group_counts(db):
+    counts = dict((await db.execute(select(StandardField.group_id, func.count()).where(
+        StandardField.group_id.is_not(None),
+    ).group_by(StandardField.group_id))).all())
+    return counts
+
+
+def _group_out(group, counts):
+    return FieldGroupOut(id=group.id, name=group.name, display_order=group.display_order,
+        is_active=group.is_active, field_count=counts.get(group.id, 0))
+
+
+async def list_field_groups(db, *, user=None):
+    groups = (await db.execute(select(FieldGroup).order_by(FieldGroup.display_order, FieldGroup.id))).scalars().all()
+    counts = await _field_group_counts(db)
+    return FieldGroupListOut(items=[_group_out(group, counts) for group in groups], total=len(groups))
+
+
+async def create_field_group(db, payload, user):
+    async with _transaction(db):
+        if await db.scalar(select(FieldGroup.id).where(FieldGroup.name == payload.name)):
+            _error(409, "field_group_name_exists", "分组名称已存在")
+        group = FieldGroup(name=payload.name, display_order=payload.display_order)
+        db.add(group)
+        await db.flush()
+        return _group_out(group, await _field_group_counts(db))
+
+
+async def update_field_group(db, group_id, payload, user):
+    async with _transaction(db):
+        group = await db.scalar(select(FieldGroup).where(FieldGroup.id == group_id)
+            .with_for_update().execution_options(populate_existing=True))
+        if group is None:
+            _error(404, "field_group_not_found", "字段分组不存在")
+        if await db.scalar(select(FieldGroup.id).where(FieldGroup.name == payload.name, FieldGroup.id != group_id)):
+            _error(409, "field_group_name_exists", "分组名称已存在")
+        group.name = payload.name
+        group.display_order = payload.display_order
+        group.is_active = payload.is_active
+        await db.flush()
+        return _group_out(group, await _field_group_counts(db))

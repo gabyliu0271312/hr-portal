@@ -249,6 +249,17 @@ class RegisteredTable(Base):
     )
 
 
+class FieldGroup(Base):
+    """全局一套的字段业务分组（工作信息/个人信息/银行卡…），与敏感分类独立。"""
+    __tablename__ = "field_groups"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class StandardField(Base):
     __tablename__ = "standard_fields"
     __table_args__ = (
@@ -259,6 +270,7 @@ class StandardField(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     field_code: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("master_entity_definitions.id", ondelete="RESTRICT"), nullable=True, index=True)
+    group_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("field_groups.id", ondelete="RESTRICT"), nullable=True, index=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     has_history: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     business_definition: Mapped[str] = mapped_column(Text, nullable=False)
