@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/user'
 import { getToken, setUnauthorizedHandler } from '@/api/client'
 import { performanceApi } from '@/api/performance'
 import { canManagePerformanceSettings } from '@/utils/performanceSettingsAccess'
+import { resolvePageTitle } from '@/utils/pageTitle'
 import { employeeSwitchSession, clearEmployeeSwitch } from '@/stores/identitySwitch'
 import { identitySwitchApi } from '@/api/identitySwitch'
 
@@ -493,6 +494,7 @@ const routes: RouteRecordRaw[] = [
         path: 'templates',
         name: 'PerformanceTemplates',
         component: () => import('@/views/performance/PerformanceTemplateManagement.vue'),
+        meta: { label: '绩效模板' },
       },
       {
         path: 'templates/create',
@@ -799,6 +801,12 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+// 按路由归属设置页签标题（绩效应用/后台菜单名一致，其余保留静态 <title>）
+router.afterEach((to) => {
+  const title = resolvePageTitle(to)
+  if (title) document.title = title
 })
 
 // 401 时让 client 通知路由跳到 /login
