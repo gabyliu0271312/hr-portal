@@ -15,6 +15,7 @@ import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
+import { performanceColumnWidth } from './performanceTableColumns'
 import { nextPerformanceSort, sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 const props = defineProps<{
@@ -125,17 +126,6 @@ function openItem(item: PerformanceReview360FeedbackItem) {
 }
 
 const statusLabel: Record<string, string> = { pending: '待评估', completed: '已提交' }
-function columnMinWidth(key: string) {
-  switch (key) {
-    case 'name': return 160
-    case 'relationship': return 130
-    case 'due_at': return 160
-    case 'status': return 120
-    case 'source_label': return 110
-    case 'department': return 160
-    default: return 100
-  }
-}
 function cellValue(item: PerformanceReview360FeedbackItem, key: string) {
   switch (key) {
     case 'name': return item.display_name
@@ -205,13 +195,14 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       :page-size="pageSize"
       :total="total"
       scroll-mode="page"
+      :fit="false"
       row-key="task_id"
       clickable-rows
       @page-change="page = $event"
       @page-size-change="pageSize = $event; page = 1"
       @row-click="openItem"
     >
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :min-width="columnMinWidth(column.key)">
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :width="performanceColumnWidth(column.key)">
         <template #header>
           <PerformanceSortHeader
             :label="column.label"

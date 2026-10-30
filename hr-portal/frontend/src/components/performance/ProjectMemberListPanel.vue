@@ -7,6 +7,7 @@ import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceSortHeader from './PerformanceSortHeader.vue'
 import PerformanceExportIcon from './PerformanceExportIcon.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
+import { performanceColumnWidth } from './performanceTableColumns'
 import { nextPerformanceSort, sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 type MemberRow = ProjectMember & {
@@ -161,17 +162,6 @@ const loadMembers = async () => {
 const displayValue = (value: string | null) => value || ''
 const ratingClass = (member: MemberRow) => member.rating_tone ? `rating-badge--${member.rating_tone}` : ''
 const avatarText = (member: MemberRow) => member.display_name.slice(-1)
-const columnMinWidth = (key: string) => {
-  switch (key) {
-    case 'name': return 160
-    case 'department': return 160
-    case 'due_at': return 140
-    case 'status': return 110
-    case 'direct_supervisor': return 140
-    case 'hire_date': return 110
-    default: return 100
-  }
-}
 const cellValue = (member: MemberRow, key: string) => {
   if (key === 'name') return member.display_name
   if (key === 'status') return member.status === 'completed' ? '已完成' : member.status === 'overdue' ? '已逾期' : '待完成'
@@ -243,6 +233,7 @@ onMounted(() => void loadMembers())
       :sort-order="sortOrder"
       sort-mode="remote"
       scroll-mode="page"
+      :fit="false"
       row-key="id"
       :clickable-rows="Boolean(reviewContext)"
       class="member-table"
@@ -250,8 +241,8 @@ onMounted(() => void loadMembers())
       @page-size-change="changePageSize"
       @row-click="onRowClick"
     >
-      <el-table-column type="selection" width="40" fixed="left" />
-      <el-table-column v-for="column in visibleColumns" :key="column.key" :min-width="columnMinWidth(column.key)" :width="column.key === 'name' ? 224 : undefined" :fixed="column.key === 'name' ? 'left' : undefined">
+      <el-table-column type="selection" :width="performanceColumnWidth('selection')" fixed="left" />
+      <el-table-column v-for="column in visibleColumns" :key="column.key" :width="performanceColumnWidth(column.key)" :fixed="column.key === 'name' ? 'left' : undefined">
         <template #header>
           <PerformanceSortHeader
             :label="column.label"

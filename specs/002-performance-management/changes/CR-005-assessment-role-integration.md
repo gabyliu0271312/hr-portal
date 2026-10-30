@@ -204,3 +204,12 @@ REA 复核飞书成员列表（evidence `ev_e7649ce…6895b`）：406 个结果�
 - `vue-tsc --noEmit` 与 `npm run build` 通过；
 - 绩效模块 `.spec.ts` 132 个文件、1058 项测试中 1057 通过；唯一失败为 `PerformanceSegmentedControl` 的分段控件颜色断言（与本轮表格改动无关）。
 - 未完成：部署后的真实浏览器视觉验收（表头吸附、滚动条隐藏、50 行分页）。
+
+### 2026-10-30 补充：列宽标准、sticky 与滚动条
+
+- 新增 `performanceTableColumns.ts`：按飞书采集值统一列宽（选择 40、姓名 224、评级/评估率/状态/类型/关系/直属上级 144、序列 104、职级 124、入职日期 134、部门 224、截止时间 168），成员表与 360 表共用；
+- 公共表格新增 `fit` 开关（默认 true 兼容既有页面），成员表与 360 表传 `fit=false`，列宽固定、容器不足时横向滚动；
+- `page` 模式只隐藏纵向滚动条，保留横向滚动条；
+- sticky 表头增加非 scoped 兜底规则，解除 `.el-table`/`.el-table__inner-wrapper` 的 overflow 限制，表头相对内容区吸附；
+- 验证：`vue-tsc`、`npm run build` 通过；绩效 `.spec.ts` 1055/1058 通过，3 项失败为并行会话的 token/CSS 断言（PerformanceSegmentedControl、PerformanceReferenceContentDrawer、PerformanceTemplateManagement），与本轮表格改动无关。
+- 未完成：部署后的真实浏览器视觉验收。

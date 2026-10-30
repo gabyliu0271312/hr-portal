@@ -23,6 +23,7 @@ const props = withDefaults(defineProps<{
   sortMode?: 'local' | 'remote'
   sortValue?: (row: any, key: string) => unknown
   scrollMode?: 'inner' | 'page'
+  fit?: boolean
 }>(), {
   page: 1,
   pageSize: 10,
@@ -35,6 +36,7 @@ const props = withDefaults(defineProps<{
   sortMode: 'local',
   sortValue: undefined,
   scrollMode: 'inner',
+  fit: true,
 })
 
 const emit = defineEmits<{
@@ -94,7 +96,7 @@ function jumpToPage() {
 <template>
   <div class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page' }" :aria-label="tableAriaLabel">
     <div class="table-scroll">
-      <el-table v-loading="loading" :data="tableRows" style="width: 100%" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="clickableRows ? 'is-clickable-row' : undefined" @selection-change="emit('selection-change', $event)" @row-click="emit('row-click', $event)">
+      <el-table v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="clickableRows ? 'is-clickable-row' : undefined" @selection-change="emit('selection-change', $event)" @row-click="emit('row-click', $event)">
         <slot />
         <template #empty>
           <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
@@ -155,12 +157,17 @@ function jumpToPage() {
 .is-page-scroll :deep(.el-table) { overflow: visible; }
 .is-page-scroll :deep(.el-table__inner-wrapper) { overflow: visible; }
 .is-page-scroll :deep(.el-table__header-wrapper) { position: sticky; top: 0; z-index: 3; background: #fff; }
-.is-page-scroll :deep(.el-scrollbar__bar) { display: none; }
-.is-page-scroll :deep(.el-scrollbar__wrap) { scrollbar-width: none; }
-.is-page-scroll :deep(.el-scrollbar__wrap)::-webkit-scrollbar { display: none; }
+.is-page-scroll :deep(.el-scrollbar__bar.is-vertical) { display: none; }
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
 :deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
 :deep(.el-table .el-table-column--selection > .cell) { padding-right: 0; padding-left: 0; }
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
+</style>
+
+<style>
+/* 页面滚动模式下必须解除 el-table 自身的滚动容器，表头才能相对内容区吸附 */
+.is-page-scroll .el-table,
+.is-page-scroll .el-table__inner-wrapper { overflow: visible; }
+.is-page-scroll .el-table__header-wrapper { position: sticky; top: 0; z-index: 3; background: #fff; }
 </style>
