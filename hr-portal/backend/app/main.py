@@ -20,6 +20,7 @@ from app.core.db import AsyncSessionLocal, Base, engine
 from app.performance.router import router as performance_auth_router
 from app.performance.cycles_router import router as performance_cycles_router
 from app.performance.projects_router import router as performance_projects_router
+from app.performance.review_360_invites_router import router as review_360_invites_router
 from app.performance.templates_router import router as performance_templates_router
 from app.performance.metric_fields_router import router as performance_metric_fields_router
 from app.performance.metric_types_router import router as performance_metric_types_router
@@ -229,6 +230,7 @@ app.include_router(auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_auth_router, prefix=settings.API_PREFIX)
 app.include_router(performance_cycles_router, prefix=settings.API_PREFIX)
 app.include_router(performance_projects_router, prefix=settings.API_PREFIX)
+app.include_router(review_360_invites_router, prefix=settings.API_PREFIX)
 app.include_router(performance_templates_router, prefix=settings.API_PREFIX)
 app.include_router(performance_metric_fields_router, prefix=settings.API_PREFIX)
 app.include_router(performance_metric_types_router, prefix=settings.API_PREFIX)

@@ -158,6 +158,77 @@ export interface PerformanceReviewOverview {
   categories: PerformanceReviewCategory[]
 }
 
+export interface PerformanceReview360InvitedReviewer {
+  employee_no: string
+  display_name: string
+  department: string | null
+  job_family: string | null
+  job_category: string | null
+  job_sequence: string | null
+  position_level: string | null
+  status: 'invited' | 'pending' | 'completed'
+  source_label: string
+  invited_at: string | null
+  due_at: string | null
+}
+
+export interface PerformanceReview360InviteList {
+  items: PerformanceReview360InvitedReviewer[]
+  total: number
+  minimum_invited_count: number
+  maximum_invited_count: number | null
+  maximum_invite_mode: string
+  second_prompt_enabled: boolean
+  second_prompt_count: number | null
+  second_prompt_mode: string
+  exclude_default_invite_from_limit: boolean
+}
+
+export interface PerformanceReview360InviteCandidate {
+  employee_no: string
+  display_name: string
+  department: string | null
+  job_family: string | null
+  job_category: string | null
+  job_sequence: string | null
+  position_level: string | null
+  employment_status: string | null
+}
+
+export interface PerformanceReview360InviteCandidates {
+  items: PerformanceReview360InviteCandidate[]
+  total: number
+}
+
+export interface PerformanceReview360InviteSubmitResult {
+  accepted_count: number
+  already_invited: string[]
+  rejected: string[]
+}
+
+export const performanceReview360InviteApi = {
+  async list(projectId: number | string, keyword?: string): Promise<PerformanceReview360InviteList> {
+    const { data } = await api.get<PerformanceReview360InviteList>(`/performance/review-360/invites/projects/${projectId}`, {
+      params: keyword ? { keyword } : undefined,
+    })
+    return data
+  },
+  async candidates(projectId: number | string, keyword?: string): Promise<PerformanceReview360InviteCandidates> {
+    const { data } = await api.get<PerformanceReview360InviteCandidates>(`/performance/review-360/invites/projects/${projectId}/candidates`, {
+      params: keyword ? { keyword } : undefined,
+    })
+    return data
+  },
+  async submit(projectId: number | string, employeeNos: string[]): Promise<PerformanceReview360InviteSubmitResult> {
+    const { data } = await api.post<PerformanceReview360InviteSubmitResult>(`/performance/review-360/invites/projects/${projectId}`, { employee_nos: employeeNos })
+    return data
+  },
+  async revoke(projectId: number | string, employeeNo: string): Promise<{ revoked: string }> {
+    const { data } = await api.delete<{ revoked: string }>(`/performance/review-360/invites/projects/${projectId}/${encodeURIComponent(employeeNo)}`)
+    return data
+  },
+}
+
 export const performanceReviewApi = {
   async overview(projectId?: number, taskId?: number, cycleId?: number): Promise<PerformanceReviewOverview> {
     const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', {

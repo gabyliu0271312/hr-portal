@@ -1195,6 +1195,46 @@ class PerformanceProjectService:
                         due_at=_parse_time(timing.get("end_at") or timing.get("appeal_deadline")),
                         status="pending",
                     ))
+            if node_type == "evaluation" and node_role_code(raw_node) == ROLE_REVIEWER_360:
+                invite = (((flow_settings.get("node_settings") or {}).get(node_id) or {}).get("invite") or {})
+                if invite.get("default_invite", "DIRECT_SUBORDINATES") == "DIRECT_SUBORDINATES":
+                    timing = node_times.get(node_id) or {}
+                    available_at = _parse_time(timing.get("start_at"))
+                    due_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
+                    for target in task_people:
+                        for reviewer in people:
+                            reviewer_status = getattr(reviewer, "live_employment_status", None) or reviewer.employment_status
+                            if reviewer.direct_supervisor_employee_no != target.employee_no or reviewer_status == "离职":
+                                continue
+                            self.db.add(PerformanceNodeTask(
+                                project_id=project.id,
+                                cycle_ref=project.cycle_ref,
+                                member_snapshot_id=member_snapshot.id,
+                                node_snapshot_id=node_snapshot.id,
+                                target_employee_no=target.employee_no,
+                                handler_ref=reviewer.employee_no,
+                                task_kind="evaluation",
+                                phase_id="",
+                                available_at=available_at,
+                                due_at=due_at,
+                                status="pending",
+                            ))
+                            self.audit.append_event(AuditEventInput(
+                                event_type="REVIEWER_360_INVITED",
+                                cycle_ref=project.cycle_ref,
+                                employee_no=target.employee_no,
+                                actor_type="SYSTEM",
+                                actor_ref="0",
+                                subject_type="REVIEWER_360",
+                                subject_ref=reviewer.employee_no,
+                                after_state={
+                                    "project_id": project.id,
+                                    "node_id": node_id,
+                                    "source_type": "DEFAULT",
+                                    "assigned_by_type": None,
+                                    "assigned_by_ref": None,
+                                },
+                            ))
         project.status = PROJECT_STATUS_STARTED
         self.audit.append_event(AuditEventInput(
             event_type="PERFORMANCE_PROJECT_STARTED",

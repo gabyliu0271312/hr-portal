@@ -19,8 +19,13 @@
         </div>
       </div>
       <div class="review-body">
-        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace }">
-        <template v-if="showsEvaluationWorkspace">
+        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite' }">
+        <PerformanceReview360InvitePanel
+          v-if="node.node_type === 'reviewer_360_invite' && props.projectId"
+          :project-id="props.projectId"
+          :node-id="node.node_id"
+        />
+        <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
             <PerformanceLineTabs v-model="evaluationTab" :tabs="evaluationTabs" sticky flush>
               <ProjectMemberListPanel
@@ -69,6 +74,7 @@ import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/ap
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
+import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import { isSelfEvaluationNode } from './performanceExecutorOptions'
 
@@ -137,6 +143,7 @@ function formatStartTime(value: string) {
 .review-panel { display: flex; flex: 1 1 auto; min-height: 100%; max-width: none; flex-direction: column; align-items: center; justify-content: center; margin: 0; padding: var(--performance-review-surface-inset); box-sizing: border-box; border-radius: var(--performance-content-surface-radius); background: var(--performance-content-surface-background); color: #646a73; box-shadow: var(--shadow-dialog); }
 .review-panel.completed { align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
 .review-panel.evaluation { align-items: stretch; justify-content: flex-start; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.review-panel.invite { align-items: stretch; justify-content: flex-start; padding: 0; }
 .completed-content { width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
 .completed-fallback { margin: auto !important; }
 .review-panel p, .review-state p { margin: 8px 0 20px; color: #646a73; font-size: 16px; font-weight: 400; line-height: 24px; text-align: center; }

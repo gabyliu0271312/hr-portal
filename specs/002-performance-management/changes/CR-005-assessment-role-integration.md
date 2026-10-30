@@ -32,7 +32,7 @@
 ## 实施门禁与现状
 
 - 已落地代码：七行角色目录迁移、幂等种子、管理/评估分类列表、评估 Tab 六列与禁用按钮、四层实线快照执行人解析并供项目启动/补建复用；虚线无数据时任务解析拒绝；模板任务读写入口要求当前周期可信员工编号严格匹配处理人（包括开发预览不能代写）。另新增周期逐人项目上级映射的后端导入/回读、项目成员冻结字段和 `PROJECT_MANAGER` 节点任务解析（没有映射则拒绝启动）。两项迁移已在本地库执行回滚→重升，尚未在独立隔离库验证；周期导入 UI 未确认蓝图，不按本条宣布完整授权或生产部署。
-- 未完成：项目上级导入 UI 与并发/隔离库验收、指标实例级绑定与授权、校准阶段规则物化、360 邀请增删 API/周期三开关及评价时窗核验、现用模板任务读写统一对象级授权、旧历史项目任务过渡。当前的七个 `assessment.*` 稳定码只在目录查询和排除静态后台授权中使用；运行时任务尚未消费这些目录码，因此**不能声称七角色统一授权已接通**。
+- 未完成：项目上级导入 UI 与并发/隔离库验收、指标实例级绑定与授权、校准阶段规则物化、360 周期三开关（匿名、删除默认、超量提示）及评价时窗核验的用户侧确认、现用模板任务读写统一对象级授权、旧历史项目任务过渡。当前的七个 `assessment.*` 稳定码只在目录查询和排除静态后台授权中使用；运行时任务尚未消费这些目录码，因此**不能声称七角色统一授权已接通**。
 - 新增周期 360 设置和逐人导入交互必须先按 `START_HERE.md` 制作绩效 UI 蓝图并得到明确确认；审批实施计划不等于审批未绘制的蓝图。未确认之前不开发该类新 UI。保护其他任务的未提交文件，不顺手改项目校准规则 UI。
 
 - 验证记录（2026-10-19，本地开发环境）：Alembic 单头 `0258_performance_cycle_project_managers`，两项迁移已在本地库分别 downgrade→upgrade→current 通过，库中 7 行预置角色、0 条静态授权/权限关联；后端相关 pytest 201 项通过（1 条第三方库弃用警告）；前端角色页 6 项通过，`npm.cmd run build` 通过（仅 Rollup 第三方注释警告）。模板流程页面扩大回归 49 项中 5 项失败（尚未确认原因；该文件存在同期修改），独立 UI 截图和真实浏览器路径未完成；`alembic check` 因仓库既有动态/业务表元数据差异返回非零。不得因此勾选全部任务。
@@ -120,3 +120,36 @@
 - 前端 `vue-tsc --noEmit` 通过；`Review.spec.ts` 22/22、`PerformanceTemplateWorkflowSettings.spec.ts` 54/54、项目/模板内容等定向 spec 通过；新增两条断言覆盖「自评不进成员工作区」与「管理者评估仍进成员工作区」。
 - 已确认既有遗留 `.spec.js` 文件失败与本轮无关：同一组文件在未应用前端改动的 HEAD 版本上失败数相同。
 - 未完成：真实浏览器登录 → 项目 → 评估页端到端截图验收；生产部署。不得据本地测试声称生产已生效。
+
+## 2026-10-30 360° 邀请节点生命周期（CR-005-T05 邀请/删除 API 部分）
+
+本节记录 360° 邀请列表/邀请/撤销的首轮实现与本地验收，不表示 CR-005 整卡完成；周期三开关、匿名评估、智能推荐与生产部署均不在本轮。
+
+### 契约与边界
+
+- 邀请增量不再写锁定授权快照：数据库触发器 `trg_performance_dynamic_identities_locked_guard` 禁止锁定快照变更动态身份，实现改为"项目 + 360°评估节点 + 被评估人 + 处理人"的 `PerformanceNodeTask` 作为可操作事实，`REVIEWER_360_INVITED/REVOKED` 审计事件保留来源与生命周期，符合"邀请增量独立于锁定人员关系、不解除快照全表保护"。
+- 邀请节点按稳定角色码定位：只选择 `node_role_code == assessment.reviewer_360` 的 evaluation 节点，不再取项目内第一个 evaluation 节点；未配置时邀请/撤销返回 409 `REVIEWER_360_NODE_NOT_CONFIGURED`。
+- 调用者必须是当前项目成员快照中的被评估人员工编号；无员工身份映射 403 `EMPLOYEE_IDENTITY_REQUIRED`，非本项目成员 403 `PROJECT_MEMBER_REQUIRED`。
+- 候选人范围按节点 `invite_executor_scope = ALL` 从锁定周期快照全员取数，排除被评估人本人与离职人员（优先 `live_employment_status`）；不再错误限制为本项目成员。
+- 上限：`maximum_invite_mode = LIMIT` 时提交超量返回 422 `INVITE_LIMIT_REACHED`；`exclude_default_invite_from_limit` 控制默认邀请是否占用额度；列表返回 `second_prompt_enabled/second_prompt_count/second_prompt_mode` 供提示，额度边界由后端强制。
+- 默认邀请：项目启动事务内按冻结快照 `direct_supervisor_employee_no` 为每个被评估人创建直属下属的 360° 评估任务，同时写 `source_type=DEFAULT` 审计；不写动态身份表，不改变既有任务生成规则。
+- 撤销：草稿（未提交）任务删除并撤销可操作权；已提交返回 409 `INVITE_ALREADY_COMPLETED`，保留评价与审计；重复撤销 404。
+- 来源三类由审计事件区分：自己邀请（来源操作人=被评估人）、系统默认邀请（`source_type=DEFAULT`）、自愿评估（其他来源）；事件按 `project_id` 重放，避免同周期多项目串数据。
+- 前端：邀请列表直接挂入 `Review.vue` 节点内容区（`PerformanceReviewContent.vue` 在 `node_type == reviewer_360_invite` 时渲染），复用 `PerformanceListToolbar/PerformanceButton/PerformanceDrawerShell/ProjectMemberColumnDrawer` 与表格五件套，不新增页面、不新建表格组件。
+
+### 代码与 API
+
+- 新增 `backend/app/performance/review_360_invites_router.py`：`GET/POST /api/v1/performance/review-360/invites/projects/{project_id}`、`GET .../candidates`、`DELETE .../{employee_no}`；已在 `main.py` 挂载。
+- 修改 `backend/app/performance/project_service.py`：项目启动事务补默认直属下属邀请任务与 `DEFAULT` 审计。
+- 前端新增 `components/performance/PerformanceReview360InvitePanel.vue`，修改 `api/performance.ts` 与 `PerformanceReviewContent.vue`。
+- 未改数据库 schema、未新增迁移、未放宽任何触发器。
+
+### 验证记录（2026-10-30，本地开发环境）
+
+- 本地开发库新建测试周期（IMMEDIATE 锁定）与项目：默认邀请生成 26 个评估任务与 26 条 `DEFAULT` 审计；被评估人列表返回 26 条「系统默认邀请」，上限/二次提示字段回读正确。
+- API 实测：手动邀请 4 人 → 3 成功 1 超限拒绝（默认邀请已排除额度）；再邀 1 人 → 422 `INVITE_LIMIT_REACHED`；列表 26 默认 + 3 自己邀请；撤销一条默认邀请 → 任务删除、列表 25+3、重复撤销 404；被邀请人 `review/overview` 在「给他人的评估」出现该节点与任务，模板任务详情 200 且 `executor_role_code=assessment.reviewer_360`，撤销后详情 404。
+- 早前同链路另测：来源「自己邀请」、候选人 618 人（周期全员减本人）、项目间列表隔离、`reviewer_360_invite` 节点被评估人可见。
+- 后端定向回归 `tests/test_performance_projects.py`、`tests/test_performance_snapshot_service.py`：314 passed / 5 skipped。
+- 前端 `npm run build`（含 `vue-tsc --noEmit`）通过（仅第三方 Rollup 注释警告）。
+- 验收临时数据已清理；不可变审计事件按系统约束保留在本地开发库。本地模板 77 的脏标签按原值恢复，未作为代码修复。
+- 未完成：真实浏览器登录→页面→API 截图验收；生产部署；周期三开关与匿名评估；智能推荐按用户决定不做。
