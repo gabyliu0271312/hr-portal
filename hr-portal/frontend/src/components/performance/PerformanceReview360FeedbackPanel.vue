@@ -213,8 +213,8 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
     >
       <template #cell="{ row, column }">
         <span v-if="column.key === 'name'" class="feedback-panel__identity">{{ row.display_name }}</span>
-        <span v-else-if="column.key === 'status'">
-          <span class="feedback-panel__status" :class="`is-${row.status}`">{{ cellValue(row, column.key) }}</span>
+        <span v-else-if="column.key === 'status'" class="feedback-panel__status" :class="`is-${row.status}`">
+          <span class="feedback-panel__status-dot" aria-hidden="true"></span>{{ cellValue(row, column.key) }}
         </span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
       </template>
@@ -253,9 +253,11 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
 .feedback-panel { min-width: 0; padding: 0 var(--spacing-5) var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); --performance-table-container-padding: var(--performance-review-surface-inset); }
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
 .feedback-panel__identity { font-weight: 500; }
-.feedback-panel__status { display: inline-flex; align-items: center; min-width: 56px; height: 22px; padding: 0 var(--spacing-2); border-radius: 9999px; font-size: var(--font-size-xs); line-height: 22px; }
-.feedback-panel__status.is-pending { background: var(--color-warning-light); color: var(--color-warning); }
-.feedback-panel__status.is-completed { background: var(--color-success-light); color: var(--color-success); }
+.feedback-panel__status { display: inline-flex; align-items: center; height: 22px; color: #1f2329; font-size: 14px; line-height: 22px; }
+.feedback-panel__status-dot { position: relative; top: 1px; flex: 0 0 6px; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; }
+.feedback-panel__status.is-pending .feedback-panel__status-dot { background: #ff8800; }
+.feedback-panel__status.is-completed .feedback-panel__status-dot { background: #62d256; }
+.feedback-panel__status.is-overdue .feedback-panel__status-dot { background: #f54a45; }
 .feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); padding: 60px 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: 22px; text-align: center; }
 .feedback-empty--text { min-height: 300px; display: grid; place-items: center; padding: 0; color: var(--color-text-secondary); }
 .feedback-empty__text { margin: 0; }
