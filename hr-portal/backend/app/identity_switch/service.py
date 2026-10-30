@@ -240,6 +240,19 @@ async def create_session(db, user, payload):
             "effective_identity": employee, "mode": "TARGET_POLICY"}
 
 
+async def _renew_switch_session(db, session):
+    """活跃会话续期：把到期时间顺延为 now+30min，闲置 30 分钟才失效。
+
+    仅当新到期时间确实更晚才写库；调用前须已通过失效检查，不会把已到期会话救活。
+    """
+    new_expiry = datetime.now(UTC) + timedelta(minutes=30)
+    if new_expiry > session.expires_at:
+        await db.execute(update(IdentitySwitchSession).where(
+            IdentitySwitchSession.id == session.id,
+        ).values(expires_at=new_expiry))
+        session.expires_at = new_expiry
+
+
 async def validate_session(db, user, secret):
     setting = await get_setting(db, lock=True, shared=True)
     if not await can_switch(db, user, setting):
@@ -251,6 +264,7 @@ async def validate_session(db, user, secret):
         fail("SWITCH_SESSION_REVOKED", "身份切换已撤销", 410)
     if session.expires_at <= datetime.now(UTC):
         fail("SWITCH_SESSION_EXPIRED", "身份切换已到期，请恢复本人", 410)
+    await _renew_switch_session(db, session)
     employee = await find_employee(db, session.target_employee_no)
     return session, employee
 

@@ -149,6 +149,7 @@ async def _postgres_scenario(monkeypatch):
             async with factory() as db:
                 try:
                     yield db
+                    await db.commit()
                 except Exception:
                     await db.rollback()
                     raise
@@ -172,6 +173,18 @@ async def _postgres_scenario(monkeypatch):
             target = await client.get("/api/v1/performance/probe", headers=own_header)
             assert target.status_code == 200, target.text
             assert target.json() == {"employee_no": "E001", "operator": 10, "permissions": [], "preview": False}
+            # 活跃续期：30 分钟固定到期改为每次校验顺延，使用中的会话不应被拦腰截断
+            async with factory() as db:
+                session_row = await db.get(IdentitySwitchSession, own.json()["session_id"])
+                # 模拟会话已用 29 分钟、只剩 1 分钟到期
+                session_row.expires_at = datetime.now(UTC) + timedelta(minutes=1)
+                await db.commit()
+            renewed = await client.get("/api/v1/performance/probe", headers=own_header)
+            assert renewed.status_code == 200, renewed.text
+            async with factory() as db:
+                session_row = await db.get(IdentitySwitchSession, own.json()["session_id"])
+                remaining = session_row.expires_at - datetime.now(UTC)
+                assert remaining >= timedelta(minutes=29), f"续期后应剩约 30 分钟，实际剩 {remaining}"
             draft = await client.patch("/api/v1/performance/tasks/1/self-summary/draft", headers=own_header, json={"answers": {"work": "verified-real-write"}})
             assert draft.status_code == 200, draft.text
             denied_write = await client.patch("/api/v1/performance/tasks/2/self-summary/draft", headers=own_header, json={"answers": {"work": "must-not-write"}})

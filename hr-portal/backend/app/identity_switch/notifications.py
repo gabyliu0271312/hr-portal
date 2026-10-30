@@ -109,6 +109,8 @@ async def deliver_run(run_id: str, payload: DeliverIn, db=Depends(get_session), 
         fail("SWITCH_SESSION_REVOKED", "切换会话已失效，保留记录但不再投递", 410)
     if not setting.test_delivery_enabled or run.delivery_revision != setting.revision:
         fail("SWITCH_TEST_DELIVERY_DISABLED", "本批次未获当前受控投递许可，只保留记录")
+    from app.identity_switch.service import _renew_switch_session
+    await _renew_switch_session(db, session)
     if run.delivery_requested_at:
         return run_out(run)
     receiver = await db.get(User, setting.test_receiver_user_id) if setting.test_receiver_user_id else None
