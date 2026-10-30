@@ -1,5 +1,5 @@
 <template>
-  <PerformanceSurfaceCard class="project-matrix" role="region" aria-label="矩阵分析">
+  <PerformanceSurfaceCard ref="rootEl" class="project-matrix" role="region" aria-label="矩阵分析">
     <div v-if="loading" class="matrix-state">正在加载矩阵分析…</div>
     <div v-else-if="error" class="matrix-state matrix-state-error">
       <p>{{ error }}</p>
@@ -20,12 +20,17 @@
       <section class="matrix-block pending-block">
         <h3 class="matrix-title">待完成评估 <span>（{{ matrix.pending_count }} 人）</span></h3>
         <div class="matrix-table-wrap">
-          <table class="matrix-table pending-table">
-            <thead><tr><th>职级</th><th>被评估人</th></tr></thead>
+          <table class="matrix-table pending-table pending-header-table">
+            <colgroup><col class="pending-level-col" /><col class="pending-people-col" /></colgroup>
+            <thead><tr><th class="sticky-level">职级</th><th>被评估人</th></tr></thead>
+          </table>
+          <table class="matrix-table pending-table pending-body-table">
+            <colgroup><col class="pending-level-col" /><col class="pending-people-col" /></colgroup>
             <tbody>
+              <tr aria-hidden="true" class="matrix-measure-row"><td></td><td></td></tr>
               <tr v-if="!matrix.pending_rows.length"><td colspan="2" class="matrix-empty">--</td></tr>
               <tr v-for="row in matrix.pending_rows" :key="`pending-${row.level}`">
-                <td class="level-cell">{{ row.level }}</td>
+                <td class="level-cell sticky-level">{{ row.level }}</td>
                 <td><PeopleCell :people="row.cells.pending?.people || []" :expanded="isExpanded(`pending-${row.level}`)" @toggle="toggle(`pending-${row.level}`)" /></td>
               </tr>
             </tbody>
@@ -45,7 +50,11 @@
           </div>
         </div>
         <div class="matrix-table-wrap completed-table-wrap">
-          <table class="matrix-table completed-table">
+          <table class="matrix-table completed-table completed-header-table">
+            <colgroup>
+              <col class="completed-level-col" />
+              <col v-for="rating in matrix.ratings" :key="rating.key" class="completed-rating-col" />
+            </colgroup>
             <thead>
               <tr>
                 <th class="sticky-level">职级</th>
@@ -54,7 +63,14 @@
                 </th>
               </tr>
             </thead>
+          </table>
+          <table class="matrix-table completed-table completed-body-table">
+            <colgroup>
+              <col class="completed-level-col" />
+              <col v-for="rating in matrix.ratings" :key="rating.key" class="completed-rating-col" />
+            </colgroup>
             <tbody>
+              <tr aria-hidden="true" class="matrix-measure-row"><td></td><td v-for="rating in matrix.ratings" :key="rating.key"></td></tr>
               <tr v-if="!matrix.completed_rows.length"><td :colspan="Math.max(matrix.ratings.length + 1, 2)" class="matrix-empty">暂无最终绩效评级</td></tr>
               <tr v-for="row in matrix.completed_rows" :key="`completed-${row.level}`">
                 <td class="level-cell sticky-level">{{ row.level }}</td>
@@ -76,7 +92,7 @@
 
 <script setup lang="ts">
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
-import { onMounted, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
@@ -87,6 +103,42 @@ const loading = ref(false)
 const error = ref('')
 const displayMode = ref<'name' | 'count'>('name')
 const expanded = ref(new Set<string>())
+const rootEl = ref<HTMLElement | null>(null)
+
+function syncColumnWidths() {
+  // 表头表体分离后，两表各自按内容定宽会错位；用表体实测列宽回填两表 colgroup，保证对齐。
+  const target = rootEl.value
+  const root = target instanceof Element ? target : (target as { $el?: Element } | null)?.$el
+  if (!root) return
+  const pairs = [
+    ['.pending-header-table', '.pending-body-table'],
+    ['.completed-header-table', '.completed-body-table'],
+  ] as const
+  for (const [headerSel, bodySel] of pairs) {
+    const header = root.querySelector<HTMLTableElement>(headerSel)
+    const body = root.querySelector<HTMLTableElement>(bodySel)
+    if (!header || !body) continue
+    const headerCols = Array.from(header.querySelectorAll('col'))
+    const bodyCols = Array.from(body.querySelectorAll('col'))
+    if (!headerCols.length || headerCols.length !== bodyCols.length) continue
+    const colCount = headerCols.length
+    const firstRow = body.querySelector('tbody tr')
+    const widths: number[] = []
+    for (let i = 0; i < colCount; i++) {
+      const th = header.querySelectorAll('thead th')[i]
+      const td = firstRow?.querySelectorAll('td')[i]
+      const measured = Math.max(
+        th ? th.getBoundingClientRect().width : 0,
+        td ? td.getBoundingClientRect().width : 0,
+      )
+      widths.push(measured > 0 ? measured : (i === 0 ? 100 : 108))
+    }
+    headerCols.forEach((col, i) => { col.style.width = `${widths[i]}px` })
+    bodyCols.forEach((col, i) => { col.style.width = `${widths[i]}px` })
+    body.style.width = `${widths.reduce((a, b) => a + b, 0)}px`
+    header.style.width = body.style.width
+  }
+}
 
 async function load() {
   if (!props.projectId) return
@@ -100,6 +152,8 @@ async function load() {
   } finally {
     loading.value = false
   }
+  await nextTick()
+  syncColumnWidths()
 }
 
 function toggle(key: string) {
@@ -107,6 +161,7 @@ function toggle(key: string) {
   if (next.has(key)) next.delete(key)
   else next.add(key)
   expanded.value = next
+  nextTick(syncColumnWidths)
 }
 
 function isExpanded(key: string) {
@@ -120,6 +175,7 @@ function ratingStyle(rating: ProjectMatrixRating) {
 
 onMounted(load)
 watch(() => props.projectId, load)
+watch(displayMode, () => nextTick(syncColumnWidths))
 </script>
 
 <script lang="ts">
@@ -163,17 +219,19 @@ export default { components: { PeopleCell } }
 .matrix-select { display: inline-flex; align-items: center; height: 32px; min-width: 170px; padding: 0 10px; border: 1px solid #d0d3d6; border-radius: 6px; color: #646a73; font-size: 14px; white-space: nowrap; }
 .matrix-select select { width: 100%; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .matrix-table-wrap { overflow-x: auto; border: 1px solid #eff0f1; border-radius: 6px; }
-.matrix-table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 14px; }
+.matrix-table { width: 100%; min-width: 760px; border-collapse: separate; border-spacing: 0; font-size: 14px; }
 .matrix-table th, .matrix-table td { border-right: 1px solid #eff0f1; border-bottom: 1px solid #eff0f1; text-align: left; vertical-align: top; }
 .matrix-table th:last-child, .matrix-table td:last-child { border-right: 0; }
 .matrix-table tbody tr:last-child td { border-bottom: 0; }
 .matrix-table th { height: 49px; padding: 0 12px; background: #f5f6f7; color: #646a73; font-weight: 500; vertical-align: middle; }
 .matrix-table td { min-height: 55px; padding: 12px; line-height: 22px; }
-.matrix-table th:first-child, .matrix-table td:first-child { width: 100px; }
-.pending-table th:nth-child(2), .pending-table td:nth-child(2) { width: calc(100% - 100px); }
-.completed-table th:not(:first-child), .completed-table td:not(:first-child) { width: 108px; }
+.pending-level-col, .completed-level-col { width: 100px; }
+.pending-people-col { width: auto; }
+.completed-rating-col { width: auto; }
+.completed-rating-col .rating-chip { white-space: nowrap; }
+.matrix-measure-row td { height: 0; padding: 0; border-width: 0 0 1px 0; overflow: hidden; visibility: hidden; }
 .sticky-level { position: sticky; left: 0; z-index: 2; background: #f5f6f7; box-shadow: 1px 0 0 #eff0f1; }
-.matrix-table thead .sticky-level { z-index: 3; background: #f5f6f7; }
+.matrix-header-table thead .sticky-level { z-index: 4; background: #f5f6f7; }
 .matrix-table tbody .level-cell { background: #f5f6f7; }
 .level-cell { color: #1f2329; font-weight: 500; white-space: nowrap; }
 .people-cell { position: relative; max-height: 156px; overflow: hidden; }
@@ -183,7 +241,7 @@ export default { components: { PeopleCell } }
 .people-cell :deep(.person-name:hover) { color: #4e83fd; }
 .people-cell :deep(.people-toggle) { position: absolute; right: 0; bottom: 0; width: 59px; height: 23px; padding-left: 14px; border: 0; background: linear-gradient(to right, rgba(255,255,255,0), #fff 20%, #fff); color: #4e83fd; font: inherit; cursor: pointer; text-align: left; }
 .people-cell.expanded :deep(.people-toggle) { position: static; width: auto; height: auto; padding: 0; margin-left: 8px; background: transparent; }
-.rating-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 24px; padding: 0 5px; border-radius: 999px; background: var(--rating-bg); color: var(--rating-color); font-size: 14px; font-weight: 500; }
+.rating-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 24px; padding: 0 10px; border-radius: 9999px; background: var(--rating-bg); color: #1f2329; font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Tahoma, "PingFang SC", "Microsoft Yahei", Arial, "Hiragino Sans GB", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-size: 14px; font-weight: 400; line-height: 22px; }
 .rating-cell { min-height: 57px; }
 .count-value { display: block; color: #1f2329; font-variant-numeric: tabular-nums; text-align: center; }
 .matrix-zero, .matrix-empty { color: #8f959e; }
