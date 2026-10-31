@@ -1,17 +1,22 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceRichTextEditor from '@/components/performance/PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from '@/components/performance/PerformanceTagRichTextInput.vue'
 import { performanceReviewApi } from '@/api/performance'
+import { api } from '@/api/client'
+import { clearEmployeeSwitch, employeeSwitchSession, employeeSwitchNotice, setEmployeeSwitch } from '@/stores/identitySwitch'
+import { useRoute, useRouter } from 'vue-router'
+
+enableAutoUnmount(afterEach)
 
 const back = vi.fn()
 const push = vi.fn()
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: { task_id: 'task-1' } }),
-  useRouter: () => ({ back, push }),
+  useRoute: vi.fn(() => ({ query: { task_id: 'task-1' } })),
+  useRouter: vi.fn(() => ({ back, push })),
 }))
 
 const task = {
@@ -411,5 +416,57 @@ describe('SelfSummaryTask', () => {
     expect(editor.html()).not.toContain('script')
     expect(editor.html()).not.toContain('onerror')
     expect(editor.text()).toContain('安全内容')
+  })
+})
+
+describe('SelfSummaryTask switched identity navigation', () => {
+  let wrapper
+  beforeEach(() => {
+    vi.useFakeTimers()
+    clearEmployeeSwitch()
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(structuredClone(task))
+    setEmployeeSwitch({ session_id: 'current', session_token: 'secret-current', expires_at: new Date(Date.now() + 30 * 60000).toISOString(), effective_identity: { employee_no: 'E001', display_name: '测试员工' }, mode: 'TARGET_POLICY' })
+  })
+  afterEach(() => {
+    wrapper?.unmount()
+    clearEmployeeSwitch()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.mocked(useRoute).mockImplementation(() => ({ query: { task_id: 'task-1' } }))
+    vi.mocked(useRouter).mockImplementation(() => ({ back, push }))
+  })
+
+  it.each([['.back-button', 0], ['.back-button', 31], ['.self-summary-footer .performance-button--secondary', 31]])('keeps identity and returns to my review via %s after %i minutes', async (selector, minutes) => {
+    const { createRouter, createMemoryHistory } = await vi.importActual('vue-router')
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/performance/review', component: { template: '<div>我的绩效</div>' } },
+      { path: '/performance/review/self-summary', component: SelfSummaryTask },
+    ] })
+    vi.mocked(useRoute).mockImplementation(() => router.currentRoute.value)
+    vi.mocked(useRouter).mockReturnValue(router)
+    let serverExpiry = Date.now() + 30 * 60000
+    const get = vi.spyOn(api, 'get').mockImplementation(async () => {
+      if (Date.now() >= serverExpiry) throw { response: { status: 410, data: { detail: '身份切换已到期，请恢复本人' } } }
+      serverExpiry = Date.now() + 30 * 60000
+      return { data: { expires_at: new Date(serverExpiry).toISOString() } }
+    })
+    const reviewPath = '/performance/review?cycle_id=2&project_id=3&node=summary'
+    await router.push(reviewPath)
+    wrapper = mount({ template: '<router-view />' }, { global: { plugins: [router] } })
+    await router.push('/performance/review/self-summary?task_id=task-1&project_id=3')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(minutes * 60000)
+    if (minutes) expect(get).toHaveBeenCalledWith('/performance/identity-switch/session', { headers: { 'X-App-Switch-Session': 'secret-current' } })
+    expect(serverExpiry).toBeGreaterThan(Date.now())
+    await wrapper.get(selector).trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe(reviewPath)
+    expect(wrapper.text()).toBe('我的绩效')
+    expect(employeeSwitchSession.value?.session_id).toBe('current')
+    expect(employeeSwitchNotice.value).toBe('')
+    const calls = get.mock.calls.length
+    await vi.advanceTimersByTimeAsync(15000)
+    window.dispatchEvent(new Event('focus'))
+    expect(get).toHaveBeenCalledTimes(calls)
   })
 })

@@ -51,6 +51,16 @@ REA 对飞书实际填写页的被动采集观察到：独立填写工作区包�
   - Given加载失败/无内容/整体只读/部分只读/保存失败；When渲染/重试/保存；Then任务外壳稳定、错误不提交、已有答案保留。
   - 证据：`hr-portal/frontend/src/views/performance/SelfSummaryTask.spec.js` 23 项、header组件2项、路由3项；截图 `ui-blueprints/CR-008-T01-implemented-workspace-pc.png`、`CR-008-T01-implemented-workspace-mobile.png`、`CR-008-T03-implemented-long-form.png`；真实 Chromium 实际 Vue 路由+API 夹具验证，运行错误0。
 
+- [x] CR-008-T01-F01 全屏填写页身份切换续期回归修复（2026-10-31，本地验证通过，未部署）
+  - 用户验收要求：切换员工后从「绩效评估 → 我的绩效 → 填写工作总结 → 去完成」进入填写页，点击返回应回到原我的绩效页，不能因页内导航结束有效切换会话。
+  - 缺陷：T01 独立路由卸载 `PerformanceLayout.vue`，同时移除了仅由该布局维护的15秒续期心跳；填写页停留超过服务端有效期后返回，会被真实410拒绝。未采集用户现场请求，不能据此证明立即点击返回的所有现场错误都来自这一原因。
+  - 复用：将布局内原有心跳、恢复焦点检查、同会话去重和旧会话响应保护原样提取为 `usePerformanceIdentityHeartbeat.ts`，布局与 `PerformanceTaskWorkspace.vue` 共同调用；各自卸载清理定时器和监听，不持久化凭证，不更改后端30分钟/续期阈值或授权。
+  - Given有效切换身份；When立即返回/全屏停留31分钟后返回或取消；Then回到原 `/performance/review`，周期、项目、环节参数和切换身份保留；工作区卸载后不再发该工作区心跳。Given网络/503、410或旧会话迟到响应；Then仍分别保留、清理或忽略，复用布局现有回归覆盖。
+  - 测试先红后绿：修复前新增长时填写的返回/取消测试均因心跳调用0次失败；修复后 `SelfSummaryTask.spec.js` 26项、`PerformanceLayout.spec.ts` 10项、`Review.spec.ts` 26项、`Workbench.spec.ts` 6项、`identitySwitch.spec.ts` 2项、`performanceTaskRoutes.spec.ts` 3项，共73项通过。
+  - 复核命令：`npm --prefix hr-portal/frontend test -- src/views/performance/SelfSummaryTask.spec.js src/layouts/PerformanceLayout.spec.ts src/views/performance/Review.spec.ts src/views/performance/Workbench.spec.ts src/stores/identitySwitch.spec.ts src/router/performanceTaskRoutes.spec.ts`；`npm --prefix hr-portal/frontend run build` 通过（vue-tsc + Vite）；`git diff --check` 通过。
+  - UI门禁：沿用已确认CR-008-T01 v1蓝图；无外观/信息架构变化，采用组件真实DOM事件及Vue Router内存历史作为文字化交互证据，不新增截图。已对照Spec 012 N00/N11通用阅读与交付检查；仓库专属K/N02-N10、UCP、迁移和权限调整不涉及。
+  - 未执行：真实登录态/真实数据库续期、生产现场抓包及部署；网络休眠超过有效期仍按服务端失效，不救活已到期会话。T02/T03原有阻塞保持，不因本修复勾选。
+
 - [ ] CR-008-T02 模板配置到运行时填写/只读引用契约（代码与定向测试完成，真实数据库验收阻塞）
   - 节点快照 `content_page_name` 投影至任务 DTO，旧数据/未配置回退 `node.name`，不重命名流程节点。
   - `_reference_tabs` 基于当前引用关系的 `reference_settings.content_settings` 投影 root/item `allowView`、`hideName`、`hideDescription`；复用结果页白名单投影和答案裁剪，不改变来源答案、处理人或任务读取授权。

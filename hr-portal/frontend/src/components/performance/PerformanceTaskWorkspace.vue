@@ -7,6 +7,12 @@
   </div>
 </template>
 
+<script setup lang="ts">
+import { usePerformanceIdentityHeartbeat } from '@/composables/usePerformanceIdentityHeartbeat'
+
+usePerformanceIdentityHeartbeat()
+</script>
+
 <style scoped>
 :global(html:has(.performance-task-workspace)){scrollbar-gutter:auto}
 .performance-task-workspace{
