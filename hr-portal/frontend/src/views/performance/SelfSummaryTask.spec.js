@@ -407,6 +407,31 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
+  it('renders 360 template prompts inside the white form while system notices stay separate', async () => {
+    const prompt = { title: '360°评估说明', content: '请客观反馈', color: '#3370ff', scope: 'all' }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({
+      ...structuredClone(task), task_kind: 'evaluation', node_name: '360°评估', calibration_notice: '系统通知', prompts: [],
+      form_schema: [{ id: 'page-prompt', name: '', fields: [], elements: [{ kind: 'prompt', id: 'page-prompt', prompt }] }, ...structuredClone(task.form_schema)],
+    })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.get('.self-summary-form [data-prompt-id="page-prompt"]').text()).toContain('请客观反馈')
+    expect(wrapper.find('.task-notices .performance-prompt-display').exists()).toBe(false)
+    expect(wrapper.get('.task-notices').text()).toBe('系统通知')
+    wrapper.unmount()
+  })
+
+  it('keeps a prompt-only page inside the canvas without inventing writable answers', async () => {
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), form_schema: [{ id: 'prompt', name: '', fields: [], elements: [{ kind: 'prompt', id: 'prompt', prompt: { content: '仅填写时说明', color: '#3370ff', onlyWhenFilling: true } }] }] })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.get('.self-summary-form').text()).toContain('仅填写时说明')
+    expect(wrapper.text()).not.toContain('暂无填写内容')
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(true)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('sanitizes executable markup before rendering and saving', async () => {
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({ ...structuredClone(task), answers: { work: '<img src=x onerror=alert(1)><script>alert(1)</script><b>安全内容</b>' } })
     const wrapper = mount(SelfSummaryTask)

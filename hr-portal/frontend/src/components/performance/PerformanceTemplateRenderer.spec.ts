@@ -5,7 +5,8 @@ import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import templateFieldRendererSource from './PerformanceTemplateFieldRenderer.vue?raw'
-import { performanceTemplateAddedInstance, performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
+import type { PerformanceTemplateSection } from '@/api/performance'
+import { performanceTemplateAddedInstance, performanceTemplateInitialAnswers, performanceTemplateWritableAnswers } from './performanceTemplateAnswers'
 
 const sections = [
   {
@@ -202,6 +203,41 @@ describe('PerformanceTemplateRenderer', () => {
     expect(wrapper.findAllComponents(PerformanceTagRichTextInput)).toHaveLength(1)
     expect(wrapper.findAllComponents(PerformanceRichTextEditor)).toHaveLength(1)
     expect(wrapper.findAll('.tag-rich-text-input [role="toolbar"]')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it.each(['edit', 'readonly'] as const)('keeps page and inline prompts in content order in %s mode', mode => {
+    const prompt = { title: '页面提示', content: '如实评价', color: '#3370ff', scope: 'all' as const }
+    const schema: PerformanceTemplateSection[] = [
+      { id: 'page', name: '', fields: [], elements: [{ kind: 'prompt', id: 'page', prompt }] },
+      { id: 'mixed', name: '反馈内容', fields: [{ id: 'first', type: 'rich_text', label: '第一题' }, { id: 'last', type: 'rich_text', label: '第二题' }], elements: [
+        { kind: 'field', id: 'first' }, { kind: 'prompt', id: 'inline', prompt: { ...prompt, title: '题间提示' } }, { kind: 'field', id: 'last' },
+      ] },
+    ]
+    const wrapper = mount(PerformanceTemplateRenderer, { props: { mode, editable: true, title: '360°评估', sections: schema, answers: {} } })
+    expect(wrapper.findAll('[data-section-id]').map(item => item.attributes('data-section-id'))).toEqual(['page', 'mixed'])
+    const mixed = wrapper.get('[data-section-id="mixed"] .template-section-instance')
+    expect(Array.from(mixed.element.children).map(element => element.getAttribute('data-field-id') || element.getAttribute('data-prompt-id'))).toEqual(['first', 'inline', 'last'])
+    expect(wrapper.find('[data-section-id="page"] .template-section-header').exists()).toBe(false)
+    expect(wrapper.findAll('.performance-prompt-display')).toHaveLength(2)
+    expect(performanceTemplateWritableAnswers(schema, { first: '答案', page: '伪造提示答案', inline: '伪造' })).toEqual({ first: '答案' })
+    expect(wrapper.emitted('update-answer')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('filters unavailable prompts and filling-only prompts without showing empty headings', async () => {
+    const prompt = { title: '说明', content: '填写时可见', color: '#3370ff', scope: 'all' as const }
+    const schema: PerformanceTemplateSection[] = [{ id: 'p', name: '', fields: [], elements: [
+      { kind: 'prompt', id: 'denied', prompt: { ...prompt, content: '禁止查看', allowView: false } },
+      { kind: 'prompt', id: 'filling', prompt: { ...prompt, onlyWhenFilling: true } },
+    ] }]
+    const wrapper = mount(PerformanceTemplateRenderer, { props: { mode: 'edit', editable: true, sections: schema, answers: {} } })
+    expect(wrapper.text()).toContain('填写时可见')
+    expect(wrapper.text()).not.toContain('禁止查看')
+    await wrapper.setProps({ editable: false })
+    expect(wrapper.find('[data-section-id]').exists()).toBe(false)
+    await wrapper.setProps({ mode: 'readonly', editable: true })
+    expect(wrapper.find('.performance-prompt-display').exists()).toBe(false)
     wrapper.unmount()
   })
 

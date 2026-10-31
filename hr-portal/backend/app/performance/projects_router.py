@@ -299,9 +299,9 @@ async def _reference_tabs(
     return result
 
 
-async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> tuple[list[dict], dict]:
+async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False) -> tuple[list[dict], dict]:
     template = await _self_summary_template(task, node, db)
-    schema = build_self_summary_schema(template)
+    schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
     answers = project_self_summary_answers(schema, task.answers or {})
     readonly_sections = [section for section in schema if any(field.get("readonly") for field in section["fields"])]
     if not readonly_sections or node.node_type != "evaluation":
@@ -344,24 +344,12 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
     return schema, answers
 
 
-def _template_prompts(template: dict) -> list[dict]:
-    prompts = []
-    for content in template.get("content") or []:
-        if content.get("type") == "prompt" and isinstance(content.get("prompt"), dict):
-            prompts.append(dict(content["prompt"]))
-        for item in content.get("items") or []:
-            if item.get("kind") == "prompt" and isinstance(item.get("prompt"), dict):
-                prompts.append(dict(item["prompt"]))
-    return prompts
-
-
 async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    schema, answers = await _task_visible_content(task, node, db)
-    prompts = _template_prompts(await _self_summary_template(task, node, db))
+    schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed)
     member = await db.scalar(select(PerformanceProjectMember).where(
         PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
         PerformanceProjectMember.employee_no == task.target_employee_no,
@@ -407,7 +395,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
-        "prompts": prompts,
+        "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
         "reference_tabs": await _reference_tabs(task, node, project, actor_ref, db),
     }

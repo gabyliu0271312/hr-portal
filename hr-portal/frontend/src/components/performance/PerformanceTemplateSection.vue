@@ -1,6 +1,6 @@
 <template>
   <div class="performance-template-section" :data-section-id="section.id">
-    <header class="template-section-header section-header repeatable-content-header" :class="{ 'template-section-header--readonly': mode === 'readonly' }">
+    <header v-if="section.name || section.description" class="template-section-header section-header repeatable-content-header" :class="{ 'template-section-header--readonly': mode === 'readonly' }">
       <PerformanceAssessmentPreviewHeader :name="section.name" :description="section.description" heading-tag="h2" />
     </header>
     <div v-for="(instanceKey, index) in instanceKeys" :key="instanceKey" class="template-section-instance repeatable-content-instance" :data-instance-index="index">

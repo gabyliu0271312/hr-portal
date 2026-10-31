@@ -1266,6 +1266,85 @@ async def test_mixed_content_hydration_and_answers_exclude_prompts():
     assert template == before
 
 
+def test_prompt_elements_keep_page_and_inline_order_without_answer_fields():
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    schema = build_self_summary_schema({"content": [
+        {"type": "prompt", "id": "page-prompt", "prompt": {"title": "页面提示", "content": "先看这里", "allowView": True}},
+        {"content_id": "mixed", "type": "custom", "name": "工作内容", "items": [
+            {"id": "first", "kind": "fill", "questionType": "text", "label": "第一题"},
+            {"id": "inline-prompt", "kind": "prompt", "prompt": {"title": "题间提示", "content": "补充说明", "allowView": True}},
+            {"id": "second", "kind": "fill", "questionType": "text", "label": "第二题"},
+        ]},
+    ]}, include_prompts=True, filling=True)
+
+    assert [section["id"] for section in schema] == ["page-prompt", "mixed"]
+    assert schema[0]["elements"][0]["kind"] == "prompt"
+    assert [(element["kind"], element["id"]) for element in schema[1]["elements"]] == [
+        ("field", "first"), ("prompt", "inline-prompt"), ("field", "second"),
+    ]
+    assert all("prompt" not in field for section in schema for field in section["fields"])
+
+
+def test_prompt_visibility_respects_allow_view_and_only_when_filling():
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    template = {"content": [{"type": "prompt", "id": "p", "prompt": {"title": "提示", "content": "内部", "allowView": True, "onlyWhenFilling": True}}]}
+    assert build_self_summary_schema(template, include_prompts=True, filling=True)[0]["elements"]
+    assert build_self_summary_schema(template, include_prompts=True, filling=False) == []
+    denied = {"content": [{"type": "prompt", "id": "p", "prompt": {"title": "提示", "content": "不可见", "allowView": False}}]}
+    assert build_self_summary_schema(denied, include_prompts=True, filling=True) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filling", [True, False])
+async def test_task_visible_content_projects_prompts_from_snapshot_with_context(filling):
+    from app.performance.projects_router import _task_visible_content
+
+    node = SimpleNamespace(node_type="evaluation", config={"template": {"content": [
+        {"id": "allowed", "type": "prompt", "prompt": {"content": "通用说明"}},
+        {"id": "fill-only", "type": "prompt", "prompt": {"content": "填写说明", "onlyWhenFilling": True}},
+        {"id": "denied", "type": "prompt", "prompt": {"content": "不可见提示", "allowView": False}},
+        {"id": "reference", "type": "prompt", "content_slot": "reference", "prompt": {"content": "错误槽位"}},
+        {"id": "block", "type": "custom", "items": [{"id": "answer", "kind": "fill", "label": "填写内容"}]},
+    ]}})
+    task = SimpleNamespace(answers={"answer": "真实答案", "allowed": "伪造提示答案"})
+    schema, answers = await _task_visible_content(task, node, SimpleNamespace(), filling=filling)
+    assert [section["id"] for section in schema] == (["allowed", "fill-only", "block"] if filling else ["allowed", "block"])
+    assert "不可见提示" not in str(schema)
+    assert "错误槽位" not in str(schema)
+    assert answers == {"answer": "真实答案"}
+
+
+def test_reference_prompt_projection_preserves_order_and_filters_fill_only_overrides():
+    from copy import deepcopy
+    from app.performance.self_summary_service import project_reference_content, sanitize_self_summary_answers
+
+    source = {"content": [
+        {"content_id": "page", "type": "prompt", "prompt": {"content": "公共说明"}},
+        {"content_id": "mixed", "type": "custom", "name": "反馈", "items": [
+            {"id": "first", "kind": "fill", "label": "第一题"},
+            {"id": "notice", "kind": "prompt", "prompt": {"content": "题间说明"}},
+            {"id": "fill-only", "kind": "prompt", "prompt": {"content": "仅填写秘密", "onlyWhenFilling": True}},
+            {"id": "hidden", "kind": "fill", "settings": {"mode": "hidden"}},
+        ]},
+    ]}
+    original = deepcopy(source)
+    relation = {"reference_settings": {"content_settings": {
+        "page": {"root": {"allowView": False}},
+        "mixed": {"items": {"fill-only": {"allowView": True}}},
+    }}}
+    schema, answers = project_reference_content(source, relation, {"first": "答案", "notice": "伪造答案"})
+    assert [section["id"] for section in schema] == ["mixed"]
+    assert [(element["kind"], element["id"]) for element in schema[0]["elements"]] == [("field", "first"), ("prompt", "notice")]
+    assert "仅填写秘密" not in str(schema)
+    assert answers == {"first": "答案"}
+    assert sanitize_self_summary_answers(schema, {"first": "答案", "notice": "伪造答案"}) == {"first": "答案"}
+    assert source == original
+    relation["reference_settings"]["content_settings"]["mixed"]["items"]["notice"] = {"allowView": False}
+    assert all(element["kind"] != "prompt" for section in project_reference_content(source, relation, {})[0] for element in section["elements"])
+
+
 def test_prompt_only_schema_has_no_answer_fields():
     from app.performance.self_summary_service import build_self_summary_schema
 

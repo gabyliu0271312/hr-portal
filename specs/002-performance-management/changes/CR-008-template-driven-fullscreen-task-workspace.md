@@ -69,6 +69,8 @@ REA 对飞书实际填写页的被动采集观察到：独立填写工作区包�
   - 证据：`backend/tests/test_performance_projects.py` 增加页面名称快照/回退和 reference root/item view 四类型投影测试；本地目标测试312 passed、4 skipped；模板联合回归540 passed、4 skipped、1 deselected。
 
 - [ ] CR-008-T03 真实页面与持久化回归验收（本地 UI 夹具部分完成，真实数据库部分阻塞）
+  - 提示混排修复追加：模板页面级/题间提示已进入 `form_schema.elements`，360°真实 Vue 任务夹具验证提示在同一白色容器内，顺序为页面提示→题目→题间提示→题目；截图 `ui-blueprints/CR-008-T04-implemented-inline-prompts.png`，pageerror=0。
+  - 后端公共提示/引用投影回归：`317 passed，4 skipped`；前端公共模板/任务/内容/相邻入口回归 `110 passed`，类型检查和生产构建通过。
   - 前端：6 个定向文件共75项通过；`npm --prefix hr-portal/frontend run build` 的 `vue-tsc --noEmit` 与 Vite 构建成功。保留既有 VueUse PURE 注释告警。
   - 浏览器：1280×900实测填充区域1256×687、footer top=836/bottom=900；长表单滚动高度1611、滚动容器可达末项且底栏不遮挡；390×844下document.scrollWidth=390、无水平溢出；参考内容、只读、保存失败保留、加载重试通过，pageerror=0。
   - 保存/重开验证由明确本地 API 夹具执行，只证明前端 payload/读取投影，不是数据库持久化验收。

@@ -151,19 +151,39 @@ async def hydrate_self_summary_template(template: dict, db: AsyncSession) -> dic
     return hydrated
 
 
-def build_self_summary_schema(template: dict) -> list[dict]:
+def _visible_prompt(prompt: object, *, filling: bool) -> bool:
+    return (
+        isinstance(prompt, dict)
+        and prompt.get("allowView") is not False
+        and (filling or prompt.get("onlyWhenFilling") is not True)
+    )
+
+
+def build_self_summary_schema(template: dict, *, include_prompts: bool = False, filling: bool = False) -> list[dict]:
     sections: list[dict] = []
     for content_index, content in enumerate(template.get("content") or []):
-        if (content.get("content_slot") or "fill") != "fill" or content.get("type") == "prompt":
+        if (content.get("content_slot") or "fill") != "fill":
             continue
         content = deepcopy(content)
         _normalize_rating_item(content)
         section_id = str(content.get("content_id") or content.get("id") or content_index)
+        settings = content.get("settings") or {}
         fields: list[dict] = []
+        elements: list[dict] = []
+        if content.get("type") == "prompt":
+            prompt = content.get("prompt")
+            if include_prompts and _visible_prompt(prompt, filling=filling):
+                elements.append({"kind": "prompt", "id": section_id, "prompt": deepcopy(prompt)})
+            if elements:
+                sections.append({"id": section_id, "name": "", "description": "", "allow_multiple": False, "fields": [], "elements": elements})
+            continue
         seen_field_ids: set[str] = set()
         for item_index, item in enumerate(content.get("items") or []):
             kind = _item_kind(content, item)
             if kind == "prompt":
+                prompt = item.get("prompt")
+                if include_prompts and _visible_prompt(prompt, filling=filling):
+                    elements.append({"kind": "prompt", "id": str(item.get("id") or f"{section_id}-prompt-{item_index}"), "prompt": deepcopy(prompt)})
                 continue
             item_settings = item.get("settings") or {}
             if item_settings.get("mode") == "hidden":
@@ -222,14 +242,15 @@ def build_self_summary_schema(template: dict) -> list[dict]:
                 if field_type in {"rich_text", "rating"}:
                     field["placeholder"] = ""
             fields.append(field)
-        if fields:
-            settings = content.get("settings") or {}
+            elements.append({"kind": "field", "id": field_id})
+        if fields or elements:
             sections.append({
                 "id": section_id,
                 "name": "" if settings.get("hideName") else content.get("name") or "填写内容",
                 "description": "" if settings.get("hideDescription") else content.get("description") or "",
                 "allow_multiple": bool(settings.get("allowMultiple", False)),
                 "fields": fields,
+                **({"elements": elements} if include_prompts else {}),
             })
     return sections
 
@@ -270,6 +291,9 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
     for content in source_contents:
         view = view_by_id[_content_identity(content)]
         content["settings"] = {**(content.get("settings") or {}), **(view.get("settings") or {})}
+        if content.get("type") == "prompt":
+            prompt = content.get("prompt") or {}
+            content["prompt"] = {**prompt, **{key: view["settings"][key] for key in ("allowView",) if key in (view.get("settings") or {})}}
         for item in content.get("items") or []:
             override = _view_override_item(view, str(item.get("id") or ""))
             source_settings = item.get("settings") or {}
@@ -278,10 +302,15 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
                 **source_settings,
                 **{key: override_settings[key] for key in ("allowView", "hideName", "hideDescription") if key in override_settings},
             }
+            if item.get("kind") == "prompt":
+                item["prompt"] = {
+                    **(item.get("prompt") or {}),
+                    **{key: override_settings[key] for key in ("allowView",) if key in override_settings},
+                }
             if override_settings.get("mode") == "hidden":
                 item["settings"]["mode"] = "hidden"
     source_by_id = {_content_identity(content): content for content in source_contents}
-    source_schema = build_self_summary_schema({"content": source_contents})
+    source_schema = build_self_summary_schema({"content": source_contents}, include_prompts=True)
     projected: list[dict] = []
     for section in source_schema:
         content_id = str(section.get("id") or "")
@@ -329,7 +358,12 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
                 field["placeholder"] = ""
             fields.append(field)
         section["fields"] = fields
-        if fields:
+        field_ids = {field["id"] for field in fields}
+        section["elements"] = [
+            element for element in section.get("elements") or []
+            if element["kind"] == "prompt" or element["id"] in field_ids
+        ]
+        if fields or section["elements"]:
             projected.append(section)
     return projected
 

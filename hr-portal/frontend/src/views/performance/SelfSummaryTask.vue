@@ -9,12 +9,11 @@
     <section v-if="loading" class="state">正在加载…</section>
     <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
     <div v-else-if="activeTab === 'current'" class="task-content">
-      <div v-if="task.prompts?.length || task.calibration_notice" class="task-notices">
-        <PerformancePromptDisplay v-for="(prompt, index) in task.prompts || []" :key="`prompt-${index}`" :value="prompt" />
-        <PerformancePromptNotice v-if="task.calibration_notice" type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice>
+      <div v-if="task.calibration_notice" class="task-notices">
+        <PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice>
       </div>
       <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
-      <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" mode="edit" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+      <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" mode="edit" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
     </div>
     <PerformanceReferenceContent v-else-if="activeReference" :reference="activeReference" @remind="openReminder" />
     <template #footer>
@@ -32,7 +31,6 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
-import PerformancePromptDisplay from '@/components/performance/PerformancePromptDisplay.vue'
 import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
@@ -51,7 +49,7 @@ const formRef = ref<{ focusField: (id: string) => void } | null>(null)
 const activeTab = ref('current')
 const tabs = computed(() => [{ key: 'current', label: task.value.node_name || '加载中…' }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
 const activeReference = computed<PerformanceReferenceTab | null>(() => task.value.reference_tabs?.find(reference => reference.key === activeTab.value) || null)
-const canEdit = computed(() => !loading.value && !loadError.value && task.value.form_schema.length > 0 && task.value.editable && task.value.submit_allowed)
+const canEdit = computed(() => !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
 

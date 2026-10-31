@@ -867,7 +867,8 @@ export type PerformanceTemplateField = {
   default_all?: boolean
   readonly?: boolean
 }
-export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[] }
+export type PerformanceTemplateElement = { kind: 'field'; id: string } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
+export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[]; elements?: PerformanceTemplateElement[] }
 export type PerformanceReferenceTab = {
   key: string
   node_id: string
