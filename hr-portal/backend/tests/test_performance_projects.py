@@ -1358,7 +1358,8 @@ async def test_reference_tabs_include_unsubmitted_node_and_manager_reminder(monk
 
 
 @pytest.mark.asyncio
-async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_person(monkeypatch):
+@pytest.mark.parametrize("page_name", [None, "快照页面名称"])
+async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_person(monkeypatch, page_name):
     from app.performance import projects_router
 
     task = SimpleNamespace(
@@ -1374,6 +1375,7 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
         answers={"work": "已完成"},
     )
     node = SimpleNamespace(node_id="summary", name="模板手动维护名称", config={"template": {
+        "content_page_name": page_name,
         "content": [{
             "content_id": "summary", "type": "work_summary", "name": "工作总结", "description": "描述",
             "items": [{"id": "work", "label": "填写题名称", "settings": {"required": True}}],
@@ -1404,6 +1406,7 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     assert result["task_kind"] == "work_summary"
     assert result["entry_mode"] == "template_task"
     assert result["node_name"] == "模板手动维护名称"
+    assert result["content_page_name"] == (page_name or "模板手动维护名称")
     assert result["deadline_at"].isoformat() == "2026-09-30T00:00:00+00:00"
     assert {key: result["person"][key] for key in ("employee_no", "display_name", "department", "direct_supervisor_name")} == {
         "employee_no": "E001",
@@ -1423,6 +1426,8 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     evaluation = await projects_router.get_template_task(9, context(), Db())
     assert evaluation["task_kind"] == "evaluation"
     assert evaluation["entry_mode"] == "template_task"
+    assert evaluation["node_name"] == "模板手动维护名称"
+    assert evaluation["content_page_name"] == (page_name or "模板手动维护名称")
     assert evaluation["answers"] == {"work": "已完成"}
 
 
@@ -3696,6 +3701,125 @@ async def test_result_tag_route_preserves_result_access_denials(monkeypatch, den
         await projects_router.read_my_project_results(7, context(), Db())
     assert error.value.status_code == 404
     assert error.value.detail == "RESULT_NOT_FOUND"
+
+
+def test_reference_projection_applies_relation_visibility_without_mutating_source():
+    from copy import deepcopy
+    from app.performance.self_summary_service import project_reference_content
+
+    source = {
+        "content": [{
+            "content_id": "summary", "content_slot": "fill", "type": "custom",
+            "questionType": "text", "name": "来源模块", "description": "来源说明",
+            "settings": {}, "items": [
+                {"id": "readonly", "kind": "fill", "label": "只读题", "hint": "题目描述", "settings": {"mode": "view"}},
+                {"id": "hidden", "kind": "fill", "label": "隐藏题", "hint": "隐藏描述", "settings": {}},
+            ],
+        }]
+    }
+    reference = {
+        "content_slot": "reference", "reference_settings": {"content_settings": {
+            "summary": {"root": {"allowView": True, "hideName": True, "hideDescription": True},
+                        "items": {"readonly": {"allowView": True, "hideName": True, "hideDescription": True},
+                                  "hidden": {"allowView": False}}}
+        }}
+    }
+    original = deepcopy((source, reference))
+    source_answers = {"readonly": "保留答案", "hidden": "不得返回", "extra": "不得返回"}
+    original_answers = deepcopy(source_answers)
+    schema, answers = project_reference_content(source, reference, source_answers)
+    assert schema[0]["name"] == ""
+    assert schema[0]["description"] == ""
+    assert [field["id"] for field in schema[0]["fields"]] == ["readonly"]
+    field = schema[0]["fields"][0]
+    assert field["readonly"] is True
+    assert field["label"] == ""
+    assert field["placeholder"] == ""
+    assert answers == {"readonly": "保留答案"}
+    assert source_answers == original_answers
+    assert (source, reference) == original
+
+    denied_reference = {"reference_settings": {"content_settings": {"summary": {"root": {"allowView": False}}}}}
+    assert project_reference_content(source, denied_reference, {"readonly": "不得返回"}) == ([], {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content_type,question_type,answer", [
+    ("work_summary", None, "<p>答案</p>"),
+    ("custom", "text", "<p>答案</p>"),
+    ("custom", "tag", {"tags": ["a"], "notes": {"a": "<p>答案</p>"}}),
+    ("rating", None, "a"),
+])
+@pytest.mark.parametrize("denial", [None, "root", "item"])
+async def test_reference_tabs_project_relation_settings_and_keep_projected_answers(monkeypatch, content_type, question_type, answer, denial):
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    from app.performance import projects_router
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+
+    content = {
+        "content_id": "block", "content_slot": "fill", "type": content_type,
+        "questionType": question_type, "name": "模块私有名称", "description": "模块私有描述",
+        "items": [
+            {"id": "visible", "label": "题目私有名称", "hint": "题目私有描述", "settings": {"mode": "fill"}},
+            {"id": "hidden", "label": "隐藏定义", "settings": {"mode": "hidden"}},
+        ],
+        "options": [{"id": "a", "label": "选项"}],
+    }
+    relation = {
+        "content_slot": "reference", "reference_kind": "node", "reference_value": "source",
+        "reference_settings": {"content_settings": {"block": {
+            "root": {"allowView": denial != "root", "hideName": True, "hideDescription": True},
+            "items": {"visible": {"allowView": denial != "item", "hideName": True, "hideDescription": True},
+                      "hidden": {"allowView": True}},
+        }}},
+    }
+    node = SimpleNamespace(node_id="target", node_type="evaluation", config={"template": {"content": [relation]}})
+    source_node = SimpleNamespace(id=32, node_id="source", node_type="work_summary", name="来源节点", config={"template": {"content": [content]}})
+    task = SimpleNamespace(member_snapshot_id=21, target_employee_no="E001", handler_ref="M001")
+    source = SimpleNamespace(id=11, status="completed", submitted_at=datetime.now(UTC), answers={"visible": answer, "hidden": "隐藏答案", "extra": "未知答案"})
+    project = SimpleNamespace(id=3)
+    before = deepcopy((node.config, source_node.config, source.answers))
+
+    class Db:
+        async def get(self, *_args):
+            return None
+
+        async def execute(self, statement):
+            model = statement.column_descriptions[0]["entity"]
+            values = [source_node] if model is PerformanceProjectNodeSnapshot else [source]
+            assert model in {PerformanceProjectNodeSnapshot, PerformanceNodeTask}
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+
+    tabs = await projects_router._reference_tabs(task, node, project, "M001", Db())
+    assert len(tabs) == 1
+    tab = tabs[0]
+    assert tab["task_id"] == 11
+    assert tab["status"] == "completed"
+    assert tab["can_remind"] is False
+    if denial:
+        assert tab["form_schema"] == []
+        assert tab["answers"] == {}
+    else:
+        section = tab["form_schema"][0]
+        assert section["name"] == section["description"] == ""
+        assert [field["id"] for field in section["fields"]] == ["visible"]
+        field = section["fields"][0]
+        assert field["label"] == field["placeholder"] == ""
+        assert "description" not in field
+        assert tab["answers"] == {"visible": answer}
+        assert "私有" not in str(tab)
+    assert (node.config, source_node.config, source.answers) == before
+
+
+def test_task_content_page_name_prefers_snapshot_then_falls_back_without_renaming_node():
+    from app.performance.projects_router import _task_content_page_name
+
+    node = SimpleNamespace(name="流程节点名称", config={"template": {"content_page_name": "快照页面名称"}})
+    assert _task_content_page_name(node) == "快照页面名称"
+    assert node.name == "流程节点名称"
+    node.config = {"template": {}}
+    assert _task_content_page_name(node) == "流程节点名称"
 
 
 async def _resolved(value):

@@ -334,6 +334,74 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
+  it('uses the configured page name independently of the workflow tab name', async () => {
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), content_page_name: '填写本期重点产出' })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.get('.summary-tabs .active').text()).toBe(task.node_name)
+    expect(wrapper.get('.self-summary-form h1').text()).toBe('填写本期重点产出')
+    expect(wrapper.find('.performance-task-workspace > .summary-scroll > .task-content').exists()).toBe(true)
+    expect(wrapper.find('.performance-task-workspace > .self-summary-footer').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="全屏填写"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps an empty task non-submittable without inventing fields', async () => {
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), form_schema: [] })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.text()).toContain('暂无填写内容')
+    expect(wrapper.find('.self-summary-form').exists()).toBe(false)
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the workspace during load failure and retries without allowing submit', async () => {
+    vi.mocked(performanceReviewApi.selfSummary).mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.find('.performance-task-workspace').exists()).toBe(true)
+    expect(wrapper.text()).toContain('自我总结加载失败')
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(true)
+    await wrapper.get('.state.error button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.self-summary-form').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('autosaves rating and tag changes through the shared renderer and retains failures', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(SelfSummaryTask)
+    try {
+      await flushPromises()
+      await wrapper.findAll('.rating-option')[0].trigger('click')
+      await wrapper.findAll('.tag-options input')[0].setValue(true)
+      await vi.advanceTimersByTimeAsync(350)
+      await flushPromises()
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledWith('task-1', expect.objectContaining({ rating: 'one', value: { tags: ['good'], notes: {} } }), 1)
+      vi.mocked(performanceReviewApi.saveSelfSummaryDraft).mockRejectedValueOnce(new Error('offline'))
+      await wrapper.findAll('.rating-option')[1].trigger('click')
+      await vi.advanceTimersByTimeAsync(350)
+      await flushPromises()
+      expect(wrapper.text()).toContain('自动保存失败，内容已保留')
+      expect(wrapper.findAll('.rating-option')[1].classes()).toContain('selected')
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('distinguishes a completed but fully filtered reference from an unsubmitted source', async () => {
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), reference_tabs: [{ key: 'filtered', node_id: 'source', node_name: '来源内容', employee_no: 'E001', status: 'completed', form_schema: [], answers: {}, can_remind: false }] })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.findAll('.summary-tabs button')[1].trigger('click')
+    expect(wrapper.text()).toContain('暂无可查看内容')
+    expect(wrapper.text()).not.toContain('暂未提交')
+    expect(wrapper.find('.performance-reminder-button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('sanitizes executable markup before rendering and saving', async () => {
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({ ...structuredClone(task), answers: { work: '<img src=x onerror=alert(1)><script>alert(1)</script><b>安全内容</b>' } })
     const wrapper = mount(SelfSummaryTask)

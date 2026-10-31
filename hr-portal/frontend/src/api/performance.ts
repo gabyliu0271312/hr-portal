@@ -897,6 +897,7 @@ export type PerformanceTemplateTask = {
   task_kind: string
   entry_mode: 'template_task' | 'route' | 'none'
   node_name: string
+  content_page_name?: string
   deadline_at?: string | null
   editable: boolean
   submit_allowed: boolean

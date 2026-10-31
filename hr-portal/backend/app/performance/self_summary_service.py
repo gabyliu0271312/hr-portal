@@ -291,6 +291,8 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
             continue
         source_settings = source.get("settings") or {}
         view_settings = (view or {}).get("settings") or {}
+        if view_settings.get("allowView") is False:
+            continue
         hide_name = bool(view_settings.get("hideName", source_settings.get("hideName", False)))
         hide_description = bool(view_settings.get("hideDescription", source_settings.get("hideDescription", False)))
         section["hide_name"] = hide_name
@@ -330,6 +332,29 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
         if fields:
             projected.append(section)
     return projected
+
+
+def project_reference_content(source_template: dict, relation: dict, answers: dict) -> tuple[list[dict], dict]:
+    content_settings = ((relation.get("reference_settings") or {}).get("content_settings") or {})
+    source_contents = [
+        content for content in source_template.get("content") or []
+        if isinstance(content, dict) and (content.get("content_slot") or "fill") == "fill"
+    ]
+    view_contents = []
+    for source in source_contents:
+        content_id = _content_identity(source)
+        override = content_settings.get(content_id) or {}
+        if not isinstance(override, dict):
+            override = {}
+        view = {**deepcopy(source), "content_slot": "view", "settings": {**(source.get("settings") or {}), **(override.get("root") or {})}}
+        items_by_id = override.get("items") or {}
+        view["items"] = [
+            {**deepcopy(item), "settings": {**(item.get("settings") or {}), **items_by_id.get(str(item.get("id") or ""), {})}}
+            for item in source.get("items") or []
+        ]
+        view_contents.append(view)
+    schema = _project_result_view_schema({"content": source_contents}, view_contents)
+    return schema, project_self_summary_answers(schema, answers, include_readonly=True)
 
 
 def _project_result_view_answer(field: dict, value: object) -> object:

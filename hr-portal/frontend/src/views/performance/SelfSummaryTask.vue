@@ -1,29 +1,33 @@
 <template>
-  <div class="self-summary-page">
-    <PerformanceSelfSummaryHeader :person="task.person" @back="router.back()" />
-    <nav class="summary-tabs" aria-label="绩效填写页签">
-      <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="activeTab = tab.key">{{ tab.label }}</button>
-    </nav>
-    <main class="summary-scroll">
-      <section v-if="loading" class="state">正在加载…</section>
-      <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
-      <div v-else-if="activeTab === 'current'" class="task-content">
-        <div v-if="task.prompts?.length || task.calibration_notice" class="task-notices">
-          <PerformancePromptDisplay v-for="(prompt, index) in task.prompts || []" :key="`prompt-${index}`" :value="prompt" />
-          <PerformancePromptNotice v-if="task.calibration_notice" type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice>
-        </div>
-        <PerformanceTemplateRenderer ref="formRef" mode="edit" :title="task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+  <PerformanceTaskWorkspace>
+    <template #header><PerformanceSelfSummaryHeader :person="task.person" @back="router.back()" /></template>
+    <template #tabs>
+      <nav class="summary-tabs" aria-label="绩效填写页签">
+        <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="activeTab = tab.key">{{ tab.label }}</button>
+      </nav>
+    </template>
+    <section v-if="loading" class="state">正在加载…</section>
+    <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
+    <div v-else-if="activeTab === 'current'" class="task-content">
+      <div v-if="task.prompts?.length || task.calibration_notice" class="task-notices">
+        <PerformancePromptDisplay v-for="(prompt, index) in task.prompts || []" :key="`prompt-${index}`" :value="prompt" />
+        <PerformancePromptNotice v-if="task.calibration_notice" type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice>
       </div>
-      <PerformanceReferenceContent v-else-if="activeReference" :reference="activeReference" @remind="openReminder" />
-    </main>
-    <PerformanceSelfSummaryFooter v-if="activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" />
-  </div>
+      <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
+      <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" mode="edit" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+    </div>
+    <PerformanceReferenceContent v-else-if="activeReference" :reference="activeReference" @remind="openReminder" />
+    <template #footer>
+      <PerformanceSelfSummaryFooter v-if="activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" />
+    </template>
+  </PerformanceTaskWorkspace>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
 import PerformanceReferenceContent from '@/components/performance/PerformanceReferenceContent.vue'
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
@@ -47,7 +51,7 @@ const formRef = ref<{ focusField: (id: string) => void } | null>(null)
 const activeTab = ref('current')
 const tabs = computed(() => [{ key: 'current', label: task.value.node_name || '加载中…' }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
 const activeReference = computed<PerformanceReferenceTab | null>(() => task.value.reference_tabs?.find(reference => reference.key === activeTab.value) || null)
-const canEdit = computed(() => task.value.editable && task.value.submit_allowed)
+const canEdit = computed(() => !loading.value && !loadError.value && task.value.form_schema.length > 0 && task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
 
@@ -80,7 +84,7 @@ function updateAnswer(id: string, value: unknown) { if (canEdit.value) answers[i
 function queueSave() {
   if (!canEdit.value) return
   window.clearTimeout(saveTimer)
-  saveTimer = window.setTimeout(() => { void saveDraft() }, 350)
+  saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, 350)
 }
 function saveDraft() {
   const snapshot = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers))) as Record<string, unknown>
@@ -137,7 +141,7 @@ function validate() {
   return !first
 }
 async function submit() {
-  if (!validate() || !canEdit.value) return
+  if (submitting.value || !canEdit.value || !validate()) return
   window.clearTimeout(saveTimer)
   submitting.value = true
   try {
@@ -163,6 +167,18 @@ onBeforeUnmount(() => window.clearTimeout(saveTimer))
 </script>
 
 <style scoped>
-:global(html:has(.self-summary-page)){scrollbar-gutter:auto}
-.self-summary-page{display:flex;height:100vh;min-width:0;flex-direction:column;overflow:hidden;background:#f4f5f6;color:#1f2329;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}.task-content{min-width:0}.task-notices{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.task-notices :deep(.performance-prompt-display),.task-notices :deep(.prompt-notice){width:100%}.summary-tabs{display:flex;width:calc(100% - 24px);height:48px;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:#fff}.summary-tabs button{position:relative;height:48px;padding:0 0;border:0;background:transparent;color:#1f2329;font-size:16px;line-height:24px;cursor:pointer}.summary-tabs button.active{color:#3370ff;font-weight:600}.summary-tabs button.active::after{position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px 3px 0 0;background:#3370ff;content:''}.summary-tabs button:disabled{cursor:not-allowed;opacity:.55}.summary-scroll{min-height:0;flex:1;overflow-x:hidden;overflow-y:auto;padding:12px 12px 75px}.state{display:flex;min-height:320px;align-items:center;justify-content:center;border-radius:8px;background:#fff;color:#646a73}.state.error{flex-direction:column;gap:12px}.state.error p{margin:0}.state.error button{height:32px;padding:0 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer}
+.task-content{display:flex;flex-direction:column;min-width:0;gap:12px}
+.task-template-renderer,.task-content > .state{flex:1;min-height:0}
+.task-notices{display:flex;flex:none;flex-direction:column;gap:8px}
+.task-notices :deep(.performance-prompt-display),.task-notices :deep(.prompt-notice){width:100%}
+.summary-tabs{display:flex;flex:none;min-width:0;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:var(--color-bg-card);overflow-x:auto}
+.summary-tabs button{position:relative;flex:none;min-height:48px;padding:0;border:0;background:transparent;color:var(--color-text-primary);font-size:16px;line-height:24px;white-space:nowrap;cursor:pointer}
+.summary-tabs button.active{color:var(--color-primary);font-weight:600}
+.summary-tabs button.active::after{position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px 3px 0 0;background:var(--color-primary);content:''}
+.summary-tabs button:focus-visible{outline:2px solid var(--color-primary);outline-offset:-2px}
+.state{display:flex;min-height:0;align-items:center;justify-content:center;border-radius:8px;background:var(--color-bg-card);color:var(--color-text-secondary)}
+.state.error{flex-direction:column;gap:12px}
+.state.error p{margin:0}
+.state.error button{min-height:32px;padding:0 16px;border:0;border-radius:6px;background:var(--color-primary);color:var(--color-bg-card);cursor:pointer}
+@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer{padding-inline:16px}}
 </style>

@@ -18,7 +18,7 @@ from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVA
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
-from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
+from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
@@ -203,6 +203,11 @@ def _reference_status(task: PerformanceNodeTask | None, node: PerformanceProject
     return "pending"
 
 
+def _task_content_page_name(node: PerformanceProjectNodeSnapshot) -> str:
+    template = (node.config or {}).get("template") or {}
+    return template.get("content_page_name") or node.name
+
+
 async def _reference_tabs(
     task: PerformanceNodeTask,
     node: PerformanceProjectNodeSnapshot,
@@ -261,8 +266,16 @@ async def _reference_tabs(
         source = next((item for item in source_task if _task_completed(item)), None) or (source_task[0] if source_task else None)
         status = _reference_status(source, reference_node, project)
         completed = status == "completed"
+        relation = next((
+            item for item in template.get("content") or []
+            if (item.get("content_slot") or "fill") == "reference"
+            and item.get("reference_kind") == "node"
+            and str(item.get("reference_value") or "").strip() == reference_node_id
+        ), {})
         if completed and source is not None:
-            schema, visible_answers = await _task_visible_content(source, reference_node, db)
+            _, visible_answers = await _task_visible_content(source, reference_node, db)
+            source_template = await _self_summary_template(source, reference_node, db)
+            schema, visible_answers = project_reference_content(source_template, relation, visible_answers)
         else:
             schema, visible_answers = [], {}
         result.append({
@@ -373,6 +386,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "phase_id": getattr(task, "phase_id", "") or None,
         "entry_mode": _task_entry_mode(task),
         "node_name": node.name,
+        "content_page_name": _task_content_page_name(node),
         "deadline_at": due_at,
         "submitted_at": task.submitted_at,
         "editable": editable,

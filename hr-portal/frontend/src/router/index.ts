@@ -670,16 +670,16 @@ const routes: RouteRecordRaw[] = [
     },
     {
       path: '/performance/review/self-summary',
-      name: 'PerformanceSelfSummaryStandalone',
+      name: 'PerformanceSelfSummary',
       component: () => import('@/views/performance/SelfSummaryTask.vue'),
-      meta: { label: 'Self Summary', menuCode: null, hideAside: true },
+      meta: { label: '填写工作总结', menuCode: null, hideAside: true, fullScreenWorkspace: true },
     },
     {
       path: '/performance/review/template-task',
       name: 'PerformanceTemplateTaskStandalone',
       component: () => import('@/views/performance/SelfSummaryTask.vue'),
       props: { taskKind: 'evaluation' },
-      meta: { label: '绩效任务', menuCode: null, hideAside: true },
+      meta: { label: '绩效任务', menuCode: null, hideAside: true, fullScreenWorkspace: true },
     },
     {
       path: '/performance',
@@ -701,12 +701,6 @@ const routes: RouteRecordRaw[] = [
         name: 'PerformanceReview',
         component: () => import('@/views/performance/Review.vue'),
         meta: { label: '绩效评估', menuCode: 'performance.app' },
-      },
-      {
-        path: 'review/self-summary',
-        name: 'PerformanceSelfSummary',
-        component: () => import('@/views/performance/SelfSummaryTask.vue'),
-        meta: { label: '自我总结', menuCode: 'performance.app', hideAside: true },
       },
       {
         path: 'projects',
