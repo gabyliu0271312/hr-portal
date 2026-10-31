@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import secrets
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from app.users.models import Menu, RoleMenu, User
 
 MANAGEMENT_MENU = "system.identity_management"
 SWITCH_PERMISSION = "performance.identity_switch"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -236,6 +238,8 @@ async def create_session(db, user, payload):
     db.add(session)
     audit(db, user.id, "IDENTITY_SWITCH_STARTED", session_id=session.id, effective_employee_no=session.target_employee_no)
     await db.commit()
+    logger.info("identity_switch_created session_id=%s operator_id=%s generation=%s expires_at=%s",
+                session.id, user.id, session.generation, session.expires_at.isoformat())
     return {"session_id": session.id, "session_token": secret, "expires_at": session.expires_at,
             "effective_identity": employee, "mode": "TARGET_POLICY"}
 
@@ -259,13 +263,21 @@ async def _renew_switch_session(db, session):
 async def validate_session(db, user, secret):
     setting = await get_setting(db, lock=True, shared=True)
     if not await can_switch(db, user, setting):
+        logger.warning("identity_switch_rejected operator_id=%s reason=operator_not_qualified generation=%s",
+                       user.id, setting.generation)
         fail("SWITCH_PERMISSION_DENIED", "身份切换资格已失效", 410)
     session = (await db.execute(select(IdentitySwitchSession).where(IdentitySwitchSession.secret_hash == token_hash(secret)))).scalar_one_or_none()
     if not session or session.operator_user_id != user.id:
         fail("SWITCH_SESSION_OWNER_MISMATCH", "身份切换凭证无效")
     if session.revoked_at is not None or (user.id != setting.admin_operator_user_id and session.generation != setting.generation):
+        logger.warning("identity_switch_rejected session_id=%s operator_id=%s reason=%s session_generation=%s current_generation=%s",
+                       session.id, user.id, "revoked" if session.revoked_at is not None else "generation_mismatch",
+                       session.generation, setting.generation)
         fail("SWITCH_SESSION_REVOKED", "身份切换已撤销", 410)
-    if session.expires_at <= datetime.now(UTC):
+    now = datetime.now(UTC)
+    if session.expires_at <= now:
+        logger.warning("identity_switch_expired session_id=%s operator_id=%s created_at=%s expires_at=%s checked_at=%s generation=%s",
+                       session.id, user.id, session.created_at.isoformat(), session.expires_at.isoformat(), now.isoformat(), session.generation)
         fail("SWITCH_SESSION_EXPIRED", "身份切换已到期，请恢复本人", 410)
     await _renew_switch_session(db, session)
     employee = await find_employee(db, session.target_employee_no)

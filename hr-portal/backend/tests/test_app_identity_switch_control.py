@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import httpx
@@ -184,6 +185,21 @@ async def _postgres_scenario(monkeypatch):
                 session_row = await db.get(IdentitySwitchSession, own.json()["session_id"])
                 remaining = session_row.expires_at - datetime.now(UTC)
                 assert remaining >= timedelta(minutes=29), f"续期后应剩约 30 分钟，实际剩 {remaining}"
+            # 旧会话到期后，原始操作者仍可直接建立新会话；到期凭证不能阻断后续切换
+            expired = await start(10, "expired-session")
+            assert expired.status_code == 201, expired.text
+            async with factory() as db:
+                session_row = await db.get(IdentitySwitchSession, expired.json()["session_id"])
+                session_row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+                await db.commit()
+            expired_header = auth(10) | {"X-App-Switch-Session": expired.json()["session_token"]}
+            expired_result = await client.get("/api/v1/performance/identity-switch/session", headers=expired_header)
+            assert expired_result.status_code == 410
+            replacement = await start(10, "replacement-session")
+            assert replacement.status_code == 201, replacement.text
+            replacement_header = auth(10) | {"X-App-Switch-Session": replacement.json()["session_token"]}
+            replacement_result = await client.get("/api/v1/performance/identity-switch/session", headers=replacement_header)
+            assert replacement_result.status_code == 200, replacement_result.text
             draft = await client.patch("/api/v1/performance/tasks/1/self-summary/draft", headers=own_header, json={"answers": {"work": "verified-real-write"}})
             assert draft.status_code == 200, draft.text
             denied_write = await client.patch("/api/v1/performance/tasks/2/self-summary/draft", headers=own_header, json={"answers": {"work": "must-not-write"}})
@@ -344,3 +360,44 @@ def test_switched_hrbp_filters_organization_and_invisible_people():
     project = SimpleNamespace(id=1, cycle_ref="cycle", administrators=[], settings={"data_managers": ["HRBP"]})
     result = asyncio.run(_project_data_scope(context, project, Database(), "performance.frontend.data-view"))
     assert result == {"E001"}
+
+
+def test_expired_session_is_rejected_with_safe_diagnostics(monkeypatch, caplog):
+    now = datetime.now(UTC)
+    expired = SimpleNamespace(
+        id="expired-session", operator_user_id=10, generation=7, revoked_at=None,
+        created_at=now-timedelta(hours=1), expires_at=now-timedelta(minutes=30),
+    )
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: expired)))
+    monkeypatch.setattr(service, "get_setting", AsyncMock(return_value=SimpleNamespace(admin_operator_user_id=10)))
+    renew = AsyncMock()
+    monkeypatch.setattr(service, "_renew_switch_session", renew)
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(service.validate_session(db, SimpleNamespace(id=10, is_active=True), "must-not-log-this-token"))
+    assert caught.value.status_code == 410
+    assert caught.value.detail["code"] == "SWITCH_SESSION_EXPIRED"
+    renew.assert_not_awaited()
+    assert "identity_switch_expired session_id=expired-session" in caplog.text
+    assert expired.expires_at.isoformat() in caplog.text
+    assert "checked_at=" in caplog.text
+    assert "must-not-log-this-token" not in caplog.text
+    assert service.token_hash("must-not-log-this-token") not in caplog.text
+
+
+def test_new_session_has_fresh_expiry_and_safe_creation_log(monkeypatch, caplog):
+    rows = []
+    db = SimpleNamespace(scalar=AsyncMock(return_value=None), add=rows.append, commit=AsyncMock())
+    monkeypatch.setattr(service, "get_setting", AsyncMock(return_value=SimpleNamespace(admin_operator_user_id=10, generation=7)))
+    monkeypatch.setattr(service, "find_employee", AsyncMock(return_value={"employee_no": "E002", "display_name": "Employee two"}))
+    before = datetime.now(UTC)
+    with caplog.at_level("INFO", logger=service.__name__):
+        result = asyncio.run(service.create_session(
+            db, SimpleNamespace(id=10, is_active=True),
+            SessionCreate(employee_no="E002", expected_generation=7, request_id="fresh-after-expiry"),
+        ))
+    assert result["expires_at"] >= before+timedelta(minutes=30)
+    assert result["session_id"] in caplog.text
+    assert "identity_switch_created" in caplog.text
+    assert result["session_token"] not in caplog.text
+    assert service.token_hash(result["session_token"]) not in caplog.text
+    db.commit.assert_awaited_once()

@@ -182,11 +182,14 @@ const switchDialog = ref(false)
 const recordsDialog = ref(false)
 const switchCapability = ref<SwitchCapability | null>(null)
 let heartbeat: ReturnType<typeof setInterval> | undefined
+let heartbeatSession: typeof employeeSwitchSession.value = null
 async function checkSwitchSession() {
   const session = employeeSwitchSession.value
-  if (!session) return
+  if (!session || heartbeatSession === session) return
+  heartbeatSession = session
   try {
-    await api.get('/performance/identity-switch/session', { headers: { 'X-App-Switch-Session': session.session_token } })
+    const response = await api.get('/performance/identity-switch/session', { headers: { 'X-App-Switch-Session': session.session_token } })
+    if (employeeSwitchSession.value === session && response.data?.expires_at) session.expires_at = response.data.expires_at
   } catch (error: any) {
     if (employeeSwitchSession.value !== session) return
     const status = error?.response?.status
@@ -194,7 +197,12 @@ async function checkSwitchSession() {
     if (!status || status >= 500) return
     const detail = error?.response?.data?.detail
     clearEmployeeSwitch(typeof detail === 'string' && detail ? detail : '身份切换已失效，请恢复本人或重新申请授权')
+  } finally {
+    if (heartbeatSession === session) heartbeatSession = null
   }
+}
+function checkSwitchSessionOnResume() {
+  if (document.visibilityState === 'visible') void checkSwitchSession()
 }
 async function refreshIdentity() {
   const version = employeeSwitchEpoch.value
@@ -202,8 +210,11 @@ async function refreshIdentity() {
     const context = await performanceApi.getAccessContext()
     if (version === employeeSwitchEpoch.value) performanceContext.value = context
   } catch { if (version === employeeSwitchEpoch.value) performanceContext.value = null }
-  try { switchCapability.value = await identitySwitchApi.capability() }
-  catch { switchCapability.value = null }
+  if (version !== employeeSwitchEpoch.value) return
+  try {
+    const capability = await identitySwitchApi.capability()
+    if (version === employeeSwitchEpoch.value) switchCapability.value = capability
+  } catch { if (version === employeeSwitchEpoch.value) switchCapability.value = null }
 }
 async function restoreIdentity() {
   const previous = employeeSwitchSession.value
@@ -226,9 +237,15 @@ watch([() => projectContext.navigation, () => route.path], () => {
 })
 onMounted(() => {
   void refreshIdentity()
+  document.addEventListener('visibilitychange', checkSwitchSessionOnResume)
+  window.addEventListener('focus', checkSwitchSessionOnResume)
   heartbeat = setInterval(() => void checkSwitchSession(), 15000)
 })
-onUnmounted(() => { if (heartbeat) clearInterval(heartbeat) })
+onUnmounted(() => {
+  if (heartbeat) clearInterval(heartbeat)
+  document.removeEventListener('visibilitychange', checkSwitchSessionOnResume)
+  window.removeEventListener('focus', checkSwitchSessionOnResume)
+})
 
 </script>
 

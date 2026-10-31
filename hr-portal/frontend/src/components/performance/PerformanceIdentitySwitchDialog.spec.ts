@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ElementPlus from 'element-plus'
 import PerformanceIdentitySwitchDialog from './PerformanceIdentitySwitchDialog.vue'
-import { clearEmployeeSwitch, employeeSwitchSession } from '@/stores/identitySwitch'
+import { clearEmployeeSwitch, employeeSwitchNotice, employeeSwitchSession, setEmployeeSwitch } from '@/stores/identitySwitch'
 
 const mocks = vi.hoisted(() => ({ people: vi.fn(), favorites: vi.fn(), addFavorite: vi.fn(), removeFavorite: vi.fn(), capability: vi.fn(), create: vi.fn(), end: vi.fn(), replace: vi.fn() }))
 vi.mock('@/api/identitySwitch', () => ({ identitySwitchApi: mocks }))
@@ -73,4 +73,33 @@ describe('performance employee switch dialog', () => {
     expect(mocks.create).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+
+  it('creates a fresh session after expiry without refresh or reactivation', async () => {
+    mocks.favorites.mockResolvedValue([saved])
+    clearEmployeeSwitch('身份切换已到期，请恢复本人')
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('.favorite-person').trigger('click')
+    await flushPromises()
+    expect(mocks.create).toHaveBeenCalledWith('E-NO-PORTAL', 7)
+    expect(mocks.end).not.toHaveBeenCalled()
+    expect(employeeSwitchSession.value?.session_token).toBe('secret')
+    expect(employeeSwitchNotice.value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('ends the previous session before switching to another employee', async () => {
+    setEmployeeSwitch({ session_id: 'expired', session_token: 'expired-secret', expires_at: '2000-01-01', mode: 'TARGET_POLICY', effective_identity: { employee_no: 'old', display_name: 'Old employee' } })
+    mocks.end.mockResolvedValue(undefined)
+    mocks.favorites.mockResolvedValue([saved])
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('.favorite-person').trigger('click')
+    await flushPromises()
+    expect(mocks.end).toHaveBeenCalledWith('expired')
+    expect(mocks.end.mock.invocationCallOrder.at(-1)).toBeLessThan(mocks.create.mock.invocationCallOrder.at(-1)!)
+    expect(employeeSwitchSession.value?.session_id).toBe('s')
+    wrapper.unmount()
+  })
+
 })
