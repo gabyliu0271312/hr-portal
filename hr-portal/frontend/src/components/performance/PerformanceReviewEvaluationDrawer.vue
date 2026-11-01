@@ -13,7 +13,7 @@
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
-            <PerformanceReviewCompletionNotice variant="evaluation-drawer" :editable="!props.readonly && Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
+            <PerformanceReviewCompletionNotice :task-id="task?.task_id" :task-kind="task?.task_kind" :employee-no="props.employeeNo" variant="evaluation-drawer" :editable="!props.readonly && Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
           </div>
         </section>
@@ -55,7 +55,7 @@ const emit = defineEmits<{
   'update:activeTab': [value: string]
   close: []
   closed: []
-  edit: [payload: { task_id: string | number; employee_no: string }]
+  edit: [payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }]
   'copy-link': []
   remind: [reference: PerformanceReferenceTab]
 }>()
@@ -109,9 +109,9 @@ async function load() {
     if (sequence === loadSequence) loading.value = false
   }
 }
-function edit() {
+function edit(choice?: 'use' | 'discard') {
   if (!task.value || props.readonly || !task.value.editable) return
-  emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no })
+  emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no, draft_choice: choice })
 }
 watch(() => [props.modelValue, props.taskId, props.employeeNo], () => {
   if (props.modelValue) {

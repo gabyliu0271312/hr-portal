@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="visible && anchor" v-bind="$attrs" ref="popover" class="performance-popover" :class="[name, `${name}--${placement}`]" :data-placement="placement" :style="position" role="tooltip" @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')">
+    <div v-if="visible && anchor" v-bind="$attrs" ref="popover" class="performance-popover" :class="[name, `${name}--${placement}`]" :data-placement="placement" :style="position" :role="role" @mouseenter="$emit('mouseenter')" @mouseleave="$emit('mouseleave')">
       <div class="performance-popover__content" :class="contentClass"><slot /></div>
       <div class="performance-popover__arrow" :class="[arrowClass, `performance-popover__arrow--${placement}`]" :style="{ left: `${arrowLeft}px` }" aria-hidden="true">
         <svg width="16" height="8" viewBox="0 0 16 8" fill="none"><path d="M8-.5H0v1c1.553 0 3.033.664 4.065 1.825l2.814 3.166a1.5 1.5 0 002.242 0l2.814-3.166A5.438 5.438 0 0116 .5v-1H8z" /></svg>
@@ -15,6 +15,7 @@ import { onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
 defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<{
   visible: boolean
+  role?: 'tooltip' | 'dialog'
   anchor: HTMLElement | DOMRect | null
   width?: number | 'auto'
   gap?: number
@@ -22,7 +23,7 @@ const props = withDefaults(defineProps<{
   name?: string
   contentClass?: string
   arrowClass?: string
-}>(), { name: 'performance-popover' })
+}>(), { name: 'performance-popover', role: 'tooltip' })
 const emit = defineEmits<{ close: []; mouseenter: []; mouseleave: [] }>()
 const popover = ref<HTMLElement | null>(null)
 const placement = ref<'top' | 'bottom'>('top')

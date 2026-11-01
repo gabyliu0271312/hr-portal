@@ -996,6 +996,7 @@ class PerformanceNodeTask(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    draft_answers: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     answer_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

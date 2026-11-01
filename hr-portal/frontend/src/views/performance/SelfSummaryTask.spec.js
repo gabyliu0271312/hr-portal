@@ -273,6 +273,8 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({ grade: '__unknown__', other: expect.stringContaining('其他内容已填写') }), 1)
     vi.mocked(performanceReviewApi.submitSelfSummary).mockClear()
+    await wrapper.get('[aria-label="编辑已提交内容"]').trigger('click')
+    await flushPromises()
     await wrapper.get('[data-field-id="grade"] .rating-option').trigger('click')
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     expect(wrapper.text()).toContain('说明为必填')
@@ -612,6 +614,97 @@ describe('SelfSummaryTask switched identity navigation', () => {
       await flushPromises()
       expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', { text: 'latest' }, 3)
     } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+})
+
+
+describe('submitted answers and draft choices', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    push.mockReset()
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/self-summary', query: { task_id: '901', project_id: '3', node: 'summary' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+    localStorage.setItem('userMode', 'fullScreenMode')
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => {
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+  })
+  const submittedTask = () => ({ ...structuredClone(task), task_id: 901, task_kind: 'work_summary', project_id: 3, node_id: 'summary', return_view: 'node', submitted_at: '2026-11-01T00:00:00Z', version: 5, has_draft: true, draft_answers: { work: '<p>草稿B</p>' }, answers: { work: '<p>提交A</p>' }, form_schema: [{ id: 's', name: '工作总结', fields: [{ id: 'work', type: 'rich_text', label: '总结', required: true }] }] })
+
+  it.each(['use', 'discard'])('requires a choice and loads the matching %s data', async choice => {
+    const loaded = submittedTask()
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockImplementation(async () => structuredClone(loaded))
+    const discard = vi.spyOn(performanceReviewApi, 'discardTaskDraft').mockImplementation(async () => { loaded.has_draft = false; loaded.draft_answers = {}; loaded.version++; return { version: loaded.version } })
+    const wrapper = mount(SelfSummaryTask, { attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.get('.rich-answer').text()).toBe('提交A')
+    const buttons = document.body.querySelectorAll('.performance-draft-choice button')
+    expect(buttons).toHaveLength(2)
+    ;buttons[choice === 'use' ? 1 : 0].click()
+    await flushPromises()
+    expect(wrapper.get('[contenteditable="true"]').text()).toContain(choice === 'use' ? '草稿B' : '提交A')
+    expect(discard).toHaveBeenCalledTimes(choice === 'use' ? 0 : 1)
+    if (choice === 'discard') expect(discard).toHaveBeenCalledWith(901, 'work_summary', 5, 'E001')
+    wrapper.unmount()
+  })
+
+  it('keeps the choice open on a discard conflict without entering editing', async () => {
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(submittedTask())
+    vi.spyOn(performanceReviewApi, 'discardTaskDraft').mockRejectedValue(new Error('VERSION_CONFLICT'))
+    const wrapper = mount(SelfSummaryTask, { attachTo: document.body })
+    await flushPromises()
+    document.body.querySelector('.performance-draft-choice button').click()
+    await flushPromises()
+    expect(document.body.textContent).toContain('草稿处理失败，请重试')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.get('.rich-answer').text()).toBe('提交A')
+    wrapper.unmount()
+  })
+
+  it.each(['node', 'drawer', 'page'])('navigates to the corresponding %s view only after success', async returnView => {
+    const loaded = { ...submittedTask(), return_view: returnView, has_draft: false }
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(loaded)
+    vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ answers: loaded.answers, version: 6, submitted_at: '2026-11-01T01:00:00Z', editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    const location = push.mock.calls.at(-1)[0]
+    expect(location.path).toBe(returnView === 'page' ? '/performance/review/self-summary' : '/performance/review')
+    expect(location.query).toMatchObject({ project_id: '3', task_id: '901', node: 'summary' })
+    if (returnView === 'drawer') expect(location.query.rootReviewId).toBe('901')
+    if (returnView === 'page') expect(location.query.view).toBe('1')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not navigate on failed submit and retains editable content', async () => {
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({ ...submittedTask(), has_draft: false })
+    vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockRejectedValue(new Error('VERSION_CONFLICT'))
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.get('[contenteditable="true"]').text()).toContain('提交A')
+    wrapper.unmount()
+  })
+  it('opens edit choice on the view page without navigating until selected', async () => {
+    const Notice = (await import('@/components/performance/PerformanceReviewCompletionNotice.vue')).default
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(submittedTask())
+    const wrapper = mount(Notice, { attachTo: document.body, props: { editable: true, message: '已提交', taskId: 901, taskKind: 'work_summary' } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('edit')).toBeUndefined()
+    expect(document.activeElement.textContent).toBe('不使用')
+    document.body.querySelector('.performance-draft-choice .performance-button--primary').click()
+    await flushPromises()
+    expect(wrapper.emitted('edit')).toEqual([['use']])
+    wrapper.unmount()
   })
 
 })

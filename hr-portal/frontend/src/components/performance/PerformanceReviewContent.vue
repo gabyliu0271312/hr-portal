@@ -54,7 +54,7 @@
         </template>
         <template v-else-if="node.status === 'completed'">
           <div class="completed-content">
-            <PerformanceReviewCompletionNotice :editable="Boolean(node.editable)" :message="node.editable ? (node.end_at ? `你可以在 ${formatEditDeadline(node.end_at)} 前继续编辑` : '已提交，可继续编辑') : (node.end_at ? `该环节已在 ${formatEditDeadline(node.end_at)} 截止；如有疑问，请联系你的 HRBP。` : '该环节已截止；如有疑问，请联系你的 HRBP。')" @edit="emit('open-node', node)" />
+            <PerformanceReviewCompletionNotice :task-id="node.task_id || undefined" :task-kind="node.task_kind" :editable="Boolean(node.editable)" :message="node.editable ? (node.end_at ? `你可以在 ${formatEditDeadline(node.end_at)} 前继续编辑` : '已提交，可继续编辑') : (node.end_at ? `该环节已在 ${formatEditDeadline(node.end_at)} 截止；如有疑问，请联系你的 HRBP。` : '该环节已截止；如有疑问，请联系你的 HRBP。')" @edit="choice => emit('open-node', { ...node!, draft_choice: choice })" />
             <PerformanceTemplateRenderer v-if="node.form_schema?.length" mode="readonly" :sections="node.form_schema" :answers="node.answers || {}" />
             <p v-else class="completed-fallback">已完成</p>
           </div>

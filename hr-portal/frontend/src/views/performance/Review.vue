@@ -258,11 +258,11 @@ async function openMember(payload: { node: PerformanceReviewNode; member: Perfor
 async function openReminderPlaceholder(reference: PerformanceReferenceTab) {
   await router.push({ name: 'PerformanceReminderPlaceholder', query: { project_id: String(activeProjectId.value || ''), node_id: reference.node_id, task_id: String(reference.task_id || ''), employee_no: reference.employee_no } })
 }
-async function editDrawerTask(payload: { task_id: string | number; employee_no: string }) {
+async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }) {
   const current = drawerMember.value
   drawerMember.value = null
   if (!current) return
-  const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id) }, activeProjectId.value)
+  const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value)
   if (!taskRoute) return
   await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
   await router.push(taskRoute)

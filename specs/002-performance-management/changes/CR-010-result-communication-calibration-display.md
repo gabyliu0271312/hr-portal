@@ -182,3 +182,35 @@
 - 浏览器验收：真实Vite填写路由＋隔离API夹具，实际输入Backspace；保存夹具调用真实Python后端`sanitize_rich_text`，再GET重开及只读显示：末行保留、OL序号1/2不变、组合格式中文未丢失，符号均#3370FF、行高24px；1次PATCH version1，390px无横向溢出、pageerror=0。task-entry/tag/default/readonly × 普通/粗体/斜体/下划线/组合/链接，实测72行均普通偏移0/列表22px、行高24px。
 - UI证据：`ui-blueprints/CR-010-F06-implemented-list-format-alignment.png`、`ui-blueprints/CR-010-F06-implemented-list-readonly-roundtrip.png`，均已查看，对应实际Vue页面及受控API，非飞书生产截图。
 - 边界：无迁移、历史记录批量重写或权限修改；未执行真实PostgreSQL保存重开、OS中文输入法端到端、生产验收、commit/push或部署。本轮为本地实现与可执行验收，不代表生产已发布。
+
+
+## 14. CR-010-F07 已提交内容/草稿分离与提交后查看（2026-11-01）
+
+### 确认与范围
+- 用户已确认：编辑但未提交不影响查看；再次编辑有草稿时提示“不使用/使用草稿”；不使用丢弃草稿后从正式内容开始；使用草稿载入未提交内容；提交成功进入对应查看页，失败留在编辑页。
+- UI依据：用户提供2026-11-01飞书`/preview`的255×107确认浮层采集（14/22/600标题、16px信息图标、28px小按钮、12px按钮间距、20/24px内边距），用户“完成上述全部修复”确认此交互版本。REA历史证据`ev_60b2e5fee8435e142f78e4a87e5f046878fa6d33061368f6f7c6e594e723db4f`，模块594377确认getDraft/deleteDraft分支，模块622018的VIEWABLE只取正式value，模块821317提交后清草稿。静态证据不冒称已操作飞书业务数据。
+- 任务：F07-T01数据/API、F07-T02草稿确认UI、F07-T03提交查看导航、F07-T04回归与迁移验收。沿现有页面和用户采集，不重设计IA；读取Spec012 N00/N11及UI护栏，未引入UCP。保护其他中文文档删除项和临时文件，无生产操作、commit/push或部署。
+- 复用：`PerformancePopover`（新增可选dialog语义，原默认tooltip不变）、`PerformanceButton`小按钮、`PerformancePromptNotice`已有info图标路径；新`PerformanceDraftChoice.vue`仅承载共享草稿交互，不复制SVG路径/按钮实现。确认浮层真实实测255×108（1px边框差异），非居中删除弹窗；Escape/点击外部关闭不等于“不使用”，不删除草稿。
+
+### 冻结契约与实现
+- `answers`现在只保存正式提交内容；新增nullable JSONB `draft_answers`，NULL=没有草稿，空对象可表示实际草稿；类型`none_as_null=True`保证清理草稿落SQL NULL而非JSON null。原HTML字符串答案、角色/字段/项目/周期快照契约保留。
+- PATCH既有`self-summary/draft`与`template-task/draft`只修改草稿及answer_version，不动正式内容、completed状态或submitted_at。与正式答案相同则不保留多余草稿。
+- POST既有submit：校验通过后在同一事务更新正式答案、清草稿并更新版本及提交状态；现有校准提交/草稿审计保留。失败不清草稿。真实SQLAlchemy任务保存/放弃会先行锁refresh，后检查版本，阻止并发旧请求覆盖新提交。
+- GET任务详情保留`answers`为正式数据，增加`has_draft`、裁剪后的`draft_answers`、`project_id`、`node_id`、`return_view`。只读概览、来源引用、结果/评级消费原answers，自然不读取未提交草稿。
+- 新增DELETE `/performance/tasks/{task_id}/self-summary/draft`及`template-task/draft`，body=`{version:int>=1}`，复用真实任务处理人/人员目标/阶段授权和时间窗；冲突409 VERSION_CONFLICT，不可操作409 SUBMISSION_NOT_ALLOWED，越权/缺失404 TASK_NOT_FOUND。仅清草稿并递增版本，校准放弃记录CALIBRATION_DRAFT_DISCARDED；正式内容不变。
+- 个人查看与已完成抽屉点击编辑先取最新详情：有草稿先确认，否则直接编辑；选择通过route draft_choice传递。直达编辑URL同样有保护；未选择前只读显示正式内容、禁用保存提交。丢弃失败保留浮层和正式内容，不能误进入编辑。
+- 提交开始停止待发草稿，等待当前在途保存，取最新version提交；提交后只读并失效项目概览缓存。个人work_summary/self-evaluation返回对应节点；非本人evaluation及结果沟通返回列表并恢复详情抽屉；校准使用原填写路由view=1只读查看。所有路径保留项目、节点、任务及目标人员；不用history.back作为成功跳转。失败保留输入，导航失败不误报提交失败。
+
+### 迁移与历史边界
+- 新迁移`0289_performance_task_drafts.py`，revision=`0289_pm_task_drafts`，down_revision=`0288_pm_published_level`；唯一head已确认。
+- upgrade仅把未提交任务原answers搬入draft_answers并清空正式answers；已提交历史原样保留，不假设能恢复此前已被覆盖的旧提交版本，不倒填、不批量伪造历史快照。
+- downgrade有已提交任务独立草稿时主动拒绝，避免两份内容合并导致丢失；可降级时把未提交草稿还原原answers后删新列。
+- 已验证：PostgreSQL离线upgrade SQL、迁移操作契约单测、保护性downgrade单测和NULL绑定单测。**真实PostgreSQL upgrade/downgrade/回滚仍blocked**：本地5432连接TimeoutError、Docker Desktop pipe不可用；没有启动/安装新数据库或更改已有库schema。发布前必须先在可用隔离PostgreSQL执行升降级及数据比较，再按批准流程迁移应用库；新代码依赖此列。
+
+### 验收证据
+- 前端：`npm --prefix hr-portal/frontend test -- src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts`，**7文件237 passed**；含use/discard、版本冲突、无草稿、直达编辑保护、提交失败不跳转、node/drawer/page成功导航及查看缓存。
+- 后端：backend目录`.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -q`，**349 passed、4 skipped**，1条已有python_multipart弃用告警。新增正式A→草稿B仍查看A→放弃→新草稿→失败不丢失→提交C清草稿→迟到请求409，handler拒绝、过滤隐藏/只读伪造、迁移保护测试。
+- 最终构建：`npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，Vite 38.11s；`git diff --check`通过。隔离验收API进程已停止。
+- Chromium真实Vite路由：填写→自动保存B→返回查看A→弹层→使用B→返回→不使用载入A→输入C提交→跳查看→刷新C；保存/提交/放弃调用实际FastAPI router服务逻辑，经独立内存SQLite fixture存储（任务/权限解析隔离，非业务数据库/非PostgreSQL）。has_draft=false、version4、0 pageerrors、390px无横向溢出。
+- UI截图：`ui-blueprints/CR-010-F07-implemented-draft-choice.png`、`ui-blueprints/CR-010-F07-implemented-submit-view.png`，均已读取确认对应实际实现，不冒称生产验收。
+- 状态：F07-T01/T02/T03本地实现与受控验证完成；F07-T04单元/页面已通过，真实PostgreSQL迁移验收blocked，**不将该整体任务标记完全验收或可发布**。历史提交恢复、生产迁移、生产数据验收、OS真实中文输入法不在本次已验证范围。

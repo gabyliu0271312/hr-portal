@@ -1553,8 +1553,10 @@ async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch, a
         Db(),
     )
 
-    assert task.answers == {"work": answer, "other": "保留内容"}
-    assert result["answers"]["work"] == answer
+    assert task.answers == {"work": "原内容", "other": "保留内容"}
+    assert task.draft_answers == {"work": answer}
+    assert result["answers"]["work"] == "原内容"
+    assert result["has_draft"] is True
     assert result["version"] == 2
 
 
@@ -1904,7 +1906,8 @@ async def test_self_summary_save_uses_live_project_window_not_frozen_task(monkey
     assert db.commits == 0
     target.settings["flow_settings"]["node_times"]["summary"]["start_at"] = "2026-09-16T00:00:00Z"
     result = await projects_router._save_self_summary(1, payload, False, context(), db)
-    assert result["answers"]["work"] == "完成"
+    assert task.draft_answers["work"] == "完成"
+    assert result["answers"] == {}
     assert result["editable"] and result["submit_allowed"]
     assert db.commits == 1
     assert task.available_at == Clock(2026, 9, 20, tzinfo=UTC)
@@ -3307,7 +3310,11 @@ async def test_employee_hidden_and_readonly_forgery_is_not_written_or_echoed(mon
         "visible": {"tags": ["a"], "notes": {"a": "Allowed answer"}}, "hidden": "forged", "readonly": "forged", "unknown": "forged",
     }, version=1)
     result = await projects_router._save_self_summary(9, payload, submit, context(), Db())
-    assert result["answers"] == {"visible": payload.answers["visible"]}
+    if submit:
+        assert result["answers"] == {"visible": payload.answers["visible"]}
+    else:
+        assert task.draft_answers == {"visible": payload.answers["visible"]}
+        assert result["answers"] == {"visible": {"tags": ["a"], "notes": {"a": "Previous"}}}
     assert task.answers["hidden"] == original_hidden
     assert task.answers["readonly"] == "secret-old-readonly"
     assert "unknown" not in task.answers
@@ -5331,3 +5338,89 @@ def test_rich_text_rejects_noncanonical_list_numbers(number):
 
     clean = sanitize_rich_text(f'<ol start="{number}" data-start="{number}"><li data-start="{number}">内容</li></ol>')
     assert clean == "<ol><li>内容</li></ol>"
+
+
+@pytest.mark.asyncio
+async def test_submitted_answers_survive_draft_discard_validation_and_resubmission(monkeypatch):
+    from datetime import UTC, datetime
+    from fastapi import HTTPException
+    from app.performance import projects_router as router
+    task = SimpleNamespace(id=901, project_id=3, task_kind="work_summary", available_at=None, due_at=None, submitted_at=datetime.now(UTC), answer_version=1, answers={"work": "<p>提交A</p>"}, draft_answers=None, status="completed", completed_at=None)
+    node = SimpleNamespace(node_id="summary", node_type="work_summary", config={"template": {"content": [{"content_id": "summary", "type": "work_summary", "items": [{"id": "work", "label": "总结", "settings": {"required": True}}]}]}})
+    async def get_task(*_args): return task, node
+    class Db:
+        async def get(self, *_args): return None
+        async def commit(self): pass
+    monkeypatch.setattr(router, "_self_summary_task", get_task)
+    db = Db()
+    submitted_at = task.submitted_at
+    payload = router.SelfSummaryAnswersPayload(answers={"work": "<p>草稿B</p>"}, version=1)
+    await router._save_self_summary(901, payload, False, context(), db)
+    assert task.answers == {"work": "<p>提交A</p>"}
+    assert task.draft_answers == payload.answers
+    assert task.status == "completed" and task.submitted_at == submitted_at
+    _, visible = await router._task_visible_content(task, node, db)
+    assert visible == task.answers
+    with pytest.raises(HTTPException) as stale:
+        await router._discard_task_draft(901, router.TaskDraftVersionPayload(version=1), context(), db, "work_summary", None)
+    assert stale.value.detail == "VERSION_CONFLICT" and task.draft_answers == payload.answers
+    await router._discard_task_draft(901, router.TaskDraftVersionPayload(version=2), context(), db, "work_summary", None)
+    assert task.draft_answers is None and task.answers == visible
+    await router._save_self_summary(901, router.SelfSummaryAnswersPayload(answers={"work": "<p>草稿C</p>"}, version=3), False, context(), db)
+    with pytest.raises(HTTPException) as invalid:
+        await router._save_self_summary(901, router.SelfSummaryAnswersPayload(answers={"work": ""}, version=4), True, context(), db)
+    assert invalid.value.status_code == 400 and task.answers == visible
+    assert task.draft_answers == {"work": "<p>草稿C</p>"}
+    await router._save_self_summary(901, router.SelfSummaryAnswersPayload(answers={"work": "<p>提交C</p>"}, version=4), True, context(), db)
+    assert task.answers == {"work": "<p>提交C</p>"} and task.draft_answers is None
+    with pytest.raises(HTTPException) as late:
+        await router._save_self_summary(901, router.SelfSummaryAnswersPayload(answers={"work": "过期草稿"}, version=4), False, context(), db)
+    assert late.value.detail == "VERSION_CONFLICT"
+    assert task.answers == {"work": "<p>提交C</p>"} and task.draft_answers is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["work_summary", "evaluation"])
+async def test_discard_draft_enforces_handler_identity_and_target_scope(monkeypatch, kind):
+    from fastapi import HTTPException
+    from app.performance import projects_router as router
+    task = SimpleNamespace(cycle_ref="c", handler_ref="owner", task_kind=kind, target_employee_no="E1")
+    class Db:
+        async def execute(self, _statement): return SimpleNamespace(first=lambda: (task, SimpleNamespace()))
+    async def trusted(*_args, **_kwargs): return SimpleNamespace(actor_ref="intruder")
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", trusted)
+    with pytest.raises(HTTPException) as denied:
+        await router._discard_task_draft(1, router.TaskDraftVersionPayload(version=1), context(), Db(), kind, "E1")
+    assert denied.value.status_code == 404
+
+
+def test_task_draft_migration_does_not_backfill_submitted_history_and_blocks_lossy_downgrade(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0289_performance_task_drafts.py"
+    spec = importlib.util.spec_from_file_location("task_drafts_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    operations = []
+    binding = SimpleNamespace(scalar=lambda _stmt: None)
+    monkeypatch.setattr(migration, "op", SimpleNamespace(add_column=lambda *args: operations.append(("add", args)), execute=lambda sql: operations.append(("sql", sql)), drop_column=lambda *args: operations.append(("drop", args)), get_bind=lambda: binding))
+    migration.upgrade()
+    assert migration.down_revision == "0288_pm_published_level"
+    assert "submitted_at IS NULL" in operations[-1][1]
+    assert "SET draft_answers = answers" in operations[-1][1]
+    binding.scalar = lambda _stmt: 1
+    with pytest.raises(RuntimeError, match="禁止删除"):
+        migration.downgrade()
+    assert not any(item[0] == "drop" for item in operations)
+    binding.scalar = lambda _stmt: None
+    migration.downgrade()
+    assert "answers = draft_answers" in operations[-2][1]
+    assert operations[-1] == ("drop", ("performance_node_tasks", "draft_answers"))
+
+
+def test_cleared_task_draft_binds_to_sql_null_not_json_null():
+    from sqlalchemy.dialects.postgresql import dialect
+    from app.performance.models import PerformanceNodeTask
+    column = PerformanceNodeTask.__table__.c.draft_answers
+    assert column.nullable and column.type.none_as_null is True
+    assert column.type.bind_processor(dialect())(None) is None

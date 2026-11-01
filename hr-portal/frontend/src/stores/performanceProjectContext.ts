@@ -94,6 +94,11 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     const projectId = overview.active_project?.project_id
     if (projectId) reviewOverviews.value = { ...reviewOverviews.value, [projectId]: overview }
   }
+  function invalidateReviewOverview(projectId: number) {
+    const next = { ...reviewOverviews.value }
+    delete next[projectId]
+    reviewOverviews.value = next
+  }
   function reviewOverview(projectId: number | null | undefined) { return projectId ? reviewOverviews.value[projectId] || null : null }
   function setSelectedReviewNode(projectId: number, nodeId: string) { selectedReviewNodes.value = { ...selectedReviewNodes.value, [projectId]: nodeId } }
   function selectedReviewNode(projectId: number | null | undefined) { return projectId ? selectedReviewNodes.value[projectId] || '' : '' }
@@ -135,6 +140,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     workbenchProjects,
     setActiveProjectId,
     setReviewOverview,
+    invalidateReviewOverview,
     reviewOverview,
     setSelectedReviewNode,
     selectedReviewNode,

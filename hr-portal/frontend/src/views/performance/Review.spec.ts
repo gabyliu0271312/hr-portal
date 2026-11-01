@@ -302,8 +302,8 @@ describe('PerformanceReview', () => {
   it('uses only registered task kind and entry mode for template task navigation', async () => {
     const { performanceTaskEntryRoute } = await import('@/components/performance/performanceTaskEntry')
     const registered = overview.categories[0].nodes[0]
-    expect(performanceTaskEntryRoute(registered, 1)).toBe('/performance/review/self-summary?task_id=11&project_id=1')
-    expect(performanceTaskEntryRoute({ ...registered, task_id: 299, task_kind: 'evaluation' }, 3)).toBe('/performance/review/template-task?task_id=299&project_id=3')
+    expect(performanceTaskEntryRoute(registered, 1)).toBe('/performance/review/self-summary?task_id=11&project_id=1&node=summary')
+    expect(performanceTaskEntryRoute({ ...registered, task_id: 299, task_kind: 'evaluation' }, 3)).toBe('/performance/review/template-task?task_id=299&project_id=3&node=summary')
     expect(performanceTaskEntryRoute({ ...registered, entry_mode: 'route' }, 1)).toBeNull()
     expect(performanceTaskEntryRoute({ ...registered, task_kind: 'future_task' }, 1)).toBeNull()
     expect(performanceTaskEntryRoute({ ...registered, task_id: undefined }, 1)).toBeNull()
@@ -318,7 +318,7 @@ describe('PerformanceReview', () => {
     expect(wrapper.text()).toContain('未开始')
     await wrapper.get('.review-node').trigger('click')
     await wrapper.get('.primary-button').trigger('click')
-    expect(push).toHaveBeenCalledWith('/performance/review/self-summary?task_id=11&project_id=1')
+    expect(push).toHaveBeenCalledWith('/performance/review/self-summary?task_id=11&project_id=1&node=summary')
   })
 
   it('keeps the time subtitle on unfinished nodes', async () => {
@@ -396,9 +396,11 @@ describe('PerformanceReview', () => {
     expect(wrapper.text()).not.toContain('暂未填写')
     expect(wrapper.text()).not.toContain('去完成')
 
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({ task_id: 11, has_draft: false, editable: true, submit_allowed: true } as any)
     await wrapper.get('.performance-review-completion-notice__edit').trigger('click')
+    await flushPromises()
     expect(replace).toHaveBeenLastCalledWith({ query: { project_id: '1', node: 'summary', task_id: '11' } })
-    expect(push).toHaveBeenCalledWith('/performance/review/self-summary?task_id=11&project_id=1')
+    expect(push).toHaveBeenCalledWith('/performance/review/self-summary?task_id=11&project_id=1&node=summary')
   })
 
   it('shows submitted content without an edit action after the deadline', async () => {
@@ -621,7 +623,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 23, employee_no: 'E3', display_name: '待沟通', status: 'pending' })
     await flushPromises()
-    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=23&project_id=1')
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=23&project_id=1&node=communicate')
     wrapper.unmount()
   })
 

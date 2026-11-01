@@ -24,16 +24,16 @@
           </div>
         </template>
         <section v-if="loading" class="state">正在加载…</section>
-        <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
+        <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load()">重新加载</button></section>
         <template v-else>
           <div v-show="isSplit || activeTab === 'current'" class="task-content">
             <div v-if="task.calibration_notice" class="task-notices"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
             <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
-            <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" mode="edit" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+            <div v-else ref="draftAnchor"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" /></div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
@@ -42,6 +42,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getActivePinia } from 'pinia'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
+import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
+import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
 import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
 import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
@@ -61,6 +65,10 @@ const loading = ref(true)
 const loadError = ref('')
 const saving = ref(false)
 const submitting = ref(false)
+const viewing = ref(route.query.view === '1')
+const draftOpen = ref(false)
+const draftPending = ref(false)
+const draftAnchor = ref<HTMLElement | null>(null)
 const saveMessage = ref('草稿将实时保存到云端')
 const task = ref<SelfSummaryTask>({ task_id: String(route.query.task_id || ''), task_kind: props.taskKind, entry_mode: 'template_task', node_name: '', person: { employee_no: '', display_name: '当前用户' }, editable: false, submit_allowed: false, form_schema: [], answers: {} })
 const answers = reactive<Record<string, unknown>>({})
@@ -77,7 +85,7 @@ const displayMode = computed<PerformanceWriteMode>(() => mode.value === 'basicWr
 const isSplit = computed(() => displayMode.value === 'basicWriteMode')
 function changeMode(value: PerformanceWriteMode) { mode.value = value; activeTab.value = 'current' }
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
-const canEdit = computed(() => !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
+const canEdit = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
 let pendingSave = false
@@ -90,7 +98,7 @@ function errorMessage(error: unknown, fallback: string) {
   if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message
   return fallback
 }
-async function load() {
+async function load(choice?: 'use' | 'discard' | 'edit') {
   loading.value = true
   loadError.value = ''
   try {
@@ -102,7 +110,19 @@ async function load() {
     task.value = loaded
     activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
-    Object.assign(answers, loaded.editable && loaded.submit_allowed ? performanceTemplateInitialAnswers(loaded.form_schema, loaded.answers || {}) : loaded.answers || {})
+    if (choice) {
+      viewing.value = false
+      if (route.query.view === '1') {
+        const { view: _view, draft_choice: _choice, ...query } = route.query
+        await router.replace({ query })
+      }
+    }
+    const decision = choice || route.query.draft_choice
+    draftPending.value = !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use')
+    draftOpen.value = draftPending.value
+    const useDraft = !viewing.value && !draftPending.value && loaded.has_draft
+    const values = useDraft ? { ...loaded.answers, ...loaded.draft_answers } : loaded.answers || {}
+    Object.assign(answers, loaded.editable && loaded.submit_allowed && !viewing.value && !draftPending.value ? performanceTemplateInitialAnswers(loaded.form_schema, values) : values)
     savedAnswers = JSON.stringify(performanceTemplateWritableAnswers(loaded.form_schema, answers))
   } catch (error) {
     loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
@@ -124,7 +144,7 @@ function saveDraft() {
   saving.value = true
   saveChain = (async () => {
     try {
-      while (pendingSave && !disposed && canEdit.value) {
+      while (pendingSave && !disposed && !submitting.value && canEdit.value) {
         pendingSave = false
         const serialized = JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers))
         if (serialized === savedAnswers) continue
@@ -185,6 +205,7 @@ async function submit() {
   if (submitting.value || !canEdit.value || !validate()) return
   window.clearTimeout(saveTimer)
   submitting.value = true
+  pendingSave = false
   try {
     await saveChain.catch(() => undefined)
     const payload = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers)))
@@ -197,13 +218,30 @@ async function submit() {
     task.value.submit_allowed = result.submit_allowed ?? task.value.submit_allowed
     task.value.version = result.version ?? task.value.version
     saveMessage.value = '提交成功'
+    viewing.value = true
+    Object.keys(answers).forEach(key => delete answers[key])
+    Object.assign(answers, { ...task.value.answers, ...payload })
+    const projectId = String(task.value.project_id || route.query.project_id || '')
+    if (getActivePinia()) usePerformanceProjectContextStore().invalidateReviewOverview(Number(projectId))
+    const nodeId = task.value.node_id || String(route.query.node || '')
+    const query: Record<string, string> = { project_id: projectId, node: nodeId, task_id: String(task.value.task_id) }
+    if (route.query.cycle_id) query.cycle_id = String(route.query.cycle_id)
+    if (task.value.return_view === 'drawer') {
+      query.rootReviewId = String(task.value.task_id)
+      query.activeTab = nodeId
+    }
+    if (employeeNo) query.employee_no = employeeNo
+    try {
+      if (task.value.return_view === 'page' || !nodeId) await router.push({ path: route.path || (props.taskKind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'), query: { ...query, view: '1' } })
+      else await router.push({ path: '/performance/review', query })
+    } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }
   } catch (error) {
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
   } finally {
     submitting.value = false
   }
 }
-onMounted(load)
+onMounted(() => load())
 onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeout(saveTimer) })
 </script>
 

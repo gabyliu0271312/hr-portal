@@ -127,6 +127,7 @@ export type PerformanceReviewMemberContext = {
 }
 
 export interface PerformanceReviewNode {
+  draft_choice?: 'use' | 'discard'
   task_id?: number
   node_id: string
   node_name: string
@@ -288,6 +289,11 @@ export const performanceReview360FeedbackApi = {
 }
 
 export const performanceReviewApi = {
+  async discardTaskDraft(taskId: number | string, kind: string, version: number, employeeNo?: string): Promise<{ version: number }> {
+    const endpoint = kind === 'work_summary' ? 'self-summary' : 'template-task'
+    const { data } = await api.delete(`/performance/tasks/${encodeURIComponent(String(taskId))}/${endpoint}/draft`, { data: { version }, params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
   async overview(projectId?: number, taskId?: number, cycleId?: number): Promise<PerformanceReviewOverview> {
     const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', {
       params: projectId || taskId || cycleId ? { ...(projectId ? { project_id: projectId } : {}), ...(taskId ? { task_id: taskId } : {}), ...(cycleId ? { cycle_id: cycleId } : {}) } : undefined,
@@ -897,6 +903,11 @@ export type SelfSummaryPerson = {
   profile_fields?: SelfSummaryProfileField[]
 }
 export type PerformanceTemplateTask = {
+  project_id?: number
+  node_id?: string
+  return_view?: 'node' | 'drawer' | 'page'
+  has_draft?: boolean
+  draft_answers?: Record<string, unknown>
   task_id: string | number
   task_kind: string
   entry_mode: 'template_task' | 'route' | 'none'

@@ -36,6 +36,10 @@ class SelfSummaryAnswersPayload(BaseModel):
     version: int | None = Field(default=None, ge=1)
 
 
+class TaskDraftVersionPayload(BaseModel):
+    version: int = Field(ge=1)
+
+
 class ResultOpeningBatchPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     employee_nos: list[str] = Field(min_length=1, max_length=500)
@@ -369,6 +373,9 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     return {
         "task_id": task.id,
+        "project_id": task.project_id,
+        "node_id": node.node_id,
+        "return_view": "page" if task.task_kind == "calibration" else ("node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer"),
         "task_kind": task.task_kind,
         "executor_role_code": ((node.config or {}).get("template") or {}).get("executor_role_code"),
         "phase_id": getattr(task, "phase_id", "") or None,
@@ -395,6 +402,8 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
+        "has_draft": getattr(task, "draft_answers", None) is not None,
+        "draft_answers": project_self_summary_answers(schema, getattr(task, "draft_answers", None) or {}),
         "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
         "reference_tabs": await _reference_tabs(task, node, project, actor_ref, db),
@@ -421,6 +430,8 @@ async def get_template_task(task_id: int, context: PerformanceAccessContext = De
 
 async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, submit: bool, context: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
+    if isinstance(task, PerformanceNodeTask):
+        await db.refresh(task, with_for_update=True)
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
@@ -431,7 +442,8 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         raise HTTPException(status_code=409, detail="VERSION_CONFLICT")
     template = await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template)
-    incoming_answers = payload.answers if submit else {**(task.answers or {}), **payload.answers}
+    current_draft = getattr(task, "draft_answers", None)
+    incoming_answers = payload.answers if submit else {**(current_draft if current_draft is not None else task.answers or {}), **payload.answers}
     answers = sanitize_self_summary_answers(schema, incoming_answers)
     if submit:
         for section, field, index, value in iter_self_summary_field_instances(schema, answers):
@@ -440,10 +452,14 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
             if self_summary_field_requires_value(field, value) and self_summary_value_empty(field, value):
                 raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
     writable_ids = {field["id"] for section in schema for field in section["fields"] if not field.get("readonly")}
-    before_answers = dict(task.answers or {})
-    task.answers = {**{key: value for key, value in (task.answers or {}).items() if key not in writable_ids}, **answers}
+    before_answers = dict((task.answers if submit else current_draft) or {})
+    if submit:
+        task.answers = {**{key: value for key, value in (task.answers or {}).items() if key not in writable_ids}, **answers}
+        task.draft_answers = None
+    else:
+        task.draft_answers = answers if answers != project_self_summary_answers(schema, task.answers or {}) else None
     if getattr(task, "task_kind", None) == "calibration":
-        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type="EMPLOYEE", actor_ref=task.handler_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"answers": before_answers}, after_state={"answers": task.answers, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
+        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type="EMPLOYEE", actor_ref=task.handler_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"answers": before_answers}, after_state={"answers": task.answers if submit else task.draft_answers, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
     task.answer_version += 1
     if submit:
         task.submitted_at = datetime.now(UTC)
@@ -453,7 +469,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
             await _sync_automatic_openings(db, project)
     await db.commit()
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    return {"answers": project_self_summary_answers(schema, task.answers), "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
+    return {"answers": project_self_summary_answers(schema, task.answers), "has_draft": task.draft_answers is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
 
 
 @router.patch("/tasks/{task_id}/self-summary/draft")
@@ -474,6 +490,36 @@ async def save_template_task_draft(task_id: int, payload: SelfSummaryAnswersPayl
 @router.post("/tasks/{task_id}/template-task/submit")
 async def submit_template_task(task_id: int, payload: SelfSummaryAnswersPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None)):
     return await _save_self_summary(task_id, payload, True, context, db, "evaluation", employee_no)
+
+
+@router.delete("/tasks/{task_id}/self-summary/draft")
+async def discard_self_summary_draft(task_id: int, payload: TaskDraftVersionPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None)):
+    return await _discard_task_draft(task_id, payload, context, db, "work_summary", employee_no)
+
+
+@router.delete("/tasks/{task_id}/template-task/draft")
+async def discard_template_task_draft(task_id: int, payload: TaskDraftVersionPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None)):
+    return await _discard_task_draft(task_id, payload, context, db, "evaluation", employee_no)
+
+
+async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, context: PerformanceAccessContext, db: AsyncSession, task_kind: str, employee_no: str | None):
+    task, node = await _self_summary_task(task_id, context, db, task_kind, employee_no)
+    if isinstance(task, PerformanceNodeTask):
+        await db.refresh(task, with_for_update=True)
+    project = await db.get(PerformanceProject, task.project_id)
+    available_at, due_at = _task_window(task, node, project)
+    overdue_allowed = False if task.task_kind == "calibration" else await _overdue_submission_allowed(task, node, db)
+    editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
+    if not editable or not submit_allowed:
+        raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
+    if payload.version != task.answer_version:
+        raise HTTPException(status_code=409, detail="VERSION_CONFLICT")
+    if task.task_kind == "calibration" and getattr(task, "draft_answers", None) is not None:
+        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_DRAFT_DISCARDED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type="EMPLOYEE", actor_ref=task.handler_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"draft_answers": task.draft_answers}, after_state={"draft_answers": None, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
+    task.draft_answers = None
+    task.answer_version += 1
+    await db.commit()
+    return {"version": task.answer_version, "has_draft": False}
 
 
 class EvaluatorPreviewPayload(BaseModel):
