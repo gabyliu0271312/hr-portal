@@ -8,10 +8,11 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 
 const push = vi.fn()
 const replace = vi.fn()
+const resolve = vi.fn(({ path, query }: { path: string; query: Record<string, string | undefined> }) => ({ href: `${path}?${new URLSearchParams(Object.entries(query).filter((entry): entry is [string, string] => Boolean(entry[1]))).toString()}` }))
 const routeQuery = vi.hoisted(() => ({} as Record<string, string>))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeQuery }),
-  useRouter: () => ({ push, replace }),
+  useRouter: () => ({ push, replace, resolve }),
 }))
 
 import Review from './Review.vue'
@@ -492,6 +493,32 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('restores a shared completed task and copies its reference-tab link', async () => {
+    const shared = structuredClone(overview)
+    Object.assign(shared.categories[2].nodes[0], { node_id: 'manager-review', node_name: '上级评估', node_type: 'evaluation', task_kind: 'evaluation', status: 'completed' })
+    Object.assign(routeQuery, { project_id: '1', node: 'manager-review', rootReviewId: '22', activeTab: 'summary' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce(shared)
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 22, task_kind: 'evaluation', entry_mode: 'template_task', node_name: '上级评估', submitted_at: '2026-01-01T00:00:00Z', editable: false, submit_allowed: false, person: { employee_no: 'E002', display_name: '授权员工' }, form_schema: [], answers: {}, reference_tabs: [{ key: 'reference-summary', node_id: 'summary', node_name: '工作总结', employee_no: 'E002', status: 'completed', form_schema: [{ id: 'summary', name: '工作总结', fields: [{ id: 'answer', type: 'rich_text', label: '总结' }] }], answers: { answer: '已授权参考内容' }, can_remind: false }] })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(performanceReviewApi.overview).toHaveBeenCalledWith(1, 22, 1)
+    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(22)
+    expect(document.body.textContent).toContain('已授权参考内容')
+    expect(document.body.querySelector('.performance-drawer__mask')).toBeNull()
+    ;(document.body.querySelector('[aria-label="复制链接"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('rootReviewId=22'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('activeTab=summary'))
+    ;(document.body.querySelector('[aria-label="关闭"]') as HTMLButtonElement).click()
+    await flushPromises()
+    await new Promise(resolve => setTimeout(resolve, 250))
+    expect(replace).toHaveBeenLastCalledWith({ query: { project_id: '1', node: 'manager-review' } })
+    expect(document.body.querySelector('.performance-drawer__panel')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('renders self evaluation as a form task instead of the member workspace', async () => {
     vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce({
       ...overview,
@@ -762,6 +789,7 @@ describe('PerformanceReview', () => {
     expect(wrapper.emitted('open-task')?.at(-1)).toEqual([{ task_id: 4, employee_no: 'E4', display_name: '拒绝员工', status: 'rejected' }])
     wrapper.unmount()
   })
+
   it.each(['成员甲', 'gaby.liu刘琦', '很长的姓名'.repeat(12)])('uses the member list avatar rule without duplicating the accessible name for %s', name => {
     const wrapper = mount(PerformanceMemberIdentity, { props: { displayName: name } })
     expect(wrapper.get('.member-avatar').text()).toBe(name.slice(-1))
@@ -794,6 +822,7 @@ describe('PerformanceReview', () => {
     }
     wrapper.unmount()
   })
+
   it('hides completed badges in the sidebar without removing their navigation entries', async () => {
     const loaded = structuredClone(overview)
     Object.assign(loaded.categories[0].nodes[0], { status: 'completed' })

@@ -247,6 +247,7 @@ onMounted(() => void refreshIdentity())
 .header-left,
 .header-right {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 0;
 }
@@ -366,6 +367,13 @@ onMounted(() => void refreshIdentity())
   min-height: 0;
   overflow: hidden;
   scrollbar-gutter: auto;
+}
+@media (max-width: 640px) {
+  .performance-header { padding: 0 10px; }
+  .header-left { overflow: hidden; }
+  .header-right { flex: 0 0 auto; }
+  .performance-tabs { margin: 0 8px; }
+  .tab-button { padding: 0 10px; font-size: 14px; }
 }
 @media (max-width: 900px) {
   .performance-header {

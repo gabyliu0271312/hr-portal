@@ -40,7 +40,12 @@
       :employee-no="drawerMember.member.employee_no"
       :node-name="drawerMember.node.node_name"
       :person="drawerMember.member"
+      :active-tab="drawerMember.active_tab"
       :readonly="Boolean(performanceReviewDisplay(drawerMember.node.node_type)?.completedReadonly)"
+      @update:active-tab="updateDrawerTab"
+      @close="closeDrawer"
+      @closed="finishClosingDrawer"
+      @copy-link="copyDrawerLink"
       @edit="editDrawerTask"
       @remind="openReminderPlaceholder"
     />
@@ -49,7 +54,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
   performanceReviewApi,
@@ -103,8 +109,51 @@ const visibleCategories = computed(() => (overview.value?.categories || []).filt
 const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
 const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes))
 const selectedNode = computed(() => allNodes.value.find(node => node.node_id === selectedNodeId.value) || allNodes.value[0] || null)
-const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number } | null>(null)
-const drawerOpen = computed({ get: () => Boolean(drawerMember.value), set: value => { if (!value) drawerMember.value = null } })
+const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number; active_tab: string } | null>(null)
+const drawerOpen = ref(false)
+function finishClosingDrawer() { if (!drawerOpen.value) drawerMember.value = null }
+function clearDrawerQuery() {
+  const { rootReviewId: _rootReview, activeTab: _activeTab, employee_no: _employee, ...query } = route.query
+  return query
+}
+function drawerQuery() {
+  const current = drawerMember.value
+  return { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current?.node.node_id, rootReviewId: String(current?.task_id || ''), activeTab: current?.active_tab === 'evaluation' ? current.node.node_id : current?.active_tab }
+}
+async function closeDrawer() {
+  drawerOpen.value = false
+  await router.replace({ query: clearDrawerQuery() })
+}
+async function updateDrawerTab(value: string) {
+  if (!drawerMember.value) return
+  drawerMember.value.active_tab = value
+  await router.replace({ query: drawerQuery() })
+}
+async function copyDrawerLink() {
+  if (!drawerMember.value) return
+  try {
+    const url = router.resolve({ path: '/performance/review', query: drawerQuery() }).href
+    await navigator.clipboard.writeText(new URL(url, window.location.origin).href)
+    ElMessage.success('链接已复制')
+  } catch { ElMessage.error('复制失败，请从浏览器地址栏复制链接') }
+}
+function restoreDrawer() {
+  const taskId = Number(route.query.rootReviewId)
+  const node = allNodes.value.find(item => item.node_id === String(route.query.node || ''))
+  if (!Number.isSafeInteger(taskId) || taskId <= 0 || !node || !(node.task_kind === 'evaluation' || performanceReviewDisplay(node.node_type)?.completedView === 'drawer')) return
+  if (drawerMember.value?.task_id === taskId && drawerMember.value.node.node_id === node.node_id) {
+    drawerMember.value.active_tab = !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab)
+    drawerOpen.value = true
+    return
+  }
+  selectedNodeId.value = node.node_id
+  drawerMember.value = { node, task_id: taskId, member: { employee_no: '' }, active_tab: !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab) }
+  drawerOpen.value = true
+}
+watch(() => [route.query.rootReviewId, route.query.activeTab, route.query.node], () => {
+  if (!route.query.rootReviewId) drawerOpen.value = false
+  else restoreDrawer()
+})
 
 function applyOverview(loaded: PerformanceReviewOverview) {
   overview.value = loaded
@@ -119,9 +168,10 @@ function applyOverview(loaded: PerformanceReviewOverview) {
     selectedNodeId.value = allNodes.value.some(node => node.node_id === rememberedNode) ? rememberedNode : allNodes.value[0]?.node_id || ''
   }
   if (projectId && selectedNodeId.value) projectContext.setSelectedReviewNode(projectId, selectedNodeId.value)
+  restoreDrawer()
 }
 function routeTaskId() {
-  const taskId = Number(route.query.task_id)
+  const taskId = Number(route.query.rootReviewId || route.query.task_id)
   return Number.isFinite(taskId) && taskId > 0 ? taskId : undefined
 }
 async function loadOverview(projectId?: number, silent = false) {
@@ -176,7 +226,8 @@ async function selectProject(rawProjectId: number | string) {
 async function selectNode(node: PerformanceReviewNode) {
   selectedNodeId.value = node.node_id
   if (activeProjectId.value) projectContext.setSelectedReviewNode(activeProjectId.value, node.node_id)
-  const { task_id: _taskId, ...query } = route.query
+  drawerMember.value = null
+  const { task_id: _taskId, ...query } = clearDrawerQuery()
   await router.replace({ query: { ...query, project_id: String(activeProjectId.value || ''), node: node.node_id } })
 }
 async function openNode(node: PerformanceReviewNode) {
@@ -193,12 +244,15 @@ async function openMember(payload: { node: PerformanceReviewNode; member: Perfor
   const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
   if (payload.member.status === 'completed' && ((payload.node.task_kind === 'evaluation' && !isSelfEvaluationNode(payload.node)) || performanceReviewDisplay(payload.node.node_type)?.completedView === 'drawer')) {
-    drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId }
+    drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId, active_tab: 'evaluation' }
+    drawerOpen.value = true
+    await router.replace({ query: drawerQuery() })
     return
   }
+  drawerMember.value = null
   const taskRoute = performanceTaskEntryRoute({ ...payload.node, task_id: taskId }, activeProjectId.value)
   if (!taskRoute) return
-  await router.replace({ query: { ...route.query, project_id: String(activeProjectId.value || ''), node: payload.node.node_id, task_id: String(taskId), employee_no: payload.member.employee_no } })
+  await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: payload.node.node_id, task_id: String(taskId), employee_no: payload.member.employee_no } })
   await router.push(taskRoute)
 }
 async function openReminderPlaceholder(reference: PerformanceReferenceTab) {
@@ -210,7 +264,7 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
   if (!current) return
   const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id) }, activeProjectId.value)
   if (!taskRoute) return
-  await router.replace({ query: { ...route.query, project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
+  await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
   await router.push(taskRoute)
 }
 onMounted(async () => {

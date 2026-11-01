@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceReviewApi } from '@/api/performance'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 
@@ -17,9 +17,13 @@ const task = {
   answers: { good: '11' },
 }
 
+afterEach(() => vi.unstubAllGlobals())
+
 describe('PerformanceReviewEvaluationDrawer', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
+    vi.stubGlobal('innerWidth', 1280)
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
   })
 
@@ -34,7 +38,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(document.body.textContent).toContain('alice.xiao肖惠方')
     expect(document.body.textContent).toContain('价值贡献 11')
     expect(document.body.textContent).toContain('你可在 2026-10-03 23:59（GMT+8） 前继续编辑')
-    expect(document.body.querySelector('.performance-drawer__panel')?.getAttribute('style')).toContain('width: 720px')
+    expect(document.body.querySelector('.performance-drawer__panel')?.getAttribute('style')).toContain('width: 1000px')
     expect(document.body.querySelector('[role="separator"]')).not.toBeNull()
     wrapper.unmount()
   })
@@ -70,7 +74,33 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
-  it('returns the same task to the edit action and closes from the mask', async () => {
+  it('displays a denied task as an error without leaking list profile data', async () => {
+    vi.mocked(performanceReviewApi.templateTask).mockRejectedValueOnce(new Error('TASK_NOT_FOUND'))
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, {
+      props: { modelValue: true, taskId: 145, employeeNo: 'E001', activeTab: 'reference-hidden', person: { employee_no: 'E001', display_name: '不可回退的列表姓名' } },
+    })
+    await flushPromises()
+    expect(document.body.textContent).toContain('评估内容加载失败')
+    expect(document.body.textContent).not.toContain('不可回退的列表姓名')
+    expect(document.body.querySelector('.performance-template-renderer')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('ignores a previous member response when switching tasks during loading', async () => {
+    let first: (value: typeof task) => void = () => {}
+    vi.mocked(performanceReviewApi.templateTask).mockImplementationOnce(() => new Promise(resolve => { first = resolve }))
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValueOnce({ ...structuredClone(task), task_id: 146, person: { employee_no: 'E002', display_name: '当前员工' } })
+    await wrapper.setProps({ taskId: 146, employeeNo: 'E002' })
+    await flushPromises()
+    first(structuredClone(task))
+    await flushPromises()
+    expect(document.body.textContent).toContain('当前员工')
+    expect(document.body.textContent).not.toContain('alice.xiao肖惠方')
+    wrapper.unmount()
+  })
+
+  it('returns the same task to the edit action and closes without a mask', async () => {
     const wrapper = mount(PerformanceReviewEvaluationDrawer, {
       props: { modelValue: true, taskId: 145, employeeNo: 'E001', person: task.person },
       global: { stubs: { PerformanceTemplateRenderer: true } },
@@ -80,7 +110,8 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     await (document.body.querySelector('.performance-review-completion-notice__edit') as HTMLButtonElement).click()
     expect(wrapper.emitted('edit')).toEqual([[{ task_id: 145, employee_no: 'E001' }]])
 
-    ;(document.body.querySelector('.performance-drawer__mask') as HTMLElement).click()
+    expect(document.body.querySelector('.performance-drawer__mask')).toBeNull()
+    ;(document.body.querySelector('.performance-drawer__close') as HTMLElement).click()
     expect(wrapper.emitted('close')).toHaveLength(1)
     expect(wrapper.emitted('update:modelValue')).toContainEqual([false])
     wrapper.unmount()
