@@ -100,9 +100,9 @@ onBeforeUnmount(() => { stopDrag(); observer?.disconnect(); window.removeEventLi
 .split-single-tabs{flex:none;min-width:0}
 .summary-scroll{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:auto;padding:12px}
 .summary-scroll :slotted(*){flex:1 0 auto;min-width:0}
-.split-separator{display:flex;flex:0 0 6px;width:6px;min-width:6px;height:100%;align-items:center;justify-content:center;padding:0;border:0;background:#f5f6f7;cursor:col-resize;user-select:none;color:#8f959e}
+.split-separator{display:flex;flex:0 0 6px;width:6px;min-width:6px;height:100%;align-items:center;justify-content:center;padding:0;border:0;background:#f5f6f7;cursor:col-resize;user-select:none;color:#8f959e;transform:translateX(6px)}
 .split-separator:hover,.split-separator:active,.is-dragging .split-separator{background:rgba(186,206,253,.7);color:var(--color-primary)}
 .split-separator:focus-visible{outline:2px solid var(--color-primary);outline-offset:-2px}
-.split-grip{width:4px;height:20px;flex:none;transform:translateX(6px)}
+.split-grip{width:4px;height:20px;flex:none}
 @media(max-width:640px){.summary-scroll{padding:12px 16px}}
 </style>
