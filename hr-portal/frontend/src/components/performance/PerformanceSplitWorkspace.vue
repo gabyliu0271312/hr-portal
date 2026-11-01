@@ -103,6 +103,6 @@ onBeforeUnmount(() => { stopDrag(); observer?.disconnect(); window.removeEventLi
 .split-separator{display:flex;flex:0 0 6px;width:6px;min-width:6px;height:100%;align-items:center;justify-content:center;padding:0;border:0;background:#f5f6f7;cursor:col-resize;user-select:none;color:#8f959e}
 .split-separator:hover,.split-separator:active,.is-dragging .split-separator{background:rgba(186,206,253,.7);color:var(--color-primary)}
 .split-separator:focus-visible{outline:2px solid var(--color-primary);outline-offset:-2px}
-.split-grip{width:4px;height:20px;flex:none}
+.split-grip{width:4px;height:20px;flex:none;transform:translateX(6px)}
 @media(max-width:640px){.summary-scroll{padding:12px 16px}}
 </style>
