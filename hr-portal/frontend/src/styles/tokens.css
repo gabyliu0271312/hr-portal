@@ -42,6 +42,12 @@
   --performance-item-title-font-weight: 600;
   --performance-item-title-line-height: 22px;
   --performance-item-title-color: var(--color-text-primary);
+  --performance-field-title-font-family: 'Microsoft YaHei', 'PingFang SC', var(--font-sans);
+  --performance-rich-text-line-height: 24px;
+  --performance-rich-text-list-indent: 22px;
+  --performance-rich-text-marker-color: #3370ff;
+  --performance-rich-text-bullet-font-family: Arial, sans-serif;
+  --performance-rich-text-bullet-font-size: 18px;
 
   /* Shared performance content option cards */
   --performance-content-option-card-min-height: 54px;

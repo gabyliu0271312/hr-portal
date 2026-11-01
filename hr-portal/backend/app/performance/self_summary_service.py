@@ -501,6 +501,26 @@ class _RichTextSanitizer(HTMLParser):
             href = next((value or "" for name, value in attrs if name == "href"), "")
             if urlparse(href).scheme.lower() in {"http", "https", "mailto"}:
                 rendered_attrs = f' href="{escape(href, quote=True)}" rel="noopener noreferrer"'
+        else:
+            classes = {
+                "div": {"ace-line", "list-div", "list-indent1"},
+                "ol": {"list-number1", "r-list", "r-list-number"},
+                "ul": {"list-bullet1", "r-list", "r-list-bullet"},
+            }
+            for name, value in attrs:
+                if name == "class" and tag in classes:
+                    value = " ".join(item for item in (value or "").split() if item in classes[tag])
+                elif tag in {"ol", "ul", "li"} and name in {"start", "data-start", "data-origin-start"}:
+                    if not value or len(value) > 6 or value.startswith("0") or not value.isascii() or not value.isdecimal():
+                        continue
+                elif tag == "div" and ((name == "data-node" and value == "true") or (name == "dir" and value == "auto")):
+                    pass
+                elif tag == "span" and name in {"data-string", "data-enter", "data-leaf"} and value == "true":
+                    pass
+                else:
+                    continue
+                if value:
+                    rendered_attrs += f' {name}="{escape(value, quote=True)}"'
         self.parts.append(f"<{tag}{rendered_attrs}>")
 
     def handle_endtag(self, tag: str):

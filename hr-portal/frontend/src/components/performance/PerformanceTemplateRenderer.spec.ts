@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
+import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import templateFieldRendererSource from './PerformanceTemplateFieldRenderer.vue?raw'
@@ -347,6 +348,118 @@ describe('PerformanceTemplateRenderer', () => {
     expect(Array.from(input.element.querySelectorAll('.ace-line')).map(line => line.textContent?.replace(/​/g, ''))).toEqual(['ab', 'cd'])
     expect(input.element.children[0].querySelector('strong')?.textContent).toBe('ab')
     expect(input.element.children[1].querySelector('strong')?.textContent).toBe('cd')
+    wrapper.unmount()
+  })
+
+  it.each(['OL', 'UL'])('downgrades an empty %s item before merging with the preceding line', async type => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: `<${type}><li>第一项</li><li>第二项</li><li></li></${type}>` } })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    const third = input.element.children[2]
+    const range = document.createRange()
+    range.setStart(third.querySelector('[data-enter]')!.firstChild!, 1)
+    range.collapse(true)
+    const selected = document.getSelection()!
+    selected.removeAllRanges()
+    selected.addRange(range)
+    const backspace = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(backspace)
+    expect(backspace.defaultPrevented).toBe(true)
+    expect(input.element.children).toHaveLength(3)
+    expect(input.element.querySelectorAll('li')).toHaveLength(2)
+    expect(input.element.children[2].classList.contains('list-indent1')).toBe(type === 'OL')
+    expect(input.element.children[2].contains(selected.anchorNode)).toBe(true)
+    expect(input.element.children[1].textContent).toContain('第二项')
+    if (type === 'OL') {
+      await input.trigger('keydown', { key: 'Backspace' })
+      expect(input.element.children).toHaveLength(3)
+      expect(input.element.children[2].classList.contains('list-indent1')).toBe(false)
+    }
+    wrapper.unmount()
+  })
+
+  it('handles beforeinput list deletion, keeps marks and ignores non-boundary deletions and IME', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<ol><li>前项</li><li><strong><em><u>正文</u></em></strong></li><li>后项</li></ol>' } })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    const node = input.element.children[1].querySelector('[data-leaf]')!.firstChild!
+    const range = document.createRange()
+    range.setStart(node, 1)
+    range.collapse(true)
+    const selected = document.getSelection()!
+    selected.removeAllRanges()
+    selected.addRange(range)
+    const middle = new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(middle)
+    expect(middle.defaultPrevented).toBe(false)
+    range.setStart(node, 0)
+    range.collapse(true)
+    selected.removeAllRanges()
+    selected.addRange(range)
+    const forward = new InputEvent('beforeinput', { inputType: 'deleteContentForward', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(forward)
+    expect(forward.defaultPrevented).toBe(false)
+    const ime = new KeyboardEvent('keydown', { key: 'Backspace', isComposing: true, bubbles: true, cancelable: true })
+    input.element.dispatchEvent(ime)
+    expect(ime.defaultPrevented).toBe(false)
+    const backward = new InputEvent('beforeinput', { inputType: 'deleteContentBackward', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(backward)
+    expect(backward.defaultPrevented).toBe(true)
+    expect(input.element.children[1].querySelector('strong em u')?.textContent).toBe('正文')
+    expect(input.element.children[1].classList.contains('list-indent1')).toBe(true)
+    expect(input.element.children[1].contains(selected.anchorNode)).toBe(true)
+    expect(Array.from(input.element.querySelectorAll('ol')).map(list => list.getAttribute('start'))).toEqual(['1', '1'])
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(input.element.children[2].classList.contains('list-indent1')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('retains safe list metadata and numbering in readonly answers without allowing active attributes', () => {
+    const html = '<div class="ace-line list-div injected" onclick="bad()"><ol class="r-list r-list-number injected" start="2" style="color:red"><li data-start="2" onmouseover="bad()"><strong><em><u>第二项</u></em></strong></li></ol></div><div class="ace-line list-indent1"><span>缩进行</span></div><ul><li>无序项</li></ul>'
+    const wrapper = mount(PerformanceReadonlyAnswer, { props: { field: { id: 'r', label: '正文', type: 'rich_text' }, value: html } })
+    expect(wrapper.get('.rich-answer').classes()).toContain('performance-rich-text-content')
+    expect(wrapper.get('ol').attributes('start')).toBe('2')
+    expect(wrapper.get('ol li').attributes('data-start')).toBe('2')
+    expect(wrapper.get('strong em u').text()).toBe('第二项')
+    expect(wrapper.find('.list-indent1').exists()).toBe(true)
+    expect(wrapper.find('[onclick], [onmouseover], [style], .injected').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reconstructs legacy split ordered-list numbering and leaves old answers unchanged', async () => {
+    const value = '<div><ol><li>第一项</li></ol></div><div><ol><li>第二项</li></ol></div><p>中间段落</p><ol><li>新列表</li><li>下一项</li></ol>'
+    const wrapper = mount(PerformanceReadonlyAnswer, { props: { field: { id: 'r', label: '正文', type: 'rich_text' }, value } })
+    expect(wrapper.findAll('ol li').map(item => item.attributes('data-start'))).toEqual(['1', '2', '1', '2'])
+    expect(wrapper.props('value')).toBe(value)
+    const editor = mount(PerformanceRichTextEditor, { props: { modelValue: value } })
+    const serialized = editor.get('[contenteditable="true"]').element.innerHTML
+    await wrapper.setProps({ value: serialized })
+    expect(wrapper.findAll('ol li').map(item => item.attributes('data-start'))).toEqual(['1', '2', '1', '2'])
+    editor.unmount()
+    wrapper.unmount()
+  })
+
+  it('downgrades a single empty ordered item before the empty-editor guard and does not intercept a selected range', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<ol><li></li></ol>' } })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    const range = document.createRange()
+    range.setStart(input.element.querySelector('[data-enter]')!.firstChild!, 1)
+    range.collapse(true)
+    const selected = document.getSelection()!
+    selected.removeAllRanges()
+    selected.addRange(range)
+    await input.trigger('keydown', { key: 'Backspace' })
+    expect(input.element.querySelector('ol')).toBeNull()
+    expect(input.element.querySelector('.list-indent1')).not.toBeNull()
+    await wrapper.setProps({ modelValue: '<ol><li>选中文字</li></ol>' })
+    range.selectNodeContents(input.element.querySelector('li')!)
+    selected.removeAllRanges()
+    selected.addRange(range)
+    const backspace = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(backspace)
+    expect(backspace.defaultPrevented).toBe(false)
+    expect(input.element.querySelector('ol')).not.toBeNull()
     wrapper.unmount()
   })
 

@@ -165,3 +165,20 @@
 - UI证据：`ui-blueprints/CR-010-F06-implemented-empty-rich-text.png`、`CR-010-F06-implemented-validation-focus.png`、`CR-010-F06-implemented-retype-linebreak.png`；已查看空态截图。属于原工作区内部Bug修复，沿原蓝图，不新增信息架构；Spec012 N00/N11适用，无UCP。
 - 构建：当前工作树执行`npm --prefix hr-portal/frontend run build`通过（vue-tsc＋Vite，37.32s）；`git diff --check`通过。
 - 未执行：飞书完整SDK移植/所有未采集内部行为同一性验收、操作系统真实中文输入法端到端验收（仅composition事件测试）、真实业务库保存重开、生产卡顿性能剖析、部署、commit/push。五项行为在受控环境修复，不宣称真实生产或全部性能问题已验收。
+
+
+### CR-010-F06 列表与多条标题差异补齐（2026-11-01）
+
+- 用户确认：修复已定位的标题序号字体、编辑/保存回显列表变色、列表行首退格误合并、无序符号偏粗、有序编号非蓝色、列表缩进与组合格式对齐差异；沿原工作区内部缺陷修复，不新增页面或信息架构，不要求新蓝图。适用Spec012 N00/N11，未涉及UCP；不改并行CR-011抽屉、头部及设计文档。
+- REA依据：既有`ev_60b2e5fee8435e142f78e4a87e5f046878fa6d33061368f6f7c6e594e723db4f`中的模块575527及业务适配列表插件；本轮页面身份`ev_84f90cf304fcf3aa05b36d82e3ca14c1879e39f2dcf6e5a89b79604259968a16`。配合CDP只读取得命中CSS与计算样式：无序符号为Arial 18px/400的字符`•`、有序/无序符号#3370FF、一级正文偏移22px、实际行块24px、上下margin=0。未全量分析所有页面资源，未在飞书业务正文输入或保存提交，不声称完整SDK内部同一性。
+- [x] F06-L01：题目标题新增专用字体token，Windows中文和数字均实测使用MicrosoftYaHei-Bold，保持原600字重；不全局更换Portal字体。
+- [x] F06-L02：编辑器与只读答案使用同一`performance-rich-text-content`样式及列表token。移除原6px实心圆与灰色绝对定位编号，改字符圆点及蓝色行内编号；正文缩进22px、普通/列表行24px。取消编号伪元素百分比高度，实际高度与飞书实测约16.8px一致，避免宿主尺寸反向撑高行块。
+- [x] F06-L03：折叠光标位于列表正文起点，Backspace或deleteContentBackward先降级当前行。OL→保留22px缩进的无编号段落→普通段落；UL→普通段落。保留当前行、选区、文字格式；普通正文内删除、前向Delete、选区删除、IME不走该分支。修复单空列表被全文空态保护提前拦住的问题，输入后维护编号。
+- [x] F06-L04：前后端净化保留限定列表class、结构data标记及1..999999的规范正整数起始属性；继续移除任意style、事件、危险标签和非法链接。JSON/HTML字符串答案、API、版本控制及权限不变；真实保存服务单测验证列表属性进入task.answers及响应。只读对历史相邻独立OL恢复连续显示，不写回历史答案，不从现状数据改写历史。
+- 修改范围：`PerformanceRichTextEditor.vue`、`PerformanceRichTextBox.vue`、`PerformanceReadonlyAnswer.vue`、`PerformanceTemplateFieldRenderer.vue`、`styles/global.css`、`styles/tokens.css`、`backend/app/performance/self_summary_service.py`及既有`PerformanceTemplateRenderer.spec.ts`、`backend/tests/test_performance_projects.py`。无新脚本、独立报告或测试文档。
+- 前端回归：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/Review.spec.ts`：6文件 **223 passed**。覆盖列表降级、单空列表、组合格式、选区/IME不拦截、历史编号兼容与白名单安全。
+- 后端回归：backend目录执行`.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -q`：**344 passed、4 skipped**，1条既有python_multipart弃用告警。跳过项均需要显式开启/提供隔离PostgreSQL验收库，未声称数据库持久化验收通过。
+- 构建：`npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，Vite 41.49s。`git diff --check`通过。
+- 浏览器验收：真实Vite填写路由＋隔离API夹具，实际输入Backspace；保存夹具调用真实Python后端`sanitize_rich_text`，再GET重开及只读显示：末行保留、OL序号1/2不变、组合格式中文未丢失，符号均#3370FF、行高24px；1次PATCH version1，390px无横向溢出、pageerror=0。task-entry/tag/default/readonly × 普通/粗体/斜体/下划线/组合/链接，实测72行均普通偏移0/列表22px、行高24px。
+- UI证据：`ui-blueprints/CR-010-F06-implemented-list-format-alignment.png`、`ui-blueprints/CR-010-F06-implemented-list-readonly-roundtrip.png`，均已查看，对应实际Vue页面及受控API，非飞书生产截图。
+- 边界：无迁移、历史记录批量重写或权限修改；未执行真实PostgreSQL保存重开、OS中文输入法端到端、生产验收、commit/push或部署。本轮为本地实现与可执行验收，不代表生产已发布。

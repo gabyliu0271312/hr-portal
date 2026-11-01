@@ -1511,7 +1511,8 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
 
 
 @pytest.mark.asyncio
-async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch):
+@pytest.mark.parametrize("answer", ["新内容", '<div class="ace-line list-div"><ol class="list-number1 r-list r-list-number" start="2"><li data-start="2"><strong>第二项</strong></li></ol></div>'])
+async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch, answer):
     from app.performance import projects_router
 
     task = SimpleNamespace(
@@ -1546,13 +1547,14 @@ async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch):
     monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
     result = await projects_router._save_self_summary(
         9,
-        projects_router.SelfSummaryAnswersPayload(answers={"work": "新内容"}, version=1),
+        projects_router.SelfSummaryAnswersPayload(answers={"work": answer}, version=1),
         False,
         context(),
         Db(),
     )
 
-    assert task.answers == {"work": "新内容", "other": "保留内容"}
+    assert task.answers == {"work": answer, "other": "保留内容"}
+    assert result["answers"]["work"] == answer
     assert result["version"] == 2
 
 
@@ -5301,3 +5303,31 @@ async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeyp
     assert result.items[0].status == expected
     assert result.items[0].due_at == "2020-01-01T00:00:00+00:00"
     assert task.status == status
+
+
+def test_rich_text_list_metadata_survives_sanitizing_without_allowing_css_or_events():
+    from app.performance.self_summary_service import sanitize_rich_text, sanitize_self_summary_answers
+
+    html = '<div class="ace-line list-div injected" data-node="true" dir="auto" onclick="bad()"><ol class="list-number1 r-list r-list-number injected" start="2" data-start="2" data-origin-start="1" style="color:red"><li start="2" data-start="2" onmouseover="bad()"><span data-string="true" data-leaf="true"><strong><em><u>第二项</u></em></strong></span><span data-enter="true">​</span></li></ol></div><div class="ace-line list-indent1"><span>保留缩进</span></div><ul class="list-bullet1 r-list r-list-bullet"><li>无序项</li></ul>'
+    clean = sanitize_rich_text(html)
+    assert 'class="ace-line list-div"' in clean
+    assert 'class="ace-line list-indent1"' in clean
+    assert 'class="list-number1 r-list r-list-number"' in clean
+    assert 'start="2" data-start="2" data-origin-start="1"' in clean
+    assert '<strong><em><u>第二项</u></em></strong>' in clean
+    assert 'data-leaf="true"' in clean and 'data-enter="true"' in clean
+    assert 'class="list-bullet1 r-list r-list-bullet"' in clean
+    assert all(value not in clean for value in ["injected", "onclick", "onmouseover", "style="])
+    assert sanitize_rich_text(clean) == clean
+    schema = [{"fields": [{"id": "work", "type": "rich_text"}, {"id": "tag", "type": "tag_with_followup", "options": [{"id": "a"}]}]}]
+    answers = sanitize_self_summary_answers(schema, {"work": html, "tag": {"tags": ["a"], "notes": {"a": html}}})
+    assert answers["work"] == clean
+    assert answers["tag"]["notes"]["a"] == clean
+
+
+@pytest.mark.parametrize("number", ["0", "-1", "1.5", "1 onclick=bad()", "9999999", "0002", "１２", "9" * 5000])
+def test_rich_text_rejects_noncanonical_list_numbers(number):
+    from app.performance.self_summary_service import sanitize_rich_text
+
+    clean = sanitize_rich_text(f'<ol start="{number}" data-start="{number}"><li data-start="{number}">内容</li></ol>')
+    assert clean == "<ol><li>内容</li></ol>"
