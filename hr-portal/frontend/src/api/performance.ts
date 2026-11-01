@@ -730,6 +730,7 @@ export interface ProjectManagementOverview {
 }
 
 export interface ProjectMember extends PerformanceMemberProfile {
+  direct_supervisor?: string | null
   id: number
   avatar_url: string | null
   rating: string | null

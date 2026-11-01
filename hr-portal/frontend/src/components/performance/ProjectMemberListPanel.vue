@@ -104,7 +104,10 @@ const memberSortValue = (member: MemberRow, key: string) => {
     case 'name': return member.display_name
     case 'status': return member.status === 'completed' ? 1 : member.status === 'overdue' ? 2 : 0
     case 'due_at': return member.due_at ? new Date(member.due_at).getTime() : null
-    case 'completion': return typeof member.completion === 'number' ? member.completion : null
+    case 'completion': {
+      const [completed, total] = (member.completion || '0/0').split('/').map(Number)
+      return total ? completed / total : 0
+    }
     default: return (member[key as keyof MemberRow] ?? null) as unknown
   }
 }
@@ -130,11 +133,12 @@ const loadMembers = async () => {
         avatar_url: null,
         rating: null,
         rating_tone: null,
-        completion: null,
+        completion: item.completion || '0/0',
+        direct_supervisor: item.direct_supervisor,
         job_family: item.job_family,
         job_category: item.job_category,
         standard_position: item.standard_position ?? null,
-      job_sequence: item.job_sequence,
+        job_sequence: item.job_sequence,
         position_level: item.position_level,
         hire_date: item.hire_date,
         department: item.department,
@@ -166,6 +170,7 @@ const ratingClass = (member: MemberRow) => member.rating_tone ? `rating-badge--$
 const avatarText = (member: MemberRow) => member.display_name.slice(-1)
 const cellValue = (member: MemberRow, key: string) => {
   if (key === 'name') return member.display_name
+  if (key === 'completion') return member.completion || '0/0'
   if (key === 'status') return member.status === 'completed' ? '已完成' : member.status === 'overdue' ? '已逾期' : '待完成'
   if (key === 'due_at') return member.due_at ? new Date(member.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'
   return displayValue(member[key as keyof MemberRow] as string | null)
@@ -257,6 +262,7 @@ onMounted(() => void loadMembers())
       <template #cell="{ row, column }">
         <div v-if="column.key === 'name'" class="member-identity"><span class="member-avatar">{{ avatarText(row) }}</span><span class="member-name">{{ row.display_name }}</span></div>
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
+        <span v-else-if="column.key === 'completion'" class="table-text completion-text">{{ cellValue(row, column.key) }}</span>
         <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>
       </template>
       <template #empty>
@@ -280,5 +286,6 @@ onMounted(() => void loadMembers())
 .member-identity{display:flex;align-items:center;min-width:0}.member-avatar{display:inline-flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:#e5eaf5;color:#3b5b92;font-size:13px}.member-name{min-width:0;margin-left:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
 .table-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.completion-text{color:var(--color-primary)}
 .member-state{display:grid;min-height:220px;place-items:center;color:#646a73;font-size:14px}.member-state--error{color:#d14343}
 </style>

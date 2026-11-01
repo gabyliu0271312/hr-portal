@@ -14,6 +14,8 @@ vi.mock('vue-router', () => ({
 }))
 
 import Review from './Review.vue'
+import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
+import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
 import performanceLayoutSource from '@/layouts/PerformanceLayout.vue?raw'
 import reviewSource from './Review.vue?raw'
 import reviewContentSource from '@/components/performance/PerformanceReviewContent.vue?raw'
@@ -625,4 +627,29 @@ describe('PerformanceReview', () => {
 
     expect(wrapper.text()).toContain('暂无已启动的绩效评估')
   })
+  it.each(['project', 'review'])('preserves supervisor names and displays blue 0/0 in the %s member list', async entry => {
+    const row = { id: 1, task_id: 1, employee_no: 'E1', display_name: '员工', direct_supervisor: '当期上级姓名', status: 'pending', due_at: null, avatar_url: null, rating: null, rating_tone: null, completion: null, job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([row])
+    vi.spyOn(projectManagementApi, 'members').mockResolvedValue({ items: [row], total: 1, page: 1, page_size: 50 })
+    const wrapper = mount(ProjectMemberListPanel, { props: { projectId: 1, ...(entry === 'review' ? { reviewContext: { nodeId: 'manager', state: 'all' as const } } : {}) } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('当期上级姓名')
+    expect(wrapper.get('.completion-text').text()).toBe('0/0')
+    await wrapper.setProps({ projectId: 2 })
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ ...row, completion: '2/3' }])
+    vi.mocked(projectManagementApi.members).mockResolvedValue({ items: [{ ...row, completion: '2/3' }], total: 1, page: 1, page_size: 50 })
+    await wrapper.setProps({ projectId: 3 })
+    await flushPromises()
+    expect(wrapper.get('.completion-text').text()).toBe('2/3')
+    wrapper.unmount()
+  })
+
+  it('displays blue 0/0 instead of a dash in the communication table', async () => {
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ task_id: 1, employee_no: 'E1', display_name: '员工', status: 'pending', due_at: null, completion: null, job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }])
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'communication', mode: 'communication' } })
+    await flushPromises()
+    expect(wrapper.get('.feedback-panel__completion').text()).toBe('0/0')
+    wrapper.unmount()
+  })
+
 })

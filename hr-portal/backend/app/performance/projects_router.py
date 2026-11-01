@@ -17,7 +17,7 @@ from app.performance.authorization_service import AuditEventInput, ObjectAuthori
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
@@ -578,6 +578,7 @@ class ProjectMemberResponse(BaseModel):
     rating: str | None = None
     rating_tone: str | None = None
     completion: str | None = None
+    direct_supervisor: str | None = None
     job_family: str | None = None
     job_category: str | None = None
     standard_position: str | None = None
@@ -1229,6 +1230,8 @@ async def list_project_members(
 
     members = list((await db.execute(statement.order_by(PerformanceProjectMember.display_name.asc(), PerformanceProjectMember.id.asc()))).scalars().all())
 
+    supervisor_names = await _snapshot_supervisor_names(db, members)
+    progress = await _communication_progress(db, project, {member.employee_no for member in members}) if members else {}
     visibility_rules = await load_subject_visibility_rules(db)
     visible_fields_by_member: dict[int, list[str]] = {}
     for member in members:
@@ -1243,6 +1246,8 @@ async def list_project_members(
     items = []
     for member in members:
         item = _serialize_project_member(member).model_dump()
+        item["completion"] = progress.get(member.employee_no, "0/0")
+        item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
         item["visible_profile_fields"] = visible_fields
         profile_values = {
@@ -2297,6 +2302,19 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
     return result
 
 
+async def _snapshot_supervisor_names(db, members):
+    snapshot_ids = {member.snapshot_id for member in members if getattr(member, "direct_supervisor_employee_no", None)}
+    supervisor_nos = {member.direct_supervisor_employee_no for member in members if getattr(member, "direct_supervisor_employee_no", None)}
+    if not snapshot_ids:
+        return {}
+    rows = (await db.execute(
+        select(PerformanceProjectMemberSnapshot.id, PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name)
+        .join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id)
+        .where(PerformanceProjectMemberSnapshot.id.in_(snapshot_ids), PerformanceAuthorizationSnapshotPerson.employee_no.in_(supervisor_nos))
+    )).all()
+    return {(snapshot_id, employee_no): name for snapshot_id, employee_no, name in rows}
+
+
 async def _communication_progress(db, project, employee_nos):
     rows = (await db.execute(
         select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
@@ -2376,7 +2394,8 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     project = await db.get(PerformanceProject, project_id)
     rows = [row for row in rows if row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1])]
     communication_people = {task.target_employee_no for task, node, _member in rows if node.node_type == "result_communication"}
-    progress = await _communication_progress(db, project, communication_people) if project and communication_people else {}
+    progress = await _communication_progress(db, project, {task.target_employee_no for task, _node, _member in rows}) if project and rows else {}
+    supervisor_names = await _snapshot_supervisor_names(db, [member for _task, _node, member in rows if member])
     previous_levels = await _previous_published_position_levels(db, project, communication_people) if project and communication_people else {}
     if state == "pending":
         rows = [row for row in rows if _task_is_available(row[0], row[1], project)]
@@ -2409,9 +2428,9 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             "employment_status": getattr(member, "employment_status", None) if member else None,
             "due_at": _task_window(task, node, project)[1],
             "reminder_target": getattr(task, "handler_ref", handler),
-            "direct_supervisor": getattr(member, "direct_supervisor_employee_no", None) if member else None,
+            "direct_supervisor": supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None))) if member else None,
             "hrbp": getattr(member, "hrbp_employee_no", None) if member else None,
-            "completion": progress.get(task.target_employee_no),
+            "completion": progress.get(task.target_employee_no, "0/0"),
             "previous_position_level": previous_levels.get(task.target_employee_no) if "position_level" in visible_fields else None,
             "visibility_role": visibility_role,
             "visible_profile_fields": visible_fields,

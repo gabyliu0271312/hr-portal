@@ -155,7 +155,7 @@ function cellValue(item: FeedbackRow, key: string) {
     case 'due_at': return formatDisplayDateTime(item.due_at, '--')
     case 'job_sequence': return item.job_sequence || '--'
     case 'department': return item.department || '--'
-    case 'completion': return item.completion || '--'
+    case 'completion': return item.completion || '0/0'
     case 'position_level': return item.position_level || '--'
     case 'hire_date': return item.hire_date || '--'
     case 'employee_type': return item.employee_type || '--'
@@ -250,6 +250,7 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
         <span v-else-if="column.key === 'status'" class="feedback-panel__status" :class="`is-${row.status}`">
           <span class="feedback-panel__status-dot" aria-hidden="true"></span>{{ cellValue(row, column.key) }}
         </span>
+        <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">{{ cellValue(row, column.key) }}</span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
       </template>
       <template #empty="{ loading: emptyLoading, text }">
@@ -286,6 +287,7 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
 <style scoped>
 .feedback-panel { min-width: 0; padding: 0 var(--spacing-5) var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); --performance-table-container-padding: var(--performance-review-surface-inset); }
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
+.feedback-panel__completion { color: var(--color-primary); }
 .feedback-panel__identity { font-weight: 500; }
 .feedback-panel__status { display: inline-flex; align-items: center; height: 22px; color: #1f2329; font-size: 14px; line-height: 22px; }
 .feedback-panel__status-dot { position: relative; top: 1px; flex: 0 0 6px; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; }

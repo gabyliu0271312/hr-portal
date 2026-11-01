@@ -1917,13 +1917,15 @@ async def test_workbench_tasks_and_people_return_live_due_date(monkeypatch):
         return SimpleNamespace(actor_ref="E001")
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
 
-    target = SimpleNamespace(id=1, settings={"flow_settings": {"node_times": {"manager-review": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-25T00:00:00Z"}}}})
+    target = SimpleNamespace(id=1, cycle_ref="cycle:one", settings={"flow_settings": {"node_times": {"manager-review": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-25T00:00:00Z"}}}})
     node = SimpleNamespace(id=10, project_id=1, node_id="manager-review", node_type="evaluation", node_order=1, name="上级评估", config={"time": {"end_at": "2026-10-01T00:00:00Z"}})
     task = SimpleNamespace(id=20, project_id=1, target_employee_no="E001", status="pending", available_at=None, due_at=datetime(2026, 10, 1, tzinfo=UTC))
-    member = SimpleNamespace(employee_no="E001", display_name="员工甲")
+    member = SimpleNamespace(snapshot_id=7, employee_no="E001", display_name="员工甲")
 
     class Db:
         async def execute(self, query):
+            if "performance_node_tasks.cycle_ref =" in str(query):
+                return SimpleNamespace(all=lambda: [])
             if "performance_project_members" in str(query):
                 return SimpleNamespace(all=lambda: [(task, node, member)])
             return SimpleNamespace(all=lambda: [(node, task)])
@@ -2884,15 +2886,17 @@ async def test_evaluation_member_list_can_return_completed_and_pending_tasks(mon
         return SimpleNamespace(actor_ref="MANAGER-1")
 
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
-    project = SimpleNamespace(id=1, settings={})
+    project = SimpleNamespace(id=1, cycle_ref="cycle:one", settings={})
     node = SimpleNamespace(id=10, project_id=1, node_id="manager-review", node_type="evaluation", config={"template": {"executor_role_code": "assessment.metric_evaluator"}})
     completed = SimpleNamespace(id=20, project_id=1, status="completed", submitted_at=datetime(2026, 9, 20, tzinfo=UTC), available_at=None, due_at=None, target_employee_no="E001", member_snapshot_id=7)
     pending = SimpleNamespace(id=21, project_id=1, status="pending", submitted_at=None, available_at=None, due_at=None, target_employee_no="E002", member_snapshot_id=7)
-    member_a = SimpleNamespace(employee_no="E001", display_name="员工一", job_family="技术", job_category="研发", position_level="P6", hire_date=datetime(2020, 1, 2).date(), company_org="研发中心", organization_ref="研发中心", employee_type="正式员工", employment_status="在职")
-    member_b = SimpleNamespace(employee_no="E002", display_name="员工二", job_family="技术", job_category="研发", position_level="P6", hire_date=datetime(2020, 1, 2).date(), company_org="研发中心", organization_ref="研发中心", employee_type="正式员工", employment_status="在职")
+    member_a = SimpleNamespace(snapshot_id=7, employee_no="E001", display_name="员工一", job_family="技术", job_category="研发", position_level="P6", hire_date=datetime(2020, 1, 2).date(), company_org="研发中心", organization_ref="研发中心", employee_type="正式员工", employment_status="在职")
+    member_b = SimpleNamespace(snapshot_id=7, employee_no="E002", display_name="员工二", job_family="技术", job_category="研发", position_level="P6", hire_date=datetime(2020, 1, 2).date(), company_org="研发中心", organization_ref="研发中心", employee_type="正式员工", employment_status="在职")
 
     class Db:
         async def execute(self, _query):
+            if "performance_node_tasks.cycle_ref =" in str(_query):
+                return SimpleNamespace(all=lambda: [])
             return SimpleNamespace(all=lambda: [(completed, node, member_a), (pending, node, member_b)])
 
         async def get(self, model, identity):
@@ -5217,3 +5221,57 @@ def test_published_position_migration_round_trip_and_history_guard():
                 migration.downgrade()
             assert connection.scalar(text("SELECT published_position_level FROM performance_result_openings WHERE id=1")) == "P6"
     engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_supervisor_names_use_cycle_snapshot_even_when_manager_is_outside_project():
+    from app.performance.projects_router import _snapshot_supervisor_names
+    member = SimpleNamespace(snapshot_id=7, direct_supervisor_employee_no="M1")
+    class Db:
+        async def execute(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_authorization_snapshot_people.snapshot_id = performance_project_member_snapshots.source_snapshot_id" in sql
+            assert "performance_project_member_snapshots.id IN (7)" in sql
+            assert "performance_authorization_snapshot_people.employee_no IN ('M1')" in sql
+            return SimpleNamespace(all=lambda: [(7, "M1", "冻结上级姓名")])
+    assert await _snapshot_supervisor_names(Db(), [member]) == {(7, "M1"): "冻结上级姓名"}
+    assert await _snapshot_supervisor_names(object(), [SimpleNamespace(snapshot_id=7, direct_supervisor_employee_no=None)]) == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["project", "review"])
+@pytest.mark.parametrize("visible", [True, False])
+async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(monkeypatch, entry, visible):
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProject, PerformanceProjectMember
+    target = SimpleNamespace(id=1, cycle_ref="C1", administrators=[], settings={})
+    member = PerformanceProjectMember(id=1, snapshot_id=7, employee_no="E1", display_name="员工", direct_supervisor_employee_no="M1")
+    node = SimpleNamespace(id=2, project_id=1, node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": "assessment.line_manager"}})
+    task = SimpleNamespace(id=3, project_id=1, member_snapshot_id=7, target_employee_no="E1", status="pending", available_at=None, due_at=None)
+    async def get_project(*args): return target
+    async def scope(*args): return None
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="VIEWER")
+    async def rules(*args): return {role: ["direct_supervisor"] if visible else [] for role in ("leader", "activity_manager")}
+    monkeypatch.setattr(projects_router, "_get_project", get_project)
+    monkeypatch.setattr(projects_router, "_project_data_scope", scope)
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(projects_router, "load_subject_visibility_rules", rules)
+    class Db:
+        async def get(self, model, key): return target if model is PerformanceProject else None
+        async def scalar(self, query): return None
+        async def execute(self, query):
+            sql = str(query)
+            if "performance_authorization_snapshot_people" in sql:
+                return SimpleNamespace(all=lambda: [(7, "M1", "冻结上级姓名")])
+            if "performance_node_tasks.cycle_ref =" in sql:
+                return SimpleNamespace(all=lambda: [])
+            if entry == "review":
+                return SimpleNamespace(all=lambda: [(task, node, member)])
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [member]))
+    if entry == "project":
+        result = await projects_router.list_project_members(1, keyword=None, page=1, page_size=50, sort_by=None, sort_order=None, context=context(), db=Db())
+        row = result.items[0].model_dump()
+    else:
+        row = (await projects_router.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
+    assert row["direct_supervisor"] == ("冻结上级姓名" if visible else None)
+    assert row["completion"] == "0/0"
