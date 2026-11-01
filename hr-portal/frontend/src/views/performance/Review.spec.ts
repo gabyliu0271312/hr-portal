@@ -377,7 +377,7 @@ describe('PerformanceReview', () => {
     const wrapper = mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已完成')
+    expect(wrapper.get('.review-sidebar').find('.status-completed').exists()).toBe(false)
     expect(wrapper.text()).toContain('填写内容 1')
     expect(wrapper.text()).toContain('已提交内容')
     expect(wrapper.text()).toContain('你可以在 2026-09-24 23:59（GMT+8） 前继续编辑')
@@ -792,6 +792,22 @@ describe('PerformanceReview', () => {
       await flushPromises()
       expect(wrapper.emitted(entry === 'review' ? 'select-member' : 'open-task')?.[0]?.[0]).toEqual(expect.objectContaining({ task_id: 41, employee_no: 'E41' }))
     }
+    wrapper.unmount()
+  })
+  it('hides completed badges in the sidebar without removing their navigation entries', async () => {
+    const loaded = structuredClone(overview)
+    Object.assign(loaded.categories[0].nodes[0], { status: 'completed' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(loaded)
+    const wrapper = mountView()
+    await flushPromises()
+    const sidebar = wrapper.get('.review-sidebar')
+    expect(sidebar.findAll('.review-node')).toHaveLength(4)
+    expect(sidebar.find('.status-completed').exists()).toBe(false)
+    expect(sidebar.findAll('.review-node')[0].text()).toBe('工作总结环节')
+    expect(sidebar.find('.status-overdue').text()).toBe('已逾期')
+    expect(sidebar.find('.status-not_started').exists()).toBe(true)
+    await sidebar.findAll('.review-node')[0].trigger('click')
+    expect(replace).toHaveBeenLastCalledWith(expect.objectContaining({ query: expect.objectContaining({ node: 'summary' }) }))
     wrapper.unmount()
   })
 

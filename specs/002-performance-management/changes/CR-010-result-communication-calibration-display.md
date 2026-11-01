@@ -140,3 +140,13 @@
 - 长姓名：姓名容器保留 `min-width:0`、`text-overflow:ellipsis`、`white-space:nowrap`，头像不被文本挤压。
 - 验证：前端 `Review.spec.ts`、`ProjectManagement.spec.ts` → **70 passed**；构建通过。真实 Vue 夹具检查四个列表头像32×32px、姓名间距12px、长姓名省略、pageerror=0。截图：`ui-blueprints/CR-010-F04-implemented-feedback-identity.png`、`CR-010-F04-implemented-communication-identity.png`、`CR-010-F04-implemented-calibration-identity.png`、`CR-010-F04-implemented-invite-identity.png`。
 - 未执行：生产登录/部署/提交/推送；保留并行抽屉改动、删除项和临时文件。
+
+## 12. CR-010-F05 已完成导航标签与头部字段文案（2026-11-01）
+
+- 用户确认：绩效评估左导航completed节点保留入口但隐藏“已完成”状态标签；填写页头部直属上级值前加“直属上级：”，入职日期值后加“ 入职”。
+- 修改范围：`PerformanceReviewCategorySidebar.vue`仅调整标签v-if；`PerformanceSelfSummaryHeader.vue`及共享详情头`PerformanceReviewPersonHeader.vue`按profile字段key格式化直属上级和入职日期。其他字段、返回/选择节点和表格状态不变。
+- 权限边界：仅格式化已返回且有值的字段；`profile_fields=[]`不回退读取旁路字段、不产生空标签；旧版无profile_fields时保留原fallback并补直属上级前缀。无接口/权限/数据/迁移修改。
+- 测试：`PerformanceSelfSummaryHeader.spec.ts`、`PerformanceReviewPersonHeader.spec.ts`、`Review.spec.ts`、`ProjectManagement.spec.ts`、`SelfSummaryTask.spec.js`五文件 **109 passed**；覆盖已完成入口保留/标签隐藏、其他状态保留、上级/入职格式、空值与字段权限。
+- 实际Vue页面＋受控API夹具：完成导航无标签且入口保留，待完成标签保留；填写头正确显示“直属上级：经理示例”“2017-11-01 入职”，pageerror=0。独立截图：`ui-blueprints/CR-010-F05-implemented-completed-navigation.png`、`ui-blueprints/CR-010-F05-implemented-task-header.png`，已查看填写头截图。
+- UI门禁：用户明确的既有文案/可见性小修，沿原布局，不生成新蓝图；遵循Spec012 N00/N11，无UCP/数仓影响。
+- 未执行：生产登录态/部署/提交/推送。保留并行CR-011抽屉改动，本轮不声明其完成。

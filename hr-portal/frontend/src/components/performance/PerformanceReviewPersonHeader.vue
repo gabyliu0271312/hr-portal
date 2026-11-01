@@ -35,7 +35,7 @@ const props = defineProps<{ person: Person }>()
 const emit = defineEmits<{ translate: []; 'translate-menu': []; 'copy-link': [] }>()
 const initial = computed(() => (props.person.display_name || props.person.employee_no).trim().slice(0, 1) || '人')
 const profileParts = computed(() => Array.isArray(props.person.profile_fields)
-  ? props.person.profile_fields.map(field => field.value).filter(Boolean)
+  ? props.person.profile_fields.filter(field => field.value).map(field => field.key === 'direct_supervisor' ? `直属上级：${field.value}` : field.key === 'hire_date' ? `${field.value} 入职` : field.value)
   : [
       props.person.department,
       props.person.job_sequence,

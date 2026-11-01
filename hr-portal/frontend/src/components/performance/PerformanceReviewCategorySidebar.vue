@@ -67,7 +67,7 @@
           >
             <span class="node-group">
               <span class="node-label">{{ node.node_name }}</span>
-              <em v-if="showNodeStatus" :class="`status-${node.status}`">{{ statusLabel[node.status] }}</em>
+              <em v-if="showNodeStatus && node.status !== 'completed'" :class="`status-${node.status}`">{{ statusLabel[node.status] }}</em>
             </span>
           </button>
           <p v-if="!category.nodes.length" class="category-empty">暂无事项</p>
