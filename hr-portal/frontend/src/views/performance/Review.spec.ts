@@ -83,6 +83,14 @@ function mountView() {
 }
 
 describe('PerformanceReview', () => {
+  it('lets completed cards grow with content instead of shrinking inside the scroll viewport', () => {
+    expect(reviewContentSource).toContain("'review-body--completed': node.status === 'completed'")
+    expect(reviewContentSource).toMatch(/\.review-body--completed\s*\{[^}]*flex:\s*1 0 auto/)
+    expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0/)
+    expect(reviewContentSource).toMatch(/\.completed-content\s*\{[^}]*flex:\s*none/)
+    expect(reviewContentSource).toContain('.review-panel > p, .review-state p')
+  })
+
   it('uses the identity epoch as the view key without remounting on query navigation', () => {
     expect(performanceLayoutSource).toContain('<router-view :key="employeeSwitchEpoch" />')
     expect(performanceLayoutSource).not.toContain('route.fullPath')

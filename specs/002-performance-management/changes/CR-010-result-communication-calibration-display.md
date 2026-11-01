@@ -214,3 +214,47 @@
 - Chromium真实Vite路由：填写→自动保存B→返回查看A→弹层→使用B→返回→不使用载入A→输入C提交→跳查看→刷新C；保存/提交/放弃调用实际FastAPI router服务逻辑，经独立内存SQLite fixture存储（任务/权限解析隔离，非业务数据库/非PostgreSQL）。has_draft=false、version4、0 pageerrors、390px无横向溢出。
 - UI截图：`ui-blueprints/CR-010-F07-implemented-draft-choice.png`、`ui-blueprints/CR-010-F07-implemented-submit-view.png`，均已读取确认对应实际实现，不冒称生产验收。
 - 状态：F07-T01/T02/T03本地实现与受控验证完成；F07-T04单元/页面已通过，真实PostgreSQL迁移验收blocked，**不将该整体任务标记完全验收或可发布**。历史提交恢复、生产迁移、生产数据验收、OS真实中文输入法不在本次已验证范围。
+
+
+## 15. CR-010-F08 逾期首次补交确认 / F09 查看白卡自然撑高（2026-11-01）
+
+### 已确认范围与任务
+- 用户要求：接入前述REA已确认的提交弹窗，复用已有组件并按采集参数还原；修复填写工作总结和自评提交后查看内容超出白卡。范围仅为逾期、未提交、服务端仍允许提交的补交确认；普通首次/临近截止不加通用弹窗。校准影响、自动开通结果、评语质量的其他确认不虚构配置接入。
+- 复用`PerformanceConfirmDialog.vue`及`PerformanceWarningFilledIcon.vue`，新增`appearance=submit`变体隔离已有删除/离开确认样式；沿原填写与查看工作区，小范围状态/校验与布局缺陷，不新增页面或蓝图IA。已读Spec002/Spec012 N00/N11护栏，沿用户确认的飞书参考。无后端、权限、数据库迁移、UCP、外部写入修改；保护并行催办的projects_router/API/ReminderPanel/ProjectManagement和.impeccable变动。
+- 任务F08-T01：点击提交时先必填校验，再比较真实deadline_at；过期且未提交且canEdit允许则只开确认，不发submit。标题“确定提交吗？”，正文“当前环节已过截止时间，提交后将无法修改内容。”，取消/确定。确认后仍校验并使用原版本保存提交流程，重复点击防重；失败保留弹窗/正文，成功关弹窗并进入原查看路径。已提交逾期不提供新机会，服务端仍负责最终授权与时间窗。
+- 任务F09-T01：completed查看层级允许卡片随内容自然增长，短内容保留原最小铺满；滚动仍由review-content承载，不新增内部正文滚动。修复原review-body/panel均flex:1 1 auto、min-height:0/100%形成的压缩链；completed body和card使用flex:1 0 auto，正文flex:none；将状态提示p规则限定为卡片直接子级，避免穿透标题描述与只读答案段落。
+
+### REA依据与像素参数
+- 逾期触发：历史Evidence `ev_60b2e5fee8435e142f78e4a87e5f046878fa6d33061368f6f7c6e594e723db4f`的2611工作总结提交分支，Date.now()>endTime + unprocessed + can_submit_overdue，确认前不执行正式提交；文案来自同采集i18n。
+- 对话框：同Evidence的`universe-design.1a4129b8.js`模块427983→609739/862044/776173，size=small→420px、centered=true、maskClosable=false、autoFocusButton=ok；header24px、body margin-top8px/left40px、footer0 24px 24px、标题16/24/600、正文14/22、图标24px、圆角8px、按钮32px高/min80px/4px11px、间距12px，遮罩rgba(0,0,0,.55)。浏览器CSS规则读取了4073.88b15309.chunk.css、6327.bac018a8.chunk.css及已加载原子样式。业务填充按钮#1456F0、hover#336DF4、active#0442D2；嵌入EEUserCard旧样式还存在#3370FF版本，未冒用为当前业务源规则。
+- 查看自然高度：REA导航收据`ev_3f6a6e5cacf2357966d7ed190b6c665f58c429b25af43a8a4776b4e39de8a3a9`（仅导航成功，等待因4个匹配严格模式失败，不声称全场景成功），随后被动CDP读取指定preview：外白卡class=`w-full min-h-full ... p-10 bg-white rounded-8`，height:auto自然内容、min-height:100%、padding20px、overflow:visible；样例内容564px→白卡604px。未编辑飞书业务正文，未点击真实提交，未拿草稿255px浮层替代本确认框参数。
+- 限制：没有实际打开飞书逾期确认（避免生产业务提交），因此没有目标弹窗运行截图逐像素diff；上述尺寸来自实际组件代码和CSS，未知内部运行差异不称100%同SDK。local提交弹窗实际420×158为22字正文单行时的自然高度，不固定高度；390px安全左右边距32px。
+
+### 验收证据
+- 修复前真实Chromium：600px滚动区，白卡518px，内部completed-content1852px，正文直接画出白卡外；修复后同70行已提交数据：白卡1882px、内容1842px、底部内边距20px，短内容白卡518px而正文186px，外层正常滚动。工作总结和assessment.reviewee自评分别验证，1280/390px无横向溢出；正文70行均包在白卡内。
+- 真实Vite应用路由＋隔离API夹具：工作总结和自评均从编辑页点提交→确认（0请求）→取消（0请求且正文保留）→再确认首个409→弹窗保留并显示错误→重试成功跳查看。0 pageerrors；modal标题行24px、header24px、正文左40px、footer24px，实际420×158；短内容/长内容及窄屏通过。夹具非真实数据库，不声称生产验收。
+- 既有测试文件增加正常首次/临近截止不弹、非法/已提交/无资格不弹、work_summary/evaluation确认取消、失败保留、重复确认防重、确认框焦点和遮罩不关闭、白卡不压缩的覆盖。
+- 执行`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceConfirmDialog.spec.ts src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts`：**8文件255 passed**；既有测试loading directive stub告警非失败。
+- UI截图：`ui-blueprints/CR-010-F08-implemented-overdue-submit-confirm.png`、`ui-blueprints/CR-010-F09-implemented-work-summary-long-view.png`、`ui-blueprints/CR-010-F09-implemented-self-review-long-view.png`，三张均已读取，最后两张滚动到底部展示白卡20px包裹留白。
+- 构建：较早一次vue-tsc＋Vite通过42.33s；最新`npm --prefix hr-portal/frontend run build`被并行催办代码阻塞：PerformanceReminderPanel.vue:44的cycle-remind联合类型、ProjectManagement.vue:44/45的description/reminderProvider字段。未覆盖非本轮文件，不能将最终整树构建说成通过。本轮文件`git diff --check`通过。
+- 状态：F08/F09实现与受控页面、单测已完成；完整工作树build blocked，待并行任务修好后复验。无新脚本/独立报告/测试文档，无commit/push或部署；前轮0289真实迁移验收阻塞不因本轮前端测试通过而解除。
+
+
+## 16. CR-010-F10 提交成功全局“已提交”轻提示（2026-11-01）
+
+### 范围与采集依据
+- 用户明确要求接入前述提交成功提示并按飞书采集参数还原外观与位置。该提示为全局非阻塞Toast，不是逾期提交前确认框，也不替代查看页常驻绿色提交信息条；沿当前提交后查看流程，不新增业务接口、权限、数据库或迁移。
+- 已加载Spec002与REA指南，关联已有CR-010；复用Element Plus全局`ElMessage`及`PerformancePromptNotice`的success图标定义，不另造消息管理器、计时器或图标路径。只在ElMessage专属customClass上覆盖样式，其他全局消息不受影响。不修改并行催办或前轮确认/白卡逻辑；不创建脚本、独立报告或测试文档。
+- REA证据：`ev_60b2e5fee8435e142f78e4a87e5f046878fa6d33061368f6f7c6e594e723db4f`；业务模块821317正式提交与清草稿后调用message.success(“已提交”)；universe-design模块146362/694433/135203分别为全局消息调用、定位计时和outlined成功notice。模块79238的SucceedFilled两条SVG路径与本地已有success定义一致。
+- 位置依据：飞书ConfigProvider默认toast.top=32，manager定位fixed/top32px/left0/width100%/text-align:center，消息项margin8px，因此孤立单条提示可见top40px，水平相对视口居中，不是内容卡片居中。
+- 样式依据：CDP被动读取指定preview的已加载CSS及成功notice计算样式：业务成功背景#E4FAE1、图标/边框#32A645；EEUserCard注入CSS另有#F0FBEF/#34C724旧值，当前业务成功notice实际仍使用前者。outlined padding15px 3px 15px 19px + 文本右侧32px、main负margin16px归一为本地15px19px；图标16px、右距8px/上3px；正文14px/22px/600；边框1px、圆角6px、max-width600px。阴影0 8px 24px 8px rgba(31,35,41,.04),0 6px 12px rgba(31,35,41,.04),0 4px 8px -8px rgba(31,35,41,.06)。
+- 生命周期：默认3000ms，鼠标移入暂停、移开重新计时；300ms opacity/transform、cubic-bezier(.34,.69,.1,1)，入场translateY(-100%)→0，出场原位淡出。业务调用未另传时长；现场全局配置仍可能覆盖默认值，未取得实际生产成功提示的全局配置运行值或目标截图，不宣称内部SDK/所有消息叠加与生产逐像素diff均100%同一。
+
+### 实现与验收
+- F10-T01实现：`SelfSummaryTask.vue`在submit API成功后、导航前调用一次`ElMessage.success`：message=已提交、offset40、duration3000、showClose=false、customClass=performance-submit-toast，使用已有success图标路径。消息挂载body，不随编辑页卸载消失；失败、必填校验、自动保存、取消逾期确认均不调用成功提示，重复提交由原submitting守卫阻止。
+- 样式集中于`styles/element-overrides.css`的专属类及`styles/tokens.css`的提交提示token；font/color/背景/边框/尺寸/动画不污染其他消息。修改既有`SelfSummaryTask.spec.js`新增成功/请求未返回/重复点击、失败/草稿/取消不触发、跨卸载与3000ms关闭覆盖。
+- 真实Chromium＋Vite实际工作总结与自评路由/受控API夹具：正式POST各1次；成功后跳查看页时轻提示仍存在且仅1个，实测106×54px、top40、1280px视口centerX640、390px视口centerX195；padding15px19px、圆角6px、图标16px、文字600 14px/22px、背景rgb(228,250,225)、边框和图标rgb(50,166,69)。移入等待3100ms仍可见、移开后自动消失；两个入口0 pageerrors。非生产业务数据验收。
+- 回归：`npm --prefix hr-portal/frontend test -- src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts`：**8文件262 passed**；SelfSummaryTask单文件55 passed。`git diff --check`本轮文件通过。
+- UI证据：`ui-blueprints/CR-010-F10-implemented-submitted-toast.png`，对应实际提交后查看页，已读取确认提示在视口顶部水平居中，并保留常驻绿色信息条。
+- 完整构建：最新`npm --prefix hr-portal/frontend run build`仍被并行催办的PerformanceReminderPanel.vue:44 cycle-remind类型及ProjectManagement.vue:45 reminderProvider缺失阻塞；无本轮文件类型错误，但不将完整构建描述为通过。未擅自修复其他任务文件。
+- 状态：接入及受控视觉/交互/回归验证完成；整树构建受并行任务阻塞，生产目标提示逐像素截图验证未执行。未调用飞书真实提交或目标消息函数，未执行commit/push/部署；前轮0289迁移验收阻塞仍独立存在。

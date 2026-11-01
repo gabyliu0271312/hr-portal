@@ -3,12 +3,12 @@
     <div
       v-if="modelValue"
       class="performance-confirm-overlay"
-      data-source-state-id="user-snapspec-20260831-template-delete-confirm"
-      @mousedown.self="cancel"
+      :data-source-state-id="appearance === 'submit' ? 'rea-overdue-submit-confirm' : 'user-snapspec-20260831-template-delete-confirm'"
+      @mousedown.self="appearance !== 'submit' && cancel()"
     >
       <section
         class="performance-confirm-dialog"
-        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary' }"
+        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit' }"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
@@ -59,6 +59,7 @@ const props = withDefaults(defineProps<{
   confirmDisabled?: boolean
   confirmVariant?: 'danger' | 'primary'
   errorMessage?: string
+  appearance?: 'default' | 'submit'
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   subject: '',
@@ -70,6 +71,7 @@ const props = withDefaults(defineProps<{
   confirmDisabled: false,
   confirmVariant: 'danger',
   errorMessage: '',
+  appearance: 'default',
 })
 
 const emit = defineEmits<{
@@ -122,7 +124,7 @@ watch(() => props.modelValue, (visible) => {
     previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     confirmInput.value = ''
-    void nextTick(() => cancelRef.value?.focus())
+    void nextTick(() => (props.appearance === 'submit' ? confirmRef.value : cancelRef.value)?.focus())
   } else {
     restorePage()
   }
@@ -319,4 +321,17 @@ onBeforeUnmount(() => {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.performance-confirm-dialog--submit{--performance-confirm-width:420px;width:min(420px,calc(100vw - 64px));max-height:calc(100vh - 64px);border-radius:8px;box-shadow:none}
+.performance-confirm-overlay:has(.performance-confirm-dialog--submit){padding:32px;background:rgba(0,0,0,.55)}
+.performance-confirm-dialog--submit .performance-confirm-dialog__header{flex:1 1 auto;min-height:0;max-height:calc(100vh - 120px);padding:24px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__title{align-items:flex-start;min-height:24px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__icon{height:24px;align-items:center;line-height:0}
+.performance-confirm-dialog--submit .performance-confirm-dialog__body{margin:8px 0 0 40px;font-size:14px;line-height:22px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__footer{min-height:56px;padding:0 24px 24px;gap:12px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__button{height:32px;min-width:80px;padding:4px 11px;font-weight:400;font-size:14px;line-height:22px;border-radius:6px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger{background:#1456f0;border-color:#1456f0;color:#fff}
+.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:hover:not(:disabled){background:#336df4;border-color:#336df4;color:#fff}
+.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:active:not(:disabled){background:#0442d2;border-color:#0442d2;color:#fff}
+.performance-confirm-dialog--submit .performance-confirm-dialog__button--cancel:active:not(:disabled){background:#eff0f1}
 </style>

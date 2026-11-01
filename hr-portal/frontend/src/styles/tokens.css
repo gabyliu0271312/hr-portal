@@ -434,4 +434,8 @@
   --z-index-drawer: 100;
   --z-index-dialog: 110;
   --z-index-toast: 200;
+  --performance-submit-toast-background: #e4fae1;
+  --performance-submit-toast-success: #32a645;
+  --performance-submit-toast-radius: 6px;
+  --performance-submit-toast-shadow: 0 8px 24px 8px rgba(31,35,41,.04), 0 6px 12px rgba(31,35,41,.04), 0 4px 8px -8px rgba(31,35,41,.06);
 }

@@ -21,7 +21,7 @@
           <PerformanceButton v-if="feedbackPanel?.allowVoluntary" variant="primary" aria-label="自愿评估" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</PerformanceButton>
         </div>
       </div>
-      <div class="review-body">
+      <div class="review-body" :class="{ 'review-body--completed': node.status === 'completed' && !showsEvaluationWorkspace }">
         <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
         <PerformanceReview360InvitePanel
           v-if="node.node_type === 'reviewer_360_invite' && props.projectId"
@@ -164,13 +164,14 @@ function formatStartTime(value: string) {
 .heading-status.status-overdue { background: #ffe8e8; color: #d14343; }
 .review-body { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; margin: 16px 0 20px; }
 .review-panel { display: flex; flex: 1 1 auto; min-height: 100%; max-width: none; flex-direction: column; align-items: center; justify-content: center; margin: 0; padding: var(--performance-review-surface-inset); box-sizing: border-box; border-radius: var(--performance-content-surface-radius); background: var(--performance-content-surface-background); color: #646a73; box-shadow: var(--shadow-dialog); }
-.review-panel.completed { align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
+.review-body--completed { flex: 1 0 auto; }
+.review-panel.completed { flex: 1 0 auto; min-height: 0; align-items: stretch; justify-content: flex-start; padding: var(--performance-review-surface-inset); }
 .review-panel.evaluation { align-items: stretch; justify-content: flex-start; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .review-panel.invite { align-items: stretch; justify-content: flex-start; padding: 0; }
 .review-panel.feedback { align-items: stretch; justify-content: flex-start; padding: 0; }
-.completed-content { width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
+.completed-content { flex: none; min-width: 0; width: 100%; max-width: var(--performance-review-content-max-width); margin: 0 auto; }
 .completed-fallback { margin: auto !important; }
-.review-panel p, .review-state p { margin: 8px 0 20px; color: #646a73; font-size: 16px; font-weight: 400; line-height: 24px; text-align: center; }
+.review-panel > p, .review-state p { margin: 8px 0 20px; color: #646a73; font-size: 16px; font-weight: 400; line-height: 24px; text-align: center; }
 .state-illustration { display: grid; width: 120px; height: 121px; place-items: center; }
 .primary-button, .review-state button { min-width: 80px; height: 32px; padding: 0 16px; border: 0; border-radius: 6px; background: #3370ff; color: #fff; cursor: pointer; font-size: 14px; line-height: 22px; }
 .review-state { display: flex; min-height: 640px; flex-direction: column; align-items: center; justify-content: center; color: #646a73; }

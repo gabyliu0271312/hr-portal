@@ -29,21 +29,24 @@
           <div v-show="isSplit || activeTab === 'current'" class="task-content">
             <div v-if="task.calibration_notice" class="task-notices"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
             <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
-            <div v-else ref="draftAnchor"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" /></div>
+            <div v-else ref="draftAnchor"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit()" @cancel="router.back()" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
+  <PerformanceConfirmDialog v-model="overdueConfirmOpen" appearance="submit" confirm-variant="primary" message="确定提交吗？" description="当前环节已过截止时间，提交后将无法修改内容。" cancel-text="取消" confirm-text="确定" :loading="submitting" :error-message="overdueConfirmError" @confirm="submit(true)" />
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { getActivePinia } from 'pinia'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
 import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
@@ -55,7 +58,7 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
-import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
+import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
 const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' }>(), { taskKind: 'work_summary' })
@@ -65,6 +68,8 @@ const loading = ref(true)
 const loadError = ref('')
 const saving = ref(false)
 const submitting = ref(false)
+const overdueConfirmOpen = ref(false)
+const overdueConfirmError = ref('')
 const viewing = ref(route.query.view === '1')
 const draftOpen = ref(false)
 const draftPending = ref(false)
@@ -201,8 +206,17 @@ function validate() {
   if (first) formRef.value?.focusField(first)
   return !first
 }
-async function submit() {
+async function submit(overdueConfirmed = false) {
   if (submitting.value || !canEdit.value || !validate()) return
+  const due = task.value.deadline_at ? new Date(task.value.deadline_at).getTime() : NaN
+  if (Number.isFinite(due) && Date.now() > due) {
+    if (task.value.submitted_at) { saveMessage.value = '当前环节已过截止时间，不允许提交内容'; return }
+    if (!overdueConfirmed) {
+      overdueConfirmError.value = ''
+      overdueConfirmOpen.value = true
+      return
+    }
+  }
   window.clearTimeout(saveTimer)
   submitting.value = true
   pendingSave = false
@@ -217,6 +231,19 @@ async function submit() {
     task.value.editable = result.editable ?? task.value.editable
     task.value.submit_allowed = result.submit_allowed ?? task.value.submit_allowed
     task.value.version = result.version ?? task.value.version
+    overdueConfirmOpen.value = false
+    overdueConfirmError.value = ''
+    ElMessage.success({
+      message: '已提交',
+      customClass: 'performance-submit-toast',
+      offset: 40,
+      duration: 3000,
+      showClose: false,
+      icon: h('svg', { viewBox: '0 0 24 24', fill: 'none', 'data-icon': 'SucceedFilled', 'aria-hidden': 'true' }, [
+        h('path', { d: promptDefinitions.success.iconPath, fill: 'currentColor' }),
+        h('path', { d: promptDefinitions.success.iconInnerPath, fill: '#fff' }),
+      ]),
+    })
     saveMessage.value = '提交成功'
     viewing.value = true
     Object.keys(answers).forEach(key => delete answers[key])
@@ -237,6 +264,7 @@ async function submit() {
     } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }
   } catch (error) {
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
+    if (overdueConfirmOpen.value) overdueConfirmError.value = saveMessage.value
   } finally {
     submitting.value = false
   }

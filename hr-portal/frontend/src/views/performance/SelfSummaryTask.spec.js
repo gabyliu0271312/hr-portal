@@ -708,3 +708,171 @@ describe('submitted answers and draft choices', () => {
   })
 
 })
+
+describe('overdue first submission confirmation', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    push.mockReset()
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/self-summary', query: { task_id: '901', project_id: '3', node: 'summary' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+    localStorage.setItem('userMode', 'fullScreenMode')
+  })
+  afterEach(() => { vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } }); vi.mocked(useRouter).mockReturnValue({ back, push }) })
+  const loaded = () => ({ ...structuredClone(task), task_id: 901, node_id: 'summary', task_kind: 'work_summary', return_view: 'node', deadline_at: new Date(Date.now() - 60000).toISOString(), submitted_at: null, version: 2, answers: { work: '待补交内容' }, form_schema: [{ id: 's', name: '总结', fields: [{ id: 'work', type: 'rich_text', label: '总结', required: true }] }] })
+
+  it.each(['work_summary', 'evaluation'])('waits for explicit %s confirmation and leaves input intact after cancellation', async taskKind => {
+    vi.spyOn(performanceReviewApi, taskKind === 'work_summary' ? 'selfSummary' : 'templateTask').mockResolvedValue(loaded())
+    const submit = vi.spyOn(performanceReviewApi, taskKind === 'work_summary' ? 'submitSelfSummary' : 'submitTemplateTask').mockResolvedValue({ version: 3, answers: { work: '待补交内容' }, editable: false, submit_allowed: false })
+    const wrapper = mount(SelfSummaryTask, { attachTo: document.body, props: { taskKind } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('当前环节已过截止时间，提交后将无法修改内容。')
+    document.querySelector('.performance-confirm-dialog__button--cancel').click()
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    expect(wrapper.get('[contenteditable="true"]').text()).toContain('待补交内容')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    document.querySelector('.performance-confirm-dialog__button--danger').click()
+    document.querySelector('.performance-confirm-dialog__button--danger').click()
+    await flushPromises()
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({ path: '/performance/review' }))
+    expect(document.querySelector('.performance-confirm-dialog')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it.each(['first', 'near-deadline'])('does not show an overdue modal for an on-time %s submit', async scenario => {
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({ ...loaded(), deadline_at: new Date(Date.now() + (scenario === 'first' ? 86400000 : 60000)).toISOString() })
+    const submit = vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ version: 3 })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.performance-confirm-dialog')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('shows errors inside the modal and retains editable content after a rejected submit', async () => {
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(loaded())
+    vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockRejectedValue(new Error('VERSION_CONFLICT'))
+    const wrapper = mount(SelfSummaryTask, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    document.querySelector('.performance-confirm-dialog__button--danger').click()
+    await flushPromises()
+    expect(document.querySelector('.performance-confirm-dialog [role="alert"]')).not.toBeNull()
+    expect(wrapper.get('[contenteditable="true"]').text()).toContain('待补交内容')
+    expect(push).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['invalid', 'submitted', 'forbidden'])('does not offer a new overdue submit opportunity for %s content', async condition => {
+    const value = loaded()
+    if (condition === 'invalid') value.answers = {}
+    if (condition === 'submitted') value.submitted_at = '2026-01-01T00:00:00Z'
+    if (condition === 'forbidden') value.submit_allowed = false
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(value)
+    const submit = vi.spyOn(performanceReviewApi, 'submitSelfSummary')
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    expect(document.querySelector('.performance-confirm-dialog')).toBeNull()
+    wrapper.unmount()
+  })
+})
+
+describe('global submitted success toast', () => {
+  let messages
+  const loaded = () => ({ ...structuredClone(task), task_id: 901, node_id: 'summary', project_id: 3, task_kind: 'work_summary', return_view: 'node', answers: { work: '<p>正式内容</p>' }, form_schema: [{ id: 's', name: '工作总结', fields: [{ id: 'work', type: 'rich_text', label: '总结', required: true }] }] })
+  beforeEach(async () => {
+    vi.restoreAllMocks()
+    messages = (await import('element-plus')).ElMessage
+    messages.closeAll()
+    push.mockReset()
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: '901', project_id: '3', node: 'summary' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+    localStorage.setItem('userMode', 'fullScreenMode')
+  })
+  afterEach(() => {
+    messages.closeAll()
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+    vi.useRealTimers()
+  })
+
+  it.each(['work_summary', 'evaluation'])('shows the shared success toast only once after %s succeeds and before navigation', async kind => {
+    vi.spyOn(performanceReviewApi, kind === 'work_summary' ? 'selfSummary' : 'templateTask').mockResolvedValue(loaded())
+    let resolveSubmit
+    const submit = vi.spyOn(performanceReviewApi, kind === 'work_summary' ? 'submitSelfSummary' : 'submitTemplateTask').mockReturnValue(new Promise(resolve => { resolveSubmit = resolve }))
+    const success = vi.spyOn(messages, 'success').mockImplementation(() => ({ close: vi.fn() }))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: kind } })
+    await flushPromises()
+    const button = wrapper.get('.self-summary-footer .performance-button--primary')
+    await button.trigger('click')
+    await button.trigger('click')
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(success).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+    resolveSubmit({ answers: loaded().answers, version: 2, submitted_at: '2026-11-01T00:00:00Z' })
+    await flushPromises()
+    expect(success).toHaveBeenCalledTimes(1)
+    expect(success).toHaveBeenCalledWith(expect.objectContaining({ message: '已提交', offset: 40, duration: 3000, showClose: false, customClass: 'performance-submit-toast' }))
+    expect(success.mock.invocationCallOrder[0]).toBeLessThan(push.mock.invocationCallOrder[0])
+    wrapper.unmount()
+  })
+
+  it('keeps the global toast alive after the edit page unmounts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] })
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(loaded())
+    vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ version: 2 })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    const toast = Array.from(document.querySelectorAll('.performance-submit-toast')).at(-1)
+    wrapper.unmount()
+    expect(toast.textContent).toBe('已提交')
+    expect(toast.querySelector('[data-icon="SucceedFilled"]')).not.toBeNull()
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(toast.isConnected).toBe(true)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(toast.isConnected).toBe(false)
+  })
+
+  it.each(['failed', 'invalid', 'draft', 'cancel-overdue'])('does not emit success for %s', async mode => {
+    const value = loaded()
+    if (mode === 'invalid') value.answers = {}
+    if (mode === 'cancel-overdue') value.deadline_at = '2020-01-01T00:00:00Z'
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(value)
+    vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockRejectedValue(new Error('VERSION_CONFLICT'))
+    vi.spyOn(performanceReviewApi, 'saveSelfSummaryDraft').mockResolvedValue({ version: 2 })
+    const success = vi.spyOn(messages, 'success').mockImplementation(() => ({ close: vi.fn() }))
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    if (mode === 'draft') {
+      const editor = wrapper.get('[contenteditable="true"]')
+      editor.element.innerHTML = '<p>仅草稿</p>'
+      await editor.trigger('input')
+      await editor.trigger('blur')
+      await new Promise(resolve => setTimeout(resolve, 400))
+      await flushPromises()
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalled()
+    } else {
+      await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+      await flushPromises()
+      if (mode === 'cancel-overdue') {
+        document.querySelector('.performance-confirm-dialog__button--cancel').click()
+        await flushPromises()
+      }
+    }
+    expect(success).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
