@@ -136,4 +136,15 @@ describe('PerformanceDrawerShell', () => {
     await vi.advanceTimersByTimeAsync(500)
     expect(vi.getTimerCount()).toBe(0)
   })
+  it('uses the captured evaluation close size without changing configuration drawers', () => {
+    const evaluation = mount(PerformanceDrawerShell, { props: { modelValue: true, variant: 'evaluation' } })
+    expect(document.body.querySelector('.performance-drawer__close svg')?.getAttribute('width')).toBe('16')
+    expect(source).toContain('.performance-drawer__panel--evaluation .performance-drawer__close{width:24px;height:24px;flex:0 0 24px;margin:0;padding:4px}')
+    expect(source).toContain('min-height:69.5px;flex:0 0 auto;align-items:flex-start')
+    evaluation.unmount()
+    const captured = mount(PerformanceDrawerShell, { props: { modelValue: true, variant: 'captured' } })
+    expect(document.body.querySelector('.performance-drawer__close svg')?.getAttribute('width')).toBe('20')
+    captured.unmount()
+  })
+
 })

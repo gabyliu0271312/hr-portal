@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import PerformanceReviewPersonHeader from './PerformanceReviewPersonHeader.vue'
+import source from './PerformanceReviewPersonHeader.vue?raw'
 
 describe('PerformanceReviewPersonHeader visibility data', () => {
   it('uses server-provided profile fields without changing the existing line format', () => {
@@ -18,8 +19,9 @@ describe('PerformanceReviewPersonHeader visibility data', () => {
       },
     })
 
-    expect(wrapper.get('.performance-review-person-header__info span').text()).toBe('研发中心P6')
+    expect(wrapper.get('.performance-review-person-header__profile-line').text()).toBe('研发中心P6')
     expect(wrapper.findAll('.performance-review-person-header__profile-separator')).toHaveLength(1)
+    wrapper.unmount()
   })
   it('labels only allowed supervisor and hire-date values without changing other profile fields', () => {
     const wrapper = mount(PerformanceReviewPersonHeader, { props: { person: {
@@ -44,6 +46,32 @@ describe('PerformanceReviewPersonHeader visibility data', () => {
     expect(wrapper.text()).not.toContain('直属上级：')
     expect(wrapper.text()).not.toContain('入职')
     expect(wrapper.text()).not.toContain('不可见')
+    wrapper.unmount()
+  })
+
+  it('places actions only in the name row and keeps the profile line as its full-width sibling', () => {
+    const wrapper = mount(PerformanceReviewPersonHeader, { props: { person: { employee_no: 'E1', display_name: '长姓名'.repeat(20), profile_fields: [{ key: 'department', label: '部门', value: '长部门'.repeat(20) }, { key: 'position_level', label: '职级', value: 'J3' }] } } })
+    const row = wrapper.get('.performance-review-person-header__primary-row')
+    const info = wrapper.get('.performance-review-person-header__info')
+    expect(row.get('strong').text()).toBe('长姓名'.repeat(20))
+    expect(row.find('.performance-review-person-header__actions').exists()).toBe(true)
+    expect(info.get('.performance-review-person-header__profile-line').element.parentElement).toBe(info.element)
+    expect(row.find('.performance-review-person-header__profile-line').exists()).toBe(false)
+    expect(source).toMatch(/__profile-line\{[^}]*text-overflow:ellipsis;white-space:nowrap/)
+    expect(source).toMatch(/__profile-value\{display:inline;white-space:nowrap\}/)
+    expect(source).not.toContain('__actions::before')
+    expect(source).toContain('__actions::after')
+    wrapper.unmount()
+  })
+
+  it('preserves translation, language selection and copy actions after moving the toolbar', async () => {
+    const wrapper = mount(PerformanceReviewPersonHeader, { props: { person: { employee_no: 'E1', display_name: '员工' } } })
+    await wrapper.get('[aria-label="翻译成简体中文"]').trigger('click')
+    await wrapper.get('[aria-label="选择翻译语言"]').trigger('click')
+    await wrapper.get('[aria-label="复制链接"]').trigger('click')
+    expect(wrapper.emitted('translate')).toHaveLength(1)
+    expect(wrapper.emitted('translate-menu')).toHaveLength(1)
+    expect(wrapper.emitted('copy-link')).toHaveLength(1)
     wrapper.unmount()
   })
 

@@ -35,3 +35,22 @@
 - 构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc + Vite passed**。
 - 浏览器（Vite + Chrome，受控 API）：默认宽1000、mask false；document mousedown/mousemove/mouseup拖动1100；写入 `{data:{"resizable-drawer-perf-drawer":{"zh-CN":1100,"en-US":1000}}}`；节点 activeTab=summary刷新恢复；ESC不关闭；390px视口 document 宽390；关闭后约200ms销毁；pageerror=0。截图：`ui-blueprints/CR-011-T02-implemented-exact-drawer.png`、`ui-blueprints/CR-011-T02-implemented-exact-drawer-mobile.png`。
 - 未运行：后端/真实数据库/生产验收、飞书真实翻译后端；不得将本地夹具浏览器结果描述为授权或生产数据验收。
+
+## CR-011-T03 人员头部空间与关闭按钮对齐
+
+- [x] 状态：本轮头部差异已修复，组件回归、类型检查/构建及本地PC/窄抽屉/手机浏览器验收完成。
+- 来源：同一飞书1000px抽屉实测，信息容器可用宽884px；工具栏仅在姓名首行；关闭按钮24×24、top=16；复制按钮26px高、top=16；复制后竖线两侧16px边距。
+- 允许修改：PerformanceReviewPersonHeader.vue/.spec.ts、PerformanceDrawerShell.vue/.spec.ts 和本CR-011文档、独立CR-011-T03截图。保留其他富文本/模板未提交变动。
+- 契约：仅既有Header DOM/CSS；person/profile_fields来源、权限裁剪、翻译/复制/关闭事件不变；无API、数据库、权限和生产操作。
+- UI：姓名＋工具栏放在信息区首行，基本信息次行用满头像右侧空间；单字段不作flex缩小，超出按整行末尾省略；关闭按钮顶齐、16px图标/24px点击区；分隔线只在复制与关闭之间。390px不产生页面横向溢出，窄屏允许工具栏自然换行。
+- Given/When/Then：完整资料/长字段/空权限字段→同一有序资料行；1000/720px抽屉→资料行不受工具栏列挤压，字段自然宽；复制按钮和关闭top相等；竖线在复制右侧、关闭左侧；翻译/复制/关闭事件保留；普通配置抽屉不受evaluation样式影响。
+- 验收：相关组件/Review测试、构建、真实Vite＋Chrome受控API夹具测量和独立截图CR-011-T03-implemented-header-pc.png、CR-011-T03-implemented-header-narrow.png、CR-011-T03-implemented-header-mobile.png。真实业务库/生产不作为本轮已验收。
+
+### CR-011-T03 验收证据
+
+- 定向测试：`npm --prefix hr-portal/frontend test -- --run src/components/performance/PerformanceReviewPersonHeader.spec.ts src/components/performance/PerformanceDrawerShell.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/Review.spec.ts` → **76 passed**。
+- 扩展回归：头部/公共抽屉/详情、项目流程/分布/对比/指标抽屉、校准条件、模板渲染、Review，共10文件 → **142 passed**；已有表格测试存在未注册loading指令警告，不影响通过。
+- 构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc + Vite通过**；首次发现新增测试使用get().exists()类型错误，已改find().exists()后通过。
+- 真Vue页面＋Chrome＋脱敏受控API：1000px抽屉profile宽884px（修前635px），720px抽屉profile宽604px（修前355px）；J3自然宽约12.55px，各字段display:inline不同比缩；复制top16px与关闭top16px，关闭24×24；竖线height约14.4px、左右16px边距，位于复制之后；390px页面scrollWidth390px；关闭仍能退出、pageerror0。
+- 视觉截图已读取检查：`CR-011-T03-implemented-header-pc.png`、`CR-011-T03-implemented-header-narrow.png`、`CR-011-T03-implemented-header-mobile.png`。
+- 不适用/未运行：无数据库/API/迁移变更，未重测真实业务库授权；未部署、commit、push；其他富文本和模板未提交改动未修改/撤销。
