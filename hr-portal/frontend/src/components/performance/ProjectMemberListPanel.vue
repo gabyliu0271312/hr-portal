@@ -4,6 +4,8 @@ import { projectManagementApi, performanceWorkbenchApi, type ProjectMember, type
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceButton from './PerformanceButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
+import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
+import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceExportIcon from './PerformanceExportIcon.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
@@ -102,7 +104,7 @@ const hiddenColumnCount = computed(() => Math.max(0, availableColumns.value.leng
 const memberSortValue = (member: MemberRow, key: string) => {
   switch (key) {
     case 'name': return member.display_name
-    case 'status': return member.status === 'completed' ? 1 : member.status === 'overdue' ? 2 : 0
+    case 'status': return { pending: 0, completed: 1, overdue: 2, rejected: 3 }[normalizePerformanceTaskStatus(member.status, member.due_at)]
     case 'due_at': return member.due_at ? new Date(member.due_at).getTime() : null
     case 'completion': {
       const [completed, total] = (member.completion || '0/0').split('/').map(Number)
@@ -171,7 +173,7 @@ const avatarText = (member: MemberRow) => member.display_name.slice(-1)
 const cellValue = (member: MemberRow, key: string) => {
   if (key === 'name') return member.display_name
   if (key === 'completion') return member.completion || '0/0'
-  if (key === 'status') return member.status === 'completed' ? '已完成' : member.status === 'overdue' ? '已逾期' : '待完成'
+  if (key === 'status') return performanceTaskStatusLabel(normalizePerformanceTaskStatus(member.status, member.due_at))
   if (key === 'due_at') return member.due_at ? new Date(member.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'
   return displayValue(member[key as keyof MemberRow] as string | null)
 }
@@ -261,6 +263,7 @@ onMounted(() => void loadMembers())
     >
       <template #cell="{ row, column }">
         <div v-if="column.key === 'name'" class="member-identity"><span class="member-avatar">{{ avatarText(row) }}</span><span class="member-name">{{ row.display_name }}</span></div>
+        <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
         <span v-else-if="column.key === 'completion'" class="table-text completion-text">{{ cellValue(row, column.key) }}</span>
         <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>

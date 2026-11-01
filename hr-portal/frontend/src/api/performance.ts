@@ -238,7 +238,7 @@ export interface PerformanceReview360FeedbackItem {
   department: string | null
   job_sequence: string | null
   position_level: string | null
-  status: 'pending' | 'completed'
+  status: 'pending' | 'completed' | 'overdue' | 'rejected'
   source_label: string
   relationship: string
   due_at: string | null

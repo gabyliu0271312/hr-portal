@@ -14,6 +14,8 @@ import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
+import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
+import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 import { type PerformanceTableColumn } from './performanceTableColumns'
@@ -167,12 +169,11 @@ function openItem(item: FeedbackRow) {
   })
 }
 
-const statusLabel = computed<Record<string, string>>(() => communicationMode.value ? { pending: '待完成', completed: '已完成', overdue: '已逾期', not_started: '未开始' } : { pending: '待评估', completed: '已提交', overdue: '已逾期', not_started: '未开始' })
 function cellValue(item: FeedbackRow, key: string) {
   if (!canViewProfile(item, key)) return '--'
   switch (key) {
     case 'name': return item.display_name
-    case 'status': return statusLabel.value[item.status] || item.status
+    case 'status': return performanceTaskStatusLabel(normalizePerformanceTaskStatus(item.status, item.due_at, !communicationMode.value))
     case 'source_label': return item.source_label
     case 'relationship': return item.relationship
     case 'due_at': return formatDisplayDateTime(item.due_at, '--')
@@ -207,7 +208,7 @@ function sortValue(item: FeedbackRow, key: string) {
   if (!canViewProfile(item, key)) return null
   switch (key) {
     case 'name': return item.display_name
-    case 'status': return item.status === 'completed' ? 1 : 0
+    case 'status': return { pending: 0, completed: 1, overdue: 2, rejected: 3 }[normalizePerformanceTaskStatus(item.status, item.due_at, !communicationMode.value)]
     case 'source_label': return item.source_label
     case 'relationship': return item.relationship
     case 'due_at': return item.due_at ? new Date(item.due_at).getTime() : null
@@ -271,9 +272,7 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
     >
       <template #cell="{ row, column }">
         <span v-if="column.key === 'name'" class="feedback-panel__identity">{{ row.display_name }}</span>
-        <span v-else-if="column.key === 'status'" class="feedback-panel__status" :class="`is-${row.status}`">
-          <span class="feedback-panel__status-dot" aria-hidden="true"></span>{{ cellValue(row, column.key) }}
-        </span>
+        <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
         <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">{{ cellValue(row, column.key) }}</span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
       </template>
@@ -313,11 +312,6 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
 .feedback-panel__completion { color: var(--color-primary); }
 .feedback-panel__identity { font-weight: 500; }
-.feedback-panel__status { display: inline-flex; align-items: center; height: 22px; color: #1f2329; font-size: 14px; line-height: 22px; }
-.feedback-panel__status-dot { position: relative; top: 1px; flex: 0 0 6px; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; }
-.feedback-panel__status.is-pending .feedback-panel__status-dot { background: #ff8800; }
-.feedback-panel__status.is-completed .feedback-panel__status-dot { background: #62d256; }
-.feedback-panel__status.is-overdue .feedback-panel__status-dot { background: #f54a45; }
 .feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); padding: 60px 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: 22px; text-align: center; }
 .feedback-empty--text { min-height: 300px; display: grid; place-items: center; padding: 0; color: var(--color-text-secondary); }
 .feedback-empty__text { margin: 0; }

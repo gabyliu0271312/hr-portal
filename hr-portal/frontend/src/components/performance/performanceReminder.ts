@@ -1,4 +1,5 @@
 import type { PerformanceWorkbenchTaskPerson } from '@/api/performance'
+import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 
 export type ReminderContext = {
   projectId: number
@@ -77,7 +78,7 @@ export function reminderColumnsForVisibility(rows: ReminderPerson[]) {
 
 export function reminderCellValue(person: ReminderPerson, key: string) {
   if (key === 'status') {
-    return person.status === 'completed' ? '已完成' : person.status === 'overdue' ? '已逾期' : '待完成'
+    return performanceTaskStatusLabel(normalizePerformanceTaskStatus(person.status, person.due_at))
   }
   if (key === 'unavailable_reason') {
     const reasons: Record<string, string> = { MANUAL_OPENING_DISABLED: '仅按流程自动开通', RESULT_VIEW_NOT_STARTED: '尚未到结果查看开始时间', RESULT_NOT_READY: '最终结果尚未生成' }

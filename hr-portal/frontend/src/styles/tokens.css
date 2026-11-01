@@ -144,6 +144,15 @@
   --performance-checkbox-disabled: var(--color-border);
   --performance-field-label-gap: 8px;
   --performance-textarea-min-height: 49.3333px;
+  --performance-task-status-dot-size: 6px;
+  --performance-task-status-gap: var(--spacing-2);
+  --performance-task-status-min-width: 96px;
+  --performance-task-status-line-height: 22px;
+  --performance-task-status-pending: var(--color-text-warning-strong);
+  --performance-task-status-completed: #62d256;
+  --performance-task-status-overdue: var(--color-text-danger-strong);
+  --performance-task-status-rejected: var(--color-text-danger-strong);
+  --performance-task-status-rejected-offset: 1px;
   --performance-count-badge-height: 16px;
   --performance-count-badge-bg: #eff0f1;
   --performance-count-badge-text: #646a73;

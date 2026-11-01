@@ -119,3 +119,16 @@
 - 真实 Vue 页面＋受控 API 夹具：有权限显示“正式员工”，无权限不显示员工类型列；pageerror=0。独立截图：`ui-blueprints/CR-010-F03-implemented-employee-type-allowed.png`、`ui-blueprints/CR-010-F03-implemented-employee-type-denied.png`，已查看实际截图。
 - UI 门禁：既有列可见性小修，沿CR-010 v1，无新信息架构和蓝图；Spec012 N00/N11通用约束适用，无数仓/UCP改动。
 - 未执行：真实生产接口/数据库验收、修改现有角色字段可见设置、提交、推送、部署。若要让当前默认无权限的上级或校准角色看到员工类型，需在后台可见性设置中明确启用，不以本次修复静默扩权。
+
+## 10. CR-010-F02 评估表格状态统一与360已拒绝样式（2026-11-01）
+
+- 用户确认：通用表格只显示“待完成、已完成、已逾期”；360°反馈额外保留“已拒绝”。用户补充的拒绝采集来自 `/perf/review/7035907577847760388/7035917118351771137/members`，图标为6px红点#F54A45，右距8px，下移1px；文字14px/22px、400、#1F2329。
+- 公共展示：新增 `PerformanceTaskStatus.vue` 和 `performanceTaskStatus.ts`，样式使用 `tokens.css` 的任务状态token；橙色#FF8800待完成、绿色#62D256已完成、红色#F54A45已逾期；360拒绝沿采集红点与1px偏移，不使用新SVG或胶囊标签。
+- 接入：`ProjectMemberListPanel`（上级评价/校准）、`PerformanceReview360FeedbackPanel`（360/结果沟通）、`PerformanceReview360InvitePanel`、`PerformanceTaskTable`（催办人员）复用同一组件。原表格文案“待评估/待填写/已提交/已邀请”收敛为三种显示。侧栏、后台配置状态、结果开通资格等非任务状态不变。
+- 行为：已完成优先于逾期判断；pending且有效截止时间已过只在展示层转为逾期；未开始/无效日期不强造逾期。`allowRejected` 仅由360反馈模式开启，拒绝优先于截止时间判断，原行状态与点击事件保持不变；不改变任务写入、权限、节点时窗或生成拒绝记录。
+- 接口：360反馈列表保留已有任务的 `rejected`，不再将其投影为pending；保留已有completed和submitted_at完成信息。DTO允许四种反馈状态。未新增拒绝操作、API、数据表、迁移或授权。
+- 测试：前端 `Review.spec.ts`、`ProjectManagement.spec.ts`、`PerformanceReminderPanel.spec.ts`、`PerformanceReviewEvaluationDrawer.spec.ts` 共 **72 passed**，包括完成优先、拒绝优先、无效日期、通用三状态、360四状态及原事件状态保留；后端 `test_performance_projects.py` **334 passed / 4 skipped / 1 第三方弃用警告**，含360状态只读透传测试。
+- 实际UI：真实Vue页面＋受控API夹具验证360四状态及校准三状态，pageerror=0；实际计算样式6x6px圆点/8px右距/14px字号/22px行高/#1F2329文字，拒绝红点rgb(245,74,69)、top=1px。已查看截图 `ui-blueprints/CR-010-F02-implemented-feedback-four-statuses.png`、`ui-blueprints/CR-010-F02-implemented-calibration-three-statuses.png`。
+- UI门禁：延用CR-010 v1，用户采集明确的既有样式/文案小修，无新信息架构；Spec012 N00/N11通用规则适用，无UCP/数仓改动。
+- 最终构建：`npm --prefix hr-portal/frontend run build` 已完成，vue-tsc + Vite通过（Vite 46.29s，既有第三方PURE注释告警）；`git diff --check`通过。
+- 未执行：真实登录/业务数据库拒绝记录验收、拒绝操作生命周期、生产部署、commit、push。F03记录中的“拒绝图标待补”已由本节用户采集补齐；其历史边界不作为当前阻塞。

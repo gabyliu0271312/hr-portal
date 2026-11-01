@@ -18,7 +18,7 @@
         <tbody v-else>
           <tr v-for="row in rows" :key="row.task_id">
             <td v-if="selectable" class="selection-cell"><PerformanceCheckbox :model-value="selectedKeys.includes(String(row.task_id))" :disabled="loading || row.selectable === false" :label="`选择${row.display_name}`" @update:model-value="toggleRow(row, $event)" /></td>
-            <td v-for="column in columns" :key="column.key" :class="{ 'name-cell': column.key === 'display_name' }"><span class="cell-text" :title="String(reminderCellValue(row, column.key))">{{ reminderCellValue(row, column.key) }}</span></td>
+            <td v-for="column in columns" :key="column.key" :class="{ 'name-cell': column.key === 'display_name' }"><PerformanceTaskStatus v-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" /><span v-else class="cell-text" :title="String(reminderCellValue(row, column.key))">{{ reminderCellValue(row, column.key) }}</span></td>
           </tr>
         </tbody>
       </table>
@@ -30,6 +30,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import PerformancePagination from './PerformancePagination.vue'
 import { reminderCellValue, type ReminderColumn, type ReminderPerson } from './performanceReminder'
 

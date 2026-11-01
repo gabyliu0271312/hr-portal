@@ -11,6 +11,8 @@ import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
+import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
+import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 
 const props = defineProps<{
@@ -130,7 +132,6 @@ async function revoke(employeeNo: string) {
   }
 }
 
-const statusLabel: Record<string, string> = { invited: '已邀请', pending: '待填写', completed: '已完成' }
 const minimumHint = computed(() => {
   if (!minimumInvitedCount.value) return ''
   if (total.value < minimumInvitedCount.value) return `任务未完成：还需邀请 ${minimumInvitedCount.value - total.value} 人`
@@ -159,7 +160,7 @@ function columnMinWidth(key: string) {
 function cellValue(item: PerformanceReview360InvitedReviewer, key: string) {
   switch (key) {
     case 'name': return item.display_name
-    case 'status': return statusLabel[item.status] || item.status
+    case 'status': return performanceTaskStatusLabel(normalizePerformanceTaskStatus(item.status, item.due_at))
     case 'source_label': return item.source_label
     case 'due_at': return item.due_at ? new Date(item.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'
     case 'job_sequence': return item.job_sequence || '--'
@@ -206,9 +207,7 @@ onMounted(() => void load())
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="columnMinWidth(column.key)">
         <template #default="{ row }">
           <span v-if="column.key === 'name'" class="invite-panel__identity">{{ row.display_name }}</span>
-          <span v-else-if="column.key === 'status'">
-            <span class="invite-panel__status" :class="`is-${row.status}`">{{ cellValue(row, column.key) }}</span>
-          </span>
+          <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
           <span v-else>{{ cellValue(row, column.key) }}</span>
         </template>
       </el-table-column>
@@ -259,10 +258,6 @@ onMounted(() => void load())
 .invite-panel__hint-item { color: #646a73; }
 .invite-panel__hint-item.is-incomplete { color: #d14343; }
 .invite-panel__identity { font-weight: 500; }
-.invite-panel__status { display: inline-flex; align-items: center; min-width: 56px; height: 22px; padding: 0 8px; border-radius: 9999px; font-size: 12px; line-height: 22px; }
-.invite-panel__status.is-invited { background: #f1f2f4; color: #646a73; }
-.invite-panel__status.is-pending { background: #fff0df; color: #d46b08; }
-.invite-panel__status.is-completed { background: #d5f6f2; color: #024b41; }
 .invite-candidates { display: flex; min-height: 0; flex-direction: column; }
 .invite-candidates__state { display: grid; min-height: 240px; place-items: center; color: #8f959e; font-size: 14px; }
 .invite-candidates__list { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; }

@@ -238,7 +238,7 @@ async def list_feedback(
                 department=organization_leaf(person) if person else None,
                 job_sequence=format_job_sequence(person.job_family, person.job_category) if person else None,
                 position_level=person.position_level if person else None,
-                status="completed" if task.submitted_at is not None else "pending",
+                status="rejected" if task.status == "rejected" else ("completed" if task.submitted_at is not None or task.status == "completed" else "pending"),
                 source_label=labels.get(task.target_employee_no, INVITE_SOURCE_LABELS["SELF"]),
                 relationship=_relationship(people_by_no.get(actor_ref), person),
                 due_at=task.due_at.isoformat() if task.due_at else None,

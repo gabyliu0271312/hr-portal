@@ -5277,3 +5277,27 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
     assert row["completion"] == "0/0"
     assert row["employee_type"] == ("正式员工" if visible else None)
     assert ("employee_type" in row["visible_profile_fields"]) is visible
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,submitted,expected", [("rejected", False, "rejected"), ("pending", False, "pending"), ("completed", False, "completed"), ("pending", True, "completed")])
+async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeypatch, status, submitted, expected):
+    from datetime import UTC, datetime
+    from app.performance import review_360_feedback_router as feedback
+    target = SimpleNamespace(id=1, settings={})
+    node = SimpleNamespace(id=10, node_id="feedback")
+    task = SimpleNamespace(id=3, member_snapshot_id=7, target_employee_no="E1", status=status, submitted_at=datetime(2026, 1, 1, tzinfo=UTC) if submitted else None, due_at=datetime(2020, 1, 1, tzinfo=UTC))
+    async def project(*args): return target
+    async def snapshot(*args): return SimpleNamespace(id=2)
+    async def actor(*args): return "REVIEWER"
+    async def evaluation_node(*args): return node
+    async def tasks(*args): return [task]
+    async def member_snapshot(*args): return 7
+    async def people(*args): return []
+    async def labels(*args): return {}
+    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels)]:
+        monkeypatch.setattr(feedback, name, function)
+    result = await feedback.list_feedback(1, keyword=None, context=context(), db=object())
+    assert result.items[0].status == expected
+    assert result.items[0].due_at == "2020-01-01T00:00:00+00:00"
+    assert task.status == status

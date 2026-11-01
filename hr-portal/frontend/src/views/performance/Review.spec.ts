@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
@@ -16,6 +16,8 @@ vi.mock('vue-router', () => ({
 import Review from './Review.vue'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
+import PerformanceTaskStatus from '@/components/performance/PerformanceTaskStatus.vue'
+import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from '@/components/performance/performanceTaskStatus'
 import performanceLayoutSource from '@/layouts/PerformanceLayout.vue?raw'
 import reviewSource from './Review.vue?raw'
 import reviewContentSource from '@/components/performance/PerformanceReviewContent.vue?raw'
@@ -651,6 +653,40 @@ describe('PerformanceReview', () => {
     expect(wrapper.get('.feedback-panel__completion').text()).toBe('0/0')
     wrapper.unmount()
   })
+
+  it.each([
+    ['pending', '2099-01-01T00:00:00Z', 'pending', '待完成'],
+    ['completed', '2020-01-01T00:00:00Z', 'completed', '已完成'],
+    ['overdue', null, 'overdue', '已逾期'],
+    ['pending', '2020-01-01T00:00:00Z', 'overdue', '已逾期'],
+    ['invited', null, 'pending', '待完成'],
+    ['not_started', '2020-01-01T00:00:00Z', 'pending', '待完成'],
+    ['pending', 'invalid', 'pending', '待完成'],
+  ])('uses shared dot status for %s with deadline %s', (status, dueAt, normalized, label) => {
+    expect(normalizePerformanceTaskStatus(status, dueAt)).toBe(normalized)
+    const wrapper = mount(PerformanceTaskStatus, { props: { status, dueAt } })
+    expect(wrapper.text()).toBe(label)
+    expect(wrapper.classes()).toContain(`is-${normalized}`)
+    expect(wrapper.get('.performance-task-status__dot').attributes('aria-hidden')).toBe('true')
+    wrapper.unmount()
+  })
+
+  it.each(['review', 'communication'])('renders all three dot statuses in the %s table', async entry => {
+    const rows = ['pending', 'completed', 'overdue'].map((status, index) => ({ task_id: index + 1, employee_no: `E${index}`, display_name: `员工${index}`, status, due_at: null, completion: '0/0', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }))
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue(rows)
+    const wrapper = entry === 'review'
+      ? mount(ProjectMemberListPanel, { props: { projectId: 1, reviewContext: { nodeId: 'manager', state: 'all' } } })
+      : mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'communication', mode: 'communication' } })
+    await flushPromises()
+    expect(wrapper.findAll('.performance-task-status').map(status => status.text())).toEqual(['待完成', '已完成', '已逾期'])
+    expect(wrapper.findAll('.performance-task-status__dot')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('keeps shared status labels limited to the three table labels', () => {
+    expect(['pending', 'completed', 'overdue'].map(status => performanceTaskStatusLabel(status as 'pending' | 'completed' | 'overdue'))).toEqual(['待完成', '已完成', '已逾期'])
+  })
+
   it.each([
     { label: 'allowed', fields: ['employee_type'], value: '正式员工', visible: true },
     { label: 'denied', fields: [], value: null, visible: false },
@@ -691,6 +727,36 @@ describe('PerformanceReview', () => {
     expect(wrapper.text()).toContain('员工类型')
     expect(wrapper.text()).toContain('正式员工')
     expect(wrapper.text()).not.toContain('禁止暴露值')
+    wrapper.unmount()
+  })
+
+  it('keeps rejected feedback terminal after the deadline and uses the shared red dot', async () => {
+    expect(normalizePerformanceTaskStatus('rejected', '2020-01-01T00:00:00Z', true)).toBe('rejected')
+    expect(performanceTaskStatusLabel('rejected')).toBe('已拒绝')
+    const wrapper = mount(PerformanceTaskStatus, { props: { status: 'rejected', dueAt: '2020-01-01T00:00:00Z', allowRejected: true } })
+    expect(wrapper.text()).toBe('已拒绝')
+    expect(wrapper.classes()).toContain('is-rejected')
+    expect(wrapper.findAll('.performance-task-status__dot')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('shows the four feedback states without changing their underlying row status', async () => {
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [
+      { task_id: 1, employee_no: 'E1', display_name: '待完成员工', status: 'pending', due_at: '2099-01-01T00:00:00Z', source_label: '邀请评估', relationship: '同事', department: null, job_sequence: null, position_level: null },
+      { task_id: 2, employee_no: 'E2', display_name: '已完成员工', status: 'completed', due_at: '2020-01-01T00:00:00Z', source_label: '邀请评估', relationship: '同事', department: null, job_sequence: null, position_level: null },
+      { task_id: 3, employee_no: 'E3', display_name: '逾期员工', status: 'pending', due_at: '2020-01-01T00:00:00Z', source_label: '自愿评估', relationship: '同事', department: null, job_sequence: null, position_level: null },
+      { task_id: 4, employee_no: 'E4', display_name: '拒绝员工', status: 'rejected', due_at: '2020-01-01T00:00:00Z', source_label: '邀请评估', relationship: '同事', department: null, job_sequence: null, position_level: null },
+    ], total: 4, node_id: 'feedback', allow_voluntary_evaluation: false })
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'feedback' } })
+    await flushPromises()
+    expect(wrapper.findAll('.performance-task-status').map(status => status.text())).toEqual(['待完成', '已完成', '已逾期', '已拒绝'])
+    expect(wrapper.findAll('.performance-task-status__dot')).toHaveLength(4)
+    expect(wrapper.text()).not.toContain('待评估')
+    expect(wrapper.text()).not.toContain('已提交')
+    expect(wrapper.get('.is-rejected').get('.performance-task-status__dot').attributes('aria-hidden')).toBe('true')
+    wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 4, employee_no: 'E4', display_name: '拒绝员工', status: 'rejected' })
+    await flushPromises()
+    expect(wrapper.emitted('open-task')?.at(-1)).toEqual([{ task_id: 4, employee_no: 'E4', display_name: '拒绝员工', status: 'rejected' }])
     wrapper.unmount()
   })
 
