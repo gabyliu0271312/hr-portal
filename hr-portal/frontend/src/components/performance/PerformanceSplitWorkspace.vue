@@ -1,13 +1,15 @@
 <template>
-  <div ref="container" class="performance-split-workspace" :class="{ 'is-split': splitActive, 'is-dragging': dragging }" :style="{ '--split-left-width': `${leftWidth}px` }">
+  <div ref="container" class="performance-split-workspace" :class="{ 'is-split': splitActive, 'is-dragging': dragging }" :style="{ '--split-left-width': `${leftWidth}px`, '--split-footer-height': `${footerHeight}px` }">
     <section v-show="splitActive" class="split-reference-pane" aria-label="参考内容"><slot name="left" /></section>
     <button v-show="splitActive" class="split-separator" type="button" role="separator" aria-orientation="vertical" aria-label="调整参考区与填写区宽度" :aria-valuemin="MIN_WIDTH" :aria-valuemax="Math.max(MIN_WIDTH, width - RESERVED_WIDTH - MIN_WIDTH)" :aria-valuenow="Math.round(leftWidth)" @keydown="onKeydown" @mousedown="startDrag">
       <svg class="split-grip" width="4" height="20" fill="none" aria-hidden="true"><rect width="4" height="4" rx="2" fill="currentColor" /><rect y="8" width="4" height="4" rx="2" fill="currentColor" /><rect y="16" width="4" height="4" rx="2" fill="currentColor" /></svg>
     </button>
     <section class="split-current-pane" aria-label="当前任务">
       <div v-show="!splitActive" class="split-single-tabs"><slot name="tabs" /></div>
-      <main class="summary-scroll"><slot /></main>
-      <slot name="footer" />
+      <div class="split-current-card">
+        <main class="summary-scroll"><slot /></main>
+        <div ref="footer" class="split-current-footer"><slot name="footer" /></div>
+      </div>
     </section>
   </div>
 </template>
@@ -21,6 +23,8 @@ const RESERVED_WIDTH = 13
 const props = defineProps<{ enabled: boolean }>()
 const emit = defineEmits<{ available: [value: boolean] }>()
 const container = ref<HTMLElement | null>(null)
+const footer = ref<HTMLElement | null>(null)
+const footerHeight = ref(0)
 const width = ref(0)
 const offset = ref(readPerformanceSplitOffset())
 const dragging = ref(false)
@@ -78,6 +82,7 @@ function onKeydown(event: KeyboardEvent) {
   savePerformanceSplitOffset(offset.value)
 }
 function measure() {
+  footerHeight.value = footer.value?.getBoundingClientRect().height || 0
   const nextWidth = container.value?.getBoundingClientRect().width || 0
   if (nextWidth !== width.value) stopDrag()
   width.value = nextWidth
@@ -87,17 +92,24 @@ function measure() {
 watch(() => props.enabled, () => { stopDrag(); measure() })
 onMounted(() => {
   measure()
-  if (container.value && typeof ResizeObserver !== 'undefined') { observer = new ResizeObserver(measure); observer.observe(container.value) }
+  if (container.value && typeof ResizeObserver !== 'undefined') { observer = new ResizeObserver(measure); observer.observe(container.value); if (footer.value) observer.observe(footer.value) }
   window.addEventListener('resize', measure)
 })
 onBeforeUnmount(() => { stopDrag(); observer?.disconnect(); window.removeEventListener('resize', measure) })
 </script>
 
 <style scoped>
-.performance-split-workspace{display:flex;width:100%;height:100%;flex:1;min-width:0;min-height:0;overflow:hidden}
+.performance-split-workspace{--performance-task-footer-height:63px;display:flex;width:100%;height:100%;flex:1;min-width:0;min-height:0;overflow:hidden}
 .split-reference-pane{flex:0 0 var(--split-left-width);width:var(--split-left-width);min-width:0;min-height:0;overflow:hidden;display:flex;flex-direction:column;padding:12px 0 12px 12px}
 .split-current-pane{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}
 .split-single-tabs{flex:none;min-width:0}
+.split-current-card{position:relative;display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}
+.split-current-footer{position:absolute;right:0;bottom:0;left:0;z-index:1;flex:none}
+.is-split .split-current-card{margin:12px;border-radius:8px;background:var(--color-bg-card);overflow:hidden}
+.is-split .split-current-footer{position:relative}
+.is-split .summary-scroll{padding:0}
+.performance-split-workspace:not(.is-split) .summary-scroll :slotted(*){min-height:100%}
+.performance-split-workspace:not(.is-split) .summary-scroll::after{content:'';display:block;flex:0 0 var(--split-footer-height)}
 .summary-scroll{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:auto;padding:12px}
 .summary-scroll :slotted(*){flex:1 0 auto;min-width:0}
 .split-separator{display:flex;flex:0 0 6px;width:6px;min-width:6px;height:100%;align-items:center;justify-content:center;padding:0;border:0;background:#f5f6f7;cursor:col-resize;user-select:none;color:#8f959e;transform:translateX(6px)}

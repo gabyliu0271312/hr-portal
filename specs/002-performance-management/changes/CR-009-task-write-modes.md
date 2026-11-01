@@ -1,6 +1,6 @@
 # CR-009 填写任务双屏/全屏模式
 
-- 状态：主体已提交推送；本轮白色画布高度回归修复已完成本地验收，尚未提交/部署。
+- 状态：主体及上一轮高度修复已提交推送；本轮目标白卡/底栏结构、滚动终点与参考空态纠偏已完成本地验收，未提交/部署。
 - 蓝图：`ui-blueprints/CR-009-T01-write-modes-v1.md` v1 已于2026-11-01确认
 - 关联：CR-008 模板驱动的全屏绩效填写工作区
 - 改动仅前端，不修改API、数据库、后端、权限或周期快照。
@@ -43,3 +43,16 @@
 - 真实本地Vue路由 + 拦截API fixture：12组浏览器几何断言通过。1280×900下全屏短填写白卡688px、参考白卡752px；双屏右侧短填写白卡748px、左参考752px。长填写4352px、长参考2542px，均可滚动到末项，footer保持在900px底部；参考未提交/过滤空、无参考及390×844窄屏回退通过，两个正式任务路由均无横向溢出，双屏偏好保留；pageerror=0，API写请求=0。
 - 独立实现截图（本地夹具，非生产）：`ui-blueprints/CR-009-T03-implemented-canvas-height-dual.png`、`ui-blueprints/CR-009-T03-implemented-canvas-height-reference.png`、`ui-blueprints/CR-009-T03-implemented-canvas-height-narrow.png`。
 - 边界：仅页面布局、既有测试与本记录；模板参考投影、答案、保存链、服务端权限、数据库及生产均未修改。
+
+## CR-009-T03 目标白卡与底栏结构纠偏（2026-11-01）
+
+- 用户补充的验收口径覆盖上一轮“各自撑满即可”的结论：必须同时验证填写白卡/按钮区同宽、双屏左右白卡共同底边、长参考滚到底后的终点，以及参考空态标题与插画。上一轮688px/748px填写高度和独立全宽footer只是当时本地实现证据，不代表与目标结构一致。
+- 目标依据：REA页面 `.../perf/review/7702053437998894368/7311617673744662556?mode=editable`，截图证据 `ev_d94ea927373f66ec7e26781097839856b97a5c0ebae306ce7aee5237806ec015`；已保留生产bundle证据 `ev_53557936f18942737271c50af69249782be40670a6104c484aa8a80ce331a03f` 的 `SplitScreenContainer__RightScreen` / `FullScreenMode` 和footer规则，补充同CDP目标只读几何测量。按钮区“底部”按外框理解，非32px按钮本体底边：当次CSS视口约1280×673.33（DPR1.5），左右白卡/底栏外框底边均661.33，按钮本体底边645.83。
+- 实现：稳定的 `split-current-card` 同时包含当前内容滚动层和footer；双屏整卡外边距12px、白底、圆角8px，表单与footer共用宽度；左参考空/短内容撑到相同底边，长参考自然增长并在独立滚动层滚到底后对齐。单屏footer固定在工作区底部，画布不再先扣除footer高度；额外的滚动尾部按ResizeObserver实测footer高度预留（桌面63px、窄屏实测85px），避免末项被遮挡。
+- 参考标题在readonly内容/空态分支外显示，包含pending/overdue/not_started/completed但过滤为空；现有抽屉自行提供标题，因此不启用参考组件的 `showTitle`，避免重复。工作总结和参考未提交状态共用完整6-path静态插画 `public/performance-no-submit.svg`，不再复制不完整的3-path SVG；未启动继续共用原 `performance-not-started.svg`，不混淆业务状态。
+- 复用与边界：Renderer、表单/编辑器、reference投影、save chain、权限逻辑及DTO/API保持原样；模式切换不重挂填写器。修改限前端组件、同功能既有测试、两份既有CR-009记录及独立实现截图，无后端/迁移/生产操作。
+- 最终定向测试：8文件182 passed（SelfSummaryTask 67、Review 59、TemplateRenderer 29、SplitWorkspace 6、Header 4、ModeSwitch 4、mode偏好10、任务路由3）；命令：`npm --prefix hr-portal/frontend test -- src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts src/components/performance/PerformanceSplitWorkspace.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceSelfSummaryHeader.spec.ts src/components/performance/PerformanceWriteModeSwitch.spec.ts src/composables/usePerformanceWriteMode.spec.ts src/router/performanceTaskRoutes.spec.ts --silent`。
+- `npm --prefix hr-portal/frontend run build`通过，只有既有VueUse PURE annotation提示。
+- 浏览器：真实Vue + API拦截fixture，两个正式任务路由×单/双屏×短/长/未提交/未启动/逾期/过滤空/无参考=28组，通过同宽、外边界和滚动终点断言；另有两路由×窄屏短/长=4组、两路由×单/双屏只读=4组、切模式/resize/分隔Home-End保留编辑器DOM与答案/请求数=1组，共37组。1280×900双屏右白卡与footer横坐标761..1268、共同底边888；左参考底边888（含长参考滚到底）；单屏短白卡136..888，footer837..900，画布在其后延伸而滚动尾部保证末项可达。pageerror=0；28组基础验收写请求0；DOM保存场景仅有主动输入触发的1次fixture自动保存，布局切换无新增请求。
+- 独立截图均为本地夹具、非目标生产截图：`CR-009-T03-implemented-aligned-dual-empty.png`、`CR-009-T03-implemented-aligned-dual-scroll-end.png`、`CR-009-T03-implemented-aligned-full.png`、`CR-009-T03-implemented-aligned-narrow.png`；位于ui-blueprints目录。
+- 未完成范围：真实业务数据库、真实业务API保存及生产验收；本轮未提交、推送或部署。

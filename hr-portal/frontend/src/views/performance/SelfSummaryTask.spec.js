@@ -352,8 +352,8 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
     expect(wrapper.get('.summary-tabs .active').text()).toBe(task.node_name)
     expect(wrapper.get('.self-summary-form h1').text()).toBe('填写本期重点产出')
-    expect(wrapper.find('.split-current-pane > .summary-scroll > .task-content').exists()).toBe(true)
-    expect(wrapper.find('.split-current-pane > .self-summary-footer').exists()).toBe(true)
+    expect(wrapper.find('.split-current-card > .summary-scroll > .task-content').exists()).toBe(true)
+    expect(wrapper.find('.split-current-card > .split-current-footer > .self-summary-footer').exists()).toBe(true)
     expect(wrapper.find('.write-mode-trigger').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -372,8 +372,8 @@ describe('SelfSummaryTask', () => {
   })
 
   it.each([
-    ['fullScreenMode', 'completed'], ['fullScreenMode', 'pending'], ['fullScreenMode', 'filtered'],
-    ['basicWriteMode', 'completed'], ['basicWriteMode', 'pending'], ['basicWriteMode', 'filtered'],
+    ['fullScreenMode', 'completed'], ['fullScreenMode', 'pending'], ['fullScreenMode', 'filtered'], ['fullScreenMode', 'not_started'], ['fullScreenMode', 'overdue'],
+    ['basicWriteMode', 'completed'], ['basicWriteMode', 'pending'], ['basicWriteMode', 'filtered'], ['basicWriteMode', 'not_started'], ['basicWriteMode', 'overdue'],
   ])('uses a readonly reference canvas for %s / %s without changing task answers', async (mode, status) => {
     localStorage.setItem('userMode', mode)
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, width: 1280, height: 700, left: 0, top: 0, right: 1280, bottom: 700 })
@@ -384,11 +384,27 @@ describe('SelfSummaryTask', () => {
     if (mode === 'fullScreenMode') await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
     const canvas = wrapper.get('.task-reference-content')
     expect(canvas.classes()).toContain('performance-reference-content')
+    expect(canvas.get('.reference-content-title').text()).toBe('配置参考')
+    if (status !== 'completed') expect(canvas.get('.performance-reference-empty > img').attributes('src')).toBe(status === 'not_started' ? '/performance-not-started.svg' : '/performance-no-submit.svg')
     expect(canvas.find('[contenteditable="true"]').exists()).toBe(false)
     expect(canvas.text()).toContain(status === 'completed' ? '参考答案' : status === 'filtered' ? '暂无可查看内容' : '暂未提交')
     expect(performanceReviewApi.selfSummary).toHaveBeenCalledTimes(1)
     expect(performanceReviewApi.saveSelfSummaryDraft).not.toHaveBeenCalled()
     expect(performanceReviewApi.submitSelfSummary).not.toHaveBeenCalled()
+  })
+
+  it('shares the complete unsubmitted illustration with review and keeps drawer titles single', () => {
+    for (const path of ['src/components/performance/PerformanceReviewContent.vue', 'src/components/performance/PerformanceReferenceContent.vue']) {
+      const source = readFileSync(resolve(process.cwd(), path), 'utf8')
+      expect(source).toContain('src="/performance-no-submit.svg"')
+      expect(source).toContain('src="/performance-not-started.svg"')
+    }
+    const illustration = readFileSync(resolve(process.cwd(), 'public/performance-no-submit.svg'), 'utf8')
+    expect(illustration.match(/<path /g)).toHaveLength(6)
+    const reference = readFileSync(resolve(process.cwd(), 'src/components/performance/PerformanceReferenceContent.vue'), 'utf8')
+    expect(reference).toContain('<h2 v-if="showTitle"')
+    const drawer = readFileSync(resolve(process.cwd(), 'src/components/performance/PerformanceReviewEvaluationDrawer.vue'), 'utf8')
+    expect(drawer).not.toContain('show-title')
   })
 
   it('keeps an empty task non-submittable without inventing fields', async () => {

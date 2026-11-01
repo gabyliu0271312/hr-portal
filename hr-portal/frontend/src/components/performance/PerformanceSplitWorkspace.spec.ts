@@ -78,6 +78,22 @@ describe('PerformanceSplitWorkspace', () => {
     expect(document.body.style.userSelect).toBe('text')
     document.body.style.userSelect = ''
   })
+  it('keeps the footer and editor in one card and measures the actual footer for single-mode scroll clearance', async () => {
+    const wrapper = mount(PerformanceSplitWorkspace, { props: { enabled: false }, slots: { default: '<input value="答案" />', footer: '<footer>提交</footer>' } })
+    const input = wrapper.get('input').element
+    const footer = wrapper.get('.split-current-footer')
+    vi.spyOn(footer.element, 'getBoundingClientRect').mockReturnValue({ width: 1000, height: 95 } as DOMRect)
+    resize(wrapper.element, 1280); await wrapper.vm.$nextTick()
+    expect(wrapper.attributes('style')).toContain('--split-footer-height: 95px')
+    expect(wrapper.find('.split-current-card > .summary-scroll input').exists()).toBe(true)
+    expect(wrapper.find('.split-current-card > .split-current-footer > footer').exists()).toBe(true)
+    await wrapper.setProps({ enabled: true })
+    expect(wrapper.get('input').element).toBe(input)
+    expect(wrapper.get('.split-current-footer').element).toBe(footer.element)
+    vi.mocked(footer.element.getBoundingClientRect).mockReturnValue({ height: 0 } as DOMRect)
+    resize(wrapper.element, 1280); await wrapper.vm.$nextTick()
+    expect(wrapper.attributes('style')).toContain('--split-footer-height: 0px')
+  })
   it('finishes an active drag when mode or container width changes', async () => {
     const wrapper = mount(PerformanceSplitWorkspace, { props: { enabled: true } })
     resize(wrapper.element, 1280); await wrapper.vm.$nextTick()
