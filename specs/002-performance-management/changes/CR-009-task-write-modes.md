@@ -1,6 +1,6 @@
 # CR-009 填写任务双屏/全屏模式
 
-- 状态：本地实现/回归/fixture浏览器验收完成；未部署、未提交
+- 状态：主体已提交推送；本轮白色画布高度回归修复已完成本地验收，尚未提交/部署。
 - 蓝图：`ui-blueprints/CR-009-T01-write-modes-v1.md` v1 已于2026-11-01确认
 - 关联：CR-008 模板驱动的全屏绩效填写工作区
 - 改动仅前端，不修改API、数据库、后端、权限或周期快照。
@@ -29,7 +29,17 @@
 
 ## 非完成项与边界
 
-- 无真实数据库/真实业务API持久化和生产验收；没有修改后端/迁移；无部署、提交或推送。
+- 无真实数据库/真实业务API持久化和生产验收；没有修改后端/迁移；本轮高度修复未部署、提交或推送。
 - REA生产代码静态分析与几何采集支持参数选择；本地原始svg作为静态资源，生产代码从未执行。
 - 模式与分隔比例是个人显示偏好，不是权限或业务数据；本地窄屏回退是CR-009适配规则。
 - 旧CR-008只默认全屏、未放模式切换入口的文字边界由用户确认的CR-009 v1扩展覆盖；不改变其表单schema/answer/Renderer/snapshot基线。
+
+## CR-009-T03 白色画布高度回归修复（2026-11-01）
+
+- 问题：草稿/提交后查看功能新增 `draftAnchor` 普通包装层，打断当前填写器的 flex 高度链；全屏参考页签缺少独立白卡，双屏参考的百分比最小高度和收缩规则也未形成稳定的短/长内容约束。
+- 修复：`SelfSummaryTask.vue` 的 `task-form-shell` 与填写器使用 `flex:1 0 auto` 连接高度链；全屏/双屏参考共用局部 `task-reference-content` 白色画布和20px内边距；参考滚动容器纵向布局，短内容撑满、长内容自然增长，参考未提交/过滤为空的空态在可用画布内居中。未给公共Renderer或抽屉添加全局固定高度；参考共享组件未改动。
+- 回归：`npm --prefix hr-portal/frontend test -- src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceSplitWorkspace.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/views/performance/Review.spec.ts --silent`，4文件155 passed，其中本轮新增7项。未静默运行时相邻Review测试有既有 `loading` 指令mock警告。
+- 构建：`npm --prefix hr-portal/frontend run build` 通过（vue-tsc + Vite）；只有既有VueUse PURE annotation提示。
+- 真实本地Vue路由 + 拦截API fixture：12组浏览器几何断言通过。1280×900下全屏短填写白卡688px、参考白卡752px；双屏右侧短填写白卡748px、左参考752px。长填写4352px、长参考2542px，均可滚动到末项，footer保持在900px底部；参考未提交/过滤空、无参考及390×844窄屏回退通过，两个正式任务路由均无横向溢出，双屏偏好保留；pageerror=0，API写请求=0。
+- 独立实现截图（本地夹具，非生产）：`ui-blueprints/CR-009-T03-implemented-canvas-height-dual.png`、`ui-blueprints/CR-009-T03-implemented-canvas-height-reference.png`、`ui-blueprints/CR-009-T03-implemented-canvas-height-narrow.png`。
+- 边界：仅页面布局、既有测试与本记录；模板参考投影、答案、保存链、服务端权限、数据库及生产均未修改。

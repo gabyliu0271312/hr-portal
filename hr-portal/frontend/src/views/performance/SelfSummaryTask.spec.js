@@ -358,6 +358,39 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
+  it('keeps the draft anchor in the growing canvas height chain without shrinking long content', async () => {
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.get('.task-content > .task-form-shell > .task-template-renderer').exists()).toBe(true)
+    const source = readFileSync(resolve(process.cwd(), 'src/views/performance/SelfSummaryTask.vue'), 'utf8')
+    expect(source).toContain('.task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column}')
+    expect(source).toContain('.task-template-renderer,.task-content > .state{flex:1 0 auto;min-height:0}')
+    expect(source).toContain('.reference-scroll > *{flex:1 0 auto;min-width:0}')
+    expect(source).toContain('.reference-scroll{display:flex;flex:1;min-height:0;flex-direction:column;overflow:auto;')
+    expect(source).toContain('.task-reference-content{display:flex;flex-direction:column;min-height:0;')
+    expect(source).toContain('.task-reference-content :deep(.performance-reference-empty){flex:1 0 auto;min-height:0}')
+  })
+
+  it.each([
+    ['fullScreenMode', 'completed'], ['fullScreenMode', 'pending'], ['fullScreenMode', 'filtered'],
+    ['basicWriteMode', 'completed'], ['basicWriteMode', 'pending'], ['basicWriteMode', 'filtered'],
+  ])('uses a readonly reference canvas for %s / %s without changing task answers', async (mode, status) => {
+    localStorage.setItem('userMode', mode)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, width: 1280, height: 700, left: 0, top: 0, right: 1280, bottom: 700 })
+    const reference = { key: 'source', node_id: 'source', node_name: '配置参考', employee_no: 'E001', status: status === 'filtered' ? 'completed' : status, form_schema: status === 'completed' ? [{ id: 'source', name: '参考', fields: [{ id: 'source-text', type: 'rich_text', label: '来源内容' }] }] : [], answers: { 'source-text': '参考答案' }, can_remind: false }
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), reference_tabs: [reference] })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    if (mode === 'fullScreenMode') await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
+    const canvas = wrapper.get('.task-reference-content')
+    expect(canvas.classes()).toContain('performance-reference-content')
+    expect(canvas.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(canvas.text()).toContain(status === 'completed' ? '参考答案' : status === 'filtered' ? '暂无可查看内容' : '暂未提交')
+    expect(performanceReviewApi.selfSummary).toHaveBeenCalledTimes(1)
+    expect(performanceReviewApi.saveSelfSummaryDraft).not.toHaveBeenCalled()
+    expect(performanceReviewApi.submitSelfSummary).not.toHaveBeenCalled()
+  })
+
   it('keeps an empty task non-submittable without inventing fields', async () => {
     vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), form_schema: [] })
     const wrapper = mount(SelfSummaryTask)

@@ -19,7 +19,7 @@
             <span v-if="!task.reference_tabs?.length">参考内容</span>
           </nav>
           <div class="reference-scroll">
-            <PerformanceReferenceContent v-if="isSplit && selectedReference" :reference="selectedReference" @remind="openReminder" />
+            <PerformanceReferenceContent v-if="isSplit && selectedReference" class="task-reference-content" :reference="selectedReference" @remind="openReminder" />
             <section v-else class="state">暂无参考内容</section>
           </div>
         </template>
@@ -29,9 +29,9 @@
           <div v-show="isSplit || activeTab === 'current'" class="task-content">
             <div v-if="task.calibration_notice" class="task-notices"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
             <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
-            <div v-else ref="draftAnchor"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
+            <div v-else ref="draftAnchor" class="task-form-shell"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
           </div>
-          <PerformanceReferenceContent v-if="!isSplit && activeReference" :reference="activeReference" @remind="openReminder" />
+          <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" :reference="activeReference" @remind="openReminder" />
         </template>
         <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit()" @cancel="router.back()" /></template>
       </PerformanceSplitWorkspace>
@@ -275,7 +275,10 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 
 <style scoped>
 .task-content{display:flex;flex-direction:column;min-width:0;gap:12px}
-.task-template-renderer,.task-content > .state{flex:1;min-height:0}
+.task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column}
+.task-template-renderer,.task-content > .state{flex:1 0 auto;min-height:0}
+.task-reference-content{display:flex;flex-direction:column;min-height:0;padding:20px;border-radius:8px;background:var(--color-bg-card)}
+.task-reference-content :deep(.performance-reference-empty){flex:1 0 auto;min-height:0}
 .task-notices{display:flex;flex:none;flex-direction:column;gap:8px}
 .task-notices :deep(.performance-prompt-display),.task-notices :deep(.prompt-notice){width:100%}
 .summary-tabs{display:flex;flex:none;min-width:0;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:var(--color-bg-card);overflow-x:auto}
@@ -288,8 +291,9 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .state.error p{margin:0}
 .state.error button{min-height:32px;padding:0 16px;border:0;border-radius:6px;background:var(--color-primary);color:var(--color-bg-card);cursor:pointer}
 .reference-tabs{margin:0 0 12px;flex:none}
-.reference-scroll{display:flex;flex:1;min-height:0;overflow:auto;background:var(--color-bg-card);border-radius:8px;padding:20px}
-.reference-scroll > *{flex:1;min-width:0}
+.reference-scroll{display:flex;flex:1;min-height:0;flex-direction:column;overflow:auto;background:var(--color-bg-card);border-radius:8px}
+.reference-scroll > .state{padding:20px}
+.reference-scroll > *{flex:1 0 auto;min-width:0}
 .narrow-mode-notice{padding:8px 16px 0;color:var(--color-text-secondary);font-size:12px;margin:0}
 @media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer{padding-inline:16px}}
 </style>
