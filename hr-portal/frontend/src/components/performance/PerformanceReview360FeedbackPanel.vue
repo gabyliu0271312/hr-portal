@@ -3,8 +3,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   performanceReview360FeedbackApi,
+  performanceWorkbenchApi,
   type PerformanceReview360FeedbackItem,
   type PerformanceReview360VoluntaryCandidate,
+  type PerformanceWorkbenchTaskPerson,
 } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceButton from './PerformanceButton.vue'
@@ -16,11 +18,14 @@ import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.v
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 import { type PerformanceTableColumn } from './performanceTableColumns'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
+import { communicationColumns } from './performanceReviewDisplay'
+import { formatDisplayDateTime } from '@/utils/datetime'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   projectId: number | string
   nodeId: string
-}>()
+  mode?: 'feedback' | 'communication'
+}>(), { mode: 'feedback' })
 const emit = defineEmits<{
   'open-task': [{ task_id: number; employee_no: string; display_name: string; status: string }]
 }>()
@@ -28,9 +33,11 @@ const emit = defineEmits<{
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
-const items = ref<PerformanceReview360FeedbackItem[]>([])
+type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<PerformanceWorkbenchTaskPerson> & { status: string }
+const items = ref<FeedbackRow[]>([])
 const total = ref(0)
 const allowVoluntary = ref(false)
+const communicationMode = computed(() => props.mode === 'communication')
 
 const columns: MemberColumnOption[] = [
   { key: 'name', label: '姓名', locked: true },
@@ -41,21 +48,35 @@ const columns: MemberColumnOption[] = [
   { key: 'job_sequence', label: '序列' },
   { key: 'department', label: '所属部门' },
 ]
-const selectedColumnKeys = ref<string[]>(['name', 'status', 'source_label', 'relationship', 'due_at', 'job_sequence'])
+const selectedColumnKeys = ref<string[]>([])
+watch(() => props.mode, () => {
+  selectedColumnKeys.value = communicationMode.value ? communicationColumns.map(column => column.key) : ['name', 'status', 'source_label', 'relationship', 'due_at', 'job_sequence']
+}, { immediate: true })
 const columnDrawerOpen = ref(false)
-const hiddenColumnCount = computed(() => Math.max(0, columns.length - selectedColumnKeys.value.length))
-const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columns.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
+const activeColumns = computed(() => communicationMode.value ? communicationColumns : columns)
+const hiddenColumnCount = computed(() => Math.max(0, activeColumns.value.length - selectedColumnKeys.value.length))
+const visibleColumns = computed(() => selectedColumnKeys.value.map(key => activeColumns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined)
-    items.value = result.items
-    total.value = result.total
-    allowVoluntary.value = result.allow_voluntary_evaluation
+    if (communicationMode.value) {
+      const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.nodeId, 'all', keyword.value.trim() || undefined)
+      items.value = result.map(item => ({ ...item, source_label: '', relationship: '' }))
+      total.value = items.value.length
+      allowVoluntary.value = false
+    } else {
+      const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined)
+      items.value = result.items
+      total.value = result.total
+      allowVoluntary.value = result.allow_voluntary_evaluation
+    }
   } catch {
-    error.value = '360° 评估列表加载失败，请稍后重试'
+    items.value = []
+    total.value = 0
+    allowVoluntary.value = false
+    error.value = communicationMode.value ? '结果沟通列表加载失败，请稍后重试' : '360° 评估列表加载失败，请稍后重试'
   } finally {
     loading.value = false
   }
@@ -115,7 +136,7 @@ async function confirmVoluntary() {
   }
 }
 
-function openItem(item: PerformanceReview360FeedbackItem) {
+function openItem(item: FeedbackRow) {
   emit('open-task', {
     task_id: item.task_id,
     employee_no: item.employee_no,
@@ -124,16 +145,21 @@ function openItem(item: PerformanceReview360FeedbackItem) {
   })
 }
 
-const statusLabel: Record<string, string> = { pending: '待评估', completed: '已提交' }
-function cellValue(item: PerformanceReview360FeedbackItem, key: string) {
+const statusLabel = computed<Record<string, string>>(() => communicationMode.value ? { pending: '待完成', completed: '已完成', overdue: '已逾期', not_started: '未开始' } : { pending: '待评估', completed: '已提交', overdue: '已逾期', not_started: '未开始' })
+function cellValue(item: FeedbackRow, key: string) {
   switch (key) {
     case 'name': return item.display_name
-    case 'status': return statusLabel[item.status] || item.status
+    case 'status': return statusLabel.value[item.status] || item.status
     case 'source_label': return item.source_label
     case 'relationship': return item.relationship
-    case 'due_at': return item.due_at ? new Date(item.due_at).toLocaleString('zh-CN', { hour12: false }) : '--'
+    case 'due_at': return formatDisplayDateTime(item.due_at, '--')
     case 'job_sequence': return item.job_sequence || '--'
     case 'department': return item.department || '--'
+    case 'completion': return item.completion || '--'
+    case 'position_level': return item.position_level || '--'
+    case 'hire_date': return item.hire_date || '--'
+    case 'employee_type': return item.employee_type || '--'
+    case 'previous_position_level': return item.previous_position_level || '--'
     default: return ''
   }
 }
@@ -154,7 +180,7 @@ function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder
   sortOrder.value = order
   page.value = 1
 }
-function sortValue(item: PerformanceReview360FeedbackItem, key: string) {
+function sortValue(item: FeedbackRow, key: string) {
   switch (key) {
     case 'name': return item.display_name
     case 'status': return item.status === 'completed' ? 1 : 0
@@ -163,20 +189,28 @@ function sortValue(item: PerformanceReview360FeedbackItem, key: string) {
     case 'due_at': return item.due_at ? new Date(item.due_at).getTime() : null
     case 'job_sequence': return item.job_sequence || ''
     case 'department': return item.department || ''
+    case 'completion': {
+      const [completed, total] = (item.completion || '').split('/').map(Number)
+      return total ? completed / total : 0
+    }
+    case 'position_level': return item.position_level || ''
+    case 'hire_date': return item.hire_date || ''
+    case 'employee_type': return item.employee_type || ''
+    case 'previous_position_level': return item.previous_position_level || ''
     default: return ''
   }
 }
 const sortedItems = computed(() => sortPerformanceRows(items.value, sortKey.value, sortOrder.value, sortValue))
 const pagedItems = computed(() => sortedItems.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
-watch(() => props.projectId, () => { page.value = 1; void load() })
+watch(() => [props.projectId, props.nodeId, props.mode], () => { page.value = 1; void load() })
 onMounted(() => void load())
 
 defineExpose({ allowVoluntary, openVoluntaryDialog })
 </script>
 
 <template>
-  <section class="feedback-panel" aria-label="360° 反馈">
+  <section class="feedback-panel" :aria-label="communicationMode ? '绩效结果沟通' : '360° 反馈'">
     <div class="card-sticky-mask" aria-hidden="true"></div>
     <PerformanceListToolbar
       v-model:keyword="keyword"
@@ -193,10 +227,10 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
     <PerformanceManagementTable
       :rows="pagedItems"
       :loading="loading"
-      loading-text="正在加载 360° 评估…"
-      :empty-text="error || '暂无 360° 评估邀请，可以自愿评估其他同事'"
-      table-aria-label="360° 评估列表"
-      pagination-aria-label="360° 评估列表分页"
+      :loading-text="communicationMode ? '正在加载结果沟通…' : '正在加载 360° 评估…'"
+      :empty-text="error || (communicationMode ? '暂无可沟通人员' : '暂无 360° 评估邀请，可以自愿评估其他同事')"
+      :table-aria-label="communicationMode ? '结果沟通列表' : '360° 评估列表'"
+      :pagination-aria-label="communicationMode ? '结果沟通列表分页' : '360° 评估列表分页'"
       :page="page"
       :page-size="pageSize"
       :total="total"
@@ -220,16 +254,16 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       </template>
       <template #empty="{ loading: emptyLoading, text }">
         <div v-if="emptyLoading" class="feedback-empty feedback-empty--text" role="status">{{ text }}</div>
-        <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}</div>
+        <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}<PerformanceButton variant="secondary" @click="load">重新加载</PerformanceButton></div>
         <div v-else class="feedback-empty" role="status">
           <MetricTemplateEmptyIllustration />
-          <p class="feedback-empty__text">暂无 360° 评估邀请，可以自愿评估其他同事</p>
+          <p class="feedback-empty__text">{{ communicationMode ? '暂无可沟通人员' : '暂无 360° 评估邀请，可以自愿评估其他同事' }}</p>
         </div>
       </template>
     </PerformanceManagementTable>
-    <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
+    <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="activeColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
 
-    <PerformanceDialogShell v-model="dialogOpen" title="自愿评估" width="600px" :loading="submitting">
+    <PerformanceDialogShell v-if="!communicationMode" v-model="dialogOpen" title="自愿评估" width="600px" :loading="submitting">
       <template #description>你可以自愿评估其他同事，为 Ta 本次绩效提供更加全面的 360° 评估信息</template>
       <PerformancePersonSelect
         v-model="selectedTarget"

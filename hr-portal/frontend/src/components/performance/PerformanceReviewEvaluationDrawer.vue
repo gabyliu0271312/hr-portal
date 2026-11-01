@@ -13,7 +13,7 @@
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
-            <PerformanceReviewCompletionNotice variant="evaluation-drawer" :editable="Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
+            <PerformanceReviewCompletionNotice variant="evaluation-drawer" :editable="!props.readonly && Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
           </div>
         </section>
@@ -42,11 +42,12 @@ import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
 const props = withDefaults(defineProps<{
   modelValue: boolean
+  readonly?: boolean
   taskId?: number | string | null
   employeeNo?: string
   nodeName?: string
   person?: Partial<DrawerPerson>
-}>(), { taskId: null, employeeNo: '', nodeName: '', person: () => ({}) })
+}>(), { readonly: false, taskId: null, employeeNo: '', nodeName: '', person: () => ({}) })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   close: []
@@ -81,7 +82,7 @@ const completionMessage = computed(() => {
   const submittedBy = displayPerson.value.direct_supervisor_name || '评估人'
   const submittedAt = formatDate(task.value?.submitted_at)
   const deadline = formatDate(task.value?.deadline_at)
-  if (submittedAt && deadline && task.value?.editable) return `以下内容由 ${submittedBy} 在 ${submittedAt} 提交，你可在 ${deadline} 前继续编辑`
+  if (submittedAt && deadline && task.value?.editable && !props.readonly) return `以下内容由 ${submittedBy} 在 ${submittedAt} 提交，你可在 ${deadline} 前继续编辑`
   if (submittedAt) return `以下内容由 ${submittedBy} 在 ${submittedAt} 提交`
   return '该评估内容已提交'
 })
@@ -108,7 +109,7 @@ async function load() {
   }
 }
 function edit() {
-  if (!task.value) return
+  if (!task.value || props.readonly) return
   emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no })
 }
 watch(() => [props.modelValue, props.taskId, props.employeeNo], () => {

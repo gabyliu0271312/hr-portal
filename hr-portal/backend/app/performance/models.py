@@ -906,6 +906,7 @@ class PerformanceResultOpening(Base):
     opened_by_type: Mapped[str] = mapped_column(String(32), nullable=False)
     opened_by_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     result_version: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    published_position_level: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class PerformanceProjectMemberSnapshot(Base):

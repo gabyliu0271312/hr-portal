@@ -22,15 +22,17 @@
         </div>
       </div>
       <div class="review-body">
-        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: shows360Feedback }">
+        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
         <PerformanceReview360InvitePanel
           v-if="node.node_type === 'reviewer_360_invite' && props.projectId"
           :project-id="props.projectId"
           :node-id="node.node_id"
         />
         <PerformanceReview360FeedbackPanel
-          v-else-if="shows360Feedback && props.projectId"
+          v-else-if="showsFeedbackTable && props.projectId"
           ref="feedbackPanel"
+          :key="`${props.projectId}-${node.node_id}`"
+          :mode="displayConfig?.table === 'communication' ? 'communication' : 'feedback'"
           :project-id="props.projectId"
           :node-id="node.node_id"
           @open-task="emit('open-member', { node, member: $event })"
@@ -41,7 +43,8 @@
               <ProjectMemberListPanel
                 v-if="evaluationTab === 'members' && props.projectId && node.node_id"
                 :project-id="props.projectId"
-                :review-context="{ nodeId: node.node_id, state: 'all' }"
+                :key="`${props.projectId}-${node.node_id}-${node.phase_id || ''}`"
+                :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
                 :show-export="false"
                 @select-member="emit('open-member', { node, member: $event })"
               />
@@ -78,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceButton from './PerformanceButton.vue'
@@ -88,6 +91,7 @@ import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.v
 import PerformanceReview360FeedbackPanel from './PerformanceReview360FeedbackPanel.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import { isReviewer360Node, isSelfEvaluationNode } from './performanceExecutorOptions'
+import { performanceReviewDisplay } from './performanceReviewDisplay'
 
 const props = defineProps<{
   loading: boolean
@@ -97,9 +101,11 @@ const props = defineProps<{
   projectId?: number | null
 }>()
 
+const displayConfig = computed(() => props.node ? performanceReviewDisplay(props.node.node_type) : null)
+const showsFeedbackTable = computed(() => shows360Feedback.value || Boolean(displayConfig.value?.table === 'communication' && props.node?.status !== 'not_started'))
 const showsEvaluationWorkspace = computed(() => {
   const node = props.node
-  return Boolean(node && node.task_kind === 'evaluation' && node.status !== 'not_started' && !isSelfEvaluationNode(node))
+  return Boolean(node && node.status !== 'not_started' && (displayConfig.value?.table === 'manager' || (node.task_kind === 'evaluation' && !isSelfEvaluationNode(node))))
 })
 const shows360Feedback = computed(() => {
   const node = props.node
@@ -112,6 +118,7 @@ const evaluationTabs: PerformanceLineTab[] = [
   { key: 'reports', label: '统计报表' },
 ]
 const evaluationTab = ref('members')
+watch(() => props.node?.node_id, () => { evaluationTab.value = 'members' })
 
 const emit = defineEmits<{
   retry: []

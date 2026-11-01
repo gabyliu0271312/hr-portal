@@ -89,6 +89,8 @@ export interface PerformanceMemberProfile {
 }
 
 export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile {
+  phase_id?: string | null
+  previous_position_level?: string | null
   task_id: number
   aggregate_task_id?: number | null
   status: string
@@ -935,8 +937,8 @@ export const performanceWorkbenchApi = {
     const { data } = await api.get<PerformanceWorkbenchTaskGroup[]>('/performance/workbench/tasks', { params: { project_id: projectId, state } })
     return data
   },
-  async taskPeople(projectId: number, nodeId: string, state: 'pending' | 'completed' | 'all', keyword?: string): Promise<PerformanceWorkbenchTaskPerson[]> {
-    const { data } = await api.get<PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}) } })
+  async taskPeople(projectId: number, nodeId: string, state: 'pending' | 'completed' | 'all', keyword?: string, phaseId?: string | null): Promise<PerformanceWorkbenchTaskPerson[]> {
+    const { data } = await api.get<PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}), ...(phaseId ? { phase_id: phaseId } : {}) } })
     return data
   },
 }

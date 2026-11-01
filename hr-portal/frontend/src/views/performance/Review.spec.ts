@@ -556,6 +556,66 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('shows communication rows directly and uses a readonly drawer for completed rows', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'communicate', node_name: '绩效结果沟通', node_type: 'result_communication', task_kind: 'result_communication', status: 'pending' as const }
+    Object.assign(routeQuery, { project_id: '1', node: 'communicate' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ task_id: 22, employee_no: 'E2', display_name: '沟通员工', status: 'completed', due_at: null, completion: '3/5', previous_position_level: 'P5', job_family: null, job_category: null, job_sequence: null, position_level: 'P6', hire_date: null, department: null, employee_type: null, employment_status: null }])
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 22, task_kind: 'result_communication', entry_mode: 'template_task', node_name: '绩效结果沟通', editable: true, submit_allowed: true, submitted_at: '2026-10-20T00:00:00Z', person: { employee_no: 'E2', display_name: '沟通员工' }, form_schema: [], answers: {} })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('.feedback-panel').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('去完成')
+    const table = wrapper.findComponent({ name: 'PerformanceManagementTable' })
+    expect(table.props('columns').map((column: { label: string }) => column.label)).toEqual(['姓名', '状态', '截止时间', '360°评估率', '序列', '职级', '入职日期', '所属部门', '员工类型', '上期职级'])
+    expect(wrapper.text()).toContain('3/5')
+    expect(wrapper.text()).toContain('P5')
+    table.vm.$emit('row-click', { task_id: 22, employee_no: 'E2', display_name: '沟通员工', status: 'completed' })
+    await flushPromises()
+    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(22, 'E2')
+    expect(wrapper.findComponent({ name: 'PerformanceReviewEvaluationDrawer' }).props('readonly')).toBe(true)
+    expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+    expect(push).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('opens a pending communication task through the shared template route', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'communicate', node_name: '绩效结果沟通', node_type: 'result_communication', task_kind: 'result_communication', status: 'pending' as const }
+    Object.assign(routeQuery, { project_id: '1', node: 'communicate' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 23, employee_no: 'E3', display_name: '待沟通', status: 'pending' })
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=23&project_id=1')
+    wrapper.unmount()
+  })
+
+  it('renders calibration with the manager list and passes the frozen phase', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'calibration', node_name: '校准', node_type: 'calibration', task_kind: 'calibration', phase_id: 'phase-2', status: 'pending' as const }
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('去完成')
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'calibration', 'all', undefined, 'phase-2')
+    wrapper.unmount()
+  })
+
+  it('keeps unopened communication and calibration stages in the not-started state', async () => {
+    for (const type of ['calibration', 'result_communication']) {
+      const node = { ...overview.categories[0].nodes[0], node_id: type, node_type: type, task_kind: type, status: 'not_started' as const }
+      Object.assign(routeQuery, { project_id: '1', node: type })
+      vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+      const wrapper = mountView()
+      await flushPromises()
+      expect(wrapper.text()).toContain('暂未启动')
+      expect(wrapper.findComponent({ name: 'PerformanceManagementTable' }).exists()).toBe(false)
+      wrapper.unmount()
+    }
+  })
+
   it('renders an empty state when the current user has no started project', async () => {
     vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce({
       projects: [], active_project: null, template_name: '', categories: overview.categories.map(category => ({ ...category, nodes: [] })),

@@ -79,7 +79,7 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
     if str(row[0].handler_ref) != trusted.actor_ref:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-    allowed_kinds = {"evaluation", "calibration"} if task_kind == "evaluation" else {task_kind}
+    allowed_kinds = {"evaluation", "calibration", "result_communication"} if task_kind == "evaluation" else {task_kind}
     if row[0].task_kind not in allowed_kinds:
         raise HTTPException(status_code=422, detail="TASK_TYPE_NOT_SUPPORTED")
     if target_employee_no and target_employee_no != row[0].target_employee_no:
@@ -934,18 +934,19 @@ def _previous_finished(employee_no: str, previous: PerformanceProjectNodeSnapsho
     return not related or any(task.status == "completed" and task.submitted_at is not None for task in related)
 
 
-async def _open_result(db: AsyncSession, project: PerformanceProject, employee_no: str, *, actor_type: str, actor_ref: str, tasks: list[PerformanceNodeTask], final: PerformanceProjectNodeSnapshot):
+async def _open_result(db: AsyncSession, project: PerformanceProject, employee_no: str, *, actor_type: str, actor_ref: str, tasks: list[PerformanceNodeTask], final: PerformanceProjectNodeSnapshot, member: PerformanceProjectMember):
     version = {str(task.id): task.answer_version for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == final.id}
     statement = pg_insert(PerformanceResultOpening).values(
         project_id=project.id, cycle_ref=project.cycle_ref, employee_no=employee_no,
         opened_at=datetime.now(UTC), opened_by_type=actor_type, opened_by_ref=actor_ref, result_version=version,
+        published_position_level=getattr(member, "position_level", None),
     ).on_conflict_do_nothing(index_elements=["project_id", "employee_no"]).returning(PerformanceResultOpening.id)
     opened_id = await db.scalar(statement)
     if opened_id is not None:
         PerformanceAuditService(db).append_event(AuditEventInput(
             event_type="PERFORMANCE_RESULT_OPENED", cycle_ref=project.cycle_ref, employee_no=employee_no,
             actor_type=actor_type, actor_ref=actor_ref, subject_type="PERFORMANCE_RESULT_OPENING",
-            subject_ref=str(opened_id), after_state={"project_id": project.id, "result_version": version},
+            subject_ref=str(opened_id), after_state={"project_id": project.id, "result_version": version, "published_position_level": getattr(member, "position_level", None)},
         ))
     return opened_id is not None
 
@@ -968,7 +969,7 @@ async def _sync_automatic_openings(db: AsyncSession, project: PerformanceProject
     for member in members:
         if not _previous_finished(member.employee_no, previous, tasks) or not _member_result_ready(member.employee_no, final, tasks, schema):
             continue
-        opened += int(await _open_result(db, project, member.employee_no, actor_type="SYSTEM", actor_ref="automatic", tasks=tasks, final=final))
+        opened += int(await _open_result(db, project, member.employee_no, actor_type="SYSTEM", actor_ref="automatic", tasks=tasks, final=final, member=member))
     return opened
 
 
@@ -1110,7 +1111,7 @@ async def open_cycle_results(
             continue
         final = states[project.id][1]
         tasks = states[project.id][4]
-        if await _open_result(db, project, employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, tasks=tasks, final=final):
+        if await _open_result(db, project, employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, tasks=tasks, final=final, member=member):
             accepted.append(employee_no)
         else:
             skipped[employee_no] = "ALREADY_OPENED"
@@ -2026,6 +2027,7 @@ _TASK_ENTRY_MODES = {
     "work_summary": "template_task",
     "evaluation": "template_task",
     "calibration": "template_task",
+    "result_communication": "template_task",
 }
 
 
@@ -2163,6 +2165,9 @@ async def review_overview(
         if selected_task is not None and getattr(selected_task, "task_kind", None) == "calibration":
             start, end = _task_window(selected_task, node, project)
             start_at, end_at = start.isoformat() if start else None, end.isoformat() if end else None
+        status_tasks = tasks_by_node.get(node.id, [])
+        if node.node_type == "calibration" and selected_task is not None:
+            status_tasks = [task for task in status_tasks if task.phase_id == selected_task.phase_id]
         selected_task_kind = getattr(selected_task, "task_kind", None) if selected_task else None
         is_template_task = selected_task_kind in _TASK_ENTRY_MODES
         node_payload = {
@@ -2174,7 +2179,7 @@ async def review_overview(
             "executor_label": raw_node.get("executor_label") or "",
             "executor_role_code": node_role_code({"node_type": node.node_type, **raw_node}),
             "phase_id": getattr(selected_task, "phase_id", "") or None,
-            "status": _review_tasks_status(tasks_by_node.get(node.id, []), start_at, end_at, now) if is_template_task and node.node_type == "evaluation" else (_review_task_status(selected_task, start_at, end_at, now) if is_template_task else _review_node_status(start_at, end_at, now)),
+            "status": _review_tasks_status(status_tasks, start_at, end_at, now) if is_template_task and node.node_type in {"evaluation", "calibration", "result_communication"} else (_review_task_status(selected_task, start_at, end_at, now) if is_template_task else _review_node_status(start_at, end_at, now)),
             "start_at": start_at,
             "end_at": end_at,
             "action_url": f"/performance/review?node={node.node_id}&project_id={project.id}",
@@ -2292,8 +2297,54 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
     return result
 
 
+async def _communication_progress(db, project, employee_nos):
+    rows = (await db.execute(
+        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
+        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+        .where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.node_type == "evaluation",
+            PerformanceNodeTask.task_kind == "evaluation",
+            PerformanceNodeTask.status.in_(["pending", "completed"]),
+            PerformanceNodeTask.target_employee_no.in_(employee_nos),
+        )
+    )).all()
+    reviewers = {employee: {} for employee in employee_nos}
+    for task, node in rows:
+        if node_role_code((node.config or {}).get("template") or {}) != ROLE_REVIEWER_360:
+            continue
+        people = reviewers.get(task.target_employee_no)
+        if people is not None:
+            people[task.handler_ref] = people.get(task.handler_ref, False) or _task_completed(task)
+    return {employee: f"{sum(people.values())}/{len(people)}" for employee, people in reviewers.items()}
+
+
+async def _previous_published_position_levels(db, project, employee_nos):
+    current = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+    if current is None:
+        return {}
+    rows = (await db.execute(
+        select(PerformanceResultOpening, PerformanceCycle)
+        .join(PerformanceCycle, PerformanceCycle.cycle_ref == PerformanceResultOpening.cycle_ref)
+        .where(
+            PerformanceCycle.start_at < current.start_at,
+            PerformanceResultOpening.employee_no.in_(employee_nos),
+        )
+        .order_by(PerformanceCycle.start_at.desc(), PerformanceCycle.id.desc())
+    )).all()
+    latest_cycles = {}
+    levels = {}
+    for opening, cycle in rows:
+        previous = latest_cycles.setdefault(opening.employee_no, cycle.id)
+        if previous == cycle.id:
+            levels.setdefault(opening.employee_no, set()).add(opening.published_position_level)
+    return {employee: next(iter(values)) if len(values) == 1 else None for employee, values in levels.items()}
+
+
 @router.get("/workbench/tasks/{node_id}/people")
-async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100)):
+async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96)):
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
     is_admin_preview = False
@@ -2302,6 +2353,8 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         PerformanceProjectNodeSnapshot.project_id == project_id,
         PerformanceProjectNodeSnapshot.node_id == node_id,
     )
+    if isinstance(phase_id, str) and phase_id:
+        scope += (PerformanceNodeTask.phase_id == phase_id,)
     if state != "all":
         scope += (PerformanceNodeTask.status == state,)
     statement = (
@@ -2321,6 +2374,10 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         statement = statement.where(or_(PerformanceProjectMember.display_name.ilike(value), PerformanceProjectMember.employee_no.ilike(value), PerformanceNodeTask.target_employee_no.ilike(value)))
     rows = (await db.execute(statement.order_by(PerformanceNodeTask.id))).all()
     project = await db.get(PerformanceProject, project_id)
+    rows = [row for row in rows if row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1])]
+    communication_people = {task.target_employee_no for task, node, _member in rows if node.node_type == "result_communication"}
+    progress = await _communication_progress(db, project, communication_people) if project and communication_people else {}
+    previous_levels = await _previous_published_position_levels(db, project, communication_people) if project and communication_people else {}
     if state == "pending":
         rows = [row for row in rows if _task_is_available(row[0], row[1], project)]
     aggregate_task_id = rows[0][0].id if rows else None
@@ -2334,7 +2391,8 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             "aggregate_task_id": aggregate_task_id,
             "employee_no": member.employee_no if member else task.target_employee_no,
             "display_name": member.display_name if member else task.target_employee_no,
-            "status": task.status,
+            "status": "completed" if _task_completed(task) else _review_task_status(task, *[value.isoformat() if value else None for value in _task_window(task, node, project)]),
+            "phase_id": getattr(task, "phase_id", "") or None,
             "company_org": getattr(member, "company_org", None) if member else None,
             "department": organization_leaf(member) if member else None,
             "department_2": getattr(member, "department_2", None) if member else None,
@@ -2353,7 +2411,8 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             "reminder_target": getattr(task, "handler_ref", handler),
             "direct_supervisor": getattr(member, "direct_supervisor_employee_no", None) if member else None,
             "hrbp": getattr(member, "hrbp_employee_no", None) if member else None,
-            "completion": None,
+            "completion": progress.get(task.target_employee_no),
+            "previous_position_level": previous_levels.get(task.target_employee_no) if "position_level" in visible_fields else None,
             "visibility_role": visibility_role,
             "visible_profile_fields": visible_fields,
         }

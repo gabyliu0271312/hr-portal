@@ -5100,3 +5100,120 @@ def test_timeline_node_state_is_time_driven():
     assert _timeline_node_state("2026-10-01T00:00:00+00:00", "2026-11-10T00:00:00+00:00", now) == "in_progress"
     assert _timeline_node_state("2026-10-01T00:00:00+00:00", "2026-10-10T00:00:00+00:00", now) == "ended"
     assert _timeline_node_state(None, None, now) == "unscheduled"
+
+
+@pytest.mark.asyncio
+async def test_communication_progress_counts_invited_and_voluntary_people_once():
+    from app.performance import projects_router
+
+    reviewer = SimpleNamespace(config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    manager = SimpleNamespace(config={"template": {"executor_role_code": "assessment.line_manager"}})
+    def task(handler, completed=False):
+        return SimpleNamespace(target_employee_no="E1", handler_ref=handler, status="completed" if completed else "pending", submitted_at=None)
+    class Db:
+        async def execute(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_node_tasks.project_id = 7" in sql
+            assert "performance_node_tasks.cycle_ref = 'C1'" in sql
+            assert "performance_node_tasks.task_kind = 'evaluation'" in sql
+            return SimpleNamespace(all=lambda: [(task("invited", True), reviewer), (task("voluntary"), reviewer), (task("invited"), reviewer), (task("manager", True), manager)])
+    assert await projects_router._communication_progress(Db(), SimpleNamespace(id=7, cycle_ref="C1"), {"E1", "E2"}) == {"E1": "1/2", "E2": "0/0"}
+
+
+@pytest.mark.asyncio
+async def test_previous_published_level_uses_latest_employee_release_without_live_fallback():
+    from app.performance import projects_router
+    current = SimpleNamespace(start_at="2026-11-01")
+    newer, older = SimpleNamespace(id=9), SimpleNamespace(id=8)
+    def opening(employee, level):
+        return SimpleNamespace(employee_no=employee, published_position_level=level)
+    class Db:
+        async def scalar(self, query):
+            return current
+        async def execute(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_cycles.start_at < '2026-11-01'" in sql
+            assert "ORDER BY performance_cycles.start_at DESC" in sql
+            return SimpleNamespace(all=lambda: [(opening("E1", None), newer), (opening("E1", "P5"), older), (opening("E2", "P6"), newer), (opening("E3", "P6"), newer), (opening("E3", "P7"), newer)])
+    assert await projects_router._previous_published_position_levels(Db(), SimpleNamespace(cycle_ref="C1"), {"E1", "E2", "E3"}) == {"E1": None, "E2": "P6", "E3": None}
+
+
+@pytest.mark.asyncio
+async def test_result_opening_freezes_position_and_does_not_overwrite_existing(monkeypatch):
+    from app.performance import projects_router
+    recorded = []
+    monkeypatch.setattr(projects_router.PerformanceAuditService, "append_event", lambda self, event: recorded.append(event))
+    class Db:
+        async def scalar(self, statement):
+            assert statement.compile().params["published_position_level"] == "P6"
+            assert "ON CONFLICT (project_id, employee_no) DO NOTHING" in str(statement)
+            return 1
+    assert await projects_router._open_result(Db(), SimpleNamespace(id=1, cycle_ref="C1"), "E1", actor_type="EMPLOYEE", actor_ref="M1", tasks=[], final=SimpleNamespace(id=2), member=SimpleNamespace(position_level="P6"))
+    assert recorded[0].after_state["published_position_level"] == "P6"
+
+
+@pytest.mark.asyncio
+async def test_result_communication_template_task_keeps_identity_and_target_authorization(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router
+    task = SimpleNamespace(handler_ref="M1", task_kind="result_communication", target_employee_no="E1", cycle_ref="C1")
+    node = SimpleNamespace(node_type="result_communication")
+    class Db:
+        async def execute(self, query):
+            return SimpleNamespace(first=lambda: (task, node))
+    async def actor(db, context, **kwargs):
+        return SimpleNamespace(actor_ref="M1")
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    assert await projects_router._self_summary_task(1, context(), Db(), "evaluation") == (task, node)
+    assert projects_router._task_entry_mode(task) == "template_task"
+    task.handler_ref = "OTHER"
+    with pytest.raises(HTTPException) as denied:
+        await projects_router._self_summary_task(1, context(), Db(), "evaluation")
+    assert denied.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_calibration_people_rejects_non_frozen_assignment_and_filters_phase(monkeypatch):
+    from app.performance import projects_router
+    async def actor(db, context):
+        return SimpleNamespace(actor_ref="CAL")
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    node = SimpleNamespace(project_id=1, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "CAL", "employee_no": "E1"}]}]}})
+    def task(employee):
+        return SimpleNamespace(id=1, project_id=1, task_kind="calibration", phase_id="p1", handler_ref="CAL", target_employee_no=employee)
+    class Db:
+        async def execute(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_node_tasks.phase_id = 'p1'" in sql
+            return SimpleNamespace(all=lambda: [(task("E2"), node, None)])
+        async def get(self, model, key):
+            return None
+    assert await projects_router.workbench_task_people("cal", 1, "all", context(), Db(), phase_id="p1") == []
+
+
+
+def test_published_position_migration_round_trip_and_history_guard():
+    import importlib.util
+    from pathlib import Path
+    from sqlalchemy import create_engine, text
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0288_performance_published_position_level.py"
+    spec = importlib.util.spec_from_file_location("published_position_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE performance_result_openings (id INTEGER PRIMARY KEY, employee_no TEXT)"))
+        connection.execute(text("INSERT INTO performance_result_openings VALUES (1, 'E1')"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            assert connection.scalar(text("SELECT published_position_level FROM performance_result_openings WHERE id=1")) is None
+            migration.downgrade()
+            migration.upgrade()
+            connection.execute(text("UPDATE performance_result_openings SET published_position_level='P6' WHERE id=1"))
+            with pytest.raises(RuntimeError, match="历史结果证据"):
+                migration.downgrade()
+            assert connection.scalar(text("SELECT published_position_level FROM performance_result_openings WHERE id=1")) == "P6"
+    engine.dispose()

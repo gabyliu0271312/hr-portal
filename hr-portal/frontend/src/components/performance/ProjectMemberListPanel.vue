@@ -19,7 +19,7 @@ type MemberRow = ProjectMember & {
 
 const props = withDefaults(defineProps<{
   projectId: number | string
-  reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all' }
+  reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
   showExport?: boolean
 }>(), {
   reviewContext: undefined,
@@ -120,7 +120,9 @@ const loadMembers = async () => {
   error.value = ''
   try {
     if (props.reviewContext) {
-      const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined)
+      const result = props.reviewContext.phaseId
+        ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId)
+        : await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined)
       members.value = result.map((item: PerformanceWorkbenchTaskPerson) => ({
         id: item.task_id,
         employee_no: item.employee_no,
@@ -200,7 +202,7 @@ function onRowClick(member: MemberRow) {
   if (props.reviewContext) emit('select-member', member)
 }
 
-watch(() => [props.projectId, props.reviewContext?.nodeId, props.reviewContext?.state], () => {
+watch(() => [props.projectId, props.reviewContext?.nodeId, props.reviewContext?.state, props.reviewContext?.phaseId], () => {
   page.value = 1
   void loadMembers()
 })

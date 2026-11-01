@@ -40,6 +40,7 @@
       :employee-no="drawerMember.member.employee_no"
       :node-name="drawerMember.node.node_name"
       :person="drawerMember.member"
+      :readonly="Boolean(performanceReviewDisplay(drawerMember.node.node_type)?.completedReadonly)"
       @edit="editDrawerTask"
       @remind="openReminderPlaceholder"
     />
@@ -66,6 +67,7 @@ import PerformanceReviewEvaluationDrawer from '@/components/performance/Performa
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
 import { isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
+import { performanceReviewDisplay } from '@/components/performance/performanceReviewDisplay'
 
 const route = useRoute()
 const router = useRouter()
@@ -190,7 +192,7 @@ async function openNode(node: PerformanceReviewNode) {
 async function openMember(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }) {
   const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
-  if (payload.member.status === 'completed' && payload.node.task_kind === 'evaluation' && !isSelfEvaluationNode(payload.node)) {
+  if (payload.member.status === 'completed' && ((payload.node.task_kind === 'evaluation' && !isSelfEvaluationNode(payload.node)) || performanceReviewDisplay(payload.node.node_type)?.completedView === 'drawer')) {
     drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId }
     return
   }
