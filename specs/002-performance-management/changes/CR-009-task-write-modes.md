@@ -56,3 +56,14 @@
 - 浏览器：真实Vue + API拦截fixture，两个正式任务路由×单/双屏×短/长/未提交/未启动/逾期/过滤空/无参考=28组，通过同宽、外边界和滚动终点断言；另有两路由×窄屏短/长=4组、两路由×单/双屏只读=4组、切模式/resize/分隔Home-End保留编辑器DOM与答案/请求数=1组，共37组。1280×900双屏右白卡与footer横坐标761..1268、共同底边888；左参考底边888（含长参考滚到底）；单屏短白卡136..888，footer837..900，画布在其后延伸而滚动尾部保证末项可达。pageerror=0；28组基础验收写请求0；DOM保存场景仅有主动输入触发的1次fixture自动保存，布局切换无新增请求。
 - 独立截图均为本地夹具、非目标生产截图：`CR-009-T03-implemented-aligned-dual-empty.png`、`CR-009-T03-implemented-aligned-dual-scroll-end.png`、`CR-009-T03-implemented-aligned-full.png`、`CR-009-T03-implemented-aligned-narrow.png`；位于ui-blueprints目录。
 - 未完成范围：真实业务数据库、真实业务API保存及生产验收；本轮未提交、推送或部署。
+
+## CR-009-T03 单屏页签/白卡同宽修复（2026-11-01）
+
+- 已复现：常规滚动条浏览器1280px单屏，旧页签x12..1268/1256px，而内容白卡x12..1258/1246px，差值为内容独占的10px滚动条。前轮无头覆盖式滚动条截图不能排除此差异。
+- 用户确认：以页签外框左右边界为视觉标准，页签与内容共享宽度计算；不硬补内容10px，也不单独把页签缩窄。REA本轮场景 `ev_520a1e6dbb97335a3d75ceedaa1a3c69cb3e4ec3354f22ccd7df4c80b8e14128`（仅声明模式切换成功）；同CDP目标只读几何核对，页签和内容外层白卡均x12..1268，共同滚动祖先占8px、内部右侧4px留白；内部正文额外padding不等于白卡边框。
+- 实现：`PerformanceSplitWorkspace.vue` 将单屏页签移入当前内容同一滚动层，sticky top0并保留12px上下间距；页签slot根部margin归零而不是穿透改全局tabs；单屏使用8px滚动条、stable gutter与左12px/右4px，窄屏左16px/右8px，扣除共同8px滚动条后保持两边外留白一致。ResizeObserver同时测量页签高度，白卡min-height扣除本次真实页签高度，footer预留仍按footer实测值，长内容/窄屏提示不挤压短卡。双屏隐藏同一个页签DOM，不切换或重挂Renderer/编辑器。
+- 单测：新增共同滚动祖先、页签高度72→94、模式切换隐藏/显示和input同实例覆盖。最终命令：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceSplitWorkspace.spec.ts src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts src/router/performanceTaskRoutes.spec.ts src/components/performance/PerformanceWriteModeSwitch.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts --silent`，6文件173 passed（含前轮未提交长提示测试）。
+- 浏览器使用有头Chromium的非覆盖式滚动条：两任务路由×1280/390px×短/长/长提示=12组，均检查当前及参考白卡与tabs同宽、滚动后吸顶位置不变、最后字段不被footer遮挡、无水平溢出。桌面恢复x12..1268/1256px，窄屏x16..374/358px；长提示仍在框内。另4组验证短/长双屏底边及同宽、Home/End、窄屏回退与恢复/单屏切换不重建编辑器或增加请求，以及两路由只读无footer仍同宽。pageerror=0、写请求0。
+- `npm --prefix hr-portal/frontend run build`通过（vue-tsc+Vite），只有既有VueUse PURE annotation提示；`git diff --check`通过。
+- 实现截图：`ui-blueprints/CR-009-T03-implemented-single-shared-width.png`、`ui-blueprints/CR-009-T03-implemented-single-shared-width-narrow.png`，已读取，均为真实本地Vue路由+API fixture，非生产证据。
+- 边界：仅改双屏工作区组件、其既有测试及本记录/蓝图说明；不改模板答案/投影/权限、API、数据库或生产。本轮无提交/推送/部署；前轮富文本长提示修改继续保留。

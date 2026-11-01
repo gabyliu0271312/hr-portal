@@ -165,6 +165,9 @@
 - UI证据：`ui-blueprints/CR-010-F06-implemented-empty-rich-text.png`、`CR-010-F06-implemented-validation-focus.png`、`CR-010-F06-implemented-retype-linebreak.png`；已查看空态截图。属于原工作区内部Bug修复，沿原蓝图，不新增信息架构；Spec012 N00/N11适用，无UCP。
 - 构建：当前工作树执行`npm --prefix hr-portal/frontend run build`通过（vue-tsc＋Vite，37.32s）；`git diff --check`通过。
 - 未执行：飞书完整SDK移植/所有未采集内部行为同一性验收、操作系统真实中文输入法端到端验收（仅composition事件测试）、真实业务库保存重开、生产卡顿性能剖析、部署、commit/push。五项行为在受控环境修复，不宣称真实生产或全部性能问题已验收。
+- 2026-11-01 补充修复：长提示越过普通/标签富文本边框，根因是编辑器 `::before` 用 `position:absolute;height:0` 且按行换行，提示绘制不参与网格高度计算。本次将提示绘制改为外层编辑网格中的 in-flow pseudo row，保留正文编辑器自己的空态行/光标位置；`white-space:pre-wrap` 与 `overflow-wrap:anywhere` 令多行中文和无空格长提示均完整换行并撑高容器。提示仍不写入 contenteditable、HTML答案、autosave或submit payload；普通/任务/标签variant保留各自padding/font，清空后恢复。
+- 本次回归：在 `PerformanceTemplateRenderer.spec.ts` 新增3种variant长提示（中文＋无空格Token）测试和布局源码断言；加入清空后仅零宽光标叶、readonly及提示不混入答案断言。最终相关测试7文件269 passed（SelfSummaryTask、Review、EvaluationDrawer、TemplateRenderer、ContentRenderer、AssessmentContentLayers、InfoPopover）。`npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，只有既有VueUse PURE annotation提示；`git diff --check`通过。
+- 实际本地Vue路由/API fixture：两条正式任务路由 × 全屏/双屏/390px窄屏 × 长中文、多行、无空格长词，共18种布局/路由组合，每种同时验普通输入及标签补充。普通框最长提示height=1218px，标签height=1216px且scrollHeight不超过clientHeight；可视框内无文字溢出，首行光标位置不变，编辑/自动保存payload不含提示，无横向溢出、pageerror或API写请求。输入→Enter→清空→提示恢复和链接浮层可见均通过。独立本地截图：`ui-blueprints/CR-010-F06-implemented-long-placeholder.png`、`ui-blueprints/CR-010-F06-implemented-long-tag-placeholder.png`，非生产截图。
 
 
 ### CR-010-F06 列表与多条标题差异补齐（2026-11-01）

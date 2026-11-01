@@ -6,6 +6,8 @@ import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import templateFieldRendererSource from './PerformanceTemplateFieldRenderer.vue?raw'
+import richTextBoxSource from './PerformanceRichTextBox.vue?raw'
+import richTextEditorSource from './PerformanceRichTextEditor.vue?raw'
 import type { PerformanceTemplateSection } from '@/api/performance'
 import { performanceTemplateAddedInstance, performanceTemplateInitialAnswers, performanceTemplateWritableAnswers } from './performanceTemplateAnswers'
 
@@ -248,6 +250,39 @@ describe('PerformanceTemplateRenderer', () => {
     })
     expect(wrapper.get('.unsupported-template-field').text()).toBe('不支持的填写类型')
   })
+  it.each(['default', 'task-entry', 'tag'] as const)('keeps a long %s hint outside editable answers and restores it only when empty', async variant => {
+    const placeholder = `${'请填写完整工作事例。'.repeat(80)}
+${'NoBreakText'.repeat(80)}`
+    const wrapper = mount(PerformanceRichTextEditor, { props: { variant, placeholder } })
+    const input = wrapper.get('.rich-input')
+    const layout = wrapper.get('.next-remix-rich-text-editor-content')
+    expect(layout.attributes('data-rich-placeholder')).toBe(placeholder)
+    expect(input.text().replace(/​/g, '')).toBe('')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    input.element.innerHTML = '真实答案'
+    await input.trigger('input')
+    expect(layout.attributes('data-rich-placeholder')).toBeUndefined()
+    expect(input.attributes('data-placeholder')).toBeUndefined()
+    expect(JSON.stringify(wrapper.emitted('update:modelValue'))).not.toContain('请填写')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toContain('真实答案')
+    input.element.innerHTML = ''
+    await input.trigger('input')
+    expect(layout.attributes('data-rich-placeholder')).toBe(placeholder)
+    const cleared = document.createElement('div')
+    cleared.innerHTML = String(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
+    expect(cleared.textContent?.replace(/​/g, '')).toBe('')
+    await wrapper.setProps({ readonly: true })
+    expect(input.attributes('contenteditable')).toBe('false')
+    expect(input.element.querySelectorAll('.ace-line')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('uses an in-flow grid hint instead of an absolute zero-height overlay', () => {
+    expect(richTextBoxSource).not.toContain('.rich-input[data-placeholder]::before')
+    expect(richTextEditorSource).toContain('.next-remix-rich-text-editor-content[data-rich-placeholder]::before){grid-area:1 / 1;')
+    expect(richTextEditorSource).toContain('white-space:pre-wrap;overflow-wrap:anywhere;')
+  })
+
   it('repairs empty DOM, removes duplicate placeholders and splits retyped content at the caret', async () => {
     const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { placeholder: '默认提示' } })
     const input = wrapper.get('[contenteditable="true"]')

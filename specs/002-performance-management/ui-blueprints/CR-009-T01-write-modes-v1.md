@@ -66,3 +66,9 @@
 - 单屏画布可延伸至固定footer之后，不能通过先扣除footer高度限制默认白卡高度；末项要有与footer实际高度对应的可滚动预留。窄屏换行后按实测底栏高度更新。
 - 参考白卡标题不依赖是否提交或是否有可见答案；未填写参考与工作总结共用完整状态插画，未启动与未提交仍区分语义。这里“标题常显”指各内容状态均渲染，不新增滚动吸顶行为。
 - 本轮实际实现截图：`CR-009-T03-implemented-aligned-dual-empty.png`、`CR-009-T03-implemented-aligned-dual-scroll-end.png`、`CR-009-T03-implemented-aligned-full.png`、`CR-009-T03-implemented-aligned-narrow.png`。原canvas-height截图保留为历史证据，不再作为目标结构一致性证明。
+
+### 单屏宽度共同基准补充
+
+- 用户确认：页签与内容白卡外边界一致，共享同一滚动容器，不采用单独补10px或仅缩窄页签。
+- 共同滚动层中页签吸顶；8px滚动条占位由两者共同承担，桌面左12px、右4px+8px滚动条；窄屏左16px、右8px+8px滚动条。内部正文留白保持独立。
+- 实现证据：`CR-009-T03-implemented-single-shared-width.png`、`CR-009-T03-implemented-single-shared-width-narrow.png`；以常规非覆盖式滚动条的真实浏览器边界断言为准。
