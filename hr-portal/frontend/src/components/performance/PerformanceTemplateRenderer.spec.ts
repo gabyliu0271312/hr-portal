@@ -5,6 +5,7 @@ import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
+import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import templateFieldRendererSource from './PerformanceTemplateFieldRenderer.vue?raw'
 import richTextBoxSource from './PerformanceRichTextBox.vue?raw'
 import richTextEditorSource from './PerformanceRichTextEditor.vue?raw'
@@ -49,6 +50,27 @@ describe('PerformanceTemplateRenderer', () => {
     expect(wrapper.get('.readonly-rating-badge').text()).toBe('5星')
     expect(wrapper.get('.readonly-tag-panel .tag-preview__selected-tag').text()).toContain('做得好的')
     expect(wrapper.text()).toContain('补充说明')
+  })
+
+  it('keeps loaded template rating code, configured hover details and selected color in the editable task', async () => {
+    const wrapper = mount(PerformanceTemplateRenderer, { props: {
+      mode: 'edit', editable: true,
+      sections: [{ id: 'ratings', name: '评级', fields: [{ id: 'grade', type: 'rating', label: '绩效评级', options: [{ id: 'one', code: '1星', label: '不合格', name: '未达标', description: '未达到岗位要求', color: 'rgb(251, 191, 188)' }, { id: 'five', code: '5星', label: '卓越', name: '卓越', description: '显著超出要求', color: 'rgb(183, 237, 177)' }] }] }],
+      answers: { grade: 'one' },
+    }, attachTo: document.body })
+    const control = wrapper.getComponent(PerformanceRatingControl)
+    expect(control.props('interactive')).toBe(true)
+    expect(control.props('previewHover')).toBe(true)
+    const selected = wrapper.findAll('.rating-option')[0]
+    expect(selected.text()).toBe('1星')
+    expect(selected.attributes('aria-checked')).toBe('true')
+    expect(selected.attributes('style')).toContain('background: rgb(253, 226, 226)')
+    await selected.trigger('mouseenter')
+    expect(document.body.querySelector('.performance-rating-popover')?.textContent).toContain('未达到岗位要求')
+    await wrapper.findAll('.rating-option')[1].trigger('click')
+    expect(wrapper.emitted('update-answer')?.at(-1)).toEqual(['grade', 'five'])
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('shows rating code, label and configured background together in readonly mode', () => {

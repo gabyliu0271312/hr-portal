@@ -57,6 +57,40 @@ describe('PerformanceRatingControl', () => {
     wrapper.unmount()
   })
 
+  it('keeps code, hover details, configured selected fill and selection interactive together', async () => {
+    const configured = { id: 'one', code: '1星', label: '未达标', name: '不合格', description: '结果低于标准', color: 'rgb(251, 191, 188)' }
+    const wrapper = mount(PerformanceRatingControl, { props: { options: [configured, { id: 'five', code: '5星', label: '卓越', name: '卓越', description: '结果突出', color: 'rgb(183, 237, 177)' }], modelValue: 'one', interactive: true }, attachTo: document.body })
+    const selected = wrapper.findAll('.rating-option')[0]
+    expect(selected.text()).toBe('1星')
+    expect(selected.attributes('aria-checked')).toBe('true')
+    expect(selected.attributes('style')).toContain('background: rgb(253, 226, 226)')
+    await selected.trigger('mouseenter')
+    const popup = document.body.querySelector('.performance-rating-popover') as HTMLElement
+    expect(popup.textContent).toContain('1星')
+    expect(popup.textContent).toContain('不合格')
+    expect(popup.textContent).toContain('结果低于标准')
+    expect((popup.querySelector('.performance-rating-control__code') as HTMLElement).style.backgroundColor).toBe('rgb(253, 226, 226)')
+    await wrapper.findAll('.rating-option')[1].trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['five'])
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).not.toContain('1星')
+    wrapper.unmount()
+  })
+
+  it('shows the selected dropdown code/details but keeps its options selectable', async () => {
+    const wrapper = mount(PerformanceRatingControl, { props: { options: [{ id: 'one', code: 'A', label: '优秀', name: '卓越', description: '达到目标', color: 'rgb(183, 237, 177)' }], displayMode: '下拉样式', modelValue: 'one', interactive: true }, attachTo: document.body })
+    const selected = wrapper.get('.performance-rating-control__shared-select')
+    expect(selected.text()).toContain('A')
+    expect(selected.attributes('style')).toContain('background: rgb(217, 245, 214)')
+    await selected.trigger('mouseenter')
+    expect(document.body.querySelector('.performance-rating-popover')?.textContent).toContain('达到目标')
+    await selected.get('.performance-select-shell__selector').trigger('click')
+    ;(document.body.querySelector('.performance-select-shell__popup [role="option"]') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['one'])
+    expect(document.body.querySelector('.performance-rating-popover')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('keeps the readonly dropdown preview non-editable while showing maintained grade details', async () => {
     const wrapper = mount(PerformanceRatingControl, { props: { options: [{ id: 'one', code: '1星', label: '不合格', name: '不合格', description: '交付结果低于预期', color: 'rgb(251, 191, 188)' }], displayMode: '下拉样式', modelValue: 'one', previewHover: true }, attachTo: document.body })
     const preview = wrapper.get('.rating-select-preview')

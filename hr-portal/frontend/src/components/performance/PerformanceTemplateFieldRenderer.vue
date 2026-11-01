@@ -9,7 +9,7 @@
       <PerformanceRichTextEditor variant="task-entry" :class="{ invalid }" :readonly="!editable" :model-value="String(value || '')" :placeholder="field.placeholder || '提示'" @update:model-value="$emit('update:value', $event)" @queue-save="$emit('queue-save')" />
     </template>
     <template v-else-if="field.type === 'rating'">
-      <div class="rating-field"><PerformanceRatingControl :model-value="String(value || '')" :options="field.options || []" :allow-unknown="field.allow_unknown === true" :display-mode="field.display_mode" :interactive="editable" :invalid="invalid" :aria-label="field.label" @update:model-value="$emit('update:value', $event)" /><span v-if="!field.options?.length" class="empty-options">暂无可用评级选项</span></div>
+      <div class="rating-field"><PerformanceRatingControl :model-value="String(value || '')" :options="field.options || []" :allow-unknown="field.allow_unknown === true" :display-mode="field.display_mode" :interactive="editable" preview-hover :invalid="invalid" :aria-label="field.label" @update:model-value="$emit('update:value', $event)" /><span v-if="!field.options?.length" class="empty-options">暂无可用评级选项</span></div>
     </template>
     <template v-else-if="field.type === 'tag_with_followup'">
       <div :class="['tag-followup', { invalid }]">

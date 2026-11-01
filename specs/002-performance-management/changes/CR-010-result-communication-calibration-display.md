@@ -168,6 +168,9 @@
 - 2026-11-01 补充修复：长提示越过普通/标签富文本边框，根因是编辑器 `::before` 用 `position:absolute;height:0` 且按行换行，提示绘制不参与网格高度计算。本次将提示绘制改为外层编辑网格中的 in-flow pseudo row，保留正文编辑器自己的空态行/光标位置；`white-space:pre-wrap` 与 `overflow-wrap:anywhere` 令多行中文和无空格长提示均完整换行并撑高容器。提示仍不写入 contenteditable、HTML答案、autosave或submit payload；普通/任务/标签variant保留各自padding/font，清空后恢复。
 - 本次回归：在 `PerformanceTemplateRenderer.spec.ts` 新增3种variant长提示（中文＋无空格Token）测试和布局源码断言；加入清空后仅零宽光标叶、readonly及提示不混入答案断言。最终相关测试7文件269 passed（SelfSummaryTask、Review、EvaluationDrawer、TemplateRenderer、ContentRenderer、AssessmentContentLayers、InfoPopover）。`npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，只有既有VueUse PURE annotation提示；`git diff --check`通过。
 - 实际本地Vue路由/API fixture：两条正式任务路由 × 全屏/双屏/390px窄屏 × 长中文、多行、无空格长词，共18种布局/路由组合，每种同时验普通输入及标签补充。普通框最长提示height=1218px，标签height=1216px且scrollHeight不超过clientHeight；可视框内无文字溢出，首行光标位置不变，编辑/自动保存payload不含提示，无横向溢出、pageerror或API写请求。输入→Enter→清空→提示恢复和链接浮层可见均通过。独立本地截图：`ui-blueprints/CR-010-F06-implemented-long-placeholder.png`、`ui-blueprints/CR-010-F06-implemented-long-tag-placeholder.png`，非生产截图。
+- 评级预览/填写一致性修复（2026-11-02）：`PerformanceTemplateFieldRenderer` 将配置预览允许的悬停详情接到可交互评级；`PerformanceRatingControl` 的标签/下拉值统一优先显示code，支持同时选择与悬停code/name/description；选中及悬停底色都复用 `performanceLevelBackground(color)`，与配置评级色板一致，选项ID不变并仍作为答案保存。规则水合和任务API原有 `_option` 已保留 code/name/description/color/display_mode，本次无后端改动。
+- 回归：8文件279 passed（任务填写、主管评估、评价抽屉、模板Renderer/ContentRenderer、Assessment内容层、InfoPopover、RatingControl）；评级色映射和Options单测另18 passed。生产构建通过，仅既有VueUse `#__PURE__` Rollup提示。`git diff --check`通过。
+- 浏览器：两任务路由 × 桌面/390px × 标签/下拉模式共8组本地Vue/API fixture；code/name/description hover、已选等级底色、下拉选择、答案payload只含稳定option ID、无横向溢出、pageerror=0。截图 `ui-blueprints/CR-010-F06-implemented-editable-rating-details.png` 为本地fixture，非生产。
 
 
 ### CR-010-F06 列表与多条标题差异补齐（2026-11-01）
