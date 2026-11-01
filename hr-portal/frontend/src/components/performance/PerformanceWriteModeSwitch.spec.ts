@@ -1,0 +1,56 @@
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import PerformanceWriteModeSwitch from './PerformanceWriteModeSwitch.vue'
+
+enableAutoUnmount(afterEach)
+beforeEach(() => { localStorage.clear(); document.body.innerHTML = '' })
+const options = () => [...document.querySelectorAll<HTMLButtonElement>('.write-mode-option')]
+describe('PerformanceWriteModeSwitch', () => {
+  it('renders exact mode card assets and keeps the menu open after selection', async () => {
+    const wrapper = mount(PerformanceWriteModeSwitch, { attachTo: document.body, props: { modelValue: 'fullScreenMode' } })
+    await wrapper.get('.write-mode-trigger').trigger('click')
+    const cards = options()
+    expect(cards).toHaveLength(2)
+    expect(cards.map(card => card.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+    expect(cards.map(card => card.querySelector('img')?.getAttribute('width'))).toEqual(['124', '124'])
+    expect(cards[0].querySelector('img')?.getAttribute('src')).toContain('dual-default')
+    cards[0].click()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['basicWriteMode'])
+    await wrapper.setProps({ modelValue: 'basicWriteMode' })
+    expect(options()[0].getAttribute('aria-checked')).toBe('true')
+    expect(document.querySelector('.write-mode-menu')).not.toBeNull()
+    expect(wrapper.get('.write-mode-trigger').text()).toBe('双屏填写')
+  })
+  it('closes on Escape or outside click and restores focus for Escape', async () => {
+    const wrapper = mount(PerformanceWriteModeSwitch, { attachTo: document.body, props: { modelValue: 'basicWriteMode' } })
+    await wrapper.get('.write-mode-trigger').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(wrapper.get('.write-mode-trigger').attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(wrapper.get('.write-mode-trigger').element)
+    await wrapper.get('.write-mode-trigger').trigger('click')
+    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.get('.write-mode-trigger').attributes('aria-expanded')).toBe('false')
+  })
+  it('blocks dual selection when both panels cannot fit and supports option keyboard focus', async () => {
+    const wrapper = mount(PerformanceWriteModeSwitch, { attachTo: document.body, props: { modelValue: 'fullScreenMode', splitAvailable: false } })
+    await wrapper.get('.write-mode-trigger').trigger('click')
+    expect(document.querySelector('.write-mode-hint')?.textContent).toContain('窗口过窄')
+    expect(options()[0].disabled).toBe(true)
+    options()[0].click()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    options()[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    expect(document.activeElement).toBe(options()[1])
+  })
+  it('does not open when disabled and removes listeners on unmount', async () => {
+    const wrapper = mount(PerformanceWriteModeSwitch, { props: { modelValue: 'basicWriteMode', disabled: true } })
+    await wrapper.get('.write-mode-trigger').trigger('click')
+    expect(document.querySelector('.write-mode-menu')).toBeNull()
+    await wrapper.setProps({ disabled: false, modelValue: 'fullScreenMode' })
+    expect(wrapper.get('.write-mode-trigger').text()).toContain('全屏填写')
+    await wrapper.get('.write-mode-trigger').trigger('click')
+    wrapper.unmount()
+    expect(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))).not.toThrow()
+  })
+})

@@ -13,6 +13,7 @@
         </template>
       </span>
     </div>
+    <div v-if="$slots.actions" class="header-actions"><slot name="actions" /></div>
   </header>
 </template>
 
@@ -41,5 +42,6 @@ const profileParts = computed(() => Array.isArray(props.person.profile_fields)
 .person-meta{display:flex;align-items:center;min-width:0;max-width:100%;color:var(--color-text-secondary);font-size:14px;line-height:20px}
 .person-meta__value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .person-meta__separator{display:inline-block;width:1px;height:16px;flex:0 0 1px;margin:2px 8px;background:var(--color-line-divider)}
-@media(max-width:640px){.self-summary-header{padding-inline:16px}.back-button{margin-right:10px}.person-info{margin-left:10px}.person-meta{flex-wrap:wrap;row-gap:4px}.person-meta__value{white-space:normal;overflow-wrap:anywhere}.person-meta__separator{margin-inline:6px}}
+.header-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto;flex:none;max-width:100%}
+@media(max-width:640px){.self-summary-header{flex-wrap:wrap;padding-inline:16px}.back-button{margin-right:10px}.person-info{flex:1;margin-left:0}.person-meta{flex-wrap:wrap;row-gap:4px}.person-meta__value{white-space:normal;overflow-wrap:anywhere}.person-meta__separator{margin-inline:6px}.header-actions{margin-left:auto}}
 </style>

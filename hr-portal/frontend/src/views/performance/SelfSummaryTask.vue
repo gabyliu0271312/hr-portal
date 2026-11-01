@@ -1,32 +1,52 @@
 <template>
-  <PerformanceTaskWorkspace>
-    <template #header><PerformanceSelfSummaryHeader :person="task.person" @back="router.back()" /></template>
-    <template #tabs>
-      <nav class="summary-tabs" aria-label="绩效填写页签">
-        <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="activeTab = tab.key">{{ tab.label }}</button>
-      </nav>
+  <PerformanceTaskWorkspace split-mode>
+    <template #header>
+      <PerformanceSelfSummaryHeader :person="task.person" @back="router.back()">
+        <template #actions><PerformanceWriteModeSwitch :model-value="displayMode" :disabled="loading || Boolean(loadError)" :split-available="splitAvailable" @update:model-value="changeMode" /></template>
+      </PerformanceSelfSummaryHeader>
     </template>
-    <section v-if="loading" class="state">正在加载…</section>
-    <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
-    <div v-else-if="activeTab === 'current'" class="task-content">
-      <div v-if="task.calibration_notice" class="task-notices">
-        <PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice>
-      </div>
-      <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
-      <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" mode="edit" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
-    </div>
-    <PerformanceReferenceContent v-else-if="activeReference" :reference="activeReference" @remind="openReminder" />
-    <template #footer>
-      <PerformanceSelfSummaryFooter v-if="activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" />
+    <template #split>
+      <PerformanceSplitWorkspace :enabled="mode === 'basicWriteMode' && !loading && !loadError" @available="splitAvailable = $event">
+        <template #tabs>
+          <nav class="summary-tabs" aria-label="绩效填写页签">
+            <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="activeTab = tab.key">{{ tab.label }}</button>
+          </nav>
+          <p v-if="mode === 'basicWriteMode' && !splitAvailable && !loading && !loadError" class="narrow-mode-notice" role="status">窗口较窄，暂用全屏填写；扩大窗口后恢复双屏。</p>
+        </template>
+        <template #left>
+          <nav class="summary-tabs reference-tabs" aria-label="参考内容页签">
+            <button v-for="reference in task.reference_tabs || []" :key="reference.key" :class="{ active: selectedReference?.key === reference.key }" type="button" @click="referenceKey = reference.key">{{ reference.node_name }}</button>
+            <span v-if="!task.reference_tabs?.length">参考内容</span>
+          </nav>
+          <div class="reference-scroll">
+            <PerformanceReferenceContent v-if="isSplit && selectedReference" :reference="selectedReference" @remind="openReminder" />
+            <section v-else class="state">暂无参考内容</section>
+          </div>
+        </template>
+        <section v-if="loading" class="state">正在加载…</section>
+        <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load">重新加载</button></section>
+        <template v-else>
+          <div v-show="isSplit || activeTab === 'current'" class="task-content">
+            <div v-if="task.calibration_notice" class="task-notices"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
+            <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
+            <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" mode="edit" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit" />
+          </div>
+          <PerformanceReferenceContent v-if="!isSplit && activeReference" :reference="activeReference" @remind="openReminder" />
+        </template>
+        <template #footer><PerformanceSelfSummaryFooter v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit" @cancel="router.back()" /></template>
+      </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
+import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
+import PerformanceSplitWorkspace from '@/components/performance/PerformanceSplitWorkspace.vue'
+import { usePerformanceWriteMode, type PerformanceWriteMode } from '@/composables/usePerformanceWriteMode'
 import PerformanceReferenceContent from '@/components/performance/PerformanceReferenceContent.vue'
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
@@ -49,6 +69,14 @@ const formRef = ref<{ focusField: (id: string) => void } | null>(null)
 const activeTab = ref('current')
 const tabs = computed(() => [{ key: 'current', label: task.value.node_name || '加载中…' }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
 const activeReference = computed<PerformanceReferenceTab | null>(() => task.value.reference_tabs?.find(reference => reference.key === activeTab.value) || null)
+const { mode } = usePerformanceWriteMode()
+const splitAvailable = ref(false)
+const referenceKey = ref('')
+const selectedReference = computed(() => task.value.reference_tabs?.find(reference => reference.key === referenceKey.value) || task.value.reference_tabs?.[0] || null)
+const displayMode = computed<PerformanceWriteMode>(() => mode.value === 'basicWriteMode' && splitAvailable.value ? 'basicWriteMode' : 'fullScreenMode')
+const isSplit = computed(() => displayMode.value === 'basicWriteMode')
+function changeMode(value: PerformanceWriteMode) { mode.value = value; activeTab.value = 'current' }
+watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
 const canEdit = computed(() => !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
@@ -178,5 +206,9 @@ onBeforeUnmount(() => window.clearTimeout(saveTimer))
 .state.error{flex-direction:column;gap:12px}
 .state.error p{margin:0}
 .state.error button{min-height:32px;padding:0 16px;border:0;border-radius:6px;background:var(--color-primary);color:var(--color-bg-card);cursor:pointer}
+.reference-tabs{margin:0 0 12px;flex:none}
+.reference-scroll{display:flex;flex:1;min-height:0;overflow:auto;background:var(--color-bg-card);border-radius:8px;padding:20px}
+.reference-scroll > *{flex:1;min-width:0}
+.narrow-mode-notice{padding:8px 16px 0;color:var(--color-text-secondary);font-size:12px;margin:0}
 @media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer{padding-inline:16px}}
 </style>

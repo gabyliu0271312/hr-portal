@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceRichTextEditor from '@/components/performance/PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from '@/components/performance/PerformanceTagRichTextInput.vue'
+import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
+import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import { performanceReviewApi } from '@/api/performance'
 import { api } from '@/api/client'
 import { clearEmployeeSwitch, employeeSwitchSession, employeeSwitchNotice, setEmployeeSwitch } from '@/stores/identitySwitch'
@@ -41,6 +43,8 @@ describe('SelfSummaryTask', () => {
     back.mockReset()
     push.mockReset()
     Element.prototype.scrollIntoView = vi.fn()
+    localStorage.clear()
+    localStorage.setItem('userMode', 'fullScreenMode')
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(structuredClone(task))
     vi.spyOn(performanceReviewApi, 'saveSelfSummaryDraft').mockResolvedValue({ answers: {}, version: 2 })
     vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ answers: {}, version: 3, submitted_at: '2026-09-11T00:00:00Z', editable: true, submit_allowed: true })
@@ -65,8 +69,8 @@ describe('SelfSummaryTask', () => {
     const wrapper = mount(SelfSummaryTask)
     await flushPromises()
 
-    expect(wrapper.findAll('.summary-tabs button').map(button => button.text())).toEqual(['模板维护的总结名称', '上级评估'])
-    await wrapper.findAll('.summary-tabs button')[1].trigger('click')
+    expect(wrapper.findAll('.split-single-tabs .summary-tabs button').map(button => button.text())).toEqual(['模板维护的总结名称', '上级评估'])
+    await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
     expect(wrapper.text()).toContain('暂未提交')
     expect(wrapper.find('.performance-reminder-button').exists()).toBe(true)
     await wrapper.get('.performance-reminder-button').trigger('click')
@@ -345,9 +349,9 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
     expect(wrapper.get('.summary-tabs .active').text()).toBe(task.node_name)
     expect(wrapper.get('.self-summary-form h1').text()).toBe('填写本期重点产出')
-    expect(wrapper.find('.performance-task-workspace > .summary-scroll > .task-content').exists()).toBe(true)
-    expect(wrapper.find('.performance-task-workspace > .self-summary-footer').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="全屏填写"]').exists()).toBe(false)
+    expect(wrapper.find('.split-current-pane > .summary-scroll > .task-content').exists()).toBe(true)
+    expect(wrapper.find('.split-current-pane > .self-summary-footer').exists()).toBe(true)
+    expect(wrapper.find('.write-mode-trigger').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -400,7 +404,7 @@ describe('SelfSummaryTask', () => {
     vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), reference_tabs: [{ key: 'filtered', node_id: 'source', node_name: '来源内容', employee_no: 'E001', status: 'completed', form_schema: [], answers: {}, can_remind: false }] })
     const wrapper = mount(SelfSummaryTask)
     await flushPromises()
-    await wrapper.findAll('.summary-tabs button')[1].trigger('click')
+    await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
     expect(wrapper.text()).toContain('暂无可查看内容')
     expect(wrapper.text()).not.toContain('暂未提交')
     expect(wrapper.find('.performance-reminder-button').exists()).toBe(false)
@@ -429,6 +433,57 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.text()).not.toContain('暂无填写内容')
     expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(true)
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the live form, prompt order, errors and pending save across display modes', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, width: 1280, height: 700, left: 0, top: 0, right: 1280, bottom: 700 })
+    const loaded = structuredClone(task)
+    loaded.form_schema[0].elements = [{ kind: 'prompt', id: 'inline', prompt: { content: '不丢提示', color: '#3370ff' } }, { kind: 'field', id: 'text' }]
+    loaded.reference_tabs = [{ key: 'r1', node_id: 'src', node_name: '参考环节', employee_no: 'E001', status: 'completed', form_schema: [{ id: 'src', name: '参考', fields: [{ id: 'src', type: 'rich_text', label: '来源' }] }], answers: { src: '不可写入当前任务' }, can_remind: false }]
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue(loaded)
+    const wrapper = mount(SelfSummaryTask)
+    try {
+      await flushPromises()
+      const rendererId = wrapper.get('.task-content').getComponent(PerformanceTemplateRenderer).vm.$.uid
+      const input = wrapper.get('[data-field-id="text"] .rich-input')
+      input.element.innerHTML = '模式切换保留的输入'
+      await input.trigger('input')
+      await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+      expect(wrapper.text()).toContain('填写题名称为必填')
+      const control = wrapper.getComponent(PerformanceWriteModeSwitch)
+      control.vm.$emit('update:modelValue', 'basicWriteMode')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.get('.performance-split-workspace').classes()).toContain('is-split')
+      expect(wrapper.get('.task-content').getComponent(PerformanceTemplateRenderer).vm.$.uid).toBe(rendererId)
+      expect(wrapper.get('[data-field-id="text"] .rich-input').element).toBe(input.element)
+      expect(wrapper.text()).toContain('不丢提示')
+      expect(wrapper.text()).toContain('填写题名称为必填')
+      expect(performanceReviewApi.selfSummary).toHaveBeenCalledTimes(1)
+      expect(performanceReviewApi.saveSelfSummaryDraft).not.toHaveBeenCalled()
+      expect(performanceReviewApi.submitSelfSummary).not.toHaveBeenCalled()
+      control.vm.$emit('update:modelValue', 'fullScreenMode')
+      await wrapper.vm.$nextTick()
+      expect(wrapper.get('.task-content').getComponent(PerformanceTemplateRenderer).vm.$.uid).toBe(rendererId)
+      await vi.advanceTimersByTimeAsync(350)
+      await flushPromises()
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledWith('task-1', expect.objectContaining({ text: '模式切换保留的输入' }), 1)
+      expect(vi.mocked(performanceReviewApi.saveSelfSummaryDraft).mock.calls[0][1]).not.toHaveProperty('src')
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+  it('renders a dual empty state with a single readonly current form when references are absent', async () => {
+    localStorage.removeItem('userMode')
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, width: 1280, height: 700, left: 0, top: 0, right: 1280, bottom: 700 })
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), editable: false, submit_allowed: false })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.get('.performance-split-workspace').classes()).toContain('is-split')
+    expect(wrapper.text()).toContain('暂无参考内容')
+    expect(wrapper.findAllComponents(PerformanceTemplateRenderer)).toHaveLength(1)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(true)
     wrapper.unmount()
   })
 
