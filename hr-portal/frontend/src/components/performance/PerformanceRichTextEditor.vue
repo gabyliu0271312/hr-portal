@@ -14,7 +14,6 @@
         <button type="button" @click="applyLink">应用</button>
       </div>
       <div class="next-remix-rich-text-editor-content">
-        <span v-if="isBlank" class="rich-placeholder">{{ placeholder }}</span>
         <div
           ref="editor"
           class="rich-input ace-editor zone-container editor-kit-container next-remix-rich-text-editor-textarea notranslate chrome window chrome88"
@@ -23,8 +22,10 @@
           data-zone-id="0"
           data-zone-container="*"
           data-slate-editor="true"
-          :data-placeholder="placeholder"
+          :data-placeholder="isBlank ? placeholder : undefined"
           spellcheck="false"
+          @compositionstart="composing = true"
+          @compositionend="finishComposition"
           @beforeinput="insertPendingText"
           @input="emitHtml"
           @keydown="keyHandler"
@@ -78,6 +79,7 @@ const pendingMarks = reactive<Record<MarkKey, boolean>>({ bold: false, italic: f
 const active = reactive<Record<CommandKey, boolean>>({ bold: false, italic: false, underline: false, insertOrderedList: false, insertUnorderedList: false, link: false })
 const emptyHtml = '<div class="ace-line" data-node="true" dir="auto"><span data-string="true" data-enter="true" data-leaf="true">​</span></div>'
 const isBlank = ref(true)
+let composing = false
 
 const allowedTags = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'OL', 'UL', 'LI', 'A', 'P', 'DIV', 'BR', 'SPAN'])
 const dangerousTags = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH'])
@@ -279,7 +281,7 @@ function hasMark(node: Text, state: MarkKey) {
 
 function styleState(range: Range | null) {
   if (!range || !editor.value || !editor.value.contains(range.startContainer) || !editor.value.contains(range.endContainer)) return
-  const textNodes = selectedTextNodes(range)
+  const textNodes = range.collapsed ? [] : selectedTextNodes(range)
   const caretText = range.collapsed && range.startContainer instanceof Text && range.startContainer.data.replace(/​/g, '').length ? range.startContainer : null
   if (caretText) {
     pendingMarks.bold = hasMark(caretText, 'bold')
@@ -321,13 +323,86 @@ function serializeEditor() {
   return sanitizeHtml(editor.value?.innerHTML || '')
 }
 
-function emitHtml() {
-  if (editor.value && !props.readonly) {
-    isBlank.value = !editor.value.textContent?.replace(/​/g, '').trim()
-    lastEmitted = serializeEditor()
-    emit('update:modelValue', lastEmitted)
+function repairStructure() {
+  const root = editor.value
+  if (!root || composing) return
+  const current = document.getSelection()
+  const range = current?.rangeCount ? current.getRangeAt(0) : null
+  const inside = range && root.contains(range.startContainer) && root.contains(range.endContainer)
+  const offset = (node: Node, position: number) => {
+    const prefix = document.createRange()
+    prefix.selectNodeContents(root)
+    prefix.setEnd(node, position)
+    return prefix.toString().length
   }
-  styleState(document.getSelection()?.rangeCount ? document.getSelection()!.getRangeAt(0) : null)
+  const hasText = Boolean(root.textContent?.replace(/​/g, '').length)
+  const firstBlock = root.firstElementChild as HTMLElement | null
+  if (!hasText && root.children.length <= 1 && !(firstBlock && directList(firstBlock))) {
+    if (root.innerHTML !== emptyHtml) {
+      root.innerHTML = emptyHtml
+      if (inside || document.activeElement === root) restoreBlockSelection([root.firstElementChild as HTMLElement], true)
+    }
+    return
+  }
+  const invalid = Array.from(root.childNodes).some(node => !(node instanceof HTMLElement) || !node.classList.contains('ace-line'))
+  if (!invalid) return
+  const start = inside ? offset(range.startContainer, range.startOffset) : null
+  const end = inside ? offset(range.endContainer, range.endOffset) : null
+  const fragment = document.createDocumentFragment()
+  let inline = document.createDocumentFragment()
+  const flush = () => {
+    if (inline.childNodes.length) fragment.appendChild(plainBlock(inline))
+    inline = document.createDocumentFragment()
+  }
+  for (const node of Array.from(root.childNodes)) {
+    if (node instanceof HTMLElement && node.classList.contains('ace-line')) {
+      flush()
+      fragment.appendChild(node)
+    } else if (node instanceof HTMLElement && /^(P|DIV)$/.test(node.tagName)) {
+      flush()
+      fragment.appendChild(plainBlock(node))
+    } else if (node instanceof HTMLElement && /^(OL|UL)$/.test(node.tagName)) {
+      flush()
+      for (const item of Array.from(node.children)) fragment.appendChild(blockListWrapper(node.tagName as 'OL' | 'UL', item as HTMLElement))
+    } else inline.appendChild(node)
+  }
+  flush()
+  root.replaceChildren(fragment)
+  if (start === null || end === null) return
+  const locate = (position: number): [Node, number] => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let node = walker.nextNode()
+    while (node) {
+      const length = node.textContent?.length || 0
+      if (position <= length) return [node, position]
+      position -= length
+      node = walker.nextNode()
+    }
+    return [root, root.childNodes.length]
+  }
+  const restored = document.createRange()
+  restored.setStart(...locate(start))
+  restored.setEnd(...locate(end))
+  current?.removeAllRanges()
+  current?.addRange(restored)
+  selection.value = restored.cloneRange()
+}
+
+function emitHtml() {
+  if (!editor.value || props.readonly || composing) return
+  repairStructure()
+  isBlank.value = editor.value.children.length <= 1 && !editor.value.textContent?.replace(/​/g, '').trim()
+  const html = serializeEditor()
+  if (html !== lastEmitted) {
+    lastEmitted = html
+    emit('update:modelValue', html)
+  }
+}
+
+function finishComposition() {
+  composing = false
+  emitHtml()
+  rememberSelection()
 }
 
 function restoreBlockSelection(blocks: HTMLElement[], collapsed: boolean) {
@@ -462,7 +537,18 @@ function leafMatchesPending(leaf: HTMLElement) {
 }
 
 function insertPendingText(event: InputEvent) {
-  if (props.readonly || event.inputType !== 'insertText' || !event.data) return
+  if (props.readonly || composing || event.isComposing) return
+  repairStructure()
+  if (event.inputType.startsWith('delete') && editor.value?.children.length === 1 && !editor.value.textContent?.replace(/​/g, '').length) {
+    event.preventDefault()
+    return
+  }
+  if (event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') {
+    event.preventDefault()
+    insertLineBreak()
+    return
+  }
+  if (event.inputType !== 'insertText' || !event.data) return
   const currentSelection = document.getSelection()
   const range = currentSelection?.rangeCount ? currentSelection.getRangeAt(0) : null
   if (!range || !range.collapsed || !editor.value?.contains(range.startContainer)) return
@@ -490,22 +576,78 @@ function insertPendingText(event: InputEvent) {
   styleState(nextRange)
 }
 
-function keyHandler(event: KeyboardEvent) {
-  if (props.readonly || event.isComposing) return
+function insertLineBreak() {
+  repairStructure()
   rememberSelection()
+  const range = selectedFragment()
+  if (!range || !editor.value) return
+  const blocks = selectedBlocks(range)
+  if (!range.collapsed && blocks.length > 1) {
+    const first = directList(blocks[0])?.querySelector('li') || blocks[0]
+    const last = directList(blocks[blocks.length - 1])?.querySelector('li') || blocks[blocks.length - 1]
+    const prefix = document.createRange()
+    prefix.selectNodeContents(first)
+    if (first.contains(range.startContainer)) prefix.setEnd(range.startContainer, range.startOffset)
+    else prefix.collapse(true)
+    const suffix = document.createRange()
+    suffix.selectNodeContents(last)
+    if (last.contains(range.endContainer)) suffix.setStart(range.endContainer, range.endOffset)
+    else suffix.collapse(false)
+    const before = prefix.cloneContents()
+    const after = suffix.cloneContents()
+    first.replaceChildren(before)
+    range.setStart(first, first.childNodes.length)
+    range.collapse(true)
+    first.appendChild(after)
+    for (const block of blocks.slice(1)) block.remove()
+    const selected = document.getSelection()
+    selected?.removeAllRanges()
+    selected?.addRange(range)
+    selection.value = range.cloneRange()
+  } else range.deleteContents()
+  repairStructure()
+  rememberSelection()
+  const caret = selectedFragment()
+  if (!caret) return
+  const current = selectedBlocks(caret)[0] || (caret.startContainer === editor.value ? editor.value.children[Math.min(caret.startOffset, editor.value.children.length - 1)] as HTMLElement : null)
+  if (!current) return
+  const list = directList(current)
+  const source = list?.querySelector('li') || current
+  const tail = document.createRange()
+  tail.selectNodeContents(source)
+  tail.setStart(caret.startContainer, caret.startOffset)
+  const fragment = document.createElement('div')
+  fragment.appendChild(tail.extractContents())
+  if (!source.textContent?.replace(/​/g, '')) source.replaceChildren(emptyLeaf())
+  const block = list ? blockListWrapper(list.tagName as 'OL' | 'UL', fragment) : plainBlock(fragment)
+  const nextContent = list ? block.querySelector('li')! : block
+  if (!nextContent.textContent?.replace(/​/g, '')) nextContent.replaceChildren(emptyLeaf())
+  current.after(block)
+  renumberOrderedLists()
+  const next = document.createRange()
+  const firstText = document.createTreeWalker(nextContent, NodeFilter.SHOW_TEXT).nextNode()
+  if (firstText) next.setStart(firstText, firstText.parentElement?.hasAttribute('data-enter') ? 1 : 0)
+  else next.selectNodeContents(nextContent)
+  next.collapse(true)
+  const selected = document.getSelection()
+  selected?.removeAllRanges()
+  selected?.addRange(next)
+  selection.value = next.cloneRange()
+  emitHtml()
+}
+
+function keyHandler(event: KeyboardEvent) {
+  if (props.readonly || composing || event.isComposing || event.keyCode === 229) return
+  repairStructure()
+  rememberSelection()
+  if ((event.key === 'Backspace' || event.key === 'Delete') && editor.value?.children.length === 1 && !editor.value.textContent?.replace(/​/g, '').length) {
+    event.preventDefault()
+    return
+  }
   if (event.key === 'Enter') {
     event.preventDefault()
-    const range = selectedFragment()
-    const current = range ? selectedBlocks(range)[0] : null
-    if (!current) return
-    const list = directList(current)
-    const block = list ? blockListWrapper(list.tagName as 'OL' | 'UL') : plainBlock()
-    current.after(block)
-    renumberOrderedLists()
-    restoreBlockSelection([block], true)
-    emitHtml()
+    insertLineBreak()
   }
-  rememberSelection()
 }
 
 function applyLink() {
@@ -568,7 +710,7 @@ function syncEditor(value: string) {
   if (!editor.value || value === lastEmitted || (editor.value.hasChildNodes() && value === serializeEditor())) return
   const normalized = normalizeHtml(value)
   if (editor.value.innerHTML !== normalized) editor.value.innerHTML = normalized
-  isBlank.value = !editor.value.textContent?.replace(/​/g, '').trim()
+  isBlank.value = editor.value.children.length <= 1 && !editor.value.textContent?.replace(/​/g, '').trim()
   lastEmitted = undefined
   renumberOrderedLists()
   selection.value = null
@@ -610,5 +752,5 @@ defineExpose({ active, rememberSelection, command })
 </script>
 
 <style scoped>
-.rich-editor-host{width:100%;max-width:100%;min-width:0;box-sizing:border-box}.rich-editor-host :deep(.next-remix-rich-text-editor){position:relative;width:100%;max-width:100%;min-width:0;box-sizing:border-box;background:#fff}.rich-editor-host :deep(.performance-rich-text-box__content){width:100%;max-width:100%;min-width:0;box-sizing:border-box}.rich-editor-host--tag :deep(.performance-rich-text-box__content){min-height:34px}.rich-editor-host :deep(.next-remix-rich-text-editor-content){position:relative;display:grid;grid-template-columns:minmax(0,1fr);width:100%;max-width:100%;min-width:0;min-height:90px;box-sizing:border-box;overflow:visible}.rich-editor-host :deep(.rich-placeholder){position:relative;grid-area:1 / 1;align-self:start;z-index:1;margin:6px 8px;color:#8f959e;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;pointer-events:none}.rich-editor-host :deep(.rich-input){grid-area:1 / 1;width:100%;max-width:100%;min-width:0;min-height:90px;padding:6px 10px;box-sizing:border-box;outline:0;white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}.rich-editor-host :deep(.rich-input .ace-line){min-height:22px;margin:0}.rich-editor-host :deep(.rich-input .ace-line.list-div){min-height:22px}.rich-editor-host :deep(.rich-input ol),.rich-editor-host :deep(.rich-input ul){margin:0;padding-left:24px}.rich-editor-host :deep(.rich-input .r-list){list-style:none}.rich-editor-host :deep(.rich-input .r-list>li){position:relative;min-height:22px;list-style:none}.rich-editor-host :deep(.rich-input .r-list-bullet>li::before){position:absolute;top:8px;left:-17px;width:6px;height:6px;border-radius:50%;background:#3370ff;content:''}.rich-editor-host :deep(.rich-input .r-list-number>li::before){position:absolute;top:0;left:-24px;width:20px;color:#646a73;content:attr(data-start) '.';text-align:right}.rich-editor-host :deep(.rich-input[contenteditable="true"]){cursor:text}.rich-editor-host :deep(.rich-input[contenteditable="false"]){cursor:default}.rich-editor-host--task-entry :deep(.next-remix-rich-text-editor){min-height:124px;padding-bottom:12px;color:rgba(0,0,0,.65);font:400 14px/21px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";cursor:default}.rich-editor-host--task-entry :deep(.next-remix-rich-text-editor-content){min-height:88px}.rich-editor-host--task-entry :deep(.rich-input){min-height:88px;flex:1;padding:4px 11px;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"}.rich-editor-host--task-entry :deep(.performance-rich-toolbar){height:36px;gap:0;padding:6px 8px 6px 4px}.rich-editor-host--task-entry :deep(.performance-rich-toolbar button){margin:0 4px;border-radius:6px}.rich-editor-host--tag :deep(.performance-rich-text-box){min-height:34px;border:0;border-radius:0;box-shadow:none}.rich-editor-host--tag :deep(.next-remix-rich-text-editor){min-height:34px;border:0;border-radius:0;box-shadow:none}.rich-editor-host--tag :deep(.next-remix-rich-text-editor-content){min-height:34px}.rich-editor-host--tag :deep(.rich-input){min-height:34px;padding:6px 8px 0 0}.rich-editor-host--tag :deep(.rich-placeholder){margin:6px 8px 0 0;font-size:14px;line-height:24px}.rich-editor-host--tag :deep(.ace-line){line-height:24px}.link-popover{position:absolute;z-index:5;top:38px;left:128px;display:flex;gap:6px;width:min(260px,calc(100% - 16px));padding:8px;box-sizing:border-box;border:1px solid #dee0e3;border-radius:6px;background:#fff;box-shadow:0 6px 24px rgba(31,35,41,.16)}.link-popover input{flex:1;min-width:0;width:100%;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #d0d3d6;border-radius:6px;font:inherit;outline:0}.link-popover input:focus{border-color:#3370ff}.link-popover button{height:32px;padding:4px 12px;border:1px solid #3370ff;border-radius:6px;background:#3370ff;color:#fff;font:inherit;cursor:pointer}.rich-editor-host--readonly :deep(.rich-input){user-select:text}.rich-editor-host--readonly :deep(.performance-rich-toolbar){cursor:default}
+.rich-editor-host{width:100%;max-width:100%;min-width:0;box-sizing:border-box}.rich-editor-host :deep(.next-remix-rich-text-editor){position:relative;width:100%;max-width:100%;min-width:0;box-sizing:border-box;background:#fff}.rich-editor-host :deep(.performance-rich-text-box__content){width:100%;max-width:100%;min-width:0;box-sizing:border-box}.rich-editor-host--tag :deep(.performance-rich-text-box__content){min-height:34px}.rich-editor-host :deep(.next-remix-rich-text-editor-content){position:relative;display:grid;grid-template-columns:minmax(0,1fr);width:100%;max-width:100%;min-width:0;min-height:90px;box-sizing:border-box;overflow:visible}.rich-editor-host :deep(.rich-input){grid-area:1 / 1;width:100%;max-width:100%;min-width:0;min-height:90px;padding:6px 10px;box-sizing:border-box;outline:0;white-space:pre-wrap;overflow-wrap:anywhere;overflow:visible;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}.rich-editor-host :deep(.rich-input .ace-line){min-height:22px;margin:0}.rich-editor-host :deep(.rich-input .ace-line.list-div){min-height:22px}.rich-editor-host :deep(.rich-input ol),.rich-editor-host :deep(.rich-input ul){margin:0;padding-left:24px}.rich-editor-host :deep(.rich-input .r-list){list-style:none}.rich-editor-host :deep(.rich-input .r-list>li){position:relative;min-height:22px;list-style:none}.rich-editor-host :deep(.rich-input .r-list-bullet>li::before){position:absolute;top:8px;left:-17px;width:6px;height:6px;border-radius:50%;background:#3370ff;content:''}.rich-editor-host :deep(.rich-input .r-list-number>li::before){position:absolute;top:0;left:-24px;width:20px;color:#646a73;content:attr(data-start) '.';text-align:right}.rich-editor-host :deep(.rich-input[contenteditable="true"]){cursor:text}.rich-editor-host :deep(.rich-input[contenteditable="false"]){cursor:default}.rich-editor-host--task-entry :deep(.next-remix-rich-text-editor){min-height:124px;padding-bottom:12px;color:rgba(0,0,0,.65);font:400 14px/21px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";cursor:default}.rich-editor-host--task-entry :deep(.next-remix-rich-text-editor-content){min-height:88px}.rich-editor-host--task-entry :deep(.rich-input){min-height:88px;flex:1;padding:4px 11px;font:400 14px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji"}.rich-editor-host--task-entry :deep(.performance-rich-toolbar){height:36px;gap:0;padding:6px 8px 6px 4px}.rich-editor-host--task-entry :deep(.performance-rich-toolbar button){margin:0 4px;border-radius:6px}.rich-editor-host--tag :deep(.performance-rich-text-box){min-height:34px;border:0;border-radius:0;box-shadow:none}.rich-editor-host--tag :deep(.next-remix-rich-text-editor){min-height:34px;border:0;border-radius:0;box-shadow:none}.rich-editor-host--tag :deep(.next-remix-rich-text-editor-content){min-height:34px}.rich-editor-host--tag :deep(.rich-input){min-height:34px;padding:6px 8px 0 0}.rich-editor-host--tag :deep(.ace-line){line-height:24px}.link-popover{position:absolute;z-index:5;top:38px;left:128px;display:flex;gap:6px;width:min(260px,calc(100% - 16px));padding:8px;box-sizing:border-box;border:1px solid #dee0e3;border-radius:6px;background:#fff;box-shadow:0 6px 24px rgba(31,35,41,.16)}.link-popover input{flex:1;min-width:0;width:100%;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #d0d3d6;border-radius:6px;font:inherit;outline:0}.link-popover input:focus{border-color:#3370ff}.link-popover button{height:32px;padding:4px 12px;border:1px solid #3370ff;border-radius:6px;background:#3370ff;color:#fff;font:inherit;cursor:pointer}.rich-editor-host--readonly :deep(.rich-input){user-select:text}.rich-editor-host--readonly :deep(.performance-rich-toolbar){cursor:default}
 </style>

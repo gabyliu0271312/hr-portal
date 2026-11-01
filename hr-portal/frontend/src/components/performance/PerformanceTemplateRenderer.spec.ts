@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
@@ -99,7 +99,7 @@ describe('PerformanceTemplateRenderer', () => {
     expect(wrapper.get('.template-field-label').text()).toBe('标签题')
     expect(wrapper.find('.template-field-description').exists()).toBe(false)
     expect(wrapper.text()).toContain('选项A')
-    if (mode === 'edit') expect(wrapper.get('.tag-rich-input').attributes('data-placeholder')).toBe('补充提示')
+    if (mode === 'edit') expect(wrapper.get('.tag-rich-input').attributes('data-placeholder')).toBeUndefined()
     expect(wrapper.text()).toContain('已填写答案')
     wrapper.unmount()
   })
@@ -247,4 +247,107 @@ describe('PerformanceTemplateRenderer', () => {
     })
     expect(wrapper.get('.unsupported-template-field').text()).toBe('不支持的填写类型')
   })
+  it('repairs empty DOM, removes duplicate placeholders and splits retyped content at the caret', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { placeholder: '默认提示' } })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    input.element.innerHTML = ''
+    await input.trigger('input')
+    expect(input.element.querySelectorAll('.ace-line')).toHaveLength(1)
+    expect(input.attributes('data-placeholder')).toBe('默认提示')
+    expect(wrapper.find('.rich-placeholder').exists()).toBe(false)
+    const backspace = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+    input.element.dispatchEvent(backspace)
+    expect(backspace.defaultPrevented).toBe(true)
+    input.element.innerHTML = '重新填写'
+    const selection = document.getSelection()!
+    const range = document.createRange()
+    range.setStart(input.element.firstChild!, 2)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    await input.trigger('input')
+    expect(input.attributes('data-placeholder')).toBeUndefined()
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(Array.from(input.element.querySelectorAll('.ace-line')).map(line => line.textContent?.replace(/​/g, ''))).toEqual(['重新', '填写'])
+    expect(input.element.children[1].contains(selection.anchorNode)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('focuses the rich-text body instead of the toolbar after required validation', async () => {
+    vi.useFakeTimers()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = vi.fn()
+    const wrapper = mount(PerformanceTemplateRenderer, { attachTo: document.body, props: { mode: 'edit', editable: true, sections: [{ id: 's', name: '总结', fields: [{ id: 'required', type: 'rich_text', label: '必填', required: true }] }], answers: {} } })
+    try {
+      wrapper.vm.focusField('required')
+      await vi.advanceTimersByTimeAsync(250)
+      expect(document.activeElement).toBe(wrapper.get('[contenteditable="true"]').element)
+      expect(document.querySelector('.rich-toolbar-tooltip')).toBeNull()
+    } finally { wrapper.unmount(); Element.prototype.scrollIntoView = original; vi.useRealTimers() }
+  })
+
+  it('does not publish intermediate composition or intercept IME confirmation Enter', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    await input.trigger('compositionstart')
+    input.element.innerHTML = '中文'
+    await input.trigger('input')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true })
+    input.element.dispatchEvent(enter)
+    expect(enter.defaultPrevented).toBe(false)
+    await input.trigger('compositionend')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toContain('中文')
+    expect(input.element.querySelector('.ace-line')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('replaces a multi-line selection at Enter and retains list formatting', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p>abc</p><p>def</p>' } })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    const leaves = input.element.querySelectorAll('[data-leaf]')
+    const range = document.createRange()
+    range.setStart(leaves[0].firstChild!, 1)
+    range.setEnd(leaves[1].firstChild!, 2)
+    const selection = document.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(input.element.textContent?.replace(/​/g, '')).toBe('af')
+    expect(Array.from(input.element.querySelectorAll(':scope > .ace-line')).map(line => line.textContent?.replace(/​/g, ''))).toEqual(['a', 'f'])
+    await wrapper.setProps({ modelValue: '<ul><li>列表内容</li></ul>' })
+    ;(input.element as HTMLElement).focus()
+    const listCaret = document.createRange()
+    listCaret.selectNodeContents(input.element.querySelector('li')!)
+    listCaret.collapse(false)
+    selection.removeAllRanges()
+    selection.addRange(listCaret)
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(input.element.querySelectorAll('ul')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('preserves inline marks and trailing text when splitting a line', async () => {
+    const wrapper = mount(PerformanceRichTextEditor, { attachTo: document.body, props: { modelValue: '<p><strong>abcd</strong></p>' } })
+    const input = wrapper.get('[contenteditable="true"]')
+    ;(input.element as HTMLElement).focus()
+    const text = input.element.querySelector('strong')!.textContent!
+    const node = input.element.querySelector('strong [data-leaf]')?.firstChild || input.element.querySelector('strong')!.firstChild!
+    const range = document.createRange()
+    range.setStart(node, 2)
+    range.collapse(true)
+    const selection = document.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    await input.trigger('keydown', { key: 'Enter' })
+    expect(text).toBe('abcd')
+    expect(Array.from(input.element.querySelectorAll('.ace-line')).map(line => line.textContent?.replace(/​/g, ''))).toEqual(['ab', 'cd'])
+    expect(input.element.children[0].querySelector('strong')?.textContent).toBe('ab')
+    expect(input.element.children[1].querySelector('strong')?.textContent).toBe('cd')
+    wrapper.unmount()
+  })
+
 })

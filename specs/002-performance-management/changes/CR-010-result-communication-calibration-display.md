@@ -150,3 +150,18 @@
 - 实际Vue页面＋受控API夹具：完成导航无标签且入口保留，待完成标签保留；填写头正确显示“直属上级：经理示例”“2017-11-01 入职”，pageerror=0。独立截图：`ui-blueprints/CR-010-F05-implemented-completed-navigation.png`、`ui-blueprints/CR-010-F05-implemented-task-header.png`，已查看填写头截图。
 - UI门禁：用户明确的既有文案/可见性小修，沿原布局，不生成新蓝图；遵循Spec012 N00/N11，无UCP/数仓影响。
 - 未执行：生产登录态/部署/提交/推送。保留并行CR-011抽屉改动，本轮不声明其完成。
+
+## 13. CR-010-F06 公共富文本空态、换行、校验与保存修复（2026-11-01）
+
+- 目标：按REA采集机制修复填写富文本五个问题：光标与首字提示错位、清空后额外退格双提示、空必填提交误弹工具栏提示、清空重填后Enter失效、退格中自动保存积压。复用公共编辑器，不新增表单引擎。
+- 采集依据：`ev_60b2e5fee8435e142f78e4a87e5f046878fa6d33061368f6f7c6e594e723db4f`、`ev_23bee1170d971267bda4f6cde52ed52357e5ff9f46f4235b8d9d85f4e7dcc30a`，飞书Editor Kit的模型空态占位/选区换行及草稿合并机制。未取得完整可复用SDK，不声称内部源码100%相同；未复制或运行捕获生产脚本。
+- 范围：`PerformanceRichTextEditor.vue`、`PerformanceRichTextBox.vue`、`PerformanceTemplateRenderer.vue`、`SelfSummaryTask.vue`及已有配置预览/公共渲染/填写测试；保留HTML字符串答案、API、版本和字段权限。无后端/迁移/业务权限修改，不动并行CR-011抽屉工作。
+- 占位：删除独立`.rich-placeholder`，仅按空内容设置`data-placeholder`，用编辑器内绝对定位`::before`显示；不再依赖DOM`:empty`。提示与正文使用同一padding坐标。
+- 编辑：空态保留单个`.ace-line`与零宽文本叶；在删除边界保护/输入后修复非标准结构；移动现有文本节点时保留选区偏移；Enter按光标位置拆行、跨行选区保留首尾、延续粗体和列表，光标落在新行文本叶。IME组合期间不重建DOM或上报中间答案，组合结束再同步。光标折叠时不为格式判断遍历全文文本节点。
+- 校验：优先聚焦正文contenteditable，其次input/textarea，最后才回退按钮；不再误聚焦粗体按钮并触发tooltip。缺失必填仍显示原错误与滚动定位。
+- 保存：保留本地原350ms防抖参数（飞书运行参数未知，不冒称采集值）；一次在途请求＋最新待发标记，实际发送时才生成全量payload；连续修改覆盖待发草稿，内容未变跳过重复写；保留version顺序和保存失败提示，卸载后不发新请求。响应不覆盖正在输入的内容。
+- 回归：六文件`SelfSummaryTask.spec.js`、`PerformanceTemplateRenderer.spec.ts`、`PerformanceContentRenderer.spec.ts`、`PerformanceAssessmentContentLayers.spec.ts`、`PerformanceReviewEvaluationDrawer.spec.ts`、`Review.spec.ts` **216 passed**；新增清空额外删除、重填光标拆行、跨行、粗体/列表、IME确认、校验焦点、慢请求合并、版本提交、失败恢复及卸载停止覆盖。配置预览旧提示节点断言改为单一属性提示。
+- 真实Chromium＋本地实际Vue路由/受控API：反复退格后单空行，光标/正文/提示x均为921；必填失败焦点在正文、tooltip=0；清空重填两行、连续退格重填及列表换行通过；阻塞首个保存期间3次修改仍仅1次在途，释放后总2请求(version1→2)，最新草稿用夹具重开一致；390px无横向溢出、pageerror=0。未在飞书生产正文输入或提交。
+- UI证据：`ui-blueprints/CR-010-F06-implemented-empty-rich-text.png`、`CR-010-F06-implemented-validation-focus.png`、`CR-010-F06-implemented-retype-linebreak.png`；已查看空态截图。属于原工作区内部Bug修复，沿原蓝图，不新增信息架构；Spec012 N00/N11适用，无UCP。
+- 构建：当前工作树执行`npm --prefix hr-portal/frontend run build`通过（vue-tsc＋Vite，37.32s）；`git diff --check`通过。
+- 未执行：飞书完整SDK移植/所有未采集内部行为同一性验收、操作系统真实中文输入法端到端验收（仅composition事件测试）、真实业务库保存重开、生产卡顿性能剖析、部署、commit/push。五项行为在受控环境修复，不宣称真实生产或全部性能问题已验收。

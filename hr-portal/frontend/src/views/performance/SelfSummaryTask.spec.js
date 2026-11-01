@@ -173,9 +173,9 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
 
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({
-      work: '本期完成项目交付',
+      work: expect.stringContaining('本期完成项目交付'),
       rating: 'one',
-      value: { tags: ['good'], notes: { good: '主动解决关键问题' } },
+      value: { tags: ['good'], notes: { good: expect.stringContaining('主动解决关键问题') } },
     }), 1)
     expect(wrapper.text()).toContain('提交成功')
   })
@@ -271,7 +271,7 @@ describe('SelfSummaryTask', () => {
     await other.trigger('input')
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
-    expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({ grade: '__unknown__', other: '其他内容已填写' }), 1)
+    expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({ grade: '__unknown__', other: expect.stringContaining('其他内容已填写') }), 1)
     vi.mocked(performanceReviewApi.submitSelfSummary).mockClear()
     await wrapper.get('[data-field-id="grade"] .rating-option').trigger('click')
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
@@ -304,7 +304,7 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
 
     expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', expect.objectContaining({
-      work: ['第一条总结', '第二条总结'],
+      work: [expect.stringContaining('第一条总结'), expect.stringContaining('第二条总结')],
     }), 1)
   })
 
@@ -337,7 +337,8 @@ describe('SelfSummaryTask', () => {
     await editor.trigger('input')
     await wrapper.vm.$nextTick()
 
-    expect(editor.element.innerHTML).toBe('连续输入')
+    expect(editor.element.textContent).toBe('连续输入')
+    expect(editor.element.querySelector('.ace-line')).not.toBeNull()
     expect(selection.focusNode).toBe(text)
     expect(selection.focusOffset).toBe(4)
     wrapper.unmount()
@@ -376,6 +377,36 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
     expect(wrapper.find('.self-summary-form').exists()).toBe(true)
     wrapper.unmount()
+  })
+
+  it('keeps newer edits after a failed save and does not drain pending saves after unmount', async () => {
+    vi.useFakeTimers()
+    let rejectSave
+    let finishSave
+    vi.mocked(performanceReviewApi.saveSelfSummaryDraft).mockImplementationOnce(() => new Promise((resolve, reject) => { rejectSave = reject })).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve }))
+    const wrapper = mount(SelfSummaryTask)
+    try {
+      await flushPromises()
+      const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+      renderer.vm.$emit('update-answer', 'text', 'first')
+      renderer.vm.$emit('queue-save')
+      await vi.advanceTimersByTimeAsync(350)
+      renderer.vm.$emit('update-answer', 'text', 'latest')
+      renderer.vm.$emit('queue-save')
+      rejectSave(new Error('offline'))
+      await flushPromises()
+      expect(wrapper.text()).toContain('自动保存失败')
+      renderer.vm.$emit('queue-save')
+      await vi.advanceTimersByTimeAsync(350)
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenLastCalledWith('task-1', { text: 'latest' }, 1)
+      renderer.vm.$emit('update-answer', 'text', 'leaving')
+      renderer.vm.$emit('queue-save')
+      wrapper.unmount()
+      finishSave({ version: 2 })
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledTimes(2)
+    } finally { wrapper.unmount(); vi.useRealTimers() }
   })
 
   it('autosaves rating and tag changes through the shared renderer and retains failures', async () => {
@@ -468,7 +499,7 @@ describe('SelfSummaryTask', () => {
       expect(wrapper.get('.task-content').getComponent(PerformanceTemplateRenderer).vm.$.uid).toBe(rendererId)
       await vi.advanceTimersByTimeAsync(350)
       await flushPromises()
-      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledWith('task-1', expect.objectContaining({ text: '模式切换保留的输入' }), 1)
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledWith('task-1', expect.objectContaining({ text: expect.stringContaining('模式切换保留的输入') }), 1)
       expect(vi.mocked(performanceReviewApi.saveSelfSummaryDraft).mock.calls[0][1]).not.toHaveProperty('src')
     } finally { wrapper.unmount(); vi.useRealTimers() }
   })
@@ -549,4 +580,38 @@ describe('SelfSummaryTask switched identity navigation', () => {
     window.dispatchEvent(new Event('focus'))
     expect(get).toHaveBeenCalledTimes(calls)
   })
+  it('coalesces in-flight changes into the latest draft and uses the resulting version on submit', async () => {
+    vi.useFakeTimers()
+    let finish
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), form_schema: [{ id: 's', name: '总结', fields: [{ id: 'text', type: 'rich_text', label: '说明' }] }] })
+    vi.spyOn(performanceReviewApi, 'saveSelfSummaryDraft').mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue({ version: 3 })
+    vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ version: 4, editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask)
+    try {
+      await flushPromises()
+      const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+      renderer.vm.$emit('update-answer', 'text', 'first')
+      renderer.vm.$emit('queue-save')
+      await vi.advanceTimersByTimeAsync(350)
+      await flushPromises()
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledTimes(1)
+      for (const value of ['second', 'third', 'latest']) {
+        renderer.vm.$emit('update-answer', 'text', value)
+        renderer.vm.$emit('queue-save')
+        await vi.advanceTimersByTimeAsync(400)
+      }
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledTimes(1)
+      finish({ version: 2 })
+      await flushPromises()
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledTimes(2)
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenLastCalledWith('task-1', { text: 'latest' }, 2)
+      renderer.vm.$emit('queue-save')
+      await vi.advanceTimersByTimeAsync(350)
+      expect(performanceReviewApi.saveSelfSummaryDraft).toHaveBeenCalledTimes(2)
+      await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+      await flushPromises()
+      expect(performanceReviewApi.submitSelfSummary).toHaveBeenCalledWith('task-1', { text: 'latest' }, 3)
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
 })

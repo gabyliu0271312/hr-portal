@@ -41,7 +41,7 @@ function setFieldValue(section: TemplateSection, field: PerformanceTemplateField
 function addInstance(section: TemplateSection) { if (props.mode === 'edit' && props.editable) updateAnswers(performanceTemplateAddedInstance(section, props.answers)) }
 function removeInstance(section: TemplateSection, index: number) { if (props.mode === 'edit' && props.editable && performanceTemplateInstanceCount(section, props.answers) > 1) updateAnswers(performanceTemplateRemovedInstance(section, index, props.answers)) }
 function selectorValue(value: string) { return value.replace(/[^a-zA-Z0-9_-]/g, '\\$&') }
-function focusField(id: string) { const field = formRef.value?.querySelector(`[data-field-id="${selectorValue(id)}"]`) as HTMLElement | null; field?.scrollIntoView({ behavior: 'smooth', block: 'center' }); window.setTimeout(() => (field?.querySelector('button:not([disabled]), input:not([disabled]), [contenteditable="true"]') as HTMLElement | null)?.focus(), 250) }
+function focusField(id: string) { const field = formRef.value?.querySelector(`[data-field-id="${selectorValue(id)}"]`) as HTMLElement | null; field?.scrollIntoView({ behavior: 'smooth', block: 'center' }); window.setTimeout(() => ((field?.querySelector('[contenteditable="true"]') || field?.querySelector('input:not([disabled]), textarea:not([disabled])') || field?.querySelector('button:not([disabled])')) as HTMLElement | null)?.focus(), 250) }
 defineExpose({ focusField })
 </script>
 <style scoped>

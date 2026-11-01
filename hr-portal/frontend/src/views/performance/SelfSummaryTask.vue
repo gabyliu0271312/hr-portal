@@ -80,6 +80,9 @@ watch(() => task.value.reference_tabs, references => { if (!references?.some(ref
 const canEdit = computed(() => !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
+let pendingSave = false
+let disposed = false
+let savedAnswers = ''
 
 function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
@@ -100,6 +103,7 @@ async function load() {
     activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
     Object.assign(answers, loaded.editable && loaded.submit_allowed ? performanceTemplateInitialAnswers(loaded.form_schema, loaded.answers || {}) : loaded.answers || {})
+    savedAnswers = JSON.stringify(performanceTemplateWritableAnswers(loaded.form_schema, answers))
   } catch (error) {
     loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
   } finally {
@@ -108,32 +112,43 @@ async function load() {
 }
 function updateAnswer(id: string, value: unknown) { if (canEdit.value) answers[id] = value }
 function queueSave() {
-  if (!canEdit.value) return
+  if (!canEdit.value || disposed || submitting.value) return
   window.clearTimeout(saveTimer)
+  if (saving.value) { pendingSave = true; return }
   saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, 350)
 }
 function saveDraft() {
-  const snapshot = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers))) as Record<string, unknown>
-  saveChain = saveChain.catch(() => undefined).then(async () => {
-    if (!canEdit.value) return
-    saving.value = true
-    saveMessage.value = '正在保存…'
+  if (disposed || !canEdit.value) return saveChain
+  pendingSave = true
+  if (saving.value) return saveChain
+  saving.value = true
+  saveChain = (async () => {
     try {
-      const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
-      const result = props.taskKind === 'work_summary'
-        ? employeeNo ? await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version)
-        : employeeNo ? await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version)
-      task.value.version = result.version ?? task.value.version
-      saveMessage.value = '已自动保存'
+      while (pendingSave && !disposed && canEdit.value) {
+        pendingSave = false
+        const serialized = JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers))
+        if (serialized === savedAnswers) continue
+        const snapshot = JSON.parse(serialized) as Record<string, unknown>
+        saveMessage.value = '正在保存…'
+        const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
+        const result = props.taskKind === 'work_summary'
+          ? employeeNo ? await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version)
+          : employeeNo ? await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version)
+        task.value.version = result.version ?? task.value.version
+        savedAnswers = serialized
+        saveMessage.value = '已自动保存'
+      }
     } catch (error) {
+      pendingSave = false
       saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
       throw error
     } finally {
       saving.value = false
     }
-  })
+  })()
   return saveChain
 }
+
 function openReminder(reference: PerformanceReferenceTab) {
   void router.push({ name: 'PerformanceReminderPlaceholder', query: { project_id: String(route.query.project_id || ''), node_id: reference.node_id, task_id: String(reference.task_id || ''), employee_no: reference.employee_no } })
 }
@@ -189,7 +204,7 @@ async function submit() {
   }
 }
 onMounted(load)
-onBeforeUnmount(() => window.clearTimeout(saveTimer))
+onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeout(saveTimer) })
 </script>
 
 <style scoped>
