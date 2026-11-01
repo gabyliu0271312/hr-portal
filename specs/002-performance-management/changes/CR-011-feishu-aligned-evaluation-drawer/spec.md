@@ -45,3 +45,8 @@
 - 右侧进入/退出分别 300/200ms、cubic-bezier(.34,.69,.1,1)；关闭清理后销毁。
 - URL 参数使用 rootReviewId 和 activeTab；本地 rootReviewId 映射获授权任务ID，activeTab 为当前/引用节点ID，不新建假根记录或改后端接口。
 - REA 来源仍为 `ev_62cbd340b193e0c637123e1de642524bb4a5246972c5e843ddcf88855a8e57ea` 导出脚本 `vendor.a0853913.js`、`2611.ab8f8daa.chunk.js`、`5851.356bf9d6.chunk.js`；未观察到的飞书服务端/翻译实现保持未解，不伪造。
+
+
+## 2026-11-01 CR-011-T04 白卡与分隔线
+
+短内容白卡通过抽屉局部纵向flex链填满剩余高度，长内容自然增长并由外层内容区滚动；页签48px和白卡12px/20px内边距采用实测值。基本信息分隔线由共享PerformanceProfileSeparator统一，在详情与填写头部复用；采用采集到的border-left、12px高度、2px/8px间距与text-bottom基线。交互及证据见同目录任务卡T04；后端授权、模板和快照语义不变。

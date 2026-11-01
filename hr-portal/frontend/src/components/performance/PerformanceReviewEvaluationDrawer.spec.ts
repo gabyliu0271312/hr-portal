@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceReviewApi } from '@/api/performance'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
+import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 
 const task = {
   task_id: 145,
@@ -116,4 +117,15 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(wrapper.emitted('update:modelValue')).toContainEqual([false])
     wrapper.unmount()
   })
+  it('fills the available body height through scoped flex containers rather than a fixed card minimum', () => {
+    expect(source).toContain(':deep(.line-tabs){min-height:100%;flex:1 0 auto}')
+    expect(source).toContain(':deep(.line-tabs-content),.performance-review-evaluation-drawer__scroll :deep(.line-tabs-pane){display:flex;min-height:0;flex:1 0 auto;flex-direction:column}')
+    expect(source).toContain('__tab-content{display:flex;min-height:0;flex:1 0 auto;flex-direction:column;')
+    expect(source).toContain('__card{flex:1 0 auto;padding:12px 20px;')
+    expect(source).toContain('padding:12px 20px 0!important')
+    expect(source).toContain(':deep(.line-tabs.sticky .line-tabs-holder){top:0}')
+    expect(source).toContain(':deep(.performance-reference-content){min-height:0}')
+    expect(source).not.toContain('padding:12px 20px 32px')
+  })
+
 })

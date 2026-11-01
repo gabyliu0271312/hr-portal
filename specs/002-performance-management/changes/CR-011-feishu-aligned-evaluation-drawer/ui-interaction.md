@@ -30,3 +30,9 @@ CR-011-T02 采用已采集脚本的鼠标文档级事件/50ms节流、300ms resi
 - evaluation Header左/右20px、上16px、下4px、最小内容高49.5px；关闭按钮24px且margin:0、顶部对齐，图标16px。
 - 工具栏末尾（复制链接之后）有竖线，左右边距16px；删除翻译与复制之间的错误伪元素竖线。
 - 小于640px保留可操作按钮、资料行仍整行裁剪，工具栏必要时换行；关闭仍顶部对齐。无资料时不补造隐藏字段。
+
+## 6. CR-011-T04 白卡与分隔线
+
+- 完成态抽屉页签高48px；内容层/面板/section/白卡使用纵向flex传递剩余高度，不设置固定px最小高度。短内容填满余下视口、底距12px；长内容自然撑开、外层scroll滚动。所有公共页签覆盖仅作用于evaluation抽屉。
+- 白卡padding12px 20px，移除原32px底内边距；页签下内容顶部间距12px。
+- 所有基本信息边界采用共享PerformanceProfileSeparator：inline-block、height12px、border-left1px solid var(--color-border)（当前#bbbfc4）、margin2px 8px、vertical-align:text-bottom、透明背景。详情和填写头部共用，特别是直属上级/入职日期间不设特殊样式。

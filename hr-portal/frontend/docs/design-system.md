@@ -266,3 +266,12 @@ Ledger / 账册风 token
 | [src/layouts/Default.vue](../src/layouts/Default.vue) | HR Portal 顶部 tabs + 左侧菜单 + 内容区 |
 | [src/components/PermissionButton.vue](../src/components/PermissionButton.vue) | 按钮级权限封装 |
 
+
+
+### 绩效基本信息分隔线
+
+人员基本信息相邻字段使用 `components/performance/PerformanceProfileSeparator.vue`，由详情头部与填写页头部共用。只在两个非空、获准显示的字段之间渲染，不在末尾补线。组件固定使用12px高度、上下2px/左右8px间距、text-bottom基线与 `--color-border` 的1px左边框；不使用字符或1px背景色块代替边框，避免非整数DPR的粗细差异。
+
+```vue
+<PerformanceProfileSeparator v-if="index < profileParts.length - 1" />
+```

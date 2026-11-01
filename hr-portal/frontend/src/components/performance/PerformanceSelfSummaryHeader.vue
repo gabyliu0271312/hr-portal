@@ -9,7 +9,7 @@
       <span v-if="profileParts.length" class="person-meta">
         <template v-for="(part, index) in profileParts" :key="`${part}-${index}`">
           <span class="person-meta__value">{{ part }}</span>
-          <i v-if="index < profileParts.length - 1" class="person-meta__separator" aria-hidden="true"></i>
+          <PerformanceProfileSeparator v-if="index < profileParts.length - 1" class="person-meta__separator" />
         </template>
       </span>
     </div>
@@ -19,6 +19,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import PerformanceProfileSeparator from './PerformanceProfileSeparator.vue'
 import type { SelfSummaryPerson } from '@/api/performance'
 import SpaceLeftOutlinedIcon from '@/components/performance/SpaceLeftOutlinedIcon.vue'
 
@@ -41,7 +42,6 @@ const profileParts = computed(() => Array.isArray(props.person.profile_fields)
 .person-info strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-text-primary);font-size:16px;line-height:24px}
 .person-meta{display:flex;align-items:center;min-width:0;max-width:100%;color:var(--color-text-secondary);font-size:14px;line-height:20px}
 .person-meta__value{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.person-meta__separator{display:inline-block;width:1px;height:16px;flex:0 0 1px;margin:2px 8px;background:var(--color-line-divider)}
 .header-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-left:auto;flex:none;max-width:100%}
-@media(max-width:640px){.self-summary-header{flex-wrap:wrap;padding-inline:16px}.back-button{margin-right:10px}.person-info{flex:1;margin-left:0}.person-meta{flex-wrap:wrap;row-gap:4px}.person-meta__value{white-space:normal;overflow-wrap:anywhere}.person-meta__separator{margin-inline:6px}.header-actions{margin-left:auto}}
+@media(max-width:640px){.self-summary-header{flex-wrap:wrap;padding-inline:16px}.back-button{margin-right:10px}.person-info{flex:1;margin-left:0}.person-meta{flex-wrap:wrap;row-gap:4px}.person-meta__value{white-space:normal;overflow-wrap:anywhere}.header-actions{margin-left:auto}}
 </style>

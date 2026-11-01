@@ -54,3 +54,25 @@
 - 真Vue页面＋Chrome＋脱敏受控API：1000px抽屉profile宽884px（修前635px），720px抽屉profile宽604px（修前355px）；J3自然宽约12.55px，各字段display:inline不同比缩；复制top16px与关闭top16px，关闭24×24；竖线height约14.4px、左右16px边距，位于复制之后；390px页面scrollWidth390px；关闭仍能退出、pageerror0。
 - 视觉截图已读取检查：`CR-011-T03-implemented-header-pc.png`、`CR-011-T03-implemented-header-narrow.png`、`CR-011-T03-implemented-header-mobile.png`。
 - 不适用/未运行：无数据库/API/迁移变更，未重测真实业务库授权；未部署、commit、push；其他富文本和模板未提交改动未修改/撤销。
+
+## CR-011-T04 白卡剩余高度与基本信息分隔线复用
+
+- [x] 状态：白卡高度、间距、吸顶页签与基本信息共享分隔线已完成本地实现及验收。
+- 来源：飞书白卡min-height:auto、flex:1 1 0%，祖先页签height:100%/flex填满；页签48px，白卡距视口底12px，padding12px 20px；长内容随内容撑高、抽屉外层滚动。
+- 分隔线：飞书四条profile竖线同样为inline-block、border-left1px solid #bbbfc4、透明背景、height12px、margin2px 8px、vertical-align:text-bottom。DPR1.5下实测边框约0.67px。本地原先同循环生成但使用1px背景块且未封装组件。
+- 允许修改：PerformanceReviewEvaluationDrawer.vue/.spec.ts、PerformanceReviewPersonHeader.vue/.spec.ts、PerformanceSelfSummaryHeader.vue/.spec.ts；新增PerformanceProfileSeparator.vue/.spec.ts；现有设计系统/CR-011文档、独立CR-011-T04截图。
+- 契约：仅UI；profile_fields权限和顺序、template schema/answers、API及各按钮事件不变；不改公共PerformanceLineTabs本体、不操作业务库/生产。
+- 交付：抽屉作用域内line-tabs/content/pane/section/card纵向flex高度链；短内容填满、长内容撑开和sticky页签；加载/错误/空参考保持原语义；两个既有头部复用一个竖线组件。
+- Given/When/Then：500/673/900高视口短内容→白卡底距12px；长内容→抽屉滚动且末尾可达；参考页签→同高度策略；四条线→同组件/宽高/边框/基线；隐藏字段→不补分隔线；DPR1/1.5及390/720/1000宽无页面溢出。
+- 验收：组件与模板/头部/抽屉/Review回归、vue-tsc+Vite、真实Vite+Chrome受控API测量；独立截图CR-011-T04-implemented-card-fill.png、CR-011-T04-implemented-card-long.png、CR-011-T04-implemented-profile-separators.png。
+- 非目标：数据库/迁移/权限/任务状态、模板或任务重建、部署、commit/push。其他未提交改动不覆盖。
+
+### CR-011-T04 验收证据
+
+- 定向组件/页面测试：6文件 **86 passed**；最终扩展回归（共享分隔线、两种头部、详情、公共页签/抽屉、模板渲染、Review、ProjectManagement）9文件 **131 passed**。现有表格loading指令stub警告仍有，不影响通过。
+- 构建：`npm --prefix hr-portal/frontend run build` → **vue-tsc + Vite通过**；格式检查 `git diff --check` 无错误。
+- 真Vue＋Chrome＋脱敏受控API：500/673/900px视口短内容白卡分别358.5/531.5/758.5px，top129.5px、bottom距视口12px；页签48px；白卡padding12px 20px，无固定px最小高度。
+- 参考已完成内容同样填满且无多余滚动；修正引用容器min-height:100%嵌套引起的额外overflow。长内容70行可滚到末尾，scrollHeight1830/clientHeight431，滚到底白卡bottom距视口约12px；页签top69.5/height48，不被公共sticky负偏移裁切。
+- 分隔线：四处均是PerformanceProfileSeparator组件，包括直属上级/入职边界；height12px、margin2px 8px、border-left1px #bbbfc4、透明背景、top48px。150%缩放时四条均border约0.666667px；两种头部共享组件，隐藏字段不产生多余竖线。
+- 手机390px视口document.scrollWidth390，参考白卡底距12px；pageerror0。截图：CR-011-T04-implemented-card-fill.png、CR-011-T04-implemented-card-long.png、CR-011-T04-implemented-profile-separators.png、CR-011-T04-implemented-card-mobile.png，已读取检查。
+- 无API、权限、数据库、迁移变更；真实业务库/生产未验收，未部署、commit/push。公共PerformanceLineTabs.vue未修改，样式覆盖仅作用于详情抽屉。

@@ -20,7 +20,7 @@
         <span class="performance-review-person-header__profile-line">
           <template v-for="(part, index) in profileParts" :key="`${part}-${index}`">
             <span class="performance-review-person-header__profile-value">{{ part }}</span>
-            <i v-if="index < profileParts.length - 1" class="performance-review-person-header__profile-separator" aria-hidden="true"></i>
+            <PerformanceProfileSeparator v-if="index < profileParts.length - 1" class="performance-review-person-header__profile-separator" />
           </template>
         </span>
       </div>
@@ -30,6 +30,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import PerformanceProfileSeparator from './PerformanceProfileSeparator.vue'
 import type { PerformanceReviewMemberContext, SelfSummaryPerson } from '@/api/performance'
 
 type Person = SelfSummaryPerson & PerformanceReviewMemberContext
@@ -57,7 +58,6 @@ const profileParts = computed(() => Array.isArray(props.person.profile_fields)
 .performance-review-person-header__primary-row>strong{display:block;min-width:0;max-width:fit-content;flex:1;margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1d252f;font-size:16px;font-weight:600;line-height:24px}
 .performance-review-person-header__profile-line{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#646a73;font-size:14px;line-height:21px}
 .performance-review-person-header__profile-value{display:inline;white-space:nowrap}
-.performance-review-person-header__profile-separator{display:inline-block;width:1px;height:12px;margin:2px 8px;box-sizing:border-box;background:#bbbfc4;vertical-align:text-bottom}
 .performance-review-person-header__actions{display:flex;flex:0 0 auto;align-items:center;margin-left:auto;color:#646a73}
 .performance-review-person-header__actions::after{display:block;width:1px;height:14.4px;flex:0 0 1px;margin:0 16px;background:rgba(31,35,41,.15);content:''}
 .performance-review-person-header__translate{display:flex;align-items:center;margin-right:8px}
