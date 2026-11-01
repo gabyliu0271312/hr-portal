@@ -144,6 +144,11 @@
   --performance-checkbox-disabled: var(--color-border);
   --performance-field-label-gap: 8px;
   --performance-textarea-min-height: 49.3333px;
+  --performance-member-avatar-size: 32px;
+  --performance-member-avatar-background: #e5eaf5;
+  --performance-member-avatar-color: #3b5b92;
+  --performance-member-avatar-font-size: 13px;
+  --performance-member-name-gap: var(--spacing-3);
   --performance-task-status-dot-size: 6px;
   --performance-task-status-gap: var(--spacing-2);
   --performance-task-status-min-width: 96px;

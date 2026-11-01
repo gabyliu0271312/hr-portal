@@ -1,8 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
+import { ElTableColumn } from 'element-plus'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
-import { performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
+import { performanceReview360InviteApi, performanceReview360FeedbackApi, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, projectManagementApi, type PerformanceNavigationContext, type PerformanceReviewOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const push = vi.fn()
@@ -16,6 +17,8 @@ vi.mock('vue-router', () => ({
 import Review from './Review.vue'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
+import PerformanceReview360InvitePanel from '@/components/performance/PerformanceReview360InvitePanel.vue'
+import PerformanceMemberIdentity from '@/components/performance/PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from '@/components/performance/PerformanceTaskStatus.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from '@/components/performance/performanceTaskStatus'
 import performanceLayoutSource from '@/layouts/PerformanceLayout.vue?raw'
@@ -757,6 +760,38 @@ describe('PerformanceReview', () => {
     wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 4, employee_no: 'E4', display_name: '拒绝员工', status: 'rejected' })
     await flushPromises()
     expect(wrapper.emitted('open-task')?.at(-1)).toEqual([{ task_id: 4, employee_no: 'E4', display_name: '拒绝员工', status: 'rejected' }])
+    wrapper.unmount()
+  })
+  it.each(['成员甲', 'gaby.liu刘琦', '很长的姓名'.repeat(12)])('uses the member list avatar rule without duplicating the accessible name for %s', name => {
+    const wrapper = mount(PerformanceMemberIdentity, { props: { displayName: name } })
+    expect(wrapper.get('.member-avatar').text()).toBe(name.slice(-1))
+    expect(wrapper.get('.member-avatar').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.get('.member-name').text()).toBe(name)
+    expect(wrapper.find('img').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['review', 'feedback', 'communication', 'invite'])('reuses member identity in the %s table and preserves row actions', async entry => {
+    const person = { task_id: 41, employee_no: 'E41', display_name: '测试员工甲', status: 'pending' as const, due_at: '2099-01-01T00:00:00Z', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([person])
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [{ ...person, source_label: '邀请评估', relationship: '同事' }], total: 1, node_id: 'feedback', allow_voluntary_evaluation: false })
+    vi.spyOn(performanceReview360InviteApi, 'list').mockResolvedValue({ items: [{ ...person, source_label: '自己邀请', invited_at: null }], total: 1, minimum_invited_count: 0, maximum_invited_count: null, maximum_invite_mode: 'SUGGESTED', second_prompt_enabled: false, second_prompt_count: null, second_prompt_mode: 'SUGGESTED', exclude_default_invite_from_limit: false })
+    const wrapper = entry === 'review'
+      ? mount(ProjectMemberListPanel, { props: { projectId: 1, reviewContext: { nodeId: 'manager', state: 'all' } } })
+      : entry === 'invite'
+        ? mount(PerformanceReview360InvitePanel, { props: { projectId: 1, nodeId: 'invite' }, global: { components: { ElTableColumn } } })
+        : mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: entry, mode: entry === 'communication' ? 'communication' : 'feedback' } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(PerformanceMemberIdentity)).toHaveLength(1)
+    expect(wrapper.get('.member-avatar').text()).toBe('甲')
+    expect(wrapper.get('.member-name').text()).toBe('测试员工甲')
+    if (entry === 'invite') {
+      expect(wrapper.find('button[aria-label="撤销邀请"]').exists()).toBe(true)
+    } else {
+      wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', person)
+      await flushPromises()
+      expect(wrapper.emitted(entry === 'review' ? 'select-member' : 'open-task')?.[0]?.[0]).toEqual(expect.objectContaining({ task_id: 41, employee_no: 'E41' }))
+    }
     wrapper.unmount()
   })
 

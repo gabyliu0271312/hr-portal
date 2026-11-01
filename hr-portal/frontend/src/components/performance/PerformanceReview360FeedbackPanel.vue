@@ -14,6 +14,7 @@ import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
+import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
@@ -271,7 +272,7 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       @row-click="openItem"
     >
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'name'" class="feedback-panel__identity">{{ row.display_name }}</span>
+        <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
         <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">{{ cellValue(row, column.key) }}</span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
@@ -311,7 +312,6 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
 .feedback-panel { min-width: 0; padding: 0 var(--spacing-5) var(--spacing-5); box-sizing: border-box; border-radius: var(--radius-lg); background: var(--color-bg-card); color: var(--color-text-primary); box-shadow: var(--shadow-dialog); --performance-table-container-padding: var(--performance-review-surface-inset); }
 .card-sticky-mask { position: sticky; top: calc(-1 * var(--performance-table-container-padding, 0px)); z-index: 19; flex: none; height: 20px; margin: 0 calc(-1 * var(--spacing-5)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-bg-card, #fff); }
 .feedback-panel__completion { color: var(--color-primary); }
-.feedback-panel__identity { font-weight: 500; }
 .feedback-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); padding: 60px 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: 22px; text-align: center; }
 .feedback-empty--text { min-height: 300px; display: grid; place-items: center; padding: 0; color: var(--color-text-secondary); }
 .feedback-empty__text { margin: 0; }

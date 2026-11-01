@@ -132,3 +132,11 @@
 - UI门禁：延用CR-010 v1，用户采集明确的既有样式/文案小修，无新信息架构；Spec012 N00/N11通用规则适用，无UCP/数仓改动。
 - 最终构建：`npm --prefix hr-portal/frontend run build` 已完成，vue-tsc + Vite通过（Vite 46.29s，既有第三方PURE注释告警）；`git diff --check`通过。
 - 未执行：真实登录/业务数据库拒绝记录验收、拒绝操作生命周期、生产部署、commit、push。F03记录中的“拒绝图标待补”已由本节用户采集补齐；其历史边界不作为当前阻塞。
+
+## 11. CR-010-F04 评估列表姓名头像统一（2026-11-01）
+
+- 用户确认：以 `ProjectMemberListPanel` 姓名列为标准，统一绩效评估列表的头像+姓名展示。
+- 实现：提取共享 `PerformanceMemberIdentity.vue`，沿用32px圆形文字头像、取姓名末字、头像背景/文字色及12px姓名间距；接入 `ProjectMemberListPanel`、360°反馈/结果沟通、360°邀请表。公共表格外壳、列、权限、数据接口、点击/撤销行为不变。
+- 长姓名：姓名容器保留 `min-width:0`、`text-overflow:ellipsis`、`white-space:nowrap`，头像不被文本挤压。
+- 验证：前端 `Review.spec.ts`、`ProjectManagement.spec.ts` → **70 passed**；构建通过。真实 Vue 夹具检查四个列表头像32×32px、姓名间距12px、长姓名省略、pageerror=0。截图：`ui-blueprints/CR-010-F04-implemented-feedback-identity.png`、`CR-010-F04-implemented-communication-identity.png`、`CR-010-F04-implemented-calibration-identity.png`、`CR-010-F04-implemented-invite-identity.png`。
+- 未执行：生产登录/部署/提交/推送；保留并行抽屉改动、删除项和临时文件。

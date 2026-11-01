@@ -11,6 +11,7 @@ import PerformanceButton from './PerformanceButton.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
+import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
@@ -206,7 +207,7 @@ onMounted(() => void load())
     >
       <el-table-column v-for="column in visibleColumns" :key="column.key" :prop="column.key" :label="column.label" :min-width="columnMinWidth(column.key)">
         <template #default="{ row }">
-          <span v-if="column.key === 'name'" class="invite-panel__identity">{{ row.display_name }}</span>
+          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
           <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
           <span v-else>{{ cellValue(row, column.key) }}</span>
         </template>
@@ -257,7 +258,6 @@ onMounted(() => void load())
 .invite-panel__hint { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 12px; font-size: 13px; line-height: 20px; }
 .invite-panel__hint-item { color: #646a73; }
 .invite-panel__hint-item.is-incomplete { color: #d14343; }
-.invite-panel__identity { font-weight: 500; }
 .invite-candidates { display: flex; min-height: 0; flex-direction: column; }
 .invite-candidates__state { display: grid; min-height: 240px; place-items: center; color: #8f959e; font-size: 14px; }
 .invite-candidates__list { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
