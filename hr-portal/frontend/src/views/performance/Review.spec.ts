@@ -651,5 +651,47 @@ describe('PerformanceReview', () => {
     expect(wrapper.get('.feedback-panel__completion').text()).toBe('0/0')
     wrapper.unmount()
   })
+  it.each([
+    { label: 'allowed', fields: ['employee_type'], value: '正式员工', visible: true },
+    { label: 'denied', fields: [], value: null, visible: false },
+    { label: 'allowed with missing snapshot data', fields: ['employee_type'], value: null, visible: true },
+  ])('honors employee type field visibility when $label', async ({ fields, value, visible }) => {
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ task_id: 1, employee_no: 'E1', display_name: '员工', status: 'pending', due_at: null, job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: value, employment_status: null, visible_profile_fields: fields }])
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'communication', mode: 'communication' } })
+    await flushPromises()
+    const table = wrapper.findComponent({ name: 'PerformanceManagementTable' })
+    const drawer = wrapper.findComponent({ name: 'ProjectMemberColumnDrawer' })
+    expect(table.props('columns').some((column: { key: string }) => column.key === 'employee_type')).toBe(visible)
+    expect(drawer.props('columns').some((column: { key: string }) => column.key === 'employee_type')).toBe(visible)
+    expect(wrapper.findComponent({ name: 'PerformanceTableSummary' }).props('hiddenColumnCount')).toBe(0)
+    if (value && visible) expect(wrapper.text()).toContain(value)
+    if (visible && !value) expect(wrapper.findAll('tbody td').some(cell => cell.text() === '--')).toBe(true)
+    if (!visible) {
+      drawer.vm.$emit('confirm', ['name', 'employee_type'])
+      await flushPromises()
+      expect(table.props('columns').some((column: { key: string }) => column.key === 'employee_type')).toBe(false)
+    }
+    wrapper.unmount()
+  })
+
+  it('refreshes permission-derived columns and does not expose denied values in mixed rows', async () => {
+    const person = { task_id: 1, employee_no: 'E1', display_name: '员工', status: 'pending', due_at: null, job_family: null, job_category: null, job_sequence: null, position_level: 'P6', hire_date: null, department: null, employee_type: '正式员工', employment_status: null, visible_profile_fields: ['employee_type'] }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([person])
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'communication', mode: 'communication' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('正式员工')
+    expect(wrapper.text()).not.toContain('职级')
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ ...person, employee_type: null, visible_profile_fields: [] }])
+    await wrapper.setProps({ projectId: 2 })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('员工类型')
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([person, { ...person, task_id: 2, employee_no: 'E2', employee_type: '禁止暴露值', visible_profile_fields: [] }])
+    await wrapper.setProps({ projectId: 3 })
+    await flushPromises()
+    expect(wrapper.text()).toContain('员工类型')
+    expect(wrapper.text()).toContain('正式员工')
+    expect(wrapper.text()).not.toContain('禁止暴露值')
+    wrapper.unmount()
+  })
 
 })

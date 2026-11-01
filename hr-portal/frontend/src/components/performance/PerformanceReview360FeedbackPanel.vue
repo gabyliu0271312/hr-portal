@@ -53,7 +53,29 @@ watch(() => props.mode, () => {
   selectedColumnKeys.value = communicationMode.value ? communicationColumns.map(column => column.key) : ['name', 'status', 'source_label', 'relationship', 'due_at', 'job_sequence']
 }, { immediate: true })
 const columnDrawerOpen = ref(false)
-const activeColumns = computed(() => communicationMode.value ? communicationColumns : columns)
+const profileFields: Record<string, string> = {
+  job_sequence: 'job_sequence',
+  position_level: 'position_level',
+  hire_date: 'hire_date',
+  department: 'department',
+  employee_type: 'employee_type',
+  previous_position_level: 'position_level',
+}
+const activeColumns = computed(() => {
+  if (!communicationMode.value) return columns
+  const configuredRows = items.value.filter(item => Array.isArray(item.visible_profile_fields))
+  if (!configuredRows.length) return communicationColumns
+  const allowed = new Set(configuredRows.flatMap(item => item.visible_profile_fields || []))
+  return communicationColumns.filter(column => !profileFields[column.key] || allowed.has(profileFields[column.key]))
+})
+watch(activeColumns, (available, previous) => {
+  const previousKeys = new Set(previous.map(column => column.key))
+  const selected = new Set(selectedColumnKeys.value)
+  selectedColumnKeys.value = available.filter(column => selected.has(column.key) || !previousKeys.has(column.key)).map(column => column.key)
+})
+function canViewProfile(item: FeedbackRow, key: string) {
+  return !communicationMode.value || !profileFields[key] || !Array.isArray(item.visible_profile_fields) || item.visible_profile_fields.includes(profileFields[key])
+}
 const hiddenColumnCount = computed(() => Math.max(0, activeColumns.value.length - selectedColumnKeys.value.length))
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => activeColumns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
 
@@ -147,6 +169,7 @@ function openItem(item: FeedbackRow) {
 
 const statusLabel = computed<Record<string, string>>(() => communicationMode.value ? { pending: '待完成', completed: '已完成', overdue: '已逾期', not_started: '未开始' } : { pending: '待评估', completed: '已提交', overdue: '已逾期', not_started: '未开始' })
 function cellValue(item: FeedbackRow, key: string) {
+  if (!canViewProfile(item, key)) return '--'
   switch (key) {
     case 'name': return item.display_name
     case 'status': return statusLabel.value[item.status] || item.status
@@ -163,7 +186,7 @@ function cellValue(item: FeedbackRow, key: string) {
     default: return ''
   }
 }
-function applyColumns(keys: string[]) { selectedColumnKeys.value = keys }
+function applyColumns(keys: string[]) { selectedColumnKeys.value = keys.filter(key => activeColumns.value.some(column => column.key === key)) }
 
 const sortKey = ref('')
 const sortOrder = ref<PerformanceSortOrder>('')
@@ -181,6 +204,7 @@ function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder
   page.value = 1
 }
 function sortValue(item: FeedbackRow, key: string) {
+  if (!canViewProfile(item, key)) return null
   switch (key) {
     case 'name': return item.display_name
     case 'status': return item.status === 'completed' ? 1 : 0

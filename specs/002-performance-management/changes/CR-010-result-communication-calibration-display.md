@@ -105,3 +105,17 @@
 - UI 证据：`ui-blueprints/CR-010-F01-implemented-supervisor-zero-rate.png`，真实 Vue 页面＋受控 API 夹具，已检查截图与计算样式，姓名可见、`0/0` 为 rgb(51,112,255)，pageerror=0；不是生产或真实数据库验收。
 - UI 门禁：沿 CR-010 v1 做字段映射及样式小修，不改变信息架构，无需新蓝图；遵循 Spec012 N00/N11 通用规范，不涉及 UCP/数仓专属任务。
 - 未执行：真实业务库/生产登录态验收、提交、推送、部署；保留并行填写工作区修改和既有文件删除、临时文件。
+
+## 9. CR-010-F03 员工类型字段权限与列展示对齐（2026-11-01）
+
+- 目标：修复结果沟通表固定显示“员工类型”，但后端字段权限裁剪为 null 后仍呈现空列的问题。按现有字段可见性配置展示真实快照值，不更改默认角色授权、不绕过权限、不回填历史快照。
+- 已核对：花名册 `employee_type` → 周期人员快照 → 项目成员快照 → 人员 API 字段映射完整；默认上级/校准人/HRBP规则不含员工类型，接口会置空；项目管理员默认允许。
+- 前端：`PerformanceReview360FeedbackPanel.vue` 的结果沟通模式根据响应 `visible_profile_fields` 筛选个人信息列；员工类型、序列、职级、入职日期、部门、上期职级统一服从字段权限（上期职级沿职级权限）。未授权列不在表格或列设置中出现，也不计为用户隐藏列；混合行仅呈现各自有权限的值，排序不使用被拒绝的值。360反馈模式不变。
+- 权限变化：刷新项目/节点后移除失去权限的列，新获得权限的列按配置顺序恢复；保留用户主动隐藏的已有可见列。已授权但快照源值为空仍展示 `--`，不伪造“正式员工”等默认值。
+- 代码范围：现有结果沟通表组件、`Review.spec.ts`、后端既有项目测试。无后端业务逻辑修改、无迁移、无权限配置写入或生产操作。保留此前状态统一未提交改动；360“已拒绝”图标仍待用户补充采集依据，不纳入本轮完成范围。
+- 后端测试：`python -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short` → **330 passed / 4 skipped / 1 第三方弃用警告**；覆盖项目/评估/结果沟通三个入口的实际员工类型允许与拒绝回读。
+- 前端测试：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts` → **67 passed**（包含已有状态统一回归）；员工类型本轮新增4项覆盖授权、拒绝、授权缺值、刷新与混合权限。
+- 构建：`npm --prefix hr-portal/frontend run build` → vue-tsc + Vite 通过（既有第三方 PURE 注释告警）；`git diff --check` 通过。
+- 真实 Vue 页面＋受控 API 夹具：有权限显示“正式员工”，无权限不显示员工类型列；pageerror=0。独立截图：`ui-blueprints/CR-010-F03-implemented-employee-type-allowed.png`、`ui-blueprints/CR-010-F03-implemented-employee-type-denied.png`，已查看实际截图。
+- UI 门禁：既有列可见性小修，沿CR-010 v1，无新信息架构和蓝图；Spec012 N00/N11通用约束适用，无数仓/UCP改动。
+- 未执行：真实生产接口/数据库验收、修改现有角色字段可见设置、提交、推送、部署。若要让当前默认无权限的上级或校准角色看到员工类型，需在后台可见性设置中明确启用，不以本次修复静默扩权。

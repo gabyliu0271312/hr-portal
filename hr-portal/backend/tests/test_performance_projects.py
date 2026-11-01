@@ -5239,19 +5239,19 @@ async def test_supervisor_names_use_cycle_snapshot_even_when_manager_is_outside_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("entry", ["project", "review"])
+@pytest.mark.parametrize("entry", ["project", "review", "communication"])
 @pytest.mark.parametrize("visible", [True, False])
 async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(monkeypatch, entry, visible):
     from app.performance import projects_router
     from app.performance.models import PerformanceProject, PerformanceProjectMember
     target = SimpleNamespace(id=1, cycle_ref="C1", administrators=[], settings={})
-    member = PerformanceProjectMember(id=1, snapshot_id=7, employee_no="E1", display_name="员工", direct_supervisor_employee_no="M1")
-    node = SimpleNamespace(id=2, project_id=1, node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": "assessment.line_manager"}})
+    member = PerformanceProjectMember(id=1, snapshot_id=7, employee_no="E1", display_name="员工", direct_supervisor_employee_no="M1", employee_type="正式员工")
+    node = SimpleNamespace(id=2, project_id=1, node_type="result_communication" if entry == "communication" else "evaluation", node_id="manager", config={"template": {"executor_role_code": "assessment.line_manager"}})
     task = SimpleNamespace(id=3, project_id=1, member_snapshot_id=7, target_employee_no="E1", status="pending", available_at=None, due_at=None)
     async def get_project(*args): return target
     async def scope(*args): return None
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="VIEWER")
-    async def rules(*args): return {role: ["direct_supervisor"] if visible else [] for role in ("leader", "activity_manager")}
+    async def rules(*args): return {role: ["direct_supervisor", "employee_type"] if visible else [] for role in ("leader", "activity_manager")}
     monkeypatch.setattr(projects_router, "_get_project", get_project)
     monkeypatch.setattr(projects_router, "_project_data_scope", scope)
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
@@ -5265,7 +5265,7 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
                 return SimpleNamespace(all=lambda: [(7, "M1", "冻结上级姓名")])
             if "performance_node_tasks.cycle_ref =" in sql:
                 return SimpleNamespace(all=lambda: [])
-            if entry == "review":
+            if entry != "project":
                 return SimpleNamespace(all=lambda: [(task, node, member)])
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [member]))
     if entry == "project":
@@ -5275,3 +5275,5 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
         row = (await projects_router.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
     assert row["direct_supervisor"] == ("冻结上级姓名" if visible else None)
     assert row["completion"] == "0/0"
+    assert row["employee_type"] == ("正式员工" if visible else None)
+    assert ("employee_type" in row["visible_profile_fields"]) is visible
