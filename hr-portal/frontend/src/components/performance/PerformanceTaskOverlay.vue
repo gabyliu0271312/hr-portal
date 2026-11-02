@@ -23,5 +23,5 @@ function close() {
 </script>
 
 <style scoped>
-.performance-task-overlay{position:fixed;inset:0;z-index:var(--performance-drawer-z-index);overflow:hidden;background:#f5f6f7}.performance-task-overlay__panel{position:relative;display:flex;width:100%;height:100%;min-width:0;min-height:0;flex-direction:column;padding-top:var(--layout-topbar-height);box-sizing:border-box;background:#f5f6f7;color:#1f2329}.performance-task-overlay__body{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;overflow:auto;padding:20px 24px 60px;box-sizing:border-box}
+.performance-task-overlay{position:fixed;inset:0;z-index:var(--performance-drawer-z-index);overflow:hidden;background:#f5f6f7}.performance-task-overlay__panel{position:relative;display:flex;width:100%;height:100%;min-width:0;min-height:0;flex-direction:column;padding-top:var(--layout-topbar-height);box-sizing:border-box;background:#f5f6f7;color:#1f2329}.performance-task-overlay__body{position:relative;z-index:0;display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;overflow:auto;padding:20px 24px 60px;box-sizing:border-box}
 </style>

@@ -62,6 +62,6 @@ function goBack() {
 :where(.project-management-page, .project-reminder-page, .authorization-records, .calibration-authorization) { font-family: 'Helvetica Neue', Tahoma, 'PingFang SC', 'Microsoft Yahei', Arial, 'Hiragino Sans GB', sans-serif; }
 
 .project-reminder-page { position:relative; display: flex; width: 100vw; height: 100vh; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; background: #f5f6f7; color: #1f2329; }
-.project-reminder-page__body { min-width: 0; min-height: 0; flex: 1; overflow: auto; padding: calc(var(--layout-topbar-height) + 20px) 24px 60px; }
+.project-reminder-page__body { position: relative; z-index: 0; min-width: 0; min-height: 0; flex: 1; overflow: auto; padding: calc(var(--layout-topbar-height) + 20px) 24px 60px; }
 .project-reminder-page__body :deep(.performance-reminder-panel__heading) { margin-bottom: 16px; }
 </style>

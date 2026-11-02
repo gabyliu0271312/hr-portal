@@ -28,6 +28,10 @@ describe('PerformanceReminderPanel', () => {
     expect(wrapper.find('.card-sticky-mask').exists()).toBe(true)
     expect(wrapper.find('.performance-reminder-card__toolbar').exists()).toBe(true)
     expect(wrapper.find('.performance-reminder-card').attributes('style') || '').not.toContain('--performance-table-container-padding')
+    const overlaySource = (await import('./PerformanceTaskOverlay.vue?raw')).default
+    const reminderPageSource = (await import('../../views/performance/ProjectManagementReminder.vue?raw')).default
+    expect(overlaySource).toMatch(/\.performance-task-overlay__body\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*0;/)
+    expect(reminderPageSource).toMatch(/\.project-reminder-page__body\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*0;/)
     expect(wrapper.find('.performance-search-input input').attributes('placeholder')).toBe('搜索成员')
     expect(wrapper.findAll('.feishu-table__header th').map(cell => cell.text())).toEqual(['', '被评估人', '状态'])
 
