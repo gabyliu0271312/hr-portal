@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, date
-from typing import Literal
+from typing import Callable, Literal
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -80,6 +80,7 @@ class ReminderTasksPayload(BaseModel):
 class CycleReminderTasksPayload(BaseModel):
     cycle_id: int = Field(ge=1)
     node_key: str = Field(min_length=1, max_length=64)
+    department: str | None = Field(default=None, max_length=256)
     task_ids: list[int] = Field(min_length=1, max_length=500)
 
 
@@ -2075,13 +2076,27 @@ async def _managed_completion_projects(cycle_id: int, context: PerformanceAccess
     return result
 
 
-async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None) -> list[dict]:
+def _department_path(member: PerformanceProjectMember) -> tuple[str, ...]:
+    return tuple(str(value) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if (value := getattr(member, key, None)))
+
+
+def _department_path_filter(department: str | None) -> Callable[[PerformanceProjectMember], bool] | None:
+    if not department:
+        return None
+    if department.strip() == "未分配部门":
+        return lambda member: not _department_path(member)
+    parts = tuple(part for part in (department or '').split('/') if part)
+    return lambda member: _department_path(member)[:len(parts)] == parts
+
+
+async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None) -> list[dict]:
     if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key in {"view-result", "result-reconsideration"}:
         raise HTTPException(status_code=422, detail="REMINDER_NODE_NOT_SUPPORTED")
     projects = await _managed_completion_projects(cycle_id, context, db)
     visibility_rules = await load_subject_visibility_rules(db)
     actor = await resolve_trusted_performance_actor(db, context)
     search = (keyword or '').strip().lower()
+    department_filter = _department_path_filter(department)
     rows: list[dict] = []
     for project, scope in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
@@ -2090,6 +2105,8 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
         members = list((await db.execute(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id))).scalars().all())
         if scope is not None:
             members = [member for member in members if member.employee_no in scope]
+        if department_filter is not None:
+            members = [member for member in members if department_filter(member)]
         member_by_employee = {member.employee_no: member for member in members}
         snapshot = await db.get(PerformanceProjectMemberSnapshot, snapshot_id)
         people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
@@ -2146,6 +2163,7 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                     "position_level": member.position_level,
                     "hire_date": member.hire_date.isoformat() if member.hire_date else None,
                     "department": organization_leaf(member),
+                    "department_path": "/".join(_department_path(member)),
                     "employee_type": member.employee_type,
                     "employment_status": member.employment_status,
                     "due_at": _task_window(task, node, project)[1],
@@ -2397,12 +2415,13 @@ async def project_management_reminder_people(
     cycle_id: int = Query(..., ge=1),
     node_key: str = Query(..., min_length=1, max_length=64),
     keyword: str | None = Query(default=None, max_length=100),
+    department: str | None = Query(default=None, max_length=256),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword)
+    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword, department)
     start = (page - 1) * page_size
     return {"items": rows[start:start + page_size], "total": len(rows), "page": page, "page_size": page_size}
 
@@ -2442,7 +2461,7 @@ async def project_management_remind(
     scopes = {project.id: scope for project, scope in projects}
     snapshot_ids = {project.id: await db.scalar(select(_latest_member_snapshot_statement(project.id))) for project, _scope in projects}
     actor = await resolve_trusted_performance_actor(db, context)
-    eligible_rows = await _completion_reminder_rows(payload.cycle_id, payload.node_key, context, db)
+    eligible_rows = await _completion_reminder_rows(payload.cycle_id, payload.node_key, context, db, department=payload.department)
     eligible_ids = {row["task_id"] for row in eligible_rows if row["selectable"]}
     task_ids = list(dict.fromkeys(payload.task_ids))
     rows = (await db.execute(

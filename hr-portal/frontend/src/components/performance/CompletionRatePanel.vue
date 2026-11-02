@@ -19,8 +19,11 @@
             <tr v-for="row in departmentRows" :key="row.id || row.department">
               <td class="department-name-cell" :style="{ paddingLeft: `${12 + row.depth * 24}px` }"><button v-if="row.children?.length" class="expand-button" type="button" :aria-label="`展开${row.department}`" :aria-expanded="expanded.has(row.id || row.department)" @click="toggleDepartment(row.id || row.department)"><svg viewBox="0 0 12 12" :class="{ expanded: expanded.has(row.id || row.department) }"><path d="M4 2 8 6 4 10Z" fill="currentColor" /></svg></button><span v-else class="expand-spacer" />{{ row.department }}</td>
               <td v-for="column in departmentColumns" :key="column.key" :class="{ 'is-progress': row.metrics[column.key]?.completion_rate < 100 }">
-                <span>{{ formatRate(row.metrics[column.key]?.completion_rate) }}</span>
-                <small>{{ row.metrics[column.key]?.completed_count }}/{{ row.metrics[column.key]?.total_count }}</small>
+                <button v-if="row.metrics[column.key]" class="rate-link" type="button" :title="`查看${row.department}「${column.title}」未完成人员`" @click="emit('action', { action: 'remind', nodeKey: column.key, title: column.title, departmentPath: row.id || row.department })">
+                  <span>{{ formatRate(row.metrics[column.key]?.completion_rate) }}</span>
+                  <small>{{ row.metrics[column.key]?.completed_count }}/{{ row.metrics[column.key]?.total_count }}</small>
+                </button>
+                <span v-else>{{ formatRate(undefined) }}</span>
               </td>
             </tr>
           </tbody>
@@ -57,7 +60,7 @@ import ViewVideoOutlinedIcon from './ViewVideoOutlinedIcon.vue'
 import OrganizationOutlinedIcon from './OrganizationOutlinedIcon.vue'
 
 const props = defineProps<{ nodes: CompletionNode[]; cycleId?: number; departmentProvider?: (cycleId: number) => Promise<ProjectManagementDepartmentCompletion> }>()
-const emit = defineEmits<{ action: [payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description: string }] }>()
+const emit = defineEmits<{ action: [payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }] }>()
 const viewMode = ref('by-person')
 const viewOptions = [
   { value: 'by-person', label: '全部', icon: ViewVideoOutlinedIcon },
@@ -110,7 +113,10 @@ watch(() => props.cycleId, () => { departmentData.value = null; expanded.value =
 .department-name-cell { width: 240px; min-width: 240px; text-align: left!important; }
 .department-table td:not(.department-name-cell) span, .department-table td:not(.department-name-cell) small { display: block; }
 .department-table td:not(.department-name-cell) span { color: #1f2329; font-size: 14px; line-height: 22px; }
-.department-table td.is-progress span { color: #3370ff; }
+.department-table td.is-progress .rate-link span { color: #3370ff; }
+.rate-link { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: inherit; }
+.rate-link:hover span { text-decoration: underline; }
+.rate-link:focus-visible { outline: 0; box-shadow: 0 0 0 2px rgba(51,112,255,.35); }
 .department-table small { color: #1f2329; font-size: 12px; line-height: 20px; }
 .sort-glyph { display: inline-block; margin-left: 6px; color: #8f959e; font-size: 13px; }
 .expand-glyph { display: inline-block; margin: 0 16px 0 12px; color: #646a73; font-size: 20px; line-height: 12px; }
@@ -126,6 +132,6 @@ watch(() => props.cycleId, () => { departmentData.value = null; expanded.value =
 .expand-button svg.expanded { transform:rotate(90deg); }
 .department-name-cell { position:sticky; left:0; background:#fff; border-right:1px solid #dee0e3; z-index:1; }
 .department-table small { color:inherit; }
-.department-table td.is-progress small { color:#3370ff; }
+.department-table td.is-progress .rate-link small { color:#3370ff; }
 .department-table th :deep(.sort-header-label) { white-space:normal; }
 </style>

@@ -83,7 +83,7 @@ const route = useRoute()
 const router = useRouter()
 const projectContext = usePerformanceProjectContextStore()
 const emit = defineEmits<{
-  'completion-action': [payload: { action: 'remind' | 'enable-result'; nodeKey: string }]
+  'completion-action': [payload: { action: 'remind' | 'enable-result'; nodeKey: string; departmentPath?: string }]
   'authorization-view': [item: AuthorizationItem]
   'member-filter': []
   'member-export': []
@@ -211,7 +211,7 @@ async function selectNode(node: PerformanceReviewNode) {
   await router.replace({ query })
 }
 
-async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description: string }) {
+async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }) {
   emit('completion-action', payload)
   if (payload.action === 'enable-result' && activeCycle.value) {
     reminderMode.value = 'open-result'
@@ -224,7 +224,7 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
     return
   }
   if (payload.action !== 'remind' || !activeCycle.value) return
-  await router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(activeCycle.value.cycle_id), node_key: payload.nodeKey } })
+  await router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(activeCycle.value.cycle_id), node_key: payload.nodeKey, department: payload.departmentPath || '' } })
 }
 
 async function handleAuthorizationView(item: AuthorizationItem) {

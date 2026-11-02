@@ -7,6 +7,7 @@
         :context="context"
         mode="cycle-remind"
         select-all-available
+        selection-bar-target="body"
         :description="description"
       />
     </div>
@@ -25,10 +26,11 @@ const route = useRoute()
 const router = useRouter()
 const nodeKey = computed(() => String(route.query.node_key || 'manager-review'))
 const cycleId = computed(() => Number(route.query.cycle_id || 0))
+const department = computed(() => String(route.query.department || ''))
 const node = ref<ProjectManagementCompletionNode | null>(null)
 const error = ref('')
 let sequence = 0
-const title = computed(() => node.value?.title || '绩效任务')
+const title = computed(() => `${department.value || ''}${department.value ? '·' : ''}${node.value?.title || '绩效任务'}`)
 const description = computed(() => {
   if (!node.value) return ''
   const deadline = node.value.deadline_at ? new Date(node.value.deadline_at).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--'
@@ -50,7 +52,8 @@ const context = computed<ReminderContext>(() => ({
   nodeType: nodeKey.value,
   reviewType: 'project_management_reminder',
   title: title.value,
-  sectionTitle: '未完成的被评估人',
+  sectionTitle: `${department.value ? `${department.value} · ` : ''}未完成的被评估人`,
+  departmentPath: department.value || undefined,
 }))
 
 function goBack() {

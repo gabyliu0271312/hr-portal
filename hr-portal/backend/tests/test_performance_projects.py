@@ -5477,7 +5477,7 @@ async def test_cycle_reminder_enforces_member_scope_and_current_snapshot(monkeyp
     node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
     tasks = [SimpleNamespace(id=i, project_id=3, cycle_ref="cycle:1", member_snapshot_id=snapshot, target_employee_no=employee, handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None) for i, snapshot, employee in [(1, 10, "VISIBLE"), (2, 10, "HIDDEN"), (3, 9, "VISIBLE")]]
     async def managed(*args): return [(project, {"VISIBLE"})]
-    async def eligible(*args): return [{"task_id": i, "selectable": True} for i in [1, 2, 3]]
+    async def eligible(*args, **kwargs): return [{"task_id": i, "selectable": True} for i in [1, 2, 3]]
     async def actor(*args): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")
     sent = []
     async def send(task, *args): sent.append(task.id); return True, None
@@ -5507,7 +5507,7 @@ async def test_cycle_reminder_does_not_report_delivery_failure_as_success(monkey
     node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
     task = SimpleNamespace(id=1, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, target_employee_no="VISIBLE", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
     async def managed(*args): return [(project, None)]
-    async def eligible(*args): return [{"task_id": 1, "selectable": True}]
+    async def eligible(*args, **kwargs): return [{"task_id": 1, "selectable": True}]
     async def actor(*args): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")
     async def send(*args): return False, "failed"
     monkeypatch.setattr(router, "_managed_completion_projects", managed)
@@ -5649,6 +5649,50 @@ async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibilit
     assert rows[0]["previous_position_level"] is None
     assert rows[0]["job_category"] is None
     assert rows[0]["organization_path"] == "集团/研发"
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_department_filter_matches_path_prefix_and_unassigned(monkeypatch):
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceNodeTaskAuthorization
+    project = SimpleNamespace(id=3, name="测试项目", cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    members = [
+        PerformanceProjectMember(snapshot_id=10, employee_no="E1", display_name="甲", company_org="集团", department="研发部", direct_supervisor_employee_no="M1", job_family="产品", job_category="技术", position_level="P6", hrbp_employee_no="H1"),
+        PerformanceProjectMember(snapshot_id=10, employee_no="E2", display_name="乙", company_org="集团", department="销售部", direct_supervisor_employee_no="M1", job_family="产品", job_category="技术", position_level="P6", hrbp_employee_no="H1"),
+        PerformanceProjectMember(snapshot_id=10, employee_no="E3", display_name="丙", direct_supervisor_employee_no="M1", job_family="产品", job_category="技术", position_level="P6", hrbp_employee_no="H1"),
+    ]
+    tasks = [SimpleNamespace(id=i, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, node_snapshot_id=5, target_employee_no=employee, handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None) for i, employee in [(1, "E1"), (2, "E2"), (3, "E3")]]
+    async def managed(*args): return [(project, None)]
+    async def actor(*args): return SimpleNamespace(actor_ref="ADMIN")
+    async def rules(*args): return {"activity_manager": ["department"]}
+    async def role(*args): return "activity_manager"
+    async def progress(*args): return {}
+    async def previous(*args): return {}
+    async def ratings(*args, **kwargs): return [], {}, []
+    async def scope(*args): return None
+    for name, value in [("_managed_completion_projects", managed), ("resolve_trusted_performance_actor", actor), ("load_subject_visibility_rules", rules), ("resolve_subject_visibility_role", role), ("_communication_progress", progress), ("_previous_published_position_levels", previous), ("_project_final_ratings", ratings), ("_project_data_scope", scope)]:
+        monkeypatch.setattr(router, name, value)
+    values = {
+        PerformanceProjectMember: members,
+        PerformanceProjectNodeSnapshot: [node],
+        PerformanceNodeTask: tasks,
+        PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="快照经理", employment_status="在职")],
+        PerformanceIdentityLink: ["M1"], PerformanceNodeTaskAuthorization: [],
+    }
+    class Db:
+        async def scalar(self, query): return 10
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    rows = await router._completion_reminder_rows(1, "work-summary", context(), Db())
+    assert {row["employee_no"] for row in rows} == {"E1", "E2", "E3"}
+    scoped = await router._completion_reminder_rows(1, "work-summary", context(), Db(), department="集团/研发部")
+    assert [row["employee_no"] for row in scoped] == ["E1"]
+    assert scoped[0]["department_path"] == "集团/研发部"
+    unassigned = await router._completion_reminder_rows(1, "work-summary", context(), Db(), department="未分配部门")
+    assert [row["employee_no"] for row in unassigned] == ["E3"]
+    assert unassigned[0]["department_path"] == ""
 
 
 @pytest.mark.asyncio

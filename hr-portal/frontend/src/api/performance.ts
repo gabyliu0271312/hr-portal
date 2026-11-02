@@ -99,6 +99,7 @@ export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile
   direct_supervisor?: string | null
   hrbp?: string | null
   completion?: string | null
+  department_path?: string | null
   visibility_role?: string
   visible_profile_fields?: string[]
 }
@@ -908,16 +909,16 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectManagementDepartmentCompletion>('/performance/project-management/department-completion', { params: { cycle_id: cycleId } })
     return data
   },
-  async reminderPeople(cycleId: number, nodeKey: string, keyword = '', page = 1, pageSize = 50): Promise<ReminderPeoplePage> {
-    const { data } = await api.get<ReminderPeoplePage>('/performance/project-management/reminder-people', { params: { cycle_id: cycleId, node_key: nodeKey, keyword: keyword || undefined, page, page_size: pageSize } })
+  async reminderPeople(cycleId: number, nodeKey: string, keyword = '', page = 1, pageSize = 50, department?: string): Promise<ReminderPeoplePage> {
+    const { data } = await api.get<ReminderPeoplePage>('/performance/project-management/reminder-people', { params: { cycle_id: cycleId, node_key: nodeKey, keyword: keyword || undefined, department: department || undefined, page, page_size: pageSize } })
     return data
   },
-  async remindCycleTasks(cycleId: number, nodeKey: string, taskIds: number[]): Promise<PerformanceReminderResult> {
+  async remindCycleTasks(cycleId: number, nodeKey: string, taskIds: number[], department?: string): Promise<PerformanceReminderResult> {
     const merged: PerformanceReminderResult = { accepted_task_ids: [], skipped_task_ids: [], failed_task_ids: [], preview_task_ids: [], delivery_status: 'failed', errors: [] }
     for (let index = 0; index < taskIds.length; index += 500) {
       const batch = taskIds.slice(index, index + 500)
       try {
-        const { data } = await api.post<PerformanceReminderResult>('/performance/project-management/remind', { cycle_id: cycleId, node_key: nodeKey, task_ids: batch })
+        const { data } = await api.post<PerformanceReminderResult>('/performance/project-management/remind', { cycle_id: cycleId, node_key: nodeKey, department: department || undefined, task_ids: batch })
         merged.accepted_task_ids.push(...data.accepted_task_ids)
         merged.skipped_task_ids.push(...data.skipped_task_ids)
         merged.failed_task_ids!.push(...(data.failed_task_ids || []))

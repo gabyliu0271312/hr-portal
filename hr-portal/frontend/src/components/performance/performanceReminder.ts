@@ -9,6 +9,7 @@ export type ReminderContext = {
   reviewType: string
   title: string
   sectionTitle: string
+  departmentPath?: string
 }
 
 export type ReminderPerson = Omit<PerformanceWorkbenchTaskPerson, 'task_id'> & { task_id: number | string; selectable?: boolean; unavailable_reason?: string | null; project_name?: string; project_id?: number; can_authorize?: boolean; rating?: string | null; organization_path?: string | null }

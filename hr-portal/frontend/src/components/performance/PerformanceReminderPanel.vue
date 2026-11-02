@@ -43,6 +43,7 @@
         :sort-order="sortOrder"
         :selectable="mode !== 'preview'"
         :show-selection-bar="mode !== 'preview'"
+        :selection-bar-target="selectionBarTarget"
         :is-row-selectable="row => !loading && !actionLoading && row.selectable !== false"
         selection-key="task_id"
         row-key="task_id"
@@ -105,7 +106,7 @@ import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 import { defaultReminderColumns, reminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
 
-const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: false })
+const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
 const emit = defineEmits<{ filter: []; export: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const loadedKeyword = ref('')
@@ -137,10 +138,11 @@ const visibleColumns = computed(() => selectedColumnKeys.value.map(key => column
 const tableColumns = computed(() => visibleColumns.value.map(column => ({ key: column.key, label: column.label, width: column.minWidth || 144, fixed: column.key === 'display_name', sortable: column.key !== 'reminder_target' && column.key !== 'hrbp' })))
 const sortedRows = computed(() => sortPerformanceRows(rows.value, sortKey.value, sortOrder.value, (row, key) => reminderCellValue(row, key)))
 const hiddenColumnCount = computed(() => Math.max(0, columns.value.length - selectedColumnKeys.value.length))
+const selectAllEligible = computed(() => props.selectAllAvailable ?? props.mode === 'cycle-remind')
 
 async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<ReminderListResult> {
   if (props.mode === 'cycle-remind') {
-    const result = await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize)
+    const result = await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath)
     return {
       items: result.items,
       total: result.total,
@@ -197,7 +199,7 @@ async function load() {
     selectedColumnKeys.value = ((!columnsInitialized.value && props.mode === 'preview') || !retainedKeys.length) ? configuredDefaults : retainedKeys
     columnsInitialized.value = true
     const availableKeys = new Set(rows.value.filter(row => row.selectable !== false).map(row => String(row.task_id)))
-    if (!props.selectAllAvailable) selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
+    if (!selectAllEligible.value) selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
   } catch {
     if (sequence === requestSequence) error.value = props.mode === 'preview' ? '人员加载失败，请稍后重试' : '未完成人员加载失败，请稍后重试'
   } finally {
@@ -224,7 +226,7 @@ async function initialize() {
     selectedColumnKeys.value = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
     capabilities.value = result.capabilities
     emit('loaded', result.total)
-    if (props.selectAllAvailable) {
+    if (selectAllEligible.value) {
       const selection: string[] = []
       for (let nextPage = 1; (nextPage - 1) * 100 < result.total; nextPage++) {
         const next = await provider({ ...query, page: nextPage, pageSize: 100 })
@@ -251,7 +253,7 @@ function reload() {
 function changePage(nextPage: number) {
   if (actionLoading.value) return
   page.value = nextPage
-  if (!props.selectAllAvailable) selectedKeys.value = []
+  if (!selectAllEligible.value) selectedKeys.value = []
   void load()
 }
 
@@ -305,7 +307,7 @@ async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-
   notice.value = ''
   try {
     const result = props.mode === 'cycle-remind'
-      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, selectedKeys.value.map(Number))
+      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, selectedKeys.value.map(Number), props.context.departmentPath)
       : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, selectedKeys.value.map(Number))
     selectedKeys.value = (result.failed_task_ids || []).map(String)
     await load()
