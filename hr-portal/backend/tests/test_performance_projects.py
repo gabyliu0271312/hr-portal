@@ -3011,6 +3011,47 @@ def test_hrbp_scope_only_includes_selected_path_and_descendants():
 
 
 @pytest.mark.asyncio
+async def test_department_completion_roots_at_company_org(monkeypatch):
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceResultOpening
+
+    project = SimpleNamespace(id=3, status="STARTED", cycle_ref="cycle:1")
+    values = {
+        PerformanceProjectMember: [
+            SimpleNamespace(employee_no="E1", company_org="集团", department="研发", department_2="平台", department_3=None, department_4=None, department_5=None),
+            SimpleNamespace(employee_no="E2", company_org="集团", department="研发", department_2="平台", department_3=None, department_4=None, department_5=None),
+            SimpleNamespace(employee_no="E3", company_org="集团", department="销售", department_2=None, department_3=None, department_4=None, department_5=None),
+        ],
+        PerformanceProjectNodeSnapshot: [
+            SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", name="填写工作总结", config={}, node_order=0),
+        ],
+        PerformanceNodeTask: [
+            SimpleNamespace(node_snapshot_id=5, target_employee_no="E1", status="pending"),
+            SimpleNamespace(node_snapshot_id=5, target_employee_no="E2", status="completed"),
+            SimpleNamespace(node_snapshot_id=5, target_employee_no="E3", status="pending"),
+        ],
+        PerformanceResultOpening: [],
+    }
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+
+    async def managed(*args): return [(project, None)]
+    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+
+    result = await router.project_management_department_completion(cycle_id=1, context=None, db=Db())
+    assert result["columns"][0]["title"] == "填写工作总结"
+    assert [row["department"] for row in result["rows"]] == ["集团"]
+    assert {row["department"] for row in result["rows"][0]["children"]} == {"研发", "销售"}
+    assert result["rows"][0]["children"][0]["children"][0]["department"] == "平台"
+    metric = result["rows"][0]["children"][0]["metrics"]["work-summary"]
+    assert metric == {"completed_count": 1, "total_count": 2, "completion_rate": 50.0}
+
+
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("locked", [False, True])
 async def test_evaluator_options_and_counts_use_existing_draft_or_locked_snapshot(monkeypatch, locked):
     from datetime import date

@@ -93,8 +93,8 @@ describe('CompletionRatePanel', () => {
 describe('department completion interactions', () => {
   it('loads scoped rows, expands children and sorts the departments', async () => {
     const provider = vi.fn().mockResolvedValue({ columns: [{ key: 'self-review', title: '自评' }], rows: [
-      { id: 'a', department: '部门A', metrics: { 'self-review': { completion_rate: 50, completed_count: 1, total_count: 2 } }, children: [{ id: 'a/c', department: '子部门C', metrics: { 'self-review': { completion_rate: 0, completed_count: 0, total_count: 1 } } }] },
-      { id: 'b', department: '部门B', metrics: { 'self-review': { completion_rate: 100, completed_count: 1, total_count: 1 } } },
+      { id: '公司/部门A', department: '部门A', metrics: { 'self-review': { completion_rate: 50, completed_count: 1, total_count: 2 } }, children: [{ id: '公司/部门A/子部门C', department: '子部门C', metrics: { 'self-review': { completion_rate: 0, completed_count: 0, total_count: 1 } } }] },
+      { id: '公司/部门B', department: '部门B', metrics: { 'self-review': { completion_rate: 100, completed_count: 1, total_count: 1 } } },
     ] })
     const wrapper = mount(CompletionRatePanel, { props: { nodes: [], cycleId: 3, departmentProvider: provider } })
     await wrapper.findAll('.segment')[1].trigger('click')

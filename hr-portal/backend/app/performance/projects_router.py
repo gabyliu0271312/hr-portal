@@ -2560,7 +2560,7 @@ async def project_management_department_completion(
             members = [member for member in members if member.employee_no in scope]
         departments = {}
         for member in members:
-            parts = [str(value) for key in ("department", "department_2", "department_3", "department_4", "department_5") if (value := getattr(member, key, None))] or ["未分配部门"]
+            parts = [str(value) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if (value := getattr(member, key, None))] or ["未分配部门"]
             for depth in range(1, len(parts) + 1):
                 departments.setdefault(tuple(parts[:depth]), set()).add(member.employee_no)
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
