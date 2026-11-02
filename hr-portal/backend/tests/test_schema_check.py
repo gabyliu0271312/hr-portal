@@ -66,6 +66,48 @@ def test_unreachable_db_returns_warn(monkeypatch):
     assert "跳过" in msg
 
 
+def _revision_column_guard():
+    import ast
+    from pathlib import Path
+    from sqlalchemy import Column, MetaData, String, Table, text
+
+    source = ast.parse((Path(__file__).resolve().parents[1] / "alembic/env.py").read_text(encoding="utf-8"))
+    function = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "_ensure_revision_column")
+    namespace = {"Connection": object, "Column": Column, "MetaData": MetaData, "String": String, "Table": Table, "text": text}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "alembic/env.py", "exec"), namespace)
+    return namespace
+
+
+@pytest.mark.parametrize("length,expected_alters", [(32, 1), (128, 0), (256, 0), (None, 0)])
+def test_revision_column_guard_only_widens_short_columns(length, expected_alters):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from sqlalchemy import String
+
+    namespace = _revision_column_guard()
+    namespace["inspect"] = lambda connection: SimpleNamespace(has_table=lambda name: True, get_columns=lambda name: [{"name": "version_num", "type": String(length)}])
+    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"), execute=Mock())
+    namespace["_ensure_revision_column"](connection)
+    assert connection.execute.call_count == expected_alters
+    if expected_alters:
+        assert "TYPE VARCHAR(128)" in str(connection.execute.call_args.args[0])
+
+
+def test_revision_column_guard_creates_empty_wide_version_table():
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    namespace = _revision_column_guard()
+    namespace["inspect"] = lambda connection: SimpleNamespace(has_table=lambda name: False)
+    table = Mock()
+    namespace["Table"] = Mock(return_value=table)
+    connection = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    namespace["_ensure_revision_column"](connection)
+    column = namespace["Table"].call_args.args[2]
+    assert column.name == "version_num" and column.type.length == 128 and column.primary_key
+    table.create.assert_called_once_with(connection)
+
+
 def test_current_db_returns_ok(monkeypatch):
     _fail_decision(monkeypatch, ["0100"], True, db_cur=["0100"])
     decision, msg = conftest._run_schema_check()

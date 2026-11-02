@@ -8,7 +8,7 @@
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import Column, MetaData, String, Table, inspect, pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -55,12 +55,31 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
     )
     with context.begin_transaction():
+        if context.get_context().dialect.name == "postgresql":
+            context.execute("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(128) NOT NULL PRIMARY KEY)")
+            context.execute("DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'alembic_version' AND column_name = 'version_num' AND character_maximum_length < 128) THEN ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128); END IF; END $$")
         context.run_migrations()
+
+
+def _ensure_revision_column(connection: Connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    inspector = inspect(connection)
+    if not inspector.has_table("alembic_version"):
+        Table("alembic_version", MetaData(), Column("version_num", String(128), primary_key=True, nullable=False)).create(connection)
+        return
+    version_column = next((column for column in inspector.get_columns("alembic_version") if column["name"] == "version_num"), None)
+    if version_column is None:
+        raise RuntimeError("alembic_version.version_num column is missing")
+    current_length = getattr(version_column["type"], "length", None)
+    if current_length is not None and current_length < 128:
+        connection.execute(text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)"))
 
 
 def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
+        _ensure_revision_column(connection)
         context.run_migrations()
 
 
