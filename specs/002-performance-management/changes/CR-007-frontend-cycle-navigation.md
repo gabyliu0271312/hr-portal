@@ -125,3 +125,4 @@
 - 全量空库迁移：最初在历史 revision 0046 写入时遭遇 `alembic_version.version_num VARCHAR(32)` 长度限制；随后已在 `alembic/env.py` 修复 PostgreSQL 初始化：新表使用 VARCHAR(128)，现有短列只扩不缩，保留原 revision/数据，并置于迁移事务内。未修改历史迁移或伪造 head。隔离 PostgreSQL 实测空库升级至 0046、0046→0045→0046、旧 VARCHAR(32) 扩宽通过；`python -m pytest tests/test_schema_check.py -q --tb=short` → 10 passed。继续运行空库 `alembic upgrade head` 已跨过 0046/0047，在 0051 因历史 `tools.hr` 菜单种子缺失停止；全量空库 head 仍未通过，本轮不改动该独立初始化依赖。
 - 部署：第一轮代码已推送 main（`135d7c9a`）。用户明确服务器部署自行执行，本轮仅修复并推送 0046 初始化兼容；不连接或操作服务器。现有数据库的实际 revision 和迁移结果仍须部署时核对。
 - 参考证据保持受限：前述 REA Evidence ID、CSS 视口 1280×673 / DPR1.5 可复用；原始参考截图含真实员工信息，受限保存，不进入普通 Git。临时会话结果路径不作为唯一长期存储；已有实现 PNG 未作为本轮最终 UI 验收证据。
+- 催办滚动遮挡修复：`PerformanceReminderPanel.vue` 复用成员列表的 20px 白色吸顶遮罩，替换原搜索工具栏吸顶；遮罩 z-index 19、表头 z-index 20，保持未滚动时工具栏位置不变，封住 head 与锁定表头间的透出区域。既有 `PerformanceReminderPanel.spec.ts` 补结构断言，连同 `ProjectManagement.spec.ts` 共 29 passed、无未处理错误；`npm run build` exit 0。真实浏览器滚动/截图验证尚未执行，不作为像素验收通过。未改通知、接口或数据库。

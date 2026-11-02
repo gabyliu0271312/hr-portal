@@ -25,6 +25,8 @@ describe('PerformanceReminderPanel', () => {
     await flushPromises()
 
     expect(wrapper.find('.performance-task-header').exists()).toBe(false)
+    expect(wrapper.find('.card-sticky-mask').exists()).toBe(true)
+    expect(wrapper.find('.performance-reminder-card__toolbar').exists()).toBe(true)
     expect(wrapper.find('.performance-search-input input').attributes('placeholder')).toBe('搜索成员')
     expect(wrapper.findAll('.feishu-table__header th').map(cell => cell.text())).toEqual(['', '被评估人', '状态'])
 
