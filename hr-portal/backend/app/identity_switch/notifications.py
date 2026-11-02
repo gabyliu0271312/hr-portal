@@ -71,7 +71,7 @@ def run_out(run):
         "planned_count": generated, "error_count": errors, "original_delivery_count": 0,
         "sample_status": run.sample_status, "summary_status": run.summary_status,
         "delivery_error": run.delivery_error, "items": run.items,
-        "can_deliver": run.delivery_revision >= 0 and run.delivery_requested_at is None,
+        "can_deliver": settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED and run.delivery_revision >= 0 and run.delivery_requested_at is None,
     }
 
 
@@ -109,6 +109,12 @@ async def deliver_run(run_id: str, payload: DeliverIn, db=Depends(get_session), 
         fail("SWITCH_SESSION_REVOKED", "切换会话已失效，保留记录但不再投递", 410)
     if not setting.test_delivery_enabled or run.delivery_revision != setting.revision:
         fail("SWITCH_TEST_DELIVERY_DISABLED", "本批次未获当前受控投递许可，只保留记录")
+    if not settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+        run.sample_status = "skipped"
+        run.summary_status = "skipped"
+        run.delivery_error = "测试模式仅记录，不发送飞书通知"
+        await db.commit()
+        return run_out(run)
     from app.identity_switch.service import _renew_switch_session
     await _renew_switch_session(db, session)
     if run.delivery_requested_at:
@@ -166,6 +172,8 @@ async def deliver_run(run_id: str, payload: DeliverIn, db=Depends(get_session), 
 
 
 async def finalize_operation(call, session_factory=None):
+    if not settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+        return
     from app.core.db import AsyncSessionLocal
     from app.identity_switch.service import current_switch
     import logging

@@ -19,7 +19,7 @@ from app.core.jwt import create_access_token
 from app.identity_switch import service
 from app.identity_switch.middleware import IdentitySwitchMiddleware
 from app.identity_switch.models import IdentitySwitchFavorite, IdentitySwitchNotificationRun, IdentitySwitchSession, IdentitySwitchSetting
-from app.identity_switch.notifications import receiver_is_safe, record_notification
+from app.identity_switch.notifications import receiver_is_safe, record_notification, run_out
 from app.identity_switch.router import ControlPatch, FavoriteCreate, SessionCreate, router
 from app.performance.auth_context import PerformanceAccessContext, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.models import (PerformanceAuditEvent, PerformanceIdentityLink, PerformanceCycle, PerformanceProject, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshot, PerformanceOtherSetting)
@@ -35,6 +35,12 @@ def test_control_payload_is_strict():
         FavoriteCreate(employee_no="E1", operator_user_id=1)
     with pytest.raises(ValidationError):
         ControlPatch(expected_revision=1, request_id="test")
+
+
+def test_notification_run_cannot_deliver_when_delivery_disabled(monkeypatch):
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
+    run = SimpleNamespace(id="run", source="test", environment="dev", target_employee_no="E1", created_at=None, delivery_revision=3, delivery_requested_at=None, items=[], sample_status="recorded", summary_status="recorded", delivery_error=None)
+    assert run_out(run)["can_deliver"] is False
 
 
 def test_target_identity_has_no_admin_preview(monkeypatch):
@@ -65,6 +71,17 @@ def test_direct_transport_is_blocked_during_switch():
                 await FeishuClient("unused", "unused").send_text_to_user("original", "must not send")
         finally:
             service.current_switch.reset(token)
+    asyncio.run(scenario())
+
+
+def test_direct_transport_is_blocked_when_notification_delivery_disabled(monkeypatch):
+    from app.integrations.feishu.feishu_client import FeishuClient, FeishuClientError
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
+
+    async def scenario():
+        with pytest.raises(FeishuClientError, match="测试模式禁止飞书消息投递"):
+            await FeishuClient("unused", "unused").send_text_to_user("receiver", "must not send")
+
     asyncio.run(scenario())
 
 

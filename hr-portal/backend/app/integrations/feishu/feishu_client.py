@@ -77,6 +77,8 @@ class FeishuClient:
         from app.identity_switch.service import current_switch
         if current_switch.get() is not None:
             raise FeishuClientError("身份切换期间禁止直接投递，请使用受控消息测试入口")
+        if not settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+            raise FeishuClientError("测试模式禁止飞书消息投递", code=-1)
         token = await self._ensure_token()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -162,6 +164,8 @@ class FeishuClient:
         message_id: 飞书消息 ID。
         card_content: 新的卡片 JSON 字符串。
         """
+        if not settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+            raise FeishuClientError("测试模式禁止飞书消息更新", code=-1)
         token = await self._ensure_token()
         headers = {
             "Authorization": f"Bearer {token}",

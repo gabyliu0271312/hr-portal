@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.auth_context import PerformanceAccessContext
 from app.performance.calibration_service import calibration_task_scope
+from app.performance.task_authorization_service import task_handler_condition
 from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceRole, PROJECT_STATUS_STARTED
 
 
@@ -106,7 +107,10 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
         member_rows = list((await db.execute(select(PerformanceProjectMember, PerformanceProjectMemberSnapshot).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id).where(PerformanceProjectMemberSnapshot.project_id.in_(project_ids)))).all())
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id.in_(project_ids)).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
         refs = set(result.actor_refs_by_cycle.values()) | ({result.actor_ref} if result.actor_ref else set())
-        tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id.in_(project_ids), PerformanceNodeTask.handler_ref.in_(refs)))).scalars().all())
+        conditions = [and_(PerformanceNodeTask.cycle_ref == cycle_ref, task_handler_condition(actor_ref)) for cycle_ref, actor_ref in result.actor_refs_by_cycle.items()]
+        if not conditions and result.actor_ref:
+            conditions = [task_handler_condition(result.actor_ref)]
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id.in_(project_ids), or_(*conditions)))).scalars().all()) if conditions else []
     else:
         member_rows, nodes, tasks = [], [], []
     latest_snapshots = {}
@@ -152,7 +156,7 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
         if project.status == PROJECT_STATUS_STARTED:
             for task in tasks_by_project.get(project.id, []):
                 node = nodes_by_id.get(task.node_snapshot_id)
-                if node is None or node.project_id != project.id or task.cycle_ref != project.cycle_ref or task.handler_ref != actor_ref:
+                if node is None or node.project_id != project.id or task.cycle_ref != project.cycle_ref:
                     continue
                 result.own_task_project_ids.add(project.id)
                 role = node_role_code({"node_type": node.node_type, **((node.config or {}).get("template") or {})})

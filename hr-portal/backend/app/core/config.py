@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     COST_ALLOCATION_ADMIN_PATH: str = "/admin/workbench"
 
     # 飞书单点登录（用飞书账号登录 HR Portal 本身）
+    FEISHU_NOTIFICATION_DELIVERY_ENABLED: bool = False
     FEISHU_SSO_ENABLED: bool = False
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""

@@ -663,6 +663,24 @@ const routes: RouteRecordRaw[] = [
     ],
   },
     {
+      path: '/performance/project-management/reminder',
+      name: 'PerformanceProjectReminder',
+      component: () => import('@/views/performance/ProjectManagementReminder.vue'),
+      meta: { label: '催办任务', menuCode: null, hideAside: true, fullScreenWorkspace: true },
+    },
+    {
+      path: '/performance/project-management/authorization-records',
+      name: 'PerformanceAuthorizationRecords',
+      component: () => import('@/views/performance/ProjectAuthorizationRecords.vue'),
+      meta: { label: '授权及转交记录', menuCode: null, hideAside: true, fullScreenWorkspace: true },
+    },
+    {
+      path: '/performance/project-management/calibration-authorization',
+      name: 'PerformanceCalibrationAuthorization',
+      component: () => import('@/views/performance/ProjectCalibrationAuthorization.vue'),
+      meta: { label: '校准任务授权', menuCode: null, hideAside: true, fullScreenWorkspace: true },
+    },
+    {
       path: '/performance/reminder-placeholder',
       name: 'PerformanceReminderPlaceholder',
       component: () => import('@/views/performance/PerformanceReminderPlaceholder.vue'),

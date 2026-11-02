@@ -106,7 +106,79 @@ export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile
 export interface PerformanceReminderResult {
   accepted_task_ids: number[]
   skipped_task_ids: number[]
-  delivery_status: 'recorded'
+  failed_task_ids?: number[]
+  preview_task_ids?: number[]
+  delivery_status: 'success' | 'partial_success' | 'failed' | 'recorded' | 'preview_only'
+  errors?: Array<{ task_id?: number; error: string }>
+}
+
+export interface ProjectManagementDepartmentMetric {
+  completed_count: number
+  total_count: number
+  completion_rate: number
+}
+
+export interface ProjectManagementDepartmentRow {
+  id?: string
+  children?: ProjectManagementDepartmentRow[]
+  department: string
+  metrics: Record<string, ProjectManagementDepartmentMetric>
+}
+
+export interface ProjectManagementDepartmentCompletion {
+  columns: Array<{ key: string; title: string }>
+  rows: ProjectManagementDepartmentRow[]
+}
+
+export interface ProjectAuthorizationRecord {
+  project_id?: number
+  task_id?: number
+  authorization_id?: number
+  id: string
+  initiator: string
+  status: string
+  authorized_person: string
+  stages: string[]
+  reviewees: string[]
+  submitted_at: string
+  can_revoke: boolean
+}
+
+export interface ProjectAuthorizationRecords {
+  cycle_id: number
+  authorization_records: ProjectAuthorizationRecord[]
+  transfer_records: ProjectAuthorizationRecord[]
+}
+
+export interface ProjectCalibrationAuthorization {
+  project_id: number
+  task_ids: number[]
+  task_people?: Array<{ task_id: number; employee_no: string; display_name: string; direct_supervisor_employee_no?: string; department_path?: string }>
+  authorizations: Array<{ id: number; task_id: number; recipient: string }>
+  id: string
+  allow_authorize: boolean
+  calibrator: string
+  status: string
+  scope: string
+  authorized_count: number
+  unauthorized_count: number | null
+  distribution_rule: string | null
+  authorized_by: string | null
+  authorized_at: string | null
+}
+
+export interface ProjectManagementReminderPerson extends PerformanceWorkbenchTaskPerson {
+  project_id: number
+  can_authorize: boolean
+  project_name: string
+  selectable: boolean
+}
+
+export interface ReminderPeoplePage {
+  items: ProjectManagementReminderPerson[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export type PerformanceReviewMemberContext = {
@@ -723,6 +795,10 @@ export interface ProjectManagementCompletionNode {
   total_count: number
   completion_rate: number | null
   deadline_at: string | null
+  configured?: boolean
+  can_remind?: boolean
+  reminder_title?: string | null
+  reminder_description?: string | null
 }
 
 export interface ProjectManagementOverview {
@@ -826,6 +902,55 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectManagementOverview>('/performance/project-management/overview', {
       params: cycleId ? { cycle_id: cycleId } : undefined,
     })
+    return data
+  },
+  async departmentCompletion(cycleId: number): Promise<ProjectManagementDepartmentCompletion> {
+    const { data } = await api.get<ProjectManagementDepartmentCompletion>('/performance/project-management/department-completion', { params: { cycle_id: cycleId } })
+    return data
+  },
+  async reminderPeople(cycleId: number, nodeKey: string, keyword = '', page = 1, pageSize = 50): Promise<ReminderPeoplePage> {
+    const { data } = await api.get<ReminderPeoplePage>('/performance/project-management/reminder-people', { params: { cycle_id: cycleId, node_key: nodeKey, keyword: keyword || undefined, page, page_size: pageSize } })
+    return data
+  },
+  async remindCycleTasks(cycleId: number, nodeKey: string, taskIds: number[]): Promise<PerformanceReminderResult> {
+    const merged: PerformanceReminderResult = { accepted_task_ids: [], skipped_task_ids: [], failed_task_ids: [], preview_task_ids: [], delivery_status: 'failed', errors: [] }
+    for (let index = 0; index < taskIds.length; index += 500) {
+      const batch = taskIds.slice(index, index + 500)
+      try {
+        const { data } = await api.post<PerformanceReminderResult>('/performance/project-management/remind', { cycle_id: cycleId, node_key: nodeKey, task_ids: batch })
+        merged.accepted_task_ids.push(...data.accepted_task_ids)
+        merged.skipped_task_ids.push(...data.skipped_task_ids)
+        merged.failed_task_ids!.push(...(data.failed_task_ids || []))
+        merged.preview_task_ids!.push(...(data.preview_task_ids || []))
+        merged.errors!.push(...(data.errors || []))
+      } catch {
+        merged.failed_task_ids!.push(...taskIds.slice(index))
+        merged.errors!.push({ error: '发送结果未确认，请核对通知日志后再重试' })
+        break
+      }
+    }
+    merged.delivery_status = merged.preview_task_ids!.length && !merged.accepted_task_ids.length
+      ? 'preview_only'
+      : merged.accepted_task_ids.length ? (merged.failed_task_ids!.length || merged.skipped_task_ids.length ? 'partial_success' : 'success') : 'failed'
+    return merged
+  },
+  async delegationCandidates(projectId: number, taskId: number): Promise<Array<{ employee_no: string; display_name: string; department_path?: string; direct_supervisor_employee_no?: string }>> {
+    const { data } = await api.get(`/performance/projects/${projectId}/tasks/${taskId}/delegation-candidates`)
+    return data
+  },
+  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode: 'PARTIAL' | 'ALL'; scope_kind: string; selected_employee_nos: string[]; department_paths: string[]; distribution_mode: string; allow_reauthorize: boolean; notify_original: boolean }): Promise<{ id: number; task_id: number; status: string; notification_status?: 'preview_only' | string }> {
+    const { data } = await api.post(`/performance/projects/${projectId}/tasks/${taskId}/delegations`, { action, recipient_employee_no: recipientEmployeeNo, reason, ...options })
+    return data
+  },
+  async revokeTaskAuthorization(projectId: number, taskId: number, authorizationId: number): Promise<void> {
+    await api.delete(`/performance/projects/${projectId}/tasks/${taskId}/delegations/${authorizationId}`)
+  },
+  async authorizationRecords(cycleId: number): Promise<ProjectAuthorizationRecords> {
+    const { data } = await api.get<ProjectAuthorizationRecords>('/performance/project-management/authorization-records', { params: { cycle_id: cycleId } })
+    return data
+  },
+  async calibrationAuthorization(cycleId: number): Promise<{ cycle_id: number; cycle_name: string; items: ProjectCalibrationAuthorization[] }> {
+    const { data } = await api.get('/performance/project-management/calibration-authorization', { params: { cycle_id: cycleId } })
     return data
   },
   async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {

@@ -1001,6 +1001,31 @@ class PerformanceNodeTask(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+class PerformanceNodeTaskAuthorization(Base):
+    __tablename__ = "performance_node_task_authorizations"
+    __table_args__ = (
+        CheckConstraint("authorization_type IN ('AUTHORIZE', 'TRANSFER')", name="ck_pm_task_authorization_type"),
+        CheckConstraint("status IN ('ACTIVE', 'REVOKED', 'REPLACED')", name="ck_pm_task_authorization_status"),
+        Index("ix_pm_task_authorizations_cycle_status", "cycle_ref", "status", "created_at"),
+        Index("ix_pm_task_authorizations_recipient", "recipient_employee_no", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_node_tasks.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="CASCADE"), nullable=False)
+    cycle_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    authorization_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    grantor_employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    read_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    authorization_settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="ACTIVE", server_default="ACTIVE")
+    revoked_by_employee_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class PerformanceReviewQuestion(Base):
     """Review question referencing the latest configuration of one rule."""
 

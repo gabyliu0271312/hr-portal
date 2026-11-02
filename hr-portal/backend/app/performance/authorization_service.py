@@ -33,6 +33,7 @@ from app.performance.models import (
 )
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
 from app.performance.auth_context import PerformanceAccessContext, resolve_trusted_performance_actor
+from app.performance.task_authorization_service import task_handler_condition
 
 
 OBJECT_ACTION_WORK_SUMMARY_READ = "WORK_SUMMARY_READ"
@@ -340,7 +341,7 @@ class PerformanceObjectAuthorizationService:
             PerformanceProject.cycle_ref == request.cycle_ref,
             PerformanceNodeTask.task_kind == "calibration",
             PerformanceNodeTask.target_employee_no == request.employee_no,
-            PerformanceNodeTask.handler_ref == request.actor_ref,
+            task_handler_condition(request.actor_ref),
             PerformanceNodeTask.phase_id == request.phase_id,
             PerformanceProjectNodeSnapshot.node_id == request.node_id,
         ))).first()

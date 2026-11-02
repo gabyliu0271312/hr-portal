@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ElOption, ElSelect, ElTable, type TableInstance } from 'element-plus'
+import { ElOption, ElSelect, ElTable, type TableInstance, vLoading } from 'element-plus'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
@@ -31,7 +31,9 @@ const props = withDefaults(defineProps<{
   showSelectionBar?: boolean
   columns?: PerformanceTableColumn[]
   selectable?: boolean
+  isRowSelectable?: (row: any) => boolean
   selectionKey?: string
+  selectedKeys?: string[]
 }>(), {
   page: 1,
   pageSize: 10,
@@ -49,12 +51,14 @@ const props = withDefaults(defineProps<{
   columns: undefined,
   selectable: false,
   selectionKey: 'id',
+  selectedKeys: undefined,
 })
 
 const emit = defineEmits<{
   'page-change': [page: number]
   'page-size-change': [pageSize: number]
   'selection-change': [rows: any[]]
+  'update:selectedKeys': [keys: string[]]
   'row-click': [row: any]
   'sort-change': [payload: { key: string; order: PerformanceSortOrder }]
 }>()
@@ -105,24 +109,32 @@ function onSort(key: string) {
 
 const rowKeyOf = (row: any) => String(row?.[props.selectionKey] ?? '')
 const selectedKeys = ref<Set<string>>(new Set())
+watch(() => props.selectedKeys, keys => {
+  if (keys) selectedKeys.value = new Set(keys)
+}, { immediate: true })
 const elSelectedRows = ref<any[]>([])
 const selectedCount = computed(() => (useNativeTable.value ? selectedKeys.value.size : elSelectedRows.value.length))
-const allSelected = computed(() => useNativeTable.value && props.rows.length > 0 && props.rows.every(row => selectedKeys.value.has(rowKeyOf(row))))
+const selectableRows = computed(() => props.rows.filter(row => !props.isRowSelectable || props.isRowSelectable(row)))
+const allSelected = computed(() => useNativeTable.value && selectableRows.value.length > 0 && selectableRows.value.every(row => selectedKeys.value.has(rowKeyOf(row))))
 const someSelected = computed(() => useNativeTable.value && selectedKeys.value.size > 0 && !allSelected.value)
 function isSelected(row: any) {
   return useNativeTable.value && selectedKeys.value.has(rowKeyOf(row))
 }
 function toggleRow(row: any, checked: boolean) {
+  if (props.isRowSelectable && !props.isRowSelectable(row)) return
   const next = new Set(selectedKeys.value)
   if (checked) next.add(rowKeyOf(row))
   else next.delete(rowKeyOf(row))
   selectedKeys.value = next
-  emit('selection-change', props.rows.filter(item => next.has(rowKeyOf(item))))
+  const selected = props.rows.filter(item => next.has(rowKeyOf(item)))
+  emit('update:selectedKeys', [...next])
+  emit('selection-change', selected)
 }
 function toggleAll(checked: boolean) {
-  if (checked) selectedKeys.value = new Set(props.rows.map(rowKeyOf))
-  else selectedKeys.value = new Set()
-  emit('selection-change', checked ? [...(props.rows as any[])] : [])
+  if (checked) selectedKeys.value = new Set([...selectedKeys.value, ...selectableRows.value.map(rowKeyOf)])
+  else selectableRows.value.forEach(row => selectedKeys.value.delete(rowKeyOf(row)))
+  emit('update:selectedKeys', [...selectedKeys.value])
+  emit('selection-change', props.rows.filter(row => selectedKeys.value.has(rowKeyOf(row))))
 }
 const tableRef = ref<TableInstance | null>(null)
 const headerWrapRef = ref<HTMLElement | null>(null)
@@ -137,6 +149,7 @@ function onSelectionChange(rows: any[]) {
 function clearSelection() {
   if (useNativeTable.value) {
     selectedKeys.value = new Set()
+    emit('update:selectedKeys', [])
     emit('selection-change', [])
   } else {
     tableRef.value?.clearSelection()
@@ -380,7 +393,7 @@ function jumpToPage() {
                   @click="onNativeRowClick(row)"
                 >
                   <td v-if="selectable" class="feishu-cell feishu-cell--selection is-fixed-left" style="left: 0" @click.stop>
-                    <PerformanceCheckbox :model-value="isSelected(row)" :label="`选择${(row as any).display_name || ''}`" hide-label @update:model-value="checked => toggleRow(row, checked)" />
+                    <PerformanceCheckbox :model-value="isSelected(row)" :disabled="Boolean(isRowSelectable && !isRowSelectable(row))" :label="`选择${(row as any).display_name || ''}`" hide-label @update:model-value="checked => toggleRow(row, checked)" />
                   </td>
                   <td
                     v-for="column in nativeColumns"

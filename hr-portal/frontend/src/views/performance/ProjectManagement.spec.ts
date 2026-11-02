@@ -5,16 +5,17 @@ import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { performanceApi, performanceNavigationApi, projectManagementApi, type PerformanceNavigationContext, type ProjectManagementOverview } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
+const { routeQuery } = vi.hoisted(() => ({ routeQuery: {} as Record<string, string> }))
 const push = vi.fn()
 const replace = vi.fn()
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: {} }),
+  useRoute: () => ({ query: routeQuery }),
   useRouter: () => ({ push, replace }),
 }))
 
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
-  return { ...actual, projectManagementApi: { overview: vi.fn(), members: vi.fn(), matrix: vi.fn() } }
+  return { ...actual, projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), members: vi.fn(), matrix: vi.fn() } }
 })
 
 import ProjectManagement from './ProjectManagement.vue'
@@ -81,6 +82,7 @@ function mountView() {
 
 describe('ProjectManagement', () => {
   beforeEach(() => {
+    Object.keys(routeQuery).forEach(key => delete routeQuery[key])
     pinia = createPinia()
     setActivePinia(pinia)
     localStorage.clear()
@@ -233,7 +235,8 @@ describe('ProjectManagement', () => {
     expect(wrapper.findComponent({ name: 'AuthorizationManagementPanel' }).exists()).toBe(true)
     expect(wrapper.text()).toContain('完成率')
     expect(wrapper.text()).toContain('授权管理')
-    expect(wrapper.findAll('.grid-card')).toHaveLength(10)
+    expect(wrapper.findAll('.grid-card')).toHaveLength(2)
+    expect(wrapper.findAll('.completion-node-card')).toHaveLength(0)
 
     await tabs[1].trigger('click')
     expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
@@ -247,7 +250,7 @@ describe('ProjectManagement', () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({
       completion_nodes: [
         { key: 'work-summary', title: '填写工作总结', status: 'not_started', completed_count: 0, total_count: 406, completion_rate: null, deadline_at: '2099-07-10T15:59:00Z' },
-        { key: 'self-review', title: '自评', status: 'active', completed_count: 101, total_count: 406, completion_rate: 24.88, deadline_at: '2099-07-20T15:59:00Z' },
+        { key: 'self-review', title: '自评', status: 'active', can_remind: true, completed_count: 101, total_count: 406, completion_rate: 24.88, deadline_at: '2099-07-20T15:59:00Z' },
       ],
     }))
     const wrapper = mountView()
@@ -267,12 +270,14 @@ describe('ProjectManagement', () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({
       completion_nodes: [{ key: 'view-result', title: '查看绩效结果', status: 'not_started', completed_count: 0, total_count: 2, completion_rate: 0, deadline_at: null }],
     }))
+    const people = vi.spyOn(projectManagementApi, 'openingPeople').mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('.completion-node-card .node-action').trigger('click')
     expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('mode')).toBe('open-result')
     expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('context')).toMatchObject({ cycleId: 1, projectId: 0 })
     wrapper.unmount()
+    people.mockRestore()
   })
 
   it('keeps member headers when the member list is empty', async () => {
@@ -321,4 +326,77 @@ describe('ProjectManagement', () => {
     expect(wrapper.text()).toContain('产品中心项目')
     expect(wrapper.text()).toContain('后续迭代中开发')
   })
+})
+
+
+it('routes authorization views to distinct full-screen pages for the selected cycle', async () => {
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+  const wrapper = mountView()
+  await flushPromises()
+  const buttons = wrapper.findAll('.auth-card .text-button')
+  await buttons[0].trigger('click')
+  await flushPromises()
+  expect(push).toHaveBeenCalledWith({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: '1' } })
+  await buttons[1].trigger('click')
+  await flushPromises()
+  expect(push).toHaveBeenCalledWith({ name: 'PerformanceCalibrationAuthorization', query: { cycle_id: '1' } })
+  wrapper.unmount()
+})
+
+
+describe('authorization workspaces', () => {
+  it('reads scoped authorization rows and revokes through the real API contract', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    routeQuery.cycle_id = '1'
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: [{ id: '1', project_id: 3, task_id: 11, authorization_id: 21, initiator: '发起人', authorized_person: '被授权人', status: '已授权', stages: ['上级评估'], reviewees: ['员工一'], submitted_at: '2026-11-01T00:00:00Z', can_revoke: true }], transfer_records: [] })
+    const revoking = vi.spyOn(projectManagementApi, 'revokeTaskAuthorization').mockResolvedValue(undefined)
+    const wrapper = mount(Records)
+    await flushPromises()
+    expect(records).toHaveBeenCalledWith(1)
+    expect(wrapper.text()).toContain('被授权人')
+    await wrapper.get('.text-action').trigger('click'); await flushPromises()
+    expect(document.querySelector('.performance-confirm-dialog')).not.toBeNull()
+    expect(revoking).not.toHaveBeenCalled()
+    ;(document.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click(); await flushPromises()
+    expect(revoking).toHaveBeenCalledWith(3, 11, 21)
+    expect(wrapper.text()).toContain('已保存和提交内容保留')
+    wrapper.unmount(); records.mockRestore(); revoking.mockRestore(); delete routeQuery.cycle_id
+  })
+
+  it('shows authorization read failure rather than stale or fabricated rows', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    routeQuery.cycle_id = '1'
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockRejectedValue(new Error('denied'))
+    const wrapper = mount(Records)
+    await flushPromises()
+    expect(wrapper.text()).toContain('授权记录加载失败')
+    expect(wrapper.findAll('.text-action')).toHaveLength(0)
+    wrapper.unmount(); records.mockRestore(); delete routeQuery.cycle_id
+  })
+})
+
+
+it('opens the shared delegation dialog from calibration authorization with real task references', async () => {
+  const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
+  const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  routeQuery.cycle_id = '1'
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '2026上半年', items: [{ id: 'cal:1', project_id: 3, task_ids: [11, 12], authorizations: [], calibrator: '校准人', status: '待校准', scope: '全部下级', authorized_count: 2, unauthorized_count: 2, allow_authorize: true, distribution_rule: null, authorized_by: null, authorized_at: null }] })
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidates').mockResolvedValue([{ employee_no: 'R1', display_name: '接收人' }])
+  const wrapper = mount(Calibration, { attachTo: document.body, global: { plugins: [pinia] } })
+  await flushPromises()
+  expect(wrapper.text()).toContain('校准人')
+  const action = wrapper.findAll('.actions button').find(button => button.text() === '协助授权')!
+  await action.trigger('click'); await flushPromises()
+  expect(wrapper.getComponent(Dialog).props('tasks')).toEqual([{ project_id: 3, task_id: 11 }, { project_id: 3, task_id: 12 }])
+  expect(candidates).toHaveBeenCalledWith(3, 11)
+  expect(candidates).toHaveBeenCalledWith(3, 12)
+  expect(document.querySelector<HTMLInputElement>('input[name="authorization-distribution"][value="NONE"]')?.disabled).toBe(true)
+  wrapper.getComponent(Dialog).vm.$emit('completed', 2, 'preview_only')
+  await flushPromises()
+  expect(wrapper.text()).toContain('测试模式：已记录 2 条，未发送飞书通知')
+  wrapper.unmount(); loaded.mockRestore(); candidates.mockRestore(); delete routeQuery.cycle_id
 })

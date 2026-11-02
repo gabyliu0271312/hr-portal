@@ -216,10 +216,12 @@ async def test_template_task_rejects_unmapped_or_other_employee(monkeypatch):
     from fastapi import HTTPException
     from app.performance import projects_router
 
-    task = SimpleNamespace(cycle_ref="cycle:one", handler_ref="EMP-1", task_kind="evaluation", target_employee_no="EMP-2")
+    task = SimpleNamespace(id=1, cycle_ref="cycle:one", handler_ref="EMP-1", task_kind="evaluation", target_employee_no="EMP-2")
     node = SimpleNamespace(node_type="evaluation")
 
     class Result:
+        def scalars(self):
+            return SimpleNamespace(all=lambda: [])
         def first(self):
             return (task, node)
 
@@ -4964,11 +4966,11 @@ async def test_project_data_manager_scope_filters_progress_before_counting(monke
     from app.performance import projects_router
     from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceResultOpening
 
-    node = SimpleNamespace(id=31, node_id="review", node_type="evaluation", config={"template": {"executor_types": ["SUBJECT"]}})
+    node = SimpleNamespace(id=31, node_id="review", node_type="evaluation", name="自评", config={"template": {"executor_types": ["SUBJECT"]}})
     values = {
         PerformanceProjectMember: [SimpleNamespace(employee_no=no) for no in ["VISIBLE", "HIDDEN"]],
         PerformanceProjectNodeSnapshot: [node],
-        PerformanceNodeTask: [SimpleNamespace(node_snapshot_id=31, target_employee_no="VISIBLE", status="pending", submitted_at=None), SimpleNamespace(node_snapshot_id=31, target_employee_no="HIDDEN", status="completed", submitted_at=True)],
+        PerformanceNodeTask: [SimpleNamespace(node_snapshot_id=31, target_employee_no="VISIBLE", status="pending", submitted_at=None, available_at=None, due_at=None), SimpleNamespace(node_snapshot_id=31, target_employee_no="HIDDEN", status="completed", submitted_at=True)],
         PerformanceResultOpening: [],
     }
     class Db:
@@ -5169,11 +5171,11 @@ async def test_result_opening_freezes_position_and_does_not_overwrite_existing(m
 async def test_result_communication_template_task_keeps_identity_and_target_authorization(monkeypatch):
     from fastapi import HTTPException
     from app.performance import projects_router
-    task = SimpleNamespace(handler_ref="M1", task_kind="result_communication", target_employee_no="E1", cycle_ref="C1")
+    task = SimpleNamespace(id=1, handler_ref="M1", task_kind="result_communication", target_employee_no="E1", cycle_ref="C1")
     node = SimpleNamespace(node_type="result_communication")
     class Db:
         async def execute(self, query):
-            return SimpleNamespace(first=lambda: (task, node))
+            return SimpleNamespace(first=lambda: (task, node), scalars=lambda: SimpleNamespace(all=lambda: []))
     async def actor(db, context, **kwargs):
         return SimpleNamespace(actor_ref="M1")
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
@@ -5384,9 +5386,9 @@ async def test_submitted_answers_survive_draft_discard_validation_and_resubmissi
 async def test_discard_draft_enforces_handler_identity_and_target_scope(monkeypatch, kind):
     from fastapi import HTTPException
     from app.performance import projects_router as router
-    task = SimpleNamespace(cycle_ref="c", handler_ref="owner", task_kind=kind, target_employee_no="E1")
+    task = SimpleNamespace(id=1, cycle_ref="c", handler_ref="owner", task_kind=kind, target_employee_no="E1")
     class Db:
-        async def execute(self, _statement): return SimpleNamespace(first=lambda: (task, SimpleNamespace()))
+        async def execute(self, _statement): return SimpleNamespace(first=lambda: (task, SimpleNamespace()), scalars=lambda: SimpleNamespace(all=lambda: []))
     async def trusted(*_args, **_kwargs): return SimpleNamespace(actor_ref="intruder")
     monkeypatch.setattr(router, "resolve_trusted_performance_actor", trusted)
     with pytest.raises(HTTPException) as denied:
@@ -5424,3 +5426,403 @@ def test_cleared_task_draft_binds_to_sql_null_not_json_null():
     column = PerformanceNodeTask.__table__.c.draft_answers
     assert column.nullable and column.type.none_as_null is True
     assert column.type.bind_processor(dialect())(None) is None
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_enforces_member_scope_and_current_snapshot(monkeypatch):
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceAuditEvent
+    project = SimpleNamespace(id=3, status="STARTED", cycle_ref="cycle:1", name="项目", settings={})
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    tasks = [SimpleNamespace(id=i, project_id=3, cycle_ref="cycle:1", member_snapshot_id=snapshot, target_employee_no=employee, handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None) for i, snapshot, employee in [(1, 10, "VISIBLE"), (2, 10, "HIDDEN"), (3, 9, "VISIBLE")]]
+    async def managed(*args): return [(project, {"VISIBLE"})]
+    async def eligible(*args): return [{"task_id": i, "selectable": True} for i in [1, 2, 3]]
+    async def actor(*args): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")
+    sent = []
+    async def send(task, *args): sent.append(task.id); return True, None
+    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+    monkeypatch.setattr(router, "_completion_reminder_rows", eligible)
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(router, "_send_performance_task_reminder", send)
+    class Db:
+        def __init__(self): self.events = []
+        async def scalar(self, query): return 10
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, project) for task in tasks], scalars=lambda: SimpleNamespace(all=lambda: []))
+        def add(self, event): self.events.append(event)
+        async def commit(self): pass
+    db = Db()
+    result = await router.project_management_remind(router.CycleReminderTasksPayload(cycle_id=1, node_key="work-summary", task_ids=[1, 2, 3, 99]), context(), db)
+    assert result["accepted_task_ids"] == [1]
+    assert result["skipped_task_ids"] == [2, 3, 99]
+    assert sent == [1]
+    assert db.events[0].actor_ref == "ADMIN"
+    assert db.events[0].after_state["delivery_status"] == "sent"
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_does_not_report_delivery_failure_as_success(monkeypatch):
+    from app.performance import projects_router as router
+    project = SimpleNamespace(id=3, cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    task = SimpleNamespace(id=1, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, target_employee_no="VISIBLE", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    async def managed(*args): return [(project, None)]
+    async def eligible(*args): return [{"task_id": 1, "selectable": True}]
+    async def actor(*args): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")
+    async def send(*args): return False, "failed"
+    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+    monkeypatch.setattr(router, "_completion_reminder_rows", eligible)
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(router, "_send_performance_task_reminder", send)
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, project)], scalars=lambda: SimpleNamespace(all=lambda: []))
+        async def commit(self): pass
+    result = await router.project_management_remind(router.CycleReminderTasksPayload(cycle_id=1, node_key="work-summary", task_ids=[1]), context(), Db())
+    assert result["accepted_task_ids"] == []
+    assert result["failed_task_ids"] == [1]
+    assert result["delivery_status"] == "failed"
+
+
+def test_calibration_completion_counts_handlers_not_individual_reviewees():
+    from app.performance.projects_router import _completion_task_counts
+    node = SimpleNamespace(project_id=3, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": handler, "employee_no": employee} for handler, employee in [("M1", "E1"), ("M1", "E2"), ("M2", "E3")]]}]}})
+    tasks = [SimpleNamespace(project_id=3, task_kind="calibration", phase_id="p1", handler_ref=handler, target_employee_no=employee, status=state, submitted_at=None) for handler, employee, state in [("M1", "E1", "completed"), ("M1", "E2", "pending"), ("M2", "E3", "completed")]]
+    assert _completion_task_counts(node, tasks) == (1, 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switched", [False, True])
+async def test_notification_preview_logs_without_creating_transport(monkeypatch, switched):
+    from unittest.mock import AsyncMock, Mock
+    from app.integrations.feishu import notification_service as service
+    from app.integrations.feishu.schemas import NotificationConfig, MessageConfig, ResolveResult, ResolvedReceiver
+    from app.identity_switch.service import current_switch
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
+    monkeypatch.setattr(service, "resolve_receivers", AsyncMock(return_value=ResolveResult(ok=True, receivers=[ResolvedReceiver(receiver_type="user", receiver_id="ou_test", display_name="测试接收人", source="fixed_users")])))
+    transport = Mock(side_effect=AssertionError("must not create Feishu transport"))
+    monkeypatch.setattr(service, "get_feishu_client", transport)
+    logs = []
+    class Db:
+        def add(self, log): logs.append(log); log.id = 1
+        async def flush(self): pass
+    token = current_switch.set(SimpleNamespace() if switched else None)
+    try:
+        result = await service.send_notification(NotificationConfig(message=MessageConfig(title_template="任务", content_template="待办")), {}, Db(), biz_type="performance_task_reminder", biz_id="1")
+    finally:
+        current_switch.reset(token)
+    assert result.status == "skipped" and result.success_count == 0
+    assert "NOTIFICATION_PREVIEW_ONLY" in result.errors
+    assert logs[0].result_snapshot[0]["status"] == "preview_only"
+    assert logs[0].receiver_snapshot[0]["receiver_id"] == "ou_test"
+    transport.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_preview_mode_never_counts_as_accepted(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    result = SimpleNamespace(status="skipped", success_count=0, errors=["NOTIFICATION_PREVIEW_ONLY"])
+    monkeypatch.setattr(router, "send_notification", AsyncMock(return_value=result))
+    task = SimpleNamespace(id=1, handler_ref="M1", member_snapshot_id=10, target_employee_no="E1")
+    async def scalar(_statement): return SimpleNamespace(id=8, is_active=True, feishu_user_id="ou_test")
+    ok, error = await router._send_performance_task_reminder(task, SimpleNamespace(id=3, name="项目"), SimpleNamespace(name="自评"), context(), SimpleNamespace(scalar=scalar))
+    assert ok is False
+    assert error == "NOTIFICATION_PREVIEW_ONLY"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivery,successes,expected", [("success", 1, True), ("failed", 0, False), ("skipped", 0, False), ("partial_success", 1, False)])
+async def test_cycle_reminder_calls_shared_notification_service_with_bound_handler(monkeypatch, delivery, successes, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    task = SimpleNamespace(id=1, handler_ref="M1", member_snapshot_id=10, target_employee_no="E1")
+    project = SimpleNamespace(id=3, name="真实项目")
+    node = SimpleNamespace(name="上级评估")
+    user = SimpleNamespace(id=8, is_active=True, feishu_user_id="ou_fixture")
+    class Db:
+        async def scalar(self, statement): return user
+    sending = AsyncMock(return_value=SimpleNamespace(status=delivery, success_count=successes))
+    monkeypatch.setattr(router, "send_notification", sending)
+    ok, error = await router._send_performance_task_reminder(task, project, node, context(), Db())
+    assert ok is expected
+    config, values, db = sending.call_args.args
+    assert config.receivers[0].type == "fixed_users"
+    assert config.receivers[0].user_ids == [8]
+    assert values["task_id"] == 1
+    assert values["project_name"] == "真实项目"
+    assert sending.call_args.kwargs["biz_type"] == "performance_task_reminder"
+    if not expected:
+        assert error == delivery
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_missing_handler_mapping_does_not_guess_username(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    calls = []
+    class Db:
+        async def scalar(self, statement): calls.append(statement); return None
+    sending = AsyncMock()
+    monkeypatch.setattr(router, "send_notification", sending)
+    result = await router._send_performance_task_reminder(SimpleNamespace(id=1, handler_ref="M1", member_snapshot_id=10), SimpleNamespace(id=3), SimpleNamespace(name="上级评估"), context(), Db())
+    assert result == (False, "TASK_HANDLER_IDENTITY_NOT_FOUND")
+    assert len(calls) == 1
+    sending.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibility(monkeypatch):
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceNodeTaskAuthorization
+    project = SimpleNamespace(id=3, name="测试项目", cycle_ref="cycle:1", settings={})
+    member = PerformanceProjectMember(snapshot_id=10, employee_no="E1", display_name="员工", organization_ref="集团/研发", department="研发", direct_supervisor_employee_no="M1", hrbp_employee_no="H1", job_family="产品", job_category="技术", position_level="P6")
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    task = SimpleNamespace(id=1, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, node_snapshot_id=5, target_employee_no="E1", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    async def managed(*args): return [(project, {"E1"})]
+    async def actor(*args): return SimpleNamespace(actor_ref="ADMIN")
+    async def rules(*args): return {"activity_manager": ["department"]}
+    async def role(*args): return "activity_manager"
+    async def scope(*args): return {"E1"}
+    async def progress(*args): return {"E1": "2/3"}
+    async def previous(*args): return {"E1": "P5"}
+    async def ratings(*args, **kwargs): return [], {}, []
+    for name, value in [("_managed_completion_projects", managed), ("resolve_trusted_performance_actor", actor), ("load_subject_visibility_rules", rules), ("resolve_subject_visibility_role", role), ("_communication_progress", progress), ("_previous_published_position_levels", previous), ("_project_final_ratings", ratings), ("_project_data_scope", scope)]:
+        monkeypatch.setattr(router, name, value)
+    values = {
+        PerformanceProjectMember: [member],
+        PerformanceProjectNodeSnapshot: [node],
+        PerformanceNodeTask: [task],
+        PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="快照经理", employment_status="在职"), SimpleNamespace(employee_no="H1", display_name="快照HRBP")],
+        PerformanceIdentityLink: ["M1"], PerformanceNodeTaskAuthorization: [],
+    }
+    class Db:
+        async def scalar(self, query): return 10
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    rows = await router._completion_reminder_rows(1, "work-summary", context(), Db())
+    assert rows[0]["reminder_target"] == "快照经理"
+    assert rows[0]["completion"] == "2/3"
+    assert rows[0]["selectable"] is True
+    assert rows[0]["direct_supervisor"] is None
+    assert rows[0]["previous_position_level"] is None
+    assert rows[0]["job_category"] is None
+    assert rows[0]["organization_path"] == "集团/研发"
+
+
+@pytest.mark.asyncio
+async def test_authorization_records_reject_user_without_management_permission():
+    from app.performance import projects_router as router
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as failure:
+        await router.project_management_authorization_records(1, context(), None)
+    assert failure.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_authorization_records_apply_project_employee_scope_and_revoke_events(monkeypatch):
+    from app.performance import projects_router as router
+    from datetime import UTC, datetime
+    project = SimpleNamespace(id=3, cycle_ref="cycle:1")
+    async def managed(*args): return [(project, {"E1"})]
+    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+    events = [
+        SimpleNamespace(id=3, employee_no="E1", event_type="PERFORMANCE_TASK_AUTHORIZATION_REVOKED", after_state={"project_id": 3, "authorization_id": 1}),
+        SimpleNamespace(id=2, employee_no="HIDDEN", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3}),
+        SimpleNamespace(id=1, employee_no="E1", actor_ref="A1", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3, "recipient_ref": "M1", "stage_names": ["上级评估"]}, event_at=datetime(2026, 11, 1, tzinfo=UTC)),
+    ]
+    class Db:
+        async def get(self, model, key): return None
+        async def execute(self, query): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: events))
+    result = await router.project_management_authorization_records(1, context("performance.projects.manage"), Db())
+    assert len(result["authorization_records"]) == 1
+    assert result["authorization_records"][0]["status"] == "已撤销"
+    assert result["authorization_records"][0]["can_revoke"] is False
+
+
+def test_task_authorization_migration_and_effective_handler_sql_round_trip():
+    import importlib.util
+    from pathlib import Path
+    from sqlalchemy import create_engine, text, select
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from app.performance.models import PerformanceNodeTask
+    from app.performance.task_authorization_service import task_handler_condition
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0290_performance_task_authorizations.py"
+    spec = importlib.util.spec_from_file_location("task_authorization_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE performance_projects (id BIGINT PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE performance_node_tasks (id BIGINT PRIMARY KEY, project_id BIGINT, cycle_ref TEXT, handler_ref TEXT)"))
+        connection.execute(text("INSERT INTO performance_node_tasks VALUES (1, 3, 'C1', 'ORIGINAL')"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            assert migration.down_revision == "0289_pm_task_drafts"
+            def visible(actor):
+                return connection.execute(select(PerformanceNodeTask.id).where(task_handler_condition(actor))).scalars().all()
+            assert visible("ORIGINAL") == [1]
+            assert visible("DELEGATE") == []
+            connection.execute(text("INSERT INTO performance_node_task_authorizations (id, task_id, project_id, cycle_ref, authorization_type, grantor_employee_no, recipient_employee_no, reason, status) VALUES (1, 1, 3, 'C1', 'AUTHORIZE', 'ORIGINAL', 'DELEGATE', '测试授权', 'ACTIVE')"))
+            assert visible("ORIGINAL") == [1]
+            assert visible("DELEGATE") == [1]
+            connection.execute(text("UPDATE performance_node_task_authorizations SET status='REPLACED' WHERE id=1"))
+            connection.execute(text("INSERT INTO performance_node_task_authorizations (id, task_id, project_id, cycle_ref, authorization_type, grantor_employee_no, recipient_employee_no, reason, status) VALUES (2, 1, 3, 'C1', 'TRANSFER', 'ORIGINAL', 'RECIPIENT', '测试转交', 'ACTIVE')"))
+            assert visible("ORIGINAL") == []
+            assert visible("DELEGATE") == []
+            assert visible("RECIPIENT") == [1]
+            connection.execute(text("UPDATE performance_node_task_authorizations SET status='REVOKED' WHERE id=2"))
+            assert visible("ORIGINAL") == [1]
+            assert visible("RECIPIENT") == []
+            assert connection.scalar(text("SELECT handler_ref FROM performance_node_tasks WHERE id=1")) == "ORIGINAL"
+            with pytest.raises(RuntimeError, match="禁止删除"):
+                migration.downgrade()
+            connection.execute(text("DELETE FROM performance_node_task_authorizations"))
+            migration.downgrade()
+            migration.upgrade()
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_task_authorization_persists_without_rewriting_handler_or_answers(monkeypatch):
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceNodeTaskAuthorization
+    task = SimpleNamespace(id=7, project_id=3, member_snapshot_id=10, cycle_ref="C1", handler_ref="ORIGINAL", target_employee_no="E1", task_kind="evaluation", status="pending", submitted_at=None, available_at=None, due_at=None, answers={"field": "submitted-history"}, draft_answers={"field": "draft-history"}, answer_version=4)
+    node = SimpleNamespace(id=5, project_id=3, node_type="evaluation", node_id="leader", name="上级评估", config={})
+    project = SimpleNamespace(id=3, cycle_ref="C1", status="STARTED", settings={})
+    recipient = SimpleNamespace(employee_no="RECIPIENT", display_name="被授权人", employment_status="在职")
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ORIGINAL")
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    records = []
+    class Db:
+        async def execute(self, statement):
+            if statement.column_descriptions[0]["entity"] is PerformanceNodeTaskAuthorization:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: records))
+            return SimpleNamespace(first=lambda: (task, node, project))
+        async def refresh(self, *args, **kwargs): pass
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
+        async def scalar(self, statement):
+            return recipient if statement.column_descriptions[0]["entity"] is not None and statement.column_descriptions[0]["entity"].__name__ == "PerformanceAuthorizationSnapshotPerson" else 10
+        def add(self, item):
+            if isinstance(item, PerformanceNodeTaskAuthorization): records.append(item)
+        async def flush(self):
+            for index, record in enumerate(records, 1): record.id = index
+        async def commit(self): pass
+    await router.create_task_delegation(3, 7, router.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", reason="授权代办"), context(), Db())
+    assert records[0].authorization_type == "AUTHORIZE"
+    assert task.handler_ref == "ORIGINAL"
+    assert task.answers == {"field": "submitted-history"}
+    assert task.draft_answers == {"field": "draft-history"}
+    assert task.answer_version == 4
+    assert await router._task_handlers(Db(), task) == {"ORIGINAL", "RECIPIENT"}
+
+
+@pytest.mark.asyncio
+async def test_task_delegation_grantor_and_reauthorize_boundaries(monkeypatch):
+    from app.performance import projects_router as router
+    from fastapi import HTTPException
+    task = SimpleNamespace(id=1, handler_ref="ORIGINAL", target_employee_no="E1")
+    node = SimpleNamespace(node_type="evaluation")
+    project = SimpleNamespace(settings={})
+    active = [SimpleNamespace(recipient_employee_no="DELEGATE", authorization_type="AUTHORIZE", authorization_settings={"allow_reauthorize": False})]
+    async def delegations(*args): return active
+    async def scope(*args): raise HTTPException(status_code=403, detail="PROJECT_DATA_FORBIDDEN")
+    monkeypatch.setattr(router, "_task_delegations", delegations)
+    monkeypatch.setattr(router, "_project_data_scope", scope)
+    assert await router._authorize_task_delegation(task, node, project, context(), "ORIGINAL", None)
+    assert not await router._authorize_task_delegation(task, node, project, context(), "DELEGATE", None)
+
+
+@pytest.mark.asyncio
+async def test_task_delegation_parent_revoke_replaces_descendants(monkeypatch):
+    from app.performance import projects_router as router
+    task = SimpleNamespace(id=7, cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
+    parent = SimpleNamespace(id=11, status="ACTIVE", grantor_employee_no="ORIGINAL", recipient_employee_no="RECIPIENT", authorization_settings={}, revoked_by_employee_no=None, revoked_at=None)
+    child = SimpleNamespace(id=12, status="ACTIVE", grantor_employee_no="RECIPIENT", recipient_employee_no="CHILD", authorization_settings={"parent_authorization_id": 11})
+    project = SimpleNamespace(id=3, cycle_ref="C1")
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ORIGINAL")
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    class Db:
+        async def execute(self, statement):
+            return SimpleNamespace(first=lambda: (task, SimpleNamespace(), project, parent), scalars=lambda: SimpleNamespace(all=lambda: [parent, child]))
+        async def refresh(self, *args, **kwargs): pass
+        def add(self, item): pass
+        async def commit(self): pass
+    await router.revoke_task_delegation(3, 7, 11, context(), Db())
+    assert parent.status == "REVOKED"
+    assert child.status == "REPLACED"
+    assert task.answers == {"grade": "A"} and task.draft_answers == {"grade": "B"}
+
+
+@pytest.mark.asyncio
+async def test_revoke_task_authorization_preserves_submitted_and_draft_answers(monkeypatch):
+    from app.performance import projects_router as router
+    task = SimpleNamespace(id=7, cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
+    record = SimpleNamespace(id=11, status="ACTIVE", grantor_employee_no="ORIGINAL", recipient_employee_no="RECIPIENT")
+    project = SimpleNamespace(id=3, cycle_ref="C1")
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ORIGINAL")
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    class Db:
+        async def execute(self, statement): return SimpleNamespace(first=lambda: (task, SimpleNamespace(), project, record), scalars=lambda: SimpleNamespace(all=lambda: []))
+        async def refresh(self, *args, **kwargs): pass
+        def add(self, item): pass
+        async def commit(self): pass
+    result = await router.revoke_task_delegation(3, 7, 11, context(), Db())
+    assert result == {"id": 11, "status": "REVOKED", "answer_version": 9}
+    assert task.answers == {"grade": "A"}
+    assert task.draft_answers == {"grade": "B"}
+    assert record.revoked_by_employee_no == "ORIGINAL"
+
+
+@pytest.mark.asyncio
+async def test_authorization_postgres_migration_and_reopen():
+    import os
+    if os.getenv("RUN_PERFORMANCE_DB_TEST") != "1":
+        pytest.skip("需显式启用本地隔离数据库验收")
+    import importlib.util
+    from pathlib import Path
+    from uuid import uuid4
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    assert settings.DB_HOST in {"127.0.0.1", "localhost"} and settings.APP_ENV != "prod"
+    schema = "pm_auth_" + uuid4().hex
+    engine = create_async_engine(settings.db_url_async)
+    path = Path(__file__).resolve().parents[1] / "alembic/versions/0290_performance_task_authorizations.py"
+    spec = importlib.util.spec_from_file_location("authorization_pg_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            await connection.execute(text("CREATE TABLE performance_projects (id BIGINT PRIMARY KEY)"))
+            await connection.execute(text("CREATE TABLE performance_node_tasks (id BIGINT PRIMARY KEY)"))
+            def upgrade(sync):
+                with Operations.context(MigrationContext.configure(sync)):
+                    migration.upgrade()
+            await connection.run_sync(upgrade)
+            await connection.execute(text("INSERT INTO performance_projects VALUES (1)"))
+            await connection.execute(text("INSERT INTO performance_node_tasks VALUES (1)"))
+            await connection.execute(text("INSERT INTO performance_node_task_authorizations (task_id,project_id,cycle_ref,authorization_type,grantor_employee_no,recipient_employee_no,reason,authorization_settings) VALUES (1,1,'C1','AUTHORIZE','A','B','test',CAST(:settings AS JSONB))"), {"settings": '{"allow_reauthorize":true}'})
+        async with engine.begin() as connection:
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            assert (await connection.execute(text("SELECT recipient_employee_no, authorization_settings->>'allow_reauthorize' FROM performance_node_task_authorizations"))).one() == ("B", "true")
+            await connection.execute(text("UPDATE performance_node_task_authorizations SET status='REVOKED'"))
+        async with engine.begin() as connection:
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
+            assert await connection.scalar(text("SELECT status FROM performance_node_task_authorizations")) == "REVOKED"
+            def downgrade(sync):
+                with Operations.context(MigrationContext.configure(sync)):
+                    migration.downgrade()
+            with pytest.raises(RuntimeError, match="禁止删除"):
+                await connection.run_sync(downgrade)
+            await connection.execute(text("DELETE FROM performance_node_task_authorizations"))
+            await connection.run_sync(downgrade)
+            await connection.run_sync(upgrade)
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()

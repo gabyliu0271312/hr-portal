@@ -26,8 +26,8 @@
         <div v-if="!selectedProject" class="cycle-overview">
           <PerformancePageTitle title="周期概览" />
           <PerformanceLineTabs v-model="activeTab" :tabs="overviewTabs">
-            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" @action="handleCompletionAction" />
-            <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="emit('authorization-view', $event)" />
+            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
+            <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
@@ -41,8 +41,8 @@
         </div>
       </template>
     </section>
-    <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" @close="closeReminder">
-      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderMode === 'open-result' ? '仅可选择当前周期内符合开通条件的被评估人' : undefined" @filter="handleReminderFilter" @export="handleReminderExport" />
+    <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
+      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" @export="handleReminderExport" />
     </PerformanceTaskOverlay>
   </div>
 </template>
@@ -52,7 +52,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   projectManagementApi,
-  performanceWorkbenchApi,
   type PerformanceReviewCategory,
   type PerformanceReviewNode,
   type ProjectManagementOverview,
@@ -98,18 +97,8 @@ const loading = ref(true)
 const error = ref('')
 const reminderOpen = ref(false)
 const reminderMode = ref<'remind' | 'open-result'>('remind')
-const reminderContext = ref<ReminderContext | null>(null)
-
-const fallbackCompletionNodes: CompletionNode[] = [
-  { key: 'work-summary', title: '填写工作总结', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'self-review', title: '自评', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'review-360', title: '360°反馈（自愿评估）', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'manager-review', title: '上级评估', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'calibration', title: '绩效校准', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'communicate', title: '绩效沟通并开通结果', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'view-result', title: '查看绩效结果', progress: '--', deadline: null, status: 'unavailable' },
-  { key: 'result-reconsideration', title: '结果复议处理', progress: '--', deadline: null, status: 'unavailable' },
-]
+type ReminderContextWithDescription = ReminderContext & { description?: string; nodeKey?: string }
+const reminderContext = ref<ReminderContextWithDescription | null>(null)
 
 function formatDeadline(value: string | null) {
   if (!value) return null
@@ -127,19 +116,20 @@ function formatDeadline(value: string | null) {
 }
 
 const completionNodes = computed<CompletionNode[]>(() => {
-  const loaded = overview.value?.completion_nodes
-  if (!loaded) return fallbackCompletionNodes
-  return loaded.map(node => ({
+  const loaded = overview.value?.completion_nodes || []
+  return loaded.filter(node => node.configured !== false && node.status !== 'unavailable').map(node => ({
     key: node.key,
     title: node.title,
     status: node.status,
     progress: node.status === 'not_started' ? '未开始' : node.completion_rate == null ? '--' : `${node.completion_rate.toFixed(2)}%`,
-    completionStatus: node.status === 'unavailable' ? '--' : `${node.completed_count}/${node.total_count}`,
+    completionStatus: `${node.completed_count}/${node.total_count}`,
     deadline: formatDeadline(node.deadline_at),
+    canRemind: node.can_remind,
+    reminderTitle: node.reminder_title,
+    reminderDescription: node.reminder_description,
   }))
 })
 
-// 授权管理卡：本期静态数据（采集快照），查看动作待后续任务
 const authorizations = ref<AuthorizationItem[]>([
   { key: 'evaluation-transfer', title: '评估任务授权及转交', description: '查看和管理评估任务授权转交记录' },
   { key: 'calibration-auth', title: '校准任务授权', description: '可协助校准人将任务授权他人校准' },
@@ -221,46 +211,25 @@ async function selectNode(node: PerformanceReviewNode) {
   await router.replace({ query })
 }
 
-async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string }) {
+async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description: string }) {
   emit('completion-action', payload)
   if (payload.action === 'enable-result' && activeCycle.value) {
     reminderMode.value = 'open-result'
     reminderContext.value = {
       projectId: 0, cycleId: activeCycle.value.cycle_id, nodeId: 'result-view', nodeType: 'result_view',
       reviewType: 'result_opening', title: '开通绩效结果', sectionTitle: '未开通的被评估人',
+      description: '仅可选择当前周期内符合开通条件的被评估人',
     }
     reminderOpen.value = true
     return
   }
-  if (payload.action !== 'remind' || !activeCycle.value || !memberProjectId.value) return
-  reminderMode.value = 'remind'
-  try {
-    const groups = await performanceWorkbenchApi.tasks(memberProjectId.value, 'pending')
-    const taskGroup = groups.find(group => payload.nodeKey === 'manager-review'
-      ? group.node_type === 'evaluation' && group.node_name.includes('上级评估')
-      : group.node_type === payload.nodeKey)
-    reminderContext.value = {
-      projectId: memberProjectId.value,
-      cycleId: activeCycle.value.cycle_id,
-      nodeId: taskGroup?.node_id || payload.nodeKey,
-      nodeType: taskGroup?.node_type || 'evaluation',
-      reviewType: 'leader_review',
-      title: '上级评估',
-      sectionTitle: '未完成的被评估人',
-    }
-    reminderOpen.value = true
-  } catch {
-    reminderContext.value = {
-      projectId: memberProjectId.value,
-      cycleId: activeCycle.value.cycle_id,
-      nodeId: payload.nodeKey,
-      nodeType: 'evaluation',
-      reviewType: 'leader_review',
-      title: '上级评估',
-      sectionTitle: '未完成的被评估人',
-    }
-    reminderOpen.value = true
-  }
+  if (payload.action !== 'remind' || !activeCycle.value) return
+  await router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(activeCycle.value.cycle_id), node_key: payload.nodeKey } })
+}
+
+async function handleAuthorizationView(item: AuthorizationItem) {
+  if (!activeCycle.value) return
+  await router.push({ name: item.key === 'calibration-auth' ? 'PerformanceCalibrationAuthorization' : 'PerformanceAuthorizationRecords', query: { cycle_id: String(activeCycle.value.cycle_id) } })
 }
 
 function closeReminder() {
@@ -284,6 +253,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+:where(.project-management-page, .project-reminder-page, .authorization-records, .calibration-authorization) { font-family: 'Helvetica Neue', Tahoma, 'PingFang SC', 'Microsoft Yahei', Arial, 'Hiragino Sans GB', sans-serif; }
+
 .project-management-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 .management-content { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; overflow-y: auto; padding: var(--performance-review-surface-inset) var(--performance-review-surface-inset) 24px; background: var(--performance-line-tabs-surface); }
 .cycle-overview { display: flex; min-width: 0; flex-direction: column; }

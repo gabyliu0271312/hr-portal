@@ -17,12 +17,16 @@ from app.performance.authorization_service import AuditEventInput, ObjectAuthori
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.integrations.feishu.notification_service import send_notification
+from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
+from app.users.models import User
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
+from app.performance.task_authorization_service import effective_handlers, task_handler_condition
 
 router = APIRouter(prefix="/performance", tags=["performance-projects"])
 
@@ -73,6 +77,49 @@ class ReminderTasksPayload(BaseModel):
     task_ids: list[int] = Field(min_length=1, max_length=500)
 
 
+class CycleReminderTasksPayload(BaseModel):
+    cycle_id: int = Field(ge=1)
+    node_key: str = Field(min_length=1, max_length=64)
+    task_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class PerformanceTaskAuthorizationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["AUTHORIZE", "TRANSFER"]
+    recipient_employee_no: str = Field(min_length=1, max_length=64)
+    reason: str = Field(default="", max_length=1000)
+    scope_mode: Literal["PARTIAL", "ALL"] = "ALL"
+    scope_kind: Literal["DIRECT_SUBORDINATES", "DEPARTMENT", "PEOPLE"] = "PEOPLE"
+    selected_employee_nos: list[str] = Field(default_factory=list, max_length=1000)
+    department_paths: list[str] = Field(default_factory=list, max_length=100)
+    distribution_mode: Literal["INHERIT", "NONE"] = "INHERIT"
+    allow_reauthorize: bool = False
+    notify_original: bool = False
+
+
+async def _task_delegations(db: AsyncSession, task_id: int) -> list[PerformanceNodeTaskAuthorization]:
+    return list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+        PerformanceNodeTaskAuthorization.task_id == task_id,
+        PerformanceNodeTaskAuthorization.status == "ACTIVE",
+    ).order_by(PerformanceNodeTaskAuthorization.created_at, PerformanceNodeTaskAuthorization.id))).scalars().all())
+
+
+async def _task_handlers(db: AsyncSession, task: PerformanceNodeTask) -> set[str]:
+    return effective_handlers(task.handler_ref, await _task_delegations(db, task.id))
+
+
+async def _task_handler_allowed(db: AsyncSession, task: PerformanceNodeTask, actor_ref: str) -> bool:
+    return str(actor_ref) in await _task_handlers(db, task)
+
+
+async def _task_edit_allowed(db: AsyncSession, task: PerformanceNodeTask, actor_ref: str) -> bool:
+    active = await _task_delegations(db, task.id)
+    transfers = [item for item in active if item.authorization_type == "TRANSFER"]
+    if not transfers and str(task.handler_ref) == str(actor_ref):
+        return True
+    return any(item.recipient_employee_no == str(actor_ref) and not item.read_only for item in active)
+
+
 async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None) -> tuple[PerformanceNodeTask, PerformanceProjectNodeSnapshot]:
     row = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id).where(PerformanceNodeTask.id == task_id))).first()
     if not row:
@@ -81,7 +128,7 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
         trusted = await resolve_trusted_performance_actor(db, actor, cycle_ref=row[0].cycle_ref, require_employee_identity=True)
     except PerformanceIdentityMappingNotFound:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
-    if str(row[0].handler_ref) != trusted.actor_ref:
+    if not await _task_handler_allowed(db, row[0], trusted.actor_ref):
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     allowed_kinds = {"evaluation", "calibration", "result_communication"} if task_kind == "evaluation" else {task_kind}
     if row[0].task_kind not in allowed_kinds:
@@ -89,17 +136,20 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
     if target_employee_no and target_employee_no != row[0].target_employee_no:
         target_query = select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id).where(
             PerformanceNodeTask.node_snapshot_id == row[0].node_snapshot_id,
-            PerformanceNodeTask.handler_ref == row[0].handler_ref,
             PerformanceNodeTask.target_employee_no == target_employee_no,
             PerformanceNodeTask.task_kind == row[0].task_kind,
             PerformanceNodeTask.project_id == row[0].project_id,
             PerformanceNodeTask.member_snapshot_id == row[0].member_snapshot_id,
             PerformanceNodeTask.phase_id == (getattr(row[0], "phase_id", "") or ""),
         )
-        target_row = (await db.execute(target_query)).first()
-        if not target_row:
+        target_rows = (await db.execute(target_query)).all()
+        row = None
+        for candidate in target_rows:
+            if await _task_handler_allowed(db, candidate[0], trusted.actor_ref):
+                row = candidate
+                break
+        if not row:
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-        row = target_row
     if row[0].task_kind == "calibration":
         if not calibration_task_scope(row[0], row[1]):
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
@@ -369,6 +419,8 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         actor_ref = str(actor.actor_ref)
     except (AttributeError, AssertionError, IndexError):
         actor_ref = str(getattr(task, "handler_ref", context.subject_id))
+    if isinstance(task, PerformanceNodeTask) and not await _task_edit_allowed(db, task, actor_ref):
+        editable, submit_allowed = False, False
     visibility_role = await resolve_subject_visibility_role(db, context, actor_ref, member, node, project)
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     return {
@@ -430,8 +482,13 @@ async def get_template_task(task_id: int, context: PerformanceAccessContext = De
 
 async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, submit: bool, context: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
+    actor = SimpleNamespace(actor_type="EMPLOYEE" if context.effective_employee_no else context.subject_type, actor_ref=context.effective_employee_no or str(context.subject_id))
     if isinstance(task, PerformanceNodeTask):
+        trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=task.cycle_ref, require_employee_identity=True)
+        actor = trusted
         await db.refresh(task, with_for_update=True)
+        if not await _task_edit_allowed(db, task, trusted.actor_ref):
+            raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
@@ -459,7 +516,16 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     else:
         task.draft_answers = answers if answers != project_self_summary_answers(schema, task.answers or {}) else None
     if getattr(task, "task_kind", None) == "calibration":
-        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type="EMPLOYEE", actor_ref=task.handler_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"answers": before_answers}, after_state={"answers": task.answers if submit else task.draft_answers, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
+        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"answers": before_answers}, after_state={"answers": task.answers if submit else task.draft_answers, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
+    if isinstance(task, PerformanceNodeTask) and task.task_kind != "calibration":
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_TASK_SUBMITTED" if submit else "PERFORMANCE_TASK_DRAFT_SAVED",
+            cycle_ref=task.cycle_ref, employee_no=task.target_employee_no,
+            actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+            subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
+            before_state={"version": task.answer_version},
+            after_state={"project_id": task.project_id, "node_id": node.node_id, "version": task.answer_version + 1},
+        ))
     task.answer_version += 1
     if submit:
         task.submitted_at = datetime.now(UTC)
@@ -504,8 +570,13 @@ async def discard_template_task_draft(task_id: int, payload: TaskDraftVersionPay
 
 async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, context: PerformanceAccessContext, db: AsyncSession, task_kind: str, employee_no: str | None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, employee_no)
+    actor = SimpleNamespace(actor_type="EMPLOYEE" if context.effective_employee_no else context.subject_type, actor_ref=context.effective_employee_no or str(context.subject_id))
     if isinstance(task, PerformanceNodeTask):
+        trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=task.cycle_ref, require_employee_identity=True)
+        actor = trusted
         await db.refresh(task, with_for_update=True)
+        if not await _task_edit_allowed(db, task, trusted.actor_ref):
+            raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if task.task_kind == "calibration" else await _overdue_submission_allowed(task, node, db)
@@ -515,7 +586,7 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
     if payload.version != task.answer_version:
         raise HTTPException(status_code=409, detail="VERSION_CONFLICT")
     if task.task_kind == "calibration" and getattr(task, "draft_answers", None) is not None:
-        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_DRAFT_DISCARDED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type="EMPLOYEE", actor_ref=task.handler_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"draft_answers": task.draft_answers}, after_state={"draft_answers": None, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
+        PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_DRAFT_DISCARDED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"draft_answers": task.draft_answers}, after_state={"draft_answers": None, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
     task.draft_answers = None
     task.answer_version += 1
     await db.commit()
@@ -1736,8 +1807,8 @@ _COMPLETION_NODE_DEFINITIONS = (
 )
 
 
-def _completion_node_key(node: PerformanceProjectNodeSnapshot) -> str | None:
-    template = (node.config or {}).get("template") or {}
+def _completion_node_key(node: PerformanceProjectNodeSnapshot, template: dict | None = None) -> str | None:
+    template = template if template is not None else ((node.config or {}).get("template") or {})
     if node.node_type == "work_summary":
         return "work-summary"
     if node.node_type in {"reviewer_360_invite", "reviewer_360_confirm"}:
@@ -1756,6 +1827,10 @@ def _completion_node_key(node: PerformanceProjectNodeSnapshot) -> str | None:
         "result_view": "view-result",
         "result_reconsideration": "result-reconsideration",
     }.get(node.node_type)
+
+
+async def _completion_node_template(db: AsyncSession, project: PerformanceProject, node: PerformanceProjectNodeSnapshot) -> dict:
+    return (node.config or {}).get("template") or {}
 
 
 def _safe_node_time(value: object) -> datetime | None:
@@ -1778,11 +1853,24 @@ def _completion_node_status(starts: list[datetime], deadlines: list[datetime], c
     return "active"
 
 
+def _completion_task_counts(node, tasks):
+    if node.node_type == "calibration":
+        groups = {}
+        for task in tasks:
+            if calibration_task_scope(task, node):
+                groups.setdefault((task.phase_id, task.handler_ref), []).append(task)
+        return sum(all(_task_completed(task) for task in group) for group in groups.values()), len(groups)
+    return sum(_task_completed(task) for task in tasks), len(tasks)
+
+
 async def _project_completion_nodes(projects: list[PerformanceProject], db: AsyncSession, now: datetime | None = None, scopes: dict[int, set[str] | None] | None = None) -> list[dict]:
     current = now or datetime.now(UTC)
     states = {
-        key: {"configured": 0, "starts": [], "deadlines": [], "completed": 0, "total": 0}
-        for key, _title in _COMPLETION_NODE_DEFINITIONS
+        key: {
+            "configured": 0, "starts": [], "deadlines": [], "completed": 0, "total": 0,
+            "available_pending": 0, "title": title, "node_type": None,
+        }
+        for key, title in _COMPLETION_NODE_DEFINITIONS
     }
     for project in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
@@ -1810,11 +1898,14 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         for task in tasks:
             tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
         for node in nodes:
-            key = _completion_node_key(node)
+            template = await _completion_node_template(db, project, node)
+            key = _completion_node_key(node, template)
             if key is None:
                 continue
             state = states[key]
             state["configured"] += 1
+            state["title"] = str(template.get("name") or getattr(node, "name", None) or state["title"])
+            state["node_type"] = node.node_type
             timing = _node_timing(project, node) or {}
             start_at = _safe_node_time(timing.get("start_at"))
             deadline_at = _safe_node_time(timing.get("end_at") or timing.get("appeal_deadline"))
@@ -1822,35 +1913,49 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
                 state["starts"].append(start_at)
             if deadline_at is not None:
                 state["deadlines"].append(deadline_at)
+            node_tasks = tasks_by_node.get(node.id, [])
             if node.node_type == "result_view":
                 total = len(members)
                 completed = sum(member.employee_no in opened_people for member in members)
             else:
-                node_tasks = tasks_by_node.get(node.id, [])
-                total = len(node_tasks) if node.node_type == "result_reconsideration" else (len(node_tasks) or len(members))
-                completed = sum(1 for task in node_tasks if _task_completed(task))
+                completed, total = _completion_task_counts(node, node_tasks)
+                state["available_pending"] += sum(
+                    1 for task in node_tasks
+                    if not _task_completed(task) and task.status == "pending" and _task_is_available(task, node, project, current)
+                )
             state["total"] += total
             state["completed"] += completed
 
     result = []
-    for key, title in _COMPLETION_NODE_DEFINITIONS:
+    for key, fallback_title in _COMPLETION_NODE_DEFINITIONS:
         state = states[key]
         if not state["configured"]:
             result.append({
-                "key": key, "title": title, "status": "unavailable",
+                "key": key, "title": fallback_title, "status": "unavailable",
                 "completed_count": 0, "total_count": 0, "completion_rate": None, "deadline_at": None,
+                "configured": False, "can_remind": False, "reminder_title": None, "reminder_description": None,
             })
             continue
         completed = state["completed"]
         total = state["total"]
+        status_value = _completion_node_status(state["starts"], state["deadlines"], completed, total, current)
+        reminder_title = state["title"]
+        can_remind = bool(
+            key not in {"view-result", "result-reconsideration"}
+            and status_value in {"active", "overdue"}
+            and state["available_pending"] > 0
+        )
         result.append({
             "key": key,
-            "title": title,
-            "status": _completion_node_status(state["starts"], state["deadlines"], completed, total, current),
+            "title": state["title"],
+            "status": status_value,
             "completed_count": completed,
             "total_count": total,
             "completion_rate": round(completed * 100 / total, 2) if total else 0,
             "deadline_at": min(state["deadlines"]) if state["deadlines"] else None,
+            "can_remind": can_remind,
+            "reminder_title": reminder_title,
+            "configured": True,
         })
     return result
 
@@ -1948,6 +2053,457 @@ async def frontend_navigation(
     }
 
 
+async def _managed_completion_projects(cycle_id: int, context: PerformanceAccessContext, db: AsyncSession) -> list[tuple[PerformanceProject, set[str] | None]]:
+    access = await resolve_frontend_access(db, context)
+    cycle = next((cycle for cycle in access.cycles if cycle.id == cycle_id), None)
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    managed = [(project, cycle_item) for project, cycle_item in access.manage_projects if cycle_item.id == cycle_id]
+    if not managed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    result: list[tuple[PerformanceProject, set[str] | None]] = []
+    for project, _cycle in managed:
+        try:
+            scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                continue
+            raise
+        result.append((project, scope))
+    if not result:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="PROJECT_DATA_FORBIDDEN")
+    return result
+
+
+async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None) -> list[dict]:
+    if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key in {"view-result", "result-reconsideration"}:
+        raise HTTPException(status_code=422, detail="REMINDER_NODE_NOT_SUPPORTED")
+    projects = await _managed_completion_projects(cycle_id, context, db)
+    visibility_rules = await load_subject_visibility_rules(db)
+    actor = await resolve_trusted_performance_actor(db, context)
+    search = (keyword or '').strip().lower()
+    rows: list[dict] = []
+    for project, scope in projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        if snapshot_id is None:
+            continue
+        members = list((await db.execute(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id))).scalars().all())
+        if scope is not None:
+            members = [member for member in members if member.employee_no in scope]
+        member_by_employee = {member.employee_no: member for member in members}
+        snapshot = await db.get(PerformanceProjectMemberSnapshot, snapshot_id)
+        people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+        ))).scalars().all())
+        people_by_no = {person.employee_no: person for person in people}
+        handler_names = {person.employee_no: person.display_name for person in people}
+        progress = await _communication_progress(db, project, set(member_by_employee))
+        previous_levels = await _previous_published_position_levels(db, project, set(member_by_employee))
+        _ratings, final_values, _scales = await _project_final_ratings(project, set(member_by_employee), db, member_snapshot_id=snapshot_id)
+        delivery_handlers = set((await db.execute(select(PerformanceIdentityLink.employee_no).join(
+            User, User.id == PerformanceIdentityLink.portal_user_id,
+        ).where(PerformanceIdentityLink.employee_no.in_(list(people_by_no)), PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True), User.feishu_user_id.is_not(None), User.feishu_user_id != ""))).scalars().all())
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+        for node in nodes:
+            template = await _completion_node_template(db, project, node)
+            if _completion_node_key(node, template) != node_key:
+                continue
+            tasks = list((await db.execute(select(PerformanceNodeTask).where(
+                PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.member_snapshot_id == snapshot_id,
+                PerformanceNodeTask.node_snapshot_id == node.id,
+                PerformanceNodeTask.status == "pending",
+            ).order_by(PerformanceNodeTask.id))).scalars().all())
+            for task in tasks:
+                if (task.target_employee_no not in member_by_employee or _task_completed(task)
+                    or not _task_is_available(task, node, project)
+                    or (node.node_type == "calibration" and not calibration_task_scope(task, node))):
+                    continue
+                member = member_by_employee[task.target_employee_no]
+                if search and search not in f"{member.display_name} {member.employee_no}".lower():
+                    continue
+                visibility_role = await resolve_subject_visibility_role(db, context, str(actor.actor_ref), member, node, project)
+                visible_fields = visibility_rules[visibility_role]
+                handlers = await _task_handlers(db, task)
+                eligible_handlers = handlers & delivery_handlers
+                values = {
+                    "task_id": task.id,
+                    "aggregate_task_id": task.id,
+                    "employee_no": member.employee_no,
+                    "display_name": member.display_name,
+                    "status": _review_task_status(task, *[value.isoformat() if value else None for value in _task_window(task, node, project)]),
+                    "project_id": project.id,
+                    "project_name": project.name,
+                    "rating": final_values[task.target_employee_no][3]["label"] if task.target_employee_no in final_values else None,
+                    "organization_path": getattr(member, "organization_ref", None) if "department" in visible_fields else None,
+                    "previous_position_level": previous_levels.get(task.target_employee_no) if "position_level" in visible_fields else None,
+                    "job_category": member.job_category if "job_sequence" in visible_fields else None,
+                    "reminder_target": "、".join(handler_names.get(handler, handler) for handler in sorted(handlers)),
+                    "completion": progress.get(task.target_employee_no, "0/0"),
+                    "direct_supervisor": handler_names.get(member.direct_supervisor_employee_no),
+                    "hrbp": handler_names.get(str(member.hrbp_employee_no), str(member.hrbp_employee_no) if member.hrbp_employee_no else None),
+                    "job_sequence": format_job_sequence(member.job_family, member.job_category),
+                    "position_level": member.position_level,
+                    "hire_date": member.hire_date.isoformat() if member.hire_date else None,
+                    "department": organization_leaf(member),
+                    "employee_type": member.employee_type,
+                    "employment_status": member.employment_status,
+                    "due_at": _task_window(task, node, project)[1],
+                    "visible_profile_fields": visible_fields,
+                    "can_authorize": await _authorize_task_delegation(task, node, project, context, str(actor.actor_ref), db),
+                    "selectable": any(handler in people_by_no and getattr(people_by_no[handler], "employment_status", None) not in {"离职", "已离职"} for handler in eligible_handlers),
+                    "unavailable_reason": None if eligible_handlers else "处理人未关联可用的飞书账号",
+                }
+                rows.append(mask_profile_values(values, visible_fields))
+    return rows
+
+
+async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession) -> bool:
+    if node.node_type == "calibration":
+        if not calibration_task_scope(task, node):
+            return False
+    active = await _task_delegations(db, task.id)
+    if node.node_type == "calibration" and any(item.recipient_employee_no == actor_ref and (item.authorization_settings or {}).get("allow_reauthorize") for item in active):
+        return True
+    if node.node_type == "calibration":
+        calibration = (node.config or {}).get("calibration") or {}
+        phase = next((item for item in calibration.get("phases", []) if item.get("phase_id") == task.phase_id), {})
+        assignment = next((item for item in phase.get("assignments", []) if item.get("handler_ref") == task.handler_ref and item.get("employee_no") == task.target_employee_no), {})
+        if not assignment.get("allow_authorize"):
+            return False
+    transfers = [item for item in active if item.authorization_type == "TRANSFER"]
+    if (not transfers and str(task.handler_ref) == actor_ref) or any(item.recipient_employee_no == actor_ref for item in transfers):
+        return True
+    try:
+        scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return False
+        raise
+    return scope is None or task.target_employee_no in scope
+
+
+@router.get("/projects/{project_id}/tasks/{task_id}/delegation-candidates")
+async def task_delegation_candidates(
+    project_id: int,
+    task_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    row = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject).join(
+        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(
+        PerformanceNodeTask.id == task_id, PerformanceProject.id == project_id,
+    ))).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    task, node, project = row
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
+        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    snapshot = await db.get(PerformanceProjectMemberSnapshot, task.member_snapshot_id)
+    people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+    ))).scalars().all())
+    setting = await db.get(PerformanceOtherSetting, 1)
+    restrict_subordinates = node.node_type == "calibration" and setting and not setting.calibration_authorization_outside_direct_reports_enabled
+    scope = await _project_data_scope(context, project, db, "performance.frontend.progress") if {"performance.projects.manage", "performance.cycles.manage"}.intersection(context.permission_codes) else None
+    return [{"employee_no": person.employee_no, "display_name": person.display_name, "department_path": "/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)), "direct_supervisor_employee_no": person.direct_supervisor_employee_no} for person in people
+            if person.employee_no != task.handler_ref and person.employment_status not in {"离职", "已离职"}
+            and (scope is None or person.employee_no in scope)
+            and (not restrict_subordinates or person.direct_supervisor_employee_no == task.handler_ref)]
+
+
+@router.post("/projects/{project_id}/tasks/{task_id}/delegations")
+async def create_task_delegation(
+    project_id: int,
+    task_id: int,
+    payload: PerformanceTaskAuthorizationPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    row = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject).join(
+        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(
+        PerformanceNodeTask.id == task_id, PerformanceProject.id == project_id,
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+    ))).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    task, node, project = row
+    await db.refresh(task, with_for_update=True)
+    current_snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+    if task.member_snapshot_id != current_snapshot_id or node.project_id != project.id:
+        raise HTTPException(status_code=409, detail="TASK_SNAPSHOT_NOT_CURRENT")
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
+        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    snapshot = await db.get(PerformanceProjectMemberSnapshot, task.member_snapshot_id)
+    recipient = await db.scalar(select(PerformanceAuthorizationSnapshotPerson).where(
+        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+        PerformanceAuthorizationSnapshotPerson.employee_no == payload.recipient_employee_no,
+    ))
+    if recipient is None or recipient.employee_no == task.handler_ref or recipient.employment_status in {"离职", "已离职"}:
+        raise HTTPException(status_code=422, detail="TASK_AUTHORIZATION_RECIPIENT_INVALID")
+    if node.node_type == "calibration":
+        setting = await db.get(PerformanceOtherSetting, 1)
+        if setting and not setting.calibration_authorization_outside_direct_reports_enabled and recipient.direct_supervisor_employee_no != task.handler_ref:
+            raise HTTPException(status_code=403, detail="CALIBRATION_RECIPIENT_OUTSIDE_SCOPE")
+    if not _task_is_available(task, node, project):
+        raise HTTPException(status_code=409, detail="TASK_NOT_STARTED")
+    if node.node_type == "calibration" and payload.action == "TRANSFER":
+        raise HTTPException(status_code=422, detail="CALIBRATION_TRANSFER_NOT_SUPPORTED")
+    if node.node_type != "calibration" and not payload.reason.strip():
+        raise HTTPException(status_code=422, detail="TASK_AUTHORIZATION_REASON_REQUIRED")
+    if _task_completed(task) and node.node_type != "calibration":
+        raise HTTPException(status_code=409, detail="TASK_ALREADY_COMPLETED")
+    if node.node_type == "calibration" and payload.distribution_mode == "NONE":
+        raise HTTPException(status_code=422, detail="CALIBRATION_DISTRIBUTION_OVERRIDE_UNSUPPORTED")
+    if node.node_type == "calibration":
+        calibration_settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}).get(node.node_id, {}).get("calibration") or {}
+        if calibration_settings.get("force_distribution_enabled"):
+            raise HTTPException(status_code=409, detail="CALIBRATION_DISTRIBUTION_AUTHORIZATION_UNSUPPORTED")
+    if node.node_type == "calibration" and payload.scope_mode == "PARTIAL":
+        target = await db.scalar(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == task.member_snapshot_id, PerformanceProjectMember.employee_no == task.target_employee_no))
+        in_scope = target is not None and (
+            (payload.scope_kind == "DIRECT_SUBORDINATES" and target.direct_supervisor_employee_no == recipient.employee_no)
+            or (payload.scope_kind == "PEOPLE" and task.target_employee_no in payload.selected_employee_nos)
+            or (payload.scope_kind == "DEPARTMENT" and any(_organization_in_scope(target.organization_ref, [path]) for path in payload.department_paths))
+        )
+        if not in_scope:
+            raise HTTPException(status_code=422, detail="CALIBRATION_AUTHORIZATION_SCOPE_MISMATCH")
+    active = await _task_delegations(db, task.id)
+    if payload.action == "TRANSFER":
+        for item in active:
+            item.status = "REPLACED"
+    elif any(item.authorization_type == "AUTHORIZE" and item.recipient_employee_no == recipient.employee_no for item in active):
+        raise HTTPException(status_code=409, detail="TASK_ALREADY_AUTHORIZED")
+    parent = next((item for item in active if item.recipient_employee_no == actor.actor_ref and (item.authorization_settings or {}).get("allow_reauthorize")), None) if actor.actor_ref != str(task.handler_ref) else None
+    authorization_settings = payload.model_dump(exclude={"action", "recipient_employee_no", "reason"})
+    if parent:
+        authorization_settings["parent_authorization_id"] = parent.id
+    record = PerformanceNodeTaskAuthorization(
+        task_id=task.id, project_id=project.id, cycle_ref=project.cycle_ref,
+        authorization_type=payload.action, grantor_employee_no=actor.actor_ref,
+        recipient_employee_no=recipient.employee_no, reason=payload.reason.strip(), status="ACTIVE",
+        read_only=_task_completed(task) or bool(parent and parent.read_only), authorization_settings=authorization_settings,
+    )
+    db.add(record)
+    await db.flush()
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PERFORMANCE_TASK_TRANSFERRED" if payload.action == "TRANSFER" else "PERFORMANCE_TASK_AUTHORIZED",
+        cycle_ref=project.cycle_ref, employee_no=task.target_employee_no,
+        actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+        subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
+        after_state={"project_id": project.id, "authorization_id": str(record.id), "authorization_type": payload.action,
+                     "recipient_employee_no": recipient.employee_no, "recipient_name": recipient.display_name,
+                     "initiator_name": context.display_name or actor.actor_ref,
+                     "stage_names": [node.name], "reviewee_names": [task.target_employee_no], "reason": record.reason},
+    ))
+    notification_status = "not_requested"
+    if payload.notify_original:
+        original_user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).where(
+            PerformanceIdentityLink.employee_no == task.handler_ref, PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True),
+        ))
+        if original_user and original_user.feishu_user_id:
+            notice_result = await send_notification(NotificationConfig(
+                receivers=[FixedUsersRule(type="fixed_users", user_ids=[original_user.id])],
+                message=MessageConfig(title_template="绩效任务授权通知", content_template="项目“{{project_name}}”中的“{{node_name}}”已授权给{{recipient_name}}处理。"),
+            ), {"project_name": project.name, "node_name": node.name, "recipient_name": recipient.display_name}, db,
+                biz_type="performance_task_authorization", biz_id=str(record.id))
+            notification_status = "preview_only" if "NOTIFICATION_PREVIEW_ONLY" in notice_result.errors else notice_result.status
+        else:
+            notification_status = "recipient_unmapped"
+    record.authorization_settings = {**record.authorization_settings, "notification_status": notification_status}
+    await db.commit()
+    return {"id": record.id, "task_id": task.id, "authorization_type": record.authorization_type, "status": record.status, "read_only": record.read_only, "notification_status": notification_status}
+
+
+@router.get("/projects/{project_id}/tasks/{task_id}/delegations")
+async def list_task_delegations(
+    project_id: int,
+    task_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    row = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject).join(
+        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(PerformanceNodeTask.id == task_id, PerformanceProject.id == project_id))).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    task, node, project = row
+    await db.refresh(task, with_for_update=True)
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
+        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    return [{"id": item.id, "authorization_type": item.authorization_type, "grantor_employee_no": item.grantor_employee_no,
+             "recipient_employee_no": item.recipient_employee_no, "reason": item.reason, "status": item.status,
+             "created_at": item.created_at, "can_revoke": item.status == "ACTIVE" and item.grantor_employee_no == actor.actor_ref}
+            for item in await _task_delegations(db, task.id)]
+
+
+@router.delete("/projects/{project_id}/tasks/{task_id}/delegations/{authorization_id}")
+async def revoke_task_delegation(
+    project_id: int,
+    task_id: int,
+    authorization_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    row = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject, PerformanceNodeTaskAuthorization).join(
+        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).join(
+        PerformanceNodeTaskAuthorization, PerformanceNodeTaskAuthorization.task_id == PerformanceNodeTask.id,
+    ).where(PerformanceNodeTask.id == task_id, PerformanceProject.id == project_id,
+            PerformanceNodeTaskAuthorization.id == authorization_id))).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="TASK_AUTHORIZATION_NOT_FOUND")
+    task, node, project, record = row
+    await db.refresh(task, with_for_update=True)
+    await db.refresh(record, with_for_update=True)
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    if record.status != "ACTIVE":
+        raise HTTPException(status_code=409, detail="TASK_AUTHORIZATION_NOT_ACTIVE")
+    if record.grantor_employee_no != actor.actor_ref:
+        scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
+        if scope is not None and task.target_employee_no not in scope:
+            raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_REVOKE_FORBIDDEN")
+    record.status = "REVOKED"
+    record.revoked_by_employee_no = actor.actor_ref
+    record.revoked_at = datetime.now(UTC)
+    revoked_ids = {record.id}
+    changed = True
+    active_records = await _task_delegations(db, task.id)
+    while changed:
+        changed = False
+        for child in active_records:
+            parent_id = (child.authorization_settings or {}).get("parent_authorization_id")
+            if child.id not in revoked_ids and parent_id in revoked_ids:
+                child.status = "REPLACED"
+                revoked_ids.add(child.id)
+                changed = True
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PERFORMANCE_TASK_AUTHORIZATION_REVOKED", cycle_ref=project.cycle_ref,
+        employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+        subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
+        after_state={"project_id": project.id, "authorization_id": str(record.id), "recipient_employee_no": record.recipient_employee_no},
+    ))
+    await db.commit()
+    return {"id": record.id, "status": record.status, "answer_version": task.answer_version}
+
+
+@router.get("/project-management/reminder-people")
+async def project_management_reminder_people(
+    cycle_id: int = Query(..., ge=1),
+    node_key: str = Query(..., min_length=1, max_length=64),
+    keyword: str | None = Query(default=None, max_length=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    rows = await _completion_reminder_rows(cycle_id, node_key, context, db, keyword)
+    start = (page - 1) * page_size
+    return {"items": rows[start:start + page_size], "total": len(rows), "page": page, "page_size": page_size}
+
+
+async def _send_performance_task_reminder(task: PerformanceNodeTask, project: PerformanceProject, node: PerformanceProjectNodeSnapshot, actor: PerformanceAccessContext, db: AsyncSession) -> tuple[bool, str | None]:
+    user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.employee_no == PerformanceIdentityLink.employee_no).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id).where(PerformanceIdentityLink.employee_no == str(task.handler_ref), PerformanceIdentityLink.is_active.is_(True), PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id, PerformanceProjectMemberSnapshot.project_id == project.id, PerformanceProjectMemberSnapshot.id == task.member_snapshot_id))
+    if user is None or not user.is_active or not user.feishu_user_id:
+        return False, "TASK_HANDLER_IDENTITY_NOT_FOUND"
+    config = NotificationConfig(
+        receivers=[FixedUsersRule(type="fixed_users", user_ids=[user.id])],
+        message=MessageConfig(
+            title_template="绩效任务催办",
+            content_template="请及时完成项目“{{project_name}}”中的“{{node_name}}”任务。",
+        ),
+    )
+    result = await send_notification(
+        config,
+        {"employee_no": task.target_employee_no, "project_id": project.id, "task_id": task.id, "project_name": project.name, "node_name": node.name},
+        db,
+        biz_type="performance_task_reminder",
+        biz_id=str(task.id),
+        triggered_by=int(actor.subject_id) if str(actor.subject_id).isdigit() else None,
+    )
+    if "NOTIFICATION_PREVIEW_ONLY" in getattr(result, "errors", []):
+        return False, "NOTIFICATION_PREVIEW_ONLY"
+    return result.status == "success" and result.success_count > 0, None if result.status == "success" and result.success_count > 0 else result.status
+
+
+@router.post("/project-management/remind")
+async def project_management_remind(
+    payload: CycleReminderTasksPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    projects = await _managed_completion_projects(payload.cycle_id, context, db)
+    project_ids = {project.id for project, _scope in projects}
+    scopes = {project.id: scope for project, scope in projects}
+    snapshot_ids = {project.id: await db.scalar(select(_latest_member_snapshot_statement(project.id))) for project, _scope in projects}
+    actor = await resolve_trusted_performance_actor(db, context)
+    eligible_rows = await _completion_reminder_rows(payload.cycle_id, payload.node_key, context, db)
+    eligible_ids = {row["task_id"] for row in eligible_rows if row["selectable"]}
+    task_ids = list(dict.fromkeys(payload.task_ids))
+    rows = (await db.execute(
+        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject)
+        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+        .join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id)
+        .where(PerformanceNodeTask.id.in_(task_ids), PerformanceNodeTask.project_id.in_(project_ids))
+    )).all()
+    by_id = {task.id: (task, node, project) for task, node, project in rows}
+    accepted: list[int] = []
+    skipped: list[int] = []
+    failed: list[int] = []
+    preview: list[int] = []
+    errors: list[dict] = []
+    deliveries = {}
+    for task_id in task_ids:
+        item = by_id.get(task_id)
+        if item is None:
+            skipped.append(task_id)
+            continue
+        task, node, project = item
+        scope = scopes[project.id]
+        if (task_id not in eligible_ids or task.member_snapshot_id != snapshot_ids[project.id]
+            or node.project_id != project.id or task.cycle_ref != project.cycle_ref
+            or (scope is not None and task.target_employee_no not in scope)
+            or (node.node_type == "calibration" and not calibration_task_scope(task, node))
+            or _completion_node_key(node) != payload.node_key
+            or _task_completed(task) or task.status != "pending" or not _task_is_available(task, node, project)):
+            skipped.append(task_id)
+            continue
+        outcomes = []
+        for handler_ref in sorted(await _task_handlers(db, task)):
+            delivery_key = (project.id, node.id, handler_ref, getattr(task, "phase_id", ""))
+            if delivery_key not in deliveries:
+                notification_task = SimpleNamespace(id=task.id, handler_ref=handler_ref, member_snapshot_id=task.member_snapshot_id, target_employee_no=task.target_employee_no)
+                deliveries[delivery_key] = await _send_performance_task_reminder(notification_task, project, node, context, db)
+            outcomes.append(deliveries[delivery_key])
+        ok = bool(outcomes) and all(item[0] for item in outcomes)
+        error = next((item[1] for item in outcomes if not item[0]), None)
+        if ok:
+            accepted.append(task_id)
+            PerformanceAuditService(db).append_event(AuditEventInput(
+                event_type="PERFORMANCE_TASK_REMINDER_REQUESTED",
+                cycle_ref=project.cycle_ref,
+                employee_no=task.target_employee_no,
+                actor_type=actor.actor_type,
+                actor_ref=actor.actor_ref,
+                subject_type="PERFORMANCE_NODE_TASK",
+                subject_ref=str(task.id),
+                after_state={"action": "remind", "node_id": node.node_id, "delivery_status": "sent"},
+            ))
+        elif outcomes and all(item[0] or item[1] == "NOTIFICATION_PREVIEW_ONLY" for item in outcomes):
+            preview.append(task_id)
+        else:
+            failed.append(task_id)
+            errors.append({"task_id": task_id, "error": error or "NOTIFICATION_FAILED"})
+    await db.commit()
+    status_value = "preview_only" if preview and not accepted and not failed else "success" if accepted and not failed and not skipped else "partial_success" if accepted or preview else "failed"
+    return {"accepted_task_ids": accepted, "skipped_task_ids": skipped, "failed_task_ids": failed, "preview_task_ids": preview, "delivery_status": status_value, "errors": errors}
+
+
 @router.get("/project-management/overview")
 async def project_management_overview(
     cycle_id: int | None = Query(default=None, ge=1),
@@ -1984,6 +2540,150 @@ async def project_management_overview(
         "hrbp_scope": hrbp_scope,
         "category": dict(_PROJECT_MANAGEMENT_CATEGORY),
     }
+
+
+@router.get("/project-management/department-completion")
+async def project_management_department_completion(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    projects = await _managed_completion_projects(cycle_id, context, db)
+    totals = {}
+    titles = {}
+    for project, scope in projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        if snapshot_id is None:
+            continue
+        members = list((await db.execute(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id))).scalars().all())
+        if scope is not None:
+            members = [member for member in members if member.employee_no in scope]
+        departments = {}
+        for member in members:
+            parts = [str(value) for key in ("department", "department_2", "department_3", "department_4", "department_5") if (value := getattr(member, key, None))] or ["未分配部门"]
+            for depth in range(1, len(parts) + 1):
+                departments.setdefault(tuple(parts[:depth]), set()).add(member.employee_no)
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.member_snapshot_id == snapshot_id))).scalars().all())
+        opened = set((await db.execute(select(PerformanceResultOpening.employee_no).where(PerformanceResultOpening.project_id == project.id))).scalars().all())
+        for node in nodes:
+            key = _completion_node_key(node)
+            if key is None:
+                continue
+            titles.setdefault(key, node.name)
+            for path, employee_nos in departments.items():
+                target = totals.setdefault(path, {}).setdefault(key, [0, 0])
+                if node.node_type == "result_view":
+                    completed, total = len(opened & employee_nos), len(employee_nos)
+                else:
+                    completed, total = _completion_task_counts(node, [task for task in tasks if task.node_snapshot_id == node.id and task.target_employee_no in employee_nos])
+                target[0] += completed
+                target[1] += total
+    def make_row(path):
+        metrics = {}
+        for key in titles:
+            completed, total = totals[path].get(key, [0, 0])
+            metrics[key] = {"completed_count": completed, "total_count": total, "completion_rate": round(completed * 100 / total, 2) if total else 0}
+        return {"id": "/".join(path), "department": path[-1], "metrics": metrics, "children": [make_row(child) for child in sorted(totals) if len(child) == len(path) + 1 and child[:-1] == path]}
+    return {
+        "columns": [{"key": key, "title": titles[key]} for key, _title in _COMPLETION_NODE_DEFINITIONS if key in titles],
+        "rows": [make_row(path) for path in sorted(totals) if len(path) == 1],
+    }
+
+
+@router.get("/project-management/authorization-records")
+async def project_management_authorization_records(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    if "performance.projects.manage" not in context.permission_codes and "performance.cycles.manage" not in context.permission_codes:
+        raise HTTPException(status_code=403, detail="PROJECT_AUTHORIZATION_FORBIDDEN")
+    projects = await _managed_completion_projects(cycle_id, context, db)
+    result = {"cycle_id": cycle_id, "authorization_records": [], "transfer_records": []}
+    for project, scope in projects:
+        events = list((await db.execute(select(PerformanceAuditEvent).where(
+            PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+            PerformanceAuditEvent.subject_type == "PERFORMANCE_NODE_TASK",
+            PerformanceAuditEvent.event_type.in_(["PERFORMANCE_TASK_AUTHORIZED", "PERFORMANCE_TASK_TRANSFERRED", "PERFORMANCE_TASK_AUTHORIZATION_REVOKED"]),
+        ).order_by(PerformanceAuditEvent.event_at.desc(), PerformanceAuditEvent.id.desc()))).scalars().all())
+        revoked = set()
+        for event in events:
+            state = event.after_state or {}
+            if state.get("project_id") != project.id or (scope is not None and event.employee_no not in scope):
+                continue
+            record_id = str(state.get("authorization_id") or event.id)
+            persisted = await db.get(PerformanceNodeTaskAuthorization, int(record_id)) if state.get("authorization_id") and str(record_id).isdigit() else None
+            if event.event_type == "PERFORMANCE_TASK_AUTHORIZATION_REVOKED":
+                revoked.add(record_id)
+                continue
+            transfer = event.event_type == "PERFORMANCE_TASK_TRANSFERRED"
+            result["transfer_records" if transfer else "authorization_records"].append({
+                "id": str(event.id), "initiator": state.get("initiator_name") or event.actor_ref,
+                "status": "已撤销" if record_id in revoked or (persisted and persisted.status != "ACTIVE") else "已转交" if transfer else "已授权",
+                "authorized_person": state.get("recipient_name") or state.get("recipient_ref"),
+                "stages": state.get("stage_names") or [],
+                "reviewees": ([event.employee_no] if event.employee_no else []) if scope is not None else state.get("reviewee_names") or ([event.employee_no] if event.employee_no else []),
+                "submitted_at": event.event_at, "can_revoke": bool(persisted and persisted.status == "ACTIVE"),
+                "authorization_id": persisted.id if persisted else None, "task_id": int(event.subject_ref) if str(getattr(event, "subject_ref", "")).isdigit() else None, "project_id": project.id,
+            })
+    return result
+
+
+@router.get("/project-management/calibration-authorization")
+async def project_management_calibration_authorization(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    if "performance.projects.manage" not in context.permission_codes and "performance.cycles.manage" not in context.permission_codes:
+        raise HTTPException(status_code=403, detail="PROJECT_AUTHORIZATION_FORBIDDEN")
+    projects = await _managed_completion_projects(cycle_id, context, db)
+    items = []
+    for project, scope in projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        if snapshot_id is None:
+            continue
+        snapshot = await db.get(PerformanceProjectMemberSnapshot, snapshot_id)
+        people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+        ))).scalars().all())
+        names = {person.employee_no: person.display_name for person in people}
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.node_type == "calibration",
+        ))).scalars().all())
+        for node in nodes:
+            tasks = list((await db.execute(select(PerformanceNodeTask).where(
+                PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.member_snapshot_id == snapshot_id,
+                PerformanceNodeTask.node_snapshot_id == node.id,
+                PerformanceNodeTask.task_kind == "calibration",
+            ))).scalars().all())
+            grouped = {}
+            for task in tasks:
+                if (scope is not None and task.target_employee_no not in scope) or not calibration_task_scope(task, node):
+                    continue
+                grouped.setdefault((task.phase_id, task.handler_ref), []).append(task)
+            for (phase_id, handler), group in grouped.items():
+                phase = next((phase for phase in ((node.config or {}).get("calibration") or {}).get("phases", []) if phase["phase_id"] == phase_id), {})
+                assignments = [assignment for assignment in phase.get("assignments", []) if assignment["handler_ref"] == handler]
+                active_records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in group]), PerformanceNodeTaskAuthorization.status == "ACTIVE"))).scalars().all())
+                authorized_task_ids = {record.task_id for record in active_records}
+                items.append({
+                    "id": f"{project.id}:{node.id}:{phase_id}:{handler}",
+                    "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
+                    "calibrator": names.get(handler, handler),
+                    "status": "已校准" if all(_task_completed(task) for task in group) else "待校准",
+                    "scope": "已冻结的校准范围", "authorized_count": len(group),
+                    "allow_authorize": any(assignment.get("allow_authorize") for assignment in assignments),
+                    "unauthorized_count": sum(task.id not in authorized_task_ids for task in group), "distribution_rule": None,
+                    "authorized_by": names.get(active_records[-1].grantor_employee_no, active_records[-1].grantor_employee_no) if active_records else None, "authorized_at": max((record.created_at for record in active_records), default=None),
+                    "task_ids": [task.id for task in group],
+                    "task_people": [{"task_id": task.id, "employee_no": task.target_employee_no, "display_name": names.get(task.target_employee_no, task.target_employee_no), "direct_supervisor_employee_no": next((person.direct_supervisor_employee_no for person in people if person.employee_no == task.target_employee_no), None), "department_path": next(("/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)) for person in people if person.employee_no == task.target_employee_no), None)} for task in group],
+                    "authorizations": [{"id": record.id, "task_id": record.task_id, "recipient": names.get(record.recipient_employee_no, record.recipient_employee_no)} for record in active_records],
+                })
+    return {"cycle_id": cycle_id, "items": items}
 
 
 @router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)
@@ -2315,7 +3015,7 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
     is_admin_preview = False
     stmt = select(PerformanceProjectNodeSnapshot, PerformanceNodeTask).join(PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(PerformanceProject.status == PROJECT_STATUS_STARTED, PerformanceProjectNodeSnapshot.node_type.not_in({"result_view", "result_reconsideration"}))
     if not is_admin_preview:
-        stmt = stmt.where(PerformanceNodeTask.handler_ref == handler)
+        stmt = stmt.where(task_handler_condition(handler))
     if project_id is not None:
         stmt = stmt.where(PerformanceNodeTask.project_id == project_id)
     rows = (await db.execute(stmt.order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id))).all()
@@ -2432,7 +3132,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         .where(*scope)
     )
     if not is_admin_preview:
-        statement = statement.where(PerformanceNodeTask.handler_ref == handler)
+        statement = statement.where(task_handler_condition(handler))
     if isinstance(keyword, str) and keyword.strip():
         value = f"%{keyword.strip()}%"
         statement = statement.where(or_(PerformanceProjectMember.display_name.ilike(value), PerformanceProjectMember.employee_no.ilike(value), PerformanceNodeTask.target_employee_no.ilike(value)))

@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.integrations.feishu.feishu_client import (
     FeishuClientError,
     build_action_card,
@@ -110,7 +111,7 @@ async def send_notification(
     所有结果写入 feishu_notification_logs。
     """
     from app.identity_switch.service import current_switch
-    if current_switch.get() is not None:
+    if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED and current_switch.get() is not None:
         from app.identity_switch.notifications import intercept_notification
         return await intercept_notification(config, context, db, biz_type, biz_id)
     if not config.enabled:
@@ -189,6 +190,13 @@ async def send_notification(
     )
     db.add(log)
     await db.flush()
+
+    if not settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+        log.status = "skipped"
+        log.error_message = "NOTIFICATION_PREVIEW_ONLY"
+        log.result_snapshot = [{"receiver_id": r.receiver_id, "receiver_type": r.receiver_type, "status": "preview_only"} for r in resolve_result.receivers]
+        await db.flush()
+        return NotificationSendResponse(ok=resolve_result.ok, status="skipped", log_id=log.id, errors=["NOTIFICATION_PREVIEW_ONLY", *[e.message for e in resolve_result.errors]])
 
     client = get_feishu_client()
     success_count = 0

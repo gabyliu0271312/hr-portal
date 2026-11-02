@@ -26,7 +26,7 @@ describe('reminderColumnsForVisibility', () => {
     const columns = reminderColumnsForVisibility([{ ...row, visible_profile_fields: ['department', 'employee_type'] }])
     const keys = columns.map(column => column.key)
 
-    expect(keys).toEqual(['display_name', 'reminder_target', 'status', 'completion', 'hrbp', 'department', 'employee_type'])
+    expect(keys).toEqual(['display_name', 'reminder_target', 'status', 'rating', 'completion', 'hrbp', 'department', 'organization_path', 'project_name', 'employee_type'])
     expect(keys).not.toContain('position_level')
     expect(keys).not.toContain('direct_supervisor')
   })

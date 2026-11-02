@@ -11,6 +11,7 @@ withDefaults(defineProps<{
   showFilter?: boolean
   filterVariant?: 'default' | 'icon-only'
   filterLabel?: string
+  filterDisabled?: boolean
   searchFill?: boolean
   gap?: number
 }>(), {
@@ -21,6 +22,7 @@ withDefaults(defineProps<{
   showFilter: true,
   filterVariant: 'default',
   filterLabel: '筛选',
+  filterDisabled: false,
   searchFill: false,
   gap: 8,
 })
@@ -48,7 +50,7 @@ const emit = defineEmits<{
       @search="emit('search')"
       @clear="emit('clear')"
     />
-    <PerformanceFilterButton v-if="showFilter" class="filter-button" :label="filterLabel" :variant="filterVariant" @click="emit('filter')" />
+    <PerformanceFilterButton v-if="showFilter" class="filter-button" :label="filterLabel" :variant="filterVariant" :disabled="filterDisabled" @click="emit('filter')" />
     <slot name="actions" />
   </div>
 </template>

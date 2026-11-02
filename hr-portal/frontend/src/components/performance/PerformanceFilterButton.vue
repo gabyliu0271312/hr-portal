@@ -4,6 +4,8 @@
     class="filter-button"
     :class="{ 'is-icon-only': variant === 'icon-only' }"
     :aria-label="label"
+    :disabled="disabled"
+    :title="disabled ? '筛选暂不可用' : undefined"
     @click="emit('click')"
   >
     <span class="filter-icon" aria-hidden="true"><FilterOutlinedIcon /></span>
@@ -15,7 +17,7 @@
 import FilterOutlinedIcon from './FilterOutlinedIcon.vue'
 import PerformanceButton from './PerformanceButton.vue'
 
-withDefaults(defineProps<{ label?: string; variant?: 'default' | 'icon-only' }>(), { label: '筛选', variant: 'default' })
+withDefaults(defineProps<{ label?: string; variant?: 'default' | 'icon-only'; disabled?: boolean }>(), { label: '筛选', variant: 'default', disabled: false })
 const emit = defineEmits<{ click: [] }>()
 </script>
 

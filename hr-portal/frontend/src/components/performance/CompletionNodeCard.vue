@@ -25,6 +25,9 @@ export interface CompletionNode {
   completionStatus?: string | null
   deadline: string | null
   status?: 'active' | 'completed' | 'not_started' | 'overdue' | 'unavailable'
+  canRemind?: boolean
+  reminderTitle?: string | null
+  reminderDescription?: string | null
 }
 
 defineProps<{

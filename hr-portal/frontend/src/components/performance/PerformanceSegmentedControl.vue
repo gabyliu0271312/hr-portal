@@ -5,9 +5,11 @@
       :key="option.value"
       type="button"
       class="segment"
-      :class="{ checked: modelValue === option.value, first: index === 0, last: index === options.length - 1 }"
+      :class="{ checked: modelValue === option.value, first: index === 0, last: index === options.length - 1, disabled: option.disabled }"
       role="radio"
       :aria-checked="modelValue === option.value"
+      :disabled="option.disabled"
+      :title="option.disabled ? '该功能暂不可用' : undefined"
       @click="select(option)"
     >
       <span v-if="option.icon" class="segment-icon"><component :is="option.icon" /></span>
@@ -23,6 +25,7 @@ export interface PerformanceSegmentedOption {
   value: string
   label: string
   icon?: Component
+  disabled?: boolean
 }
 
 const props = withDefaults(defineProps<{
@@ -40,7 +43,8 @@ const emit = defineEmits<{
 }>()
 
 function select(option: PerformanceSegmentedOption) {
-  if (option.value !== props.modelValue) emit('update:modelValue', option.value)
+  if (option.disabled || option.value === props.modelValue) return
+  emit('update:modelValue', option.value)
 }
 </script>
 
@@ -56,6 +60,8 @@ function select(option: PerformanceSegmentedOption) {
 .segment:active { background: #bacefd; border-color: #3370ff; color: #3370ff; }
 .segment.checked { border-color: #3370ff; color: var(--color-primary); font-weight: 500; }
 .segment.checked:hover { background: #e1eaff; border-color: #3370ff; color: var(--color-primary); }
+.segment.disabled { color: #bbbfc4; cursor: not-allowed; }
+.segment.disabled:hover { background: #fff; border-color: #bbbfc4; color: #bbbfc4; }
 .segment-icon { display: inline-flex; flex: 0 0 auto; margin-right: 4px; }
 .segmented-control.size-md .segment-icon { width: 14px; height: 14px; }
 .segmented-control.size-sm .segment-icon { width: 12px; height: 12px; }

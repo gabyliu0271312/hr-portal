@@ -1,5 +1,5 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { describe, expect, it, vi } from 'vitest'
 import CompletionRatePanel from './CompletionRatePanel.vue'
 import panelSource from './CompletionRatePanel.vue?raw'
 import sectionCardHeaderSource from './PerformanceSectionCardHeader.vue?raw'
@@ -8,7 +8,7 @@ import completionCardSource from './CompletionNodeCard.vue?raw'
 import gridCardSource from './PerformanceGridCard.vue?raw'
 
 const nodes = [
-  { key: 'work-summary', title: '填写工作总结', progress: '98.28%', deadline: '2026-07-10 23:59（GMT+8）（已截止）' },
+  { key: 'work-summary', title: '填写工作总结', progress: '98.28%', canRemind: true, deadline: '2026-07-10 23:59（GMT+8）（已截止）' },
   { key: 'view-result', title: '查看绩效结果', progress: '96.55%', deadline: null },
   { key: 'result-reconsideration', title: '结果复议处理', progress: '0.00%', deadline: '2026-08-28 23:59（GMT+8）（已截止）' },
 ]
@@ -24,8 +24,10 @@ describe('CompletionRatePanel', () => {
     expect(wrapper.find('.header-bar').exists()).toBe(true)
     expect(wrapper.findAll('.segmented-control')).toHaveLength(2)
     const labels = wrapper.findAll('.segment').map(item => item.text())
-    expect(labels).toEqual(['按人查看', '按组织查看', '已开通', '已复议'])
-    expect(wrapper.find('.filter-button').text()).toContain('筛选')
+    expect(labels).toEqual(['全部', '按部门', '已开通', '已复议'])
+    expect(wrapper.find('.filter-button').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('.segment')[3].attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('.segment')[3].attributes('title')).toBe('该功能暂不可用')
   })
 
   it('renders node cards with progress and deadline, and -- for missing deadline', () => {
@@ -57,8 +59,8 @@ describe('CompletionRatePanel', () => {
     await buttons[1].trigger('click')
 
     expect(wrapper.emitted('action')).toEqual([
-      [{ action: 'remind', nodeKey: 'work-summary' }],
-      [{ action: 'enable-result', nodeKey: 'view-result' }],
+      [expect.objectContaining({ action: 'remind', nodeKey: 'work-summary', title: '填写工作总结' })],
+      [expect.objectContaining({ action: 'enable-result', nodeKey: 'view-result' })],
     ])
   })
 
@@ -84,5 +86,32 @@ describe('CompletionRatePanel', () => {
     expect(gridCardSource).toMatch(/border:\s*1px solid #dee0e3;[^}]*border-radius:\s*8px/s)
     expect(panelSource).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/)
     expect(panelSource).toMatch(/gap:\s*16px/)
+  })
+})
+
+
+describe('department completion interactions', () => {
+  it('loads scoped rows, expands children and sorts the departments', async () => {
+    const provider = vi.fn().mockResolvedValue({ columns: [{ key: 'self-review', title: '自评' }], rows: [
+      { id: 'a', department: '部门A', metrics: { 'self-review': { completion_rate: 50, completed_count: 1, total_count: 2 } }, children: [{ id: 'a/c', department: '子部门C', metrics: { 'self-review': { completion_rate: 0, completed_count: 0, total_count: 1 } } }] },
+      { id: 'b', department: '部门B', metrics: { 'self-review': { completion_rate: 100, completed_count: 1, total_count: 1 } } },
+    ] })
+    const wrapper = mount(CompletionRatePanel, { props: { nodes: [], cycleId: 3, departmentProvider: provider } })
+    await wrapper.findAll('.segment')[1].trigger('click')
+    await flushPromises()
+    expect(provider).toHaveBeenCalledWith(3)
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+    await wrapper.get('[aria-label="展开部门A"]').trigger('click')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(3)
+    expect(wrapper.text()).toContain('子部门C')
+    await wrapper.findAll('.performance-sort-header')[1].trigger('click')
+    expect(wrapper.find('tbody tr').text()).toContain('部门B')
+    wrapper.unmount()
+  })
+
+  it('does not show reminder actions when eligibility is false', () => {
+    const wrapper = mount(CompletionRatePanel, { props: { nodes: [{ key: 'summary', title: '总结', progress: '100%', deadline: null, status: 'completed', canRemind: false }] } })
+    expect(wrapper.findAll('.node-action')).toHaveLength(0)
+    wrapper.unmount()
   })
 })
