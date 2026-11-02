@@ -140,33 +140,22 @@ async def test_update_custom_role_persists_changes_and_audits():
 
 
 @pytest.mark.asyncio
-async def test_update_system_role_persists_function_permissions_but_locks_name():
+async def test_update_system_role_persists_changes_like_custom_role():
     db = _FakeRoleDb()
     db.role = _role(system=True, function_permission_keys=["performance.frontend.progress"])
     result = await update_performance_role(
         8,
         PerformanceRoleUpdateIn(
+            name="项目管理员",
             function_permission_keys=["performance.frontend.progress", "performance.frontend.data-view"],
         ),
         _context(),
         db,
     )
+    assert result.name == "项目管理员"
     assert result.function_permission_keys == ["performance.frontend.progress", "performance.frontend.data-view"]
     assert db.commits == 1
     assert db.items[-1].event_type == "PERFORMANCE_ROLE_UPDATED"
-
-    db = _FakeRoleDb()
-    db.role = _role(system=True)
-    with pytest.raises(HTTPException) as error:
-        await update_performance_role(
-            8,
-            PerformanceRoleUpdateIn(name="改名"),
-            _context(),
-            db,
-        )
-    assert error.value.status_code == 400
-    assert error.value.detail == "系统角色名称不可编辑"
-    assert db.commits == 0
 
 
 @pytest.mark.asyncio
