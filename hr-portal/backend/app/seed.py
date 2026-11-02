@@ -205,6 +205,8 @@ MENU_TREE: list[dict] = [
                 "icon": "Guide",
                 "children": [
                     {"code": "people.app", "label": "创梦人力入口", "icon": "User"},
+                    # B20.a：组织目录通用入口（只读检索/展开组织树）
+                    {"code": "people.organization", "label": "组织", "icon": "Share"},
                     # B01.d：三个主数据/字段设置功能收敛进创梦人力后台（复用旧菜单 code 只挪位置）
                     {
                         "code": "people.admin",

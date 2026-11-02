@@ -63,6 +63,7 @@ describe('PeopleLayout admin entry', () => {
     const wrapper = mountLayout()
     expect(wrapper.text()).not.toContain('创梦人力后台')
     expect(wrapper.text()).toContain('主数据概览')
+    expect(wrapper.text()).toContain('组织')
     wrapper.unmount()
   })
 

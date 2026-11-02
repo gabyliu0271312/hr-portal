@@ -761,3 +761,19 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **前端核对**：`PerformanceOrganizationTreeNodes.vue` 缩进 `padding-left: 8+(level-1)*16px`——旧口径顶级=2 时顶级缩进 24px 错误，新口径顶级=1 缩进 8px 正确；前端无需修改。
 - **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。上线需按版本推送+部署流程执行，生产验收另按 B18 模板。
 - **未做/停止**：不新增组织 CRUD、不改成本中心、不切组织/中心/报表/权限输入、不读真实员工行、不改 Person/Employment 归属；cc 实例（FR-B17）与 PC 走查留待后续，不冒称完成。
+
+### 9.12 B20.a 组织目录通用入口（2026-11-02，开发+真库API+菜单注册+前端构建完成，PC未走查、未部署）
+
+- **目标/范围（本轮冻结子集）**：B20.a 卡「在通用入口检索、展开、查看组织同结构样例」的前半部分——HR 组织管理员经菜单授权进入创梦人力「组织」只读目录：搜索/展开/核对组织层级与启停状态。**不做**：local 样例按权维护（组织 CRUD）、成本中心实例（B20.b）、真实来源接管、正式权限输入切换。只读对照为准备交付，不冒称业务能力或接管。
+- **角色/入口**：HR 组织管理员（菜单 `people.organization` V）→ 创梦人力侧栏「组织」→ 只读树（搜索 + 含停用开关）。未授权用户路由与 API 均拒绝。
+- **实现（代码）**：
+  - 后端 `app/trees/router.py` 新增 `GET /trees/org/directory`：`require_op("people.organization", "V")` 声明查看权限；以 `resolve_org_hierarchy` 做 fail-closed 健康校验，循环/孤儿/跨树父/重复码/超深度等任一问题 → **409 + issues**，绝不静默构树扩大授权；RootOrg（level=0 技术根）排除，`include_inactive` 参数控制停用节点。
+  - `app/seed.py` MENU_TREE：`people.access` children 新增 `people.organization`（label 组织，icon Share），code 一次投产不改；`_retire_legacy_menus` 不含新码，无删除风险。
+  - 前端 `router/index.ts` 新增 `/people/organization` 子路由（`meta.menuCode` 逐字符等于 `people.organization`，懒加载）；`layouts/PeopleLayout.vue` 侧栏新增「组织」项（`isActive('/people/organization')`）；`api/data.ts` + `data.js` 两端新增 `treesApi.orgDirectory()`。
+  - 共享组件 `components/master-data/OrganizationTree.vue`（新建）：只读递归树，展开/搜索自动展开祖先链行为参考绩效 `PerformanceOrganizationTreeNodes.vue`，**绩效 token 基线**（`--performance-select-option-*`、`--performance-control-height` 等），停用节点 el-tag 标识；`views/master-data/Organization.vue`（新建）：加载/错误/空态、`PermissionButton` 刷新（menu=`people.organization` op=V）、`PerformanceSearchInput` 搜索 + 含停用开关，页面只组装组件不写树细节。
+- **真库/API 证据（dev 栈 127.0.0.1:8000）**：`people.organization` 菜单 seed 后出现于 `/api/v1/menus`（admin 登录可见）；`GET /trees/org/directory` admin → **HTTP 200** 返回真实组织树（DPT0124 等节点）；容器内真实 DB 会话 `require_op("people.organization","V")` → **pilot021_noacl（无授权）403、admin ALLOWED**。
+- **后端测试**：`tests/test_org_directory_router.py`（新建 7 用例）直接调用 router 函数 + FakeSession/FakeResult：健康树返回、默认排除 inactive、include_inactive、循环/缺父/孤儿→409，及 `require_op("people.organization","V")` 源码声明回归断言。连同 `test_trees_router_entity.py` → **11 passed**；`test_org_hierarchy.py`+`test_org_tree_level_alignment.py` → **3 passed 1 skipped** 无回归。
+- **前端测试/构建证据**：`PeopleLayout.spec.ts` 适配侧栏组织项 + `components/master-data/OrganizationTree.spec.ts`（新建 3 用例：渲染/停用标签/搜索祖先自动展开）→ **7 passed**；`vue-tsc --noEmit` 干净；`npm run build` 成功且 `Organization-*.js/css` chunk 生成。
+- **PC 证据（待补）**：本轮完成代码/测试/构建/真实 API 与权限正负例验证，**未做真实登录的 PC 走查**（组织选项卡→组织树→搜索/展开/停用标签截图），留待用户登录 dev 栈确认后补入。
+- **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。菜单为新增叶子 code，seed 幂等仅 INSERT；上线需按版本推送+部署流程执行。
+- **未做/停止（冻结边界）**：不做组织 CRUD / local 维护、不改成本中心、不切任何现网消费输入、不读真实员工行、不改 Person/Employment 归属；B20.b、B06.org、B13/B14 切换均不在本轮。

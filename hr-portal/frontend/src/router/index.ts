@@ -750,6 +750,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/master-data/Overview.vue'),
         meta: { label: '主数据概览', menuCode: 'people.app' },
       },
+      {
+        path: 'organization',
+        name: 'PeopleOrganization',
+        component: () => import('@/views/master-data/Organization.vue'),
+        meta: { label: '组织', menuCode: 'people.organization' },
+      },
     ],
   },
   {

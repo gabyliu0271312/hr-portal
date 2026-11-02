@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any
 
 from app.core.db import get_session
-from app.core.deps import current_user
+from app.core.deps import current_user, require_op
 from app.data.models import CostCenterNode, DATA_TABLES, OrgNode
 from app.users.models import User
 
@@ -71,6 +71,41 @@ async def get_cc_tree(
         stmt = stmt.where(CostCenterNode.is_active.is_(True))
     rows = (await db.execute(stmt)).scalars().all()
     return _build_tree(rows)
+
+
+@router.get("/org/directory", response_model=list[TreeNodeOut])
+async def get_org_directory(
+    include_inactive: bool = False,
+    _: User = Depends(require_op("people.organization", "V")),
+    db: AsyncSession = Depends(get_session),
+) -> list[TreeNodeOut]:
+    """组织目录树（B20.a 通用入口）。
+
+    仅菜单授权用户可访问（require_op people.organization V）。
+    以 resolve_org_hierarchy 做 fail-closed 健康校验：孤儿 / 循环 / 跨树父 /
+    重复编码 / 超深度等任意问题存在时返回 409 + issues，绝不静默构树扩大授权。
+    """
+    from app.warehouse.service.org_hierarchy import resolve_org_hierarchy
+
+    stmt = select(OrgNode).order_by(OrgNode.level, OrgNode.code)
+    rows = (await db.execute(stmt)).scalars().all()
+    projections, issues = resolve_org_hierarchy(rows, max_depth=10)
+    if issues:
+        raise HTTPException(status_code=409, detail={
+            "code": "org_hierarchy_invalid",
+            "message": "组织树未通过健康校验，已拒绝返回目录",
+            "issues": [issue.__dict__ for issue in issues],
+        })
+    active_codes = {item["node_code"] for item in projections if item["is_active"]}
+    inactive_codes = {item["node_code"] for item in projections if not item["is_active"]}
+    kept: list[OrgNode] = [
+        row for row in rows
+        if row.code != "RootOrg"
+        and row.code in {*active_codes, *inactive_codes}
+        and (include_inactive or row.code not in inactive_codes)
+    ]
+    # 顶层只暴露业务一级（RootOrg 已排除；_build_tree 会把父为 RootOrg 的节点当根）
+    return _build_tree(kept)
 
 
 class OrgHierarchyLevelOut(BaseModel):

@@ -27,6 +27,9 @@
         <div class="menu-item" :class="{ active: isActive('/people/overview') }" @click="router.push('/people/overview')">
           主数据概览
         </div>
+        <div class="menu-item" :class="{ active: isActive('/people/organization') }" @click="router.push('/people/organization')">
+          组织
+        </div>
       </el-aside>
 
       <el-main class="people-main">

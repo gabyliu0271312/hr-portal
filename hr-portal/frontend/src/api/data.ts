@@ -86,6 +86,10 @@ export const treesApi = {
       .then((r) => r.data),
   org: (include_inactive = false) =>
     api.get<TreeNode[]>('/trees/org', { params: { include_inactive } }).then((r) => r.data),
+  orgDirectory: (include_inactive = false) =>
+    api
+      .get<TreeNode[]>('/trees/org/directory', { params: { include_inactive } })
+      .then((r) => r.data),
 }
 
 export interface DistinctValue {

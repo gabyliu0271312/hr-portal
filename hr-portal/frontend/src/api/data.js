@@ -31,6 +31,7 @@ export const treesApi = {
         .get('/trees/cost-center', { params: { include_inactive } })
         .then((r) => r.data),
     org: (include_inactive = false) => api.get('/trees/org', { params: { include_inactive } }).then((r) => r.data),
+    orgDirectory: (include_inactive = false) => api.get('/trees/org/directory', { params: { include_inactive } }).then((r) => r.data),
 };
 export const distinctApi = {
     employmentTypes: (include_inactive = false) => api
