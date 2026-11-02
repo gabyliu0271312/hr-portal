@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
@@ -2142,7 +2143,8 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                 visibility_role = await resolve_subject_visibility_role(db, context, str(actor.actor_ref), member, node, project)
                 visible_fields = visibility_rules[visibility_role]
                 handlers = await _task_handlers(db, task)
-                eligible_handlers = handlers & delivery_handlers
+                active_handlers = {handler for handler in handlers if handler in people_by_no and getattr(people_by_no[handler], "employment_status", None) not in {"离职", "已离职"}}
+                eligible_handlers = active_handlers & delivery_handlers if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED else active_handlers
                 values = {
                     "task_id": task.id,
                     "aggregate_task_id": task.id,
@@ -2169,8 +2171,8 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                     "due_at": _task_window(task, node, project)[1],
                     "visible_profile_fields": visible_fields,
                     "can_authorize": await _authorize_task_delegation(task, node, project, context, str(actor.actor_ref), db),
-                    "selectable": any(handler in people_by_no and getattr(people_by_no[handler], "employment_status", None) not in {"离职", "已离职"} for handler in eligible_handlers),
-                    "unavailable_reason": None if eligible_handlers else "处理人未关联可用的飞书账号",
+                    "selectable": bool(eligible_handlers),
+                    "unavailable_reason": None if eligible_handlers else "处理人不在当前快照或已离职" if not active_handlers else "处理人未关联可用的飞书账号",
                 }
                 rows.append(mask_profile_values(values, visible_fields))
     return rows
@@ -2429,7 +2431,21 @@ async def project_management_reminder_people(
 async def _send_performance_task_reminder(task: PerformanceNodeTask, project: PerformanceProject, node: PerformanceProjectNodeSnapshot, actor: PerformanceAccessContext, db: AsyncSession) -> tuple[bool, str | None]:
     user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.employee_no == PerformanceIdentityLink.employee_no).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id).where(PerformanceIdentityLink.employee_no == str(task.handler_ref), PerformanceIdentityLink.is_active.is_(True), PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id, PerformanceProjectMemberSnapshot.project_id == project.id, PerformanceProjectMemberSnapshot.id == task.member_snapshot_id))
     if user is None or not user.is_active or not user.feishu_user_id:
-        return False, "TASK_HANDLER_IDENTITY_NOT_FOUND"
+        if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+            return False, "TASK_HANDLER_IDENTITY_NOT_FOUND"
+        from app.integrations.feishu.models import FeishuNotificationLog
+        db.add(FeishuNotificationLog(
+            biz_type="performance_task_reminder", biz_id=str(task.id), is_test=True,
+            message_format="markdown", title="绩效任务催办",
+            rendered_content=f"请及时完成项目“{project.name}”中的“{node.name}”任务。",
+            receiver_snapshot=[{"employee_no": str(task.handler_ref), "identity_status": "unmapped"}],
+            result_snapshot=[{"employee_no": str(task.handler_ref), "status": "preview_only"}],
+            status="skipped", success_count=0, failed_count=0,
+            error_message="NOTIFICATION_PREVIEW_ONLY",
+            triggered_by=int(actor.subject_id) if str(actor.subject_id).isdigit() else None,
+        ))
+        await db.flush()
+        return False, "NOTIFICATION_PREVIEW_ONLY"
     config = NotificationConfig(
         receivers=[FixedUsersRule(type="fixed_users", user_ids=[user.id])],
         message=MessageConfig(

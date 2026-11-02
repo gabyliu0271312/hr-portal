@@ -5600,6 +5600,7 @@ async def test_cycle_reminder_calls_shared_notification_service_with_bound_handl
 async def test_cycle_reminder_missing_handler_mapping_does_not_guess_username(monkeypatch):
     from unittest.mock import AsyncMock
     from app.performance import projects_router as router
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", True)
     calls = []
     class Db:
         async def scalar(self, statement): calls.append(statement); return None
@@ -5612,9 +5613,30 @@ async def test_cycle_reminder_missing_handler_mapping_does_not_guess_username(mo
 
 
 @pytest.mark.asyncio
-async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibility(monkeypatch):
+async def test_cycle_reminder_preview_without_mapping_records_intended_employee(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
+    sending = AsyncMock(side_effect=AssertionError("must not send without mapping"))
+    monkeypatch.setattr(router, "send_notification", sending)
+    logs = []
+    class Db:
+        async def scalar(self, statement): return None
+        def add(self, log): logs.append(log)
+        async def flush(self): pass
+    result = await router._send_performance_task_reminder(SimpleNamespace(id=1, handler_ref="M1", member_snapshot_id=10), SimpleNamespace(id=3, name="测试项目"), SimpleNamespace(name="上级评估"), context(), Db())
+    assert result == (False, "NOTIFICATION_PREVIEW_ONLY")
+    assert logs[0].receiver_snapshot == [{"employee_no": "M1", "identity_status": "unmapped"}]
+    assert logs[0].status == "skipped" and logs[0].success_count == 0
+    sending.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("delivery_enabled,mapped,handler_status,expected", [(False, False, "在职", True), (True, False, "在职", False), (True, True, "在职", True), (False, False, "离职", False)])
+async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibility(monkeypatch, delivery_enabled, mapped, handler_status, expected):
     from app.performance import projects_router as router
     from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceNodeTaskAuthorization
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", delivery_enabled)
     project = SimpleNamespace(id=3, name="测试项目", cycle_ref="cycle:1", settings={})
     member = PerformanceProjectMember(snapshot_id=10, employee_no="E1", display_name="员工", organization_ref="集团/研发", department="研发", direct_supervisor_employee_no="M1", hrbp_employee_no="H1", job_family="产品", job_category="技术", position_level="P6")
     node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
@@ -5633,8 +5655,8 @@ async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibilit
         PerformanceProjectMember: [member],
         PerformanceProjectNodeSnapshot: [node],
         PerformanceNodeTask: [task],
-        PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="快照经理", employment_status="在职"), SimpleNamespace(employee_no="H1", display_name="快照HRBP")],
-        PerformanceIdentityLink: ["M1"], PerformanceNodeTaskAuthorization: [],
+        PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="快照经理", employment_status=handler_status), SimpleNamespace(employee_no="H1", display_name="快照HRBP")],
+        PerformanceIdentityLink: ["M1"] if mapped else [], PerformanceNodeTaskAuthorization: [],
     }
     class Db:
         async def scalar(self, query): return 10
@@ -5644,7 +5666,7 @@ async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibilit
     rows = await router._completion_reminder_rows(1, "work-summary", context(), Db())
     assert rows[0]["reminder_target"] == "快照经理"
     assert rows[0]["completion"] == "2/3"
-    assert rows[0]["selectable"] is True
+    assert rows[0]["selectable"] is expected
     assert rows[0]["direct_supervisor"] is None
     assert rows[0]["previous_position_level"] is None
     assert rows[0]["job_category"] is None
