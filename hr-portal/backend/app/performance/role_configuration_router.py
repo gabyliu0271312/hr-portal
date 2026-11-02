@@ -243,10 +243,8 @@ async def update_performance_role(
     if role.role_type != "MANAGEMENT":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="评估角色不可编辑")
     changes = payload.model_dump(exclude_unset=True)
-    if role.is_system:
-        if any(key in changes for key in ("name", "function_permission_keys")):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统角色名称和权限不可编辑")
-        changes = {"description": changes["description"]} if "description" in changes else {}
+    if role.is_system and "name" in changes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="系统角色名称不可编辑")
     if not changes:
         return _role_out(role)
     if "name" in changes:

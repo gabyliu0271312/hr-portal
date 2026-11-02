@@ -110,10 +110,10 @@ def test_role_status_input_rejects_invalid_payload():
         PerformanceRoleStatusIn(is_active=False, extra=True)
 
 
-def _role(*, active=False, system=False, role_type="MANAGEMENT"):
+def _role(*, active=False, system=False, role_type="MANAGEMENT", function_permission_keys=()):
     return SimpleNamespace(
         id=8, code="custom.test", name="自定义角色", description="备注", role_type=role_type,
-        member_source=None, function_permission_keys=[], is_system=system, is_active=active,
+        member_source=None, function_permission_keys=list(function_permission_keys), is_system=system, is_active=active,
         updated_at=datetime.now(UTC),
     )
 
@@ -140,18 +140,32 @@ async def test_update_custom_role_persists_changes_and_audits():
 
 
 @pytest.mark.asyncio
-async def test_update_system_role_rejects_changes():
+async def test_update_system_role_persists_function_permissions_but_locks_name():
+    db = _FakeRoleDb()
+    db.role = _role(system=True, function_permission_keys=["performance.frontend.progress"])
+    result = await update_performance_role(
+        8,
+        PerformanceRoleUpdateIn(
+            function_permission_keys=["performance.frontend.progress", "performance.frontend.data-view"],
+        ),
+        _context(),
+        db,
+    )
+    assert result.function_permission_keys == ["performance.frontend.progress", "performance.frontend.data-view"]
+    assert db.commits == 1
+    assert db.items[-1].event_type == "PERFORMANCE_ROLE_UPDATED"
+
     db = _FakeRoleDb()
     db.role = _role(system=True)
     with pytest.raises(HTTPException) as error:
         await update_performance_role(
             8,
-            PerformanceRoleUpdateIn(function_permission_keys=["performance.backend.system"]),
+            PerformanceRoleUpdateIn(name="改名"),
             _context(),
             db,
         )
     assert error.value.status_code == 400
-    assert error.value.detail == "系统角色名称和权限不可编辑"
+    assert error.value.detail == "系统角色名称不可编辑"
     assert db.commits == 0
 
 
