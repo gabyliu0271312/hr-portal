@@ -102,6 +102,36 @@ describe('ProjectManagement', () => {
     replace.mockReset()
   })
 
+  it('opens the reminder route with all eligible tasks selected and a viewport bottom action bar', async () => {
+    const { default: Reminder } = await import('./ProjectManagementReminder.vue')
+    routeQuery.cycle_id = '1'
+    routeQuery.node_key = 'manager-review'
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const tasks = Array.from({ length: 151 }, (_, index) => ({ task_id: index + 1, project_id: 3, project_name: '测试项目', can_authorize: false, employee_no: `E${index}`, display_name: `测试成员${index}`, status: 'pending', selectable: index !== 0, due_at: null, job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }))
+    const people = vi.spyOn(projectManagementApi, 'reminderPeople').mockImplementation(async (_cycle, _node, _keyword, page = 1, pageSize = 50) => ({ items: tasks.slice((page - 1) * pageSize, page * pageSize), total: tasks.length, page, page_size: pageSize }))
+    const wrapper = mount(Reminder, { attachTo: document.body })
+    try {
+      await flushPromises()
+      const table = wrapper.getComponent({ name: 'PerformanceManagementTable' })
+      expect(table.props('selectedKeys')).toHaveLength(150)
+      expect(wrapper.findAll('tbody input[type="checkbox"]')[0].attributes('disabled')).toBeDefined()
+      const bar = document.body.querySelector('.selection-bar--viewport')!
+      expect(bar.parentElement).toBe(document.body)
+      expect(bar.textContent).toContain('催办')
+      expect(bar.textContent).toContain('已选择 150 条')
+      expect(wrapper.find('.selection-bar').exists()).toBe(false)
+      ;(bar.querySelector('.selection-bar__clear') as HTMLButtonElement).click()
+      await flushPromises()
+      await wrapper.findAll('tbody input[type="checkbox"]')[1].setValue(true)
+      await flushPromises()
+      expect(table.props('selectedKeys')).toEqual(['2'])
+      expect(document.body.querySelector('.selection-bar--viewport')?.textContent).toContain('已选择 1 条')
+    } finally {
+      wrapper.unmount()
+      people.mockRestore()
+    }
+  })
+
   it('keeps the collapsed submenu above sticky tabs but below the app header', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     const wrapper = mountView()

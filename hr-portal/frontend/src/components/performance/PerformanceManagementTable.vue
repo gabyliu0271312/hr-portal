@@ -29,6 +29,7 @@ const props = withDefaults(defineProps<{
   scrollMode?: 'inner' | 'page'
   fit?: boolean
   showSelectionBar?: boolean
+  selectionBarTarget?: string
   columns?: PerformanceTableColumn[]
   selectable?: boolean
   isRowSelectable?: (row: any) => boolean
@@ -48,6 +49,7 @@ const props = withDefaults(defineProps<{
   scrollMode: 'inner',
   fit: true,
   showSelectionBar: false,
+  selectionBarTarget: undefined,
   columns: undefined,
   selectable: false,
   selectionKey: 'id',
@@ -472,13 +474,15 @@ function jumpToPage() {
     </div>
 
     <div v-if="showSelectionBar && selectedCount" class="selection-bar-spacer" aria-hidden="true"></div>
-    <Transition name="selection-bar-slide">
-      <div v-if="showSelectionBar && selectedCount" class="selection-bar" :style="barStyle" :aria-label="`已选择 ${selectedCount} 条`">
-        <slot name="selection-actions" />
-        <span class="selection-bar__count">已选择 {{ selectedCount }} 条</span>
-        <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
-      </div>
-    </Transition>
+    <Teleport :to="selectionBarTarget || 'body'" :disabled="!selectionBarTarget">
+      <Transition name="selection-bar-slide">
+        <div v-if="showSelectionBar && selectedCount" class="selection-bar" :class="{ 'selection-bar--viewport': selectionBarTarget }" :style="selectionBarTarget ? undefined : barStyle" :aria-label="`已选择 ${selectedCount} 条`">
+          <slot name="selection-actions" />
+          <span class="selection-bar__count">已选择 {{ selectedCount }} 条</span>
+          <button type="button" class="selection-bar__clear" @click="clearSelection">清除</button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <PerformancePopover :visible="cellTooltip.visible" :anchor="cellTooltip.anchor" width="auto" :gap="8" name="performance-cell-tooltip" @close="hideCellTooltip" @mouseleave="hideCellTooltip">{{ cellTooltip.text }}</PerformancePopover>
   </div>
@@ -513,6 +517,7 @@ function jumpToPage() {
 .pagination-jump { display: inline-flex; align-items: center; gap: 4px; color: #1f2329; }
 .pagination-jump-input { width: 44px; height: 28px; padding: 0 6px; border: 1px solid #d0d3d6; border-radius: 6px; box-sizing: border-box; font: inherit; text-align: center; }
 .selection-bar { position: fixed; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #fff; box-shadow: 0 -1px 0 rgba(31, 35, 41, 0.1); }
+.selection-bar--viewport { left: 0; right: 0; z-index: var(--performance-drawer-z-index); height: 60px; padding: 0 20px; box-sizing: border-box; }
 .selection-bar-spacer { height: 30px; }
 .selection-bar__count { margin-left: 12px; color: #646a73; font-size: 14px; line-height: 22px; }
 .selection-bar__clear { padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: #1456f0; font: inherit; font-size: 14px; line-height: 18px; cursor: pointer; }
