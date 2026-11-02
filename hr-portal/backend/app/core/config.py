@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     COST_ALLOCATION_APP_URL: str = "http://192.168.10.13:37800/"
     COST_ALLOCATION_ADMIN_PATH: str = "/admin/workbench"
 
-    # 飞书单点登录（用飞书账号登录 HR Portal 本身）
+    # 飞书通知投递保险丝：True 允许真实发送，实际是否发送由「身份管理 → delivery_mode」三态运行时控制
     FEISHU_NOTIFICATION_DELIVERY_ENABLED: bool = False
     FEISHU_SSO_ENABLED: bool = False
     FEISHU_APP_ID: str = ""

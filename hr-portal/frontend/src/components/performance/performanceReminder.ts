@@ -1,4 +1,4 @@
-import type { PerformanceWorkbenchTaskPerson } from '@/api/performance'
+import type { PerformanceWorkbenchTaskPerson, ProjectMemberTaskOption } from '@/api/performance'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 
 export type ReminderContext = {
@@ -12,7 +12,7 @@ export type ReminderContext = {
   departmentPath?: string
 }
 
-export type ReminderPerson = Omit<PerformanceWorkbenchTaskPerson, 'task_id'> & { task_id: number | string; selectable?: boolean; unavailable_reason?: string | null; project_name?: string; project_id?: number; can_authorize?: boolean; rating?: string | null; organization_path?: string | null }
+export type ReminderPerson = Omit<PerformanceWorkbenchTaskPerson, 'task_id'> & { task_id: number | string; selectable?: boolean; unavailable_reason?: string | null; project_name?: string; project_id?: number; can_authorize?: boolean; task_map?: ProjectMemberTaskOption[]; rating?: string | null; organization_path?: string | null }
 
 export type ReminderColumn = {
   key: string

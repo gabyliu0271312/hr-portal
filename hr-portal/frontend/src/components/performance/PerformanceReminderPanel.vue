@@ -107,7 +107,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { performanceWorkbenchApi, projectManagementApi } from '@/api/performance'
+import { performanceWorkbenchApi, projectManagementApi, type PerformanceTaskDelegationTarget } from '@/api/performance'
 import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
 import PerformanceTaskDelegationDialog from './PerformanceTaskDelegationDialog.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
@@ -135,11 +135,11 @@ const columns = ref<ReminderColumn[]>(defaultReminderColumns)
 const selectedColumnKeys = ref(defaultReminderColumns.filter(column => column.visibleByDefault !== false).map(column => column.key))
 const capabilities = ref<ReminderCapabilities>({ canRemind: true, canAuthorize: false, canTransfer: false, canExport: false })
 const selectedKeys = ref<string[]>([])
-const taskMap = ref(new Map<string, { task_id: number; project_id: number; can_authorize?: boolean }>())
+const taskMap = ref(new Map<string, PerformanceTaskDelegationTarget & { can_authorize?: boolean }>())
 const delegationOpen = ref(false)
 const delegationAction = ref<'AUTHORIZE' | 'TRANSFER'>('AUTHORIZE')
-const delegationTasks = computed(() => selectedKeys.value.map(key => taskMap.value.get(key)).filter((task): task is { task_id: number; project_id: number; can_authorize?: boolean } => Boolean(task && task.can_authorize)))
-function delegationCompleted(count: number, notificationStatus?: string) { selectedKeys.value = []; void load(); notice.value = notificationStatus === 'preview_only' ? `已处理 ${count} 个任务；测试模式：已记录 ${count} 条，未发送飞书通知` : `已处理 ${count} 个任务` }
+const delegationTasks = computed(() => selectedKeys.value.map(key => taskMap.value.get(key)).filter((task): task is PerformanceTaskDelegationTarget & { can_authorize: true } => Boolean(task && task.can_authorize)))
+function delegationCompleted(count: number, notificationStatus?: string) { selectedKeys.value = []; void load(); notice.value = `已处理 ${count} 个任务` }
 const page = ref(1)
 const pageSize = ref(50)
 const sortKey = ref('')
@@ -210,7 +210,7 @@ async function load() {
     if (sequence !== requestSequence) return
     loadedKeyword.value = requestedKeyword
     rows.value = result.items
-    for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, can_authorize: row.can_authorize })
+    for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
     total.value = result.total
     emit('loaded', result.total)
     columns.value = result.columns.length ? result.columns : defaultReminderColumns
@@ -244,7 +244,7 @@ async function initialize() {
     const result = await provider(query)
     if (sequence !== requestSequence) return
     rows.value = result.items
-    for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, can_authorize: row.can_authorize })
+    for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
     total.value = result.total
     columns.value = result.columns
     selectedColumnKeys.value = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
@@ -259,7 +259,7 @@ async function initialize() {
         const next = await provider({ ...query, page: nextPage, pageSize: 100 })
         if (sequence !== requestSequence) return
         if (next.total !== result.total || !next.items.length) throw new Error('人员名单已变化，请刷新后重试')
-        for (const row of next.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, can_authorize: row.can_authorize })
+        for (const row of next.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
         selection.push(...next.items.filter(row => row.selectable !== false).map(row => String(row.task_id)))
       }
       selectedKeys.value = [...new Set(selection)]
@@ -344,9 +344,8 @@ async function confirmRemind() {
     remindConfirmOpen.value = false
     selectedKeys.value = (result.failed_task_ids || []).map(String)
     await load()
-    const previewCount = result.preview_task_ids?.length || 0
-    const statusText = result.delivery_status === 'preview_only' ? `测试模式：已记录 ${previewCount} 条，未发送飞书通知` : result.delivery_status === 'success' ? '催办已发送' : result.delivery_status === 'partial_success' ? '催办部分发送成功' : '催办发送失败'
-    notice.value = `${statusText}${result.delivery_status === 'preview_only' ? '' : `：${result.accepted_task_ids.length} 条，跳过 ${result.skipped_task_ids.length} 条`}${result.failed_task_ids?.length ? `，失败 ${result.failed_task_ids.length} 条` : ''}${result.errors?.some(item => item.error.includes('未确认')) ? '；发送结果未确认，请核对通知日志后再重试' : ''}`
+    const statusText = result.delivery_status === 'success' ? '催办已发送' : result.delivery_status === 'partial_success' ? '催办部分发送成功' : '催办发送失败'
+    notice.value = `${statusText}：${result.accepted_task_ids.length} 条，跳过 ${result.skipped_task_ids.length} 条${result.failed_task_ids?.length ? `，失败 ${result.failed_task_ids.length} 条` : ''}${result.errors?.some(item => item.error.includes('未确认')) ? '；发送结果未确认，请核对通知日志后再重试' : ''}`
   } catch {
     remindConfirmOpen.value = false
     notice.value = '催办请求提交失败，请稍后重试'

@@ -173,6 +173,7 @@ export interface ProjectManagementReminderPerson extends PerformanceWorkbenchTas
   can_authorize: boolean
   project_name: string
   selectable: boolean
+  task_map?: ProjectMemberTaskOption[]
 }
 
 export interface ReminderPeoplePage {
@@ -812,6 +813,24 @@ export interface ProjectManagementOverview {
   category: { key: string; label: string }
 }
 
+export interface ProjectMemberTaskOption {
+  task_id: number
+  stage_key: string
+  stage_label: string
+  role_key: string | null
+  role_label: string | null
+  handler_ref: string
+  can_authorize?: boolean
+}
+
+export interface PerformanceTaskDelegationTarget {
+  task_id: number
+  project_id: number
+  employee_no?: string
+  display_name?: string
+  task_map?: ProjectMemberTaskOption[]
+}
+
 export interface ProjectMember extends PerformanceMemberProfile {
   direct_supervisor?: string | null
   id: number
@@ -821,7 +840,7 @@ export interface ProjectMember extends PerformanceMemberProfile {
   completion: string | null
   task_id?: number | null
   can_authorize?: boolean
-  task_map?: Array<{ task_id: number; stage_key: string; stage_label: string; role_key: string | null; role_label: string | null; handler_ref: string; can_authorize?: boolean }>
+  task_map?: ProjectMemberTaskOption[]
 }
 
 export interface ProjectMemberPage {

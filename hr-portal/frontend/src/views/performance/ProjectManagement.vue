@@ -55,6 +55,7 @@ import {
   projectManagementApi,
   type PerformanceReviewCategory,
   type PerformanceReviewNode,
+  type PerformanceTaskDelegationTarget,
   type ProjectManagementOverview,
 } from '@/api/performance'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
@@ -110,13 +111,9 @@ const reminderMode = ref<'remind' | 'open-result'>('remind')
 type ReminderContextWithDescription = ReminderContext & { description?: string; nodeKey?: string }
 const reminderContext = ref<ReminderContextWithDescription | null>(null)
 
-type DelegationTask = {
-  task_id: number; project_id: number; employee_no?: string; display_name?: string;
-  task_map?: Array<{ task_id: number; stage_key: string; stage_label: string; role_key: string | null; role_label: string | null; handler_ref: string; can_authorize?: boolean }>
-}
 const delegationOpen = ref(false)
 const delegationAction = ref<'AUTHORIZE' | 'TRANSFER'>('AUTHORIZE')
-const delegationTasks = ref<DelegationTask[]>([])
+const delegationTasks = ref<PerformanceTaskDelegationTarget[]>([])
 const selectedDelegationMembers = ref<ProjectMember[]>([])
 
 function openDelegation(action: 'AUTHORIZE' | 'TRANSFER', members: ProjectMember[]) {
@@ -128,7 +125,7 @@ function openDelegation(action: 'AUTHORIZE' | 'TRANSFER', members: ProjectMember
     project_id: memberProjectId.value,
     employee_no: member.employee_no,
     display_name: member.display_name,
-    task_map: (member as ProjectMember & { task_map?: DelegationTask['task_map'] }).task_map || [],
+    task_map: member.task_map || [],
   }))
   delegationOpen.value = true
 }

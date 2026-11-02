@@ -5631,6 +5631,121 @@ async def test_cycle_reminder_sends_when_not_recently_reminded(monkeypatch):
     assert sent["calls"] == 1
 
 
+@pytest.mark.asyncio
+async def test_global_blocked_mode_records_success_without_transport(monkeypatch):
+    """全局 blocked：保险丝开、投递模式 blocked 时，记录 success 但不调用飞书。"""
+    from unittest.mock import AsyncMock, Mock
+    from app.integrations.feishu import notification_service as service
+    from app.integrations.feishu.schemas import NotificationConfig, MessageConfig, ResolveResult, ResolvedReceiver
+    from app.identity_switch.service import current_switch
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", True)
+    monkeypatch.setattr(service, "_global_delivery_mode", AsyncMock(return_value="blocked"))
+    monkeypatch.setattr(service, "resolve_receivers", AsyncMock(return_value=ResolveResult(ok=True, receivers=[ResolvedReceiver(receiver_type="user", receiver_id="ou_original", display_name="原接收人", source="fixed_users")])))
+    transport = Mock(side_effect=AssertionError("blocked 模式禁止创建飞书 transport"))
+    monkeypatch.setattr(service, "get_feishu_client", transport)
+    logs = []
+    class Db:
+        def add(self, log): logs.append(log); log.id = 1
+        async def flush(self): pass
+    token = current_switch.set(None)
+    try:
+        result = await service.send_notification(NotificationConfig(message=MessageConfig(title_template="任务", content_template="待办")), {}, Db(), biz_type="performance_task_reminder", biz_id="1")
+    finally:
+        current_switch.reset(token)
+    assert result.status == "success" and result.success_count == 1
+    assert result.errors == []
+    assert logs[0].status == "success"
+    assert logs[0].result_snapshot[0]["status"] == "success"
+    assert not any("preview_only" in str(s) for s in logs[0].result_snapshot)
+    transport.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_global_test_receiver_mode_rewrites_receivers_and_sends(monkeypatch):
+    """全局 test_receiver：接收人整体替换为测试接收人并真实发送（原名单重合也照发）。"""
+    from unittest.mock import AsyncMock
+    from app.integrations.feishu import notification_service as service
+    from app.integrations.feishu.schemas import NotificationConfig, MessageConfig, ResolveResult, ResolvedReceiver
+    from app.identity_switch.service import current_switch
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", True)
+    monkeypatch.setattr(service, "_global_delivery_mode", AsyncMock(return_value="test_receiver"))
+    test_receiver = ResolvedReceiver(receiver_type="user", receiver_id="ou_test", display_name="测试接收人", source="global_test_receiver")
+    monkeypatch.setattr(service, "_global_test_receiver", AsyncMock(return_value=test_receiver))
+    monkeypatch.setattr(service, "resolve_receivers", AsyncMock(return_value=ResolveResult(ok=True, receivers=[ResolvedReceiver(receiver_type="user", receiver_id="ou_original", display_name="原接收人", source="fixed_users")])))
+    sent_to = []
+    class Client:
+        async def send_interactive_card_to_user(self, open_id, _card): sent_to.append(open_id); return {"data": {"message_id": "m1"}}
+        async def send_markdown_to_user(self, open_id, title, content): sent_to.append(open_id); return {"data": {"message_id": "m1"}}
+    monkeypatch.setattr(service, "get_feishu_client", lambda: Client())
+    logs = []
+    class Db:
+        def add(self, log): logs.append(log); log.id = 1
+        async def flush(self): pass
+    token = current_switch.set(None)
+    try:
+        result = await service.send_notification(NotificationConfig(message=MessageConfig(title_template="任务", content_template="待办")), {}, Db(), biz_type="performance_task_reminder", biz_id="1")
+    finally:
+        current_switch.reset(token)
+    assert result.status == "success" and result.success_count == 1
+    assert sent_to == ["ou_test"]
+    assert logs[0].receiver_snapshot == [test_receiver.model_dump()]
+
+
+@pytest.mark.asyncio
+async def test_global_normal_mode_sends_to_original_receivers(monkeypatch):
+    """全局 normal：真实发送原接收人。"""
+    from unittest.mock import AsyncMock
+    from app.integrations.feishu import notification_service as service
+    from app.integrations.feishu.schemas import NotificationConfig, MessageConfig, ResolveResult, ResolvedReceiver
+    from app.identity_switch.service import current_switch
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", True)
+    monkeypatch.setattr(service, "_global_delivery_mode", AsyncMock(return_value="normal"))
+    monkeypatch.setattr(service, "resolve_receivers", AsyncMock(return_value=ResolveResult(ok=True, receivers=[ResolvedReceiver(receiver_type="user", receiver_id="ou_original", display_name="原接收人", source="fixed_users")])))
+    sent_to = []
+    class Client:
+        async def send_interactive_card_to_user(self, open_id, _card): sent_to.append(open_id); return {"data": {"message_id": "m1"}}
+        async def send_markdown_to_user(self, open_id, title, content): sent_to.append(open_id); return {"data": {"message_id": "m1"}}
+    monkeypatch.setattr(service, "get_feishu_client", lambda: Client())
+    logs = []
+    class Db:
+        def add(self, log): logs.append(log); log.id = 1
+        async def flush(self): pass
+    token = current_switch.set(None)
+    try:
+        result = await service.send_notification(NotificationConfig(message=MessageConfig(title_template="任务", content_template="待办")), {}, Db(), biz_type="performance_task_reminder", biz_id="1")
+    finally:
+        current_switch.reset(token)
+    assert result.status == "success" and result.success_count == 1
+    assert sent_to == ["ou_original"]
+
+
+@pytest.mark.asyncio
+async def test_fuse_off_still_preview_only_even_when_blocked(monkeypatch):
+    """部署保险丝关闭时保持 preview_only 兜底，不受 delivery_mode=blocked 影响。"""
+    from unittest.mock import AsyncMock, Mock
+    from app.integrations.feishu import notification_service as service
+    from app.integrations.feishu.schemas import NotificationConfig, MessageConfig, ResolveResult, ResolvedReceiver
+    from app.identity_switch.service import current_switch
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
+    monkeypatch.setattr(service, "_global_delivery_mode", AsyncMock(return_value="blocked"))
+    monkeypatch.setattr(service, "resolve_receivers", AsyncMock(return_value=ResolveResult(ok=True, receivers=[ResolvedReceiver(receiver_type="user", receiver_id="ou_original", display_name="原接收人", source="fixed_users")])))
+    transport = Mock(side_effect=AssertionError("preview_only 模式禁止创建飞书 transport"))
+    monkeypatch.setattr(service, "get_feishu_client", transport)
+    logs = []
+    class Db:
+        def add(self, log): logs.append(log); log.id = 1
+        async def flush(self): pass
+    token = current_switch.set(None)
+    try:
+        result = await service.send_notification(NotificationConfig(message=MessageConfig(title_template="任务", content_template="待办")), {}, Db(), biz_type="performance_task_reminder", biz_id="1")
+    finally:
+        current_switch.reset(token)
+    assert result.status == "skipped"
+    assert "NOTIFICATION_PREVIEW_ONLY" in result.errors
+    assert logs[0].result_snapshot[0]["status"] == "preview_only"
+    transport.assert_not_called()
+
+
 def test_calibration_completion_counts_handlers_not_individual_reviewees():
     from app.performance.projects_router import _completion_task_counts
     node = SimpleNamespace(project_id=3, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": handler, "employee_no": employee} for handler, employee in [("M1", "E1"), ("M1", "E2"), ("M2", "E3")]]}]}})
@@ -5826,6 +5941,18 @@ async def test_cycle_reminder_hides_delegation_for_self_and_360_and_calibration_
         assert rows, node_key
         expected = node_key in {"work-summary", "self-review", "review-360", "calibration"}
         assert rows[0]["can_authorize"] is not expected, node_key
+        if node_key in {"manager-review", "communicate"}:
+            assert rows[0]["task_map"] == [{
+                "task_id": 1,
+                "stage_key": node_key,
+                "stage_label": "上级评估" if node_key == "manager-review" else "绩效沟通并开通结果",
+                "role_key": "DIRECT_SUPERVISOR",
+                "role_label": "直属上级",
+                "handler_ref": "M1",
+                "can_authorize": True,
+            }]
+        else:
+            assert not rows[0]["task_map"] or rows[0]["task_map"][0]["can_authorize"] is False
 
 
 @pytest.mark.asyncio

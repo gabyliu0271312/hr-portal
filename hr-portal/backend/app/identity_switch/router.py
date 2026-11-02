@@ -22,13 +22,14 @@ class ControlPatch(BaseModel):
     others_enabled: bool | None = None
     confirm_clear: bool = False
     test_delivery_enabled: bool | None = None
+    delivery_mode: Literal["blocked", "test_receiver", "normal"] | None = None
     test_receiver_user_id: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def require_change(self):
-        if not self.model_fields_set.intersection({"others_enabled", "test_delivery_enabled", "test_receiver_user_id"}):
+        if not self.model_fields_set.intersection({"others_enabled", "test_delivery_enabled", "delivery_mode", "test_receiver_user_id"}):
             raise ValueError("至少修改一项设置")
-        for field in ("others_enabled", "test_delivery_enabled"):
+        for field in ("others_enabled", "test_delivery_enabled", "delivery_mode"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError("开关不能为 null")
         return self

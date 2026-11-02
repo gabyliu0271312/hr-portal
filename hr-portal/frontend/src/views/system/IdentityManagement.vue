@@ -14,17 +14,23 @@
         </div>
         <section class="notification-settings">
           <h3>消息测试设置 · 绩效系统</h3>
-          <p>默认仅记录；开放受控投递后，每次一条独立结果汇总，样式验证另发一条样例。</p>
-          <el-alert type="warning" :closable="false" title="始终禁止投递给原业务接收人和业务群。测试接收方冲突、配置缺失或发送失败时，不回退原名单。" />
+          <p>消息投递由全局投递模式控制，与真实场景一致。默认「不发送」仅记录；「仅发指定人」会把全部业务消息投递给下方测试接收人。</p>
+          <el-alert type="info" :closable="false" title="「不发送」时消息在通知日志中记录为已发送，但不会通过飞书实际投递。切换到「正常发送」后才会真实外发。" />
           <el-form label-position="top" class="settings-form">
-            <el-form-item label="允许受控测试投递"><el-switch v-model="testDelivery" :disabled="saving" /></el-form-item>
-            <el-form-item label="测试接收人（必须启用且已绑定飞书）">
+            <el-form-item label="全局消息投递模式">
+              <el-radio-group v-model="deliveryMode" :disabled="saving">
+                <el-radio value="blocked">不发送</el-radio>
+                <el-radio value="test_receiver">仅发指定人</el-radio>
+                <el-radio value="normal">正常发送</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="测试接收人（仅发指定人模式必填；必须启用且已绑定飞书）">
               <el-select v-model="receiverId" filterable remote clearable :remote-method="findReceivers" :loading="receiverLoading" placeholder="搜索专用测试接收人" style="width: min(100%, 420px)">
                 <el-option v-for="person in receivers" :key="person.id" :value="person.id" :label="`${person.display_name} · ${person.login_name}`" />
               </el-select>
-              <p v-if="control.test_receiver_user_id" class="hint">当前配置的用户 ID：{{ control.test_receiver_user_id }}。投递前仍会核验是否与本批原名单重合。</p>
+              <p v-if="control.test_receiver_user_id" class="hint">当前配置的用户 ID：{{ control.test_receiver_user_id }}。仅发指定人模式下该用户会收到全部业务消息（与业务原名单重合也照发）。</p>
             </el-form-item>
-            <PermissionButton menu="system.identity_management" op="U" type="primary" :loading="saving" @click="saveNotifications">保存消息测试设置</PermissionButton>
+            <PermissionButton menu="system.identity_management" op="U" type="primary" :loading="saving" @click="saveNotifications">保存消息投递设置</PermissionButton>
           </el-form>
         </section>
       </template>
@@ -37,14 +43,14 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PermissionButton from '@/components/PermissionButton.vue'
-import { identitySwitchApi, switchRequestId, type SwitchControl } from '@/api/identitySwitch'
+import { identitySwitchApi, switchRequestId, type DeliveryMode, type SwitchControl } from '@/api/identitySwitch'
 import { usersApi, type UserListItem } from '@/api/users'
 
 const control = ref<SwitchControl | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
-const testDelivery = ref(false)
+const deliveryMode = ref<DeliveryMode>('blocked')
 const receiverId = ref<number | undefined>()
 const receivers = ref<UserListItem[]>([])
 const receiverLoading = ref(false)
@@ -53,7 +59,7 @@ async function load() {
   loading.value = true
   try {
     control.value = await identitySwitchApi.control()
-    testDelivery.value = control.value.test_delivery_enabled
+    deliveryMode.value = control.value.delivery_mode || 'blocked'
     receiverId.value = control.value.test_receiver_user_id ?? undefined
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '读取身份管理失败'
@@ -81,10 +87,11 @@ async function toggleSystem() {
 }
 async function saveNotifications() {
   if (!control.value) return
+  if (deliveryMode.value === 'test_receiver' && !receiverId.value) { ElMessage.warning('仅发指定人模式需要先选择测试接收人'); return }
   saving.value = true
   try {
-    control.value = await identitySwitchApi.updateControl({ test_delivery_enabled: testDelivery.value, test_receiver_user_id: receiverId.value ?? null, expected_revision: control.value.revision, request_id: switchRequestId() })
-    ElMessage.success('消息测试设置已保存，原业务接收方仍始终禁投')
+    control.value = await identitySwitchApi.updateControl({ delivery_mode: deliveryMode.value, test_receiver_user_id: receiverId.value ?? null, expected_revision: control.value.revision, request_id: switchRequestId() })
+    ElMessage.success('消息投递设置已保存')
   } catch { await load() }
   finally { saving.value = false }
 }

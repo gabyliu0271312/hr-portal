@@ -8,6 +8,7 @@ export interface SwitchCapability {
   generation: number
   test_delivery_enabled: boolean
 }
+export type DeliveryMode = 'blocked' | 'test_receiver' | 'normal'
 export interface SwitchControl {
   app_code: string
   system_name: string
@@ -16,6 +17,7 @@ export interface SwitchControl {
   generation: number
   revision: number
   test_delivery_enabled: boolean
+  delivery_mode: DeliveryMode
   test_receiver_user_id: number | null
 }
 export interface SwitchPerson { employee_no: string; display_name: string; organization_label?: string }
@@ -42,7 +44,7 @@ export function switchRequestId() {
 export const identitySwitchApi = {
   capability: () => api.get<SwitchCapability>('/performance/identity-switch/capability').then(r => r.data),
   control: () => api.get<SwitchControl>('/identity-switch/control').then(r => r.data),
-  updateControl: (value: Partial<Pick<SwitchControl, 'others_enabled' | 'test_delivery_enabled' | 'test_receiver_user_id'>> & { expected_revision: number; request_id: string; confirm_clear?: boolean }) =>
+  updateControl: (value: Partial<Pick<SwitchControl, 'others_enabled' | 'test_delivery_enabled' | 'delivery_mode' | 'test_receiver_user_id'>> & { expected_revision: number; request_id: string; confirm_clear?: boolean }) =>
     api.patch<SwitchControl>('/identity-switch/control', value).then(r => r.data),
   people: (q: string, page = 1) => api.get<{ items: SwitchPerson[]; total: number }>('/performance/identity-switch/people', { params: { q, page, page_size: 50 } }).then(r => r.data),
   favorites: () => api.get<{ items: SwitchPerson[] }>('/performance/identity-switch/favorites').then(r => r.data.items),

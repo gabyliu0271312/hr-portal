@@ -136,6 +136,10 @@ async def change_control(db, user, payload):
         if payload.test_delivery_enabled and not setting.test_receiver_user_id:
             fail("SWITCH_TEST_RECEIVER_INVALID", "请先配置经过核验的测试接收人", 422)
         setting.test_delivery_enabled = payload.test_delivery_enabled
+    if payload.delivery_mode is not None:
+        if payload.delivery_mode == "test_receiver" and not setting.test_receiver_user_id:
+            fail("SWITCH_TEST_RECEIVER_INVALID", "仅发指定人模式需要先配置测试接收人", 422)
+        setting.delivery_mode = payload.delivery_mode
     setting.revision += 1
     result = control_out(setting) | {"cleared_role_count": cleared, "revoked_session_count": revoked}
     audit(db, user.id, "IDENTITY_SWITCH_CONTROL_CHANGED", request_id=payload.request_id, requested=requested, result=result)
@@ -149,6 +153,7 @@ def control_out(setting):
         "description": "允许已授权用户切换为绩效员工，按员工实际业务权限测试",
         "others_enabled": setting.others_enabled, "generation": setting.generation,
         "revision": setting.revision, "test_delivery_enabled": setting.test_delivery_enabled,
+        "delivery_mode": setting.delivery_mode,
         "test_receiver_user_id": setting.test_receiver_user_id,
     }
 

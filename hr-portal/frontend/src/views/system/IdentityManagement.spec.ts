@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({ control: vi.fn(), updateControl: vi.fn(), list
 vi.mock('@/api/identitySwitch', () => ({ identitySwitchApi: mocks, switchRequestId: () => 'request-1' }))
 vi.mock('@/api/users', () => ({ usersApi: { list: mocks.list } }))
 vi.mock('@/components/PermissionButton.vue', () => ({ default: { template: '<button @click="$emit(\'click\')"><slot /></button>', emits: ['click'] } }))
-const initial = { app_code: 'performance', system_name: '绩效系统', description: 'test', others_enabled: false, generation: 0, revision: 1, test_delivery_enabled: false, test_receiver_user_id: null }
+const initial = { app_code: 'performance', system_name: '绩效系统', description: 'test', others_enabled: false, generation: 0, revision: 1, test_delivery_enabled: false, delivery_mode: 'blocked', test_receiver_user_id: null }
 
 describe('identity management', () => {
   beforeEach(() => {
@@ -26,7 +26,9 @@ describe('identity management', () => {
     await flushPromises()
     expect(mocks.updateControl).toHaveBeenCalledWith(expect.objectContaining({ others_enabled: true, expected_revision: 1 }))
     expect(wrapper.findAll('button').some(button => button.text() === '停用')).toBe(true)
-    expect(wrapper.html()).toContain('始终禁止投递给原业务接收人')
+    expect(wrapper.text()).toContain('不发送')
+    expect(wrapper.text()).toContain('仅发指定人')
+    expect(wrapper.text()).toContain('正常发送')
     wrapper.unmount()
   })
   it('does not display configuration when the backend rejects the account', async () => {
@@ -35,6 +37,31 @@ describe('identity management', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('无法访问身份管理')
     expect(wrapper.findAll('button').some(button => button.text() === '启用')).toBe(false)
+    wrapper.unmount()
+  })
+  it('saves the three-state delivery mode', async () => {
+    const wrapper = mount(IdentityManagement, { global: { plugins: [ElementPlus] } })
+    await flushPromises()
+    const radios = wrapper.findAll('input[type="radio"]')
+    expect(radios).toHaveLength(3)
+    await radios[2].setValue()
+    await flushPromises()
+    const save = wrapper.findAll('button').find(button => button.text() === '保存消息投递设置')!
+    await save.trigger('click')
+    await flushPromises()
+    expect(mocks.updateControl).toHaveBeenCalledWith(expect.objectContaining({ delivery_mode: 'normal', expected_revision: 1 }))
+    wrapper.unmount()
+  })
+  it('warns and blocks save when test_receiver has no receiver', async () => {
+    const wrapper = mount(IdentityManagement, { global: { plugins: [ElementPlus] } })
+    await flushPromises()
+    const radios = wrapper.findAll('input[type="radio"]')
+    await radios[1].setValue()
+    await flushPromises()
+    const save = wrapper.findAll('button').find(button => button.text() === '保存消息投递设置')!
+    await save.trigger('click')
+    await flushPromises()
+    expect(mocks.updateControl).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

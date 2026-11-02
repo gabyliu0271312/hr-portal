@@ -444,6 +444,7 @@ it('opens the shared delegation dialog from calibration authorization with real 
   expect(document.querySelector<HTMLInputElement>('input[name="authorization-distribution"][value="NONE"]')?.disabled).toBe(true)
   wrapper.getComponent(Dialog).vm.$emit('completed', 2, 'preview_only')
   await flushPromises()
-  expect(wrapper.text()).toContain('测试模式：已记录 2 条，未发送飞书通知')
+  expect(wrapper.text()).toContain('已授权 2 个任务')
+  expect(wrapper.text()).not.toContain('测试模式')
   wrapper.unmount(); loaded.mockRestore(); candidates.mockRestore(); delete routeQuery.cycle_id
 })

@@ -203,7 +203,7 @@ describe('cycle reminder selection', () => {
 
   it('keeps delegation buttons for manager review and communicate reminder nodes', async () => {
     const api = await import('@/api/performance')
-    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [{ ...result().items[0], can_authorize: true } as ProjectManagementReminderPerson], total: 1, page: 1, page_size: 50 })
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [{ ...result().items[0], can_authorize: true, task_map: [{ task_id: 11, stage_key: 'manager-review', stage_label: '上级评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true }] } as ProjectManagementReminderPerson], total: 1, page: 1, page_size: 50 })
     const wrapper = mount(PerformanceReminderPanel, {
       props: { context: { ...context, nodeId: 'manager-review', nodeType: 'evaluation', reviewType: 'leader_review', title: '上级评估', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
     })
@@ -211,10 +211,26 @@ describe('cycle reminder selection', () => {
     await wrapper.find('tbody input[type="checkbox"]').setValue(true)
     expect(wrapper.get('.selection-bar').text()).toContain('授权他人处理')
     expect(wrapper.get('.selection-bar').text()).toContain('转交他人处理')
+    await wrapper.findAll('.selection-bar button').find(button => button.text() === '授权他人处理')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.getComponent({ name: 'PerformanceTaskDelegationDialog' })
+    expect(dialog.props('tasks')).toEqual([{
+      task_id: 11,
+      project_id: 3,
+      employee_no: 'E001',
+      display_name: '张三',
+      can_authorize: true,
+      task_map: [{ task_id: 11, stage_key: 'manager-review', stage_label: '上级评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true }],
+    }])
+    expect(document.body.textContent).toContain('被评估人')
+    expect(document.body.textContent).toContain('张三')
+    expect(document.body.textContent).toContain('按执行角色选择')
+    expect(document.body.textContent).toContain('直属上级')
+    expect(document.body.textContent).toContain('上级评估')
     wrapper.unmount(); people.mockRestore()
   })
 
-  it('reports preview-only reminders as recorded without claiming delivery', async () => {
+  it('never shows test-mode hints and treats legacy preview responses as failures', async () => {
     const api = await import('@/api/performance')
     const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [], skipped_task_ids: [], preview_task_ids: [11], failed_task_ids: [], delivery_status: 'preview_only', errors: [{ error: 'NOTIFICATION_PREVIEW_ONLY' }] })
     const provider = vi.fn().mockResolvedValue(result())
@@ -224,9 +240,25 @@ describe('cycle reminder selection', () => {
     await flushPromises()
     ;(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
     await flushPromises()
-    expect(wrapper.text()).toContain('测试模式：已记录 1 条，未发送飞书通知')
-    expect(wrapper.text()).not.toContain('催办已发送')
+    expect(wrapper.text()).not.toContain('测试模式')
+    expect(wrapper.text()).not.toContain('未发送飞书通知')
+    expect(wrapper.text()).toContain('催办发送失败')
     expect(wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('selectedKeys')).toEqual([])
+    wrapper.unmount(); sending.mockRestore()
+  })
+
+  it('reports a real-style success delivery as sent', async () => {
+    const api = await import('@/api/performance')
+    const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [11], skipped_task_ids: [], failed_task_ids: [], delivery_status: 'success' })
+    const provider = vi.fn().mockResolvedValue(result())
+    const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind', selectAllAvailable: true } })
+    await flushPromises()
+    await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
+    await flushPromises()
+    ;(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(wrapper.text()).toContain('催办已发送：1 条，跳过 0 条')
+    expect(wrapper.text()).not.toContain('测试模式')
     wrapper.unmount(); sending.mockRestore()
   })
 

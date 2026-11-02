@@ -16,6 +16,7 @@ class IdentitySwitchSetting(Base):
     generation: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     test_delivery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    delivery_mode: Mapped[str] = mapped_column(String(16), default="blocked", server_default="blocked")
     test_receiver_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

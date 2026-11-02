@@ -45,6 +45,36 @@ from app.integrations.feishu.template_renderer import render_template
 logger = logging.getLogger("feishu.notification_service")
 
 
+async def _global_delivery_mode(db) -> str:
+    """读取全局消息投递模式（identity_switch 单例行）。
+
+    未初始化或读取失败时兜底 blocked（fail-closed），保证部署后不会意外外发。
+    """
+    from app.identity_switch.models import IdentitySwitchSetting
+    from sqlalchemy import select
+    try:
+        row = (await db.execute(select(IdentitySwitchSetting.delivery_mode).where(IdentitySwitchSetting.id == 1))).scalar_one_or_none()
+    except Exception:
+        logger.exception("[feishu] 读取全局投递模式失败，按 blocked 处理")
+        return "blocked"
+    return row if row in ("blocked", "test_receiver", "normal") else "blocked"
+
+
+async def _global_test_receiver(db) -> ResolvedReceiver | None:
+    """读取全局测试接收人的飞书账号；配置缺失返回 None。"""
+    from app.identity_switch.models import IdentitySwitchSetting
+    from app.users.models import User
+    from sqlalchemy import select
+    row = (await db.execute(
+        select(User.feishu_user_id, User.display_name).join(
+            IdentitySwitchSetting, IdentitySwitchSetting.test_receiver_user_id == User.id,
+        ).where(IdentitySwitchSetting.id == 1, User.is_active.is_(True), User.feishu_user_id.is_not(None), User.feishu_user_id != "")
+    )).first()
+    if row is None:
+        return None
+    return ResolvedReceiver(receiver_type="user", receiver_id=row[0], display_name=row[1] or "测试接收人", source="global_test_receiver")
+
+
 async def resolve_and_preview(
     config: NotificationConfig,
     context: dict[str, Any],
@@ -114,6 +144,11 @@ async def send_notification(
     if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED and current_switch.get() is not None:
         from app.identity_switch.notifications import intercept_notification
         return await intercept_notification(config, context, db, biz_type, biz_id)
+    if current_switch.get() is None:
+        delivery_mode = await _global_delivery_mode(db)
+    else:
+        # 身份切换会话已由上方拦截，不会走到这里；防御性保持正常投递
+        delivery_mode = "normal"
     if not config.enabled:
         log = FeishuNotificationLog(
             biz_type=biz_type, biz_id=biz_id, is_test=is_test,
@@ -127,6 +162,17 @@ async def send_notification(
 
     # 1. 解析接收人
     resolve_result = await resolve_receivers(config.receivers, context, db)
+
+    # 1.2 仅发指定人模式：整体替换为全局测试接收人（测试接收人在原名单也照发）
+    if delivery_mode == "test_receiver":
+        receiver = await _global_test_receiver(db)
+        if receiver is None:
+            logger.warning("[feishu] test_receiver 模式但未配置有效测试接收人，按 blocked 处理 biz=%s/%s", biz_type, biz_id)
+            delivery_mode = "blocked"
+        else:
+            resolve_result.receivers = [receiver]
+            resolve_result.errors = []
+            resolve_result.ok = True
 
     # 1.5 如果开启标记完成功能，过滤已完成的用户
     filtered_receivers: list[ResolvedReceiver] = []
@@ -192,11 +238,24 @@ async def send_notification(
     await db.flush()
 
     if not settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+        # 部署保险丝关闭（兜底）：保持既有 preview_only 语义，仅记录不发送。
         log.status = "skipped"
         log.error_message = "NOTIFICATION_PREVIEW_ONLY"
         log.result_snapshot = [{"receiver_id": r.receiver_id, "receiver_type": r.receiver_type, "status": "preview_only"} for r in resolve_result.receivers]
         await db.flush()
         return NotificationSendResponse(ok=resolve_result.ok, status="skipped", log_id=log.id, errors=["NOTIFICATION_PREVIEW_ONLY", *[e.message for e in resolve_result.errors]])
+
+    if delivery_mode == "blocked":
+        # 全局投递关闭：走完整解析/渲染/落日志，标记成功，但不调用飞书。
+        # 返回结果与真实发送一致（status=success），前端不感知任何测试痕迹。
+        log.status = "success"
+        log.success_count = len(resolve_result.receivers)
+        log.failed_count = 0
+        log.result_snapshot = [{"receiver_id": r.receiver_id, "receiver_type": r.receiver_type, "display_name": r.display_name, "status": "success", "message_id": None} for r in resolve_result.receivers]
+        log.error_message = None
+        await db.flush()
+        logger.info("[feishu] 全局投递关闭(blocked)，已记录未发送 biz=%s/%s receivers=%d", biz_type, biz_id, log.success_count)
+        return NotificationSendResponse(ok=True, status="success", success_count=log.success_count, failed_count=0, log_id=log.id)
 
     client = get_feishu_client()
     success_count = 0

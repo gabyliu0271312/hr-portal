@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { projectManagementApi } from '@/api/performance'
+import { projectManagementApi, type PerformanceTaskDelegationTarget } from '@/api/performance'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
@@ -62,10 +62,8 @@ import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceSwitch from './PerformanceSwitch.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 
-const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<{
-  task_id: number; project_id: number; employee_no?: string; display_name?: string;
-  direct_supervisor_employee_no?: string; department_path?: string;
-  task_map?: Array<{ task_id: number; stage_key: string; stage_label: string; role_key: string | null; role_label: string | null; handler_ref: string; can_authorize?: boolean }>
+const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & {
+  direct_supervisor_employee_no?: string; department_path?: string
 }>; calibration?: boolean; readOnly?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; completed: [count: number, notificationStatus?: string] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })

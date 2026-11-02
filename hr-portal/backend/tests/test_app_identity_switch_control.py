@@ -35,6 +35,10 @@ def test_control_payload_is_strict():
         FavoriteCreate(employee_no="E1", operator_user_id=1)
     with pytest.raises(ValidationError):
         ControlPatch(expected_revision=1, request_id="test")
+    with pytest.raises(ValidationError):
+        ControlPatch(expected_revision=1, request_id="test", delivery_mode="invalid")
+    with pytest.raises(ValidationError):
+        ControlPatch(expected_revision=1, request_id="test", delivery_mode=None)
 
 
 def test_notification_run_cannot_deliver_when_delivery_disabled(monkeypatch):

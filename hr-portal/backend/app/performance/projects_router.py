@@ -2233,6 +2233,9 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                 handlers = await _task_handlers(db, task)
                 active_handlers = {handler for handler in handlers if handler in people_by_no and getattr(people_by_no[handler], "employment_status", None) not in {"离职", "已离职"}}
                 eligible_handlers = active_handlers & delivery_handlers if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED else active_handlers
+                role_key = "DIRECT_SUPERVISOR" if str(task.handler_ref) == str(member.direct_supervisor_employee_no) else "HRBP" if member.hrbp_employee_no and str(task.handler_ref) == str(member.hrbp_employee_no) else None
+                role_label = "直属上级" if role_key == "DIRECT_SUPERVISOR" else "HRBP" if role_key == "HRBP" else None
+                can_authorize = False if node_key in _REMINDER_DELEGATION_HIDDEN_NODE_KEYS or role_key is None else await _authorize_task_delegation(task, node, project, context, str(actor.actor_ref), db)
                 values = {
                     "task_id": task.id,
                     "aggregate_task_id": task.id,
@@ -2258,7 +2261,16 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                     "employment_status": member.employment_status,
                     "due_at": _task_window(task, node, project)[1],
                     "visible_profile_fields": visible_fields,
-                    "can_authorize": False if node_key in _REMINDER_DELEGATION_HIDDEN_NODE_KEYS else await _authorize_task_delegation(task, node, project, context, str(actor.actor_ref), db),
+                    "can_authorize": can_authorize,
+                    "task_map": [{
+                        "task_id": task.id,
+                        "stage_key": node_key,
+                        "stage_label": dict(_COMPLETION_NODE_DEFINITIONS)[node_key],
+                        "role_key": role_key,
+                        "role_label": role_label,
+                        "handler_ref": str(task.handler_ref),
+                        "can_authorize": can_authorize,
+                    }] if role_key is not None else [],
                     "selectable": bool(eligible_handlers),
                     "unavailable_reason": None if eligible_handlers else "处理人不在当前快照或已离职" if not active_handlers else "处理人未关联可用的飞书账号",
                 }
