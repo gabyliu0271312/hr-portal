@@ -122,6 +122,14 @@
 - 分布边界：NONE 后端拒绝；配置强制分布的校准授权本轮拒绝，避免没有提交校验却声称执行规则。真实发送重试幂等未开放验收，后续启用消息总闸前必须单独完成。
 - 前端：在 frontend 目录执行 `npm test -- src/components/performance/CompletionRatePanel.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/performanceReminderVisibility.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/Review.spec.ts --pool=threads --poolOptions.threads.singleThread=true --silent` → 5 文件、98 passed、exit 0，无未处理错误；`npm run build` → vue-tsc + Vite exit 0。
 - PostgreSQL 定向证据：隔离容器 `hr-pm-acceptance-pg`（独立测试库，不使用项目 data/pg）。既有 `test_performance_projects.py::test_authorization_postgres_migration_and_reopen` 通过直接导入并执行异步测试函数，验证 0290 upgrade、JSONB 保存→新连接回读、撤销→新连接回读、有记录 downgrade 拒绝、空表 downgrade→upgrade。此证据不等于真实登录/API全链路或全量迁移通过。
+
+### 2026-11-02 催办入口复用成员列表授权弹窗
+
+- 复用边界：项目管理催办页与成员列表统一使用 `PerformanceTaskDelegationDialog`；后端统一通过 `_member_task_options` 生成被评估人、执行角色、可授权环节与任务引用，催办页不再使用仅含 `task_id/project_id` 的简化弹窗输入。授权/转交继续调用既有候选人交集与 `authorizeTask` 提交链路，不新增第二套组件或接口。
+- 前端：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceReminderPanel.spec.ts src/views/performance/ProjectManagement.spec.ts --pool=threads --poolOptions.threads.singleThread=true --silent` → 2 文件、36 passed、exit 0；共享弹窗独立测试继续覆盖候选人加载、授权提交参数和批量部分失败。
+- 后端聚焦回归：`hr-portal/backend/.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -q --tb=short -k "member_task_map or cycle_reminder_hides_delegation or cycle_reminder_department_filter"` → 3 passed、384 deselected、1 条第三方弃用警告；覆盖催办名单与成员列表一致的 `task_map` 角色/环节契约、隐藏节点拒绝及部门过滤。最终全文件回归另有 2 项失败、380 passed、5 skipped，失败来自并行开发中的三态通知投递模式测试桩未提供 `_global_delivery_mode` 所需 DB 行为，不属于本次弹窗复用代码；未将其报告为通过。
+- 构建与格式：`npm --prefix hr-portal/frontend run build` → vue-tsc + Vite exit 0，仅既有 VueUse PURE 注释警告；`git diff --check` 无新增格式错误，仅仓库既有 LF/CRLF 提示。
+- 浏览器验收阻塞：本地 Vite 页面已登录并进入催办路由，但当前运行后端对 `/api/v1/performance/project-management/overview` 和 `/reminder-people` 返回 404，无法生成真实页面截图或执行本地 API 全链路；未操作生产、未实际授权人员、未发送消息。F02/F05 保持未完成，待部署包含当前路由的后端后补真实页面验收。
 - 全量空库迁移：最初在历史 revision 0046 写入时遭遇 `alembic_version.version_num VARCHAR(32)` 长度限制；随后已在 `alembic/env.py` 修复 PostgreSQL 初始化：新表使用 VARCHAR(128)，现有短列只扩不缩，保留原 revision/数据，并置于迁移事务内。未修改历史迁移或伪造 head。隔离 PostgreSQL 实测空库升级至 0046、0046→0045→0046、旧 VARCHAR(32) 扩宽通过；`python -m pytest tests/test_schema_check.py -q --tb=short` → 10 passed。继续运行空库 `alembic upgrade head` 已跨过 0046/0047，在 0051 因历史 `tools.hr` 菜单种子缺失停止；全量空库 head 仍未通过，本轮不改动该独立初始化依赖。
 - 部署：第一轮代码已推送 main（`135d7c9a`）。用户明确服务器部署自行执行，本轮仅修复并推送 0046 初始化兼容；不连接或操作服务器。现有数据库的实际 revision 和迁移结果仍须部署时核对。
 - 参考证据保持受限：前述 REA Evidence ID、CSS 视口 1280×673 / DPR1.5 可复用；原始参考截图含真实员工信息，受限保存，不进入普通 Git。临时会话结果路径不作为唯一长期存储；已有实现 PNG 未作为本轮最终 UI 验收证据。

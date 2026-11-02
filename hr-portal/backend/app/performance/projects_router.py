@@ -11,7 +11,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
@@ -1330,6 +1329,36 @@ def _serialize_project_member(member: PerformanceProjectMember) -> ProjectMember
     )
 
 
+async def _member_task_options(
+    member: PerformanceProjectMember,
+    tasks: list[PerformanceNodeTask],
+    stages: dict[int, dict],
+    active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]],
+    progress_scope: set[str] | None,
+    project: PerformanceProject,
+    context: PerformanceAccessContext,
+    actor_ref: str,
+    db: AsyncSession,
+) -> list[ProjectMemberTaskOption]:
+    direct_supervisor = getattr(member, "direct_supervisor_employee_no", None)
+    hrbp = getattr(member, "hrbp_employee_no", None)
+    options = [
+        ProjectMemberTaskOption(
+            task_id=task.id,
+            stage_key=stage["key"],
+            stage_label=stage["label"],
+            role_key="DIRECT_SUPERVISOR" if str(task.handler_ref) == str(direct_supervisor) else "HRBP" if hrbp and str(task.handler_ref) == str(hrbp) else None,
+            role_label="直属上级" if str(task.handler_ref) == str(direct_supervisor) else "HRBP" if hrbp and str(task.handler_ref) == str(hrbp) else None,
+            handler_ref=str(task.handler_ref),
+            can_authorize=await _authorize_task_delegation(task, stage["node"], project, context, actor_ref, db, active_by_task, progress_scope),
+        )
+        for task in tasks
+        if task.node_snapshot_id in stages
+        for stage in [stages[task.node_snapshot_id]]
+    ]
+    return [option for option in options if option.role_key is not None]
+
+
 @router.get("/projects/{project_id}/members", response_model=ProjectMemberPage)
 async def list_project_members(
     project_id: int,
@@ -1427,23 +1456,7 @@ async def list_project_members(
             "employee_type": item.get("employee_type"),
         }
         item.update(mask_profile_values(profile_values, visible_fields))
-        direct_supervisor = getattr(member, "direct_supervisor_employee_no", None)
-        hrbp = getattr(member, "hrbp_employee_no", None)
-        options = [
-            ProjectMemberTaskOption(
-                task_id=task.id,
-                stage_key=stage["key"],
-                stage_label=stage["label"],
-                role_key="DIRECT_SUPERVISOR" if str(task.handler_ref) == direct_supervisor else "HRBP" if hrbp and str(task.handler_ref) == str(hrbp) else None,
-                role_label="直属上级" if str(task.handler_ref) == direct_supervisor else "HRBP" if hrbp and str(task.handler_ref) == str(hrbp) else None,
-                handler_ref=str(task.handler_ref),
-                can_authorize=await _authorize_task_delegation(task, stage["node"], project, context, actor_ref, db, active_by_task, progress_scope),
-            )
-            for task in by_employee.get(member.employee_no, [])
-            if task.node_snapshot_id in stages
-            for stage in [stages[task.node_snapshot_id]]
-        ]
-        options = [option for option in options if option.role_key is not None]
+        options = await _member_task_options(member, by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, actor_ref, db)
         item["task_id"] = options[0].task_id if options and options[0].can_authorize else None
         item["can_authorize"] = bool(options) and any(option.can_authorize for option in options)
         item["task_map"] = [option.model_dump() for option in options]
@@ -2206,9 +2219,39 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
         progress = await _communication_progress(db, project, set(member_by_employee))
         previous_levels = await _previous_published_position_levels(db, project, set(member_by_employee))
         _ratings, final_values, _scales = await _project_final_ratings(project, set(member_by_employee), db, member_snapshot_id=snapshot_id)
+        stages = await _delegatable_stages(db, project)
+        if stages:
+            delegation_tasks = list((await db.execute(select(PerformanceNodeTask).where(
+                PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            ))).scalars().all())
+            task_ids = [task.id for task in delegation_tasks]
+            active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] = {}
+            if task_ids:
+                for record in list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+                    PerformanceNodeTaskAuthorization.task_id.in_(task_ids),
+                    PerformanceNodeTaskAuthorization.status == "ACTIVE",
+                ))).scalars().all()):
+                    active_by_task.setdefault(record.task_id, []).append(record)
+            try:
+                progress_scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
+            except HTTPException as exc:
+                if exc.status_code == 403:
+                    progress_scope = set()
+                else:
+                    raise
+        else:
+            delegation_tasks = []
+            active_by_task = {}
+            progress_scope = None
+        delegation_by_employee: dict[str, list[PerformanceNodeTask]] = {}
+        for delegation_task in delegation_tasks:
+            delegation_by_employee.setdefault(delegation_task.target_employee_no, []).append(delegation_task)
         delivery_handlers = set((await db.execute(select(PerformanceIdentityLink.employee_no).join(
             User, User.id == PerformanceIdentityLink.portal_user_id,
         ).where(PerformanceIdentityLink.employee_no.in_(list(people_by_no)), PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True), User.feishu_user_id.is_not(None), User.feishu_user_id != ""))).scalars().all())
+        from app.integrations.feishu.notification_service import _global_delivery_mode
+        delivery_mode = await _global_delivery_mode(db)
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
         for node in nodes:
             template = await _completion_node_template(db, project, node)
@@ -2232,10 +2275,8 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                 visible_fields = visibility_rules[visibility_role]
                 handlers = await _task_handlers(db, task)
                 active_handlers = {handler for handler in handlers if handler in people_by_no and getattr(people_by_no[handler], "employment_status", None) not in {"离职", "已离职"}}
-                eligible_handlers = active_handlers & delivery_handlers if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED else active_handlers
-                role_key = "DIRECT_SUPERVISOR" if str(task.handler_ref) == str(member.direct_supervisor_employee_no) else "HRBP" if member.hrbp_employee_no and str(task.handler_ref) == str(member.hrbp_employee_no) else None
-                role_label = "直属上级" if role_key == "DIRECT_SUPERVISOR" else "HRBP" if role_key == "HRBP" else None
-                can_authorize = False if node_key in _REMINDER_DELEGATION_HIDDEN_NODE_KEYS or role_key is None else await _authorize_task_delegation(task, node, project, context, str(actor.actor_ref), db)
+                eligible_handlers = active_handlers & delivery_handlers if delivery_mode == "normal" else active_handlers
+                task_options = await _member_task_options(member, delegation_by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, str(actor.actor_ref), db)
                 values = {
                     "task_id": task.id,
                     "aggregate_task_id": task.id,
@@ -2261,16 +2302,8 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                     "employment_status": member.employment_status,
                     "due_at": _task_window(task, node, project)[1],
                     "visible_profile_fields": visible_fields,
-                    "can_authorize": can_authorize,
-                    "task_map": [{
-                        "task_id": task.id,
-                        "stage_key": node_key,
-                        "stage_label": dict(_COMPLETION_NODE_DEFINITIONS)[node_key],
-                        "role_key": role_key,
-                        "role_label": role_label,
-                        "handler_ref": str(task.handler_ref),
-                        "can_authorize": can_authorize,
-                    }] if role_key is not None else [],
+                    "can_authorize": node_key not in _REMINDER_DELEGATION_HIDDEN_NODE_KEYS and any(option.can_authorize for option in task_options),
+                    "task_map": [] if node_key in _REMINDER_DELEGATION_HIDDEN_NODE_KEYS else [option.model_dump() for option in task_options],
                     "selectable": bool(eligible_handlers),
                     "unavailable_reason": None if eligible_handlers else "处理人不在当前快照或已离职" if not active_handlers else "处理人未关联可用的飞书账号",
                 }
@@ -2537,7 +2570,8 @@ async def project_management_reminder_people(
 async def _send_performance_task_reminder(task: PerformanceNodeTask, project: PerformanceProject, node: PerformanceProjectNodeSnapshot, actor: PerformanceAccessContext, db: AsyncSession) -> tuple[bool, str | None]:
     user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.employee_no == PerformanceIdentityLink.employee_no).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id).where(PerformanceIdentityLink.employee_no == str(task.handler_ref), PerformanceIdentityLink.is_active.is_(True), PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id, PerformanceProjectMemberSnapshot.project_id == project.id, PerformanceProjectMemberSnapshot.id == task.member_snapshot_id))
     if user is None or not user.is_active or not user.feishu_user_id:
-        if settings.FEISHU_NOTIFICATION_DELIVERY_ENABLED:
+        from app.integrations.feishu.notification_service import _global_delivery_mode
+        if await _global_delivery_mode(db) == "normal":
             return False, "TASK_HANDLER_IDENTITY_NOT_FOUND"
         from app.integrations.feishu.models import FeishuNotificationLog
         db.add(FeishuNotificationLog(

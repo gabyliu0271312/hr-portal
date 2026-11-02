@@ -138,7 +138,22 @@ const selectedKeys = ref<string[]>([])
 const taskMap = ref(new Map<string, PerformanceTaskDelegationTarget & { can_authorize?: boolean }>())
 const delegationOpen = ref(false)
 const delegationAction = ref<'AUTHORIZE' | 'TRANSFER'>('AUTHORIZE')
-const delegationTasks = computed(() => selectedKeys.value.map(key => taskMap.value.get(key)).filter((task): task is PerformanceTaskDelegationTarget & { can_authorize: true } => Boolean(task && task.can_authorize)))
+const delegationTasks = computed(() => {
+  const targets = new Map<string, PerformanceTaskDelegationTarget & { can_authorize: true }>()
+  for (const key of selectedKeys.value) {
+    const task = taskMap.value.get(key)
+    if (!task?.can_authorize) continue
+    const targetKey = task.task_map?.length && task.employee_no ? `${task.project_id}:${task.employee_no}` : `${task.project_id}:task:${task.task_id}`
+    const existing = targets.get(targetKey)
+    if (!existing) {
+      targets.set(targetKey, { ...task, can_authorize: true, task_map: [...(task.task_map || [])] })
+      continue
+    }
+    const taskIds = new Set((existing.task_map || []).map(option => option.task_id))
+    existing.task_map = [...(existing.task_map || []), ...(task.task_map || []).filter(option => !taskIds.has(option.task_id))]
+  }
+  return [...targets.values()]
+})
 function delegationCompleted(count: number, notificationStatus?: string) { selectedKeys.value = []; void load(); notice.value = `已处理 ${count} 个任务` }
 const page = ref(1)
 const pageSize = ref(50)

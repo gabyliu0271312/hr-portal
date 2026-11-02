@@ -201,11 +201,27 @@ describe('cycle reminder selection', () => {
     wrapper.unmount(); people.mockRestore()
   })
 
-  it('keeps delegation buttons for manager review and communicate reminder nodes', async () => {
+  it('reuses the member-list delegation dialog with its complete task contract', async () => {
     const api = await import('@/api/performance')
-    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [{ ...result().items[0], can_authorize: true, task_map: [{ task_id: 11, stage_key: 'manager-review', stage_label: '上级评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true }] } as ProjectManagementReminderPerson], total: 1, page: 1, page_size: 50 })
+    const taskMap = [
+      { task_id: 11, stage_key: 'manager-review', stage_label: '上级评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true },
+      { task_id: 12, stage_key: 'communicate', stage_label: '绩效沟通并开通结果', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true },
+    ]
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [
+      { ...result().items[0], can_authorize: true, task_map: taskMap } as ProjectManagementReminderPerson,
+      { ...result().items[0], task_id: 12, can_authorize: true, task_map: taskMap } as ProjectManagementReminderPerson,
+    ], total: 2, page: 1, page_size: 50 })
     const wrapper = mount(PerformanceReminderPanel, {
       props: { context: { ...context, nodeId: 'manager-review', nodeType: 'evaluation', reviewType: 'leader_review', title: '上级评估', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
+      global: {
+        stubs: {
+          PerformanceTaskDelegationDialog: {
+            name: 'PerformanceTaskDelegationDialog',
+            props: ['modelValue', 'action', 'tasks'],
+            template: '<div class="delegation-dialog-stub" />',
+          },
+        },
+      },
     })
     await flushPromises()
     await wrapper.find('tbody input[type="checkbox"]').setValue(true)
@@ -214,19 +230,15 @@ describe('cycle reminder selection', () => {
     await wrapper.findAll('.selection-bar button').find(button => button.text() === '授权他人处理')!.trigger('click')
     await flushPromises()
     const dialog = wrapper.getComponent({ name: 'PerformanceTaskDelegationDialog' })
+    expect(dialog.props('action')).toBe('AUTHORIZE')
     expect(dialog.props('tasks')).toEqual([{
       task_id: 11,
       project_id: 3,
       employee_no: 'E001',
       display_name: '张三',
       can_authorize: true,
-      task_map: [{ task_id: 11, stage_key: 'manager-review', stage_label: '上级评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: true }],
+      task_map: taskMap,
     }])
-    expect(document.body.textContent).toContain('被评估人')
-    expect(document.body.textContent).toContain('张三')
-    expect(document.body.textContent).toContain('按执行角色选择')
-    expect(document.body.textContent).toContain('直属上级')
-    expect(document.body.textContent).toContain('上级评估')
     wrapper.unmount(); people.mockRestore()
   })
 
