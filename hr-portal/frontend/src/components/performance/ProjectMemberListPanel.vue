@@ -14,7 +14,7 @@ import { type PerformanceTableColumn } from './performanceTableColumns'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 
 type MemberRow = ProjectMember & {
-  task_id?: number
+  task_id?: number | null
   aggregate_task_id?: number | null
   status?: string
   due_at?: string | null
@@ -33,9 +33,11 @@ const emit = defineEmits<{
   export: []
   'columns-change': [keys: string[]]
   'select-member': [member: MemberRow]
-  'authorize-selected': []
-  'transfer-selected': []
+  'authorize-selected': [members: MemberRow[]]
+  'transfer-selected': [members: MemberRow[]]
 }>()
+const selectedKeys = ref<string[]>([])
+const selectedMembers = computed(() => members.value.filter(member => selectedKeys.value.includes(String(member.employee_no))))
 const keyword = ref('')
 const members = ref<MemberRow[]>([])
 const total = ref(0)
@@ -124,6 +126,7 @@ const displayRows = computed(() => props.reviewContext
 const loadMembers = async () => {
   loading.value = true
   error.value = ''
+  selectedKeys.value = []
   try {
     if (props.reviewContext) {
       const result = props.reviewContext.phaseId
@@ -238,6 +241,7 @@ onMounted(() => void loadMembers())
     </PerformanceListToolbar>
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
     <PerformanceManagementTable
+      v-model:selected-keys="selectedKeys"
       :rows="displayRows"
       :loading="loading"
       loading-text="正在加载成员…"
@@ -252,9 +256,9 @@ onMounted(() => void loadMembers())
       scroll-mode="page"
       :columns="tableColumns"
       :selectable="!reviewContext"
-      selection-key="id"
+      selection-key="employee_no"
       :show-selection-bar="!reviewContext"
-      row-key="id"
+      row-key="employee_no"
       :clickable-rows="Boolean(reviewContext)"
       @page-change="changePage"
       @page-size-change="changePageSize"
@@ -274,8 +278,8 @@ onMounted(() => void loadMembers())
         <div v-else class="member-state">暂无成员</div>
       </template>
       <template #selection-actions>
-        <PerformanceButton variant="outline-primary" aria-label="授权他人处理" @click="emit('authorize-selected')">授权他人处理</PerformanceButton>
-        <PerformanceButton variant="outline-primary" aria-label="转交他人处理" @click="emit('transfer-selected')">转交他人处理</PerformanceButton>
+        <PerformanceButton variant="outline-primary" aria-label="授权他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('authorize-selected', selectedMembers)">授权他人处理</PerformanceButton>
+        <PerformanceButton variant="outline-primary" aria-label="转交他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('transfer-selected', selectedMembers)">转交他人处理</PerformanceButton>
       </template>
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />

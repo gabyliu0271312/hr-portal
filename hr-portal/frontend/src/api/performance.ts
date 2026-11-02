@@ -183,7 +183,7 @@ export interface ReminderPeoplePage {
 }
 
 export type PerformanceReviewMemberContext = {
-  task_id?: number
+  task_id?: number | null
   aggregate_task_id?: number | null
   employee_no: string
   display_name?: string
@@ -819,6 +819,9 @@ export interface ProjectMember extends PerformanceMemberProfile {
   rating: string | null
   rating_tone: string | null
   completion: string | null
+  task_id?: number | null
+  can_authorize?: boolean
+  task_map?: Array<{ task_id: number; stage_key: string; stage_label: string; role_key: string | null; role_label: string | null; handler_ref: string; can_authorize?: boolean }>
 }
 
 export interface ProjectMemberPage {

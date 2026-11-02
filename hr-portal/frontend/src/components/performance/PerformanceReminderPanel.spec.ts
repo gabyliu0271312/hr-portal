@@ -183,6 +183,32 @@ describe('cycle reminder selection', () => {
     wrapper.unmount()
   })
 
+  it('hides delegation buttons for self-review, 360 and calibration reminder nodes even when the provider allows them', async () => {
+    const api = await import('@/api/performance')
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [result().items[0]], total: 1, page: 1, page_size: 50 })
+    const wrapper = mount(PerformanceReminderPanel, {
+      props: { context: { ...context, nodeId: 'review-360', nodeType: 'evaluation', reviewType: '360_review', title: '360°反馈', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
+    })
+    await flushPromises()
+    await wrapper.find('tbody input[type="checkbox"]').setValue(true)
+    expect(wrapper.find('.selection-bar .performance-button--primary').text()).toBe('催办')
+    expect(wrapper.findAll('.selection-bar button').filter(button => /授权他人处理|转交他人处理/.test(button.text()))).toHaveLength(0)
+    wrapper.unmount(); people.mockRestore()
+  })
+
+  it('keeps delegation buttons for manager review and communicate reminder nodes', async () => {
+    const api = await import('@/api/performance')
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [{ ...result().items[0], can_authorize: true }], total: 1, page: 1, page_size: 50 })
+    const wrapper = mount(PerformanceReminderPanel, {
+      props: { context: { ...context, nodeId: 'manager-review', nodeType: 'evaluation', reviewType: 'leader_review', title: '上级评估', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
+    })
+    await flushPromises()
+    await wrapper.find('tbody input[type="checkbox"]').setValue(true)
+    expect(wrapper.get('.selection-bar').text()).toContain('授权他人处理')
+    expect(wrapper.get('.selection-bar').text()).toContain('转交他人处理')
+    wrapper.unmount(); people.mockRestore()
+  })
+
   it('reports preview-only reminders as recorded without claiming delivery', async () => {
     const api = await import('@/api/performance')
     const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [], skipped_task_ids: [], preview_task_ids: [11], failed_task_ids: [], delivery_status: 'preview_only', errors: [{ error: 'NOTIFICATION_PREVIEW_ONLY' }] })

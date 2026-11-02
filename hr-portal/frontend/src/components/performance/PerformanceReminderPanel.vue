@@ -105,6 +105,7 @@ import PerformanceButton from './PerformanceButton.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 import { defaultReminderColumns, reminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
+import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
 const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
 const emit = defineEmits<{ filter: []; export: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
@@ -194,6 +195,9 @@ async function load() {
     emit('loaded', result.total)
     columns.value = result.columns.length ? result.columns : defaultReminderColumns
     capabilities.value = result.capabilities
+    if (props.mode === 'cycle-remind' && REMINDER_DELEGATION_HIDDEN_NODE_KEYS.has(props.context.nodeId)) {
+      capabilities.value = { ...capabilities.value, canAuthorize: false, canTransfer: false }
+    }
     const retainedKeys = selectedColumnKeys.value.filter(key => columns.value.some(column => column.key === key))
     const configuredDefaults = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
     selectedColumnKeys.value = ((!columnsInitialized.value && props.mode === 'preview') || !retainedKeys.length) ? configuredDefaults : retainedKeys
@@ -225,6 +229,9 @@ async function initialize() {
     columns.value = result.columns
     selectedColumnKeys.value = columns.value.filter(column => column.visibleByDefault !== false).map(column => column.key)
     capabilities.value = result.capabilities
+    if (props.mode === 'cycle-remind' && REMINDER_DELEGATION_HIDDEN_NODE_KEYS.has(props.context.nodeId)) {
+      capabilities.value = { ...capabilities.value, canAuthorize: false, canTransfer: false }
+    }
     emit('loaded', result.total)
     if (selectAllEligible.value) {
       const selection: string[] = []

@@ -5674,6 +5674,54 @@ async def test_cycle_reminder_people_use_snapshot_progress_and_profile_visibilit
 
 
 @pytest.mark.asyncio
+async def test_cycle_reminder_hides_delegation_for_self_and_360_and_calibration_nodes(monkeypatch):
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceNodeTaskAuthorization
+    project = SimpleNamespace(id=3, name="测试项目", cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    member = PerformanceProjectMember(snapshot_id=10, employee_no="E1", display_name="员工", organization_ref="集团/研发", department="研发", direct_supervisor_employee_no="M1", hrbp_employee_no="H1", job_family="产品", job_category="技术", position_level="P6")
+    task = SimpleNamespace(id=1, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, node_snapshot_id=5, target_employee_no="E1", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    async def managed(*args): return [(project, None)]
+    async def actor(*args): return SimpleNamespace(actor_ref="ADMIN")
+    async def rules(*args): return {"activity_manager": ["department"]}
+    async def role(*args): return "activity_manager"
+    async def progress(*args): return {}
+    async def previous(*args): return {}
+    async def ratings(*args, **kwargs): return [], {}, []
+    async def scope(*args): return None
+    async def authorize(*args): return True
+    for name, value in [("_managed_completion_projects", managed), ("resolve_trusted_performance_actor", actor), ("load_subject_visibility_rules", rules), ("resolve_subject_visibility_role", role), ("_communication_progress", progress), ("_previous_published_position_levels", previous), ("_project_final_ratings", ratings), ("_project_data_scope", scope), ("_authorize_task_delegation", authorize)]:
+        monkeypatch.setattr(router, name, value)
+    values = {
+        PerformanceProjectMember: [member],
+        PerformanceProjectNodeSnapshot: [node],
+        PerformanceNodeTask: [task],
+        PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="快照经理", employment_status="在职")],
+        PerformanceIdentityLink: ["M1"], PerformanceNodeTaskAuthorization: [],
+    }
+    class Db:
+        async def scalar(self, query): return 10
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    node_types = {"work-summary": "work_summary", "self-review": "evaluation", "review-360": "evaluation", "calibration": "calibration", "manager-review": "evaluation", "communicate": "result_communication"}
+    role_codes = {"self-review": "assessment.reviewee", "review-360": "assessment.reviewer_360", "manager-review": "assessment.line_manager"}
+    task_extra = {"task_kind": "calibration", "phase_id": "p1"}
+    calibration = {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "M1", "employee_no": "E1", "allow_authorize": True}]}]}
+    for node_key, node_type in node_types.items():
+        node.config = {"template": {"executor_role_code": role_codes.get(node_key, "")}}
+        if node_key == "calibration":
+            node.config["calibration"] = calibration
+            task.__dict__.update(task_extra)
+        node.node_type = node_type
+        values[PerformanceProjectNodeSnapshot] = [node]
+        rows = await router._completion_reminder_rows(1, node_key, context(), Db())
+        assert rows, node_key
+        expected = node_key in {"work-summary", "self-review", "review-360", "calibration"}
+        assert rows[0]["can_authorize"] is not expected, node_key
+
+
+@pytest.mark.asyncio
 async def test_cycle_reminder_department_filter_matches_path_prefix_and_unassigned(monkeypatch):
     from app.performance import projects_router as router
     from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceNodeTaskAuthorization

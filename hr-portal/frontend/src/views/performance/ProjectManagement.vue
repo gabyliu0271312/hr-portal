@@ -28,7 +28,7 @@
           <PerformanceLineTabs v-model="activeTab" :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" />
+            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
@@ -44,6 +44,7 @@
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
       <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" @export="handleReminderExport" />
     </PerformanceTaskOverlay>
+    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
   </div>
 </template>
 
@@ -66,6 +67,8 @@ import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vu
 import AuthorizationManagementPanel from '@/components/performance/AuthorizationManagementPanel.vue'
 import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
+import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
+import type { ProjectMember } from '@/api/performance'
 import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import type { AuthorizationItem } from '@/components/performance/AuthorizationManagementPanel.vue'
@@ -106,6 +109,36 @@ const reminderOpen = ref(false)
 const reminderMode = ref<'remind' | 'open-result'>('remind')
 type ReminderContextWithDescription = ReminderContext & { description?: string; nodeKey?: string }
 const reminderContext = ref<ReminderContextWithDescription | null>(null)
+
+type DelegationTask = {
+  task_id: number; project_id: number; employee_no?: string; display_name?: string;
+  task_map?: Array<{ task_id: number; stage_key: string; stage_label: string; role_key: string | null; role_label: string | null; handler_ref: string; can_authorize?: boolean }>
+}
+const delegationOpen = ref(false)
+const delegationAction = ref<'AUTHORIZE' | 'TRANSFER'>('AUTHORIZE')
+const delegationTasks = ref<DelegationTask[]>([])
+const selectedDelegationMembers = ref<ProjectMember[]>([])
+
+function openDelegation(action: 'AUTHORIZE' | 'TRANSFER', members: ProjectMember[]) {
+  if (!members.length || activeCycleId.value === null) return
+  delegationAction.value = action
+  selectedDelegationMembers.value = members
+  delegationTasks.value = members.map(member => ({
+    task_id: member.task_id || 0,
+    project_id: memberProjectId.value,
+    employee_no: member.employee_no,
+    display_name: member.display_name,
+    task_map: (member as ProjectMember & { task_map?: DelegationTask['task_map'] }).task_map || [],
+  }))
+  delegationOpen.value = true
+}
+
+function delegationCompleted() {
+  delegationOpen.value = false
+  delegationTasks.value = []
+  selectedDelegationMembers.value = []
+  void loadOverview(activeCycleId.value ?? undefined)
+}
 
 function formatDeadline(value: string | null) {
   if (!value) return null
