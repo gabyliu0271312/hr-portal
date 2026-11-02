@@ -1,7 +1,7 @@
 """Performance project configuration API."""
 from __future__ import annotations
 
-from datetime import UTC, datetime, date
+from datetime import UTC, datetime, date, timedelta
 from typing import Callable, Literal
 from types import SimpleNamespace
 
@@ -19,6 +19,7 @@ from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVA
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.integrations.feishu.models import FeishuNotificationLog
 from app.integrations.feishu.notification_service import send_notification
 from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
 from app.users.models import User
@@ -82,6 +83,7 @@ class CycleReminderTasksPayload(BaseModel):
     cycle_id: int = Field(ge=1)
     node_key: str = Field(min_length=1, max_length=64)
     department: str | None = Field(default=None, max_length=256)
+    skip_recently_reminded: bool = False
     task_ids: list[int] = Field(min_length=1, max_length=500)
 
 
@@ -2572,6 +2574,20 @@ async def project_management_remind(
     eligible_rows = await _completion_reminder_rows(payload.cycle_id, payload.node_key, context, db, department=payload.department)
     eligible_ids = {row["task_id"] for row in eligible_rows if row["selectable"]}
     task_ids = list(dict.fromkeys(payload.task_ids))
+    recently_reminded_ids: set[int] = set()
+    if payload.skip_recently_reminded and task_ids:
+        cutoff = datetime.now(UTC) - timedelta(hours=6)
+        recently_reminded_rows = (await db.execute(
+            select(FeishuNotificationLog.biz_id)
+            .where(
+                FeishuNotificationLog.biz_type == "performance_task_reminder",
+                FeishuNotificationLog.biz_id.in_([str(task_id) for task_id in task_ids]),
+                FeishuNotificationLog.is_test.is_(False),
+                FeishuNotificationLog.status == "success",
+                FeishuNotificationLog.created_at >= cutoff,
+            )
+        )).scalars().all()
+        recently_reminded_ids = {int(biz_id) for biz_id in recently_reminded_rows if biz_id and biz_id.isdigit()}
     rows = (await db.execute(
         select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject)
         .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
@@ -2597,7 +2613,8 @@ async def project_management_remind(
             or (scope is not None and task.target_employee_no not in scope)
             or (node.node_type == "calibration" and not calibration_task_scope(task, node))
             or _completion_node_key(node) != payload.node_key
-            or _task_completed(task) or task.status != "pending" or not _task_is_available(task, node, project)):
+            or _task_completed(task) or task.status != "pending" or not _task_is_available(task, node, project)
+            or (payload.skip_recently_reminded and task_id in recently_reminded_ids)):
             skipped.append(task_id)
             continue
         outcomes = []

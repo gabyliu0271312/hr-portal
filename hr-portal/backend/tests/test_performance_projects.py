@@ -5317,6 +5317,10 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
                 return SimpleNamespace(all=lambda: [(7, "M1", "冻结上级姓名")])
             if "performance_node_tasks.cycle_ref =" in sql:
                 return SimpleNamespace(all=lambda: [])
+            if "performance_project_node_snapshots" in sql and "performance_node_tasks" not in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [node]))
+            if "performance_node_tasks" in sql and "JOIN" not in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             if entry != "project":
                 return SimpleNamespace(all=lambda: [(task, node, member)])
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [member]))
@@ -5522,6 +5526,65 @@ async def test_cycle_reminder_does_not_report_delivery_failure_as_success(monkey
     assert result["accepted_task_ids"] == []
     assert result["failed_task_ids"] == [1]
     assert result["delivery_status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_skips_tasks_reminded_within_six_hours_when_flagged(monkeypatch):
+    from app.performance import projects_router as router
+    project = SimpleNamespace(id=3, cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    task = SimpleNamespace(id=1, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, target_employee_no="VISIBLE", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    async def managed(*args): return [(project, None)]
+    async def eligible(*args, **kwargs): return [{"task_id": 1, "selectable": True}]
+    async def actor(*args): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")
+    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+    monkeypatch.setattr(router, "_completion_reminder_rows", eligible)
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    sent = {"calls": 0}
+    async def send(*args): sent["calls"] += 1; return True, None
+    monkeypatch.setattr(router, "_send_performance_task_reminder", send)
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query):
+            first_column = query.column_descriptions[0]["name"] if getattr(query, "column_descriptions", None) else None
+            if first_column == "biz_id":
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: ["1"]))
+            return SimpleNamespace(all=lambda: [(task, node, project)], scalars=lambda: SimpleNamespace(all=lambda: []))
+        async def commit(self): pass
+    result = await router.project_management_remind(router.CycleReminderTasksPayload(cycle_id=1, node_key="work-summary", task_ids=[1], skip_recently_reminded=True), context(), Db())
+    assert result["accepted_task_ids"] == []
+    assert result["skipped_task_ids"] == [1]
+    assert sent["calls"] == 0
+    assert result["delivery_status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_cycle_reminder_sends_when_not_recently_reminded(monkeypatch):
+    from app.performance import projects_router as router
+    project = SimpleNamespace(id=3, cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=5, project_id=3, node_id="summary", node_type="work_summary", config={})
+    task = SimpleNamespace(id=1, project_id=3, cycle_ref="cycle:1", member_snapshot_id=10, target_employee_no="VISIBLE", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    async def managed(*args): return [(project, None)]
+    async def eligible(*args, **kwargs): return [{"task_id": 1, "selectable": True}]
+    async def actor(*args): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")
+    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+    monkeypatch.setattr(router, "_completion_reminder_rows", eligible)
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    sent = {"calls": 0}
+    async def send(*args): sent["calls"] += 1; return True, None
+    monkeypatch.setattr(router, "_send_performance_task_reminder", send)
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query):
+            first_column = query.column_descriptions[0]["name"] if getattr(query, "column_descriptions", None) else None
+            if first_column == "biz_id":
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+            return SimpleNamespace(all=lambda: [(task, node, project)], scalars=lambda: SimpleNamespace(all=lambda: []))
+        def add(self, record): pass
+        async def commit(self): pass
+    result = await router.project_management_remind(router.CycleReminderTasksPayload(cycle_id=1, node_key="work-summary", task_ids=[1], skip_recently_reminded=True), context(), Db())
+    assert result["accepted_task_ids"] == [1]
+    assert sent["calls"] == 1
 
 
 def test_calibration_completion_counts_handlers_not_individual_reviewees():

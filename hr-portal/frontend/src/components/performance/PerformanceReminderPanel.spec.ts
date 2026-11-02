@@ -5,9 +5,10 @@ import PerformanceTaskOverlay from './PerformanceTaskOverlay.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
 import type { ReminderListResult } from './performanceReminder'
+import type { ProjectManagementReminderPerson } from '@/api/performance'
 
 const result = (): ReminderListResult => ({
-  items: [{ task_id: 11, aggregate_task_id: 11, employee_no: 'E001', display_name: '张三', job_family: '产品', job_category: '策划', job_sequence: '产品-策划', position_level: 'P6', hire_date: '2020-01-01', department: '产品中心', employee_type: '正式员工', employment_status: '在职', status: 'pending', due_at: '2026-09-30T00:00:00Z' }],
+  items: [{ task_id: 11, aggregate_task_id: 11, project_id: 3, employee_no: 'E001', display_name: '张三', job_family: '产品', job_category: '策划', job_sequence: '产品-策划', position_level: 'P6', hire_date: '2020-01-01', department: '产品中心', employee_type: '正式员工', employment_status: '在职', status: 'pending', due_at: '2026-09-30T00:00:00Z' }],
   total: 1,
   columns: [
     { key: 'display_name', label: '被评估人', locked: true, visibleByDefault: true },
@@ -125,9 +126,13 @@ describe('PerformanceReminderPanel', () => {
 
     await wrapper.find('.selection-bar .performance-button--primary').trigger('click')
     await flushPromises()
+    expect(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__title-content')?.textContent).toBe('确定催办吗？')
+    ;(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
 
     expect(wrapper.text()).toContain('催办请求提交失败')
     expect(wrapper.text()).toContain('已选择 1 条')
+    wrapper.unmount()
     vi.restoreAllMocks()
   })
 })
@@ -185,7 +190,7 @@ describe('cycle reminder selection', () => {
 
   it('hides delegation buttons for self-review, 360 and calibration reminder nodes even when the provider allows them', async () => {
     const api = await import('@/api/performance')
-    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [result().items[0]], total: 1, page: 1, page_size: 50 })
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [result().items[0] as ProjectManagementReminderPerson], total: 1, page: 1, page_size: 50 })
     const wrapper = mount(PerformanceReminderPanel, {
       props: { context: { ...context, nodeId: 'review-360', nodeType: 'evaluation', reviewType: '360_review', title: '360°反馈', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
     })
@@ -198,7 +203,7 @@ describe('cycle reminder selection', () => {
 
   it('keeps delegation buttons for manager review and communicate reminder nodes', async () => {
     const api = await import('@/api/performance')
-    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [{ ...result().items[0], can_authorize: true }], total: 1, page: 1, page_size: 50 })
+    const people = vi.spyOn(api.projectManagementApi, 'reminderPeople').mockResolvedValue({ items: [{ ...result().items[0], can_authorize: true } as ProjectManagementReminderPerson], total: 1, page: 1, page_size: 50 })
     const wrapper = mount(PerformanceReminderPanel, {
       props: { context: { ...context, nodeId: 'manager-review', nodeType: 'evaluation', reviewType: 'leader_review', title: '上级评估', sectionTitle: '未完成的被评估人' }, mode: 'cycle-remind', selectAllAvailable: true },
     })
@@ -217,6 +222,8 @@ describe('cycle reminder selection', () => {
     await flushPromises()
     await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
     await flushPromises()
+    ;(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
     expect(wrapper.text()).toContain('测试模式：已记录 1 条，未发送飞书通知')
     expect(wrapper.text()).not.toContain('催办已发送')
     expect(wrapper.getComponent({ name: 'PerformanceManagementTable' }).props('selectedKeys')).toEqual([])
@@ -231,11 +238,37 @@ describe('cycle reminder selection', () => {
     await flushPromises()
     await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
     await flushPromises()
-    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', [11, 12], undefined)
+    ;(document.body.querySelector('.performance-confirm-dialog--submit .performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', [11, 12], undefined, false)
     expect(wrapper.text()).toContain('催办部分发送成功')
     expect(wrapper.text()).toContain('已选择 1 条')
     wrapper.unmount()
     sending.mockRestore()
+  })
+
+  it('renders the submit confirm dialog with an InfoFilled icon and passes the skip-recently-reminded checkbox to the API', async () => {
+    const api = await import('@/api/performance')
+    const sending = vi.spyOn(api.projectManagementApi, 'remindCycleTasks').mockResolvedValue({ accepted_task_ids: [11], skipped_task_ids: [], failed_task_ids: [], delivery_status: 'success' })
+    const provider = vi.fn().mockResolvedValue(result())
+    const wrapper = mount(PerformanceReminderPanel, { props: { context, provider, mode: 'cycle-remind', selectAllAvailable: true } })
+    await flushPromises()
+    await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
+    await flushPromises()
+    const dialog = document.body.querySelector('.performance-confirm-dialog--submit') as HTMLElement
+    expect(dialog).not.toBeNull()
+    expect(dialog.querySelector('[data-icon="InfoFilled"]')).not.toBeNull()
+    expect(dialog.textContent).toContain('确定催办吗？')
+    expect(dialog.textContent).toContain('催办后，系统将向催办对象发送飞书通知。')
+    expect(dialog.textContent).toContain('6 小时内已被催办过该环节的人员不再发送通知')
+    const checkbox = dialog.querySelector('.ud__checkbox__input') as HTMLInputElement
+    expect(checkbox).not.toBeNull()
+    checkbox.click()
+    await flushPromises()
+    ;(dialog.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(sending).toHaveBeenCalledWith(1, 'evaluation-1', [11], undefined, true)
+    wrapper.unmount(); sending.mockRestore()
   })
 })
 

@@ -86,6 +86,22 @@
       :loading="actionLoading"
       @confirm="confirmResults"
     />
+    <PerformanceConfirmDialog
+      v-else
+      v-model="remindConfirmOpen"
+      appearance="submit"
+      message="确定催办吗？"
+      description="催办后，系统将向催办对象发送飞书通知。"
+      cancel-text="取消"
+      confirm-text="确定"
+      :loading="actionLoading"
+      @confirm="confirmRemind"
+    >
+      <template #icon><InfoFilledIcon /></template>
+      <template #check>
+        <PerformanceCheckbox v-model="skipRecentlyReminded" label="6 小时内已被催办过该环节的人员不再发送通知" />
+      </template>
+    </PerformanceConfirmDialog>
   </section>
 </template>
 
@@ -95,6 +111,8 @@ import { performanceWorkbenchApi, projectManagementApi } from '@/api/performance
 import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
 import PerformanceTaskDelegationDialog from './PerformanceTaskDelegationDialog.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
+import InfoFilledIcon from './InfoFilledIcon.vue'
+import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceExportIcon from './PerformanceExportIcon.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
@@ -133,6 +151,8 @@ const error = ref('')
 const notice = ref('')
 const columnDrawerOpen = ref(false)
 const confirmOpen = ref(false)
+const remindConfirmOpen = ref(false)
+const skipRecentlyReminded = ref(false)
 let requestSequence = 0
 
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columns.value.find(column => column.key === key)).filter((column): column is ReminderColumn => Boolean(column)))
@@ -310,18 +330,25 @@ async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-
     return
   }
   if (!selectedKeys.value.length || actionLoading.value || loading.value || error.value) return
+  remindConfirmOpen.value = true
+}
+
+async function confirmRemind() {
+  if (!selectedKeys.value.length || actionLoading.value || loading.value || error.value) return
   actionLoading.value = true
   notice.value = ''
   try {
     const result = props.mode === 'cycle-remind'
-      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, selectedKeys.value.map(Number), props.context.departmentPath)
+      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, selectedKeys.value.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
       : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, selectedKeys.value.map(Number))
+    remindConfirmOpen.value = false
     selectedKeys.value = (result.failed_task_ids || []).map(String)
     await load()
     const previewCount = result.preview_task_ids?.length || 0
     const statusText = result.delivery_status === 'preview_only' ? `测试模式：已记录 ${previewCount} 条，未发送飞书通知` : result.delivery_status === 'success' ? '催办已发送' : result.delivery_status === 'partial_success' ? '催办部分发送成功' : '催办发送失败'
     notice.value = `${statusText}${result.delivery_status === 'preview_only' ? '' : `：${result.accepted_task_ids.length} 条，跳过 ${result.skipped_task_ids.length} 条`}${result.failed_task_ids?.length ? `，失败 ${result.failed_task_ids.length} 条` : ''}${result.errors?.some(item => item.error.includes('未确认')) ? '；发送结果未确认，请核对通知日志后再重试' : ''}`
   } catch {
+    remindConfirmOpen.value = false
     notice.value = '催办请求提交失败，请稍后重试'
   } finally {
     actionLoading.value = false
