@@ -5696,12 +5696,17 @@ async def test_cycle_reminder_department_filter_matches_path_prefix_and_unassign
 
 
 @pytest.mark.asyncio
-async def test_authorization_records_reject_user_without_management_permission():
+async def test_authorization_records_reject_user_without_management_permission(monkeypatch):
     from app.performance import projects_router as router
     from fastapi import HTTPException
+
+    async def denied(*args):
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+
+    monkeypatch.setattr(router, "_managed_completion_projects", denied)
     with pytest.raises(HTTPException) as failure:
         await router.project_management_authorization_records(1, context(), None)
-    assert failure.value.status_code == 403
+    assert failure.value.status_code == 404
 
 
 @pytest.mark.asyncio

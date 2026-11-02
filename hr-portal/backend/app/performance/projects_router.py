@@ -2616,8 +2616,6 @@ async def project_management_authorization_records(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    if "performance.projects.manage" not in context.permission_codes and "performance.cycles.manage" not in context.permission_codes:
-        raise HTTPException(status_code=403, detail="PROJECT_AUTHORIZATION_FORBIDDEN")
     projects = await _managed_completion_projects(cycle_id, context, db)
     result = {"cycle_id": cycle_id, "authorization_records": [], "transfer_records": []}
     for project, scope in projects:
@@ -2655,8 +2653,6 @@ async def project_management_calibration_authorization(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    if "performance.projects.manage" not in context.permission_codes and "performance.cycles.manage" not in context.permission_codes:
-        raise HTTPException(status_code=403, detail="PROJECT_AUTHORIZATION_FORBIDDEN")
     projects = await _managed_completion_projects(cycle_id, context, db)
     items = []
     for project, scope in projects:
