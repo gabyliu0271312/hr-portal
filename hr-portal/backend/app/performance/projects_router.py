@@ -1440,8 +1440,8 @@ async def list_project_members(
                 can_authorize=await _authorize_task_delegation(task, stage["node"], project, context, actor_ref, db, active_by_task, progress_scope),
             )
             for task in by_employee.get(member.employee_no, [])
-            for stage in [stages[task.node_snapshot_id]]
             if task.node_snapshot_id in stages
+            for stage in [stages[task.node_snapshot_id]]
         ]
         options = [option for option in options if option.role_key is not None]
         item["task_id"] = options[0].task_id if options and options[0].can_authorize else None
@@ -2273,7 +2273,7 @@ async def _authorize_task_delegation(task: PerformanceNodeTask, node: Performanc
     if node.node_type == "calibration":
         if not calibration_task_scope(task, node):
             return False
-    active = active_by_task.get(task.id) if active_by_task is not None else await _task_delegations(db, task.id)
+    active = active_by_task.get(task.id, []) if active_by_task is not None else await _task_delegations(db, task.id)
     if node.node_type == "calibration" and any(item.recipient_employee_no == actor_ref and (item.authorization_settings or {}).get("allow_reauthorize") for item in active):
         return True
     if node.node_type == "calibration":

@@ -5336,6 +5336,50 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
 
 
 @pytest.mark.asyncio
+async def test_member_task_map_skips_non_delegatable_stage_without_key_error(monkeypatch):
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProject, PerformanceProjectMember
+    from app.performance.assessment_roles import ROLE_REVIEWEE, ROLE_LINE_MANAGER
+    target = SimpleNamespace(id=1, cycle_ref="C1", administrators=[], settings={})
+    member = PerformanceProjectMember(id=1, snapshot_id=7, employee_no="E1", display_name="员工", direct_supervisor_employee_no="M1", employee_type="正式员工")
+    # self-review 节点（不可授权环节）+ manager-review 节点（可授权环节）
+    self_node = SimpleNamespace(id=11, project_id=1, node_type="evaluation", node_id="self", config={"template": {"executor_role_code": ROLE_REVIEWEE}})
+    manager_node = SimpleNamespace(id=12, project_id=1, node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": ROLE_LINE_MANAGER}})
+    self_task = SimpleNamespace(id=101, project_id=1, node_snapshot_id=11, member_snapshot_id=7, target_employee_no="E1", handler_ref="E1")
+    manager_task = SimpleNamespace(id=102, project_id=1, node_snapshot_id=12, member_snapshot_id=7, target_employee_no="E1", handler_ref="M1")
+    async def get_project(*args): return target
+    async def scope(*args): return None
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="VIEWER")
+    async def rules(*args): return {role: [] for role in ("leader", "activity_manager")}
+    monkeypatch.setattr(projects_router, "_get_project", get_project)
+    monkeypatch.setattr(projects_router, "_project_data_scope", scope)
+    monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(projects_router, "load_subject_visibility_rules", rules)
+    class Db:
+        async def get(self, model, key): return target if model is PerformanceProject else None
+        async def scalar(self, query): return None
+        async def execute(self, query):
+            sql = str(query)
+            if "performance_authorization_snapshot_people" in sql:
+                return SimpleNamespace(all=lambda: [(7, "M1", "冻结上级姓名")])
+            if "performance_node_tasks.cycle_ref =" in sql:
+                return SimpleNamespace(all=lambda: [])
+            if "performance_project_node_snapshots" in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [self_node, manager_node]))
+            if "performance_node_tasks" in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [self_task, manager_task]))
+            if "performance_node_task_authorizations" in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [member]))
+    result = await projects_router.list_project_members(1, keyword=None, page=1, page_size=50, sort_by=None, sort_order=None, context=context(), db=Db())
+    row = result.items[0].model_dump()
+    # self-review 任务（node 11 不在 stages）不触发 KeyError，task_map 仅含 manager-review 环节
+    assert [option["stage_key"] for option in row["task_map"]] == ["manager-review"]
+    assert row["task_map"][0]["task_id"] == 102
+    assert row["task_map"][0]["role_key"] == "DIRECT_SUPERVISOR"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status,submitted,expected", [("rejected", False, "rejected"), ("pending", False, "pending"), ("completed", False, "completed"), ("pending", True, "completed")])
 async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeypatch, status, submitted, expected):
     from datetime import UTC, datetime
