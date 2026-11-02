@@ -1063,9 +1063,9 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
 
     数据源：`org_unit`（落库后的实体行），按源端真实编码显式建父子。
 
-    - 固定一个虚拟根 `code='RootOrg'`，name = ORG_ROOT_NAME（默认"创梦天地"），level=1。
+    - 固定一个虚拟根 `code='RootOrg'`，name = ORG_ROOT_NAME（默认"创梦天地"），level=0（技术根不计业务层级）。
     - 每个有效 `org_code` 建一个节点：code=org_code，name=org_name，
-      level 按 parent_org_code 链路从 RootOrg 向下推算，is_active=(org_status 为启用态)。
+      level 按 parent_org_code 链路从 RootOrg 向下推算（Root 下第一个业务组织=第 1 级），is_active=(org_status 为启用态)。
     - parent_org_code == 'RootOrg' 或为空 → 父为虚拟根；否则连到对应编码节点。
     - 异常数据（org_code 空、parent 找不到、成环）跳过并 warning，不静默造错树。
     - 同一 code 的节点复用旧 id（scope 等引用不因同步失效），源端消失的 code 删孤儿。
@@ -1094,9 +1094,10 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
             "is_active": is_active,
         }
 
-    # 推算 level：沿 parent_org_code 链路回溯到 RootOrg/空，RootOrg=1，其直接子=2
+    # 推算 level：沿 parent_org_code 链路回溯到 RootOrg/空。
+    # 口径与 org_level_N 投影一致：RootOrg 是技术根不计业务层级，Root 下第一个业务组织 = 第 1 级。
     def _level_of(code: str) -> int:
-        depth = 2
+        depth = 1
         cur = units.get(code, {}).get("parent_code", "")
         guard = 0
         while cur and cur != _ORG_ROOT_CODE and cur in units and guard < 50:
@@ -1118,7 +1119,7 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
             code=_ORG_ROOT_CODE,
             name=root_name,
             parent_id=None,
-            level=1,
+            level=0,  # 技术根不计业务层级
             is_leaf=False,
             is_active=True,
             synced_at=now,

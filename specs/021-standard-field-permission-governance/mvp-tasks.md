@@ -226,7 +226,7 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 | B10 | US-B03 | FR-B08 | AC-B08的乱序/水位 | 待开发 |
 | B11 | US-B03 | FR-B07、FR-B09 | AC-B07、AC-B09的完整快照/恢复 | 待开发 |
 | B12 | US-B02、US-B03 | FR-B03、FR-B07、FR-B09 | AC-B03/AC-B07/AC-B09中本实例的身份或字段变化 | 待开发，一种变化一实例 |
-| B13 | US-B04、US-B07 | FR-A14、FR-B10、FR-B13、FR-B17 | AC-A14/B10/B13/B17的org/cc投影对照 | 待核查；分别实例，不切正式输入 |
+| B13 | US-B04、US-B07 | FR-A14、FR-B10、FR-B13、FR-B17 | AC-A14/B10/B13/B17的org/cc投影对照 | org实例开发部分进行中：飞书组织-部门只读对照完成（Root不计业务层级/扁平行+派生层级同构/手工维护与仅接收边界）；`org_tree.level`存储列与`org_level_N`投影口径已统一（spec §4.4.2），证据见§9.11；cc实例与PC走查待补，不切正式输入 |
 | B14 | US-B04、US-B07 | FR-B10、FR-B13、FR-B17 | 对应AC的org/cc批准切换与停止 | 待开发；两类输入独立批准、独立验证 |
 | B15 | US-B05、US-A01、US-A02 | FR-A01、FR-A02、FR-A03、FR-A04、FR-A08、FR-A10、FR-A13、FR-B11、FR-B18 | 对应AC的单向消费与permission-d/s分别验收 | 待整合；依赖具名A安全能力，不依赖全A完成 |
 | B16 | US-B01、US-B02 | FR-B01、FR-B02、FR-B03、FR-B04、FR-B06、FR-B07 | AC-B01/AC-B02/AC-B03/AC-B04/AC-B06/AC-B07的真实关联与加字段 | 待开发/验收，非额外大功能 |
@@ -744,3 +744,20 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。菜单 code 投产未改，仅 parent_id/display_order 在下次 seed 执行时生效；上线需按版本推送+部署流程执行，生产验收另按 B18 模板。
 - **版本备注（2026-10-30 后端入口形态修正）**：初版把后台入口放在创梦人力前端侧栏，用户指出与飞书人力/创梦绩效不一致，已改为头像下拉「后台管理」新标签打开独立后台壳（`/people/settings` + `PeopleAdminLayout`），PeopleLayout 侧栏仅保留主数据概览。本节已按修正后实现记录。
 - **未做/停止**：不做表单预览联动；不把分组当字段分类；不接真实来源、不接管员工、不切组织/中心/报表；旧菜单 code 不修改；分组管理（新增/改名/排序 UI）与每分组「设置」按钮的飞书式完整交互留待后续卡，本轮仅 tab 过滤+抽屉归属。
+
+### 9.11 B13.org 组织投影对照与存储口径统一（2026-11-02，评估+开发+隔离PG完成，未部署）
+
+- **目标/范围**：对应 B13（org 实例）与 spec §4.4.2 的「组织层级编号」口径：技术根节点 RootOrg 不计入业务层级，Root 下第一个业务组织为第 1 级。评估飞书组织-部门页与 021 组织要求的对照；开发统一 `org_tree.level` 存储列与 `org_level_N` 投影口径（相差一级的偏差消除）。只做评估与口径统一，不改组织 CRUD、不改成本中心、不接真实来源、不切权限输入。
+- **对照结论（只读评估，飞书 idreamsky.feishu.cn 组织-部门页）**：
+  - 飞书组织-部门扁平列表直接落在业务组织（公司/事业部/部门），无技术根占一级，与 021「Root 下第一个业务组织=第 1 级」一致；
+  - 飞书部门数值 `department_id` 是稳定键，名称/上级由人工维护，与 021「组织仅接收、层级全派生、不手工维护」形成明确边界（021 的派生层级不与飞书手工层级冲突）；
+  - 飞书页面未见层级编号列，层级由树结构隐含，与 021 扁平行 + 派生层级同构；无「编码」列，021 组织以 `org_code` 为稳定键不依赖名称。
+- **实现（代码）**：`app/datasources/sync_service.py`——
+  - `_level_of()` 沿 `parent_org_code` 链路回溯到 RootOrg/空，Root 下第一个业务组织 depth=1（口径与 `resolve_org_hierarchy` 投影一致）；
+  - RootOrg 节点创建 `level=0`（技术根不计业务层级），其余节点 `level=_level_of(code)`。
+  - 唯一写 level 路径（`_sync_org_tree`）已核对；`_recompute_tree_paths` 只算 path 不写 level；ucp `diff_org_trees` 只对比不写库；cc 树 `_sync_cc_tree` 用源端 `p["level"]` 属成本中心，范围外不改。
+- **隔离 PG/API 证据（隔离库 127.0.0.1:15432）**：`tests/test_org_tree_level_alignment.py --postgres-acceptance` → **1 passed**。覆盖：`_sync_org_tree` 写入 RootOrg/A/A1/A1x(停用)/B 后，同一节点存储 `level` == `resolve_org_hierarchy` 派生的 `depth`，且 `org_level_N_code` 投影与存储口径互证；RootOrg=0、一级 A=1、二级 A1=2、停用叶 A1x 仍按链长参与投影。
+- **回归判定**：纯函数回归 `tests/test_org_hierarchy.py` + `test_scope_filter_entity.py` + `test_standard_field_catalog.py` + `test_org_tree_level_alignment.py --postgres-acceptance` 全绿；`test_standard_field_catalog.py` 现有 level=1/2 插入用例只测健康检查，不受口径影响。
+- **前端核对**：`PerformanceOrganizationTreeNodes.vue` 缩进 `padding-left: 8+(level-1)*16px`——旧口径顶级=2 时顶级缩进 24px 错误，新口径顶级=1 缩进 8px 正确；前端无需修改。
+- **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。上线需按版本推送+部署流程执行，生产验收另按 B18 模板。
+- **未做/停止**：不新增组织 CRUD、不改成本中心、不切组织/中心/报表/权限输入、不读真实员工行、不改 Person/Employment 归属；cc 实例（FR-B17）与 PC 走查留待后续，不冒称完成。
