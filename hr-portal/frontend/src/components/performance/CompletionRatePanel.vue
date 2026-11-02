@@ -1,7 +1,7 @@
 <template>
   <PerformanceSurfaceCard title="完成率">
     <div class="toolbar">
-      <PerformanceSegmentedControl v-model="viewMode" :options="viewOptions" aria-label="完成率查看维度" @update:model-value="loadDepartment" />
+      <PerformanceSegmentedControl :model-value="viewMode" :options="viewOptions" aria-label="完成率查看维度" @update:model-value="selectViewMode" />
       <PerformanceFilterButton disabled />
     </div>
     <div v-if="viewMode === 'by-org'" class="department-view">
@@ -19,7 +19,7 @@
             <tr v-for="row in departmentRows" :key="row.id || row.department">
               <td class="department-name-cell" :style="{ paddingLeft: `${12 + row.depth * 24}px` }"><button v-if="row.children?.length" class="expand-button" type="button" :aria-label="`展开${row.department}`" :aria-expanded="expanded.has(row.id || row.department)" @click="toggleDepartment(row.id || row.department)"><svg viewBox="0 0 12 12" :class="{ expanded: expanded.has(row.id || row.department) }"><path d="M4 2 8 6 4 10Z" fill="currentColor" /></svg></button><span v-else class="expand-spacer" />{{ row.department }}</td>
               <td v-for="column in departmentColumns" :key="column.key" :class="{ 'is-progress': row.metrics[column.key]?.completion_rate < 100 }">
-                <button v-if="row.metrics[column.key]" class="rate-link" type="button" :title="`查看${row.department}「${column.title}」未完成人员`" @click="emit('action', { action: 'remind', nodeKey: column.key, title: column.title, departmentPath: row.id || row.department })">
+                <button v-if="row.metrics[column.key]" class="rate-link" type="button" :title="`查看${row.department}「${column.title}」未完成人员`" @click="emit('action', { action: 'remind', nodeKey: column.key, title: column.title, departmentPath: row.id || row.department, description: reminderMetricsForRate({ completionRate: row.metrics[column.key].completion_rate, completed: row.metrics[column.key].completed_count, total: row.metrics[column.key].total_count }) })">
                   <span>{{ formatRate(row.metrics[column.key]?.completion_rate) }}</span>
                   <small>{{ row.metrics[column.key]?.completed_count }}/{{ row.metrics[column.key]?.total_count }}</small>
                 </button>
@@ -59,9 +59,9 @@ import CompletionNodeCard, { type CompletionNode } from './CompletionNodeCard.vu
 import ViewVideoOutlinedIcon from './ViewVideoOutlinedIcon.vue'
 import OrganizationOutlinedIcon from './OrganizationOutlinedIcon.vue'
 
-const props = defineProps<{ nodes: CompletionNode[]; cycleId?: number; departmentProvider?: (cycleId: number) => Promise<ProjectManagementDepartmentCompletion> }>()
-const emit = defineEmits<{ action: [payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }] }>()
-const viewMode = ref('by-person')
+const props = defineProps<{ nodes: CompletionNode[]; cycleId?: number; departmentProvider?: (cycleId: number) => Promise<ProjectManagementDepartmentCompletion>; viewMode?: string }>()
+const emit = defineEmits<{ action: [payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }]; 'update:viewMode': [value: string] }>()
+const viewMode = computed(() => props.viewMode || 'by-person')
 const viewOptions = [
   { value: 'by-person', label: '全部', icon: ViewVideoOutlinedIcon },
   { value: 'by-org', label: '按部门', icon: OrganizationOutlinedIcon },
@@ -83,6 +83,10 @@ const departmentRows = computed(() => {
 })
 function toggleDepartment(key: string) { const next = new Set(expanded.value); if (next.has(key)) next.delete(key); else next.add(key); expanded.value = next }
 function sortBy(key: string) { const next = nextPerformanceSort(sortKey.value, sortOrder.value, key); sortKey.value = next.key; sortOrder.value = next.order }
+function selectViewMode(value: string) {
+  if (value === viewMode.value) return
+  emit('update:viewMode', value)
+}
 function orderOf(key: string) { return sortKey.value !== key || !sortOrder.value ? null : sortOrder.value === 'asc' ? 'ascending' : 'descending' }
 
 function formatRate(value: number | undefined) { return `${Number(value || 0).toFixed(2)}%` }
@@ -90,13 +94,17 @@ function reminderMetrics(node: CompletionNode) {
   const deadline = node.deadline ? node.deadline.replace('（已截止）', '') : '--'
   return `完成率：${node.progress}　|　完成情况：${node.completionStatus || '--'}　|　截止时间：${deadline}`
 }
+function reminderMetricsForRate(value: { completionRate: number; completed: number; total: number }) {
+  return `完成率：${formatRate(value.completionRate)}　|　完成情况：${value.completed}/${value.total}`
+}
 async function loadDepartment() {
-  if (viewMode.value !== 'by-org' || !props.cycleId || !props.departmentProvider) return
+  if (!props.cycleId || !props.departmentProvider) return
   departmentLoading.value = true
   departmentError.value = ''
   const requestedCycle = props.cycleId
   try { const data = await props.departmentProvider(requestedCycle); if (props.cycleId === requestedCycle) departmentData.value = data } catch { if (props.cycleId === requestedCycle) departmentError.value = '组织完成率加载失败，请稍后重试' } finally { if (props.cycleId === requestedCycle) departmentLoading.value = false }
 }
+watch(() => props.viewMode, (value) => { if (value === 'by-org') void loadDepartment() }, { immediate: true })
 watch(() => props.cycleId, () => { departmentData.value = null; expanded.value = new Set(); if (viewMode.value === 'by-org') void loadDepartment() })
 </script>
 
@@ -115,7 +123,6 @@ watch(() => props.cycleId, () => { departmentData.value = null; expanded.value =
 .department-table td:not(.department-name-cell) span { color: #1f2329; font-size: 14px; line-height: 22px; }
 .department-table td.is-progress .rate-link span { color: #3370ff; }
 .rate-link { display: block; width: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; font-family: inherit; }
-.rate-link:hover span { text-decoration: underline; }
 .rate-link:focus-visible { outline: 0; box-shadow: 0 0 0 2px rgba(51,112,255,.35); }
 .department-table small { color: #1f2329; font-size: 12px; line-height: 20px; }
 .sort-glyph { display: inline-block; margin-left: 6px; color: #8f959e; font-size: 13px; }

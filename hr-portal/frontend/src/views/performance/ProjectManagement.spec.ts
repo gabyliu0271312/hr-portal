@@ -310,6 +310,23 @@ describe('ProjectManagement', () => {
     people.mockRestore()
   })
 
+  it('navigates to the scoped reminder route with the clicked department cell data', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const dept = vi.spyOn(projectManagementApi, 'departmentCompletion').mockResolvedValue({ columns: [{ key: 'manager-review', title: '上级评估' }], rows: [{ id: '公司/研发', department: '研发', metrics: { 'manager-review': { completion_rate: 60, completed_count: 3, total_count: 5 } } }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.segment').trigger('click')
+    await wrapper.findAll('.segment')[1].trigger('click')
+    await flushPromises()
+    await wrapper.get('.rate-link').trigger('click')
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'PerformanceProjectReminder',
+      query: expect.objectContaining({ node_key: 'manager-review', department: '公司/研发', completion_rate: '60.00', completed: '3', total: '5', view: 'by-org' }),
+    }))
+    wrapper.unmount()
+    dept.mockRestore()
+  })
+
   it('keeps member headers when the member list is empty', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })

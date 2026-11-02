@@ -26,7 +26,7 @@
         <div v-if="!selectedProject" class="cycle-overview">
           <PerformancePageTitle title="周期概览" />
           <PerformanceLineTabs v-model="activeTab" :tabs="overviewTabs">
-            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
+            <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   projectManagementApi,
@@ -95,6 +95,13 @@ const activeTab = ref('overview')
 const overviewTabs = OVERVIEW_TABS
 const loading = ref(true)
 const error = ref('')
+const overviewViewMode = ref(String(route.query.view || 'by-person'))
+watch(overviewViewMode, (value) => {
+  const query: Record<string, string> = { ...(route.query as Record<string, string>) }
+  if (value === 'by-org') query.view = value
+  else delete query.view
+  void router.replace({ query })
+})
 const reminderOpen = ref(false)
 const reminderMode = ref<'remind' | 'open-result'>('remind')
 type ReminderContextWithDescription = ReminderContext & { description?: string; nodeKey?: string }
@@ -224,7 +231,17 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
     return
   }
   if (payload.action !== 'remind' || !activeCycle.value) return
-  await router.push({ name: 'PerformanceProjectReminder', query: { cycle_id: String(activeCycle.value.cycle_id), node_key: payload.nodeKey, department: payload.departmentPath || '' } })
+  const match = payload.description?.match(/完成率：([\d.]+)%[　\s]*\|[　\s]*完成情况：(\d+)\/(\d+)/)
+  await router.push({
+    name: 'PerformanceProjectReminder',
+    query: {
+      cycle_id: String(activeCycle.value.cycle_id),
+      node_key: payload.nodeKey,
+      department: payload.departmentPath || '',
+      view: overviewViewMode.value,
+      ...(match ? { completion_rate: match[1], completed: match[2], total: match[3] } : {}),
+    },
+  })
 }
 
 async function handleAuthorizationView(item: AuthorizationItem) {

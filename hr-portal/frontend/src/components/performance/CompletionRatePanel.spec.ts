@@ -96,8 +96,10 @@ describe('department completion interactions', () => {
       { id: '公司/部门A', department: '部门A', metrics: { 'self-review': { completion_rate: 50, completed_count: 1, total_count: 2 } }, children: [{ id: '公司/部门A/子部门C', department: '子部门C', metrics: { 'self-review': { completion_rate: 0, completed_count: 0, total_count: 1 } } }] },
       { id: '公司/部门B', department: '部门B', metrics: { 'self-review': { completion_rate: 100, completed_count: 1, total_count: 1 } } },
     ] })
-    const wrapper = mount(CompletionRatePanel, { props: { nodes: [], cycleId: 3, departmentProvider: provider } })
+    const wrapper = mount(CompletionRatePanel, { props: { nodes: [], cycleId: 3, departmentProvider: provider, viewMode: 'by-person' } })
     await wrapper.findAll('.segment')[1].trigger('click')
+    expect(wrapper.emitted('update:viewMode')).toEqual([['by-org']])
+    await wrapper.setProps({ viewMode: 'by-org' })
     await flushPromises()
     expect(provider).toHaveBeenCalledWith(3)
     expect(wrapper.findAll('tbody tr')).toHaveLength(2)
@@ -106,6 +108,20 @@ describe('department completion interactions', () => {
     expect(wrapper.text()).toContain('子部门C')
     await wrapper.findAll('.performance-sort-header')[1].trigger('click')
     expect(wrapper.find('tbody tr').text()).toContain('部门B')
+    wrapper.unmount()
+  })
+
+  it('emits the clicked department cell rate with its own metrics and path', async () => {
+    const provider = vi.fn().mockResolvedValue({ columns: [{ key: 'self-review', title: '自评' }], rows: [
+      { id: '公司/部门A', department: '部门A', metrics: { 'self-review': { completion_rate: 50, completed_count: 1, total_count: 2 } } },
+    ] })
+    const wrapper = mount(CompletionRatePanel, { props: { nodes: [], cycleId: 3, departmentProvider: provider, viewMode: 'by-org' } })
+    await flushPromises()
+    await wrapper.get('.rate-link').trigger('click')
+    expect(wrapper.emitted('action')).toEqual([[expect.objectContaining({
+      action: 'remind', nodeKey: 'self-review', title: '自评', departmentPath: '公司/部门A',
+      description: '完成率：50.00%　|　完成情况：1/2',
+    })]])
     wrapper.unmount()
   })
 

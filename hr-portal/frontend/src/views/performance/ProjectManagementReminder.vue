@@ -30,11 +30,14 @@ const department = computed(() => String(route.query.department || ''))
 const node = ref<ProjectManagementCompletionNode | null>(null)
 const error = ref('')
 let sequence = 0
-const title = computed(() => `${department.value || ''}${department.value ? '·' : ''}${node.value?.title || '绩效任务'}`)
+const title = computed(() => node.value?.title || '绩效任务')
 const description = computed(() => {
   if (!node.value) return ''
+  const rate = route.query.completion_rate ? `${Number(route.query.completion_rate).toFixed(2)}%` : (node.value.completion_rate?.toFixed(2) ?? '--') + '%'
+  const completed = route.query.completed ?? node.value.completed_count ?? '--'
+  const total = route.query.total ?? node.value.total_count ?? '--'
   const deadline = node.value.deadline_at ? new Date(node.value.deadline_at).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--'
-  return `完成率：${node.value.completion_rate?.toFixed(2) ?? '--'}%　|　完成情况：${node.value.completed_count}/${node.value.total_count}　|　截止时间：${deadline}`
+  return `完成率：${rate}　|　完成情况：${completed}/${total}　|　截止时间：${deadline}`
 })
 watch([nodeKey, cycleId], async () => {
   const current = ++sequence
@@ -52,12 +55,12 @@ const context = computed<ReminderContext>(() => ({
   nodeType: nodeKey.value,
   reviewType: 'project_management_reminder',
   title: title.value,
-  sectionTitle: `${department.value ? `${department.value} · ` : ''}未完成的被评估人`,
+  sectionTitle: '未完成的被评估人',
   departmentPath: department.value || undefined,
 }))
 
 function goBack() {
-  void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value) } })
+  void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value), view: String(route.query.view || '') } })
 }
 </script>
 
