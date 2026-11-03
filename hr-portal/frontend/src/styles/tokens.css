@@ -88,6 +88,7 @@
   --performance-readonly-field-gap: var(--spacing-2);
   --performance-readonly-tag-gap: var(--spacing-2);
   --performance-result-view-tag-inset-block: var(--spacing-2);
+  --performance-rating-result-gap: var(--spacing-2);
   --performance-settings-text-secondary: #646a73;
   --performance-text-secondary: #646a73;
   --performance-content-settings-width: 272px;
@@ -155,7 +156,7 @@
   --page-title-desc-size: 12px;
   --page-title-desc-line-height: 20px;
   --page-title-desc-color: #999999;
-  --page-title-gap-with-desc: 12px;
+  --page-title-gap-with-desc: var(--page-gap-title-desc);
   --page-title-gap-bottom: 8px;
   /* 通用控件 token（值沿用绩效基线，跨模块共享）；页面级间距 token 见下方 */
   --control-height: var(--performance-control-height);
@@ -170,6 +171,7 @@
   --button-radius: var(--performance-button-radius);
   /* 页面纵排间距（飞书 title-description 12px / toolbar-table 16px） */
   --page-gap-title-desc: 12px;
+  --page-gap-toolbar-items: 12px;
   --page-gap-toolbar-table: 16px;
   --page-gap-table-pagination: 12px;
   --performance-switch-width: 28px;

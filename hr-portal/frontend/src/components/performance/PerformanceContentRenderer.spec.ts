@@ -310,9 +310,10 @@ describe('performance content shared primitives', () => {
       content: { type: 'rating', items: [{ id: 'rating', label: '年度评级' }], options: [{ id: 'a', code: '1星', label: '不合格', name: '不合格', description: '未达标', color: 'rgb(251, 191, 188)' }] },
       itemSettings: { rating: { mode: 'view', required: false } },
     } })
-    expect(wrapper.get('.content-renderer-rating__header').text()).toBe('年度评级')
+    expect(wrapper.get('.content-renderer-rating__result-title').text()).toBe('年度评级')
     expect(wrapper.get('.content-renderer-rating__result-code').text()).toBe('1星')
     expect(wrapper.get('.content-renderer-rating__result-name').text()).toBe('不合格')
+    expect(wrapper.find('.content-renderer-rating__header').exists()).toBe(false)
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
   })
 
@@ -321,9 +322,12 @@ describe('performance content shared primitives', () => {
       content: { type: 'rating', items: [{ id: 'rating', label: '年度评级', hint: '不显示的描述' }], options: [{ id: 'level-a', code: 'A', label: '优秀', color: '#3370ff' }] },
       itemSettings: { rating: { mode: 'view', required: false } },
     } })
-    expect(wrapper.get('.content-renderer-rating__header').text()).toBe('年度评级')
-    expect(wrapper.get('.content-renderer-rating__result-code').text()).toBe('A')
-    expect(wrapper.get('.content-renderer-rating__result-name').text()).toBe('优秀')
+    const result = wrapper.get('.content-renderer-rating__result')
+    expect(result.classes()).toContain('content-renderer-rating__result')
+    expect(result.find('.content-renderer-rating__result-title').text()).toBe('年度评级')
+    expect(result.find('.content-renderer-rating__result-code').text()).toBe('A')
+    expect(result.find('.content-renderer-rating__result-name').text()).toBe('优秀')
+    expect(result.findAll(':scope > *')).toHaveLength(3)
     expect(wrapper.findAll('.rating-option')).toHaveLength(0)
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
     expect(wrapper.get('.content-renderer-rating__result-code').attributes('style')).toContain('rgb(20, 45, 102)')

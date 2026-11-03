@@ -35,16 +35,19 @@
       </div>
       <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" preview-only :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
       <template v-else-if="isRatingItem(item)">
-        <div class="content-renderer-rating__header">
-          <strong v-if="!itemState(item.id).hideName" class="performance-item-title">{{ item.label }}</strong><i v-if="itemState(item.id).mode !== 'view' && !itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
+        <div v-if="itemState(item.id).mode === 'view'" class="content-renderer-rating__result" :style="{ '--rating-foreground': ratingResult(item).foreground }">
+          <strong v-if="!itemState(item.id).hideName" class="performance-item-title content-renderer-rating__result-title">{{ item.label }}</strong>
+          <PerformanceRatingTag class="content-renderer-rating__result-code" :label="ratingResult(item).code" :color="ratingResult(item).color" />
+          <span class="content-renderer-rating__result-name">{{ ratingResult(item).name }}</span>
         </div>
-        <div class="content-renderer-rating__body">
-          <div v-if="itemState(item.id).mode === 'view'" class="content-renderer-rating__result" :style="{ '--rating-foreground': ratingResult(item).foreground }">
-            <PerformanceRatingTag class="content-renderer-rating__result-code" :label="ratingResult(item).code" :color="ratingResult(item).color" />
-            <span class="content-renderer-rating__result-name">{{ ratingResult(item).name }}</span>
+        <template v-else>
+          <div class="content-renderer-rating__header">
+            <strong v-if="!itemState(item.id).hideName" class="performance-item-title">{{ item.label }}</strong><i v-if="!itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
           </div>
-          <PerformanceRatingControl v-else class="content-renderer-rating__levels performance-content-renderer__rating" :options="ratingOptionsFor(item)" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="item.ratingDisplayMode || content.ratingDisplayMode" :interactive="false" preview-hover />
-        </div>
+          <div class="content-renderer-rating__body">
+            <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="ratingOptionsFor(item)" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="item.ratingDisplayMode || content.ratingDisplayMode" :interactive="false" preview-hover />
+          </div>
+        </template>
       </template>
       <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
         <PerformanceRichTextBox readonly>
@@ -128,9 +131,7 @@ const ratingResult = (item: ContentItem) => {
 .content-renderer-prompt{margin:0}
 .content-renderer-rating{position:relative;margin:16px 0 0}
 .content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}
-.content-renderer-rating__result{display:flex;min-width:0;align-items:center;min-height:24px}
-.content-renderer-rating__result :deep(.performance-rating-tag){flex:0 0 auto}
-.content-renderer-rating__result-name{margin-left:8px;overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
+.content-renderer-rating__result{display:flex;align-items:center;min-width:0;min-height:24px}.content-renderer-rating__result-title{flex:0 0 auto;margin-right:var(--performance-rating-result-gap,var(--spacing-2))}.content-renderer-rating__result :deep(.performance-rating-tag){flex:0 0 auto}.content-renderer-rating__result-name{flex:0 0 auto;margin-left:var(--performance-rating-result-gap,var(--spacing-2));overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{position:relative;padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}
