@@ -44,6 +44,8 @@ describe('ProjectPerformanceMatrix', () => {
     expect(wrapper.findAll('.surface-card')).toHaveLength(1)
     expect(surface.find('.matrix-state').exists()).toBe(true)
     expect(surface.find('.section-card-header').exists()).toBe(false)
+    // 吸附式 tabs 下，矩阵工具条（全部/筛选）锁定在 Tab 区高度之下，作为标题完整 stick 不半漏
+    expect(matrixSource).toMatch(/\.matrix-toolbar\s*\{[^}]*position:\s*sticky;[^}]*top:\s*var\(--performance-tab-area-height\)/)
 
     resolve(matrixOf({ total: 0, completed_count: 0, pending_count: 0, pending_rows: [], completed_rows: [] }))
     await flushPromises()
