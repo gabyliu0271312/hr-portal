@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { ElTableColumn } from 'element-plus'
 import { performanceCycleApi, type PerformanceCycleDepartmentItem } from '@/api/performance'
 import type { PerformanceTableColumn } from './performanceTableColumns'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -62,26 +63,42 @@ watch(() => props.cycleId, () => {
     <div class="department-panel-toolbar">
       <PerformanceSearchInput v-model="keyword" placeholder="搜索部门名称" @search="onSearch" @clear="onSearch" />
     </div>
-    <PerformanceManagementTable
-      :rows="rows"
-      :loading="loading"
-      loading-text="加载中"
-      empty-text="暂无部门"
-      table-aria-label="周期部门列表"
-      pagination-aria-label="周期部门分页"
-      :columns="columns"
-      scroll-mode="page"
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
-      row-key="department_name"
-      @page-change="onPageChange"
-      @page-size-change="onPageSizeChange"
-    />
+    <div class="table-scroll-wrap">
+      <PerformanceManagementTable
+        :rows="rows"
+        :loading="loading"
+        loading-text="加载中"
+        empty-text="暂无部门"
+        table-aria-label="周期部门列表"
+        pagination-aria-label="周期部门分页"
+        scroll-mode="inner"
+        :max-height="600"
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        row-key="department_name"
+        @page-change="onPageChange"
+        @page-size-change="onPageSizeChange"
+      >
+        <el-table-column
+          v-for="column in columns"
+          :key="column.key"
+          :prop="column.key"
+          :label="column.label"
+          min-width="160"
+          show-overflow-tooltip
+        />
+        <el-table-column label="操作" width="280" fixed="right">
+          <template #default>—</template>
+        </el-table-column>
+      </PerformanceManagementTable>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.department-panel { min-width: 0; }
+.table-scroll-wrap { overflow-x: auto; }
 .department-panel-toolbar {
   margin-bottom: 12px;
 }

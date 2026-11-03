@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { ElTableColumn } from 'element-plus'
 import { performanceCycleApi, type PerformanceCyclePerson } from '@/api/performance'
-import type { PerformanceTableColumn } from './performanceTableColumns'
+import { performanceColumnWidth, type PerformanceTableColumn } from './performanceTableColumns'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceSearchInput from './PerformanceSearchInput.vue'
 
@@ -75,31 +76,46 @@ function leafDepartment(row: PerformanceCyclePerson): string {
     <div class="people-panel-toolbar">
       <PerformanceSearchInput v-model="keyword" placeholder="搜索姓名或工号" @search="onSearch" @clear="onSearch" />
     </div>
-    <PerformanceManagementTable
-      :rows="rows"
-      :loading="loading"
-      loading-text="加载中"
-      empty-text="暂无人员"
-      table-aria-label="周期人员列表"
-      pagination-aria-label="周期人员分页"
-      :columns="columns"
-      scroll-mode="page"
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
-      row-key="employee_no"
-      @page-change="onPageChange"
-      @page-size-change="onPageSizeChange"
-    >
-      <template #cell="{ row, column }">
-        <span v-if="column.key === 'leaf_department'">{{ leafDepartment(row) }}</span>
-        <span v-else>{{ row[column.key] ?? '' }}</span>
-      </template>
-    </PerformanceManagementTable>
+    <div class="table-scroll-wrap">
+      <PerformanceManagementTable
+        :rows="rows"
+        :loading="loading"
+        loading-text="加载中"
+        empty-text="暂无人员"
+        table-aria-label="周期人员列表"
+        pagination-aria-label="周期人员分页"
+        scroll-mode="inner"
+        :max-height="600"
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        row-key="employee_no"
+        @page-change="onPageChange"
+        @page-size-change="onPageSizeChange"
+      >
+        <el-table-column
+          v-for="column in columns"
+          :key="column.key"
+          :prop="column.key"
+          :label="column.label"
+          :min-width="performanceColumnWidth(column.key)"
+          show-overflow-tooltip
+        >
+          <template v-if="column.key === 'leaf_department'" #default="{ row }">
+            {{ leafDepartment(row as PerformanceCyclePerson) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="280" fixed="right">
+          <template #default>—</template>
+        </el-table-column>
+      </PerformanceManagementTable>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.people-panel { min-width: 0; }
+.table-scroll-wrap { overflow-x: auto; }
 .people-panel-toolbar {
   margin-bottom: 12px;
 }

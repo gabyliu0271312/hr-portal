@@ -3,7 +3,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUserStore } from '@/stores/user'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElTable, ElTableColumn } from 'element-plus'
 import CycleManagement from './CycleManagement.vue'
+import PerformancePeopleListPanel from '@/components/performance/PerformancePeopleListPanel.vue'
+import PerformanceDepartmentListPanel from '@/components/performance/PerformanceDepartmentListPanel.vue'
+import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
+import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 
 const mocks = vi.hoisted(() => ({
   getAccessContext: vi.fn(),
@@ -12,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   update: vi.fn(),
   listPeople: vi.fn(),
+  listPeoplePage: vi.fn(),
+  listDepartmentsPage: vi.fn(),
   refreshPeople: vi.fn(),
   updatePerson: vi.fn(),
   remove: vi.fn(),
@@ -30,6 +37,8 @@ vi.mock('@/api/performance', () => ({
     create: mocks.create,
     update: mocks.update,
     listPeople: mocks.listPeople,
+    listPeoplePage: mocks.listPeoplePage,
+    listDepartmentsPage: mocks.listDepartmentsPage,
     refreshPeople: mocks.refreshPeople,
     updatePerson: mocks.updatePerson,
     remove: mocks.remove,
@@ -110,6 +119,37 @@ async function selectEnabledTemplate(wrapper: ReturnType<typeof mountView> exten
   ;(document.body.querySelector('.evaluation-template-option') as HTMLButtonElement).click()
   await flushPromises()
 }
+
+describe('周期人员和部门快照表格', () => {
+  it.each([
+    { component: PerformancePeopleListPanel, api: mocks.listPeoplePage, row: { employee_no: 'E001', display_name: '快照人员', organization_ref: '集团/研发/平台组' }, text: '快照人员', columns: 12 },
+    { component: PerformanceDepartmentListPanel, api: mocks.listDepartmentsPage, row: { department_name: '平台组', parent_department: '研发', people_count: 1 }, text: '平台组', columns: 4 },
+  ])('使用 el-table 展示 $text，并固定右侧操作列', async ({ component, api, row, text, columns }) => {
+    api.mockReset().mockResolvedValue({ items: [row], total: 21 })
+    const wrapper = mount(component as typeof PerformancePeopleListPanel, { props: { cycleId: 1 } })
+    await flushPromises()
+
+    const table = wrapper.getComponent({ name: 'ElTable' })
+    expect(table.props('maxHeight')).toBe(600)
+    expect(table.props('data')).toEqual([row])
+    expect(wrapper.find('.feishu-table').exists()).toBe(false)
+    const tableColumns = wrapper.findAllComponents({ name: 'ElTableColumn' })
+    expect(tableColumns).toHaveLength(columns)
+    expect(tableColumns.slice(0, -1).every(column => Boolean(column.props('minWidth')))).toBe(true)
+    expect(tableColumns.at(-1)?.props()).toMatchObject({ label: '操作', fixed: 'right', width: '280' })
+    expect(wrapper.text()).toContain(text)
+    if ('employee_no' in row) expect(wrapper.text()).toContain('平台组')
+
+    wrapper.getComponent(PerformanceManagementTable).vm.$emit('page-change', 2)
+    await flushPromises()
+    expect(api).toHaveBeenLastCalledWith(1, { keyword: undefined, offset: 10, limit: 10 })
+    wrapper.getComponent(PerformanceSearchInput).vm.$emit('update:modelValue', text)
+    wrapper.getComponent(PerformanceSearchInput).vm.$emit('search')
+    await flushPromises()
+    expect(api).toHaveBeenLastCalledWith(1, { keyword: text, offset: 0, limit: 10 })
+    wrapper.unmount()
+  })
+})
 
 describe('CycleManagement', () => {
   beforeEach(() => {
