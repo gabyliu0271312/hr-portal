@@ -491,6 +491,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: 'HRBP 权限管理' },
       },
       {
+        path: 'cycles/:cycleId/people-and-departments',
+        name: 'PerformanceCyclePeopleDepartment',
+        component: () => import('@/views/performance/PerformanceCyclePeopleDepartment.vue'),
+        meta: { label: '人员与部门列表' },
+      },
+      {
         path: 'templates',
         name: 'PerformanceTemplates',
         component: () => import('@/views/performance/PerformanceTemplateManagement.vue'),

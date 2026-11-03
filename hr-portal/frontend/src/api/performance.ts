@@ -1793,6 +1793,28 @@ export interface PerformanceCyclePerson {
   hire_date: string | null
   departure_date: string | null
   is_manually_maintained: boolean
+  direct_supervisor_name?: string | null
+  hrbp_name?: string | null
+}
+
+export interface PerformanceCyclePersonPage {
+  items: PerformanceCyclePerson[]
+  total: number
+  offset: number
+  limit: number
+}
+
+export interface PerformanceCycleDepartmentItem {
+  department_name: string
+  parent_department: string | null
+  people_count: number
+}
+
+export interface PerformanceCycleDepartmentPage {
+  items: PerformanceCycleDepartmentItem[]
+  total: number
+  offset: number
+  limit: number
 }
 
 export interface PerformanceCycle {
@@ -1870,6 +1892,14 @@ export const performanceCycleApi = {
   },
   async listPeople(id: number): Promise<PerformanceCyclePerson[]> {
     const { data } = await api.get<PerformanceCyclePerson[]>(`/performance/cycles/${id}/people`)
+    return data
+  },
+  async listPeoplePage(id: number, params: { keyword?: string; offset?: number; limit?: number }): Promise<PerformanceCyclePersonPage> {
+    const { data } = await api.get<PerformanceCyclePersonPage>(`/performance/cycles/${id}/people/page`, { params })
+    return data
+  },
+  async listDepartmentsPage(id: number, params: { keyword?: string; offset?: number; limit?: number }): Promise<PerformanceCycleDepartmentPage> {
+    const { data } = await api.get<PerformanceCycleDepartmentPage>(`/performance/cycles/${id}/departments/page`, { params })
     return data
   },
   async importProjectManagers(id: number, people: Array<{ target_employee_no: string; manager_employee_no: string }>, reason: string): Promise<PerformanceCyclePerson[]> {

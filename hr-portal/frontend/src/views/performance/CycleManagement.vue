@@ -92,7 +92,7 @@
             @confirm="saveOverdueSubmission"
           />
           <h3>基本信息</h3>
-          <div class="metrics"><div><label>人员</label><strong>{{ selected?.people_count ?? '--' }}</strong></div><div><label>部门</label><strong>{{ selected?.department_count ?? '--' }}</strong></div><div><label>周期起止时间</label><span>{{ selected ? formatRange(selected.start_at, selected.end_at) : '--' }}</span></div><div><label>锁定状态</label><span>{{ selected ? (selected.status === 'LOCKED' ? '已锁定' : '待锁定') : '--' }}</span></div><div><label>离职人员参评</label><span>{{ selected ? (selected.leaver_enabled ? '是' : '否') : '--' }}</span></div></div>
+          <div class="metrics"><div><label>人员</label><strong><button v-if="selected" class="metric-link" type="button" @click="openPeopleDepartment('employee')">{{ selected.people_count }}</button><template v-else>--</template></strong></div><div><label>部门</label><strong><button v-if="selected" class="metric-link" type="button" @click="openPeopleDepartment('department')">{{ selected.department_count }}</button><template v-else>--</template></strong></div><div><label>周期起止时间</label><span>{{ selected ? formatRange(selected.start_at, selected.end_at) : '--' }}</span></div><div><label>锁定状态</label><span>{{ selected ? (selected.status === 'LOCKED' ? '已锁定' : '待锁定') : '--' }}</span></div><div><label>离职人员参评</label><span>{{ selected ? (selected.leaver_enabled ? '是' : '否') : '--' }}</span></div></div>
           <PerformanceProjectSettings
             :projects="selected?.projects || []"
             :project-count="selected?.project_count || 0"
@@ -376,6 +376,14 @@ function snapshotForm() { initialForm.value = JSON.stringify(form) }; function r
 function toPayload(): PerformanceCyclePayload | Partial<PerformanceCyclePayload> { const base = { name: form.name, language: 'zh-CN' as const, period_year: form.period_year, period_type: form.period_type, period_subtype: form.period_subtype, template_ids: form.evaluation_templates.map(Number), start_at: toIso(form.start_at), end_at: toIso(form.end_at), leaver_enabled: form.leaver_enabled, leaver_start_date: form.leaver_enabled ? form.leaver_start_date : null, leaver_end_date: form.leaver_enabled ? form.leaver_end_date : null, leaver_participation_mode: form.leaver_participation_mode, overdue_submission_enabled: form.overdue_submission_enabled, overdue_submission_scope: form.overdue_submission_scope }; return formMode.value === 'create' ? { ...base, lock_rule: form.lock_rule, lock_at: form.lock_rule === 'SCHEDULED' ? toIso(form.lock_at) : null, pre_lock_sync_mode: form.pre_lock_sync_mode } : base }
 async function loadCycles() { const version = ++requestVersion.value; loading.value = true; formError.value = ''; try { const [result, otherSettings] = await Promise.all([performanceCycleApi.list(keyword.value, page.value, pageSize.value), performanceOtherSettingsApi.get()]); if (version !== requestVersion.value) return; overdueSubmissionAllowed.value = otherSettings.overdue_single_submission_enabled && otherSettings.cycle_overdue_submission_override_enabled; cycles.value = result.items; total.value = result.total; if (page.value > totalPages.value) { page.value = totalPages.value; return loadCycles() }; if (!selected.value || !cycles.value.some(item => item.id === selected.value?.id)) selected.value = cycles.value[0] || null } catch (error: any) { formError.value = error?.response?.data?.detail || '周期加载失败' } finally { if (version === requestVersion.value) loading.value = false } }
 async function searchCycles() { page.value = 1; await loadCycles() }; function clearSearch() { keyword.value = ''; void searchCycles() }; async function changePage(nextPage: number) { page.value = Math.min(Math.max(1, nextPage), totalPages.value); await loadCycles() }; async function selectCycle(cycle: PerformanceCycle) { selected.value = cycle; if (showPeople.value) await loadPeople() }
+function openPeopleDepartment(activeKey: 'employee' | 'department') {
+  if (!selected.value) return
+  void router.push({
+    name: 'PerformanceCyclePeopleDepartment',
+    params: { cycleId: selected.value.id },
+    query: { activeKey, showDepartment: 'true', peopleCount: String(selected.value.people_count), departmentCount: String(selected.value.department_count) },
+  })
+}
 function openCycleSettings(key: string) {
   if (key === 'overdue-submission') {
     if (!selected.value || !overdueSubmissionAllowed.value) return
@@ -1294,6 +1302,8 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .metrics > div { display: flex; min-width: 0; flex-direction: column; gap: 4px; color: #1f2329; font-size: 14px; line-height: 22px; white-space: nowrap; }
 .metrics label { color: #646a73; }
 .metrics strong { color: #3370ff; font-size: 14px; font-weight: 400; }
+.metric-link { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; line-height: inherit; cursor: pointer; }
+.metric-link:hover { text-decoration: underline; }
 .metrics > div:nth-child(3) { min-width: 156px; }.metrics > div:nth-child(4) { min-width: 108px; }.metrics > div:nth-child(5) { min-width: 210px; }
 .state-success, .state-error { margin: 0 0 12px; }.state-error { color: #f04438; }
 @media (max-width: 1280px) { .metrics { gap: 24px; } }

@@ -124,6 +124,28 @@ class CyclePerson(BaseModel):
     hire_date: date | None
     departure_date: date | None
     is_manually_maintained: bool
+    direct_supervisor_name: str | None = None
+    hrbp_name: str | None = None
+
+
+class CyclePersonPage(BaseModel):
+    items: list[CyclePerson]
+    total: int
+    offset: int
+    limit: int
+
+
+class CycleDepartmentItem(BaseModel):
+    department_name: str
+    parent_department: str | None = None
+    people_count: int
+
+
+class CycleDepartmentPage(BaseModel):
+    items: list[CycleDepartmentItem]
+    total: int
+    offset: int
+    limit: int
 
 
 class HrbpPersonOption(BaseModel):
@@ -632,6 +654,72 @@ async def get_cycle_people(
     cycle = await service.get_cycle(cycle_id)
     await _assert_people_permission(context)
     return await service.people_for_cycle(cycle)
+
+
+@router.get("/{cycle_id}/people/page", response_model=CyclePersonPage)
+async def page_cycle_people(
+    cycle_id: int,
+    keyword: str | None = Query(default=None, max_length=128),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    service = PerformanceCycleService(db)
+    cycle = await service.get_cycle(cycle_id)
+    await _assert_people_permission(context)
+    people = await service.people_for_cycle(cycle)
+    names_by_employee: dict[str, str] = {person["employee_no"]: person["display_name"] for person in people}
+    for person in people:
+        supervisor = person.get("direct_supervisor_employee_no")
+        if supervisor:
+            person["direct_supervisor_name"] = names_by_employee.get(supervisor, supervisor)
+        hrbp = person.get("hrbp_employee_no")
+        if hrbp:
+            person["hrbp_name"] = names_by_employee.get(hrbp, hrbp)
+    if keyword and keyword.strip():
+        pattern = keyword.strip().casefold()
+        people = [person for person in people if pattern in person["display_name"].casefold() or pattern in person["employee_no"].casefold()]
+    total = len(people)
+    items = people[offset : offset + limit]
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
+
+
+@router.get("/{cycle_id}/departments/page", response_model=CycleDepartmentPage)
+async def page_cycle_departments(
+    cycle_id: int,
+    keyword: str | None = Query(default=None, max_length=128),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=20, ge=1, le=100),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    service = PerformanceCycleService(db)
+    cycle = await service.get_cycle(cycle_id)
+    await _assert_people_permission(context)
+    people = await service.people_for_cycle(cycle)
+    groups: dict[str, dict[str, int]] = {}
+    for person in people:
+        path = person.get("organization_ref")
+        if not path:
+            continue
+        segments = [part for part in path.split("/") if part]
+        if not segments:
+            continue
+        name = segments[-1]
+        parent = segments[-2] if len(segments) > 1 else None
+        groups.setdefault(name, {"parent_department": parent, "people_count": 0})
+        groups[name]["people_count"] += 1
+    sorted_names = sorted(groups.keys())
+    if keyword and keyword.strip():
+        pattern = keyword.strip().casefold()
+        sorted_names = [name for name in sorted_names if pattern in name.casefold()]
+    total = len(sorted_names)
+    items = [
+        {"department_name": name, "parent_department": groups[name]["parent_department"], "people_count": groups[name]["people_count"]}
+        for name in sorted_names[offset : offset + limit]
+    ]
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 @router.patch("/{cycle_id}", response_model=CycleSummary)
