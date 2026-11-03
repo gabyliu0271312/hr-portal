@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import OrganizationTree from './OrganizationTree.vue'
 
@@ -12,33 +12,41 @@ const fixture = [
       treeNode(3, '研发中心', 3, true),
       treeNode(4, '发行中心', 3, false),
     ]),
-    treeNode(5, '职能中心', 2, true),
+    treeNode(5, '职能中心', 2, false),
   ]),
 ]
 
 describe('OrganizationTree', () => {
-  it('renders tree nodes and exposes first-level expansion keys', async () => {
+  it('renders first level only by default (deeper levels stay collapsed)', () => {
     const wrapper = mount(OrganizationTree, { props: { nodes: fixture } })
-    await flushPromises()
     expect(wrapper.text()).toContain('创梦天地')
     expect(wrapper.text()).toContain('游戏事业部')
-    expect(wrapper.text()).toContain('职能中心')
-    // 展开集合仅含第一级（根节点），更深层级收起 —— 由 expand-row-keys 控制
-    // （jsdom 下 el-table 树形收起渲染不可靠，展开状态在 PC 走查验证）
-    const table = wrapper.findComponent({ name: 'ElTable' })
-    expect(table.props('expandRowKeys')).toEqual(['1'])
+    // 默认仅展开第一级：level-2 不渲染
+    expect(wrapper.text()).not.toContain('研发中心')
+    expect(wrapper.text()).not.toContain('发行中心')
     wrapper.unmount()
   })
 
-  it('tags inactive nodes as 停用', async () => {
+  it('expands a collapsed node on toggle', async () => {
     const wrapper = mount(OrganizationTree, { props: { nodes: fixture } })
-    await flushPromises()
-    expect(wrapper.find('.org-table__inactive').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('研发中心')
+    // 默认展开第一级：根(创梦天地)与游戏事业部可见，各有一个展开按钮；点击游戏事业部展开下一级
+    const buttons = wrapper.findAll('button.org-table__expand')
+    expect(buttons.length).toBe(2)
+    await buttons[1].trigger('click')
+    expect(wrapper.text()).toContain('研发中心')
+    expect(wrapper.text()).toContain('发行中心')
     wrapper.unmount()
   })
 
-  it('auto-expands ancestor chains while searching so matches become visible', async () => {
-    // 模拟页面过滤结果：根与一级为祖先（有匹配后代、自身未匹配），二级为命中节点
+  it('tags visible inactive nodes as 停用', () => {
+    const wrapper = mount(OrganizationTree, { props: { nodes: fixture } })
+    // 职能中心 level-1 停用、默认可见
+    expect(wrapper.find('.org-table__inactive').text()).toBe('停用')
+    wrapper.unmount()
+  })
+
+  it('auto-expands ancestor chains while searching so matches become visible', () => {
     const searchFixture = [
       { ...fixture[0], __searchMatch: false, __hasSearchDescendant: true, children: [
         { ...fixture[0].children[0], __searchMatch: false, __hasSearchDescendant: true, children: [
@@ -47,8 +55,6 @@ describe('OrganizationTree', () => {
       ]},
     ]
     const wrapper = mount(OrganizationTree, { props: { nodes: searchFixture, searching: true } })
-    await flushPromises()
-    // 命中节点必须在 DOM 中可见（祖先自动展开）
     expect(wrapper.text()).toContain('研发中心')
     wrapper.unmount()
   })

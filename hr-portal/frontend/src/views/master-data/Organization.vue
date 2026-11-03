@@ -7,7 +7,6 @@ import { useUserStore } from '@/stores/user'
 
 const store = useUserStore()
 const canView = computed(() => store.menus.some(m => m.code === 'people.organization'))
-const tab = ref<'people' | 'org'>('org')
 const includeInactive = ref(false)
 const keyword = ref('')
 const trees = ref<TreeNode[]>([])
@@ -59,17 +58,8 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 
 <template>
   <div class="organization">
-    <div class="organization__tabs">
-      <button class="organization__tab" :class="{ 'is-active': tab === 'people' }" type="button" @click="tab = 'people'">人员</button>
-      <button class="organization__tab" :class="{ 'is-active': tab === 'org' }" type="button" @click="tab = 'org'">组织</button>
-    </div>
-
     <div class="organization__card">
       <el-alert v-if="!canView" title="需要组织查看权限。" type="info" :closable="false" />
-
-      <template v-else-if="tab === 'people'">
-        <el-empty description="人员页建设中，后续版本提供。" />
-      </template>
 
       <template v-else>
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
@@ -89,13 +79,10 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 </template>
 
 <style scoped>
-.organization { display: flex; flex-direction: column; height: 100%; }
-.organization__tabs { display: flex; align-items: center; height: 56px; padding: 0 4px 0 20px; background: #fff; }
-.organization__tab { display: flex; align-items: center; box-sizing: border-box; height: 100%; padding: 0 16px; border: 0; background: transparent; color: #1f2329; cursor: pointer; font: 400 16px/56px var(--font-sans); }
-.organization__tab.is-active { color: #3370ff; font-weight: 500; box-shadow: inset 0 -2px 0 #3370ff; }
+.organization { display: flex; flex-direction: column; box-sizing: border-box; height: 100%; padding: 20px 20px 0; overflow: auto; background: #f5f6f7; }
 .organization__card { display: flex; flex-direction: column; flex: 1 1; min-height: 0; padding: 20px; box-sizing: border-box; background: #fff; border-radius: 8px 8px 0 0; }
 .organization__card > :not(:first-child) { margin-top: 16px; }
 .organization__toolbar { display: flex; align-items: center; gap: 12px; }
 .organization__search { width: 310px; }
-.organization__tree { flex: 1 1; min-height: 0; overflow-x: auto; }
+.organization__tree { flex: 1 1; min-height: 0; }
 </style>
