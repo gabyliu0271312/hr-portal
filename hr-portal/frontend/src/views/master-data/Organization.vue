@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 import OrganizationTree from '@/components/master-data/OrganizationTree.vue'
+import PageTitle from '@/components/common/PageTitle.vue'
 import { treesApi, type TreeNode } from '@/api/data'
 import { useUserStore } from '@/stores/user'
 
@@ -58,6 +59,7 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 
 <template>
   <div class="organization">
+    <PageTitle title="组织架构" description="展示所有组织相关的信息" />
     <div class="organization__card">
       <el-alert v-if="!canView" title="需要组织查看权限。" type="info" :closable="false" />
 

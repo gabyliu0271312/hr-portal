@@ -140,6 +140,16 @@
   --performance-page-title-line-height: 32px;
   --performance-page-title-color: #1f2329;
   --performance-page-title-gap: 16px;
+  /* 通用页面标题 + 描述（飞书 title-description 参数：标题 margin 0，描述层自带 12px 上 / 8px 下，无描述时不渲染自动上移） */
+  --page-title-size: 18px;
+  --page-title-weight: 600;
+  --page-title-line-height: 32px;
+  --page-title-color: #1f2329;
+  --page-title-desc-size: 12px;
+  --page-title-desc-line-height: 20px;
+  --page-title-desc-color: #999999;
+  --page-title-gap-with-desc: 12px;
+  --page-title-gap-bottom: 8px;
   --performance-switch-width: 28px;
   --performance-switch-height: 16px;
   --performance-switch-handler-size: 12px;
