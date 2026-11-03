@@ -6,9 +6,11 @@ withDefaults(defineProps<{
   title: string
   showFooter?: boolean
   submitting?: boolean
+  contentScroll?: 'page' | 'inner'
 }>(), {
   showFooter: true,
   submitting: false,
+  contentScroll: 'page',
 })
 
 const emit = defineEmits<{
@@ -26,7 +28,7 @@ const emit = defineEmits<{
       <template #actions><slot name="actions" /></template>
     </PageHeader>
 
-    <main class="full-screen-modal-content">
+    <main class="full-screen-modal-content" :class="{ 'full-screen-modal-content--inner': contentScroll === 'inner' }">
       <slot />
     </main>
 
@@ -61,6 +63,11 @@ const emit = defineEmits<{
   padding-bottom: var(--performance-fullscreen-content-bottom-space);
   box-sizing: border-box;
   background: var(--color-surface-page);
+}
+.full-screen-modal-content--inner {
+  min-width: 0;
+  overflow: hidden;
+  padding-bottom: 0;
 }
 </style>
 

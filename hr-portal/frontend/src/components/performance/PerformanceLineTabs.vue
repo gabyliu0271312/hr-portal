@@ -1,5 +1,5 @@
 <template>
-  <div class="line-tabs" :class="{ sticky, flush }">
+  <div class="line-tabs" :class="{ sticky, flush, fill }">
     <div class="line-tabs-holder">
       <div ref="wrapRef" class="line-tabs-wrap">
         <div class="line-tabs-overflow">
@@ -41,9 +41,11 @@ const props = withDefaults(defineProps<{
   modelValue: string
   sticky?: boolean
   flush?: boolean
+  fill?: boolean
 }>(), {
   sticky: false,
   flush: false,
+  fill: false,
 })
 
 const emit = defineEmits<{
@@ -112,4 +114,8 @@ watch(() => [props.modelValue, props.tabs], async () => {
 .line-tabs-divider { position: absolute; top: 35px; right: 0; bottom: 0; left: 0; z-index: 0; height: 1px; background: var(--performance-line-tabs-divider); }
 .line-tabs-content { min-height: 0; padding-top: 0; background: var(--performance-line-tabs-surface); }
 .line-tabs-pane { min-width: 0; min-height: 0; }
+.line-tabs.fill { flex: 1 1 auto; overflow: hidden; }
+.line-tabs.fill .line-tabs-holder { flex-shrink: 0; }
+.line-tabs.fill .line-tabs-content { display: flex; flex: 1 1 auto; padding-top: var(--performance-table-tabs-gap); overflow: hidden; }
+.line-tabs.fill .line-tabs-pane { display: flex; flex-direction: column; flex: 1 1 auto; overflow: hidden; }
 </style>

@@ -37,7 +37,7 @@ const tabs = computed(() => {
 
 <template>
   <div class="people-department-page">
-    <PerformanceLineTabs v-model="activeKey" :tabs="tabs" sticky flush>
+    <PerformanceLineTabs v-model="activeKey" :tabs="tabs" sticky flush fill>
       <PerformancePeopleListPanel v-if="activeKey === 'employee'" :cycle-id="cycleId" />
       <PerformanceDepartmentListPanel v-else :cycle-id="cycleId" />
     </PerformanceLineTabs>
@@ -51,5 +51,8 @@ const tabs = computed(() => {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
+  padding: var(--performance-table-page-top-gap) var(--performance-table-page-inset) var(--performance-table-page-bottom-gap);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 </style>

@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
   pageSize?: number
   total?: number
   maxHeight?: number | string
+  viewportSurface?: boolean
   showPagination?: boolean
   rowKey?: string
   clickableRows?: boolean
@@ -39,6 +40,7 @@ const props = withDefaults(defineProps<{
   page: 1,
   pageSize: 10,
   maxHeight: 600,
+  viewportSurface: false,
   showPagination: true,
   rowKey: 'id',
   clickableRows: false,
@@ -266,20 +268,46 @@ function onTrackClick(event: MouseEvent) {
   showHscroll()
 }
 
+const toolbarRef = ref<HTMLElement | null>(null)
+const paginationRef = ref<HTMLElement | null>(null)
+const viewportTableHeight = ref<number>()
+const tableMaxHeight = computed(() => {
+  if (props.scrollMode !== 'inner') return undefined
+  if (!props.viewportSurface || viewportTableHeight.value === undefined) return props.maxHeight
+  return typeof props.maxHeight === 'number'
+    ? Math.min(props.maxHeight, viewportTableHeight.value)
+    : viewportTableHeight.value
+})
+function measureViewport() {
+  const root = rootRef.value
+  const parent = root?.parentElement
+  if (!props.viewportSurface || !root || !parent?.clientHeight) return
+  const style = getComputedStyle(root)
+  const occupiedHeight = [toolbarRef.value, paginationRef.value].reduce((sum, element) => {
+    if (!element) return sum
+    const elementStyle = getComputedStyle(element)
+    return sum + element.offsetHeight + (parseFloat(elementStyle.marginTop) || 0) + (parseFloat(elementStyle.marginBottom) || 0)
+  }, 0)
+  viewportTableHeight.value = Math.max(1, Math.floor(parent.clientHeight - occupiedHeight
+    - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0)))
+}
+
 let resizeObserver: ResizeObserver | null = null
 watch(() => [selectedCount.value, useNativeTable.value], () => {
   if (selectedCount.value) void nextTick(updateBarPosition)
 })
-watch(() => props.rows, () => { void nextTick(updateHscroll) })
+watch(() => [props.rows, props.showPagination, props.viewportSurface], () => { void nextTick(() => { updateHscroll(); measureViewport() }) })
 onMounted(() => {
   updateBarPosition()
-  void nextTick(updateHscroll)
+  void nextTick(() => { updateHscroll(); measureViewport() })
   window.addEventListener('resize', updateBarPosition)
   window.addEventListener('scroll', hideCellTooltip, { capture: true })
   if (rootRef.value && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => { updateBarPosition(); updateHscroll() })
+    resizeObserver = new ResizeObserver(() => { updateBarPosition(); updateHscroll(); measureViewport() })
     resizeObserver.observe(rootRef.value)
     if (rootRef.value.parentElement) resizeObserver.observe(rootRef.value.parentElement)
+    if (toolbarRef.value) resizeObserver.observe(toolbarRef.value)
+    if (paginationRef.value) resizeObserver.observe(paginationRef.value)
   }
 })
 onBeforeUnmount(() => {
@@ -336,7 +364,8 @@ function jumpToPage() {
 </script>
 
 <template>
-  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-ping-left': isPingLeft }" :aria-label="tableAriaLabel" @mouseenter="showHscroll" @mouseleave="scheduleHscrollHide">
+  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-ping-left': isPingLeft, 'table-surface': viewportSurface && !useNativeTable }" :aria-label="tableAriaLabel" @mouseenter="showHscroll" @mouseleave="scheduleHscrollHide">
+    <div v-if="$slots.toolbar" ref="toolbarRef" class="table-toolbar"><slot name="toolbar" /></div>
     <template v-if="useNativeTable">
       <div class="feishu-table">
         <div ref="headerWrapRef" class="feishu-table__header">
@@ -435,7 +464,7 @@ function jumpToPage() {
 
     <template v-else>
       <div class="table-scroll">
-        <el-table ref="tableRef" v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="scrollMode === 'inner' ? maxHeight : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="rowClassName" @selection-change="onSelectionChange" @row-click="emit('row-click', $event)">
+        <el-table ref="tableRef" v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="tableMaxHeight" :scrollbar-tabindex="viewportSurface ? 0 : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="rowClassName" @selection-change="onSelectionChange" @row-click="emit('row-click', $event)">
           <slot />
           <template #empty>
             <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
@@ -448,7 +477,7 @@ function jumpToPage() {
       </div>
     </template>
 
-    <div v-if="showPagination" class="table-pagination" :aria-label="paginationAriaLabel">
+    <div v-if="showPagination" ref="paginationRef" class="table-pagination" :aria-label="paginationAriaLabel">
       <ul class="pagination-list">
         <li>
           <button class="pagination-arrow" type="button" aria-label="上一页" :disabled="page <= 1" @click="changePage(page - 1)">
@@ -489,8 +518,30 @@ function jumpToPage() {
 </template>
 
 <style scoped>
-.performance-management-table { min-height: 0; display: flex; flex-direction: column; }
+.performance-management-table { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.table-toolbar { flex-shrink: 0; margin-bottom: var(--page-gap-toolbar-table); }
 .table-scroll { overflow: visible; }
+.table-surface {
+  flex: 0 1 auto;
+  max-height: 100%;
+  padding: var(--performance-table-viewport-padding);
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: var(--performance-content-surface-radius);
+  background: var(--performance-content-surface-background);
+  box-shadow: var(--performance-content-surface-shadow);
+}
+.table-surface .table-scroll { min-width: 0; min-height: 0; overflow-x: auto; scrollbar-width: none; }
+.table-surface .table-scroll::-webkit-scrollbar,
+.table-surface :deep(.el-scrollbar__wrap::-webkit-scrollbar) { display: none; }
+.table-surface :deep(.el-scrollbar__wrap) { scrollbar-width: none; overscroll-behavior: contain; }
+.table-surface :deep(.el-scrollbar__bar) { display: none; }
+.table-surface .table-pagination {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-height: var(--performance-table-pagination-height);
+  margin: var(--performance-table-pagination-gap) 0 0;
+}
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px 0; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
 :deep(.el-table th.el-table__cell:hover) { background: #f5f6f7; }

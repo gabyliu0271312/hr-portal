@@ -55,6 +55,16 @@ describe('PerformanceLineTabs', () => {
     expect(flush.get('.pane-body').text()).toBe('pane')
   })
 
+  it('only fills the available height when opted in, leaving the tab holder outside the scrolling pane', () => {
+    const normal = mountTabs()
+    const fill = mountTabs('members', { fill: true })
+    expect(normal.classes()).not.toContain('fill')
+    expect(fill.classes()).toContain('fill')
+    expect(performanceLineTabsSource).toMatch(/\.line-tabs\.fill \.line-tabs-holder\s*\{[^}]*flex-shrink: 0/s)
+    expect(performanceLineTabsSource).toMatch(/\.line-tabs\.fill \.line-tabs-content\s*\{[^}]*flex: 1 1 auto[^}]*padding-top: var\(--performance-table-tabs-gap\)[^}]*overflow: hidden/s)
+    expect(performanceLineTabsSource).toMatch(/\.line-tabs\.fill \.line-tabs-pane\s*\{[^}]*flex: 1 1 auto/s)
+  })
+
   it('applies sticky positioning only with the sticky prop', () => {
     const normal = mountTabs()
     expect(normal.find('.line-tabs-holder').classes()).not.toContain('sticky')

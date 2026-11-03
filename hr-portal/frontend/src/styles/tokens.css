@@ -62,6 +62,13 @@
   --performance-content-surface-background: var(--color-surface-card);
   --performance-content-surface-shadow: 0 1px 4px rgba(31, 35, 41, 0.05);
   --performance-table-surface-padding: var(--spacing-6);
+  --performance-table-viewport-padding: var(--performance-content-surface-padding);
+  --performance-table-page-inset: var(--spacing-5);
+  --performance-table-page-top-gap: var(--spacing-2);
+  --performance-table-page-bottom-gap: var(--spacing-5);
+  --performance-table-tabs-gap: var(--spacing-2);
+  --performance-table-pagination-height: 28px;
+  --performance-table-pagination-gap: var(--page-gap-table-pagination);
   --performance-page-surface: #f2f3f5;
   --performance-review-surface-inset: var(--spacing-5);
   --performance-review-page-bg: var(--performance-page-surface);
@@ -164,6 +171,7 @@
   /* 页面纵排间距（飞书 title-description 12px / toolbar-table 16px） */
   --page-gap-title-desc: 12px;
   --page-gap-toolbar-table: 16px;
+  --page-gap-table-pagination: 12px;
   --performance-switch-width: 28px;
   --performance-switch-height: 16px;
   --performance-switch-handler-size: 12px;

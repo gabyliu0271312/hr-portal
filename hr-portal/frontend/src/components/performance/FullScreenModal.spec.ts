@@ -40,6 +40,14 @@ describe('FullScreenModal', () => {
     expect(wrapper.emitted('cancel')).toHaveLength(1)
   })
 
+  it('opts into internal content scrolling without changing the default page mode', async () => {
+    const wrapper = mountModal(false)
+    expect(wrapper.get('main').classes()).not.toContain('full-screen-modal-content--inner')
+    await wrapper.setProps({ contentScroll: 'inner' })
+    expect(wrapper.get('main').classes()).toContain('full-screen-modal-content--inner')
+    expect(wrapper.get('[data-testid="content"]').text()).toBe('内容')
+  })
+
   it('supports pages without a footer', () => {
     const wrapper = mountModal(false)
     expect(wrapper.find('.full-screen-modal-footer').exists()).toBe(false)

@@ -9,6 +9,8 @@ import PerformancePeopleListPanel from '@/components/performance/PerformancePeop
 import PerformanceDepartmentListPanel from '@/components/performance/PerformanceDepartmentListPanel.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import managementTableSource from '@/components/performance/PerformanceManagementTable.vue?raw'
+import peopleDepartmentTabsSource from '@/components/performance/PerformancePeopleDepartmentTabs.vue?raw'
 
 const mocks = vi.hoisted(() => ({
   getAccessContext: vi.fn(),
@@ -121,6 +123,60 @@ async function selectEnabledTemplate(wrapper: ReturnType<typeof mountView> exten
 }
 
 describe('周期人员和部门快照表格', () => {
+  it('按父容器剩余空间调整表格上限，窗口变化后重新计算且不影响默认分支', async () => {
+    const callbacks = new Map<Element, ResizeObserverCallback>()
+    const Observer = globalThis.ResizeObserver
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) { callbacks.set(element, this.callback) }
+      unobserve() {}
+      disconnect() {}
+    })
+    const wrapper = mount(PerformanceManagementTable, {
+      props: { rows: [], loading: false, loadingText: '加载中', emptyText: '暂无人员', tableAriaLabel: '表格', paginationAriaLabel: '分页', viewportSurface: true },
+      slots: { toolbar: '<div>搜索</div>', default: '<el-table-column label="姓名" />' },
+      global: { components: { ElTableColumn } },
+    })
+    try {
+      const root = wrapper.element as HTMLElement
+      const parent = document.createElement('div')
+      parent.append(root)
+      let height = 400
+      Object.defineProperty(parent, 'clientHeight', { get: () => height })
+      Object.defineProperty(wrapper.get('.table-toolbar').element, 'offsetHeight', { value: 32 })
+      Object.defineProperty(wrapper.get('.table-pagination').element, 'offsetHeight', { value: 28 })
+      await flushPromises()
+      const resize = async () => {
+        callbacks.get(root)!([], {} as ResizeObserver)
+        await flushPromises()
+      }
+      await resize()
+      const table = wrapper.getComponent({ name: 'ElTable' })
+      expect(table.props('maxHeight')).toBe(340)
+      height = 240
+      await resize()
+      expect(table.props('maxHeight')).toBe(180)
+      height = 1000
+      await resize()
+      expect(table.props('maxHeight')).toBe(600)
+      await wrapper.setProps({ viewportSurface: false })
+      expect(wrapper.classes()).not.toContain('table-surface')
+      expect(table.props('maxHeight')).toBe(600)
+    } finally {
+      wrapper.unmount()
+      vi.stubGlobal('ResizeObserver', Observer)
+    }
+  })
+
+  it('统一白卡留白、分页固定底距和隐藏内部滚动条规则', () => {
+    expect(managementTableSource).toMatch(/\.table-surface\s*\{[^}]*padding: var\(--performance-table-viewport-padding\)[^}]*overflow: hidden/s)
+    expect(managementTableSource).toMatch(/\.table-surface \.table-pagination\s*\{[^}]*flex-shrink: 0[^}]*margin: var\(--performance-table-pagination-gap\) 0 0/s)
+    expect(managementTableSource).toContain('.table-surface :deep(.el-scrollbar__bar) { display: none; }')
+    expect(managementTableSource).toContain('scrollbar-width: none; overscroll-behavior: contain;')
+    expect(peopleDepartmentTabsSource).toContain('sticky flush fill')
+    expect(peopleDepartmentTabsSource).toContain('padding: var(--performance-table-page-top-gap) var(--performance-table-page-inset) var(--performance-table-page-bottom-gap)')
+  })
+
   it.each([
     { component: PerformancePeopleListPanel, api: mocks.listPeoplePage, row: { employee_no: 'E001', display_name: '快照人员', organization_ref: '集团/研发/平台组' }, text: '快照人员', columns: 12 },
     { component: PerformanceDepartmentListPanel, api: mocks.listDepartmentsPage, row: { department_name: '平台组', parent_department: '研发', people_count: 1 }, text: '平台组', columns: 4 },
@@ -133,6 +189,10 @@ describe('周期人员和部门快照表格', () => {
     expect(table.props('maxHeight')).toBe(600)
     expect(table.props('data')).toEqual([row])
     expect(wrapper.find('.feishu-table').exists()).toBe(false)
+    expect(wrapper.get('.table-surface > .table-toolbar input').attributes('placeholder')).toContain('搜索')
+    expect(wrapper.get('.table-surface > .table-pagination').attributes('aria-label')).toContain('分页')
+    expect(table.attributes('style')).toContain('width: 100%')
+    expect(table.props('scrollbarTabindex')).toBe(0)
     const tableColumns = wrapper.findAllComponents({ name: 'ElTableColumn' })
     expect(tableColumns).toHaveLength(columns)
     expect(tableColumns.slice(0, -1).every(column => Boolean(column.props('minWidth')))).toBe(true)

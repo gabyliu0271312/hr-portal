@@ -1,5 +1,5 @@
 <template>
-  <FullScreenModal title="人员与部门列表" :show-footer="false" @back="goBack">
+  <FullScreenModal title="人员与部门列表" :show-footer="false" content-scroll="inner" @back="goBack">
     <PerformancePeopleDepartmentTabs
       v-model="activeKey"
       :cycle-id="cycleId"

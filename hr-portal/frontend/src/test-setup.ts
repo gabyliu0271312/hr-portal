@@ -1,4 +1,11 @@
 import { config } from '@vue/test-utils'
+import { vi } from 'vitest'
+
+vi.stubGlobal('ResizeObserver', class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+})
 
 config.global.stubs = {
   'el-alert': { template: '<div><slot /></div>' },
