@@ -746,31 +746,63 @@ async def test_service_preserves_evaluation_item_modes(workflow_save_setup, cont
 
 
 @pytest.mark.asyncio
-async def test_service_keeps_node_content_independent_from_library_and_other_nodes(workflow_save_setup):
+async def test_service_shares_library_definition_across_nodes_and_keeps_node_settings(workflow_save_setup):
+    """方案C：内容库是唯一权威，节点只保留引用与环节级设置。"""
     from copy import deepcopy
 
     service, db = workflow_save_setup
-    seed = _view_source_content(content_type="custom", name="种子", items=[{
-        "id": "item-1", "label": "原题", "hint": "原提示", "options": [{"id": "a", "label": "原选项"}],
-        "settings": {"required": False, "extra": {"keep": True}},
+    seed = _view_source_content(content_type="custom", name="库定义", items=[{
+        "id": "item-1", "label": "库题目", "hint": "库提示", "options": [{"id": "a", "label": "库选项"}],
     }])
     local = deepcopy(seed)
-    local["name"] = "环节一"
-    local["items"][0].update(label="局部题目", hint="局部提示", options=[{"id": "b", "label": "局部选项"}])
-    local["items"][0]["settings"].update(required=True, hideName=True, hideDescription=True)
+    local["name"] = "环节一局部定义"
+    local["items"][0].update(label="局部题目", options=[{"id": "b", "label": "局部选项"}])
+    local["items"][0]["settings"] = {"required": True, "hideName": True, "extra": {"keep": True}}
     final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [local]}
     other = {**_evaluation("other", "被评估人"), "content_bindings": {"fill": [seed["content_id"]]}}
     record = await service.save_nodes(77, [final, other], content_library=[seed], actor_type="PORTAL_USER", actor_ref="9")
     db.workflow = record
+
+    # 库内只保留共享定义，节点上的环节级设置不会回流污染内容库
     assert record.content_library == [seed]
-    assert record.nodes[0]["content"][0] == local
-    assert record.nodes[1]["content"][0]["items"] == seed["items"]
+    # 两个环节看到同一份定义
+    assert record.nodes[0]["content"][0]["name"] == "库定义"
+    assert record.nodes[0]["content"][0]["items"][0]["label"] == "库题目"
+    assert record.nodes[0]["content"][0]["items"][0]["options"] == [{"id": "a", "label": "库选项"}]
+    assert record.nodes[1]["content"][0]["name"] == "库定义"
+    assert record.nodes[1]["content"][0]["items"][0]["label"] == "库题目"
+    # 环节级设置各自保留
+    assert record.nodes[0]["content"][0]["items"][0]["settings"] == {"required": True, "hideName": True, "extra": {"keep": True}}
+    assert "settings" not in record.nodes[1]["content"][0]["items"][0]
+
     reopened, _, _ = await service.get_nodes(77)
     reopened[0]["content"][0]["items"][0]["options"][0]["label"] = "再改"
-    assert reopened[1]["content"][0]["items"][0]["options"][0]["label"] == "原选项"
-    assert record.nodes[0]["content"][0]["items"][0]["options"][0]["label"] == "局部选项"
+    assert reopened[1]["content"][0]["items"][0]["options"][0]["label"] == "库选项"
+    assert record.nodes[0]["content"][0]["items"][0]["options"][0]["label"] == "库选项"
     assert await service.get_content_library(77) == [seed]
-    assert local["items"][0]["settings"]["extra"] == {"keep": True}
+
+
+@pytest.mark.asyncio
+async def test_service_propagates_updated_library_definition_to_all_bound_nodes(workflow_save_setup):
+    """任一环节改了内容定义后，其他绑定同一内容的环节读取时同步到新定义。"""
+    service, db = workflow_save_setup
+    old = _view_source_content(content_type="custom", name="旧名称", items=[{"id": "item-1", "label": "旧题目", "hint": ""}])
+    updated = {**old, "name": "新名称", "description": "新描述", "items": [{"id": "item-1", "label": "新题目", "hint": ""}]}
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [{**old, "content_slot": "fill"}]}
+    other = {**_evaluation("other", "被评估人"), "content_bindings": {"fill": [old["content_id"]]}}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[final, other], content_library=[old])
+
+    record = await service.save_nodes(
+        77, [final, other], content_library=[updated], actor_type="PORTAL_USER", actor_ref="9",
+    )
+
+    assert record.content_library == [updated]
+    assert record.nodes[0]["content"][0]["name"] == "新名称"
+    assert record.nodes[1]["content"][0]["name"] == "新名称"
+    reopened, _, _ = await service.get_nodes(77)
+    assert reopened[0]["content"][0]["items"][0]["label"] == "新题目"
+    assert reopened[1]["content"][0]["items"][0]["label"] == "新题目"
+    assert (await service.get_content_library(77))[0]["description"] == "新描述"
 
 
 @pytest.mark.asyncio

@@ -479,3 +479,12 @@
 - 模板侧浮层统一使用共享 `PerformancePopover`：实测尺寸定位、上下翻转、水平避让、滚动/resize 重定位、Escape 关闭、`16×8px` 箭头随方向翻转并指向触发目标；外观仅消费 `tokens.css` 的 `--performance-popover-*`。`PerformancePromptPopover` 已迁移；`PerformanceInfoPopover` 随其并行空态改动单独迁移，本轮不抢占该文件。
 - 评估项下拉继续以固定定位挂载 body 并使用同一层级 token，避免被弹窗滚动容器裁切；本次不改变其选项内容或选择行为。
 - 不涉及权限、数据库迁移、周期快照、UCP 或部署；不覆盖并行 021 主数据改动。
+
+## 内容定义跨环节共享：节点只存引用（PM-T004-T05-F37，2026-11-03 用户确认）
+
+- 用户上报：在自评环节修改同一评估内容的名称/描述后，上级评估环节再添加该内容时仍是旧快照。用户确认采用方案 C “节点只存引用，彻底对齐飞书”，本记录取代 F07 “节点content是局部权威、不用局部副本覆盖已有库”的旧口径，并取代 F36 “旧模板 options 只补缺失、不整组替换”的等级合并口径。
+- 新口径：`content_library` 是唯一权威定义；节点 `content` 退化为“库定义 + 本环节设置”的投影，`content_bindings` 是节点对内容的引用；环节级设置（root/item 显示与填写、`content_slot`、提示 `allowView|onlyWhenFilling`、`calibration_settings`、`reference_settings`）仍按节点独立保存。
+- 跨环节同步：编辑内容写入内容库后立即投影到所有引用该内容的节点，保存时再次按库投影；重新打开后各环节定义一致，环节级设置各自保留。结果查看内容仍引用终评内容，不在查看环节写库，但会读取终评的真实定义。
+- 评级等级：`content.options` 变为题库快照兜底，`resolveRatingOptions` 以评级题库等级为准（顺序/数量/代号/名称/描述/颜色），题库改名或增删等级后所有引用环节同步；渲染层“条目自身等级优先、块级兜底”的展示语义保留（`mergeRatingOptions`）。
+- 后端兼容：节点 `content` 仍持久化为投影（运行期消费方直接读取），历史数据中节点副本比库新时读取以节点为准回填库（自愈）后再投影；写入优先级为 显式 `content_library` > 已存库/节点填写内容（仅补缺口）。不新增字段、迁移、API 或权限变更，不改已使用模板锁定与历史周期快照。
+- 验证：前端 `PerformanceTemplateContentSettings` 83/83、`performanceRatingOptions` 7/7、渲染器与抽屉 105/105；后端 `test_performance_template_workflow` 235/235、`test_performance_projects` 386/386；vue-tsc 仅剩既有 spec 类型断言告警。真实登录态浏览器与真实数据库保存重开未执行，不作为完成证据。

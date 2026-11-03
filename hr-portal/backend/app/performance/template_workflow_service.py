@@ -146,6 +146,20 @@ def normalize_content_library(contents: list[dict]) -> list[dict]:
 
 
 def _merge_content_library(library: list[dict], contents: list[dict]) -> list[dict]:
+    """内容库是唯一权威（对齐飞书共享 templateItem）：同一 content_id 的定义以 override 为准。"""
+    merged = {content["content_id"]: content for content in normalize_content_library(library)}
+    for raw in contents:
+        if raw.get("type") == "reference" and raw.get("reference_kind") == "node":
+            continue
+        content = _normalize_content(raw)
+        content["content_id"] = _content_id(content)
+        content.pop("content_slot", None)
+        merged[content["content_id"]] = content
+    return list(merged.values())
+
+
+def _fill_missing_contents(library: list[dict], contents: list[dict]) -> list[dict]:
+    """补缺口：已存在的 content_id 不被覆盖，仅用于兼容历史节点内联内容。"""
     merged = {content["content_id"]: content for content in normalize_content_library(library)}
     for raw in contents:
         if raw.get("type") == "reference" and raw.get("reference_kind") == "node":
@@ -155,6 +169,65 @@ def _merge_content_library(library: list[dict], contents: list[dict]) -> list[di
         content.pop("content_slot", None)
         merged.setdefault(content["content_id"], content)
     return list(merged.values())
+
+
+_CONTENT_LOCAL_KEYS = ("settings", "content_slot", "id")
+_PROMPT_LOCAL_KEYS = ("allowView", "onlyWhenFilling")
+
+
+def _content_definition(content: dict) -> dict:
+    """内容定义：库内只保留共享定义，环节级设置与槽位由各节点单独保存。"""
+    definition = deepcopy(content)
+    for key in _CONTENT_LOCAL_KEYS:
+        definition.pop(key, None)
+    definition["content_id"] = _content_id(content)
+    definition["items"] = [_item_definition(item) for item in content.get("items") or []]
+    return definition
+
+
+def _item_definition(item: dict) -> dict:
+    definition = deepcopy(item)
+    definition.pop("settings", None)
+    return definition
+
+
+def _merge_prompt(library_prompt: object, local_prompt: object) -> object:
+    """提示的查看设置（allowView/onlyWhenFilling）属于环节级设置，投影时保留节点自己的值。"""
+    if not isinstance(library_prompt, dict):
+        return deepcopy(local_prompt) if isinstance(local_prompt, dict) else library_prompt
+    merged = deepcopy(library_prompt)
+    if isinstance(local_prompt, dict):
+        for key in _PROMPT_LOCAL_KEYS:
+            if isinstance(local_prompt.get(key), bool):
+                merged[key] = local_prompt[key]
+    return merged
+
+
+def _project_content(node_content: dict, library_content: dict) -> dict:
+    """把内容库的定义投影到节点内容上，保留该节点自己的环节级设置。"""
+    definition = _content_definition(library_content)
+    local_items = {
+        str(item.get("id")): item for item in node_content.get("items") or []
+    }
+    items: list[dict] = []
+    for item in definition["items"]:
+        local = local_items.get(str(item.get("id")))
+        if local is not None and "settings" in local:
+            item["settings"] = deepcopy(local["settings"])
+        if "prompt" in item:
+            item["prompt"] = _merge_prompt(item["prompt"], local.get("prompt") if local else None)
+        items.append(item)
+    library_item_ids = {str(item.get("id")) for item in items}
+    items.extend(
+        deepcopy([item for item in node_content.get("items") or [] if str(item.get("id")) not in library_item_ids])
+    )
+    projected = {**definition, "items": items}
+    if "prompt" in projected:
+        projected["prompt"] = _merge_prompt(projected["prompt"], node_content.get("prompt"))
+    for key in _CONTENT_LOCAL_KEYS:
+        if key in node_content:
+            projected[key] = deepcopy(node_content[key])
+    return projected
 
 
 def _normalize_content_page_name(node: dict, node_id: str) -> str | None:
@@ -429,10 +502,17 @@ def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> No
 
 
 def _materialize_node_contents(node: dict, library: list[dict]) -> dict:
+    """节点只存引用：按内容库把定义投影到节点内容上（环节级设置沿用节点自身）。"""
     resolved = deepcopy(node)
-    contents = resolved.get("content") or []
-    existing = {(_content_id(content), content.get("content_slot") or "fill") for content in contents}
     by_id = {_content_id(content): content for content in library}
+    contents: list[dict] = []
+    for content in resolved.get("content") or []:
+        is_reference = (content.get("content_slot") or "fill") == "reference" or content.get("type") == "reference"
+        library_content = by_id.get(_content_id(content))
+        contents.append(
+            content if is_reference or library_content is None else _project_content(content, library_content)
+        )
+    existing = {(_content_id(content), content.get("content_slot") or "fill") for content in contents}
     for slot, content_ids in (resolved.get("content_bindings") or {}).items():
         for content_id in content_ids:
             key = (str(content_id), slot)
@@ -462,14 +542,20 @@ class PerformanceTemplateWorkflowService:
         if record is None:
             return []
         library = normalize_content_library(getattr(record, "content_library", None) or [])
-        legacy_contents = [content for node in (record.nodes or []) for content in (node.get("content") or [])]
+        legacy_contents = [
+            content
+            for node in (record.nodes or [])
+            for content in (node.get("content") or [])
+            if not ((content.get("content_slot") or "fill") == "reference" or content.get("type") == "reference")
+        ]
+        # 节点上物化的定义优先，库补足未被任何环节引用的内容（读取时自愈历史数据）。
         return _merge_content_library(library, legacy_contents)
 
     async def get_nodes(self, template_id: int) -> tuple[list[dict], int, int]:
         record = await self.get_record(template_id)
         if record is None:
             return default_workflow_nodes(), 0, 0
-        library = normalize_content_library(getattr(record, "content_library", None) or [])
+        library = await self.get_content_library(template_id)
         nodes = [_materialize_node_contents(node, library) for node in normalize_workflow_nodes(record.nodes)]
         return nodes, record.cycle_count, record.project_count
 
@@ -498,9 +584,16 @@ class PerformanceTemplateWorkflowService:
             if node["node_type"] == "calibration" and "calibration_settings" not in raw_node and existing_node is not None:
                 node["calibration_settings"] = deepcopy(existing_node.get("calibration_settings") or {})
         existing_library = getattr(record, "content_library", None) if record is not None else []
-        library = normalize_content_library(content_library or [])
-        source_library = _merge_content_library(library, existing_library or [])
-        library = _merge_content_library(existing_library or [], library)
+        incoming_library = normalize_content_library(content_library or [])
+        node_contents = [
+            content
+            for node in normalized
+            for content in (node.get("content") or [])
+            if (content.get("content_slot") or "fill") == "fill" and content.get("type") != "reference"
+        ]
+        # 库为唯一权威：显式提交的内容库定义优先，旧库与节点上的填写内容只补缺口（兼容旧客户端）。
+        library = _fill_missing_contents(incoming_library, existing_library or [])
+        library = _fill_missing_contents(library, node_contents)
         for node in normalized:
             bindings = deepcopy(node.get("content_bindings") or {})
             if not bindings:
@@ -510,8 +603,8 @@ class PerformanceTemplateWorkflowService:
                     grouped.setdefault(slot, []).append(_content_id(content))
                 bindings = grouped
             node["content_bindings"] = bindings
-        _validate_result_view_contents(normalized, source_library)
-        normalized = [_materialize_node_contents(node, source_library) for node in normalized]
+        _validate_result_view_contents(normalized, library)
+        normalized = [_materialize_node_contents(node, library) for node in normalized]
         _validate_reference_contents(normalized)
         for raw_node, node in zip(nodes, normalized):
             existing_node = existing_nodes.get(node["node_id"]) or {}

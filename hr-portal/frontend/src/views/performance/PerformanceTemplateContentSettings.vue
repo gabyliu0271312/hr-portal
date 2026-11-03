@@ -212,7 +212,7 @@ import PerformanceReferenceEntryBar from '@/components/performance/PerformanceRe
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getItemSettingsVariant, resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
 import { ASSESSMENT_ROLE_CODES, REAL_LINE_MANAGER_LEVEL_OPTIONS, nodeRoleCode } from '@/components/performance/performanceExecutorOptions'
-import { mergeRatingOptions } from '@/components/performance/performanceRatingOptions'
+import { resolveRatingOptions } from '@/components/performance/performanceRatingOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -436,7 +436,7 @@ function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T
   const defaultOptions = current?.levelOptions?.length
     ? cloneContent(current.levelOptions)
     : current?.levels?.map((label, index) => ({ id: `${current.id}-${index}`, label })) || []
-  const options = mergeRatingOptions(content.options, defaultOptions)
+  const options = resolveRatingOptions(content.options, defaultOptions)
   const ratingDisplayMode = content.ratingDisplayMode || current?.displayMode
   const items = content.items.some(value => value.kind)
     ? content.items.map(value => value === selected && item ? item : value)
@@ -676,6 +676,7 @@ function handlePromptSave(value: PerformancePromptValue) {
   const next = editingPrompt.value ? contents.map(content => contentIdentity(content) === id ? prompt : content) : [...contents, prompt]
   setConfiguredContents(next, isResultView.value)
   mergeContentLibrary([prompt])
+  projectContentDefinitions([id])
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
   promptModalOpen.value = false
@@ -703,13 +704,77 @@ function setConfiguredContents(contents: PerformanceTemplateContent[], preserveR
     return [`${content.id}:${item.id}`, preserveReferenceSettings && reference && itemSettings.value[`${content.id}:${item.id}`] || (reference ? { ...normalizeItemSettings(item.settings, true), mode: 'view' as const, required: false } : normalizeItemSettings(item.settings, allowView))]
   })))
 }
+// 内容库为唯一权威（对齐飞书共享 templateItem）：库内只保留内容定义，
+// 节点侧只保存引用（content_bindings）与本环节的显示设置，切换环节时按库重新投影。
+function contentDefinition(content: PerformanceTemplateContent): PerformanceTemplateContent {
+  const definition = cloneContent(content)
+  delete definition.settings
+  delete definition.content_slot
+  delete definition.id
+  definition.content_id = contentIdentity(content)
+  definition.items = (definition.items || []).map(item => {
+    const next = { ...item }
+    delete next.settings
+    return next
+  })
+  return definition
+}
+// 提示的查看设置（allowView/onlyWhenFilling）属于环节级设置，随节点保存，不随内容库同步。
+const PROMPT_STAGE_KEYS = ['allowView', 'onlyWhenFilling'] as const
+function mergePromptDefinition(libraryPrompt?: PerformancePromptValue, localPrompt?: PerformancePromptValue) {
+  if (!libraryPrompt) return localPrompt
+  if (!localPrompt) return cloneContent(libraryPrompt)
+  const stageSettings = Object.fromEntries(PROMPT_STAGE_KEYS.filter(key => typeof localPrompt[key] === 'boolean').map(key => [key, localPrompt[key]]))
+  return { ...cloneContent(libraryPrompt), ...stageSettings }
+}
+function projectContentDefinition<T extends PerformanceTemplateContent>(target: T, definition?: PerformanceTemplateContent): T {
+  if (!definition) return target
+  const localItems = new Map((target.items || []).map(item => [item.id, item]))
+  const definitionItems = definition.items || []
+  const definitionIds = new Set(definitionItems.map(item => item.id))
+  const items = [
+    ...definitionItems.map(item => {
+      const local = localItems.get(item.id)
+      return {
+        ...cloneContent(item),
+        ...(local?.settings !== undefined ? { settings: local.settings } : {}),
+        ...(item.prompt ? { prompt: mergePromptDefinition(item.prompt, local?.prompt)! } : {}),
+      }
+    }),
+    ...(target.items || []).filter(item => !definitionIds.has(item.id)).map(item => cloneContent(item)),
+  ]
+  return {
+    ...cloneContent(definition),
+    id: target.id,
+    content_id: target.content_id || target.id || contentIdentity(definition),
+    ...(target.content_slot ? { content_slot: target.content_slot } : {}),
+    ...(target.settings !== undefined ? { settings: target.settings } : {}),
+    ...(definition.prompt ? { prompt: mergePromptDefinition(definition.prompt, target.prompt)! } : {}),
+    items,
+  } as T
+}
+// 把库里的定义投影到所有引用该内容的节点，保证任一环节的修改在其他环节立即可见。
+function projectContentDefinitions(ids?: string[]) {
+  const definitions = new Map(contentLibrary.value.map(content => [contentIdentity(content), content]))
+  const scope = ids ? new Set(ids) : null
+  workflowNodes.value = workflowNodes.value.map(node => ({
+    ...node,
+    content: (node.content || []).map(content => {
+      if ((content.content_slot || 'fill') === 'reference' || content.type === 'reference') return content
+      const identity = contentIdentity(content)
+      if (scope && !scope.has(identity)) return content
+      const definition = definitions.get(identity)
+      return definition ? normalizeRatingContent(projectContentDefinition(content, definition)) : content
+    }),
+  }))
+}
 function mergeContentLibrary(contents: PerformanceTemplateContent[]) {
-  const next = new Map(contentLibrary.value.map((content) => [content.content_id || content.id || `${content.type}-${content.name}`, content]))
+  const next = new Map(contentLibrary.value.map((content) => [contentIdentity(content), content]))
   contents.forEach((rawContent) => {
+    if (rawContent.type === 'reference' || rawContent.content_slot === 'reference') return
     const content = normalizeRatingContent(cloneContent(rawContent))
-    const contentId = content.content_id || content.id || `${content.type}-${content.name}`
-    const { content_slot: _slot, ...libraryContent } = content
-    if (!next.has(contentId)) next.set(contentId, { ...libraryContent, content_id: contentId })
+    const contentId = contentIdentity(content)
+    next.set(contentId, contentDefinition({ ...content, content_id: contentId }))
   })
   contentLibrary.value = [...next.values()]
 }
@@ -786,7 +851,9 @@ function handleContentConfirm(contents: AssessmentContentDraft[]) {
     else if (pending.length) ordered.push(pending.shift()!)
   })
   setConfiguredContents([...ordered, ...pending], isResultView.value)
-  mergeContentLibrary(configuredContents.value)
+  // 结果查看内容引用终评内容，不单独写库；其他环节的编辑写入内容库并同步所有引用环节。
+  if (!isResultView.value) mergeContentLibrary(configuredContents.value)
+  projectContentDefinitions(nextContents.map(contentIdentity))
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
   selectedConfiguredId.value = null
@@ -863,23 +930,32 @@ function refreshRatingSnapshots() {
   loadSelectedStageContents()
 }
 function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: PerformanceTemplateContent[] = []) {
+  const merged = new Map<string, PerformanceTemplateContent>()
+  // 节点上已保存的定义优先（保存时按库投影，二者应一致），内容库补足未被任何环节引用的条目
+  nodes.flatMap((node) => node.content || []).forEach((content) => {
+    const contentId = contentIdentity(content)
+    if (!merged.has(contentId)) merged.set(contentId, normalizeRatingContent({ ...cloneContent(content), content_id: contentId }))
+  })
+  library.forEach((content) => {
+    const contentId = contentIdentity(content)
+    if (!merged.has(contentId)) merged.set(contentId, normalizeRatingContent({ ...cloneContent(content), content_id: contentId }))
+  })
+  contentLibrary.value = [...merged.values()]
   workflowNodes.value = cloneContent(nodes).map(node => {
     const contents = [...(node.content || [])]
     Object.entries(node.content_bindings || {}).forEach(([slot, ids]) => ids.forEach(id => {
       if (!contents.some(content => contentIdentity(content) === id && (content.content_slot || 'fill') === slot)) {
-        const content = library.find(item => contentIdentity(item) === id)
+        const content = merged.get(id)
         if (content) contents.push({ ...cloneContent(content), content_slot: slot as PerformanceTemplateContent['content_slot'] })
       }
     }))
-    return { ...node, content: contents.map(content => normalizeRatingContent({ ...content, items: content.items || [] })) }
+    return {
+      ...node,
+      content: contents.map(content => (content.content_slot === 'reference' || content.type === 'reference')
+        ? { ...content, items: content.items || [] }
+        : normalizeRatingContent(projectContentDefinition({ ...content, items: content.items || [] }, merged.get(contentIdentity(content))))),
+    }
   })
-  const merged = new Map<string, PerformanceTemplateContent>()
-  library.forEach((content) => { const normalized = normalizeRatingContent(cloneContent(content)); merged.set(contentIdentity(normalized), normalized) })
-  workflowNodes.value.flatMap((node) => node.content || []).forEach((content) => {
-    const contentId = content.content_id || content.id || `${content.type}-${content.name}`
-    if (!merged.has(contentId)) merged.set(contentId, { ...cloneContent(content), content_id: contentId })
-  })
-  contentLibrary.value = [...merged.values()]
   stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label, executorRoleCode: node.executor_role_code ?? null }))
 }
 async function save() {
@@ -910,6 +986,8 @@ async function save() {
     document.getElementById('content-page-name')?.focus()
     throw new Error(pageNameError.value)
   }
+  // 保存前按内容库投影到所有环节，确保同一内容的定义在各环节一致（环节级设置各自保留）。
+  projectContentDefinitions()
   const nodes = cloneContent(workflowNodes.value.map((node) => ({
     ...node,
     ...(node.content_page_name != null ? { content_page_name: node.content_page_name.trim() } : {}),

@@ -1161,7 +1161,8 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     await (wrapper.vm as any).save()
     expect(update.mock.calls[0][1].nodes[1].content?.[0].name).toBe('最新终评意见')
-    expect(update.mock.calls[0][1].content_library?.find(content => content.content_id === 'same')?.name).toBe('旧终评意见')
+    // 内容库为唯一权威：终评环节的真实定义会回写库，避免查看环节与其他环节长期不一致。
+    expect(update.mock.calls[0][1].content_library?.find(content => content.content_id === 'same')?.name).toBe('最新终评意见')
   })
 
   it('renders result-view references with the shared grouped readonly content and persists isolated settings', async () => {
@@ -1221,10 +1222,10 @@ describe('PerformanceTemplateContentSettings', () => {
       { id: 'item', label: '来源题目', hint: '' },
       { id: 'inline', kind: 'prompt', label: '', hint: '', prompt },
     ] }
-    const main = { content_id: 'shared', type: 'custom', name: '终评主内容', description: '', items: [{ id: 'item', label: '终评题目', hint: '' }] }
+    const main = { content_id: 'main', type: 'custom', name: '终评主内容', description: '', items: [{ id: 'item', label: '终评题目', hint: '' }] }
     const nodes = [
       { ...mockNodes[0], content: [source, { content_id: 'prompt', type: 'prompt', name: '来源提示', items: [], prompt }] },
-      { ...mockNodes[5], content: [{ ...source, name: '第二来源内容' }] },
+      { ...mockNodes[5], content: [source] },
       { ...mockNodes[6], include_final_result: true, content: [main] },
       { ...mockNodes[7], content: [{ ...main, content_slot: 'view' }] },
       { ...mockNodes[8], content: [] },
@@ -1430,7 +1431,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(options[0].textContent).not.toContain('停用评级')
   })
 
-  it('preserves the local rating definition and settings when rating options refresh', async () => {
+  it('takes the rating level definition from the question bank while keeping stage settings', async () => {
     let resolveQuestions!: (questions: any[]) => void
     vi.mocked(performanceReviewQuestionApi.list).mockReturnValue(new Promise(resolve => { resolveQuestions = resolve }))
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
@@ -1449,13 +1450,14 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.findAll('.content-renderer-rating')).toHaveLength(1)
     const control = wrapper.getComponent(PerformanceRatingControl)
     expect(control.props('displayMode')).toBe('标签样式')
-    expect(control.props('options')).toEqual([{ id: 'local-level', label: '本地等级' }])
+    // 等级定义以评级题库为唯一权威：题库改了等级后，所有引用该评级内容的环节同步展示新等级。
+    expect(control.props('options')).toEqual([{ id: 'current-level', name: '当前等级', label: '当前等级' }])
     expect(wrapper.find('.content-renderer-rating__header strong').exists()).toBe(false)
     await (wrapper.vm as any).save()
     const local = update.mock.calls[0][1].nodes[0].content![0]
     expect(local.settings).toEqual({ hideDescription: false, allowMultiple: false, customRoot: { enabled: true } })
     expect(local.items).toEqual([{ id: '101', label: '本地评级名称', hint: '本地提示', settings: { mode: 'fill', required: false, hideName: true, customItem: { enabled: true } } }])
-    expect(local.options).toEqual([{ id: 'local-level', label: '本地等级' }])
+    expect(local.options).toEqual([{ id: 'current-level', name: '当前等级', label: '当前等级' }])
     wrapper.unmount()
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(update.mock.calls[0][1] as any)
     const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
@@ -1467,7 +1469,7 @@ describe('PerformanceTemplateContentSettings', () => {
     reopened.unmount()
   })
 
-  it('fills missing rating definitions without replacing explicit empty options', async () => {
+  it('fills rating levels from the question bank even when the content has an empty snapshot', async () => {
     vi.mocked(performanceReviewQuestionApi.list).mockResolvedValue([{ id: 101, name: '当前绩效评级', display_mode: '下拉样式', rule: { name: '规则', review_type: '评级', status: 'active', config: { levels: ['优秀'] } } }] as any)
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[0], content: [
       { content_id: 'missing', type: 'rating', name: '缺失定义', ratingOptionId: '101', items: [] },
@@ -1479,7 +1481,7 @@ describe('PerformanceTemplateContentSettings', () => {
     const controls = wrapper.findAllComponents(PerformanceRatingControl)
     expect(wrapper.findAll('.content-renderer-rating__header strong').map(item => item.text())).toEqual(['当前绩效评级', ''])
     expect(controls[0].props('options').map((option: { label: string }) => option.label)).toEqual(['优秀'])
-    expect(controls[1].props('options')).toEqual([])
+    expect(controls[1].props('options').map((option: { label: string }) => option.label)).toEqual(['优秀'])
     wrapper.unmount()
   })
 
@@ -1716,25 +1718,23 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
-  it('keeps same-id node definitions and nested settings independent from library seeds through save and reopen', async () => {
-    const seed = { content_id: 'shared', type: 'custom', name: '初始种子', description: '种子描述', settings: { customRoot: { source: 'seed' } }, items: [{ id: 'item', label: '种子题目', hint: '种子提示', questionType: 'tag', options: [{ id: 'tag', label: '种子标签' }], settings: { customItem: { source: 'seed' } } }] }
-    const second = { ...seed, name: '第二环节独立定义', items: [{ ...seed.items[0], label: '第二环节题目', options: [{ id: 'tag', label: '第二环节标签' }], settings: { customItem: { source: 'second' } } }] }
+  it('shares one content definition across stages while keeping per-stage settings independent', async () => {
+    const seed = { content_id: 'shared', type: 'custom', name: '初始种子', description: '种子描述', items: [{ id: 'item', label: '种子题目', hint: '种子提示', questionType: 'tag', options: [{ id: 'tag', label: '种子标签' }] }] }
+    const edited = { ...seed, name: '统一内容名', description: '统一描述', items: [{ ...seed.items[0], label: '统一题目', options: [{ id: 'tag', label: '统一标签' }] }] }
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
       { ...mockNodes[0], node_id: 'first', content_bindings: { fill: ['shared'] } },
-      { ...mockNodes[0], node_id: 'second', content: [second], content_bindings: { fill: ['shared'] } },
+      { ...mockNodes[0], node_id: 'second', content_bindings: { fill: ['shared'] } },
       { ...mockNodes[0], node_id: 'third', content_bindings: { fill: ['shared'] } },
     ], content_library: [seed] } as any)
     const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => payload as any)
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.findAll('.stage-card')[0].trigger('click')
-    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
-    const local = block.props('content') as any
-    local.name = '第一环节独立定义'
-    local.items[0].label = '第一环节题目'
-    local.items[0].options[0].label = '第一环节标签'
-    ;(block.props('rootSettings') as any).customRoot.source = 'first'
-    ;(block.props('itemSettings').item as any).customItem.source = 'first'
+    // 在第一个环节修改内容定义（内容库是唯一权威，所有引用它的环节同步）
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [edited])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.configured-content-card').text()).toContain('统一内容名')
+    // 第一个环节的环节级设置
     await wrapper.get('.configured-content-card__row').trigger('click')
     await wrapper.findAll('.content-settings-detail--root input[type="checkbox"]')[0].setValue(true)
     await wrapper.get('[data-content-item-id="item"]').trigger('click')
@@ -1745,30 +1745,37 @@ describe('PerformanceTemplateContentSettings', () => {
     await tagSettings.findAll('input[type="checkbox"]')[2].setValue(false)
     expect(wrapper.find('.template-field-label').exists()).toBe(false)
     expect(wrapper.find('.template-field-description').exists()).toBe(false)
+    // 其他环节立即看到新的内容定义，而不是添加时的旧快照
     await wrapper.findAll('.stage-card')[1].trigger('click')
-    expect(wrapper.get('.configured-content-card').text()).toContain('第二环节独立定义')
-    expect(wrapper.get('.tag-options').text()).toBe('第二环节标签')
+    expect(wrapper.get('.configured-content-card').text()).toContain('统一内容名')
+    expect(wrapper.get('.tag-options').text()).toBe('统一标签')
+    // 第二个环节只改自己的环节级设置
+    await wrapper.get('[data-content-item-id="item"]').trigger('click')
+    await wrapper.findAll('.content-settings-detail--item input[type="checkbox"]')[0].setValue(true)
     await wrapper.findAll('.stage-card')[2].trigger('click')
-    expect(wrapper.get('.configured-content-card').text()).toContain('初始种子')
-    expect(wrapper.get('.tag-options').text()).toBe('种子标签')
+    expect(wrapper.get('.configured-content-card').text()).toContain('统一内容名')
     await (wrapper.vm as any).save()
     const payload = update.mock.calls[0][1]
-    expect(payload.content_library![0]).toMatchObject(seed)
+    expect(payload.content_library).toEqual([edited])
     const first = payload.nodes[0].content![0] as any
-    expect(first).toMatchObject({ content_id: 'shared', name: '第一环节独立定义', settings: { hideDescription: true, allowMultiple: false, customRoot: { source: 'first' } } })
-    expect(first.items[0]).toMatchObject({ label: '第一环节题目', options: [{ id: 'tag', label: '第一环节标签' }], settings: { mode: 'fill', required: false, hideName: true, hideDescription: true, customItem: { source: 'first' } } })
-    expect(payload.nodes[1].content![0]).toMatchObject(second)
-    expect(payload.nodes[2].content![0]).toMatchObject(seed)
+    expect(first).toMatchObject({ content_id: 'shared', name: '统一内容名', description: '统一描述', settings: { hideDescription: true } })
+    expect(first.items[0]).toMatchObject({ label: '统一题目', options: [{ id: 'tag', label: '统一标签' }], settings: { mode: 'fill', required: false, hideName: true, hideDescription: true } })
+    expect(payload.nodes[1].content![0]).toMatchObject({ content_id: 'shared', name: '统一内容名', settings: { hideDescription: false } })
+    expect((payload.nodes[1].content![0] as any).items[0].settings).toMatchObject({ mode: 'fill', required: true, hideName: true })
+    expect((payload.nodes[1].content![0] as any).items[0].settings.hideDescription).toBeUndefined()
+    expect(payload.nodes[2].content![0]).toMatchObject({ content_id: 'shared', name: '统一内容名', settings: { hideDescription: false } })
+    expect((payload.nodes[2].content![0] as any).items[0].settings).toMatchObject({ mode: 'fill', required: true, hideName: false })
+    expect((payload.nodes[2].content![0] as any).items[0].settings.hideDescription).toBeUndefined()
     expect(seed.items[0].options[0].label).toBe('种子标签')
     wrapper.unmount()
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(payload as any)
     const reopened = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
-    for (const [index, name, tag] of [[0, '第一环节独立定义', '第一环节标签'], [1, '第二环节独立定义', '第二环节标签'], [2, '初始种子', '种子标签']] as const) {
+    for (const index of [0, 1, 2] as const) {
       await reopened.findAll('.stage-card')[index].trigger('click')
-      expect(reopened.get('.configured-content-card').text()).toContain(name)
-      expect(reopened.get('.tag-options').text()).toBe(tag)
-      expect(reopened.find('.template-field-label').exists()).toBe(index !== 0)
+      expect(reopened.get('.configured-content-card').text()).toContain('统一内容名')
+      expect(reopened.get('.tag-options').text()).toBe('统一标签')
+      expect(reopened.find('.template-field-label').exists()).toBe(index === 2)
       expect(reopened.find('.template-field-description').exists()).toBe(index !== 0)
       if (index === 0) {
         await reopened.get('[data-content-item-id="item"]').trigger('click')
@@ -1777,6 +1784,24 @@ describe('PerformanceTemplateContentSettings', () => {
       }
     }
     reopened.unmount()
+  })
+
+  it('shows the edited definition when another stage adds the same content from the library', async () => {
+    // 用户上报场景：自评环节改了内容名称/描述后，上级评估环节再添加同一内容时仍显示旧快照。
+    const content = { content_id: 'annual-rating', type: 'rating', name: '年度综合评级', description: '旧描述', ratingOptionId: '101', items: [{ id: '101', kind: 'rating', label: '绩效评级', hint: '' }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
+      { ...mockNodes[3], content: [{ ...content, content_slot: 'fill' }] },
+      { ...mockNodes[6], content: [] },
+    ], content_library: [content] } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ ...content, name: '年度综合评级（调整）', description: '新描述' }])
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    const candidates = wrapper.getComponent(PerformanceAssessmentContentLayers).props('availableContents') as Array<{ name: string; description: string }>
+    expect(candidates).toEqual([expect.objectContaining({ name: '年度综合评级（调整）', description: '新描述' })])
+    wrapper.unmount()
   })
 
   it('keeps reference selection accessible for existing legacy content', async () => {
