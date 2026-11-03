@@ -70,6 +70,7 @@ watch(() => props.cycleId, () => {
       table-aria-label="周期部门列表"
       pagination-aria-label="周期部门分页"
       :columns="columns"
+      scroll-mode="page"
       :page="page"
       :page-size="pageSize"
       :total="total"

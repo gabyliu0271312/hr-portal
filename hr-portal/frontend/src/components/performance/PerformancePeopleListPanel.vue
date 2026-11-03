@@ -83,6 +83,7 @@ function leafDepartment(row: PerformanceCyclePerson): string {
       table-aria-label="周期人员列表"
       pagination-aria-label="周期人员分页"
       :columns="columns"
+      scroll-mode="page"
       :page="page"
       :page-size="pageSize"
       :total="total"
