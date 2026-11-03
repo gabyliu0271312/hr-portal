@@ -80,9 +80,9 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 
 <style scoped>
 .organization { display: flex; flex-direction: column; box-sizing: border-box; height: 100%; padding: 20px 20px 0; overflow: auto; scrollbar-gutter: stable; background: #f5f6f7; }
-.organization__card { display: flex; flex-direction: column; flex: 1 1; min-height: 0; padding: 20px; box-sizing: border-box; background: #fff; border-radius: 8px 8px 0 0; }
+.organization__card { display: flex; flex-direction: column; flex: 1 1; min-width: 0; min-height: 0; padding: 20px; box-sizing: border-box; background: #fff; border-radius: 8px 8px 0 0; }
 .organization__card > :not(:first-child) { margin-top: 16px; }
 .organization__toolbar { display: flex; align-items: center; gap: 12px; }
 .organization__search { width: 310px; }
-.organization__tree { flex: 1 1; min-height: 0; }
+.organization__tree { flex: 1 1; min-width: 0; min-height: 0; }
 </style>

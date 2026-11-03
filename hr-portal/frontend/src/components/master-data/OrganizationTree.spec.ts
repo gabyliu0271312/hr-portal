@@ -21,7 +21,7 @@ describe('OrganizationTree', () => {
     const wrapper = mount(OrganizationTree, { props: { nodes: fixture } })
     expect(wrapper.text()).toContain('创梦天地')
     expect(wrapper.text()).toContain('游戏事业部')
-    // 默认仅展开第一级：level-2 不渲染
+    // 默认仅展开根组织：根下的一级(游戏事业部)可见，更深层级(研发中心/发行中心)收起
     expect(wrapper.text()).not.toContain('研发中心')
     expect(wrapper.text()).not.toContain('发行中心')
     wrapper.unmount()
@@ -30,7 +30,7 @@ describe('OrganizationTree', () => {
   it('expands a collapsed node on toggle', async () => {
     const wrapper = mount(OrganizationTree, { props: { nodes: fixture } })
     expect(wrapper.text()).not.toContain('研发中心')
-    // 默认展开第一级：根(创梦天地)与游戏事业部可见，各有一个展开按钮；点击游戏事业部展开下一级
+    // 默认仅展开根组织：根(创梦天地)展开其一级，一级(游戏事业部)收起；点击游戏事业部展开下一级
     const buttons = wrapper.findAll('button.org-table__expand')
     expect(buttons.length).toBe(2)
     await buttons[1].trigger('click')
