@@ -130,9 +130,11 @@ function toggleExpand(row: Row) {
 
 <style scoped>
 .org-table { width: 100%; }
-.org-table__grid { width: 1114px; table-layout: fixed; border-collapse: separate; border-spacing: 0; font: 400 14px/22px var(--font-sans); color: #1f2329; }
+.org-table__grid { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font: 400 14px/22px var(--font-sans); color: #1f2329; }
 .org-table__name-col { width: 220px; min-width: 220px; max-width: 220px; position: sticky; left: 0; z-index: 2; background: #fff; }
 .org-table__action-col { width: 194px; min-width: 194px; max-width: 194px; position: sticky; right: 0; z-index: 2; background: #fff; }
+.org-table__cell--header:not(.org-table__name-col):not(.org-table__action-col) { min-width: 150px; }
+.org-table__cell--header:nth-child(4) { min-width: 100px; }
 .org-table__cell { box-sizing: border-box; height: 51px; padding: 12px; border-bottom: 1px solid rgba(31, 35, 41, 0.15); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .org-table__cell--header { position: sticky; top: -20px; z-index: 3; background: #f2f3f5; color: #646a73; font-weight: 400; }
 .org-table__cell--header.org-table__name-col, .org-table__cell--header.org-table__action-col { background: #f2f3f5; }

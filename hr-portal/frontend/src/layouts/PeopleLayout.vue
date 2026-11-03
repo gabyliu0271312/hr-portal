@@ -4,6 +4,20 @@
       <div class="header-left">
         <AppSwitcher current="people" />
         <AppBrand app-key="people" label="创梦人力" />
+        <nav class="people-tabs">
+          <button
+            class="people-tab"
+            :class="{ 'is-active': isActive('/people/overview') }"
+            type="button"
+            @click="router.push('/people/overview')"
+          >人员</button>
+          <button
+            class="people-tab"
+            :class="{ 'is-active': isActive('/people/organization') }"
+            type="button"
+            @click="router.push('/people/organization')"
+          >组织</button>
+        </nav>
       </div>
       <div class="header-right">
         <el-dropdown trigger="click" @command="handleUserCommand">
@@ -19,21 +33,6 @@
           </template>
         </el-dropdown>
       </div>
-    </div>
-
-    <div class="people-tabs">
-      <button
-        class="people-tab"
-        :class="{ 'is-active': isActive('/people/overview') }"
-        type="button"
-        @click="router.push('/people/overview')"
-      >人员</button>
-      <button
-        class="people-tab"
-        :class="{ 'is-active': isActive('/people/organization') }"
-        type="button"
-        @click="router.push('/people/organization')"
-      >组织</button>
     </div>
 
     <el-container class="people-body">
@@ -96,9 +95,10 @@ async function handleUserCommand(command: 'settings' | 'logout') {
 .user-trigger { display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--color-text-secondary); cursor: pointer; font: inherit; }
 .user-name { color: var(--color-text-secondary); font-size: 13px; }
 .people-body { flex: 1; min-height: 0; }
-.people-tabs { display: flex; align-items: center; box-sizing: border-box; height: 56px; padding: 0 4px 0 20px; background: #fff; box-shadow: rgba(31, 35, 41, 0.05) 0 2px 16px 0; }
-.people-tab { display: flex; align-items: center; box-sizing: border-box; height: 100%; padding: 0 16px; border: 0; background: transparent; color: #1f2329; cursor: pointer; font: 400 16px/56px var(--font-sans); }
-.people-tab.is-active { color: #3370ff; font-weight: 500; box-shadow: inset 0 -2px 0 #3370ff; }
+.people-tabs { display: flex; align-items: center; gap: 0; margin: 0 16px; }
+.people-tab { position: relative; height: 56px; padding: 0 16px; border: 0; background: transparent; color: #1f2329; cursor: pointer; font: 400 16px/56px var(--font-sans); white-space: nowrap; }
+.people-tab.is-active { color: #3370ff; font-weight: 500; }
+.people-tab.is-active::after { content: ''; position: absolute; top: 53px; right: 16px; left: 16px; height: 3px; background: #3370ff; }
 .people-aside { border-right: 1px solid var(--color-border); background: var(--color-bg-card); padding: 14px 0; overflow-y: auto; }
 .aside-title { padding: 0 20px 10px; color: var(--color-text-secondary); font-size: 12px; font-weight: 700; }
 .menu-item { padding: 9px 20px; border-left: 2px solid transparent; color: var(--color-text-regular); cursor: pointer; font-size: 14px; }
