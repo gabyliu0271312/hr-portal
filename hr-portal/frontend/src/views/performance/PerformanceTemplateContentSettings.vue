@@ -25,7 +25,7 @@
       <div class="text-normal__divider" aria-hidden="true"></div>
       <div v-if="pageHeadingSelected" class="page-name-settings">
         <label class="page-name-settings__label" for="content-page-name">页面名称<svg class="page-name-settings__required" viewBox="0 0 8 8" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.964 5.816L4.378 4.668l.17 1.935H3.456l.171-1.935L2.04 5.816l-.54-.984 1.757-.827L1.5 3.178l.54-.991 1.586 1.175-.17-1.962h1.093l-.171 1.962 1.586-1.175.54.99-1.75.828 1.75.827-.54.984z" /></svg></label>
-        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" />
+        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked || referenceRegionSelected" :invalid="Boolean(pageNameError)" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
       </div>
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
@@ -38,7 +38,7 @@
             <template #result>
             <div class="result-view-section__overlay" :class="{ 'is-hovered': resultViewTitleHovered, 'is-selected': selectedRegionId === 'result' }" aria-hidden="true"></div>
             <div class="result-view-section__content result-view-section__title" role="button" tabindex="0" :aria-pressed="selectedRegionId === 'result'" aria-label="选择页面标题" @mouseenter="resultViewTitleHovered = true" @mouseleave="resultViewTitleHovered = false" @focusin="resultViewTitleHovered = true" @focusout="resultViewTitleHovered = false" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
-              <h2>{{ contentPageName }}</h2>
+              <h2>{{ stagePageName }}</h2>
               <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
             </div>
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel result-view-section__configured-content" aria-label="配置填写内容">
@@ -113,9 +113,9 @@
           </PerformanceContentRegionList>
           <PerformanceReferenceEntryBar :class="{ 'result-view-reference-entry': isResultView }" :label="isResultView ? '添加其他参考内容' : undefined" @select="handleContentAction('add-reference')" />
         </template>
-        <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="contentPageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
+        <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="stagePageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <template v-else-if="isResultReconsiderationFill">
-          <PerformanceTemplateSectionCard :title="activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="[]" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" />
+          <PerformanceTemplateSectionCard :title="activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="[]" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" />
           <section class="result-reconsideration-section" aria-label="复议理由">
             <PerformanceContentSelectionFrame variant="root" :selected="resultReconsiderationPreviewSelected" class="result-reconsideration-section__frame" role="button" tabindex="0" :aria-pressed="resultReconsiderationPreviewSelected" aria-label="选择复议理由预览" @click="selectResultReconsiderationPreview" @keydown.enter.prevent="selectResultReconsiderationPreview" @keydown.space.prevent="selectResultReconsiderationPreview">
               <div class="result-reconsideration-section__header">
@@ -131,7 +131,7 @@
         </template>
         <template v-else-if="!referenceTabEmpty">
           <PerformancePromptNotice v-if="isCalibration" class="calibration-notice" type="info" multiline>绩效校准人修改评估内容后会产生修改记录</PerformancePromptNotice>
-          <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? contentPageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
+          <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         </template>
         <section v-if="configuredContents.length && !isResultView && !isReferenceTab" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
@@ -283,10 +283,18 @@ async function loadTagOptions() {
 const selectedStageData = computed(() => stages.value.find((stage) => stage.id === selectedStage.value) || null)
 const selectedStageTitle = computed(() => selectedStageData.value?.title || '')
 const selectedWorkflowNode = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value))
+// 参考内容分组被选中时，页面名称展示来源环节在流程设置里配置的环节名称，且不可在此处编辑。
+const stagePageName = computed(() => selectedWorkflowNode.value?.content_page_name ?? (selectedStageData.value?.nodeType === 'result_view' ? '绩效结果' : selectedStageTitle.value))
+const referenceRegionSelected = computed(() => Boolean(selectedRegionId.value?.startsWith('reference:')))
+const selectedReferenceGroupName = computed(() => {
+  if (!referenceRegionSelected.value) return null
+  const regionId = selectedRegionId.value!
+  return referenceGroups.value.find(group => `reference:${group.id}` === regionId)?.name ?? null
+})
 const contentPageName = computed({
-  get: () => selectedWorkflowNode.value?.content_page_name ?? (selectedStageData.value?.nodeType === 'result_view' ? '绩效结果' : selectedStageTitle.value),
+  get: () => selectedReferenceGroupName.value ?? stagePageName.value,
   set: (value: string) => {
-    if (!selectedWorkflowNode.value || pageNameLocked.value) return
+    if (referenceRegionSelected.value || !selectedWorkflowNode.value || pageNameLocked.value) return
     selectedWorkflowNode.value.content_page_name = value
     pageNameError.value = ''
   },
@@ -494,7 +502,7 @@ const referenceGroups = computed(() => referenceRelations.value.map(relation => 
 const contentRegions = computed(() => {
   const regions = referenceGroups.value.map(group => ({ id: `reference:${group.id}`, kind: 'reference', name: group.name }))
   if (!isResultView.value) return regions
-  const all = [{ id: 'result', kind: 'result', name: contentPageName.value }, ...regions]
+  const all = [{ id: 'result', kind: 'result', name: stagePageName.value }, ...regions]
   const order = selectedWorkflowNode.value?.content_region_order || []
   return [...order.flatMap(id => all.filter(region => region.id === id)), ...all.filter(region => !order.includes(region.id))]
 })

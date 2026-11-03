@@ -1617,6 +1617,27 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
+  it('shows the referenced stage name in the page name field when a reference region is selected', async () => {
+    const sourceContent = { content_id: 'eval-text', content_slot: 'fill', type: 'custom', name: '评估填写', description: '', items: [{ id: 'eval-item', label: '评估题', hint: '' }] }
+    const nodes = [
+      { ...mockNodes[0], content: [sourceContent] },
+      { ...mockNodes[7], content: [{ content_id: 'reference-n1', content_slot: 'reference', type: 'reference', name: '工作总结环节', reference_kind: 'node', reference_value: 'n1', items: [] }] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    const regions = wrapper.findAll('[data-region-id]')
+    expect(regions.map(region => region.attributes('data-region-id'))).toEqual(['result', 'reference:reference-n1'])
+    await regions[1].trigger('click')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('工作总结环节')
+    expect(wrapper.get('#content-page-name').attributes('disabled')).toBeDefined()
+    await regions[0].trigger('click')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('绩效结果')
+    expect(wrapper.get('#content-page-name').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('loads binding-only and calibration reference sources and preserves overrides when reselecting or removing', async () => {    const content = { content_id: 'bound', type: 'custom', name: '绑定文本', description: '', items: [{ id: 'bound-item', label: '绑定题', hint: '' }] }
     const nodes = [
       { ...mockNodes[6], include_final_result: true, content_bindings: { fill: ['bound'] } },
