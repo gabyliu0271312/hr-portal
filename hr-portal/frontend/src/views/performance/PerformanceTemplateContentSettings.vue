@@ -25,7 +25,7 @@
       <div class="text-normal__divider" aria-hidden="true"></div>
       <div v-if="pageHeadingSelected" class="page-name-settings">
         <label class="page-name-settings__label" for="content-page-name">页面名称<svg class="page-name-settings__required" viewBox="0 0 8 8" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.964 5.816L4.378 4.668l.17 1.935H3.456l.171-1.935L2.04 5.816l-.54-.984 1.757-.827L1.5 3.178l.54-.991 1.586 1.175-.17-1.962h1.093l-.171 1.962 1.586-1.175.54.99-1.75.828 1.75.827-.54.984z" /></svg></label>
-        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked || referenceRegionSelected" :invalid="Boolean(pageNameError)" />
+        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked || !pageNameEditable" :invalid="Boolean(pageNameError)" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
       </div>
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
@@ -283,19 +283,29 @@ async function loadTagOptions() {
 const selectedStageData = computed(() => stages.value.find((stage) => stage.id === selectedStage.value) || null)
 const selectedStageTitle = computed(() => selectedStageData.value?.title || '')
 const selectedWorkflowNode = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value))
-// 参考内容分组被选中时，页面名称展示来源环节在流程设置里配置的环节名称，且不可在此处编辑。
+// 参考内容分组被选中时，页面名称展示并可编辑被引用环节的页面名称（未配置则回退到流程设置里的环节名称）。
 const stagePageName = computed(() => selectedWorkflowNode.value?.content_page_name ?? (selectedStageData.value?.nodeType === 'result_view' ? '绩效结果' : selectedStageTitle.value))
 const referenceRegionSelected = computed(() => Boolean(selectedRegionId.value?.startsWith('reference:')))
-const selectedReferenceGroupName = computed(() => {
+const selectedReferenceGroup = computed(() => {
   if (!referenceRegionSelected.value) return null
   const regionId = selectedRegionId.value!
-  return referenceGroups.value.find(group => `reference:${group.id}` === regionId)?.name ?? null
+  return referenceGroups.value.find(group => `reference:${group.id}` === regionId) ?? null
 })
+// 只有引用自流程节点的分组有可编辑的来源环节；OKR、团队统计等固定参考项无来源环节。
+const selectedReferenceGroupNode = computed(() => selectedReferenceGroup.value?.node ?? null)
+const pageNameEditable = computed(() => !referenceRegionSelected.value || Boolean(selectedReferenceGroupNode.value))
 const contentPageName = computed({
-  get: () => selectedReferenceGroupName.value ?? stagePageName.value,
+  get: () => {
+    const node = selectedReferenceGroupNode.value
+    if (node) return node.content_page_name ?? node.name ?? ''
+    if (selectedReferenceGroup.value) return selectedReferenceGroup.value.name
+    return stagePageName.value
+  },
   set: (value: string) => {
-    if (referenceRegionSelected.value || !selectedWorkflowNode.value || pageNameLocked.value) return
-    selectedWorkflowNode.value.content_page_name = value
+    if (pageNameLocked.value) return
+    const target = selectedReferenceGroupNode.value ?? (referenceRegionSelected.value ? null : selectedWorkflowNode.value)
+    if (!target) return
+    target.content_page_name = value
     pageNameError.value = ''
   },
 })
@@ -497,7 +507,7 @@ const referencePreviewContents = computed(() => isResultView.value ? resultRefer
 const referenceGroups = computed(() => referenceRelations.value.map(relation => {
   const source = workflowNodes.value.find(node => node.node_id === relation.reference_value)
   const contents = referencePreviewContents.value.filter(content => relation.reference_kind === 'node' ? referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation) : contentIdentity(content) === contentIdentity(relation))
-  return { id: referenceRelationId(relation), name: source?.name || relation.name, contents }
+  return { id: referenceRelationId(relation), name: source?.name || relation.name, node: relation.reference_kind === 'node' ? source ?? null : null, contents }
 }))
 const contentRegions = computed(() => {
   const regions = referenceGroups.value.map(group => ({ id: `reference:${group.id}`, kind: 'reference', name: group.name }))
