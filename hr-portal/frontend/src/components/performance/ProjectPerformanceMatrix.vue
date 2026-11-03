@@ -202,7 +202,7 @@ export default { components: { PeopleCell } }
 
 <style scoped>
 .project-matrix.surface-card { display: block; flex: none; padding: 0 20px 20px; }
-.matrix-toolbar { position: sticky; top: var(--performance-tab-area-height); z-index: 4; display: flex; align-items: center; justify-content: space-between; min-height: 72px; background: #fff; }
+.matrix-toolbar { position: sticky; top: calc(var(--performance-tab-area-height) - var(--performance-review-surface-inset)); z-index: 4; display: flex; align-items: center; justify-content: space-between; min-height: 72px; background: #fff; }
 .matrix-scope-tabs { display: flex; align-items: center; min-width: 0; }
 .matrix-scope-tab { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 16px; border: 1px solid #3370ff; border-radius: 6px 0 0 6px; background: #e1eaff; color: #3370ff; font-size: 14px; font-weight: 500; cursor: pointer; }
 .matrix-more, .matrix-filter { height: 32px; padding: 0 14px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #646a73; font-size: 14px; }
