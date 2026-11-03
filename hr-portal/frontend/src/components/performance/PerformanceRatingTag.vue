@@ -1,12 +1,14 @@
 <template>
-  <span class="performance-rating-tag" :style="{ backgroundColor: performanceLevelBackground(color) }" :title="label">
+  <span class="performance-rating-tag" :style="{ backgroundColor: performanceLevelBackground(color), color: labelColor }" :title="label">
     <span class="rating-tag-label">{{ label }}</span>
   </span>
 </template>
 
 <script setup lang="ts">
-import { performanceLevelBackground } from './performanceColorOptions'
-defineProps<{ label: string; color?: string }>()
+import { computed } from 'vue'
+import { performanceLevelBackground, performanceLevelForeground } from './performanceColorOptions'
+const props = defineProps<{ label: string; color?: string }>()
+const labelColor = computed(() => props.color ? performanceLevelForeground(props.color) : '#1f2329')
 </script>
 
 <style scoped>

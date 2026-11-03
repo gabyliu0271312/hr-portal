@@ -6,7 +6,7 @@
   </div>
   <div v-else-if="field.type === 'rating'" class="readonly-rating">
     <PerformanceRatingTag class="readonly-rating-badge" :label="ratingCode" :color="selectedOption?.color" />
-    <span class="readonly-rating-label">{{ ratingLabel }}</span>
+    <span class="readonly-rating-label" :style="{ color: ratingForeground }">{{ ratingLabel }}</span>
   </div>
   <div v-else class="readonly-answer rich-answer performance-rich-text-content" v-html="safeHtml(value || emptyAnswerText)" />
 </template>
@@ -16,11 +16,13 @@ import { computed } from 'vue'
 import type { PerformanceTemplateField } from '@/api/performance'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
+import { performanceLevelForeground } from './performanceColorOptions'
 
 const props = withDefaults(defineProps<{ field: PerformanceTemplateField; value: unknown; emptyAnswerText?: string }>(), { emptyAnswerText: '' })
 const selectedOption = computed(() => props.field.options?.find(option => option.id === String(props.value || '')))
 const ratingCode = computed(() => props.value === '__unknown__' ? '不了解' : selectedOption.value?.code || selectedOption.value?.label || selectedOption.value?.id || String(props.value || '—'))
 const ratingLabel = computed(() => props.value === '__unknown__' || selectedOption.value?.code ? selectedOption.value?.label || '' : selectedOption.value?.description || '')
+const ratingForeground = computed(() => selectedOption.value?.color ? performanceLevelForeground(selectedOption.value.color) : '#1f2329')
 function safeHtml(value: unknown) {
   const template = document.createElement('template')
   template.innerHTML = String(value || '')

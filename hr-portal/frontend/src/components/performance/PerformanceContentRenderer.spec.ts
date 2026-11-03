@@ -311,8 +311,9 @@ describe('performance content shared primitives', () => {
       itemSettings: { rating: { mode: 'view', required: false } },
     } })
     expect(wrapper.get('.content-renderer-rating__header').text()).toBe('年度评级')
-    expect(wrapper.get('.rating-option').text()).toBe('1星')
-    expect(wrapper.get('.performance-rating-control').attributes('aria-label')).toBeDefined()
+    expect(wrapper.get('.content-renderer-rating__result-code').text()).toBe('1星')
+    expect(wrapper.get('.content-renderer-rating__result-name').text()).toBe('不合格')
+    expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
   })
 
   it('uses the shared readonly presentation for rating view previews', () => {
@@ -321,9 +322,11 @@ describe('performance content shared primitives', () => {
       itemSettings: { rating: { mode: 'view', required: false } },
     } })
     expect(wrapper.get('.content-renderer-rating__header').text()).toBe('年度评级')
-    expect(wrapper.get('.rating-option').text()).toBe('A')
-    expect(wrapper.find('.readonly-rating-badge').exists()).toBe(false)
-    expect(wrapper.get('.performance-rating-control').attributes('aria-label')).toBe('评级选项')
+    expect(wrapper.get('.content-renderer-rating__result-code').text()).toBe('A')
+    expect(wrapper.get('.content-renderer-rating__result-name').text()).toBe('优秀')
+    expect(wrapper.findAll('.rating-option')).toHaveLength(0)
+    expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
+    expect(wrapper.get('.content-renderer-rating__result-code').attributes('style')).toContain('rgb(20, 45, 102)')
   })
 
   it('adds a single unknown preview option without changing source levels', async () => {

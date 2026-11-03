@@ -39,7 +39,11 @@
           <strong v-if="!itemState(item.id).hideName" class="performance-item-title">{{ item.label }}</strong><i v-if="itemState(item.id).mode !== 'view' && !itemState(item.id).hideName && (!hasItemSettings(item.id) || itemState(item.id).required)">*</i>
         </div>
         <div class="content-renderer-rating__body">
-          <PerformanceRatingControl class="content-renderer-rating__levels performance-content-renderer__rating" :options="ratingOptionsFor(item)" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="item.ratingDisplayMode || content.ratingDisplayMode" :interactive="false" preview-hover />
+          <div v-if="itemState(item.id).mode === 'view'" class="content-renderer-rating__result" :style="{ '--rating-foreground': ratingResult(item).foreground }">
+            <PerformanceRatingTag class="content-renderer-rating__result-code" :label="ratingResult(item).code" :color="ratingResult(item).color" />
+            <span class="content-renderer-rating__result-name">{{ ratingResult(item).name }}</span>
+          </div>
+          <PerformanceRatingControl v-else class="content-renderer-rating__levels performance-content-renderer__rating" :options="ratingOptionsFor(item)" :allow-unknown="content.settings?.allowUnknown === true" :display-mode="item.ratingDisplayMode || content.ratingDisplayMode" :interactive="false" preview-hover />
         </div>
       </template>
       <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
@@ -54,12 +58,14 @@
 <script setup lang="ts">
 import { toRefs } from 'vue'
 import { mergeRatingOptions } from './performanceRatingOptions'
+import { performanceLevelForeground } from './performanceColorOptions'
 import PerformanceRichTextBox from './PerformanceRichTextBox.vue'
 import PerformanceAssessmentRichTextField from './PerformanceAssessmentRichTextField.vue'
 import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame.vue'
 import PerformanceVisibleLockIcon from './PerformanceVisibleLockIcon.vue'
 import PerformanceUnavailableOverlay from './PerformanceUnavailableOverlay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import type { PerformancePromptValue as PromptValue, PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
@@ -106,13 +112,25 @@ const viewPreviewValue = (item: ContentItem) => {
 }
 const tagPreviewValue = (item: ContentItem) => ({ tags: (item.defaultAll ?? content.value.defaultAll) ? tagField(item).options!.map(option => option.id) : [], notes: {} })
 const ratingOptionsFor = (item: ContentItem) => mergeRatingOptions(item.options, content.value.options || [])
+// 查看绩效结果环节（mode === 'view'）的评分评级按最终结果展示：标题 + 等级代号 + 等级名称，
+// 而不是像填写环节那样平铺所有可选等级代号。预览态无真实答案，取第一个等级作为示例值。
+const ratingResult = (item: ContentItem) => {
+  const selected = ratingOptionsFor(item)[0]
+  if (!selected) return { code: '—', name: '', color: undefined, foreground: '#1f2329' }
+  const code = selected.code || selected.label
+  const name = selected.code ? selected.label : selected.description || ''
+  return { code, name, color: selected.color, foreground: performanceLevelForeground(selected.color) }
+}
 </script>
 <style scoped>
 .performance-content-renderer{min-width:0;color:#1f2329}
 .performance-content-renderer--editor-preview{padding:0 34px 16px}
 .content-renderer-prompt{margin:0}
 .content-renderer-rating{position:relative;margin:16px 0 0}
-.content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
+.content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}
+.content-renderer-rating__result{display:flex;min-width:0;align-items:center;min-height:24px}
+.content-renderer-rating__result :deep(.performance-rating-tag){flex:0 0 auto}
+.content-renderer-rating__result-name{margin-left:8px;overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{position:relative;padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}

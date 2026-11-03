@@ -23,3 +23,22 @@ export function performanceLevelBackground(value: unknown): string {
   const normalized = value.replace(/\s+/g, '').toLowerCase()
   return PERFORMANCE_LEVEL_COLORS.find(option => option.value.replace(/\s+/g, '').toLowerCase() === normalized)?.trigger ?? value
 }
+
+function parseLevelColor(value: string): [number, number, number] | null {
+  const rgb = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
+  const hex = value.trim().replace(/^#/, '')
+  if (/^[0-9a-f]{6}$/i.test(hex)) return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)]
+  return null
+}
+
+export function performanceLevelForeground(value: unknown): string {
+  if (typeof value !== 'string') return '#1f2329'
+  const normalized = value.replace(/\s+/g, '').toLowerCase()
+  const level = PERFORMANCE_LEVEL_COLORS.find(option => option.value.replace(/\s+/g, '').toLowerCase() === normalized)
+  const source = parseLevelColor(level ? level.value : value)
+  if (!source) return '#1f2329'
+  // 等级代号徽章与名称使用同一色系的深色文字（约为主色 ×0.4，对齐飞书 B-900 的做法）。
+  const [r, g, b] = source.map(channel => Math.round(channel * 0.4))
+  return `rgb(${r}, ${g}, ${b})`
+}
