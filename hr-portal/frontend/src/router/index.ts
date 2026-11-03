@@ -854,10 +854,9 @@ router.beforeEach(async (to) => {
   return true
 })
 
-// 按路由归属设置页签标题（绩效应用/后台菜单名一致，其余保留静态 <title>）
+// 按路由归属设置页签标题：绩效/人力应用与其后台菜单名一致，其余为 Portal 平台标题（始终覆盖，避免切换系统后残留）
 router.afterEach((to) => {
-  const title = resolvePageTitle(to)
-  if (title) document.title = title
+  document.title = resolvePageTitle(to)
 })
 
 // 401 时让 client 通知路由跳到 /login
