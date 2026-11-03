@@ -124,12 +124,12 @@ export const stageContentRules: Record<string, StageContentRule> = {
   },
   calibration: {
     ...genericRule,
-    visibleSlots: ['adjustment'],
+    visibleSlots: ['adjustment', 'reference'],
     rootSettingsEnabled: true,
     rootSettingsVariant: 'calibration-root',
     itemSettingsEnabled: true,
     itemSettingsVariant: 'calibration-item',
-    forbiddenSlots: ['fill', 'reference', 'view'],
+    forbiddenSlots: ['fill', 'view'],
   },
   result_communication: {
     ...genericRule,

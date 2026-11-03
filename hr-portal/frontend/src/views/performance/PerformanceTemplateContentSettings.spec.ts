@@ -1588,8 +1588,36 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
-  it('loads binding-only and calibration reference sources and preserves overrides when reselecting or removing', async () => {
-    const content = { content_id: 'bound', type: 'custom', name: '绑定文本', description: '', items: [{ id: 'bound-item', label: '绑定题', hint: '' }] }
+  it('exposes the reference content tab in calibration with shared reference logic', async () => {
+    const source = { content_id: 'eval-text', content_slot: 'fill', type: 'custom', name: '评估填写', description: '', items: [{ id: 'eval-item', label: '评估题', hint: '' }] }
+    const nodes = [
+      { ...mockNodes[6], include_final_result: true, content: [source] },
+      { ...mockNodes[4], content: [] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.findAll('.content-tab').map((tab) => tab.text())).toEqual(['配置供调整内容', '配置参考内容'])
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    expect(wrapper.get('.reference-entry-pane .reference-entry-bar button').text()).toBe('选择参考内容')
+    const drawer = wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' })
+    drawer.vm.$emit('confirm', ['n7'])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.reference-content-group h2').text()).toBe('评估型环节')
+    expect(wrapper.text()).toContain('评估题')
+    await wrapper.getComponent(PerformanceConfiguredContentBlock).get('[data-content-item-id="eval-item"]').trigger('click')
+    await wrapper.get('.content-settings-detail--item input').setValue(false)
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    const relation = saved.nodes[1].content!.find((content: any) => content.content_slot === 'reference')
+    expect(relation.reference_settings?.content_settings?.['eval-text']?.items?.['eval-item']?.allowView).toBe(false)
+    expect(saved.nodes[1].calibration_settings).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('loads binding-only and calibration reference sources and preserves overrides when reselecting or removing', async () => {    const content = { content_id: 'bound', type: 'custom', name: '绑定文本', description: '', items: [{ id: 'bound-item', label: '绑定题', hint: '' }] }
     const nodes = [
       { ...mockNodes[6], include_final_result: true, content_bindings: { fill: ['bound'] } },
       { ...mockNodes[4], calibration_settings: { bound: { settings: { hideDescription: true } } } },

@@ -328,8 +328,8 @@ const calibrationContents = computed(() => resolveCalibrationContents(finalFillC
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
-  if (isCalibration.value) return []
   if (isReferenceTab.value) return [{ key: 'add-reference', label: '选择参考内容' }]
+  if (isCalibration.value) return []
   if (isReviewer360Fill.value) {
     return [{ key: 'add-prompt', label: '添加提示' }]
   }
@@ -558,7 +558,8 @@ function itemSettingsForContent(contentId: string): Record<string, WorkSummaryIt
 }
 function setRootSettingsForContent(contentId: string, settings: WorkSummaryRootSettings) {
   rootSettings.value[contentId] = settings
-  if (!isCalibration.value || !selectedWorkflowNode.value || pageNameLocked.value) return
+  // 参考内容页签的查看设置随 reference_settings 持久化，不走校准环节的 calibration_settings 覆盖。
+  if (!isCalibration.value || isReferenceTab.value || !selectedWorkflowNode.value || pageNameLocked.value) return
   const overrides = selectedWorkflowNode.value.calibration_settings || {}
   selectedWorkflowNode.value.calibration_settings = {
     ...overrides,
@@ -569,7 +570,8 @@ function setRootSettingsForContent(contentId: string, settings: WorkSummaryRootS
   }
 }
 function setItemSettingsForContent(contentId: string, settings: Record<string, WorkSummaryItemSettings>) {
-  if (isCalibration.value) {
+  // 参考内容页签的条目设置为查看设置（allowView/hideName/hideDescription），不写入 calibration_settings。
+  if (isCalibration.value && !isReferenceTab.value) {
     const node = selectedWorkflowNode.value
     const content = configuredContents.value.find(content => content.id === contentId)
     if (!node || !content || pageNameLocked.value) return
@@ -703,7 +705,9 @@ function replaceNodeContentSlot(node: PerformanceWorkflowNode, slot: string, con
   node.content_bindings = { ...(node.content_bindings || {}), [slot]: contents.map((content) => content.content_id || content.id || `${content.type}-${content.name}`) }
 }
 function syncSelectedStageContents() {
-  if (!selectedStage.value || isCalibration.value) return
+  // 校准环节的供调整内容由 calibration_settings 承载（无需同步 node.content）；
+  // 参考内容页签与其他环节一致，需把 reference 关系同步回节点。
+  if (!selectedStage.value || (isCalibration.value && !isReferenceTab.value)) return
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (!node) return
   if (isReferenceTab.value || isResultView.value) {
