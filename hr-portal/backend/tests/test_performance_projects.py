@@ -10,6 +10,112 @@ from app.performance.auth_context import PerformanceAccessContext, PerformanceRo
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError
 
 
+def test_reconsideration_handlers_merge_roles_without_duplicate_tasks():
+    from app.performance.reconsideration_service import resolve_handlers
+    member = SimpleNamespace(employee_no="E1", direct_supervisor_employee_no="M1", hrbp_employee_no="H1")
+    manager = SimpleNamespace(employee_no="M1", direct_supervisor_employee_no=None)
+    template = {"executor_config": {"mode": "MULTI_ROLE", "roles": [
+        {"type": "HRBP"}, {"type": "REAL_LINE_MANAGER", "levels": ["DIRECT_MANAGER"]},
+        {"type": "SPECIFIED_PERSON", "people": [{"employee_no": "H1", "display_name": "HR"}, {"employee_no": "P1", "display_name": "指定处理人"}]},
+    ]}}
+    assert resolve_handlers(template, member, {"M1": manager}) == ["H1", "M1", "P1"]
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_submission_creates_tasks_and_durable_notifications_once(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from fastapi import HTTPException
+    from app.performance import reconsideration_service as service
+    from app.performance.models import PerformanceNodeTask, PerformanceReconsiderationNotification, PerformanceResultReconsideration
+    project_row = SimpleNamespace(id=1, cycle_ref="cycle:one", settings={})
+    node = SimpleNamespace(id=4, node_id="appeal", config={"time": {"appeal_deadline": (datetime.now(UTC) + timedelta(days=1)).isoformat()}, "template": {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "SPECIFIED_PERSON", "people": [{"employee_no": "P1", "display_name": "甲"}, {"employee_no": "P2", "display_name": "乙"}]}]}}})
+    values = [project_row, SimpleNamespace(id=2, source_snapshot_id=3), SimpleNamespace(employee_no="E1"), SimpleNamespace(result_version={"v": 2}), node, None]
+    async def submission(*args, **kwargs):
+        assert kwargs.get("lock") is True
+        return values
+    async def tasks(*args):
+        return []
+    monkeypatch.setattr(service, "submission_context", submission)
+    monkeypatch.setattr(service, "reconsideration_tasks", tasks)
+    class Db:
+        def __init__(self):
+            self.rows = []
+            self.commits = 0
+        def add(self, row):
+            row.id = len(self.rows) + 1
+            self.rows.append(row)
+        async def flush(self):
+            pass
+        async def execute(self, statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+        async def commit(self):
+            self.commits += 1
+    db = Db()
+    actor = SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1")
+    result = await service.submit_reconsideration(db, 1, "E1", "核对事实", actor)
+    assert result["task_count"] == 2
+    assert db.commits == 1
+    assert len([row for row in db.rows if isinstance(row, PerformanceNodeTask)]) == 2
+    assert len([row for row in db.rows if isinstance(row, PerformanceReconsiderationNotification)]) == 2
+    appeal = next(row for row in db.rows if isinstance(row, PerformanceResultReconsideration))
+    assert appeal.reason == "核对事实" and appeal.result_version == {"v": 2}
+    values[-1] = appeal
+    with pytest.raises(HTTPException) as error:
+        await service.submit_reconsideration(db, 1, "E1", "重复", actor)
+    assert error.value.detail == "RECONSIDERATION_ALREADY_SUBMITTED"
+    assert db.commits == 1
+    values[-1] = None
+    node.config["time"]["appeal_deadline"] = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    with pytest.raises(HTTPException) as error:
+        await service.submit_reconsideration(db, 1, "E1", "过期", actor)
+    assert error.value.detail == "RECONSIDERATION_WINDOW_CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_notification_failure_retries_same_task(monkeypatch):
+    from datetime import UTC, datetime
+    from app.performance import reconsideration_service as service
+    from app.performance.models import PerformanceNodeTask, PerformanceProject
+    from app.integrations.feishu import notification_service
+    row = SimpleNamespace(id=1, task_id=5, status="pending", attempts=0, last_error=None, next_retry_at=datetime.now(UTC))
+    task = SimpleNamespace(id=5, project_id=1, handler_ref="P1", status="pending")
+    class Savepoint:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+    class Db:
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [row]))
+        def begin_nested(self):
+            return Savepoint()
+        async def get(self, model, key):
+            if model is PerformanceNodeTask:
+                return task
+            if model is PerformanceProject:
+                return SimpleNamespace(id=1, name="项目", status="STARTED")
+            return None
+        async def scalar(self, query):
+            return SimpleNamespace(id=9, feishu_user_id="ou_1")
+    async def appeal(*args):
+        return SimpleNamespace(id=2)
+    deliveries = []
+    async def send(*args, **kwargs):
+        deliveries.append(kwargs["biz_id"])
+        if len(deliveries) == 1:
+            raise RuntimeError("飞书暂时不可用")
+        return SimpleNamespace(status="success", success_count=1, errors=[])
+    monkeypatch.setattr(service, "reconsideration_for_task", appeal)
+    monkeypatch.setattr(notification_service, "send_notification", send)
+    await service.dispatch_notifications(Db())
+    assert row.status == "retrying" and row.attempts == 1
+    assert row.next_retry_at > datetime.now(UTC)
+    row.next_retry_at = datetime.now(UTC)
+    await service.dispatch_notifications(Db())
+    assert row.status == "sent" and row.last_error is None
+    assert deliveries == ["5", "5"]
+
+
 def context(*permissions: str, refs: tuple[str, ...] = (), portal_entry_permissions: tuple[str, ...] = ()) -> PerformanceAccessContext:
     return PerformanceAccessContext(
         subject_type="PORTAL_USER",

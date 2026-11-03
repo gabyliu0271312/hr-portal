@@ -8,6 +8,11 @@
         <div v-if="!myResults.length && !myResultContents.length">暂无可查看的绩效结果</div>
         <ul v-if="myResults.length"><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
         <PerformanceTemplateRenderer v-for="content in myResultContents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
+        <div v-if="reconsideration" class="result-reconsideration-action">
+          <p>{{ reconsideration.prompt }}</p>
+          <button v-if="reconsideration.can_submit" type="button" class="primary-button" @click="reconsiderationOpen = true">发起复议</button>
+          <span v-else-if="reconsideration.submitted_at">已发起复议</span>
+        </div>
       </template>
     </section>
     <template v-else>
@@ -50,6 +55,9 @@
       @remind="openReminderPlaceholder"
     />
     </template>
+    <PerformanceConfirmDialog v-model="reconsiderationOpen" appearance="submit" confirm-variant="primary" message="发起复议" description="确定发起复议后，配置的处理人会收到通知并负责跟进。" confirm-text="确定" cancel-text="取消" :loading="reconsiderationSaving" :confirm-disabled="!reconsiderationReason.trim()" :error-message="reconsiderationError" @confirm="submitReconsideration">
+      <template #check><PerformanceFormField v-model="reconsiderationReason" label="复议理由" textarea required :maxlength="1500" show-count :placeholder="reconsideration?.instruction || '请输入复议理由'" /></template>
+    </PerformanceConfirmDialog>
   </div>
 </template>
 
@@ -66,6 +74,8 @@ import {
   type PerformanceReviewOverview,
   type SelfSummarySection,
 } from '@/api/performance'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
+import PerformanceFormField from '@/components/performance/PerformanceFormField.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
@@ -89,14 +99,34 @@ const myResults = ref<Array<{ task_id: number; field_id: string; option_id: stri
 const myResultContents = ref<Array<{ task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }>>([])
 const resultLoading = ref(false)
 const resultError = ref('')
+const reconsideration = ref<Awaited<ReturnType<typeof projectManagementApi.resultReconsideration>> | null>(null)
+const reconsiderationOpen = ref(false)
+const reconsiderationReason = ref('')
+const reconsiderationSaving = ref(false)
+const reconsiderationError = ref('')
+async function submitReconsideration() {
+  if (!activeProjectId.value || !reconsiderationReason.value.trim()) return
+  reconsiderationSaving.value = true
+  reconsiderationError.value = ''
+  try {
+    await projectManagementApi.submitResultReconsideration(activeProjectId.value, reconsiderationReason.value.trim())
+    reconsiderationOpen.value = false
+    await loadMyResults()
+    ElMessage.success('复议已提交')
+  } catch { reconsiderationError.value = '复议提交失败，请确认提交时间和复议状态后重试' }
+  finally { reconsiderationSaving.value = false }
+}
 async function loadMyResults() {
   if (!activeProjectId.value) { myResults.value = []; myResultContents.value = []; return }
   resultLoading.value = true
+  reconsideration.value = null
   resultError.value = ''
   try {
     const response = await projectManagementApi.myResults(activeProjectId.value)
     myResults.value = response.results
     myResultContents.value = response.contents || []
+    const requestProjectId = activeProjectId.value
+    void projectManagementApi.resultReconsideration(requestProjectId).then(value => { if (activeProjectId.value === requestProjectId) reconsideration.value = value }).catch(() => { if (activeProjectId.value === requestProjectId) reconsideration.value = null })
   } catch {
     myResults.value = []
     myResultContents.value = []
@@ -289,6 +319,8 @@ onMounted(async () => {
 <style scoped>
 .review-results{width:100%;padding:var(--performance-review-surface-inset);overflow:auto;background:var(--performance-review-page-bg);color:var(--color-text-primary)}
 .review-results h1{margin:0 0 var(--spacing-5);font-size:var(--font-size-xl)}
+.result-reconsideration-action .primary-button{min-height:32px;padding:4px 16px;border:0;border-radius:6px;background:var(--color-primary);color:var(--color-bg-card);cursor:pointer}
+.result-reconsideration-action{margin-top:24px;padding:16px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-bg-card)}.result-reconsideration-action p{margin:0 0 12px;color:var(--color-text-secondary);line-height:22px}.result-reconsideration-action span{color:var(--color-text-secondary);font-size:14px}
 .review-results ul{margin:0;padding:0;list-style:none}
 .review-results li{padding:var(--spacing-4);border-bottom:1px solid var(--color-border);background:var(--color-bg-card)}
 :global(html:has(.review-page)) { scrollbar-gutter: auto; }

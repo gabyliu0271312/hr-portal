@@ -1002,6 +1002,14 @@ export const projectManagementApi = {
     const { data } = await api.get(`/performance/workbench/projects/${projectId}/results`)
     return data
   },
+  async resultReconsideration(projectId: number | string): Promise<{ node_id: string; can_submit: boolean; deadline_at: string | null; prompt: string; instruction: string; reason: string | null; submitted_at: string | null }> {
+    const { data } = await api.get(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations`)
+    return data
+  },
+  async submitResultReconsideration(projectId: number | string, reason: string): Promise<{ id: number; task_count: number; notification_status: string }> {
+    const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations`, { reason })
+    return data
+  },
   async levelStatistics(cycleId: number, dimension: 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
     const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension } })
     return data
@@ -1071,6 +1079,7 @@ export type PerformanceTemplateTask = {
   answers: Record<string, unknown>
   prompts?: PerformancePromptValue[]
   calibration_notice?: string | null
+  reconsideration_reason?: string | null
   reference_tabs?: PerformanceReferenceTab[]
 }
 export type SelfSummaryTask = PerformanceTemplateTask
@@ -1384,6 +1393,10 @@ export interface PerformanceTemplateListItem {
 }
 
 export const performanceTemplateApi = {
+  async peopleOptions(): Promise<PerformanceExecutorPerson[]> {
+    const { data } = await api.get<PerformanceExecutorPerson[]>('/performance/templates/people/options')
+    return data
+  },
   async list(kind?: 'performance' | 'metric'): Promise<PerformanceTemplateListItem[]> {
     const { data } = await api.get<PerformanceTemplateListItem[]>('/performance/templates', kind ? { params: { template_kind: kind } } : undefined)
     return data

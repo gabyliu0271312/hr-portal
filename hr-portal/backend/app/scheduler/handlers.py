@@ -537,7 +537,13 @@ async def _handler_performance_result_opening(
     return opened, f"performance result openings: opened={opened}"
 
 
+async def _handler_performance_reconsideration_notifications(job, db, triggered_by):
+    from app.performance.reconsideration_service import dispatch_notifications
+    return await dispatch_notifications(db)
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
+    "performance_reconsideration_notifications": _handler_performance_reconsideration_notifications,
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,
     "report_run": _handler_report_run,

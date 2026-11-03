@@ -1001,6 +1001,39 @@ class PerformanceNodeTask(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+class PerformanceResultReconsideration(Base):
+    __tablename__ = "performance_result_reconsiderations"
+    __table_args__ = (
+        UniqueConstraint("project_id", "employee_no", name="uq_pm_reconsideration_person"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="CASCADE"), nullable=False)
+    member_snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_project_member_snapshots.id", ondelete="RESTRICT"), nullable=False)
+    node_snapshot_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_project_node_snapshots.id", ondelete="RESTRICT"), nullable=False)
+    employee_no: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    result_version: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PerformanceReconsiderationNotification(Base):
+    __tablename__ = "performance_reconsideration_notifications"
+    __table_args__ = (
+        UniqueConstraint("task_id", name="uq_pm_reconsideration_notification_task"),
+        Index("ix_pm_reconsideration_notification_due", "status", "next_retry_at"),
+        CheckConstraint("status IN ('pending', 'sent', 'retrying', 'skipped')", name="ck_pm_reconsideration_notification_status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("performance_node_tasks.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_retry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class PerformanceNodeTaskAuthorization(Base):
     __tablename__ = "performance_node_task_authorizations"
     __table_args__ = (

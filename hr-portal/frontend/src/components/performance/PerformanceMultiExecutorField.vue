@@ -20,8 +20,7 @@
           <PerformanceSearchSelect :model-value="departmentLevel" :options="[...departmentLevels]" :disabled="disabled" selection-style="plain" aria-label="部门负责人层级" @update:model-value="setDepartmentLevel(String($event || ''))" />
         </div>
         <div v-if="role === 'SPECIFIED_PERSON' && hasRole(role)" class="nested-select">
-          <PerformanceSearchSelect :model-value="selectedPersonNo || null" :options="peopleOptions.map(person => ({ value: person.employee_no, label: person.display_name }))" :disabled="disabled || peopleOptions.length === 0" selection-style="plain" aria-label="指定人员" @update:model-value="setPerson(String($event || ''))" />
-          <span v-if="people.length" class="selected-people">{{ people.map((person) => person.display_name).join('、') }}</span>
+          <PerformancePersonSelect :model-value="people.map(person => person.employee_no)" :options="personOptions" :disabled="disabled" multiple aria-label="指定人员" placeholder="请选择人员" @open="emit('open-people')" @update:model-value="setPeople($event)" />
         </div>
       </div>
     </div>
@@ -31,18 +30,19 @@
 
 <script setup lang="ts">
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import { computed } from 'vue'
 import type { PerformanceExecutorConfig, PerformanceExecutorPerson, PerformanceExecutorRole, PerformanceExecutorRoleType } from '@/api/performance'
 
 const props = withDefaults(defineProps<{ modelValue: PerformanceExecutorConfig; disabled?: boolean; peopleOptions?: PerformanceExecutorPerson[]; error?: string }>(), { disabled: false, peopleOptions: () => [], error: '' })
-const emit = defineEmits<{ (event: 'update:modelValue', value: PerformanceExecutorConfig): void }>()
+const emit = defineEmits<{ (event: 'update:modelValue', value: PerformanceExecutorConfig): void; (event: 'open-people'): void }>()
 const roleOrder: PerformanceExecutorRoleType[] = ['REAL_LINE_MANAGER', 'HRBP', 'DEPARTMENT_HEAD', 'SPECIFIED_PERSON']
 const roleLabels: Record<PerformanceExecutorRoleType, string> = { REAL_LINE_MANAGER: '实线上级', HRBP: 'HRBP', DEPARTMENT_HEAD: '部门负责人', SPECIFIED_PERSON: '指定人员' }
 const managerLevels = [{ value: 'DIRECT_MANAGER', label: '直属上级' }, { value: 'LEVEL_1_MANAGER', label: '隔 1 级上级' }] as const
 const departmentLevels = [{ value: 'CURRENT_DEPARTMENT', label: '所属部门负责人' }, { value: 'PARENT_DEPARTMENT', label: '隔级部门负责人' }, { value: 'LEVEL_1_DEPARTMENT', label: '所属一级部门负责人' }] as const
 const roles = computed(() => props.modelValue.roles)
+const personOptions = computed(() => Array.from(new Map([...props.peopleOptions, ...people.value].map(person => [person.employee_no, { value: person.employee_no, label: person.display_name }])).values()))
 const people = computed(() => (roles.value.find((role): role is Extract<PerformanceExecutorRole, { type: 'SPECIFIED_PERSON' }> => role.type === 'SPECIFIED_PERSON')?.people || []))
-const selectedPersonNo = computed(() => people.value[0]?.employee_no || '')
 const departmentLevel = computed(() => (roles.value.find((role): role is Extract<PerformanceExecutorRole, { type: 'DEPARTMENT_HEAD' }> => role.type === 'DEPARTMENT_HEAD')?.levels[0] || 'CURRENT_DEPARTMENT'))
 function hasRole(type: PerformanceExecutorRoleType) { return roles.value.some((role) => role.type === type) }
 function hasLevel(type: 'REAL_LINE_MANAGER' | 'DEPARTMENT_HEAD', value: string) { const role = roles.value.find((item) => item.type === type); return !!role && 'levels' in role && role.levels.includes(value as never) }
@@ -50,7 +50,7 @@ function update(nextRoles: PerformanceExecutorRole[]) { emit('update:modelValue'
 function toggleRole(type: PerformanceExecutorRoleType, checked: boolean) {
   const next = roles.value.filter((role) => role.type !== type)
   if (checked) {
-    next.push(type === 'HRBP' ? { type } : type === 'REAL_LINE_MANAGER' ? { type, levels: ['DIRECT_MANAGER'] } : type === 'DEPARTMENT_HEAD' ? { type, levels: ['CURRENT_DEPARTMENT'] } : { type, people: props.peopleOptions.slice(0, 1) })
+    next.push(type === 'HRBP' ? { type } : type === 'REAL_LINE_MANAGER' ? { type, levels: ['DIRECT_MANAGER'] } : type === 'DEPARTMENT_HEAD' ? { type, levels: ['CURRENT_DEPARTMENT'] } : { type, people: [] })
   }
   update(next)
 }
@@ -61,7 +61,11 @@ function toggleLevel(type: 'REAL_LINE_MANAGER', value: 'DIRECT_MANAGER' | 'LEVEL
   update(roles.value.map((item) => item.type === type ? { type, levels } : item))
 }
 function setDepartmentLevel(value: string) { update(roles.value.map((item) => item.type === 'DEPARTMENT_HEAD' ? { type: item.type, levels: [value as 'CURRENT_DEPARTMENT' | 'PARENT_DEPARTMENT' | 'LEVEL_1_DEPARTMENT'] } : item)) }
-function setPerson(employeeNo: string) { const person = props.peopleOptions.find((item) => item.employee_no === employeeNo); if (!person) return; update(roles.value.map((item) => item.type === 'SPECIFIED_PERSON' ? { type: item.type, people: [person] } : item)) }
+function setPeople(value: string | string[] | null) {
+  const employeeNos = Array.isArray(value) ? value : value ? [value] : []
+  const selected = employeeNos.map(employeeNo => [...props.peopleOptions, ...people.value].find(item => item.employee_no === employeeNo)).filter((item): item is PerformanceExecutorPerson => Boolean(item))
+  update(roles.value.map(item => item.type === 'SPECIFIED_PERSON' ? { type: item.type, people: selected } : item))
+}
 </script>
 
 <style scoped>

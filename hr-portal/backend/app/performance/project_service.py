@@ -1157,8 +1157,8 @@ class PerformanceProjectService:
                 final_node = next(node for node in nodes if node.get("include_final_result"))
                 raw_node = calibration_template(source_node, final_node, content_library)
             else:
-                raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation"} else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "calibration"} else raw_node
+                raw_node = resolve_self_summary_content(source_node, content_library) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "calibration", "result_reconsideration"} else raw_node
             node_id = str(raw_node.get("node_id") or f"node-{index + 1}")
             node_snapshot = PerformanceProjectNodeSnapshot(
                 project_id=project.id,
@@ -1175,7 +1175,7 @@ class PerformanceProjectService:
             if node_type == "calibration":
                 self._add_calibration_tasks(project, member_snapshot, node_snapshot, calibration[node_id], node_times.get(node_id) or {})
                 continue
-            if node_type == "result_view":
+            if node_type in {"result_view", "result_reconsideration"}:
                 continue
             for person in task_people:
                 handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
@@ -1301,12 +1301,12 @@ class PerformanceProjectService:
         for index, source_node in enumerate(pending):
             node_id = str(source_node["node_id"])
             node_type = source_node.get("node_type")
-            raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation"} else source_node
-            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation"} else raw_node
+            raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else source_node
+            raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else raw_node
             snapshot = PerformanceProjectNodeSnapshot(project_id=project.id, node_id=node_id, node_type=node_type, name=str(raw_node.get("name") or node_id), node_order=int(raw_node.get("order") or index + 1), config={"template": raw_node, "time": normalized_times[node_id]})
             self.db.add(snapshot)
             await self.db.flush()
-            if node_type != "result_view":
+            if node_type not in {"result_view", "result_reconsideration"}:
                 for person in members:
                     handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
                     for handler in sorted(handlers):

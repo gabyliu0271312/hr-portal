@@ -1,5 +1,18 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T02-F38 指定人员选择与复议派发（2026-11-03 用户确认）
+  - Goal: 指定人员使用 PerformancePersonSelect 多选；员工成功提交复议后，每名处理人各一条站内任务及飞书通知，共同处理同一份复议结果。
+  - Type: frontend/backend/API/migration；承接 F34，不改变其历史证据。
+  - Required reading: Spec 002 基线、本功能 spec/ui-interaction/acceptance、execution-contract、migration-coordination、Spec 012 A05/N000/N00/N11。
+  - Allowed modifications: 绩效 executor/workflow/result/review/task 前端与 API；performance models/project_service/projects_router/navigation、复议 service/router；统一 scheduler 注册；新线性迁移及对应现有测试；本任务与 ui-interaction。
+  - Forbidden: 021、无关节点、既有迁移、生产数据/部署；不创建平行任务引擎或发送服务。
+  - Contract: employee_no 为人员标识；模板候选来自在职实时花名册，运行规则使用项目启动冻结配置及关系；每项目每员工一次，提交后不可更改理由；仅结果开通且复议提交窗口内允许发起。POST /performance/projects/{id}/result-reconsiderations；GET 同路径返回状态；任务通过现有 template-task 入口处理。无结果/无身份/非处理人返回404，窗口/重复/版本冲突409，参数422。
+  - Transaction: 复议主记录、去重任务及通知待发送状态同事务；提交后统一 scheduler 调 send_notification；失败不回滚复议、不重复建任务，退避重试；沿用全局投递三态及绩效通知开关。
+  - UI: 模板字段沿用既有 F34 面板；结果页复用已有 F36 发起复议预览交互（提示、理由、确定/取消）；处理页复用既有 SelfSummaryTask/TemplateRenderer，展示复议理由；多人共享版本，过期版本409。无新增顶级页面或菜单。截图目标 PM-T004-T02-F38-implemented-specified-people.png。
+  - Migration: 新增共享复议记录和业务通知待发送表；不删旧预生成任务，查询要求有效复议关联，启动/回填停止预生成；旧未处理任务在实际发起时复用。保持历史快照，部门关系无冻结来源时拒绝，不用实时组织猜测。
+  - Tests/acceptance: 组件多选/清空/回显/禁用；真实候选权限；提交允许/拒绝、重复/版本冲突、任务去重、通知失败重试；聚焦 pytest/Vitest、类型检查/build、迁移 upgrade/downgrade、UI→API→DB→重开。未运行项明确 not-run/blocked。
+  - Evidence: 后端模板/项目回归 `python -m pytest tests/test_performance_template_workflow.py tests/test_performance_projects.py -q`：613 passed、6 skipped、1条既有 python_multipart 弃用警告；最后身份映射与切换拦截调整后复议专项3 passed。前端四文件定向 Vitest 122 passed，最后多选/结果页复跑62 passed；`npm --prefix ../frontend run build`（vue-tsc + Vite）、后端 compileall、git diff --check 通过。迁移唯一head为0292_performance_reconsiderations。真实数据库upgrade/downgrade、UI/API/DB往返、浏览器PNG、真实飞书送达及生产部署均未执行：当前本机Docker未运行，未发现可用PostgreSQL或Playwright。部门负责人缺少冻结来源时返回409；本任务保持未勾选。
+
 - [ ] PM-T004-T01 冻结模板流程 DTO、节点枚举与真实 API 契约
   - Goal: 提供 GET/PATCH 流程接口及稳定错误码，兼容旧节点读取映射。
   - Type: contract/backend/API

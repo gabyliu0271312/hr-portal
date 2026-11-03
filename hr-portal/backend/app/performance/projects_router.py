@@ -36,6 +36,36 @@ def _is_admin_preview(context: PerformanceAccessContext) -> bool:
     return performance_admin_preview_enabled(context)
 
 
+class ReconsiderationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    reason: str = Field(min_length=1, max_length=1500)
+
+
+async def _reconsideration_actor(db, context, project_id):
+    project = await _get_project(db, project_id)
+    try:
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    except PerformanceIdentityMappingNotFound:
+        raise HTTPException(404, "RESULT_NOT_FOUND") from None
+    if actor.actor_type != "EMPLOYEE":
+        raise HTTPException(404, "RESULT_NOT_FOUND")
+    return actor
+
+
+@router.get("/projects/{project_id}/result-reconsiderations")
+async def get_reconsideration(project_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.reconsideration_service import read_status
+    actor = await _reconsideration_actor(db, context, project_id)
+    return await read_status(db, project_id, actor.actor_ref)
+
+
+@router.post("/projects/{project_id}/result-reconsiderations", status_code=201)
+async def create_reconsideration(project_id: int, payload: ReconsiderationPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.reconsideration_service import submit_reconsideration
+    actor = await _reconsideration_actor(db, context, project_id)
+    return await submit_reconsideration(db, project_id, actor.actor_ref, payload.reason, actor)
+
+
 class SelfSummaryAnswersPayload(BaseModel):
     answers: dict = Field(default_factory=dict)
     version: int | None = Field(default=None, ge=1)
@@ -128,12 +158,15 @@ async def _self_summary_task(task_id: int, actor: PerformanceAccessContext, db: 
     if not row:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     try:
-        trusted = await resolve_trusted_performance_actor(db, actor, cycle_ref=row[0].cycle_ref, require_employee_identity=True)
+        trusted = await resolve_trusted_performance_actor(db, actor, cycle_ref=None if row[0].task_kind == "result_reconsideration" else row[0].cycle_ref, require_employee_identity=True)
     except PerformanceIdentityMappingNotFound:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
     if not await _task_handler_allowed(db, row[0], trusted.actor_ref):
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-    allowed_kinds = {"evaluation", "calibration", "result_communication"} if task_kind == "evaluation" else {task_kind}
+    allowed_kinds = {"evaluation", "calibration", "result_communication", "result_reconsideration"} if task_kind == "evaluation" else {task_kind}
+    if row[0].task_kind == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task
+        await reconsideration_for_task(db, row[0])
     if row[0].task_kind not in allowed_kinds:
         raise HTTPException(status_code=422, detail="TASK_TYPE_NOT_SUPPORTED")
     if target_employee_no and target_employee_no != row[0].target_employee_no:
@@ -171,6 +204,8 @@ def _node_timing(project: PerformanceProject | None, node: PerformanceProjectNod
 
 
 def _task_window(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject | None) -> tuple[datetime | None, datetime | None]:
+    if getattr(task, "task_kind", None) == "result_reconsideration":
+        return task.available_at, task.due_at
     if getattr(task, "task_kind", None) == "calibration":
         timing = _node_timing(project, node) or {}
         phase = (timing.get("phase_times") or {}).get(task.phase_id)
@@ -219,6 +254,8 @@ async def _overdue_submission_allowed(task: PerformanceNodeTask, node: Performan
 
 async def _self_summary_template(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession) -> dict:
     template = (node.config or {}).get("template") or {}
+    if getattr(node, "node_type", None) == "result_reconsideration":
+        return await hydrate_self_summary_template({**template, "content": template.get("content") or [{"content_id": "reconsideration-feedback", "type": "work_summary", "name": "复议处理结果", "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}]}]}, db)
     if not template.get("content") and getattr(node, "node_type", None) != "calibration":
         project = await db.get(PerformanceProject, task.project_id)
         template_id = (project.settings or {}).get("template_id") if project else None
@@ -404,7 +441,7 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
 async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed)
     member = await db.scalar(select(PerformanceProjectMember).where(
@@ -426,11 +463,16 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         editable, submit_allowed = False, False
     visibility_role = await resolve_subject_visibility_role(db, context, actor_ref, member, node, project)
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
+    reconsideration_reason = None
+    if getattr(task, "task_kind", None) == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task
+        reconsideration_reason = (await reconsideration_for_task(db, task)).reason
     return {
+        "reconsideration_reason": reconsideration_reason,
         "task_id": task.id,
         "project_id": task.project_id,
         "node_id": node.node_id,
-        "return_view": "page" if task.task_kind == "calibration" else ("node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer"),
+        "return_view": "page" if task.task_kind in {"calibration", "result_reconsideration"} else ("node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer"),
         "task_kind": task.task_kind,
         "executor_role_code": ((node.config or {}).get("template") or {}).get("executor_role_code"),
         "phase_id": getattr(task, "phase_id", "") or None,
@@ -485,19 +527,26 @@ async def get_template_task(task_id: int, context: PerformanceAccessContext = De
 
 async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, submit: bool, context: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
+    shared_tasks = []
+    if getattr(task, "task_kind", None) == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
+        appeal = await reconsideration_for_task(db, task, lock=True)
+        shared_tasks = await reconsideration_tasks(db, appeal)
     actor = SimpleNamespace(actor_type="EMPLOYEE" if context.effective_employee_no else context.subject_type, actor_ref=context.effective_employee_no or str(context.subject_id))
     if isinstance(task, PerformanceNodeTask):
-        trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=task.cycle_ref, require_employee_identity=True)
+        trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref, require_employee_identity=True)
         actor = trusted
         await db.refresh(task, with_for_update=True)
         if not await _task_edit_allowed(db, task, trusted.actor_ref):
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = False if getattr(task, "task_kind", None) == "calibration" else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     if not editable or (submit and not submit_allowed):
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
+    if getattr(task, "task_kind", None) == "result_reconsideration" and payload.version is None:
+        raise HTTPException(status_code=409, detail="VERSION_REQUIRED")
     if payload.version is not None and payload.version != task.answer_version:
         raise HTTPException(status_code=409, detail="VERSION_CONFLICT")
     template = await _self_summary_template(task, node, db)
@@ -536,6 +585,15 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         task.completed_at = task.submitted_at
         if project is not None:
             await _sync_automatic_openings(db, project)
+    for shared in shared_tasks:
+        if shared.id == task.id:
+            continue
+        shared.answers = dict(task.answers or {})
+        shared.draft_answers = task.draft_answers
+        shared.answer_version = task.answer_version
+        shared.submitted_at = task.submitted_at
+        shared.completed_at = task.completed_at
+        shared.status = task.status
     await db.commit()
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     return {"answers": project_self_summary_answers(schema, task.answers), "has_draft": task.draft_answers is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
@@ -573,16 +631,21 @@ async def discard_template_task_draft(task_id: int, payload: TaskDraftVersionPay
 
 async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, context: PerformanceAccessContext, db: AsyncSession, task_kind: str, employee_no: str | None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, employee_no)
+    shared_tasks = []
+    if getattr(task, "task_kind", None) == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
+        appeal = await reconsideration_for_task(db, task, lock=True)
+        shared_tasks = await reconsideration_tasks(db, appeal)
     actor = SimpleNamespace(actor_type="EMPLOYEE" if context.effective_employee_no else context.subject_type, actor_ref=context.effective_employee_no or str(context.subject_id))
     if isinstance(task, PerformanceNodeTask):
-        trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=task.cycle_ref, require_employee_identity=True)
+        trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref, require_employee_identity=True)
         actor = trusted
         await db.refresh(task, with_for_update=True)
         if not await _task_edit_allowed(db, task, trusted.actor_ref):
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
-    overdue_allowed = False if task.task_kind == "calibration" else await _overdue_submission_allowed(task, node, db)
+    overdue_allowed = False if task.task_kind in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     if not editable or not submit_allowed:
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
@@ -592,6 +655,9 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
         PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_DRAFT_DISCARDED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"draft_answers": task.draft_answers}, after_state={"draft_answers": None, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
     task.draft_answers = None
     task.answer_version += 1
+    for shared in shared_tasks:
+        shared.draft_answers = None
+        shared.answer_version = task.answer_version
     await db.commit()
     return {"version": task.answer_version, "has_draft": False}
 
@@ -2965,6 +3031,7 @@ _TASK_ENTRY_MODES = {
     "evaluation": "template_task",
     "calibration": "template_task",
     "result_communication": "template_task",
+    "result_reconsideration": "template_task",
 }
 
 
@@ -3199,7 +3266,8 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
     is_admin_preview = False
-    stmt = select(PerformanceProjectNodeSnapshot, PerformanceNodeTask).join(PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(PerformanceProject.status == PROJECT_STATUS_STARTED, PerformanceProjectNodeSnapshot.node_type.not_in({"result_view", "result_reconsideration"}))
+    from app.performance.reconsideration_service import valid_reconsideration_task
+    stmt = select(PerformanceProjectNodeSnapshot, PerformanceNodeTask).join(PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(PerformanceProject.status == PROJECT_STATUS_STARTED, PerformanceProjectNodeSnapshot.node_type != "result_view", or_(PerformanceProjectNodeSnapshot.node_type != "result_reconsideration", valid_reconsideration_task()))
     if not is_admin_preview:
         stmt = stmt.where(task_handler_condition(handler))
     if project_id is not None:

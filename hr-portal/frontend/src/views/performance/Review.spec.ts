@@ -123,6 +123,7 @@ describe('PerformanceReview', () => {
     vi.spyOn(performanceNavigationApi, 'get').mockImplementation(async (cycleId) => navigationOf(cycleId || 1))
     const context = usePerformanceProjectContextStore()
     context.setNavigation(navigationOf(1))
+    vi.spyOn(projectManagementApi, 'resultReconsideration').mockRejectedValue(new Error('RECONSIDERATION_NOT_CONFIGURED'))
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
   })

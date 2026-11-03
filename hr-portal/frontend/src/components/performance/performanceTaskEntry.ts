@@ -7,6 +7,7 @@ export function performanceTaskEntryRoute(node: PerformanceReviewNode, projectId
     evaluation: '/performance/review/template-task',
     calibration: '/performance/review/template-task',
     result_communication: '/performance/review/template-task',
+    result_reconsideration: '/performance/review/template-task',
   }
   const path = node.task_kind ? routes[node.task_kind] : undefined
   return path ? `${path}?task_id=${encodeURIComponent(String(node.task_id))}&project_id=${encodeURIComponent(String(projectId || ''))}&node=${encodeURIComponent(node.node_id)}${node.draft_choice ? `&draft_choice=${node.draft_choice}` : ''}` : null

@@ -47,7 +47,7 @@ def review_node_category(node_type, role_code, *, has_task):
     if node_type in {"work_summary", "reviewer_360_invite", "result_view"}:
         return "mine"
     if node_type == "result_reconsideration":
-        return None
+        return "other" if has_task else None
     if node_type in {"reviewer_360_confirm", "calibration", "result_communication"}:
         return "team"
     if node_type == "evaluation":
@@ -158,6 +158,10 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
                 node = nodes_by_id.get(task.node_snapshot_id)
                 if node is None or node.project_id != project.id or task.cycle_ref != project.cycle_ref:
                     continue
+                if node.node_type == "result_reconsideration":
+                    from app.performance.reconsideration_service import valid_reconsideration_task
+                    if not await db.scalar(select(PerformanceNodeTask.id).where(PerformanceNodeTask.id == task.id, valid_reconsideration_task())):
+                        continue
                 result.own_task_project_ids.add(project.id)
                 role = node_role_code({"node_type": node.node_type, **((node.config or {}).get("template") or {})})
                 if role and role not in assessment_roles:

@@ -190,6 +190,17 @@ async def _validate_metric_dimensions(db: AsyncSession, dimensions: list[MetricT
             )
 
 
+@router.get("/people/options")
+async def template_people_options(
+    _: PerformanceAccessContext = Depends(require_performance_permission("performance.configuration.manage")),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.performance.cycles_router import _load_hrbp_options
+
+    options = await _load_hrbp_options(db)
+    return [{"employee_no": person.value, "display_name": person.label} for person in options.people]
+
+
 @router.get("", response_model=list[TemplateListItem])
 async def list_templates(
     _: PerformanceAccessContext = Depends(

@@ -47,6 +47,7 @@
                 :disabled="locked('executor_config')"
                 :people-options="specifiedPeopleOptions"
                 :error="resultExecutorError"
+                @open-people="loadSpecifiedPeople"
                 @update:model-value="updateResultExecutorConfig"
               />
               <div v-if="selectedNode.node_type === 'result_reconsideration'" class="appeal-prompt-setting">
@@ -305,6 +306,10 @@ const resultReconsiderationExecutorConfig = computed<PerformanceExecutorConfig>(
   get: () => selectedNode.value?.executor_config || { mode: 'MULTI_ROLE', roles: [{ type: 'HRBP' }] },
   set: (value) => updateResultExecutorConfig(value),
 })
+async function loadSpecifiedPeople() {
+  if (specifiedPeopleOptions.value.length) return
+  try { specifiedPeopleOptions.value = await performanceTemplateApi.peopleOptions() } catch { resultExecutorError.value = '指定人员列表加载失败，请稍后重试' }
+}
 function updateResultExecutorConfig(value: PerformanceExecutorConfig) {
   if (!selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
   selectedNode.value.executor_config = value

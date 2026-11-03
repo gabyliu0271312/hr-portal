@@ -292,6 +292,7 @@ function reviewQuery(entry: string) { return { name: 'PerformanceReview', query:
 function goToResults() { router.push(reviewQuery('results')) }
 function openTeam() { router.push(reviewQuery('team')) }
 function todoHref(todo: Todo) {
+  if (todo.task_id && todo.node_type === 'result_reconsideration') return `/performance/review/template-task?${new URLSearchParams({ task_id: String(todo.task_id), project_id: String(activeProjectId.value || '') })}`
   if (todo.task_id && (todo.node_type === 'work_summary' || isSelfEvaluationNode(todo))) {
     const path = todo.node_type === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'
     return `${path}?${new URLSearchParams({ task_id: String(todo.task_id), project_id: String(activeProjectId.value || '') }).toString()}`
