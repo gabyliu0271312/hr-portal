@@ -29,6 +29,7 @@ const props = withDefaults(defineProps<{
   sortValue?: (row: any, key: string) => unknown
   scrollMode?: 'inner' | 'page'
   fit?: boolean
+  browserColumnMinWidths?: number[]
   showSelectionBar?: boolean
   selectionBarTarget?: string
   columns?: PerformanceTableColumn[]
@@ -191,7 +192,39 @@ function onCellEnter(event: MouseEvent) {
   }
   cellTooltip.value = { visible: true, text: (content.textContent || '').trim(), anchor: cell }
 }
+let tooltipShowTimer: number | undefined
+let tooltipHideTimer: number | undefined
+function onTableCellOver(event: MouseEvent) {
+  if (!props.viewportSurface || useNativeTable.value) return
+  const cell = (event.target as HTMLElement).closest<HTMLElement>('td.el-table__cell:not(.el-table-fixed-column--right)')
+  if (!cell || !rootRef.value?.contains(cell)) return
+  if (event.relatedTarget instanceof Node && cell.contains(event.relatedTarget)) return
+  window.clearTimeout(tooltipShowTimer)
+  window.clearTimeout(tooltipHideTimer)
+  cellTooltip.value.visible = false
+  const content = cell.querySelector<HTMLElement>('.cell')
+  if (!content || !(content.scrollWidth > content.clientWidth || content.scrollHeight > content.clientHeight)) return
+  tooltipShowTimer = window.setTimeout(() => {
+    cellTooltip.value = { visible: true, text: (content.textContent || '').trim(), anchor: content }
+  }, 300)
+}
+function onTableCellOut(event: MouseEvent) {
+  const cell = (event.target as HTMLElement).closest<HTMLElement>('td.el-table__cell')
+  if (!cell || !rootRef.value?.contains(cell)) return
+  if (event.relatedTarget instanceof Node && cell.contains(event.relatedTarget)) return
+  scheduleCellTooltipHide()
+}
+function keepCellTooltip() {
+  window.clearTimeout(tooltipHideTimer)
+}
+function scheduleCellTooltipHide() {
+  window.clearTimeout(tooltipShowTimer)
+  window.clearTimeout(tooltipHideTimer)
+  tooltipHideTimer = window.setTimeout(hideCellTooltip, 100)
+}
 function hideCellTooltip() {
+  window.clearTimeout(tooltipShowTimer)
+  window.clearTimeout(tooltipHideTimer)
   cellTooltip.value.visible = false
 }
 const hscrollThumbStyle = ref<Record<string, string>>({})
@@ -268,6 +301,34 @@ function onTrackClick(event: MouseEvent) {
   showHscroll()
 }
 
+const widthProbeRef = ref<HTMLTableElement | null>(null)
+const measuredColumnWidths = ref<number[]>([])
+const browserColumnWidths = computed(() => measuredColumnWidths.value.length === props.browserColumnMinWidths?.length
+  ? measuredColumnWidths.value
+  : props.browserColumnMinWidths ?? [])
+function measureColumnWidths() {
+  const cells = widthProbeRef.value?.rows[0]?.cells
+  if (!cells?.length) return
+  const widths: number[] = []
+  let edge = 0
+  let roundedEdge = 0
+  for (const cell of Array.from(cells)) {
+    const width = cell.getBoundingClientRect().width
+    if (!width) return
+    edge += width
+    const nextEdge = Math.round(edge)
+    widths.push(nextEdge - roundedEdge)
+    roundedEdge = nextEdge
+  }
+  if (widths.some((width, index) => width !== measuredColumnWidths.value[index]) || widths.length !== measuredColumnWidths.value.length) {
+    measuredColumnWidths.value = widths
+  }
+}
+watch(() => props.browserColumnMinWidths, () => {
+  measuredColumnWidths.value = []
+  void nextTick(measureColumnWidths)
+}, { deep: true })
+
 const toolbarRef = ref<HTMLElement | null>(null)
 const paginationRef = ref<HTMLElement | null>(null)
 const viewportTableHeight = ref<number>()
@@ -296,14 +357,15 @@ let resizeObserver: ResizeObserver | null = null
 watch(() => [selectedCount.value, useNativeTable.value], () => {
   if (selectedCount.value) void nextTick(updateBarPosition)
 })
+watch(() => [props.rows, props.loading], hideCellTooltip)
 watch(() => [props.rows, props.showPagination, props.viewportSurface], () => { void nextTick(() => { updateHscroll(); measureViewport() }) })
 onMounted(() => {
   updateBarPosition()
-  void nextTick(() => { updateHscroll(); measureViewport() })
+  void nextTick(() => { updateHscroll(); measureViewport(); measureColumnWidths() })
   window.addEventListener('resize', updateBarPosition)
   window.addEventListener('scroll', hideCellTooltip, { capture: true })
   if (rootRef.value && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => { updateBarPosition(); updateHscroll(); measureViewport() })
+    resizeObserver = new ResizeObserver(() => { updateBarPosition(); updateHscroll(); measureViewport(); measureColumnWidths() })
     resizeObserver.observe(rootRef.value)
     if (rootRef.value.parentElement) resizeObserver.observe(rootRef.value.parentElement)
     if (toolbarRef.value) resizeObserver.observe(toolbarRef.value)
@@ -311,6 +373,7 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
+  hideCellTooltip()
   window.clearTimeout(hideTimer)
   window.removeEventListener('resize', updateBarPosition)
   window.removeEventListener('scroll', hideCellTooltip, { capture: true } as EventListenerOptions)
@@ -463,9 +526,15 @@ function jumpToPage() {
     </template>
 
     <template v-else>
-      <div class="table-scroll">
-        <el-table ref="tableRef" v-loading="loading" :data="tableRows" style="width: 100%" :fit="fit" :max-height="tableMaxHeight" :scrollbar-tabindex="viewportSurface ? 0 : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="rowClassName" @selection-change="onSelectionChange" @row-click="emit('row-click', $event)">
-          <slot />
+      <div class="table-scroll" :class="{ 'has-column-width-probe': browserColumnMinWidths?.length }" @mouseover="onTableCellOver" @mouseout="onTableCellOut">
+        <div v-if="browserColumnMinWidths?.length" class="column-width-probe" aria-hidden="true">
+          <table ref="widthProbeRef">
+            <colgroup><col v-for="(width, index) in browserColumnMinWidths" :key="index" :style="{ width: `${width}px`, minWidth: `${width}px` }"></colgroup>
+            <tbody><tr><td v-for="(_, index) in browserColumnMinWidths" :key="index"></td></tr></tbody>
+          </table>
+        </div>
+        <el-table ref="tableRef" v-loading="loading" :data="tableRows" style="width: 100%" :fit="browserColumnMinWidths?.length ? false : fit" :max-height="tableMaxHeight" :scrollbar-tabindex="viewportSurface ? 0 : undefined" :row-key="rowKey" table-layout="fixed" :row-class-name="rowClassName" @selection-change="onSelectionChange" @row-click="emit('row-click', $event)">
+          <slot :column-widths="browserColumnWidths" />
           <template #empty>
             <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
               <div class="table-state" :role="loading ? 'status' : undefined">
@@ -513,7 +582,7 @@ function jumpToPage() {
       </Transition>
     </Teleport>
 
-    <PerformancePopover :visible="cellTooltip.visible" :anchor="cellTooltip.anchor" width="auto" :gap="8" name="performance-cell-tooltip" @close="hideCellTooltip" @mouseleave="hideCellTooltip">{{ cellTooltip.text }}</PerformancePopover>
+    <PerformancePopover :visible="cellTooltip.visible" :anchor="cellTooltip.anchor" width="auto" :gap="8" name="performance-cell-tooltip" @close="hideCellTooltip" @mouseenter="keepCellTooltip" @mouseleave="viewportSurface ? scheduleCellTooltipHide() : hideCellTooltip()">{{ cellTooltip.text }}</PerformancePopover>
   </div>
 </template>
 
@@ -521,6 +590,10 @@ function jumpToPage() {
 .performance-management-table { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .table-toolbar { flex-shrink: 0; margin-bottom: var(--page-gap-toolbar-table); }
 .table-scroll { overflow: visible; }
+.table-scroll.has-column-width-probe { position: relative; }
+.column-width-probe { position: absolute; width: 100%; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+.column-width-probe table { width: auto; min-width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; }
+.column-width-probe td { padding: 0; border: 0; }
 .table-surface {
   flex: 0 1 auto;
   max-height: 100%;
@@ -531,11 +604,20 @@ function jumpToPage() {
   background: var(--performance-content-surface-background);
   box-shadow: var(--performance-content-surface-shadow);
 }
-.table-surface .table-scroll { min-width: 0; min-height: 0; overflow-x: auto; scrollbar-width: none; }
-.table-surface .table-scroll::-webkit-scrollbar,
+.table-surface .table-scroll { min-width: 0; min-height: 0; overflow: hidden; }
 .table-surface :deep(.el-scrollbar__wrap::-webkit-scrollbar) { display: none; }
 .table-surface :deep(.el-scrollbar__wrap) { scrollbar-width: none; overscroll-behavior: contain; }
-.table-surface :deep(.el-scrollbar__bar) { display: none; }
+.table-surface :deep(.el-scrollbar__bar.is-vertical) { display: none; }
+.table-surface :deep(.el-scrollbar__bar.is-horizontal) { height: var(--performance-table-scrollbar-size); }
+.table-surface :deep(.el-scrollbar__thumb) { background: var(--performance-table-scrollbar-thumb); }
+.table-surface :deep(.el-table th.el-table__cell),
+.table-surface :deep(.el-table td.el-table__cell) { padding-left: 0; padding-right: 0; text-align: left; }
+.table-surface :deep(.el-table .cell) {
+  padding: 0 var(--performance-table-cell-padding-inline);
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
 .table-surface .table-pagination {
   flex-shrink: 0;
   flex-wrap: wrap;

@@ -68,7 +68,7 @@ const emit = defineEmits<{
 .search-input {
   width: 224px;
 }
-.search-icon {
+.list-toolbar :deep(.search-input__icon) {
   width: 16px;
   height: 16px;
 }

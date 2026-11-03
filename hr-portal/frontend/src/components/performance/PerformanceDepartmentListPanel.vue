@@ -16,10 +16,11 @@ const rows = ref<PerformanceCycleDepartmentItem[]>([])
 const loading = ref(false)
 
 const columns: PerformanceTableColumn[] = [
-  { key: 'department_name', label: '部门名称' },
-  { key: 'parent_department', label: '上级部门' },
+  { key: 'department_name', label: '部门名称', width: 280 },
+  { key: 'parent_department', label: '上级部门', width: 280 },
   { key: 'people_count', label: '人数' },
 ]
+const columnMinWidths = [...columns.map(column => column.width ?? 160), 280]
 
 async function load() {
   loading.value = true
@@ -62,6 +63,7 @@ watch(() => props.cycleId, () => {
   <div class="department-panel">
     <PerformanceManagementTable
       viewport-surface
+      :browser-column-min-widths="columnMinWidths"
       :rows="rows"
       :loading="loading"
       loading-text="加载中"
@@ -80,17 +82,21 @@ watch(() => props.cycleId, () => {
       <template #toolbar>
         <PerformanceSearchInput v-model="keyword" placeholder="搜索部门名称" @search="onSearch" @clear="onSearch" />
       </template>
-      <el-table-column
-        v-for="column in columns"
-        :key="column.key"
-        :prop="column.key"
-        :label="column.label"
-        min-width="160"
-        show-overflow-tooltip
-      />
-      <el-table-column label="操作" width="280" fixed="right">
-        <template #default>—</template>
-      </el-table-column>
+      <template #default="{ columnWidths }">
+        <el-table-column
+          v-for="(column, index) in columns"
+          :key="column.key"
+          :prop="column.key"
+          :label="column.label"
+          :min-width="column.width ?? 160"
+          :width="columnWidths[index]"
+          align="left"
+          header-align="left"
+        />
+        <el-table-column label="操作" :width="columnWidths[columns.length]" min-width="280" fixed="right">
+          <template #default>—</template>
+        </el-table-column>
+      </template>
     </PerformanceManagementTable>
   </div>
 </template>

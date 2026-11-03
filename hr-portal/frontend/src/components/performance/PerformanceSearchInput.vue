@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 <template>
   <SearchInput
+    class="performance-search-input"
     :model-value="modelValue"
     :placeholder="placeholder"
     :width="width"

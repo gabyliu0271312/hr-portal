@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { createPinia, setActivePinia } from 'pinia'
 import { useUserStore } from '@/stores/user'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ElTable, ElTableColumn } from 'element-plus'
+import { ElTableColumn } from 'element-plus'
 import CycleManagement from './CycleManagement.vue'
 import PerformancePeopleListPanel from '@/components/performance/PerformancePeopleListPanel.vue'
 import PerformanceDepartmentListPanel from '@/components/performance/PerformanceDepartmentListPanel.vue'
@@ -123,6 +123,106 @@ async function selectEnabledTemplate(wrapper: ReturnType<typeof mountView> exten
 }
 
 describe('周期人员和部门快照表格', () => {
+  it('将浏览器求解列宽传给EP，包含操作列，缩放和空态不重启EP的fit分配', async () => {
+    const callbacks = new Map<Element, ResizeObserverCallback>()
+    const Observer = globalThis.ResizeObserver
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe(element: Element) { callbacks.set(element, this.callback) }
+      unobserve() {}
+      disconnect() {}
+    })
+    const wrapper = mount(PerformanceManagementTable, {
+      props: { rows: [], loading: true, loadingText: '加载中', emptyText: '暂无', tableAriaLabel: '表格', paginationAriaLabel: '分页', browserColumnMinWidths: [280, 280, 160, 280] },
+      slots: { default: '<template #default="{ columnWidths }"><el-table-column v-for="(width, index) in columnWidths" :key="index" :width="width" :fixed="index === 3 ? \'right\' : false" /></template>' },
+      global: { components: { ElTableColumn } },
+    })
+    try {
+      await flushPromises()
+      const table = wrapper.getComponent({ name: 'ElTable' })
+      expect(table.props('fit')).toBe(false)
+      expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('width'))).toEqual([280, 280, 160, 280])
+      let measured = [504, 504, 288, 504]
+      wrapper.findAll('.column-width-probe td').forEach((cell, index) => {
+        vi.spyOn(cell.element, 'getBoundingClientRect').mockImplementation(() => ({ width: measured[index] } as DOMRect))
+      })
+      const resize = async () => {
+        callbacks.get(wrapper.element)!([], {} as ResizeObserver)
+        await flushPromises()
+      }
+      await resize()
+      expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('width'))).toEqual(measured)
+      await wrapper.setProps({ loading: false, rows: [{ name: '部门' }] })
+      expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('width'))).toEqual(measured)
+      measured = [280, 280, 160, 280]
+      await resize()
+      expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('width'))).toEqual(measured)
+      measured = [504.4, 504.4, 287.8, 503.4]
+      await resize()
+      expect(wrapper.findAllComponents({ name: 'ElTableColumn' }).map(column => column.props('width'))).toEqual([504, 505, 288, 503])
+      await wrapper.setProps({ browserColumnMinWidths: undefined })
+      expect(table.props('fit')).toBe(true)
+      expect(wrapper.find('.column-width-probe').exists()).toBe(false)
+    } finally {
+      wrapper.unmount()
+      vi.stubGlobal('ResizeObserver', Observer)
+    }
+  })
+
+  it('仅溢出文本悬停300ms后展示共享提示，允许移入浮层并在滚动、换数据及卸载时清理', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(PerformanceManagementTable, {
+      attachTo: document.body,
+      props: { rows: [{ name: '完整的长部门名称' }], loading: false, loadingText: '加载中', emptyText: '暂无', tableAriaLabel: '表格', paginationAriaLabel: '分页', viewportSurface: true },
+      slots: { default: '<el-table-column prop="name" label="名称" /><el-table-column label="操作" width="280" fixed="right">操作</el-table-column>' },
+      global: { components: { ElTableColumn } },
+    })
+    try {
+      await flushPromises()
+      const cell = wrapper.get('tbody td:not(.el-table-fixed-column--right)')
+      const content = cell.get('.cell').element
+      let width = 100
+      Object.defineProperties(content, {
+        clientWidth: { get: () => 100 }, scrollWidth: { get: () => width },
+        clientHeight: { get: () => 22 }, scrollHeight: { get: () => 22 },
+      })
+      await cell.trigger('mouseover')
+      await vi.advanceTimersByTimeAsync(300)
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      width = 200
+      await cell.trigger('mouseover')
+      await vi.advanceTimersByTimeAsync(299)
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(document.querySelector('.performance-cell-tooltip')?.textContent).toContain('完整的长部门名称')
+      await cell.trigger('mouseout')
+      document.querySelector('.performance-cell-tooltip')!.dispatchEvent(new MouseEvent('mouseenter'))
+      await vi.advanceTimersByTimeAsync(100)
+      expect(document.querySelector('.performance-cell-tooltip')).not.toBeNull()
+      document.querySelector('.performance-cell-tooltip')!.dispatchEvent(new MouseEvent('mouseleave'))
+      await vi.advanceTimersByTimeAsync(100)
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      await cell.trigger('mouseover')
+      await cell.trigger('mouseout')
+      await vi.advanceTimersByTimeAsync(300)
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      await cell.trigger('mouseover')
+      window.dispatchEvent(new Event('scroll'))
+      await vi.advanceTimersByTimeAsync(300)
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      await cell.trigger('mouseover')
+      await vi.advanceTimersByTimeAsync(300)
+      await wrapper.setProps({ rows: [{ name: '替换数据' }] })
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      await wrapper.get('tbody td').trigger('mouseover')
+    } finally {
+      wrapper.unmount()
+      await vi.advanceTimersByTimeAsync(500)
+      expect(document.querySelector('.performance-cell-tooltip')).toBeNull()
+      vi.useRealTimers()
+    }
+  })
+
   it('按父容器剩余空间调整表格上限，窗口变化后重新计算且不影响默认分支', async () => {
     const callbacks = new Map<Element, ResizeObserverCallback>()
     const Observer = globalThis.ResizeObserver
@@ -168,10 +268,14 @@ describe('周期人员和部门快照表格', () => {
     }
   })
 
-  it('统一白卡留白、分页固定底距和隐藏内部滚动条规则', () => {
+  it('统一白卡留白、分页固定底距并仅开放内部横向滚动条', () => {
     expect(managementTableSource).toMatch(/\.table-surface\s*\{[^}]*padding: var\(--performance-table-viewport-padding\)[^}]*overflow: hidden/s)
     expect(managementTableSource).toMatch(/\.table-surface \.table-pagination\s*\{[^}]*flex-shrink: 0[^}]*margin: var\(--performance-table-pagination-gap\) 0 0/s)
-    expect(managementTableSource).toContain('.table-surface :deep(.el-scrollbar__bar) { display: none; }')
+    expect(managementTableSource).toContain('.table-surface :deep(.el-scrollbar__bar.is-vertical) { display: none; }')
+    expect(managementTableSource).toContain('.table-surface :deep(.el-scrollbar__bar.is-horizontal) { height: var(--performance-table-scrollbar-size); }')
+    expect(managementTableSource).toContain('.table-surface .table-scroll { min-width: 0; min-height: 0; overflow: hidden; }')
+    expect(managementTableSource).toContain('overflow: hidden !important;')
+    expect(managementTableSource).toContain('text-overflow: ellipsis !important;')
     expect(managementTableSource).toContain('scrollbar-width: none; overscroll-behavior: contain;')
     expect(peopleDepartmentTabsSource).toContain('sticky flush fill')
     expect(peopleDepartmentTabsSource).toContain('padding: var(--performance-table-page-top-gap) var(--performance-table-page-inset) var(--performance-table-page-bottom-gap)')
@@ -196,7 +300,12 @@ describe('周期人员和部门快照表格', () => {
     const tableColumns = wrapper.findAllComponents({ name: 'ElTableColumn' })
     expect(tableColumns).toHaveLength(columns)
     expect(tableColumns.slice(0, -1).every(column => Boolean(column.props('minWidth')))).toBe(true)
-    expect(tableColumns.at(-1)?.props()).toMatchObject({ label: '操作', fixed: 'right', width: '280' })
+    expect(table.props('fit')).toBe(false)
+    expect(tableColumns.slice(0, -1).every(column => column.props('align') === 'left' && column.props('headerAlign') === 'left')).toBe(true)
+    expect(tableColumns.slice(0, -1).every(column => !column.props('showOverflowTooltip'))).toBe(true)
+    expect(tableColumns[0]?.props('minWidth')).toBe('employee_no' in row ? 228 : 280)
+    expect(tableColumns[1]?.props('minWidth')).toBe('employee_no' in row ? 228 : 280)
+    expect(tableColumns.at(-1)?.props()).toMatchObject({ label: '操作', fixed: 'right', width: 280, minWidth: '280' })
     expect(wrapper.text()).toContain(text)
     if ('employee_no' in row) expect(wrapper.text()).toContain('平台组')
 

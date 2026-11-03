@@ -1264,7 +1264,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-list-panel .info { display: inline-flex; margin-left: var(--performance-info-icon-gap); color: var(--performance-info-icon-color); }
 .cycle-search-row { display: flex; align-items: center; width: 208px; height: 32px; margin-bottom: 16px; }
 .cycle-search-row :deep(.performance-search-input) { flex: 0 0 167px; width: 167px !important; }
-.cycle-search-row :deep(.search-icon) { width: 16px; height: 16px; }
+.cycle-search-row :deep(.search-input__icon) { width: 16px; height: 16px; }
 .cycle-search-row .filter-button { display: none; }
 .cycle-search-row .icon-button { display: grid; width: 32px; height: 32px; margin-left: 9px; place-items: center; padding: 0; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font-size: 22px; line-height: 22px; cursor: pointer; }
 .cycle-search-row .icon-button:hover { background: #f5f6f7; }

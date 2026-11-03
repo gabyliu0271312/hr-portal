@@ -16,18 +16,19 @@ const rows = ref<PerformanceCyclePerson[]>([])
 const loading = ref(false)
 
 const columns: PerformanceTableColumn[] = [
-  { key: 'display_name', label: '姓名' },
-  { key: 'direct_supervisor_name', label: '直属上级' },
-  { key: 'department', label: '一级部门' },
-  { key: 'leaf_department', label: '末级部门' },
+  { key: 'display_name', label: '姓名', width: 228 },
+  { key: 'direct_supervisor_name', label: '直属上级', width: 228 },
+  { key: 'department', label: '一级部门', width: 228 },
+  { key: 'leaf_department', label: '末级部门', width: 228 },
   { key: 'hrbp_name', label: 'HRBP' },
   { key: 'employee_type', label: '员工类型' },
-  { key: 'job_family', label: '职类' },
-  { key: 'job_category', label: '子职类' },
-  { key: 'standard_position', label: '岗位' },
+  { key: 'job_family', label: '职类', width: 228 },
+  { key: 'job_category', label: '子职类', width: 228 },
+  { key: 'standard_position', label: '岗位', width: 228 },
   { key: 'position_level', label: '职位层级' },
   { key: 'hire_date', label: '入职日期' },
 ]
+const columnMinWidths = [...columns.map(column => column.width ?? performanceColumnWidth(column.key)), 280]
 
 async function load() {
   loading.value = true
@@ -75,6 +76,7 @@ function leafDepartment(row: PerformanceCyclePerson): string {
   <div class="people-panel">
     <PerformanceManagementTable
       viewport-surface
+      :browser-column-min-widths="columnMinWidths"
       :rows="rows"
       :loading="loading"
       loading-text="加载中"
@@ -93,21 +95,25 @@ function leafDepartment(row: PerformanceCyclePerson): string {
       <template #toolbar>
         <PerformanceSearchInput v-model="keyword" placeholder="搜索姓名或工号" @search="onSearch" @clear="onSearch" />
       </template>
-      <el-table-column
-        v-for="column in columns"
-        :key="column.key"
-        :prop="column.key"
-        :label="column.label"
-        :min-width="performanceColumnWidth(column.key)"
-        show-overflow-tooltip
-      >
-        <template v-if="column.key === 'leaf_department'" #default="{ row }">
-          {{ leafDepartment(row as PerformanceCyclePerson) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
-        <template #default>—</template>
-      </el-table-column>
+      <template #default="{ columnWidths }">
+        <el-table-column
+          v-for="(column, index) in columns"
+          :key="column.key"
+          :prop="column.key"
+          :label="column.label"
+          :min-width="column.width ?? performanceColumnWidth(column.key)"
+          :width="columnWidths[index]"
+          align="left"
+          header-align="left"
+        >
+          <template v-if="column.key === 'leaf_department'" #default="{ row }">
+            {{ leafDepartment(row as PerformanceCyclePerson) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" :width="columnWidths[columns.length]" min-width="280" fixed="right">
+          <template #default>—</template>
+        </el-table-column>
+      </template>
     </PerformanceManagementTable>
   </div>
 </template>
