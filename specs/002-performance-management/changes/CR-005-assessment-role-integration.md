@@ -320,3 +320,22 @@ REA 复核（evidence `ev_d4d7e379…351d8`、`ev_7efd3ae7…35a3`）确认飞�
 3. 表头分隔线飞书为 `top:-1px` → 表头补 1px 上移。
 
 `is-ping-left` 由 `updateHscroll` 在 `body.scrollLeft > 0` 时挂到表格根节点，`scrollLeft` 归零即移除，与飞书一致。
+
+### 2026-11-03 补充：恢复 Tab 吸附 + 表头锁定基准对齐飞书采集参数
+
+REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登录态非无头捕获）：
+
+- 飞书三层 sticky 链（滚动容器内自顶向下）：Tab `ud__tabs pt-6 sticky z-30`（top:0）→ 遮罩 `sticky top:56px z-19` → 表头 `.ud__table-header` `sticky top:76px z-20`；表格容器 `height: calc(100% - 84px)` 证明 Tab 区固定高 84px，表头锁在 76px（与 Tab 底差 8px）→ **这正是"锁定的表头与选项卡之间漏出底部灰色容器"的根因**。
+- 本地方案 B（2026-10-30 补充二）因旧证据表头 `top:20px` 移除 Tab sticky，与新采集结构不符 → 恢复。
+
+改动（仅成员列表链，其他 page 模式使用方不受影响）：
+
+- `PerformanceLineTabs`：sticky 时 `top: 0`（对齐飞书，原 `-inset` 负偏移）、禁 wrap 换行（`flex-wrap: nowrap; overflow: hidden`），Tab 区保持固定高；
+- `ProjectManagement`：成员列表所在 `PerformanceLineTabs` 恢复 `sticky` prop；
+- `PerformanceManagementTable`：page 模式表头 `top` 改为 `var(--performance-table-sticky-top, 0px)`，默认 0px 等价现状（360°/reminder/授权记录不受影响）；
+- `ProjectMemberListPanel`：设 `--performance-table-sticky-top: var(--performance-tab-area-height)`（本地 Tab 区高 60px = padding-top 12 + tab 36 + margin-bottom 12），遮罩 `top: calc(sticky-top - 20px)` = 40px；
+- `tokens.css`：新增 `--performance-tab-area-height: 60px`，表头/遮罩基准单源。
+
+本地表头直接锁 60px（Tab 区底），相比飞书 76px/84px 的 8px 漏出直接消除灰色间隙。
+
+验证：LineTabs 8、ProjectManagement 21（含新增 sticky 基准断言）、ReminderPanel 16、Review 59、AuthorizationConfiguration 5 项通过；`vite build` 通过。工作区 5 个 settings/模板 spec 的 ElSelect 递归失败为改动前基线（stash 验证一致），与本次无关。

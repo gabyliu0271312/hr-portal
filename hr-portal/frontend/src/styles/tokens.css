@@ -133,6 +133,8 @@
   --performance-line-tabs-text: #1f2329;
   --performance-line-tabs-divider: rgba(31, 35, 41, 0.15);
   --performance-line-tabs-surface: var(--performance-page-surface);
+  /* 吸附式 line-tabs 的可视高度（padding-top 12 + tab 36 + margin-bottom 12）；表头/遮罩 sticky 以此为准对齐飞书 Tab 区结构 */
+  --performance-tab-area-height: 60px;
   --performance-page-title-size: 18px;
   --performance-page-title-weight: 600;
   --performance-page-title-line-height: 32px;

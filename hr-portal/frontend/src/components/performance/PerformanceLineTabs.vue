@@ -97,7 +97,8 @@ watch(() => [props.modelValue, props.tabs], async () => {
 
 <style scoped>
 .line-tabs { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.line-tabs.sticky .line-tabs-holder { position: sticky; top: calc(-1 * var(--performance-review-surface-inset)); z-index: 30; }
+.line-tabs.sticky .line-tabs-holder { position: sticky; top: 0; z-index: 30; }
+.line-tabs.sticky .line-tabs-overflow { flex-wrap: nowrap; overflow: hidden; }
 .line-tabs-holder { display: flex; position: relative; margin: 0 calc(-1 * var(--performance-review-surface-inset)); padding-top: 12px; padding-right: var(--performance-review-surface-inset); padding-left: var(--performance-review-surface-inset); background: var(--performance-line-tabs-surface); }
 .line-tabs.flush .line-tabs-holder { margin-right: 0; margin-left: 0; padding-right: 0; padding-left: 0; }
 .line-tabs-wrap { position: relative; flex: 1; min-width: 0; }

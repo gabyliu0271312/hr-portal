@@ -526,7 +526,7 @@ function jumpToPage() {
 .selection-bar-slide-enter-from, .selection-bar-slide-leave-to { transform: translateY(100%); opacity: 0; }
 /* 飞书同构原生表格（页面滚动模式） */
 .feishu-table { min-width: 0; }
-.feishu-table__header { position: sticky; top: calc(20px - var(--performance-table-container-padding, 0px)); z-index: 20; overflow: hidden; border-top: 1px solid rgba(31, 35, 41, 0.15); background: #fff; }
+.feishu-table__header { position: sticky; top: var(--performance-table-sticky-top, 0px); z-index: 20; overflow: hidden; border-top: 1px solid rgba(31, 35, 41, 0.15); background: #fff; }
 .feishu-table__body { overflow-x: auto; scrollbar-width: none; }
 .feishu-table__body::-webkit-scrollbar { display: none; }
 .feishu-hscroll { position: sticky; bottom: 0; z-index: 19; height: 10px; margin-top: 2px; opacity: 0; transition: opacity .15s ease; }
@@ -551,5 +551,5 @@ thead .feishu-cell.is-fixed-left { z-index: 3; }
 </style>
 
 <style>
-.is-page-scroll .feishu-table__header { position: sticky; top: calc(20px - var(--performance-table-container-padding, 0px)); z-index: 20; }
+.is-page-scroll .feishu-table__header { position: sticky; top: var(--performance-table-sticky-top, 0px); z-index: 20; }
 </style>

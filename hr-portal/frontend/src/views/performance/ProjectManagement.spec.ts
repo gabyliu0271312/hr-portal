@@ -21,6 +21,7 @@ vi.mock('@/api/performance', async () => {
 import ProjectManagement from './ProjectManagement.vue'
 import sidebarSource from '@/components/performance/PerformanceReviewCategorySidebar.vue?raw'
 import lineTabsSource from '@/components/performance/PerformanceLineTabs.vue?raw'
+import memberListPanelSource from '@/components/performance/ProjectMemberListPanel.vue?raw'
 import layoutSource from '@/layouts/PerformanceLayout.vue?raw'
 import { projectManagementApi as mockedApi } from '@/api/performance'
 
@@ -255,7 +256,7 @@ describe('ProjectManagement', () => {
     const tabs = wrapper.findAll('.line-tab')
     expect(tabs.map(item => item.text())).toEqual(['总览', '成员列表', '矩阵分析', '统计报表'])
     expect(tabs[0].classes()).toContain('active')
-    expect(wrapper.find('.line-tabs').classes()).not.toContain('sticky')
+    expect(wrapper.find('.line-tabs').classes()).toContain('sticky')
 
     const lineTabs = wrapper.findAllComponents({ name: 'PerformanceLineTabs' })
     expect(lineTabs).toHaveLength(1)
@@ -274,6 +275,19 @@ describe('ProjectManagement', () => {
     expect(wrapper.findComponent({ name: 'CompletionRatePanel' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'AuthorizationManagementPanel' }).exists()).toBe(false)
     expect(lineTabs[0].emitted('update:modelValue')).toEqual([['members']])
+  })
+
+  it('anchors the member table header below the sticky tabs per captured Feishu params', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ProjectMemberListPanel' }).exists()).toBe(true)
+    // Tab 恢复 sticky（采集：ud__tabs pt-6 sticky z-30），表头/遮罩相对 Tab 区底锁定（采集：header top 76px、mask top 56px）
+    expect(wrapper.find('.line-tabs').classes()).toContain('sticky')
+    expect(memberListPanelSource).toMatch(/--performance-table-sticky-top:\s*var\(--performance-tab-area-height\)/)
+    expect(memberListPanelSource).toMatch(/\.card-sticky-mask\s*\{[^}]*top:\s*calc\(var\(--performance-table-sticky-top, 0px\) - 20px\)/)
   })
 
   it('renders real completion data and hides reminder actions for a not-started node', async () => {

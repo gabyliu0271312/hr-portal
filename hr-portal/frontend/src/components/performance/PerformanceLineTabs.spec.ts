@@ -58,7 +58,9 @@ describe('PerformanceLineTabs', () => {
   it('applies sticky positioning only with the sticky prop', () => {
     const normal = mountTabs()
     expect(normal.find('.line-tabs-holder').classes()).not.toContain('sticky')
-    expect(performanceLineTabsSource).toMatch(/\.line-tabs\.sticky \.line-tabs-holder\s*\{[^}]*position:\s*sticky;[^}]*top:\s*calc\(-1 \* var\(--performance-review-surface-inset\)\);[^}]*z-index:\s*30/s)
+    expect(performanceLineTabsSource).toMatch(/\.line-tabs\.sticky \.line-tabs-holder\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*30/s)
+    // 吸附式 tabs 保持固定区高度（对齐飞书 Tab 区固定高），表头 sticky 以此为准
+    expect(performanceLineTabsSource).toMatch(/\.line-tabs\.sticky \.line-tabs-overflow\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*overflow:\s*hidden/s)
     const sticky = mountTabs('overview', { sticky: true })
     expect(sticky.find('.line-tabs').classes()).toContain('sticky')
   })
