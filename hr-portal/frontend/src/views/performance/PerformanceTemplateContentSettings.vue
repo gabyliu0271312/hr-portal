@@ -1118,65 +1118,7 @@ onMounted(async () => {
 .stage-card:hover .stage-card__executor,
 .stage-card.selected .stage-card__executor { color: #646a73; }
 
-.content-canvas {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 0 20px 20px;
-  box-sizing: border-box;
-  background: #f5f6f7;
-}
-
-.content-tabs {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  max-width: 800px;
-  height: 46px;
-  margin: 8px auto 0;
-}
-
-.content-tabs__divider {
-  position: absolute;
-  right: 0;
-  top: 46px;
-  left: 0;
-  z-index: 0;
-  height: var(--hairline);
-  background: rgba(31, 35, 41, 0.15);
-}
-
-.content-tab {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  max-width: 240px;
-  height: 46px;
-  margin-right: 28px;
-  padding: 12px 0;
-  box-sizing: border-box;
-  border: 0;
-  background: transparent;
-  color: #1f2329;
-  font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
-  transition: color 0.1s linear;
-  cursor: pointer;
-}
-
-.content-tab:last-of-type { margin-right: 0; }
-.content-tab--active { color: var(--color-primary); font-weight: 500; }
-.content-tab--active::after {
-  position: absolute;
-  right: 0;
-  bottom: 1px;
-  left: 0;
-  z-index: 2;
-  height: 3px;
-  background: var(--color-primary);
-  content: '';
-  transition: width 0.3s cubic-bezier(.34, .69, .1, 1), left 0.3s cubic-bezier(.34, .69, .1, 1);
-}
+/* 中栏滚动结构由 ContentSettingsStageRenderer.vue 承载（tab 栏与内容区兄弟化），此处不再重复定义 */
 
 .content-card { max-width: 800px; margin: 20px auto 0; border-radius: 8px; background: #fff; }
 .content-card--result { overflow: hidden; }

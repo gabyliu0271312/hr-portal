@@ -513,6 +513,32 @@ describe('PerformanceTemplateContentSettings', () => {
     ])
   })
 
+  it('keeps the content tab bar outside the scroll container so it never scrolls away', async () => {
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[0].trigger('click')
+    await flushPromises()
+    const canvas = wrapper.get('.content-canvas')
+    expect(canvas.element.children[0].classList.contains('content-tabs')).toBe(true)
+    expect(canvas.element.children[1].classList.contains('content-canvas__body')).toBe(true)
+    // tab 栏与内容区是兄弟节点，滚动条只长在内容区上
+    expect(wrapper.find('.content-canvas__body .content-tabs').exists()).toBe(false)
+    expect(wrapper.find('.content-canvas__body .content-pane').exists()).toBe(true)
+    // 切换标签时内容区回顶（找一个有两个 tab 的环节）
+    const stages = wrapper.findAll('.stage-card')
+    for (const stage of stages) {
+      await stage.trigger('click')
+      await flushPromises()
+      if (wrapper.findAll('.content-tab').length > 1) break
+    }
+    const body = wrapper.get('.content-canvas__body').element as HTMLElement
+    body.scrollTop = 240
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    await flushPromises()
+    expect(body.scrollTop).toBe(0)
+    wrapper.unmount()
+  })
+
   it('uses one stable content workspace frame across stages', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
