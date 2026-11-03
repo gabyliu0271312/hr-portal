@@ -55,9 +55,12 @@ async def test_org_directory_returns_healthy_tree():
         include_inactive=False, _=ACTOR, db=db,
     )
     codes = {node.code for node in out}
-    assert "RootOrg" not in codes
-    assert "A" in codes and "B" in codes
-    a = next(node for node in out if node.code == "A")
+    # 根组织（RootOrg）作为 level-0 顶层返回，业务一级挂其下
+    assert codes == {"RootOrg"}
+    root = out[0]
+    assert root.parent_id is None
+    assert {child.code for child in root.children} == {"A", "B"}
+    a = next(child for child in root.children if child.code == "A")
     assert [child.code for child in a.children] == ["A1"]
     assert a.children[0].is_active is True
     assert all(node.is_active for node in a.children)

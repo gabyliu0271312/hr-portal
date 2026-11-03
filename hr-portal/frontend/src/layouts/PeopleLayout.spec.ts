@@ -62,12 +62,22 @@ describe('PeopleLayout admin entry', () => {
     menus = [{ code: 'people.admin' }]
     const wrapper = mountLayout()
     expect(wrapper.text()).not.toContain('创梦人力后台')
-    expect(wrapper.text()).toContain('主数据概览')
-    expect(wrapper.text()).toContain('组织')
+    // /people/overview 激活 → 人员 tab 侧栏仅显示「人员信息」
+    expect(wrapper.text()).toContain('人员信息')
+    expect(wrapper.text()).not.toContain('组织架构')
     wrapper.unmount()
   })
 
   it('opens the settings admin shell in a new tab', () => {
     expect(peopleLayoutSource).toContain("window.open('/people/settings', '_blank', 'noopener')")
+  })
+
+  it('shows only 组织架构 sidebar on organization tab', () => {
+    route.path = '/people/organization'
+    menus = [{ code: 'people.admin' }]
+    const wrapper = mountLayout()
+    expect(wrapper.text()).toContain('组织架构')
+    expect(wrapper.text()).not.toContain('人员信息')
+    wrapper.unmount()
   })
 })

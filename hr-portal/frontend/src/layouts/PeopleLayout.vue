@@ -38,12 +38,12 @@
     <el-container class="people-body">
       <el-aside width="220px" class="people-aside">
         <div class="aside-title">创梦人力</div>
-        <div class="menu-item" :class="{ active: isActive('/people/overview') }" @click="router.push('/people/overview')">
-          主数据概览
-        </div>
-        <div class="menu-item" :class="{ active: isActive('/people/organization') }" @click="router.push('/people/organization')">
-          组织
-        </div>
+        <template v-if="isActive('/people/overview')">
+          <div class="menu-item active" @click="router.push('/people/overview')">人员信息</div>
+        </template>
+        <template v-else-if="isActive('/people/organization')">
+          <div class="menu-item active" @click="router.push('/people/organization')">组织架构</div>
+        </template>
       </el-aside>
 
       <el-main class="people-main">

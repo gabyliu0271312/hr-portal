@@ -100,7 +100,7 @@ async def get_org_directory(
     inactive_codes = {item["node_code"] for item in projections if not item["is_active"]}
     kept: list[OrgNode] = [
         row for row in rows
-        if row.code in {*active_codes, *inactive_codes}
+        if row.code in {*active_codes, *inactive_codes, "RootOrg"}
         and (include_inactive or row.code not in inactive_codes)
     ]
     # 根组织（RootOrg）作为 level-0 返回；前端默认仅展开根组织，一级可见、更深收起

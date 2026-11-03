@@ -128,7 +128,7 @@ function toggleExpand(row: Row) {
 </script>
 
 <style scoped>
-.org-table { width: 100%; min-width: 0; }
+.org-table { width: 100%; min-width: 0; flex: 1 1; min-height: 0; overflow: auto; }
 .org-table__grid { width: 100%; min-width: 1114px; table-layout: fixed; border-collapse: separate; border-spacing: 0; font: 400 14px/22px var(--font-sans); color: #1f2329; }
 .org-table__name-col { width: 220px; min-width: 220px; max-width: 220px; position: sticky; left: 0; z-index: 2; background: #fff; }
 .org-table__action-col { width: 194px; min-width: 194px; max-width: 194px; position: sticky; right: 0; z-index: 2; background: #fff; }
@@ -138,7 +138,7 @@ function toggleExpand(row: Row) {
 .org-table__name-col, .org-table__action-col { overflow: visible; }
 .org-table__row:hover > td { background: #eff0f1; }
 .org-table__row:hover > td.org-table__name-col, .org-table__row:hover > td.org-table__action-col { background: #eff0f1; }
-.org-table__cell--header { position: sticky; top: -20px; z-index: 3; overflow: visible; background: #f2f3f5; color: #646a73; font-weight: 400; }
+.org-table__cell--header { position: sticky; top: 0; z-index: 3; overflow: visible; background: #f2f3f5; color: #646a73; font-weight: 400; }
 .org-table__cell--header.org-table__name-col, .org-table__cell--header.org-table__action-col { background: #f2f3f5; }
 .org-table__name { display: flex; align-items: center; gap: 4px; min-width: 0; height: 51px; box-sizing: border-box; }
 .org-table__expand { display: grid; place-items: center; width: 18px; height: 18px; flex: 0 0 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #646a73; cursor: pointer; }
