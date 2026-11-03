@@ -25,7 +25,7 @@
       <div class="text-normal__divider" aria-hidden="true"></div>
       <div v-if="pageHeadingSelected" class="page-name-settings">
         <label class="page-name-settings__label" for="content-page-name">页面名称<svg class="page-name-settings__required" viewBox="0 0 8 8" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.964 5.816L4.378 4.668l.17 1.935H3.456l.171-1.935L2.04 5.816l-.54-.984 1.757-.827L1.5 3.178l.54-.991 1.586 1.175-.17-1.962h1.093l-.171 1.962 1.586-1.175.54.99-1.75.828 1.75.827-.54.984z" /></svg></label>
-        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked || !pageNameEditable" :invalid="Boolean(pageNameError)" />
+        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
       </div>
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
@@ -283,29 +283,39 @@ async function loadTagOptions() {
 const selectedStageData = computed(() => stages.value.find((stage) => stage.id === selectedStage.value) || null)
 const selectedStageTitle = computed(() => selectedStageData.value?.title || '')
 const selectedWorkflowNode = computed(() => workflowNodes.value.find(node => node.node_id === selectedStage.value))
-// 参考内容分组被选中时，页面名称展示并可编辑被引用环节的页面名称（未配置则回退到流程设置里的环节名称）。
+// 参考分组的页面名称属于引用视图本身（存 reference_settings.page_name），
+// 未设置时回退展示来源环节在流程设置里配置的环节名称，修改不会写回来源环节。
 const stagePageName = computed(() => selectedWorkflowNode.value?.content_page_name ?? (selectedStageData.value?.nodeType === 'result_view' ? '绩效结果' : selectedStageTitle.value))
 const referenceRegionSelected = computed(() => Boolean(selectedRegionId.value?.startsWith('reference:')))
-const selectedReferenceGroup = computed(() => {
-  if (!referenceRegionSelected.value) return null
-  const regionId = selectedRegionId.value!
-  return referenceGroups.value.find(group => `reference:${group.id}` === regionId) ?? null
+const selectedReferenceRelation = computed(() => {
+  const regionId = selectedRegionId.value
+  if (!regionId?.startsWith('reference:')) return null
+  return referenceRelations.value.find(relation => `reference:${referenceRelationId(relation)}` === regionId) ?? null
 })
-// 只有引用自流程节点的分组有可编辑的来源环节；OKR、团队统计等固定参考项无来源环节。
-const selectedReferenceGroupNode = computed(() => selectedReferenceGroup.value?.node ?? null)
-const pageNameEditable = computed(() => !referenceRegionSelected.value || Boolean(selectedReferenceGroupNode.value))
+const selectedReferenceGroupName = computed(() => {
+  const relation = selectedReferenceRelation.value
+  if (!relation) return null
+  return referenceGroups.value.find(group => group.id === referenceRelationId(relation))?.name ?? null
+})
+const selectedReferencePageName = computed(() => {
+  const relation = selectedReferenceRelation.value
+  if (!relation) return null
+  // 已显式设置过（含编辑中的空值）时保留原值，保证输入框可清空重填；仅未设置时回退到来源环节名。
+  const pageName = relation.reference_settings?.page_name
+  if (typeof pageName === 'string') return pageName
+  return selectedReferenceGroupName.value || ''
+})
 const contentPageName = computed({
-  get: () => {
-    const node = selectedReferenceGroupNode.value
-    if (node) return node.content_page_name ?? node.name ?? ''
-    if (selectedReferenceGroup.value) return selectedReferenceGroup.value.name
-    return stagePageName.value
-  },
+  get: () => selectedReferencePageName.value ?? stagePageName.value,
   set: (value: string) => {
     if (pageNameLocked.value) return
-    const target = selectedReferenceGroupNode.value ?? (referenceRegionSelected.value ? null : selectedWorkflowNode.value)
-    if (!target) return
-    target.content_page_name = value
+    const relation = selectedReferenceRelation.value
+    if (relation) {
+      relation.reference_settings = { ...(relation.reference_settings || {}), page_name: value }
+    } else {
+      if (!selectedWorkflowNode.value) return
+      selectedWorkflowNode.value.content_page_name = value
+    }
     pageNameError.value = ''
   },
 })
@@ -507,10 +517,12 @@ const referencePreviewContents = computed(() => isResultView.value ? resultRefer
 const referenceGroups = computed(() => referenceRelations.value.map(relation => {
   const source = workflowNodes.value.find(node => node.node_id === relation.reference_value)
   const contents = referencePreviewContents.value.filter(content => relation.reference_kind === 'node' ? referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation) : contentIdentity(content) === contentIdentity(relation))
-  return { id: referenceRelationId(relation), name: source?.name || relation.name, node: relation.reference_kind === 'node' ? source ?? null : null, contents }
+  const name = source?.name || relation.name
+  const configuredPageName = relation.reference_settings?.page_name
+  return { id: referenceRelationId(relation), name, pageName: typeof configuredPageName === 'string' ? configuredPageName : name, contents }
 }))
 const contentRegions = computed(() => {
-  const regions = referenceGroups.value.map(group => ({ id: `reference:${group.id}`, kind: 'reference', name: group.name }))
+  const regions = referenceGroups.value.map(group => ({ id: `reference:${group.id}`, kind: 'reference', name: group.pageName || group.name }))
   if (!isResultView.value) return regions
   const all = [{ id: 'result', kind: 'result', name: stagePageName.value }, ...regions]
   const order = selectedWorkflowNode.value?.content_region_order || []
@@ -883,7 +895,32 @@ async function save() {
     document.getElementById('content-page-name')?.focus()
     throw new Error(pageNameError.value)
   }
-  const nodes = cloneContent(workflowNodes.value.map((node) => ({ ...node, ...(node.content_page_name != null ? { content_page_name: node.content_page_name.trim() } : {}), content: node.content ? node.content.map((content) => ({ ...content, items: content.items || [] })) : [] })))
+  // 参考分组的页面名称只作用于该引用视图：保存前校验并在出错时定位到对应分组。
+  const invalidReferencePage = workflowNodes.value.flatMap(node => (node.content || [])
+    .filter(content => (content.content_slot === 'reference') && typeof content.reference_settings?.page_name === 'string' && (!content.reference_settings.page_name.trim() || content.reference_settings.page_name.trim().length > 100))
+    .map(content => ({ node, content })))[0]
+  if (invalidReferencePage?.node.node_id) {
+    selectStage(invalidReferencePage.node.node_id)
+    await nextTick()
+    if (!isResultView.value && availableTabs.value.some(tab => tab.key === 'reference')) handleTabChange('reference')
+    await nextTick()
+    selectContentRegion(`reference:${referenceRelationId(invalidReferencePage.content)}`)
+    pageNameError.value = '页面名称长度必须为 1-100'
+    await nextTick()
+    document.getElementById('content-page-name')?.focus()
+    throw new Error(pageNameError.value)
+  }
+  const nodes = cloneContent(workflowNodes.value.map((node) => ({
+    ...node,
+    ...(node.content_page_name != null ? { content_page_name: node.content_page_name.trim() } : {}),
+    content: node.content ? node.content.map((content) => ({
+      ...content,
+      items: content.items || [],
+      ...(typeof content.reference_settings?.page_name === 'string'
+        ? { reference_settings: { ...content.reference_settings, page_name: content.reference_settings.page_name.trim() } }
+        : {}),
+    })) : [],
+  })))
   const response = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes, content_library: cloneContent(contentLibrary.value) })
   applyWorkflowNodes(response.nodes || [], response.content_library || [])
   loadSelectedStageContents()

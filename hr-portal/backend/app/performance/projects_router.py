@@ -372,10 +372,13 @@ async def _reference_tabs(
             schema, visible_answers = project_reference_content(source_template, relation, visible_answers)
         else:
             schema, visible_answers = [], {}
+        # 参考内容展示名优先使用引用视图自身的页面名称（reference_settings.page_name），
+        # 未配置时回退到来源环节名称，与配置态保持一致。
+        reference_page_name = str((relation.get("reference_settings") or {}).get("page_name") or "").strip()
         result.append({
             "key": f"reference-{reference_node.node_id}",
             "node_id": reference_node.node_id,
-            "node_name": reference_node.name,
+            "node_name": reference_page_name or reference_node.name,
             "task_id": source.id if source is not None else None,
             "employee_no": task.target_employee_no,
             "status": status,

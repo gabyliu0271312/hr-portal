@@ -322,7 +322,18 @@ def _validate_reference_contents(nodes: list[dict]) -> None:
     nodes_by_id = {str(node["node_id"]): node for node in nodes}
     for node in nodes:
         for content in node.get("content") or []:
-            if (content.get("content_slot") or "fill") != "reference" or content.get("reference_kind") != "node":
+            if (content.get("content_slot") or "fill") != "reference":
+                continue
+            # 引用视图自身的页面名称（只作用于该引用，不写回来源环节），任意参考项都可设置。
+            page_name = (content.get("reference_settings") or {}).get("page_name")
+            if page_name is not None:
+                if not isinstance(page_name, str) or not page_name.strip() or len(page_name.strip()) > 100:
+                    raise TemplateWorkflowValidationError(
+                        "参考内容页面名称长度必须为 1-100",
+                        node_id=node["node_id"],
+                    )
+                content["reference_settings"]["page_name"] = page_name.strip()
+            if content.get("reference_kind") != "node":
                 continue
             source_id = str(content.get("reference_value") or "")
             source = nodes_by_id.get(source_id)

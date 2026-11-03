@@ -4053,6 +4053,41 @@ async def test_reference_tabs_project_relation_settings_and_keep_projected_answe
     assert (node.config, source_node.config, source.answers) == before
 
 
+async def test_reference_tab_prefers_relation_page_name_over_source_stage_name():
+    from datetime import UTC, datetime
+    from app.performance import projects_router
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+
+    content = {
+        "content_id": "block", "content_slot": "fill", "type": "custom",
+        "name": "模块名称", "description": "", "items": [{"id": "visible", "label": "题", "settings": {"mode": "fill"}}],
+    }
+    relation = {
+        "content_slot": "reference", "reference_kind": "node", "reference_value": "source",
+        "reference_settings": {"page_name": "引用视图名称", "content_settings": {}},
+    }
+    node = SimpleNamespace(node_id="target", node_type="evaluation", config={"template": {"content": [relation]}})
+    source_node = SimpleNamespace(id=32, node_id="source", node_type="work_summary", name="来源节点", config={"template": {"content": [content]}})
+    task = SimpleNamespace(member_snapshot_id=21, target_employee_no="E001", handler_ref="M001")
+    source = SimpleNamespace(id=11, status="completed", submitted_at=datetime.now(UTC), answers={"visible": "答"})
+    project = SimpleNamespace(id=3)
+
+    class Db:
+        async def get(self, *_args):
+            return None
+
+        async def execute(self, statement):
+            model = statement.column_descriptions[0]["entity"]
+            values = [source_node] if model is PerformanceProjectNodeSnapshot else [source]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+
+    tabs = await projects_router._reference_tabs(task, node, project, "M001", Db())
+    assert tabs[0]["node_name"] == "引用视图名称"
+    relation["reference_settings"].pop("page_name")
+    tabs = await projects_router._reference_tabs(task, node, project, "M001", Db())
+    assert tabs[0]["node_name"] == "来源节点"
+
+
 def test_task_content_page_name_prefers_snapshot_then_falls_back_without_renaming_node():
     from app.performance.projects_router import _task_content_page_name
 

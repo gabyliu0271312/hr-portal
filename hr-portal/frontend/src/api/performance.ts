@@ -1484,6 +1484,8 @@ export interface PerformanceTemplateContent {
   reference_value?: string
   reference_source_content_id?: string
   reference_settings?: {
+    /** 引用视图自身的页面名称，只作用于该引用，不写回来源环节。 */
+    page_name?: string
     content_settings?: Record<string, { root?: PerformanceReferenceDisplaySettings; items?: Record<string, PerformanceReferenceDisplaySettings> }>
   }
   settings?: {

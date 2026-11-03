@@ -1617,7 +1617,7 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
-  it('edits the referenced stage page name from the reference region', async () => {
+  it('edits the reference view page name without touching the source stage', async () => {
     const sourceContent = { content_id: 'eval-text', content_slot: 'fill', type: 'custom', name: '评估填写', description: '', items: [{ id: 'eval-item', label: '评估题', hint: '' }] }
     const nodes = [
       { ...mockNodes[0], content: [sourceContent] },
@@ -1628,7 +1628,7 @@ describe('PerformanceTemplateContentSettings', () => {
     ]
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
     const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
-    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.findAll('.stage-card')[1].trigger('click')
     const regions = wrapper.findAll('[data-region-id]')
@@ -1637,17 +1637,49 @@ describe('PerformanceTemplateContentSettings', () => {
     expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('工作总结环节')
     expect(wrapper.get('#content-page-name').attributes('disabled')).toBeUndefined()
     await wrapper.get('#content-page-name').setValue('参考环节页面')
-    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('参考环节页面')
+    expect(wrapper.get('.reference-content-group h2').text()).toBe('参考环节页面')
     await (wrapper.vm as any).save()
     const saved = update.mock.calls.at(-1)![1]
-    expect(saved.nodes[0].content_page_name).toBe('参考环节页面')
+    expect(saved.nodes[1].content![0].reference_settings?.page_name).toBe('参考环节页面')
+    expect(saved.nodes[1].content![0].name).toBe('工作总结环节')
+    expect(saved.nodes[0].content_page_name).toBeUndefined()
     expect(saved.nodes[1].content_page_name).toBeUndefined()
-    await regions[2].trigger('click')
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(structuredClone(saved) as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.get('.reference-content-group h2').text()).toBe('参考环节页面')
+    await wrapper.findAll('[data-region-id]')[1].trigger('click')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('参考环节页面')
+    await wrapper.findAll('[data-region-id]')[2].trigger('click')
     expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('OKR')
-    expect(wrapper.get('#content-page-name').attributes('disabled')).toBeDefined()
-    await regions[0].trigger('click')
-    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('绩效结果')
     expect(wrapper.get('#content-page-name').attributes('disabled')).toBeUndefined()
+    await wrapper.findAll('[data-region-id]')[0].trigger('click')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('绩效结果')
+    wrapper.unmount()
+  })
+
+  it('edits the reference view page name inside the calibration reference tab', async () => {
+    const nodes = [
+      { ...mockNodes[6], include_final_result: true, content: [{ content_id: 'eval-text', content_slot: 'fill', type: 'custom', name: '评估填写', description: '', items: [{ id: 'eval-item', label: '评估题', hint: '' }] }] },
+      { ...mockNodes[4], content: [{ content_id: 'reference-n6', content_slot: 'reference', type: 'reference', name: '结果沟通', reference_kind: 'node', reference_value: 'n6', items: [] }] },
+    ]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    await wrapper.findAll('.content-tab')[1].trigger('click')
+    await wrapper.get('[data-region-id="reference:reference-n6"]').trigger('click')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).value).toBe('结果沟通')
+    await wrapper.get('#content-page-name').setValue('校准参考页')
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    const relation = saved.nodes[1].content!.find((content: any) => content.content_slot === 'reference')
+    expect(relation.reference_settings.page_name).toBe('校准参考页')
+    expect(saved.nodes[0].content_page_name).toBeUndefined()
+    expect(saved.nodes[1].content_page_name).toBeUndefined()
     wrapper.unmount()
   })
 

@@ -397,6 +397,51 @@ async def test_service_rejects_invalid_reference_display_settings(workflow_save_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('page_name', ['', '   ', 'x' * 101, 123, None])
+async def test_service_rejects_invalid_reference_page_name(workflow_save_setup, page_name):
+    service, db = workflow_save_setup
+    source = {**_evaluation('source', '实线上级'), 'include_final_result': True}
+    target = {**_evaluation('target', '实线上级'), 'content': [{
+        'content_id': 'ref', 'content_slot': 'reference', 'type': 'reference', 'items': [],
+        'reference_kind': 'node', 'reference_value': 'source',
+        'reference_settings': {'page_name': page_name, 'content_settings': {}},
+    }]}
+    if page_name is None:
+        await service.save_nodes(77, [source, target], actor_type='PORTAL_USER', actor_ref='9')
+        assert db.commits == 1
+        return
+    with pytest.raises(TemplateWorkflowValidationError, match='参考内容页面名称长度必须为 1-100'):
+        await service.save_nodes(77, [source, target], actor_type='PORTAL_USER', actor_ref='9')
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_reference_page_name_belongs_to_relation_only(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
+    monkeypatch.setattr(templates_router, 'PerformanceTemplateWorkflowService', lambda _db: service)
+    source = {**_evaluation('source', '实线上级'), 'include_final_result': True, 'name': '来源环节'}
+    target = {**_evaluation('target', '360°评估人'), 'content': [{
+        'content_id': 'ref', 'content_slot': 'reference', 'type': 'reference', 'items': [],
+        'reference_kind': 'node', 'reference_value': 'source',
+        'reference_settings': {'page_name': '  引用视图页面  ', 'content_settings': {}},
+    }]}
+    payload = WorkflowUpdate.model_validate({'nodes': [source, target]})
+    await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    record = db.workflow
+    assert isinstance(record, PerformanceTemplateWorkflow)
+    record.cycle_count = 0
+    record.project_count = 0
+    db.workflow = record
+    reopened = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+    relation = reopened.nodes[1].content[0]
+    assert relation['reference_settings']['page_name'] == '引用视图页面'
+    assert relation['name'] == '来源环节'
+    assert reopened.nodes[0].content_page_name is None
+    assert reopened.nodes[1].content_page_name is None
+
+
+@pytest.mark.asyncio
 async def test_workflow_reference_patch_get_preserves_relation_overrides_and_source(workflow_save_setup, monkeypatch):
     service, db = workflow_save_setup
     db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=0, project_count=0)
