@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import SearchInput from '@/components/common/SearchInput.vue'
+import DataTable from '@/components/common/DataTable.vue'
 import OrganizationTree from '@/components/master-data/OrganizationTree.vue'
 import PageTitle from '@/components/common/PageTitle.vue'
 import { treesApi, type TreeNode } from '@/api/data'
@@ -65,16 +66,18 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 
       <template v-else>
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
-        <div v-else class="organization__toolbar">
-          <div class="organization__search">
-            <PerformanceSearchInput v-model="keyword" placeholder="搜索" />
+        <DataTable v-else>
+          <template #toolbar>
+            <div class="organization__search">
+              <SearchInput v-model="keyword" placeholder="搜索" />
+            </div>
+            <el-checkbox v-model="includeInactive" :disabled="loading">含停用组织</el-checkbox>
+          </template>
+          <div v-loading="loading" class="organization__tree">
+            <OrganizationTree v-if="visibleTrees.length" :nodes="visibleTrees" :searching="searching" />
+            <el-empty v-else-if="!loading" description="暂无组织。组织由后端同步后显示在此。" />
           </div>
-          <el-checkbox v-model="includeInactive" :disabled="loading">含停用组织</el-checkbox>
-        </div>
-        <div v-loading="loading" class="organization__tree">
-          <OrganizationTree v-if="visibleTrees.length" :nodes="visibleTrees" :searching="searching" />
-          <el-empty v-else-if="!loading" description="暂无组织。组织由后端同步后显示在此。" />
-        </div>
+        </DataTable>
       </template>
     </div>
   </div>
@@ -83,8 +86,7 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 <style scoped>
 .organization { display: flex; flex-direction: column; box-sizing: border-box; height: 100%; min-width: 0; padding: 20px 20px 0; background: #f5f6f7; }
 .organization__card { display: flex; flex-direction: column; flex: 1 1; min-width: 0; min-height: 0; padding: 20px; box-sizing: border-box; background: #fff; border-radius: 8px 8px 0 0; }
-.organization__card > :not(:first-child) { margin-top: 16px; }
-.organization__toolbar { display: flex; align-items: center; gap: 12px; }
+.organization__card > .el-alert { margin-top: 16px; }
 .organization__search { width: 310px; }
 .organization__tree { display: flex; flex: 1 1; min-width: 0; min-height: 0; }
 

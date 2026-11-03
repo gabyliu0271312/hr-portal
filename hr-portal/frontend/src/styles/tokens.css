@@ -150,6 +150,20 @@
   --page-title-desc-color: #999999;
   --page-title-gap-with-desc: 12px;
   --page-title-gap-bottom: 8px;
+  /* 通用控件 token（值沿用绩效基线，跨模块共享）；页面级间距 token 见下方 */
+  --control-height: var(--performance-control-height);
+  --control-radius: var(--performance-control-radius);
+  --control-border: var(--performance-control-border);
+  --control-focus-border: var(--performance-control-focus-border);
+  --input-padding-x: var(--performance-input-padding-x);
+  --input-line-height: var(--performance-input-line-height);
+  --input-compact-height: var(--performance-input-compact-height);
+  --field-label-gap: var(--performance-field-label-gap);
+  --icon-size: var(--performance-icon-size);
+  --button-radius: var(--performance-button-radius);
+  /* 页面纵排间距（飞书 title-description 12px / toolbar-table 16px） */
+  --page-gap-title-desc: 12px;
+  --page-gap-toolbar-table: 16px;
   --performance-switch-width: 28px;
   --performance-switch-height: 16px;
   --performance-switch-handler-size: 12px;
