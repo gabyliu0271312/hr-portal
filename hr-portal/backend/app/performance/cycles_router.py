@@ -1,7 +1,7 @@
 ﻿"""Performance cycle configuration API."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -126,6 +126,7 @@ class CyclePerson(BaseModel):
     is_manually_maintained: bool
     direct_supervisor_name: str | None = None
     hrbp_name: str | None = None
+    has_change: bool = False
 
 
 class CyclePersonPage(BaseModel):
@@ -133,6 +134,34 @@ class CyclePersonPage(BaseModel):
     total: int
     offset: int
     limit: int
+    can_update: bool = False
+
+
+class CyclePersonChangeItem(BaseModel):
+    employee_no: str | None = None
+    field: str
+    label: str
+    before: str | None = None
+    after: str | None = None
+
+
+class CyclePersonChangeRecord(BaseModel):
+    event_id: int
+    event_at: str
+    event_type: str
+    actor_type: str
+    actor_ref: str
+    changes: list[CyclePersonChangeItem]
+
+
+class PersonInfoUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    update_fields: list[Literal["job_family", "position_level", "direct_supervisor", "department"]] = Field(min_length=1)
+
+
+class CyclePersonInfoUpdateResult(BaseModel):
+    changed: list[CyclePersonChangeItem]
+    person: CyclePerson
 
 
 class CycleDepartmentItem(BaseModel):
@@ -653,7 +682,11 @@ async def get_cycle_people(
     service = PerformanceCycleService(db)
     cycle = await service.get_cycle(cycle_id)
     await _assert_people_permission(context)
-    return await service.people_for_cycle(cycle)
+    people = await service.people_for_cycle(cycle)
+    changed_nos = await service.changed_employee_nos(cycle)
+    for person in people:
+        person["has_change"] = person["employee_no"] in changed_nos
+    return people
 
 
 @router.get("/{cycle_id}/people/page", response_model=CyclePersonPage)
@@ -677,12 +710,63 @@ async def page_cycle_people(
         hrbp = person.get("hrbp_employee_no")
         if hrbp:
             person["hrbp_name"] = names_by_employee.get(hrbp, hrbp)
+    changed_nos = await service.changed_employee_nos(cycle)
+    for person in people:
+        person["has_change"] = person["employee_no"] in changed_nos
     if keyword and keyword.strip():
         pattern = keyword.strip().casefold()
         people = [person for person in people if pattern in person["display_name"].casefold() or pattern in person["employee_no"].casefold()]
     total = len(people)
     items = people[offset : offset + limit]
-    return {"items": items, "total": total, "offset": offset, "limit": limit}
+    can_update = datetime.now(timezone.utc) < cycle.start_at.astimezone(timezone.utc)
+    return {"items": items, "total": total, "offset": offset, "limit": limit, "can_update": can_update}
+
+
+@router.get("/{cycle_id}/people/{employee_no}/change-records", response_model=list[CyclePersonChangeRecord])
+async def get_cycle_person_change_records(
+    cycle_id: int,
+    employee_no: str,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    service = PerformanceCycleService(db)
+    cycle = await service.get_cycle(cycle_id)
+    await _assert_people_permission(context)
+    return await service.person_change_records(cycle, employee_no)
+
+
+@router.post("/{cycle_id}/people/{employee_no}/update-info", response_model=CyclePersonInfoUpdateResult)
+async def update_cycle_person_info(
+    cycle_id: int,
+    employee_no: str,
+    payload: PersonInfoUpdateIn,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    service = PerformanceCycleService(db)
+    cycle = await service.get_cycle(cycle_id)
+    await _assert_people_permission(context)
+    try:
+        changed = await service.update_person_info_from_roster(
+            cycle, employee_no, list(payload.update_fields),
+            actor_type=context.subject_type, actor_id=context.subject_id,
+        )
+    except CycleValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT if "已开始" in str(exc) else status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    people = await service.people_for_cycle(cycle)
+    names_by_employee = {person["employee_no"]: person["display_name"] for person in people}
+    changed_nos = await service.changed_employee_nos(cycle)
+    person = next((item for item in people if item["employee_no"] == employee_no), None)
+    if person is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期人员不存在")
+    supervisor = person.get("direct_supervisor_employee_no")
+    if supervisor:
+        person["direct_supervisor_name"] = names_by_employee.get(supervisor, supervisor)
+    hrbp = person.get("hrbp_employee_no")
+    if hrbp:
+        person["hrbp_name"] = names_by_employee.get(hrbp, hrbp)
+    person["has_change"] = True if changed else employee_no in changed_nos
+    return {"changed": changed, "person": person}
 
 
 @router.get("/{cycle_id}/departments/page", response_model=CycleDepartmentPage)

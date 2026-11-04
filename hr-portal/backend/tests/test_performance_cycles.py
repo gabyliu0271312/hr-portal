@@ -411,6 +411,9 @@ async def test_cycle_people_route_allows_only_cycle_managers(monkeypatch):
         async def people_for_cycle(self, _cycle):
             return []
 
+        async def changed_employee_nos(self, _cycle):
+            return set()
+
     monkeypatch.setattr(cycles_router, "PerformanceCycleService", lambda _db: FakeService())
     cycle = PerformanceAccessContext(
         subject_type="PORTAL_USER", subject_id=1, display_name="管理员", account_type=None,
@@ -762,3 +765,165 @@ async def test_cycle_template_validation_preserves_inactive_existing_but_rejects
         await service.validate_templates({"template_ids": [3]}, cycle)
     with pytest.raises(CycleValidationError, match="已被项目使用"):
         await service.validate_templates({"template_ids": [2]}, cycle)
+
+
+# ---------- 人员信息更新 / 变更记录 ----------
+
+
+class _ScalarsResult:
+    def __init__(self, items):
+        self._items = items
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: list(self._items))
+
+
+class _SeqDb:
+    """按顺序返回 execute 结果的假异步会话。"""
+
+    def __init__(self, results):
+        self.results = list(results)
+        self.committed = False
+
+    async def execute(self, _statement):
+        return self.results.pop(0)
+
+    async def commit(self):
+        self.committed = True
+
+
+def _audit_event(event_id, event_at, event_type, after_state):
+    return SimpleNamespace(id=event_id, event_at=event_at, event_type=event_type, actor_type="PORTAL_USER", actor_ref="7", after_state=after_state)
+
+
+def _change_service(events):
+    service = PerformanceCycleService.__new__(PerformanceCycleService)
+    service.db = _SeqDb([_ScalarsResult(events)])
+    service.audit = SimpleNamespace(append_event=lambda event: None)
+    return service
+
+
+def test_person_info_update_payload_rejects_unknown_and_empty_fields():
+    from app.performance.cycles_router import PersonInfoUpdateIn
+
+    payload = PersonInfoUpdateIn(update_fields=["job_family", "position_level", "direct_supervisor", "department"])
+    assert payload.update_fields == ["job_family", "position_level", "direct_supervisor", "department"]
+    with pytest.raises(ValidationError):
+        PersonInfoUpdateIn(update_fields=[])
+    with pytest.raises(ValidationError):
+        PersonInfoUpdateIn(update_fields=["salary"])
+    with pytest.raises(ValidationError):
+        PersonInfoUpdateIn(update_fields=["job_family"], extra="x")
+
+
+async def test_changed_employee_nos_and_change_records_flatten_both_audit_shapes():
+    events = [
+        _audit_event(1, datetime(2026, 2, 1, 10, 0, tzinfo=timezone.utc), "PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED", {
+            "changes": [{"employee_no": "E001", "field": "job_family", "label": "职类（序列）", "before": "技术", "after": "产品"}],
+        }),
+        _audit_event(2, datetime(2026, 2, 2, 10, 0, tzinfo=timezone.utc), "PERFORMANCE_CYCLE_PEOPLE_MANUALLY_UPDATED", {
+            "changes": [
+                {"employee_no": "E001", "before": {"job_family": "产品", "position_level": None, "is_manually_maintained": False}, "after": {"job_family": "产品", "position_level": "P6", "is_manually_maintained": True}},
+                {"employee_no": "E002", "field": "job_family", "before": "A", "after": "B"},
+            ],
+        }),
+    ]
+    cycle = SimpleNamespace(cycle_ref="cycle:test")
+    service = _change_service(events)
+    assert await service.changed_employee_nos(cycle) == {"E001", "E002"}
+
+    service = _change_service(events)
+    records = await service.person_change_records(cycle, "E001")
+    assert [record["event_id"] for record in records] == [1, 2]
+    assert records[0]["changes"] == [
+        {"employee_no": "E001", "field": "job_family", "label": "职类（序列）", "before": "技术", "after": "产品"},
+    ]
+    # 手工维护形态：全量快照差分出变更字段，跳过未变化与无标签字段
+    assert [entry["field"] for entry in records[1]["changes"]] == ["position_level"]
+    assert records[1]["changes"][0]["after"] == "P6"
+
+
+async def test_update_person_info_from_roster_applies_selected_dimensions_and_audits(monkeypatch):
+    from app.performance.cycle_service import organization_path  # noqa: F401  确认可导入
+
+    person = SimpleNamespace(
+        employee_no="E001", display_name="张三", company_org=None, department="旧一级部门", department_2=None,
+        department_3=None, department_4=None, department_5=None, organization_ref="旧一级部门",
+        direct_supervisor_employee_no="E009", direct_supervisor_source_value=None, hrbp_employee_no=None,
+        employee_type=None, employment_status=None, job_family="技术", job_category=None,
+        standard_position=None, position_level="P5", hire_date=None, departure_date=None,
+        is_manually_maintained=False,
+    )
+    snapshot = SimpleNamespace(id=11, cycle_ref="cycle:test")
+    others = [
+        person,
+        SimpleNamespace(employee_no="E002", display_name="李四"),
+        SimpleNamespace(employee_no="E009", display_name="王九"),
+    ]
+
+    class RosterRow:
+        employee_no = "E001"
+        display_name = "张三"
+        job_family = "产品"
+        job_category = None
+        standard_position = None
+        position_level = "P6"
+        company_org = None
+        department = "新一级部门"
+        department_2 = None
+        department_3 = None
+        department_4 = None
+        department_5 = None
+        direct_supervisor_source_value = "李四"
+        hrbp_source_value = None
+        employee_type = None
+        employment_status = None
+        hire_date = None
+        departure_date = None
+
+    cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) + timedelta(days=1))
+
+    class _SnapshotResult:
+        def scalar_one_or_none(self):
+            return snapshot
+
+    class _PeopleResult:
+        def scalars(self):
+            return others
+
+    db = _SeqDb([_SnapshotResult(), _PeopleResult()])
+    service = PerformanceCycleService.__new__(PerformanceCycleService)
+    service.db = db
+    recorded: list = []
+    service.audit = SimpleNamespace(append_event=lambda event: recorded.append(event))
+
+    async def _fake_roster_inputs(_cycle):
+        return [RosterRow(), SimpleNamespace(employee_no="E002"), SimpleNamespace(employee_no="E009")]
+
+    monkeypatch.setattr(service, "_load_roster_inputs", _fake_roster_inputs)
+
+    changed = await service.update_person_info_from_roster(
+        cycle, "E001", ["job_family", "position_level", "direct_supervisor", "department"],
+        actor_type="PORTAL_USER", actor_id=7,
+    )
+
+    fields = {entry["field"] for entry in changed}
+    assert fields == {"job_family", "position_level", "direct_supervisor_employee_no", "department", "organization_ref"}
+    assert person.job_family == "产品"
+    assert person.position_level == "P6"
+    assert person.direct_supervisor_employee_no == "E002"
+    assert person.department == "新一级部门"
+    assert person.is_manually_maintained is True
+    assert db.committed is True
+    assert recorded and recorded[0].event_type == "PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED"
+
+
+async def test_update_person_info_rejects_started_cycle_and_unknown_dimensions():
+    cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) - timedelta(days=1))
+    service = PerformanceCycleService.__new__(PerformanceCycleService)
+    with pytest.raises(CycleValidationError, match="已开始"):
+        await service.update_person_info_from_roster(cycle, "E001", ["job_family"], actor_type="PORTAL_USER", actor_id=7)
+
+    future_cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) + timedelta(days=1))
+    with pytest.raises(CycleValidationError, match="不支持更新的信息维度"):
+        await service.update_person_info_from_roster(future_cycle, "E001", ["salary"], actor_type="PORTAL_USER", actor_id=7)

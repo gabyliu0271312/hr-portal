@@ -1797,6 +1797,7 @@ export interface PerformanceCyclePerson {
   is_manually_maintained: boolean
   direct_supervisor_name?: string | null
   hrbp_name?: string | null
+  has_change?: boolean
 }
 
 export interface PerformanceCyclePersonPage {
@@ -1804,6 +1805,29 @@ export interface PerformanceCyclePersonPage {
   total: number
   offset: number
   limit: number
+  can_update?: boolean
+}
+
+export interface PerformancePersonChangeItem {
+  employee_no: string | null
+  field: string
+  label: string
+  before: string | null
+  after: string | null
+}
+
+export interface PerformancePersonChangeRecord {
+  event_id: number
+  event_at: string
+  event_type: string
+  actor_type: string
+  actor_ref: string
+  changes: PerformancePersonChangeItem[]
+}
+
+export interface PerformancePersonInfoUpdateResult {
+  changed: PerformancePersonChangeItem[]
+  person: PerformanceCyclePerson
 }
 
 export interface PerformanceCycleDepartmentItem {
@@ -1914,6 +1938,14 @@ export const performanceCycleApi = {
   },
   async updatePerson(id: number, person: Partial<PerformanceCyclePerson> & Pick<PerformanceCyclePerson, 'employee_no'>, reason: string): Promise<PerformanceCycle> {
     const { data } = await api.patch<PerformanceCycle>(`/performance/cycles/${id}/people/manual`, { reason, people: [person] })
+    return data
+  },
+  async listPersonChangeRecords(id: number, employeeNo: string): Promise<PerformancePersonChangeRecord[]> {
+    const { data } = await api.get<PerformancePersonChangeRecord[]>(`/performance/cycles/${id}/people/${encodeURIComponent(employeeNo)}/change-records`)
+    return data
+  },
+  async updatePersonInfo(id: number, employeeNo: string, updateFields: Array<'job_family' | 'position_level' | 'direct_supervisor' | 'department'>): Promise<PerformancePersonInfoUpdateResult> {
+    const { data } = await api.post<PerformancePersonInfoUpdateResult>(`/performance/cycles/${id}/people/${encodeURIComponent(employeeNo)}/update-info`, { update_fields: updateFields })
     return data
   },
   async remove(id: number): Promise<void> {

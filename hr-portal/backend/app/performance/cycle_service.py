@@ -30,6 +30,7 @@ from app.performance.models import (
     CYCLE_PRE_LOCK_SYNC_MANUAL,
     CYCLE_STATUS_DRAFT,
     CYCLE_STATUS_LOCKED,
+    PerformanceAuditEvent,
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
@@ -44,6 +45,37 @@ from app.performance.snapshot_service import PerformanceAuthorizationSnapshotSer
 
 class CycleValidationError(ValueError):
     pass
+
+
+# 「更新人员信息」支持的维度（对齐 REA 提炼报告：序列/职级/直属上级/部门）
+PERSON_INFO_UPDATE_DIMENSIONS = ("job_family", "position_level", "direct_supervisor", "department")
+
+# 变更记录展示用字段标签
+PERSON_INFO_FIELD_LABELS = {
+    "display_name": "姓名",
+    "company_org": "一级组织",
+    "department": "一级部门",
+    "department_2": "二级部门",
+    "department_3": "三级部门",
+    "department_4": "四级部门",
+    "department_5": "五级部门",
+    "organization_ref": "部门路径",
+    "direct_supervisor_employee_no": "直属上级",
+    "hrbp_employee_no": "HRBP",
+    "employee_type": "员工类型",
+    "job_family": "职类（序列）",
+    "job_category": "子职类",
+    "standard_position": "岗位",
+    "position_level": "职位层级（职级）",
+    "hire_date": "入职日期",
+}
+
+# 会产生周期人员字段变更的审计事件类型（用于 hasChange 与变更记录）
+PEOPLE_CHANGE_EVENT_TYPES = (
+    "PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED",
+    "PERFORMANCE_CYCLE_PEOPLE_MANUALLY_UPDATED",
+    "PERFORMANCE_CYCLE_PEOPLE_UPDATED",
+)
 
 
 def _actor_ref(subject_id: int) -> str:
@@ -435,6 +467,183 @@ class PerformanceCycleService:
             self.audit.append_event(AuditEventInput(event_type="PERFORMANCE_CYCLE_PROJECT_MANAGERS_UPDATED", cycle_ref=locked.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), after_state={"reason": reason.strip(), "changes": changes}))
             await self.db.commit()
         return await self.people_for_cycle(locked)
+
+    @staticmethod
+    def _serialize_change_value(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value.isoformat()
+        return str(value)
+
+    async def _people_change_events(self, cycle: PerformanceCycle) -> list[PerformanceAuditEvent]:
+        statement = (
+            select(PerformanceAuditEvent)
+            .where(PerformanceAuditEvent.cycle_ref == cycle.cycle_ref)
+            .where(PerformanceAuditEvent.event_type.in_(PEOPLE_CHANGE_EVENT_TYPES))
+            .order_by(PerformanceAuditEvent.event_at.asc(), PerformanceAuditEvent.id.asc())
+        )
+        return list((await self.db.execute(statement)).scalars().all())
+
+    async def changed_employee_nos(self, cycle: PerformanceCycle) -> set[str]:
+        """本周期内发生过人员信息变更的员工编号集合（用于 hasChange）。"""
+        changed: set[str] = set()
+        for event in await self._people_change_events(cycle):
+            for change in (event.after_state or {}).get("changes") or []:
+                if isinstance(change, dict) and change.get("employee_no"):
+                    changed.add(str(change["employee_no"]))
+        return changed
+
+    @classmethod
+    def _flatten_change(cls, change: dict[str, Any]) -> list[dict[str, Any]]:
+        # 两种审计形态：
+        # - 扁平单字段：{employee_no, field, label, before, after}
+        # - 全量快照：{employee_no, before: {字段: 值}, after: {字段: 值}}（手工维护批量更新）
+        if isinstance(change.get("field"), str):
+            field = str(change["field"])
+            return [{
+                "employee_no": change.get("employee_no"),
+                "field": field,
+                "label": PERSON_INFO_FIELD_LABELS.get(field, field),
+                "before": cls._serialize_change_value(change.get("before")),
+                "after": cls._serialize_change_value(change.get("after")),
+            }]
+        before = change.get("before") if isinstance(change.get("before"), dict) else {}
+        after = change.get("after") if isinstance(change.get("after"), dict) else {}
+        entries: list[dict[str, Any]] = []
+        for field in dict.fromkeys([*before.keys(), *after.keys()]):
+            if field not in PERSON_INFO_FIELD_LABELS or before.get(field) == after.get(field):
+                continue
+            entries.append({
+                "employee_no": change.get("employee_no"),
+                "field": str(field),
+                "label": PERSON_INFO_FIELD_LABELS.get(str(field), str(field)),
+                "before": cls._serialize_change_value(before.get(field)),
+                "after": cls._serialize_change_value(after.get(field)),
+            })
+        return entries
+
+    async def person_change_records(self, cycle: PerformanceCycle, employee_no: str) -> list[dict[str, Any]]:
+        """按时间升序返回该员工在本周期内的信息变更记录。"""
+        records: list[dict[str, Any]] = []
+        for event in await self._people_change_events(cycle):
+            entries: list[dict[str, Any]] = []
+            for change in (event.after_state or {}).get("changes") or []:
+                if not isinstance(change, dict) or str(change.get("employee_no") or "") != employee_no:
+                    continue
+                entries.extend(self._flatten_change(change))
+            if entries:
+                records.append({
+                    "event_id": event.id,
+                    "event_at": event.event_at.isoformat(),
+                    "event_type": event.event_type,
+                    "actor_type": event.actor_type,
+                    "actor_ref": event.actor_ref,
+                    "changes": entries,
+                })
+        return records
+
+    async def update_person_info_from_roster(
+        self,
+        cycle: PerformanceCycle,
+        employee_no: str,
+        update_fields: list[str],
+        *,
+        actor_type: str,
+        actor_id: int,
+    ) -> list[dict[str, Any]]:
+        """从最新花名册把选中维度同步进本周期人员快照，返回变更明细。"""
+        if datetime.now(UTC) >= cycle.start_at.astimezone(UTC):
+            raise CycleValidationError("绩效环节已开始，不能更新锁定人员和部门信息")
+        unknown = sorted({field for field in update_fields if field not in PERSON_INFO_UPDATE_DIMENSIONS})
+        if unknown:
+            raise CycleValidationError(f"不支持更新的信息维度：{'、'.join(unknown)}")
+        if not update_fields:
+            raise CycleValidationError("请至少选择一个要更新的信息维度")
+        snapshot = (
+            await self.db.execute(
+                select(PerformanceAuthorizationSnapshot).where(
+                    PerformanceAuthorizationSnapshot.cycle_ref == cycle.cycle_ref
+                )
+            )
+        ).scalar_one_or_none()
+        if snapshot is None:
+            raise CycleValidationError("周期人员快照不存在")
+        people = list(
+            (
+                await self.db.execute(
+                    select(PerformanceAuthorizationSnapshotPerson).where(
+                        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id
+                    )
+                )
+            ).scalars()
+        )
+        person = next((row for row in people if row.employee_no == employee_no), None)
+        if person is None:
+            raise CycleValidationError(f"周期快照中不存在员工：{employee_no}")
+        roster_inputs = await self._load_roster_inputs(cycle)
+        roster = next((row for row in roster_inputs if row.employee_no == employee_no), None)
+        if roster is None:
+            raise CycleValidationError("最新花名册中未找到该员工，无法同步")
+
+        changes: list[dict[str, Any]] = []
+
+        def record_change(field: str, before: Any, after: Any) -> None:
+            changes.append({
+                "employee_no": employee_no,
+                "field": field,
+                "label": PERSON_INFO_FIELD_LABELS.get(field, field),
+                "before": self._serialize_change_value(before),
+                "after": self._serialize_change_value(after),
+            })
+
+        if "job_family" in update_fields and roster.job_family != person.job_family:
+            record_change("job_family", person.job_family, roster.job_family)
+            person.job_family = roster.job_family
+        if "position_level" in update_fields and roster.position_level != person.position_level:
+            record_change("position_level", person.position_level, roster.position_level)
+            person.position_level = roster.position_level
+        if "direct_supervisor" in update_fields:
+            source = roster.direct_supervisor_source_value
+            resolved: str | None = None
+            if source:
+                if any(row.employee_no == source for row in people):
+                    resolved = source
+                else:
+                    name_key = source.strip().casefold()
+                    matches = [row.employee_no for row in people if row.display_name and row.display_name.strip().casefold() == name_key]
+                    resolved = matches[0] if len(matches) == 1 else None
+                if resolved is None:
+                    raise CycleValidationError(f"直属上级「{source}」无法解析为周期内唯一员工")
+            if resolved != person.direct_supervisor_employee_no:
+                record_change("direct_supervisor_employee_no", person.direct_supervisor_employee_no, resolved)
+                person.direct_supervisor_employee_no = resolved
+                person.direct_supervisor_source_value = source
+        if "department" in update_fields:
+            org_changed = False
+            for field in ORGANIZATION_FIELDS:
+                value = getattr(roster, field)
+                if value != getattr(person, field):
+                    record_change(field, getattr(person, field), value)
+                    setattr(person, field, value)
+                    org_changed = True
+            if org_changed:
+                new_ref = organization_path(person)
+                if new_ref != person.organization_ref:
+                    record_change("organization_ref", person.organization_ref, new_ref)
+                person.organization_ref = new_ref
+        if not changes:
+            return []
+        person.is_manually_maintained = True
+        self.audit.append_event(AuditEventInput(
+            event_type="PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED",
+            cycle_ref=cycle.cycle_ref,
+            actor_type=actor_type,
+            actor_ref=_actor_ref(actor_id),
+            after_state={"reason": "更新人员信息（同步自最新花名册）", "changes": changes},
+        ))
+        await self.db.commit()
+        return changes
 
     async def delete_cycle(self, cycle: PerformanceCycle, *, actor_type: str, actor_id: int) -> None:
         locked_cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update())).scalar_one()
