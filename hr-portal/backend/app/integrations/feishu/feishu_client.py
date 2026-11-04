@@ -93,6 +93,31 @@ class FeishuClient:
             raise FeishuClientError(f"飞书接口错误: {msg} (code={data.get('code')})", data.get("code", -1))
         return data
 
+    async def get_json(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """通用 GET，携带 tenant_access_token（供 OKR 等只读 OpenAPI 使用）。
+
+        与 _post 的差异：只读接口不投递消息，因此不受通知投递保险丝约束；
+        身份切换期间仍然禁止调用，避免串号读取他人数据。
+        """
+        from app.identity_switch.service import current_switch
+        if current_switch.get() is not None:
+            raise FeishuClientError("身份切换期间禁止调用飞书接口")
+        token = await self._ensure_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{FEISHU_OPEN_API}{path}", params=params or {}, headers=headers)
+        try:
+            data = resp.json()
+        except ValueError as exc:  # 非 JSON（网关错误页等）
+            raise FeishuClientError(f"飞书接口返回非 JSON（HTTP {resp.status_code}）") from exc
+        if data.get("code") != 0:
+            msg = data.get("msg", "unknown error")
+            raise FeishuClientError(f"飞书接口错误: {msg} (code={data.get('code')})", data.get("code", -1))
+        return data
+
     async def send_text_to_user(self, open_id: str, text: str) -> dict:
         """向个人用户发送文本消息。"""
         return await self._post("/im/v1/messages?receive_id_type=open_id", {

@@ -312,8 +312,14 @@ async def _reference_tabs(
     template = await _self_summary_template(task, node, db)
     references = []
     seen_node_ids: set[str] = set()
+    has_okr_reference = False
+    okr_reference_name = "OKR"
     for content in template.get("content") or []:
         if (content.get("content_slot") or "fill") != "reference":
+            continue
+        if content.get("reference_kind") == "more" and str(content.get("reference_value") or "").strip() == "okr":
+            has_okr_reference = True
+            okr_reference_name = str((content.get("reference_settings") or {}).get("page_name") or content.get("name") or "OKR").strip() or "OKR"
             continue
         if content.get("reference_kind") != "node":
             continue
@@ -323,11 +329,22 @@ async def _reference_tabs(
         seen_node_ids.add(reference_node_id)
         references.append(reference_node_id)
 
-    if not references:
-        return []
-
-    result: list[dict] = []
-    result.extend(await _node_reference_tabs(task, node, project, actor_ref, db, template, references))
+    result = await _node_reference_tabs(task, node, project, actor_ref, db, template, references) if references else []
+    if has_okr_reference:
+        result.append({
+            "key": "reference-okr",
+            "kind": "okr",
+            "node_id": "",
+            "node_name": okr_reference_name,
+            "task_id": task.id,
+            "employee_no": task.target_employee_no,
+            "status": "not_started",
+            "submitted_at": None,
+            "form_schema": [],
+            "answers": {},
+            "can_remind": False,
+            "okr": None,
+        })
     return result
 
 

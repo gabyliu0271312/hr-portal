@@ -2135,9 +2135,8 @@ export const performanceProjectApi = {
 }
 
 export const performanceOkrApi = {
-  /** 取指定被评估人的 OKR（内容设置配置了 OKR 参考内容时使用） */
-  async employeeOkr(employeeNo: string): Promise<EmployeeOkrResponse> {
-    const { data } = await api.get<EmployeeOkrResponse>(`/performance/okr/${encodeURIComponent(employeeNo)}`)
+  async taskOkr(taskId: number | string): Promise<EmployeeOkrResponse> {
+    const { data } = await api.get<EmployeeOkrResponse>(`/performance/okr/tasks/${encodeURIComponent(String(taskId))}/okr`)
     return data
   },
 }

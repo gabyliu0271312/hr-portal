@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     FEISHU_SSO_ENABLED: bool = False
     FEISHU_APP_ID: str = ""
     FEISHU_APP_SECRET: str = ""
+    # 绩效「OKR」参考内容的数据源：none（默认，不接入，前端展示空态）/ feishu（飞书 OKR v1 接口）
+    PERFORMANCE_OKR_PROVIDER: str = "none"
+    # 只取指定 OKR 周期（逗号分隔的 period_id）；为空时取该用户最近的一个 OKR
+    PERFORMANCE_OKR_PERIOD_IDS: str = ""
     # 飞书 OAuth 回调地址，必须与开放平台「安全设置-重定向 URL」白名单完全一致
     FEISHU_REDIRECT_URI: str = "http://localhost:8080/auth/feishu/callback"
     # 飞书事件回调验证 Token（开放平台「事件订阅-Encrypt Key」/Verification Token）
