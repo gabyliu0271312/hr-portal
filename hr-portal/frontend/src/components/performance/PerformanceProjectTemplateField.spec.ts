@@ -1,10 +1,14 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import PerformanceProjectTemplateField from './PerformanceProjectTemplateField.vue'
 import PerformanceTemplatePickerDialog from './PerformanceTemplatePickerDialog.vue'
 import PerformanceTemplatePreviewButton from './PerformanceTemplatePreviewButton.vue'
 import fieldSource from './PerformanceProjectTemplateField.vue?raw'
 import { readFileSync } from 'node:fs'
+
+vi.mock('@/api/performance', () => ({
+  performanceTemplateApi: { getWorkflow: vi.fn().mockResolvedValue({ nodes: [], content_library: [] }) },
+}))
 
 const templates = [
   { template_id: 11, name: '半年度绩效评估', description: '半年度评估-360自愿评估', status: 'active' as const },
@@ -74,14 +78,28 @@ describe('project template selection', () => {
     wrapper.unmount()
   })
 
-  it('reuses the disabled preview button in the card and every candidate', async () => {
+  it('enables the preview button in the card and every candidate, opening the preview dialog', async () => {
     const wrapper = field({ modelValue: 11 })
     await wrapper.get('[aria-label="切换模板"]').trigger('click')
     expect(wrapper.findAllComponents(PerformanceTemplatePreviewButton)).toHaveLength(3)
     const previews = wrapper.findAll('button').filter(item => item.attributes('aria-label')?.startsWith('预览'))
     expect(previews).toHaveLength(3)
     expect(previews.every(button => button.text() === '预览')).toBe(true)
-    expect(previews.every(button => button.attributes('disabled') !== undefined)).toBe(true)
+    expect(previews.every(button => button.attributes('disabled') === undefined)).toBe(true)
+    // 卡片上的预览按钮：打开预览弹窗（加载所选模板）
+    await previews[0].trigger('click')
+    expect(wrapper.find('[aria-label="模板预览"]').exists()).toBe(true)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('opens the preview dialog for a candidate template from the picker', async () => {
+    const wrapper = field({ modelValue: 11 })
+    await wrapper.get('[aria-label="切换模板"]').trigger('click')
+    const previews = wrapper.findAll('button').filter(item => item.attributes('aria-label')?.startsWith('预览'))
+    // previews[0] 是卡片上的预览，previews[1]/[2] 是候选列表里的
+    await previews[2].trigger('click')
+    expect(wrapper.find('[aria-label="模板预览"]').exists()).toBe(true)
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
   })

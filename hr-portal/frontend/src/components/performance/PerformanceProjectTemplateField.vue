@@ -4,6 +4,7 @@ import type { PerformanceProjectTemplate } from '@/api/performance'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import PerformanceTemplatePickerDialog from './PerformanceTemplatePickerDialog.vue'
 import PerformanceTemplatePreviewButton from './PerformanceTemplatePreviewButton.vue'
+import PerformanceTemplatePreviewDialog from './PerformanceTemplatePreviewDialog.vue'
 
 const props = defineProps<{
   modelValue: number | null
@@ -14,6 +15,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: number]; retry: [] }>()
 const open = ref(false)
+const previewOpen = ref(false)
 const selected = computed(() => props.templates.find(item => item.template_id === props.modelValue))
 </script>
 
@@ -27,7 +29,7 @@ const selected = computed(() => props.templates.find(item => item.template_id ==
         <p class="template-description">{{ selected?.description || (loading ? '正在加载绩效模板...' : '暂无描述') }}</p>
       </div>
       <div class="template-actions">
-        <PerformanceTemplatePreviewButton :name="selected?.name || '绩效模板'" />
+        <PerformanceTemplatePreviewButton :name="selected?.name || '绩效模板'" :disabled="disabled" @click="previewOpen = true" />
         <PerformanceTextButton label="切换模板" aria-label="切换模板" title="切换模板" :disabled="disabled" @click="open = true">
           <template #icon><svg viewBox="0 0 24 24" fill="none" data-icon="SwitchOutlined" aria-hidden="true"><path d="M2.5 7.958c0 .528.428.956.955.956H21.25c.904 0 1.344-1.104.688-1.726L17.18 2.665a.974.974 0 0 0-1.382.028l-.035.037a1.001 1.001 0 0 0 .032 1.403l2.945 2.87H3.455a.956.956 0 0 0-.955.955ZM2.75 15c-.904 0-1.344 1.104-.688 1.726l4.752 4.518a.986.986 0 0 0 1.394-.029l.032-.033a.98.98 0 0 0-.044-1.385L5.26 17H20.5a1 1 0 1 0 0-2H2.75Z" fill="currentColor" /></svg></template>
         </PerformanceTextButton>
@@ -38,6 +40,7 @@ const selected = computed(() => props.templates.find(item => item.template_id ==
     </div>
     <p v-if="error" class="template-error" role="alert">{{ error }} <PerformanceTextButton label="重试" @click="emit('retry')" /></p>
     <PerformanceTemplatePickerDialog v-model:open="open" :model-value="modelValue" :templates="templates" :loading="loading" :error="error" @update:model-value="emit('update:modelValue', $event)" @retry="emit('retry')" />
+    <PerformanceTemplatePreviewDialog v-model:open="previewOpen" :template-id="modelValue" :name="selected?.name" />
   </section>
 </template>
 

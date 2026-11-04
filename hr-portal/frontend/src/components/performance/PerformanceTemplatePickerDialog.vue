@@ -5,6 +5,7 @@ import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceButton from './PerformanceButton.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceTemplatePreviewButton from './PerformanceTemplatePreviewButton.vue'
+import PerformanceTemplatePreviewDialog from './PerformanceTemplatePreviewDialog.vue'
 
 const props = defineProps<{
   open: boolean
@@ -19,8 +20,16 @@ const emit = defineEmits<{
   retry: []
 }>()
 const draft = ref('')
+const previewOpen = ref(false)
+const previewId = ref<number | null>(null)
+const previewName = ref('')
 watch(() => props.open, open => { if (open) draft.value = props.modelValue ? String(props.modelValue) : '' }, { immediate: true })
 const options = computed(() => props.templates.map(item => ({ value: String(item.template_id), label: item.name, description: item.description, disabled: item.status !== 'active' })))
+function openPreview(option: { value: string; label: string }) {
+  previewId.value = Number(option.value) || null
+  previewName.value = option.label
+  previewOpen.value = true
+}
 const canConfirm = computed(() => !props.loading && !props.error && props.templates.some(item => String(item.template_id) === draft.value && item.status === 'active'))
 function close() { emit('update:open', false) }
 function confirm() {
@@ -40,10 +49,11 @@ function confirm() {
         <span class="template-name" :title="option.label">{{ option.label }}</span>
         <span class="template-description" :title="option.description || ''">{{ option.description || '暂无描述' }}</span>
       </template>
-      <template #after-option="{ option }"><PerformanceTemplatePreviewButton :name="option.label" /></template>
+      <template #after-option="{ option }"><PerformanceTemplatePreviewButton :name="option.label" @click="openPreview(option)" /></template>
     </PerformanceRadioGroup>
     <template #footer><div class="template-footer"><PerformanceButton variant="secondary" @click="close">取消</PerformanceButton><PerformanceButton variant="primary" :disabled="!canConfirm" @click="confirm">确定</PerformanceButton></div></template>
   </PerformanceDialogShell>
+  <PerformanceTemplatePreviewDialog v-model:open="previewOpen" :template-id="previewId" :name="previewName" />
 </template>
 
 <style scoped>
