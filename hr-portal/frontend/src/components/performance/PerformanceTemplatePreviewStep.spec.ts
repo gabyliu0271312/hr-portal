@@ -98,6 +98,24 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.text()).toContain('绩效结果')
     expect(wrapper.findAll('.readonly-rating, .readonly-answer')).toHaveLength(1)
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    // REA read 态：富文本显示占位文案（previewValue 生效），不再是空白
+    expect(wrapper.text()).toContain('这里展示用户填写的内容')
+  })
+
+  it('renders rating sample option in result view readonly state (REA 3星符合预期)', async () => {
+    // 查看绩效结果里评级只读：显示示例档位（sampleOptionId），而非空白
+    const ratingContent = {
+      content_id: 'c-rating', type: 'rating', name: '综合评级', description: '',
+      options: [{ id: 'o1', code: '1星', label: '待改进' }, { id: 'o2', code: '3星', label: '符合预期' }],
+      settings: { sampleOptionId: 'o2' },
+      items: [{ id: 'i-rating', kind: 'rating', label: '绩效评级', hint: '', settings: { required: true } }],
+    } as any
+    const wrapper = mountStep([node({ node_id: 'n8', node_type: 'result_view', name: '查看绩效结果', content: [ratingContent] })])
+    await flushPromises()
+    // 只读评级展示示例档位「3星 符合预期」（previewValue=o2 → selectedOption）
+    expect(wrapper.text()).toContain('3星')
+    expect(wrapper.text()).toContain('符合预期')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
   })
 
   it('renders 360° feedback block in result view for 360°评估人 source references', async () => {

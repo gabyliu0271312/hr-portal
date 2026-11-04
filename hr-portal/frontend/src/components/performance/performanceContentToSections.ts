@@ -63,6 +63,32 @@ function contentAllowsMultiple(content: PerformanceTemplateContent): boolean {
     || (content.items || []).some(item => item.settings?.allowMultiple === true)
 }
 
+/** 只读预览占位文案（对齐 REA：查看绩效结果/参考区只读态显示「这里展示用户填写的内容」） */
+export const READONLY_PLACEHOLDER_TEXT = '这里展示用户填写的内容'
+
+/** 只读预览的评级示例档位：优先内容上配置的 sampleOptionId，否则取第一个档位（REA 展示「3星 符合预期」） */
+function previewRatingValue(content: PerformanceTemplateContent, item: PerformanceTemplateContent['items'][number]): string {
+  const options = mergeRatingOptions(item.options, content.options || [])
+  const sampleOptionId = content.settings?.sampleOptionId
+  const selected = (sampleOptionId && options.find(option => option.id === sampleOptionId || option.code === sampleOptionId)) || options[0]
+  return selected?.id || ''
+}
+
+/** 只读预览值：评级=示例档位 id；tag=全选；其余=占位文案（与内容设置区 PerformanceContentRenderer view 分支一致） */
+function previewValueFor(
+  content: PerformanceTemplateContent,
+  item: PerformanceTemplateContent['items'][number],
+  type: FieldType,
+): unknown {
+  if (type === 'rating') return previewRatingValue(content, item)
+  if (type === 'tag_with_followup') {
+    const options = item.options ?? content.options ?? []
+    /* REA：标签全选展示 + 每项下方占位文案（tag-answer → rich-answer「这里展示用户填写的内容」） */
+    return { tags: options.map(option => option.id), notes: Object.fromEntries(options.map(option => [option.id, READONLY_PLACEHOLDER_TEXT])) }
+  }
+  return READONLY_PLACEHOLDER_TEXT
+}
+
 export function contentToSections(
   node: PerformanceWorkflowNode | null | undefined,
   contents: PerformanceTemplateContent[],
@@ -121,6 +147,7 @@ export function contentToSections(
         hide_description: settings.hideDescription,
         default_all: item.defaultAll ?? content.defaultAll ?? false,
         readonly: !writable,
+        previewValue: writable ? undefined : previewValueFor(content, item, type),
       })
       elements.push({ kind: 'field', id: item.id })
     }

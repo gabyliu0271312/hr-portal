@@ -4,7 +4,7 @@
     <p v-if="(field.type === 'tag_with_followup' || field.type === 'single_select') && mode === 'edit' && field.description && !field.hide_description && !props.hideItemDescription" class="template-field-description tag-preview__description">{{ field.description }}</p>
     <p v-if="!registered" class="unsupported-template-field" role="alert">不支持的填写类型</p>
     <template v-else>
-    <PerformanceReadonlyAnswer v-if="mode === 'readonly'" :field="field" :value="value" :empty-answer-text="props.emptyAnswerText" />
+    <PerformanceReadonlyAnswer v-if="mode === 'readonly'" :field="field" :value="readonlyValue" :empty-answer-text="props.emptyAnswerText" />
     <template v-else-if="field.type === 'rich_text'">
       <PerformanceRichTextEditor variant="task-entry" :class="{ invalid }" :readonly="!editable" :model-value="String(value || '')" :placeholder="field.placeholder || placeholderFallback" @update:model-value="$emit('update:value', $event)" @queue-save="$emit('queue-save')" />
     </template>
@@ -39,6 +39,10 @@ import { isRegisteredPerformanceTemplateField } from './performanceTemplateField
 const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; previewOnly?: boolean; invalid?: boolean; error?: string; emptyAnswerText?: string; hideItemDescription?: boolean; placeholderFallback?: string }>(), { editable: false, previewOnly: false, invalid: false, error: '', emptyAnswerText: '', hideItemDescription: false, placeholderFallback: '提示' })
 const emit = defineEmits<{ 'update:value': [value: unknown]; 'queue-save': [] }>()
 const registered = computed(() => isRegisteredPerformanceTemplateField(props.field, props.mode))
+/** 只读态：value 为空时用字段的 previewValue（评级示例档位 / tag 全选 / 文本占位），对齐 REA read 态 */
+const readonlyValue = computed(() => props.mode === 'readonly' && props.field.previewValue !== undefined && (props.value === undefined || props.value === null || props.value === '')
+  ? props.field.previewValue
+  : props.value)
 const selectedTags = computed(() => Array.isArray(props.value) ? props.value as string[] : (props.value as { tags?: string[] } | undefined)?.tags || [])
 const tagNotes = computed(() => (props.value as { notes?: Record<string, string> } | undefined)?.notes || {})
 const legacyTagNote = computed(() => (props.value as { note?: string } | undefined)?.note || '')

@@ -87,6 +87,55 @@ describe('contentToSections', () => {
     expect(sections[0].fields[0].required).toBe(false)
   })
 
+  it('carries previewValue for readonly fields: rich text placeholder (REA read 态)', () => {
+    const content: PerformanceTemplateContent = {
+      id: 'c-summary', type: 'work_summary', name: '工作总结', description: '',
+      items: [item('i1')],
+    }
+    const sections = contentToSections(node('result_view'), [content])
+    expect(sections[0].fields[0].previewValue).toBe('这里展示用户填写的内容')
+  })
+
+  it('carries previewValue rating sample option for readonly rating (REA 3星符合预期)', () => {
+    const content: PerformanceTemplateContent = {
+      id: 'c-rating', type: 'rating', name: '综合评级', description: '',
+      options: [{ id: 'o1', code: '1星', label: '待改进' }, { id: 'o2', code: '3星', label: '符合预期' }],
+      settings: { sampleOptionId: 'o2' },
+      items: [item('i-rating', { kind: 'rating' })],
+    }
+    const sections = contentToSections(node('result_view'), [content])
+    expect(sections[0].fields[0].previewValue).toBe('o2')
+    // 无 sampleOptionId 时取第一个档位
+    const fallback: PerformanceTemplateContent = {
+      id: 'c-rating2', type: 'rating', name: '综合评级', description: '', options: [{ id: 'o1', code: '1星', label: '待改进' }],
+      items: [item('i-rating2', { kind: 'rating' })],
+    }
+    expect(contentToSections(node('result_view'), [fallback])[0].fields[0].previewValue).toBe('o1')
+  })
+
+  it('carries previewValue tag with all options selected and placeholder notes (REA tag read 态)', () => {
+    const content: PerformanceTemplateContent = {
+      id: 'c-tag', type: 'custom', name: '标签题', description: '',
+      questionType: 'tag', options: [{ id: 't1', label: '做得好的' }, { id: 't2', label: '待改进的' }],
+      items: [item('i-tag', { questionType: 'tag' })],
+    }
+    const sections = contentToSections(node('result_view'), [content])
+    const preview = sections[0].fields[0].previewValue as { tags: string[]; notes: Record<string, string> }
+    expect(preview.tags).toEqual(['t1', 't2'])
+    expect(preview.notes['t1']).toBe('这里展示用户填写的内容')
+    expect(preview.notes['t2']).toBe('这里展示用户填写的内容')
+  })
+
+  it('does not carry previewValue for writable fields', () => {
+    const content: PerformanceTemplateContent = {
+      id: 'c-summary', type: 'work_summary', name: '工作总结', description: '',
+      items: [item('i1')],
+    }
+    const sections = contentToSections(node('work_summary'), [content])
+    expect(sections[0].fields[0].previewValue).toBeUndefined()
+    expect(sections[0].fields[0].readonly).toBe(false)
+  })
+
   it('projects prompt-only content into a prompt element section', () => {
     const prompt: PerformanceTemplateContent = {
       id: 'c-prompt', type: 'prompt', name: '说明', description: '', items: [],

@@ -1077,6 +1077,9 @@ export type PerformanceTemplateField = {
   hide_description?: boolean
   default_all?: boolean
   readonly?: boolean
+  /** 只读预览示例值（对齐飞书 entrySetting/permission 的 read 态渲染）：
+     评级取示例档位 id、tag 取全选、文本取占位文案；真实填写时忽略 */
+  previewValue?: unknown
 }
 export type PerformanceTemplateElement = { kind: 'field'; id: string } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
 export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[]; elements?: PerformanceTemplateElement[] }
@@ -1574,6 +1577,8 @@ export interface PerformanceTemplateContent {
     allowUnknown?: boolean
     mode?: string
     required?: boolean
+    /** 只读预览的示例评级档位（REA read 态展示「3星 符合预期」） */
+    sampleOptionId?: string
   }
   ratingOptionId?: string
   ratingDisplayMode?: '标签样式' | '下拉样式'

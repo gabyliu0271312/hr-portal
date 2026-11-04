@@ -8,7 +8,7 @@
     <PerformanceRatingTag class="readonly-rating-badge" :label="ratingCode" :color="selectedOption?.color" :foreground="ratingForeground" />
     <span class="readonly-rating-label" :style="{ color: ratingForeground }">{{ ratingLabel }}</span>
   </div>
-  <div v-else-if="field.type === 'single_select'" class="readonly-answer readonly-single">{{ selectedOption?.label || emptyAnswerText }}</div>
+  <div v-else-if="field.type === 'single_select'" class="readonly-answer readonly-single">{{ selectedOption?.label || safeText(value) }}</div>
   <div v-else class="readonly-answer rich-answer performance-rich-text-content" v-html="safeHtml(value || emptyAnswerText)" />
 </template>
 
@@ -24,6 +24,7 @@ const selectedOption = computed(() => props.field.options?.find(option => option
 const ratingCode = computed(() => props.value === '__unknown__' ? '不了解' : selectedOption.value?.code || selectedOption.value?.label || selectedOption.value?.id || String(props.value || '—'))
 const ratingLabel = computed(() => props.value === '__unknown__' || selectedOption.value?.code ? selectedOption.value?.label || '' : selectedOption.value?.description || '')
 const ratingForeground = computed(() => selectedOption.value?.foreground || (selectedOption.value?.color ? performanceLevelForeground(selectedOption.value.color) : '#1f2329'))
+function safeText(value: unknown) { return typeof value === 'string' && value.trim() ? value : String(value ?? '') }
 function safeHtml(value: unknown) {
   const template = document.createElement('template')
   template.innerHTML = String(value || '')
