@@ -6,7 +6,7 @@
     <template v-else>
     <PerformanceReadonlyAnswer v-if="mode === 'readonly'" :field="field" :value="value" :empty-answer-text="props.emptyAnswerText" />
     <template v-else-if="field.type === 'rich_text'">
-      <PerformanceRichTextEditor variant="task-entry" :class="{ invalid }" :readonly="!editable" :model-value="String(value || '')" :placeholder="field.placeholder || '提示'" @update:model-value="$emit('update:value', $event)" @queue-save="$emit('queue-save')" />
+      <PerformanceRichTextEditor variant="task-entry" :class="{ invalid }" :readonly="!editable" :model-value="String(value || '')" :placeholder="field.placeholder || placeholderFallback" @update:model-value="$emit('update:value', $event)" @queue-save="$emit('queue-save')" />
     </template>
     <template v-else-if="field.type === 'rating'">
       <div class="rating-field"><PerformanceRatingControl :model-value="String(value || '')" :options="field.options || []" :allow-unknown="field.allow_unknown === true" :display-mode="field.display_mode" :interactive="editable" preview-hover :invalid="invalid" :aria-label="field.label" @update:model-value="$emit('update:value', $event)" /><span v-if="!field.options?.length" class="empty-options">暂无可用评级选项</span></div>
@@ -36,7 +36,7 @@ import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import { isRegisteredPerformanceTemplateField } from './performanceTemplateFieldRegistry'
 
-const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; previewOnly?: boolean; invalid?: boolean; error?: string; emptyAnswerText?: string; hideItemDescription?: boolean }>(), { editable: false, previewOnly: false, invalid: false, error: '', emptyAnswerText: '', hideItemDescription: false })
+const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; field: PerformanceTemplateField; value: unknown; label: string; editable?: boolean; previewOnly?: boolean; invalid?: boolean; error?: string; emptyAnswerText?: string; hideItemDescription?: boolean; placeholderFallback?: string }>(), { editable: false, previewOnly: false, invalid: false, error: '', emptyAnswerText: '', hideItemDescription: false, placeholderFallback: '提示' })
 const emit = defineEmits<{ 'update:value': [value: unknown]; 'queue-save': [] }>()
 const registered = computed(() => isRegisteredPerformanceTemplateField(props.field, props.mode))
 const selectedTags = computed(() => Array.isArray(props.value) ? props.value as string[] : (props.value as { tags?: string[] } | undefined)?.tags || [])

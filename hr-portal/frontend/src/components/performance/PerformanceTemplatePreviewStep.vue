@@ -11,14 +11,17 @@
  *   页脚：高 63，按钮 80×32；双栏贴面板左缘，单栏随 800 内容列（padding 0 24）
  * 数据源：GET /performance/templates/{id}/workflow（nodes + content_library），切换环节零请求。
  */
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { performanceTemplateApi, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { performanceTemplateApi, type PerformanceTemplateContent, type PerformanceTemplateSection, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
 import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
+import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
-import PerformanceAddAnotherButton from './PerformanceAddAnotherButton.vue'
 import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
+import { performanceContentKey, contentToSections } from './performanceContentToSections'
+import { resolveFieldSettings } from './performanceContentSettingsResolver'
+import { performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -139,16 +142,55 @@ const rightTitle = computed(() => selectedNode.value?.content_page_name || selec
 const showFooter = computed(() => !isResultView.value)
 const isSinglePanel = computed(() => !showReferencePanel.value)
 
+/* ---------- 配置填写内容：作答草稿（纯前端预览动作，不落库） ---------- */
+/**
+ * 阶段 2 起，右栏不再复刻只读 DOM，而是把内容投影成填写页的 sections，
+ * 交给 PerformanceTemplateRenderer(mode="edit") 渲染：
+ * 富文本是真编辑器（可聚焦、可输入、工具栏可用），「添加」真实增行并带序号与删除图标。
+ * 这与飞书「预览与填写共用渲染器，只禁用提交」的架构一致。
+ */
+const previewAnswers = reactive<Record<string, Record<string, unknown>>>({})
+function contentKeyOf(content: PerformanceTemplateContent) {
+  return performanceContentKey(content)
+}
+/** 仅「配置填写内容」可操作：查看结果 / 校准 / 邀请 / 复议为只读或专用表单 */
+function canEditContent(content: PerformanceTemplateContent) {
+  return !isResultView.value && !isCalibration.value && !isInvite.value && !isResultReconsideration.value && content.type !== 'prompt'
+}
+const editableSections = computed<Record<string, PerformanceTemplateSection[]>>(() => {
+  const result: Record<string, PerformanceTemplateSection[]> = {}
+  for (const content of rightContents.value) {
+    if (!canEditContent(content)) continue
+    result[contentKeyOf(content)] = contentToSections(selectedNode.value, [content])
+  }
+  return result
+})
+function sectionsFor(content: PerformanceTemplateContent) { return editableSections.value[contentKeyOf(content)] || [] }
+function answersFor(content: PerformanceTemplateContent) { return previewAnswers[contentKeyOf(content)] || {} }
+function setPreviewAnswer(content: PerformanceTemplateContent, fieldId: string, value: unknown) {
+  const key = contentKeyOf(content)
+  if (!previewAnswers[key]) previewAnswers[key] = {}
+  previewAnswers[key][fieldId] = value
+}
+/** 切换环节时重置草稿：实例数与默认值按该环节自己的内容设置重新开始 */
+watch(selectedId, () => {
+  Object.keys(previewAnswers).forEach(key => { delete previewAnswers[key] })
+  Object.entries(editableSections.value).forEach(([key, sections]) => {
+    previewAnswers[key] = performanceTemplateInitialAnswers(sections, {})
+  })
+})
+
 /* ---------- 渲染辅助 ---------- */
 type PreviewItemSettings = Record<string, { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; allowView?: boolean }>
+/** 只读复刻（参考内容 / 查看内容 / 供调整内容）也从解析层取设置，保证只有一种读法 */
 function itemSettingsFor(content: PerformanceTemplateContent, forceView = false): PreviewItemSettings {
   const result: PreviewItemSettings = {}
   for (const item of content.items || []) {
     if (item.kind === 'prompt') continue
-    const settings = item.settings || {}
+    const settings = resolveFieldSettings({ node: selectedNode.value, content, item, readonly: forceView })
     result[item.id] = {
-      mode: forceView ? 'view' : (settings.mode === 'hidden' || settings.mode === 'view' ? settings.mode : 'fill'),
-      required: settings.required === true,
+      mode: settings.viewType === 'hide' ? 'hidden' : settings.permission === 'read' ? 'view' : 'fill',
+      required: settings.required,
       hideName: settings.hideName || undefined,
       allowView: settings.allowView,
     }
@@ -157,13 +199,7 @@ function itemSettingsFor(content: PerformanceTemplateContent, forceView = false)
 }
 /** 中栏参考内容：全部条目按「查看态」渲染（REA 里参考内容不出现可填写控件） */
 function referenceItemSettings(content: PerformanceTemplateContent): PreviewItemSettings {
-  const result: PreviewItemSettings = {}
-  for (const item of content.items || []) {
-    if (item.kind === 'prompt') continue
-    const settings = item.settings || {}
-    result[item.id] = { mode: 'view', required: false, hideName: settings.hideName || undefined }
-  }
-  return result
+  return itemSettingsFor(content, true)
 }
 function contentDescription(content: PerformanceTemplateContent) {
   return content.settings?.hideDescription ? '' : content.description
@@ -325,16 +361,27 @@ function contentDescription(content: PerformanceTemplateContent) {
                         <div class="ptp-block__title">{{ content.name }}</div>
                         <div v-if="contentDescription(content)" class="ptp-block__desc">{{ contentDescription(content) }}</div>
                       </div>
+                      <!-- 配置填写内容：直接复用真实填写页的渲染器——富文本是真编辑器、评级/单选/标签是
+                           真实控件、「添加」真实增行（带序号与删除图标）。内容设置里的 mode/required/
+                           allowMultiple 已经过解析层投影成 sections 的 readonly/required/allow_multiple。 -->
+                      <PerformanceTemplateRenderer
+                        v-if="canEditContent(content)"
+                        mode="edit"
+                        editable
+                        :show-header="false"
+                        placeholder-fallback=""
+                        :sections="sectionsFor(content)"
+                        :answers="answersFor(content)"
+                        @update-answer="(fieldId, value) => setPreviewAnswer(content, fieldId, value)"
+                      />
+                      <!-- 查看 / 校准 / 说明：只读复刻（REA 只读态） -->
                       <PerformanceContentRenderer
+                        v-else
                         :content="content"
                         variant="configured-card"
                         :empty-text="isResultView ? '请输入内容' : ''"
                         :readonly-empty-answer-text="isResultView ? '这里展示用户填写的内容' : ''"
                         :item-settings="itemSettingsFor(content, isResultView)"
-                      />
-                      <PerformanceAddAnotherButton
-                        v-if="!isResultView && content.type !== 'prompt' && content.settings?.allowMultiple"
-                        class="ptp-block__add"
                       />
                     </div>
                   </div>

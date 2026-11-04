@@ -1,6 +1,6 @@
 <template>
   <div class="performance-template-section" :data-section-id="section.id">
-    <header v-if="section.name || section.description" class="template-section-header section-header repeatable-content-header" :class="{ 'template-section-header--readonly': mode === 'readonly' }">
+    <header v-if="showHeader && (section.name || section.description)" class="template-section-header section-header repeatable-content-header" :class="{ 'template-section-header--readonly': mode === 'readonly' }">
       <PerformanceAssessmentPreviewHeader :name="section.name" :description="section.description" heading-tag="h2" />
     </header>
     <div v-for="(instanceKey, index) in instanceKeys" :key="instanceKey" class="template-section-instance repeatable-content-instance" :data-instance-index="index">
@@ -16,7 +16,11 @@ import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHe
 import PerformanceAddAnotherButton from './PerformanceAddAnotherButton.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 
-defineProps<{ section: TemplateSection; instanceKeys: string[]; editable: boolean; mode?: 'edit' | 'readonly' }>()
+/**
+ * showHeader=false：由外层（模板预览）自己渲染 REA 的内容块标题，
+ * 避免同一标题出现两遍（预览块标题无蓝色竖条、样式来自 REA 实测）。
+ */
+withDefaults(defineProps<{ section: TemplateSection; instanceKeys: string[]; editable: boolean; mode?: 'edit' | 'readonly'; showHeader?: boolean }>(), { mode: 'edit', showHeader: true })
 defineEmits<{ add: []; remove: [index: number] }>()
 </script>
 <style scoped>

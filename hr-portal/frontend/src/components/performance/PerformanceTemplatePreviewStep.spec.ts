@@ -81,10 +81,10 @@ describe('PerformanceTemplatePreviewStep', () => {
     // 参考页签 = 来源环节名，内容解析自来源环节的填写内容
     expect(panels[0].text()).toContain('填写工作总结')
     expect(panels[0].text()).toContain('重点工作 1')
-    // 右栏含提示条与评级控件（复用内容设置的 PerformanceContentRenderer 渲染链路）
+    // 右栏含提示条与评级控件（复用真实填写渲染器：prompt 说明块 + PerformanceRatingControl）
     expect(panels[1].text()).toContain('111')
     expect(panels[1].text()).toContain('1星')
-    expect(panels[1].findAll('.performance-content-renderer__rating')).toHaveLength(1)
+    expect(panels[1].findAll('.performance-rating-control')).toHaveLength(1)
   })
 
   it('renders result view as single panel without footer', async () => {
@@ -211,5 +211,41 @@ describe('PerformanceTemplatePreviewStep', () => {
     const wrapper = mount(PerformanceTemplatePreviewStep, { props: { templateId: 1 } })
     await flushPromises()
     expect(wrapper.find('.ptp-loading--error').text()).toBe('网络错误')
+  })
+
+  it('renders fill contents via the real renderer: editable rich text editor', async () => {
+    const nodes = [node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [fillSummary] })]
+    const wrapper = mountStep(nodes)
+    await flushPromises()
+    // 复用真实填写渲染器：富文本是可聚焦的 contenteditable 编辑器（不是只读复刻盒）
+    const editor = wrapper.find('[data-slate-editor="true"]')
+    expect(editor.exists()).toBe(true)
+    expect(editor.attributes('contenteditable')).toBe('true')
+    // 必填星号按内容设置渲染
+    expect(wrapper.find('.performance-template-renderer').text()).toContain('*')
+  })
+
+  it('adds and removes instances for allow_multiple contents (与填写页一致)', async () => {
+    const multiSummary = {
+      ...fillSummary,
+      content_id: 'c-multi',
+      settings: { allowMultiple: true },
+      items: [{ id: 'i-keywork', kind: 'fill', label: '重点工作 1', hint: '请填写', questionType: 'text', settings: { required: true } }],
+    } as any
+    const wrapper = mountStep([node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [multiSummary] })])
+    await flushPromises()
+    const addButton = wrapper.find('.performance-add-another-button')
+    expect(addButton.exists()).toBe(true)
+    // 初始 1 组：标题不带序号（「重点工作」），填写页从第 1 组开始显示「重点工作 1」前不加序号
+    expect(wrapper.find('.template-field-label').text()).toContain('重点工作')
+    await addButton.trigger('click')
+    // 追加后 2 组实例，第二组标题带序号「重点工作 2」，且出现删除图标
+    const labels = wrapper.findAll('.template-field-label').map(label => label.text())
+    expect(labels.length).toBe(2)
+    expect(labels[1]).toContain('重点工作 2')
+    expect(wrapper.find('.performance-icon-button').exists()).toBe(true)
+    // 删除第二组后回到 1 组
+    await wrapper.find('.performance-icon-button').trigger('click')
+    expect(wrapper.findAll('.template-field-label')).toHaveLength(1)
   })
 })

@@ -1,11 +1,11 @@
 <template>
   <component :is="mode === 'edit' ? 'form' : 'div'" ref="formRef" class="performance-template-renderer" :class="mode === 'edit' ? 'performance-template-renderer--edit self-summary-form' : 'performance-template-renderer--readonly'" novalidate @submit.prevent="$emit('submit')">
     <h1 v-if="mode === 'edit' && title">{{ title }}</h1>
-    <PerformanceTemplateSection v-for="section in visibleSections" :key="section.id" :section="section" :instance-keys="instanceKeys(section)" :editable="mode === 'edit' && editable && section.fields.length > 0" :mode="mode" @add="addInstance(section)" @remove="index => removeInstance(section, index)">
+    <PerformanceTemplateSection v-for="section in visibleSections" :key="section.id" :section="section" :instance-keys="instanceKeys(section)" :show-header="showHeader" :editable="mode === 'edit' && editable && section.fields.length > 0" :mode="mode" @add="addInstance(section)" @remove="index => removeInstance(section, index)">
       <template #default="{ index }">
         <template v-for="element in displayElements(section)" :key="`${element.kind}:${element.id}`">
           <PerformancePromptDisplay v-if="element.kind === 'prompt'" class="template-content-prompt" :data-prompt-id="element.id" :value="element.prompt" />
-          <PerformanceTemplateFieldRenderer v-else :data-field-id="fieldErrorKey(section, element.field, index)" :mode="mode === 'readonly' || element.field.readonly ? 'readonly' : 'edit'" :field="displayField(section, element.field, index)" :value="fieldValue(section, element.field, index)" :label="displayFieldLabel(section, element.field, index)" :editable="mode === 'edit' && editable && !element.field.readonly && (!performanceTemplateInstanceUnknown(section, index, answers) || element.field.type === 'rating')" :invalid="mode === 'edit' && !element.field.readonly && !performanceTemplateInstanceUnknown(section, index, answers) && Boolean(errors[fieldErrorKey(section, element.field, index)])" :error="errors[fieldErrorKey(section, element.field, index)]" @update:value="value => setFieldValue(section, element.field, index, value)" @queue-save="$emit('queue-save')" />
+          <PerformanceTemplateFieldRenderer v-else :data-field-id="fieldErrorKey(section, element.field, index)" :mode="mode === 'readonly' || element.field.readonly ? 'readonly' : 'edit'" :field="displayField(section, element.field, index)" :value="fieldValue(section, element.field, index)" :label="displayFieldLabel(section, element.field, index)" :placeholder-fallback="placeholderFallback" :editable="mode === 'edit' && editable && !element.field.readonly && (!performanceTemplateInstanceUnknown(section, index, answers) || element.field.type === 'rating')" :invalid="mode === 'edit' && !element.field.readonly && !performanceTemplateInstanceUnknown(section, index, answers) && Boolean(errors[fieldErrorKey(section, element.field, index)])" :error="errors[fieldErrorKey(section, element.field, index)]" @update:value="value => setFieldValue(section, element.field, index, value)" @queue-save="$emit('queue-save')" />
         </template>
       </template>
     </PerformanceTemplateSection>
@@ -19,7 +19,18 @@ import PerformanceTemplateSection from './PerformanceTemplateSection.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import { performanceTemplateAddedInstance, performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInstanceUnknown, performanceTemplateRemovedInstance, performanceTemplateUpdatedFieldValue } from './performanceTemplateAnswers'
 
-const props = withDefaults(defineProps<{ mode: 'edit' | 'readonly'; title?: string; sections: TemplateSection[]; answers: Record<string, unknown>; errors?: Record<string, string>; editable?: boolean }>(), { title: '', errors: () => ({}), editable: false })
+const props = withDefaults(defineProps<{
+  mode: 'edit' | 'readonly'
+  title?: string
+  sections: TemplateSection[]
+  answers: Record<string, unknown>
+  errors?: Record<string, string>
+  editable?: boolean
+  /** 是否渲染 section 自身标题（预览由外层渲染 REA 块标题，传 false） */
+  showHeader?: boolean
+  /** 字段无 placeholder 时的兜底文案（填写页为「提示」，预览传空串） */
+  placeholderFallback?: string
+}>(), { title: '', errors: () => ({}), editable: false, showHeader: true, placeholderFallback: '提示' })
 const emit = defineEmits<{ 'update-answer': [id: string, value: unknown]; 'queue-save': []; submit: [] }>()
 const formRef = ref<HTMLFormElement | null>(null)
 type DisplayElement = { kind: 'field'; id: string; field: PerformanceTemplateField } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
