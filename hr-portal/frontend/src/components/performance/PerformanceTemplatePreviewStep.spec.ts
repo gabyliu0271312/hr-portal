@@ -56,7 +56,8 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(renderer.exists()).toBe(true)
     expect(block.element.contains(renderer.element)).toBe(true)
     // 无内联水平 padding（样式由 .ptp :deep 覆盖归零，见 PerformanceTemplatePreviewStep.vue）
-    expect(renderer.element.style.paddingLeft || renderer.element.style.padding).toBe('')
+    const rendererEl = renderer.element as HTMLElement
+    expect(rendererEl.style.paddingLeft || rendererEl.style.padding).toBe('')
   })
 
   it('renders stage cards and switches preview per stage with zero extra requests', async () => {

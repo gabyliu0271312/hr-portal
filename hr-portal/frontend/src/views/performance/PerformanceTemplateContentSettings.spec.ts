@@ -1554,6 +1554,10 @@ describe('PerformanceTemplateContentSettings', () => {
 
     expect(document.body.querySelector('.reference-drawer')).toBeNull()
     expect(wrapper.get('.reference-content-group').text()).toContain('OKR')
+    // 内容设置区 OKR = 引用登记卡片（名称 + 描述），不做 OKR 数据预览（与模板预览的 OKR 面板区分）
+    const moreCard = wrapper.get('.reference-more-card')
+    expect(moreCard.text()).toContain('OKR')
+    expect(moreCard.text()).toContain('支持展示 OKR 内容、OKR 日志、OKR 异常完成情况等信息')
   })
 
   it('loads live reference content and persists isolated display overrides without source copies', async () => {

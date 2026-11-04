@@ -82,11 +82,15 @@
             <template #reference="{ group }">
             <h2>{{ group.name }}</h2>
             <!-- OKR：内置引用（reference_kind='more' + value='okr'），不产生内容条目，
-                 与模板预览/前端一致渲染 OKR 卡片（复用 PerformanceOkrPanel placeholder） -->
-            <PerformanceOkrPanel
-              v-if="group.relation?.reference_kind === 'more' && group.relation?.reference_value === 'okr'"
-              placeholder
-            />
+                 内容设置区登记引用关系：显示引用条目（名称 + 描述），不做 OKR 数据预览
+                 （OKR 数据预览只在模板预览/前端展示） -->
+            <div
+              v-if="referenceGroupById(group.id)?.relation?.reference_kind === 'more' && referenceGroupById(group.id)?.relation?.reference_value === 'okr'"
+              class="result-view-section__configured-content reference-more-card"
+            >
+              <div class="reference-more-card__name">{{ group.name }}</div>
+              <div class="reference-more-card__desc">{{ referenceMoreDescription(referenceGroupById(group.id)?.relation) }}</div>
+            </div>
             <div v-else-if="!referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
             <div v-for="content in referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents" :key="content.id" class="configured-content-panel result-view-section__configured-content">
               <PerformanceConfiguredContentBlock
@@ -209,7 +213,6 @@ import PerformanceTemplateOperateBar from '@/components/performance/PerformanceT
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
-import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
@@ -468,6 +471,16 @@ const referenceMoreOptions: ReferenceOption[] = [
   { value: 'more_reference', label: '更多参考', description: '支持展示绩效信息、异动信息、补充信息等其他信息' },
   { value: 'team_stats', label: '团队统计', description: '有对应权限的用户可查看被评估人下级同周期的绩效结果分布（如被评估人无下级，则不展示此参考内容）' },
 ]
+/** 内置引用（more 类型）的登记描述：OKR → 「支持展示 OKR 内容…」 */
+function referenceMoreDescription(relation?: PerformanceTemplateContent) {
+  if (!relation) return ''
+  const option = referenceMoreOptions.find(item => item.value === relation.reference_value)
+  return option?.description || relation.description || ''
+}
+/** 按 region id（reference:<relationId>）取完整引用组（region 只带 id/kind/name） */
+function referenceGroupById(regionId: string) {
+  return referenceGroups.value.find(item => `reference:${item.id}` === regionId)
+}
 const referenceRelations = computed(() => selectedWorkflowNode.value?.content?.filter(content => (content.content_slot || 'fill') === 'reference') || [])
 const referenceSelectedValues = computed(() => referenceRelations.value.map(content => content.reference_value || content.content_id || content.id || content.name))
 function referenceRelationId(relation: PerformanceTemplateContent) { return relation.content_id || relation.id || `reference-${relation.reference_value}` }
@@ -1156,6 +1169,10 @@ onMounted(async () => {
 .result-view-content-footer{margin-top:var(--spacing-3)}
 .result-view-section h2{margin:0;padding:var(--spacing-4) var(--spacing-6);color:var(--color-text-primary);font:600 18px/26px var(--font-sans)}
 .result-view-section__empty{padding:var(--spacing-8) var(--spacing-6);border-top:1px solid var(--performance-popover-border);color:var(--color-text-placeholder);font:400 var(--font-size-md)/22px var(--font-sans);text-align:center;overflow-wrap:anywhere}
+/* 内置引用（more 类型）登记卡片：OKR / 更多参考 / 团队统计 —— 名称 + 描述 */
+.reference-more-card{padding:var(--spacing-4) var(--spacing-6);box-sizing:border-box;border-top:1px solid var(--performance-popover-border)}
+.reference-more-card__name{color:var(--color-text-primary);font:600 var(--font-size-md)/22px var(--font-sans)}
+.reference-more-card__desc{margin-top:var(--spacing-1);color:var(--color-text-secondary);font:400 var(--font-size-md)/22px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}
 .result-view-reference-entry{margin-top:var(--spacing-3);border-radius:var(--radius-sm)}
 .content-stage-renderer{grid-column:2;grid-row:1}
 .text-normal {
