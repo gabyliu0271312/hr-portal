@@ -65,3 +65,9 @@ build/
 specs/002-performance-management/rea-extract/profile/
 specs/002-performance-management/rea-extract/node_modules/
 specs/002-performance-management/rea-extract/out/capture3b/js/
+
+# Volar / tsc 编译产物（288f384d 误入库）：*.vue.js 为类型检查输出，*.spec.js 为同名 .spec.ts 的转换副本
+*.vue.js
+*.spec.js
+# 唯一手写的 JS 用例（无同名 .spec.ts），保留
+!hr-portal/frontend/src/views/performance/SelfSummaryTask.spec.js
