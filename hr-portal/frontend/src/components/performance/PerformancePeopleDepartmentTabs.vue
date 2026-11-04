@@ -46,6 +46,7 @@ const tabs = computed(() => {
 
 <style scoped>
 .people-department-page {
+  --performance-table-tabs-gap: 0px;
   display: flex;
   flex-direction: column;
   min-width: 0;

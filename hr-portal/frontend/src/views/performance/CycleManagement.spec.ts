@@ -259,6 +259,14 @@ describe('周期人员和部门快照表格', () => {
       height = 1000
       await resize()
       expect(table.props('maxHeight')).toBe(600)
+      await wrapper.setProps({ viewportFill: true })
+      expect(wrapper.classes()).toContain('table-surface-fill')
+      height = 240
+      await resize()
+      expect(table.props('maxHeight')).toBe(600)
+      await wrapper.setProps({ viewportFill: false })
+      expect(wrapper.classes()).not.toContain('table-surface-fill')
+      expect(table.props('maxHeight')).toBe(180)
       await wrapper.setProps({ viewportSurface: false })
       expect(wrapper.classes()).not.toContain('table-surface')
       expect(table.props('maxHeight')).toBe(600)
@@ -281,6 +289,14 @@ describe('周期人员和部门快照表格', () => {
     expect(peopleDepartmentTabsSource).toContain('padding: var(--performance-table-page-top-gap) var(--performance-table-page-inset) var(--performance-table-page-bottom-gap)')
   })
 
+  it('白卡填满剩余高度，分页保留自然位置且小屏仅纵向滚动白卡', () => {
+    expect(managementTableSource).toMatch(/\.table-surface-fill\s*\{[^}]*flex: 1 1 0[^}]*overflow-x: hidden[^}]*overflow-y: auto/s)
+    expect(managementTableSource).toContain('.table-surface-fill .table-scroll { flex: 0 0 auto; }')
+    expect(managementTableSource).toContain('.table-surface-fill .table-pagination {')
+    expect(managementTableSource).toContain('margin: var(--performance-table-fill-pagination-gap) 0;')
+    expect(peopleDepartmentTabsSource).toContain('--performance-table-tabs-gap: 0px;')
+  })
+
   it.each([
     { component: PerformancePeopleListPanel, api: mocks.listPeoplePage, row: { employee_no: 'E001', display_name: '快照人员', organization_ref: '集团/研发/平台组' }, text: '快照人员', columns: 12 },
     { component: PerformanceDepartmentListPanel, api: mocks.listDepartmentsPage, row: { department_name: '平台组', parent_department: '研发', people_count: 1 }, text: '平台组', columns: 4 },
@@ -293,6 +309,7 @@ describe('周期人员和部门快照表格', () => {
     expect(table.props('maxHeight')).toBe(600)
     expect(table.props('data')).toEqual([row])
     expect(wrapper.find('.feishu-table').exists()).toBe(false)
+    expect(wrapper.get('.table-surface').classes()).toContain('table-surface-fill')
     expect(wrapper.get('.table-surface > .table-toolbar input').attributes('placeholder')).toContain('搜索')
     expect(wrapper.get('.table-surface > .table-pagination').attributes('aria-label')).toContain('分页')
     expect(table.attributes('style')).toContain('width: 100%')

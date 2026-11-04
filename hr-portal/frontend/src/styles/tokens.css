@@ -69,6 +69,8 @@
   --performance-table-tabs-gap: var(--spacing-2);
   --performance-table-pagination-height: 28px;
   --performance-table-pagination-gap: var(--page-gap-table-pagination);
+  --performance-table-fill-pagination-gap: var(--spacing-4);
+  --performance-table-fill-row-height: 52px;
   --performance-table-cell-padding-inline: var(--spacing-3);
   --performance-table-scrollbar-size: 8px;
   --performance-table-scrollbar-thumb: rgba(31, 35, 41, 0.28);

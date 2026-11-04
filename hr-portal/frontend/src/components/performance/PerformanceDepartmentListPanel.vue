@@ -63,6 +63,7 @@ watch(() => props.cycleId, () => {
   <div class="department-panel">
     <PerformanceManagementTable
       viewport-surface
+      viewport-fill
       :browser-column-min-widths="columnMinWidths"
       :rows="rows"
       :loading="loading"

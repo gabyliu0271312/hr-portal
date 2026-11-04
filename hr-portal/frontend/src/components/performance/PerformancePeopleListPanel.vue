@@ -76,6 +76,7 @@ function leafDepartment(row: PerformanceCyclePerson): string {
   <div class="people-panel">
     <PerformanceManagementTable
       viewport-surface
+      viewport-fill
       :browser-column-min-widths="columnMinWidths"
       :rows="rows"
       :loading="loading"

@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
   total?: number
   maxHeight?: number | string
   viewportSurface?: boolean
+  viewportFill?: boolean
   showPagination?: boolean
   rowKey?: string
   clickableRows?: boolean
@@ -42,6 +43,7 @@ const props = withDefaults(defineProps<{
   pageSize: 10,
   maxHeight: 600,
   viewportSurface: false,
+  viewportFill: false,
   showPagination: true,
   rowKey: 'id',
   clickableRows: false,
@@ -334,6 +336,7 @@ const paginationRef = ref<HTMLElement | null>(null)
 const viewportTableHeight = ref<number>()
 const tableMaxHeight = computed(() => {
   if (props.scrollMode !== 'inner') return undefined
+  if (props.viewportFill) return props.maxHeight
   if (!props.viewportSurface || viewportTableHeight.value === undefined) return props.maxHeight
   return typeof props.maxHeight === 'number'
     ? Math.min(props.maxHeight, viewportTableHeight.value)
@@ -427,7 +430,7 @@ function jumpToPage() {
 </script>
 
 <template>
-  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-ping-left': isPingLeft, 'table-surface': viewportSurface && !useNativeTable }" :aria-label="tableAriaLabel" @mouseenter="showHscroll" @mouseleave="scheduleHscrollHide">
+  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-ping-left': isPingLeft, 'table-surface': viewportSurface && !useNativeTable, 'table-surface-fill': viewportSurface && viewportFill && !useNativeTable }" :aria-label="tableAriaLabel" @mouseenter="showHscroll" @mouseleave="scheduleHscrollHide">
     <div v-if="$slots.toolbar" ref="toolbarRef" class="table-toolbar"><slot name="toolbar" /></div>
     <template v-if="useNativeTable">
       <div class="feishu-table">
@@ -623,6 +626,20 @@ function jumpToPage() {
   flex-wrap: wrap;
   min-height: var(--performance-table-pagination-height);
   margin: var(--performance-table-pagination-gap) 0 0;
+}
+.table-surface-fill {
+  flex: 1 1 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.table-surface-fill::-webkit-scrollbar { display: none; }
+.table-surface-fill .table-scroll { flex: 0 0 auto; }
+.table-surface-fill :deep(.el-table__body tr) { height: var(--performance-table-fill-row-height); }
+.table-surface-fill :deep(.el-scrollbar__wrap) { overscroll-behavior-y: auto; }
+.table-surface-fill .table-pagination {
+  --performance-select-height: var(--performance-table-pagination-height);
+  margin: var(--performance-table-fill-pagination-gap) 0;
 }
 :deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
 :deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px 0; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
