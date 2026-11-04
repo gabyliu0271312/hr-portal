@@ -51,6 +51,21 @@ describe('PerformanceDistributionRuleDrawer', () => {
     expect(Array.from(document.body.querySelectorAll('[role="option"]')).map(item => item.textContent)).toEqual(['A', 'B'])
   })
 
+  it('offers the five applicable-people comparison operators and defaults to GTE', async () => {
+    const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
+    ;(document.body.querySelector('[aria-label="分布适用人数比较符"]') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(Array.from(document.body.querySelectorAll('[role="option"]')).map(item => item.textContent)).toEqual(['等于', '小于', '小于等于', '大于', '大于等于'])
+
+    wrapper.findComponent(PerformanceAssessmentSelect).vm.$emit('update:modelValue', 'grade')
+    const condition = wrapper.findComponent(PerformanceDistributionRuleRow)
+    condition.vm.$emit('update:modelValue', { control_mode: 'HARD', grade_codes: ['A'], operator: 'GTE', value: 20, unit: 'PERCENT' })
+    await wrapper.vm.$nextTick()
+    ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({ min_people_operator: 'GTE', min_people_count: 0 })
+  })
+
   it('offers no-forced-rounding with the exact explanatory tooltip', async () => {
     const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
     const radioGroup = wrapper.findComponent(PerformanceRadioGroup)
@@ -75,6 +90,7 @@ describe('PerformanceDistributionRuleDrawer', () => {
       props: {
         modelValue: {
           assessment_item_id: 'grade',
+          min_people_operator: 'GTE',
           min_people_count: 0,
           conditions: [{ control_mode: 'HARD', grade_codes: ['A'], operator: 'GTE', value: 20, unit: 'PERCENT' }],
           rounding_method: 'ROUND',

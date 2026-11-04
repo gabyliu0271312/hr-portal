@@ -49,7 +49,7 @@
                   <PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除分布规则 ${index + 1}`" @click="removeDistributionRule(node,index)" />
                 </div>
               </div>
-              <div class="distribution-rule-card__meta"><span>{{ distributionAssessmentLabel(rule.assessment_item_id) }}</span><span>大于等于 {{ rule.min_people_count }} 人</span></div>
+              <div class="distribution-rule-card__meta"><span>{{ distributionAssessmentLabel(rule.assessment_item_id) }}</span><span>{{ distributionOperatorLabel(rule.min_people_operator) }} {{ rule.min_people_count }} 人</span></div>
               <span class="distribution-rule-card__label">分布规则</span>
               <div class="distribution-rule-card__conditions">
                 <div v-for="(condition,conditionIndex) in rule.conditions" :key="conditionIndex" class="distribution-rule-card__condition">
@@ -283,7 +283,7 @@ function distributionGradeCode(assessmentId: string, value: string) {
   return grade?.value || value
 }
 function distributionControlLabel(value: string) { return value === 'HARD' ? '强制' : '建议' }
-function distributionOperatorLabel(value: string) { return { EQ: '等于', LT: '小于', LTE: '小于等于', GT: '大于', GTE: '大于等于' }[value] || value }
+function distributionOperatorLabel(value?: string) { return { EQ: '等于', LT: '小于', LTE: '小于等于', GT: '大于', GTE: '大于等于' }[value || 'GTE'] }
 function distributionUnitLabel(value: string) { return value === 'PERCENT' ? '%' : '人' }
 function distributionRoundingLabel(value: PerformanceDistributionRounding) { return { ROUND: '四舍五入', CEIL: '向上取整', FLOOR: '向下取整', NONE: '不强制取整' }[value] }
 function resultViewSettings(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value.node_settings[nodeKey(node)].result_view! }

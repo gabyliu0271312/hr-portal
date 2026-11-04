@@ -84,7 +84,7 @@ describe('PerformanceProjectFlowSettings', () => {
   it('keeps distribution rules when disabled and opens scoped rule configuration without a placeholder', async () => {
     const initial = { node_settings: { 'calibration-1': { calibration: {
       force_distribution_enabled: true,
-      distribution: { mode: 'UNIFIED' as const, scope_configured: false, rules: [{ assessment_item_id: 'grade', min_people_count: 8, rounding_method: 'ROUND' as const, conditions: [{ control_mode: 'HARD' as const, grade_codes: ['level-1'], operator: 'GTE' as const, value: 20, unit: 'PERCENT' as const }] }] },
+      distribution: { mode: 'UNIFIED' as const, scope_configured: false, rules: [{ assessment_item_id: 'grade', min_people_operator: 'GTE' as const, min_people_count: 8, rounding_method: 'ROUND' as const, conditions: [{ control_mode: 'HARD' as const, grade_codes: ['level-1'], operator: 'GTE' as const, value: 20, unit: 'PERCENT' as const }] }] },
       phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }],
     } } }, node_times: {} }
     const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], modelValue: initial, distributionAssessmentOptions: [{ id: 'grade', label: '综合评级', grade_options: [{ value: '1星', label: '1星', legacy_value: 'level-1' }] }] } })

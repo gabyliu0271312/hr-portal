@@ -19,7 +19,7 @@ const submitted = ref(false)
 const draft = reactive<PerformanceDistributionRule>(emptyRule())
 
 function emptyRule(): PerformanceDistributionRule {
-  return { assessment_item_id: '', min_people_count: 0, conditions: [{ control_mode: 'HARD', grade_codes: [], operator: 'GTE', value: 0, unit: 'PERCENT' }], rounding_method: 'ROUND' }
+  return { assessment_item_id: '', min_people_operator: 'GTE', min_people_count: 0, conditions: [{ control_mode: 'HARD', grade_codes: [], operator: 'GTE', value: 0, unit: 'PERCENT' }], rounding_method: 'ROUND' }
 }
 function cloneRule(value: PerformanceDistributionRule) { return JSON.parse(JSON.stringify(value)) as PerformanceDistributionRule }
 function reset() {

@@ -613,6 +613,7 @@ def test_project_scope_permissions_are_limited_to_granted_project():
 def _distribution_rule(assessment_item_id="grade", grade_codes=None):
     return {
         "assessment_item_id": assessment_item_id,
+        "min_people_operator": "GTE",
         "min_people_count": 8,
         "conditions": [{"control_mode": "HARD", "grade_codes": grade_codes or ["A"], "operator": "GTE", "value": 20, "unit": "PERCENT"}],
         "rounding_method": "ROUND",
@@ -627,6 +628,18 @@ def test_project_distribution_accepts_all_comparison_operators():
         assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"]["rules"][0]["conditions"][0]["operator"] == operator
 
 
+def test_project_distribution_applicable_people_accepts_all_operators_and_rejects_invalid():
+    for operator in ("EQ", "LT", "LTE", "GT", "GTE"):
+        rule = _distribution_rule()
+        rule["min_people_operator"] = operator
+        flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": {"mode": "UNIFIED", "rules": [rule], "scope_configured": False}, "phases": []}}}}
+        assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"]["rules"][0]["min_people_operator"] == operator
+    invalid = _distribution_rule()
+    invalid["min_people_operator"] = "LIKE"
+    with pytest.raises(ProjectValidationError, match="分布规则适用人数比较符不合法"):
+        PerformanceProjectService._validate_flow_settings({"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": {"mode": "UNIFIED", "rules": [invalid], "scope_configured": False}, "phases": []}}}})
+
+
 def test_project_distribution_accepts_no_rounding_method():
     rule = _distribution_rule()
     rule["rounding_method"] = "NONE"
@@ -638,6 +651,11 @@ def test_project_distribution_rules_round_trip_and_reject_duplicate_assessment_i
     distribution = {"mode": "UNIFIED", "rules": [_distribution_rule()], "scope_configured": False}
     flow = {"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": distribution, "phases": []}}}}
     assert PerformanceProjectService._validate_flow_settings(flow)["node_settings"]["calibration-1"]["calibration"]["distribution"] == distribution
+    legacy_rule = {key: value for key, value in _distribution_rule().items() if key != "min_people_operator"}
+    legacy = {"mode": "UNIFIED", "rules": [legacy_rule], "scope_configured": False}
+    normalized = PerformanceProjectService._validate_flow_settings({"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": legacy, "phases": []}}}})["node_settings"]["calibration-1"]["calibration"]["distribution"]["rules"][0]
+    assert normalized["min_people_operator"] == "GTE"
+    assert normalized["min_people_count"] == 8
     duplicate = {**distribution, "rules": [_distribution_rule(), _distribution_rule()]}
     with pytest.raises(ProjectValidationError, match="同一评估项只能配置一套分布规则"):
         PerformanceProjectService._validate_flow_settings({"node_settings": {"calibration-1": {"calibration": {"force_distribution_enabled": True, "distribution": duplicate, "phases": []}}}})

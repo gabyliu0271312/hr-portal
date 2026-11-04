@@ -441,9 +441,10 @@ class PerformanceProjectService:
         normalized_rules = []
         assessment_ids = set()
         for rule in rules:
-            if not isinstance(rule, dict) or set(rule) - {"assessment_item_id", "min_people_count", "conditions", "rounding_method", "execution_scope"}:
+            if not isinstance(rule, dict) or set(rule) - {"assessment_item_id", "min_people_operator", "min_people_count", "conditions", "rounding_method", "execution_scope"}:
                 raise ProjectValidationError("分布规则格式不正确")
             assessment_item_id = rule.get("assessment_item_id")
+            min_people_operator = rule.get("min_people_operator", "GTE")
             minimum = rule.get("min_people_count")
             conditions = rule.get("conditions")
             rounding = rule.get("rounding_method")
@@ -451,6 +452,8 @@ class PerformanceProjectService:
             if (not isinstance(assessment_item_id, str) or not assessment_item_id.strip() or len(assessment_item_id.strip()) > 128
                     or assessment_item_id.strip() in assessment_ids):
                 raise ProjectValidationError("同一评估项只能配置一套分布规则")
+            if min_people_operator not in DISTRIBUTION_OPERATORS:
+                raise ProjectValidationError("分布规则适用人数比较符不合法")
             if not isinstance(minimum, int) or isinstance(minimum, bool) or minimum < 0 or minimum > 100000:
                 raise ProjectValidationError("分布规则适用人数不合法")
             if not isinstance(conditions, list) or not conditions or len(conditions) > MAX_PROJECT_FLOW_NODES:
@@ -482,6 +485,7 @@ class PerformanceProjectService:
             assessment_ids.add(assessment_item_id.strip())
             normalized_rule = {
                 "assessment_item_id": assessment_item_id.strip(),
+                "min_people_operator": min_people_operator,
                 "min_people_count": minimum,
                 "conditions": normalized_conditions,
                 "rounding_method": rounding,

@@ -197,7 +197,7 @@ function addSubjectGroup() { subjectDirty.value = true; validationError.value = 
 function removeSubjectGroup(index: number) { if (draft.value.subject_groups.length > 1) { subjectDirty.value = true; validationError.value = ''; draft.value.subject_groups.splice(index, 1) } }
 function addScopeGroup() { validationError.value = ''; draft.value.scope_groups.push(createGroup('calibrator_relation')) }
 function removeScopeGroup(index: number) { if (draft.value.scope_groups.length > 1) { validationError.value = ''; draft.value.scope_groups.splice(index, 1) } }
-function emptyDistributionRule(): PerformanceDistributionRule { return { assessment_item_id: '', min_people_count: 0, conditions: [{ control_mode: 'HARD', grade_codes: [], operator: 'GTE', value: 0, unit: 'PERCENT' }], rounding_method: 'ROUND', execution_scope: { calibration_scope: false, department: false, other_dimension: false, rules: [] } } }
+function emptyDistributionRule(): PerformanceDistributionRule { return { assessment_item_id: '', min_people_operator: 'GTE', min_people_count: 0, conditions: [{ control_mode: 'HARD', grade_codes: [], operator: 'GTE', value: 0, unit: 'PERCENT' }], rounding_method: 'ROUND', execution_scope: { calibration_scope: false, department: false, other_dimension: false, rules: [] } } }
 function addDistributionRule() { draft.value.distribution_rules.push(emptyDistributionRule()); distributionSubmitted.value = false }
 function removeDistributionRule(index: number) { draft.value.distribution_rules.splice(index, 1) }
 function updateDistributionRule(index: number, value: PerformanceDistributionRule) { draft.value.distribution_rules[index] = value; distributionSubmitted.value = false }

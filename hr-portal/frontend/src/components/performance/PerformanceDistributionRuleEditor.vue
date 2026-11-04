@@ -43,7 +43,10 @@
     </PerformanceFormItem>
 
     <PerformanceFormItem label="适用人数" required :invalid="submitted && modelValue.min_people_count < 0" error-message="适用人数不合法">
-      <div class="distribution-applicable-count"><span>大于等于</span><PerformanceNumberInput :model-value="String(modelValue.min_people_count)" width="160px" :min="0" suffix="人" aria-label="分布适用人数" :disabled="disabled" @update:model-value="update({ min_people_count: Number($event) || 0 })" /></div>
+      <div class="distribution-applicable-count">
+        <PerformanceSearchSelect class="distribution-applicable-count__operator" :model-value="modelValue.min_people_operator" :options="operatorOptions" selection-style="plain" aria-label="分布适用人数比较符" :disabled="disabled" @update:model-value="update({ min_people_operator: single($event) as PerformanceDistributionOperator })" />
+        <PerformanceNumberInput :model-value="String(modelValue.min_people_count)" width="120px" :min="0" suffix="人" aria-label="分布适用人数" :disabled="disabled" @update:model-value="update({ min_people_count: Number($event) || 0 })" />
+      </div>
     </PerformanceFormItem>
 
     <PerformanceFormItem label="分布规则" required :invalid="submitted && ruleInvalid" error-message="请完善分布规则">
@@ -67,7 +70,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { PerformanceAudienceGroup, PerformanceDistributionAssessmentOption, PerformanceDistributionCondition, PerformanceDistributionExecutionScope, PerformanceDistributionRule, PerformanceDistributionRounding, PerformanceDistributionScopeRuleType, PerformanceHrbpOrganizationNode } from '@/api/performance'
+import type { PerformanceAudienceGroup, PerformanceDistributionAssessmentOption, PerformanceDistributionCondition, PerformanceDistributionExecutionScope, PerformanceDistributionOperator, PerformanceDistributionRule, PerformanceDistributionRounding, PerformanceDistributionScopeRuleType, PerformanceHrbpOrganizationNode } from '@/api/performance'
 import PerformanceAudienceRuleEditor, { type PerformanceAudienceCustomField } from './PerformanceAudienceRuleEditor.vue'
 import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
@@ -77,7 +80,7 @@ import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceOrganizationLevelSelect from './PerformanceOrganizationLevelSelect.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
-import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
+import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
 
@@ -103,6 +106,13 @@ const roundingOptions = [
   { value: 'FLOOR', label: '向下取整' },
   { value: 'NONE', label: '不强制取整' },
 ]
+const operatorOptions = [
+  { value: 'EQ', label: '等于' },
+  { value: 'LT', label: '小于' },
+  { value: 'LTE', label: '小于等于' },
+  { value: 'GT', label: '大于' },
+  { value: 'GTE', label: '大于等于' },
+]
 const scope = computed<PerformanceDistributionExecutionScope>(() => ({ calibration_scope: false, department: false, other_dimension: false, rules: [], ...props.modelValue.execution_scope }))
 const selectableAssessments = computed(() => props.assessmentOptions.map(option => ({ id: option.id, label: option.label, description: option.description, disabled: props.usedAssessmentIds.includes(option.id) && option.id !== props.modelValue.assessment_item_id, disabledReason: '该评估项已配置分布规则' })))
 const selectedAssessment = computed(() => props.assessmentOptions.find(option => option.id === props.modelValue.assessment_item_id))
@@ -121,6 +131,7 @@ const scopeValid = computed(() => {
 })
 const valid = computed(() => Boolean(props.modelValue.assessment_item_id) && props.modelValue.min_people_count >= 0 && !ruleInvalid.value && scopeValid.value)
 
+function single(value: string | string[] | null) { return typeof value === 'string' ? value : '' }
 function update(value: Partial<PerformanceDistributionRule>) { emit('update:modelValue', { ...props.modelValue, ...value }) }
 function updateCondition(index: number, value: PerformanceDistributionCondition) { const conditions = props.modelValue.conditions.map((condition, conditionIndex) => conditionIndex === index ? value : condition); update({ conditions }) }
 function invalidCondition(condition: PerformanceDistributionCondition) { return !condition.grade_codes.length || condition.value <= 0 || (condition.unit === 'PERCENT' && condition.value > 100) }
@@ -154,7 +165,7 @@ function setScopeEnabled(key: 'calibration_scope' | 'department' | 'other_dimens
 <style scoped>
 .distribution-rule-editor{display:flex;flex-direction:column;gap:var(--spacing-5);min-width:0;color:var(--color-text-primary)}
 .distribution-assessment-summary{display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-1);margin:var(--spacing-2) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.distribution-assessment-summary span{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:var(--radius-sm);background:var(--performance-select-tag-background);color:var(--performance-select-tag-text)}
-.distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}.distribution-applicable-count>span{flex:0 0 120px;height:var(--performance-control-height);padding:4px var(--performance-select-padding-x);box-sizing:border-box;border:1px solid var(--performance-field-border);border-radius:var(--performance-control-radius);background:var(--color-bg-card);font-size:var(--font-size-md);line-height:22px}
+.distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}.distribution-applicable-count__operator{flex:0 0 120px;min-width:0}
 .distribution-condition-list{display:flex;flex-direction:column;gap:var(--spacing-2);margin-bottom:var(--spacing-2)}.distribution-rule-editor :deep(.performance-form-item__label){gap:var(--spacing-1)}.distribution-rule-editor :deep(.performance-form-item__description){font-size:var(--font-size-md);line-height:20px}
 .distribution-scope-options{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-scope-group{min-width:0;margin:0 0 var(--spacing-2);padding:var(--spacing-2) 0 0;border-radius:var(--radius-sm);background:transparent}
 .distribution-scope-group :deep(.performance-audience-rule-editor__groups){width:100%}.distribution-scope-group :deep(.performance-audience-rule-editor__main){width:100%}

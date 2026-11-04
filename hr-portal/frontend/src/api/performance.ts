@@ -1660,6 +1660,7 @@ export interface PerformanceDistributionExecutionScope {
 }
 export interface PerformanceDistributionRule {
   assessment_item_id: string
+  min_people_operator: PerformanceDistributionOperator
   min_people_count: number
   conditions: PerformanceDistributionCondition[]
   rounding_method: PerformanceDistributionRounding
