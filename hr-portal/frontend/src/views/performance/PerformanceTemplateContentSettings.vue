@@ -81,7 +81,13 @@
             </template>
             <template #reference="{ group }">
             <h2>{{ group.name }}</h2>
-            <div v-if="!referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
+            <!-- OKR：内置引用（reference_kind='more' + value='okr'），不产生内容条目，
+                 与模板预览/前端一致渲染 OKR 卡片（复用 PerformanceOkrPanel placeholder） -->
+            <PerformanceOkrPanel
+              v-if="group.relation?.reference_kind === 'more' && group.relation?.reference_value === 'okr'"
+              placeholder
+            />
+            <div v-else-if="!referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
             <div v-for="content in referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents" :key="content.id" class="configured-content-panel result-view-section__configured-content">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -203,6 +209,7 @@ import PerformanceTemplateOperateBar from '@/components/performance/PerformanceT
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
+import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
@@ -519,7 +526,7 @@ const referenceGroups = computed(() => referenceRelations.value.map(relation => 
   const contents = referencePreviewContents.value.filter(content => relation.reference_kind === 'node' ? referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation) : contentIdentity(content) === contentIdentity(relation))
   const name = source?.name || relation.name
   const configuredPageName = relation.reference_settings?.page_name
-  return { id: referenceRelationId(relation), name, pageName: typeof configuredPageName === 'string' ? configuredPageName : name, contents }
+  return { id: referenceRelationId(relation), name, pageName: typeof configuredPageName === 'string' ? configuredPageName : name, contents, relation }
 }))
 const contentRegions = computed(() => {
   const regions = referenceGroups.value.map(group => ({ id: `reference:${group.id}`, kind: 'reference', name: group.pageName || group.name }))

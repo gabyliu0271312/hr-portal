@@ -122,7 +122,7 @@ function barColor(status?: PerformanceOkrStatus | null) {
       <div v-for="(objective, index) in displayObjectives" :key="objective.id || index" class="okr-subsection">
         <div class="okr-objective">
           <div class="okr-objective__left">
-            <span class="okr-objective__tag"><span>O</span><span>{{ index + 1 }}</span></span>
+            <span class="okr-objective__tag"><span>O&nbsp;{{ index + 1 }}</span></span>
             <span class="okr-objective__text">{{ objective.content }}</span>
           </div>
           <div class="okr-o-metrics">
@@ -142,7 +142,7 @@ function barColor(status?: PerformanceOkrStatus | null) {
 
         <div v-for="(kr, krIndex) in objective.key_results" :key="kr.id || krIndex" class="okr-kr">
           <div class="okr-kr__main">
-            <span class="okr-kr__tag"><span>KR</span><span>{{ krIndex + 1 }}</span></span>
+            <span class="okr-kr__tag"><span>KR&nbsp;{{ krIndex + 1 }}</span></span>
             <span class="okr-kr__text">{{ kr.content }}</span>
           </div>
           <div class="okr-kr__metrics">

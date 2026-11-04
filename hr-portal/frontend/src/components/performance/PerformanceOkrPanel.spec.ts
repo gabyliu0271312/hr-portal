@@ -15,7 +15,7 @@ describe('PerformanceOkrPanel', () => {
     const wrapper = mount(PerformanceOkrPanel, { props: { okr } })
     expect(wrapper.text()).toContain('2026 年度 OKR')
     expect(wrapper.text()).toContain('提升交付效率')
-    expect(wrapper.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O1', 'KR1', 'KR2'])
+    expect(wrapper.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O\u00a01', 'KR\u00a01', 'KR\u00a02'])
     expect(wrapper.findAll('.okr-kr__percent').map(node => node.text())).toEqual(['100%', '33.3%'])
     expect(wrapper.findAll('.okr-kr__badge').map(node => node.text())).toEqual(['正常', '有风险'])
   })

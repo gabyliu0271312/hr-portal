@@ -17,6 +17,7 @@ import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflo
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
+import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import { performanceContentKey, contentToSections } from './performanceContentToSections'
@@ -81,21 +82,26 @@ interface ReferenceGroup {
   value: string
   description: string
   contents: PerformanceTemplateContent[]
+  /** 引用源是 360°反馈环节：渲染 360°评估详情视图（REA 实测与普通引用不同） */
+  isReviewer360?: boolean
 }
 const referenceGroups = computed<ReferenceGroup[]>(() => {
   const node = selectedNode.value
   if (!node) return []
   const relations = (node.content || []).filter(content => (content.content_slot || 'fill') === 'reference' || content.type === 'reference')
-  return relations.map((relation, index) => {
+  const groups: ReferenceGroup[] = relations.map((relation, index) => {
     const id = relation.content_id || relation.id || `reference-${index}`
     if (relation.reference_kind === 'node' && relation.reference_value) {
       const source = nodes.value.find(item => item.node_id === relation.reference_value && item.node_id !== node.node_id)
+      /* 360°反馈环节 = 流程设置里执行人为「360°评估人」的评估环节：
+         参考区对该引用渲染「360°评估详情」视图（REA 实测与普通引用不同） */
+      const isReviewer360 = Boolean(source && source.executor_label === '360°评估人')
       /* REA 的参考内容只展示被引用环节的填写项，不包含「说明」块 */
       const contents = source ? visibleFillContents(source).filter(content => content.type !== 'prompt') : []
       return {
         id, kind: 'node' as const, value: relation.reference_value,
         label: relation.reference_settings?.page_name || source?.name || relation.name || '参考内容',
-        description: '', contents,
+        description: '', contents, isReviewer360,
       }
     }
     return {
@@ -103,6 +109,12 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
       label: relation.name || '更多参考', description: relation.description || '', contents: [],
     }
   })
+  /* 填写工作总结环节固有展示 OKR（REA 实测该环节中栏只有 OKR 一个页签）：
+     即使内容设置未配置参考内容，模板预览（与前端一致）也展示 OKR 骨架。 */
+  if (node.node_type === 'work_summary' && !groups.some(group => group.kind === 'more' && group.value === 'okr')) {
+    groups.unshift({ id: 'builtin-okr', kind: 'more', value: 'okr', label: 'OKR', description: '', contents: [] })
+  }
+  return groups
 })
 const showReferencePanel = computed(() => !isResultView.value && referenceGroups.value.length > 0)
 const activeReferenceGroup = computed(() => referenceGroups.value[activeReferenceTab.value] || null)
@@ -263,9 +275,14 @@ function contentDescription(content: PerformanceTemplateContent) {
 
                 <div class="ptp-pane">
                   <template v-if="activeReferenceGroup">
+                    <!-- 360°反馈：引用源执行人为「360°评估人」的评估环节 → 360°评估详情视图（REA 实测） -->
+                    <PerformanceReviewer360Preview
+                      v-if="activeReferenceGroup.isReviewer360"
+                      :relation-label="activeReferenceGroup.label"
+                    />
                     <!-- OKR：内置引用，模板预览阶段渲染骨架；数据字段结构与填写页一致 -->
                     <PerformanceOkrPanel
-                      v-if="activeReferenceGroup.kind === 'more' && activeReferenceGroup.value === 'okr'"
+                      v-else-if="activeReferenceGroup.kind === 'more' && activeReferenceGroup.value === 'okr'"
                       placeholder
                     />
                     <!-- 更多参考 / 团队统计：内置骨架 -->

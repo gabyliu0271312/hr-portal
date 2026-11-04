@@ -125,6 +125,44 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.findAll('.ptp-invite-row')).toHaveLength(4)
   })
 
+  it('renders built-in OKR for work_summary stage even without reference config (固有展示)', async () => {
+    // 填写工作总结在内容设置未配置任何参考内容，但模板预览（与前端一致）固有展示 OKR 页签
+    const wrapper = mountStep([node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [fillSummary] })])
+    await flushPromises()
+    const tabs = wrapper.findAll('.ptp-ref-tab')
+    expect(tabs.map(tab => tab.text())).toEqual(['OKR'])
+    const panel = wrapper.findAll('.ptp-panel')[0]
+    expect(panel.text()).toContain('OKR 内容')
+    expect(panel.text()).toContain('OKR 详情')
+    expect(panel.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O\u00a01', 'KR\u00a01', 'KR\u00a02'])
+  })
+
+  it('renders 360° evaluation detail for references whose source executor is 360°评估人', async () => {
+    // 360°反馈环节 = 流程设置里执行人为「360°评估人」的评估环节；
+    // 参考区对其渲染 360°评估详情视图（信息条 + 表头 + 详情视图 + 空评估条目）
+    const reviewer360 = node({ node_id: 'n360', node_type: 'evaluation', name: '360°反馈（自愿评估）', executor_label: '360°评估人' })
+    const reference = {
+      content_id: 'ref-360', type: 'reference', content_slot: 'reference', name: '360°反馈（自愿评估）',
+      reference_kind: 'node', reference_value: 'n360', items: [],
+    } as any
+    const wrapper = mountStep([
+      node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [fillSummary] }),
+      node({ node_id: 'n2', node_type: 'evaluation', name: '直接上级评估', executor_label: '直属上级', content: [reference] }),
+      reviewer360,
+    ])
+    await flushPromises()
+    await wrapper.findAll('.ptp-stage-card')[1].trigger('click')
+    const panel = wrapper.findAll('.ptp-panel')[0]
+    // 360°评估详情视图：信息条 + 表头 + 详情视图 + 卡片 + 空评估条目
+    expect(panel.text()).toContain('已评估')
+    expect(panel.text()).toContain('评估维度')
+    expect(panel.text()).toContain('员工关系')
+    expect(panel.text()).toContain('人员类型')
+    expect(panel.text()).toContain('详情视图')
+    expect(panel.text()).toContain('所属部门')
+    expect(panel.findAll('.r360-form__item')).toHaveLength(2)
+  })
+
   it('renders built-in OKR skeleton for more-reference relations', async () => {
     // 内容设置「配置参考内容 → 更多参考内容 → OKR」落库为 reference_kind='more' + reference_value='okr'
     const okrRelation = {
@@ -146,7 +184,7 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(panel.text()).toContain(`${new Date().getFullYear()} 年度 OKR`)
     expect(panel.text()).toContain('OKR 详情')
     expect(panel.text()).toContain('展示内容以实际数据为准')
-    expect(panel.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O1', 'KR1', 'KR2'])
+    expect(panel.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O\u00a01', 'KR\u00a01', 'KR\u00a02'])
     expect(panel.text()).toContain('进度')
     expect(panel.text()).toContain('权重')
     expect(panel.findAll('.okr-kr__badge').map(badge => badge.text())).toEqual(['正常', '正常'])
