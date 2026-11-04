@@ -99,7 +99,7 @@ const emit = defineEmits<{
   'update:items': [items: FillItem[]]
 }>()
 
-const sortableListRef = ref<InstanceType<typeof PerformanceSortableList> | null>(null)
+const sortableListRef = ref<InstanceType<typeof UiSortableList> | null>(null)
 const dragAnnouncement = ref('')
 const hoveredItemId = ref<string | null>(null)
 function leaveItem(itemId: string) { if (hoveredItemId.value === itemId) hoveredItemId.value = null }
