@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from app.core.config import settings
 from app.performance.projects_router import ProjectPayload, _can_manage_project, _review_node_category, _review_node_status
 from app.performance.auth_context import PerformanceAccessContext, PerformanceRoleGrant, performance_admin_preview_enabled
-from app.performance.project_service import PerformanceProjectService, ProjectValidationError
+from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 
 
 def test_reconsideration_handlers_merge_roles_without_duplicate_tasks():
@@ -918,6 +918,31 @@ def test_project_calibration_optional_project_all_fields():
     normalized = PerformanceProjectService._validate_flow_settings(_calibration_rule_settings(rule))
     saved = normalized["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0]
     assert saved == {"subject_type": "PERSON", "operator": "INCLUDE", "scope": "PROJECT_ALL", "allow_authorize": False, **rule}
+
+
+def test_project_node_time_parser_interprets_naive_value_as_shanghai_wall_time():
+    from datetime import UTC, datetime
+
+    assert _parse_time("2026-11-04T16:40") == datetime(2026, 11, 4, 8, 40, tzinfo=UTC)
+    assert _parse_time("2026-11-04T16:40:00+08:00") == datetime(2026, 11, 4, 8, 40, tzinfo=UTC)
+    assert _parse_time("2026-11-04T08:40:00Z") == datetime(2026, 11, 4, 8, 40, tzinfo=UTC)
+
+
+def test_project_flow_settings_normalizes_node_time_without_changing_wall_time():
+    normalized = PerformanceProjectService._validate_flow_settings({
+        "node_settings": {},
+        "node_times": {
+            "evaluation-1": {
+                "start_at": "2026-11-04T16:40",
+                "end_at": "2026-11-06T23:59",
+            },
+        },
+    })
+
+    assert normalized["node_times"]["evaluation-1"] == {
+        "start_at": "2026-11-04T16:40",
+        "end_at": "2026-11-06T23:59",
+    }
 
 
 def test_project_flow_settings_accepts_template_node_limit():
@@ -6173,7 +6198,7 @@ async def test_authorization_records_reject_user_without_management_permission(m
     async def denied(*args):
         raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
 
-    monkeypatch.setattr(router, "_managed_completion_projects", denied)
+    monkeypatch.setattr(router, "_task_authorization_projects", denied)
     with pytest.raises(HTTPException) as failure:
         await router.project_management_authorization_records(1, context(), None)
     assert failure.value.status_code == 404
@@ -6185,13 +6210,16 @@ async def test_authorization_records_apply_project_employee_scope_and_revoke_eve
     from datetime import UTC, datetime
     project = SimpleNamespace(id=3, cycle_ref="cycle:1")
     async def managed(*args): return [(project, {"E1"})]
-    monkeypatch.setattr(router, "_managed_completion_projects", managed)
+    monkeypatch.setattr(router, "_task_authorization_projects", managed)
+    async def scope(*args): return {"E1"}
+    monkeypatch.setattr(router, "_task_management_scope", scope)
     events = [
-        SimpleNamespace(id=3, employee_no="E1", event_type="PERFORMANCE_TASK_AUTHORIZATION_REVOKED", after_state={"project_id": 3, "authorization_id": 1}),
-        SimpleNamespace(id=2, employee_no="HIDDEN", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3}),
-        SimpleNamespace(id=1, employee_no="E1", actor_ref="A1", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3, "recipient_ref": "M1", "stage_names": ["上级评估"]}, event_at=datetime(2026, 11, 1, tzinfo=UTC)),
+        SimpleNamespace(id=3, subject_ref="7", employee_no="E1", event_type="PERFORMANCE_TASK_AUTHORIZATION_REVOKED", after_state={"project_id": 3, "authorization_id": 1}),
+        SimpleNamespace(id=2, subject_ref="7", employee_no="HIDDEN", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3}),
+        SimpleNamespace(id=1, subject_ref="7", employee_no="E1", actor_ref="A1", event_type="PERFORMANCE_TASK_AUTHORIZED", after_state={"project_id": 3, "recipient_ref": "M1", "stage_names": ["上级评估"]}, event_at=datetime(2026, 11, 1, tzinfo=UTC)),
     ]
     class Db:
+        async def scalar(self, query): return SimpleNamespace(node_type="evaluation")
         async def get(self, model, key): return None
         async def execute(self, query): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: events))
     result = await router.project_management_authorization_records(1, context("performance.projects.manage"), Db())

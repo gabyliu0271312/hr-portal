@@ -5,6 +5,7 @@ import re
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -154,7 +155,9 @@ def _parse_time(value: Any) -> datetime | None:
         parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError as exc:
         raise ProjectValidationError("流程节点时间格式不合法") from exc
-    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return parsed.astimezone(UTC)
 
 
 def _manager_chain_handlers(person: Any, people_by_employee: dict[str, Any], levels: set[str]) -> set[str]:

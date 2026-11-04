@@ -3214,10 +3214,9 @@ def _review_node_status(start_at: str | None, end_at: str | None, now: datetime 
         if not value:
             return None
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except (TypeError, ValueError):
+            return _parse_time(value)
+        except (TypeError, ValueError, ProjectValidationError):
             return None
-        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
 
     start = parse(start_at)
     end = parse(end_at)

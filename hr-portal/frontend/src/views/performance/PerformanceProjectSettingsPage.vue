@@ -135,6 +135,7 @@ import PerformanceProjectFlowSettings from '@/components/performance/Performance
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
 import { initializeCalibrationNodes, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError } from '@/components/performance/performanceProjectCalibration'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
+import { shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
 
 const route = useRoute(); const router = useRouter()
 const projectId = computed(() => Number(route.params.id || 0) || null)
@@ -167,9 +168,49 @@ watch(() => form.evaluator_rules, () => { if (previewTimer) clearTimeout(preview
 const nodeTimeError = computed(() => projectNodeTimeError(workflowNodes.value, form.flow_settings))
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { ...basicDialogProject.value, id: projectId.value, project_ref: basicDialogProject.value?.project_ref || '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: projectStatus.value, evaluated_count: evaluatedCount.value }; basicDialogOpen.value = true }
 async function saveBasicInfo(payload: PerformanceProjectPayload) { if (!projectId.value) return; basicDialogSaving.value = true; try { await performanceProjectApi.update(projectId.value, payload); basicDialogOpen.value = false; await loadProject() } catch (error: any) { notice.value = error?.response?.data?.detail || '基本信息保存失败' } finally { basicDialogSaving.value = false } }
-function toInputTime(value: string | null) { return value ? value.slice(0, 16) : '' }
+function toInputTime(value: string | null) { return value ? (utcToShanghaiLocal(value) || '') : '' }
+function toLocalNodeTimes(times: Record<string, any>) {
+  const result: Record<string, any> = {}
+  for (const [nodeId, timing] of Object.entries(times || {})) {
+    const next = { ...(timing || {}) }
+    for (const field of ['start_at', 'end_at', 'appeal_deadline']) {
+      if (typeof next[field] === 'string' && next[field]) next[field] = /[zZ]|[+-]\d{2}:?\d{2}$/.test(next[field]) ? (utcToShanghaiLocal(next[field]) || next[field].slice(0, 16)) : next[field].slice(0, 16)
+    }
+    if (next.phase_times && typeof next.phase_times === 'object') {
+      next.phase_times = Object.fromEntries(Object.entries(next.phase_times).map(([phaseId, phaseTiming]: [string, any]) => {
+        const phase = { ...(phaseTiming || {}) }
+        for (const field of ['start_at', 'end_at']) {
+          if (typeof phase[field] === 'string' && phase[field]) phase[field] = /[zZ]|[+-]\d{2}:?\d{2}$/.test(phase[field]) ? (utcToShanghaiLocal(phase[field]) || phase[field].slice(0, 16)) : phase[field].slice(0, 16)
+        }
+        return [phaseId, phase]
+      }))
+    }
+    result[nodeId] = next
+  }
+  return result
+}
+function toUtcNodeTimes(times: Record<string, any>) {
+  const result: Record<string, any> = {}
+  for (const [nodeId, timing] of Object.entries(times || {})) {
+    const next = { ...(timing || {}) }
+    for (const field of ['start_at', 'end_at', 'appeal_deadline']) {
+      if (typeof next[field] === 'string' && next[field]) next[field] = shanghaiLocalToUtcIso(next[field]) || next[field]
+    }
+    if (next.phase_times && typeof next.phase_times === 'object') {
+      next.phase_times = Object.fromEntries(Object.entries(next.phase_times).map(([phaseId, phaseTiming]: [string, any]) => {
+        const phase = { ...(phaseTiming || {}) }
+        for (const field of ['start_at', 'end_at']) {
+          if (typeof phase[field] === 'string' && phase[field]) phase[field] = shanghaiLocalToUtcIso(phase[field]) || phase[field]
+        }
+        return [phaseId, phase]
+      }))
+    }
+    result[nodeId] = next
+  }
+  return result
+}
 function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length || (isDateConditionField(condition.field) && !validHireDateCondition(condition.operator, condition.values))))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
-function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? new Date(form.start_at).toISOString() : null, end_at: form.end_at ? new Date(form.end_at).toISOString() : null, evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) }, flow_settings: form.flow_settings } }
+function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? shanghaiLocalToUtcIso(form.start_at) : null, end_at: form.end_at ? shanghaiLocalToUtcIso(form.end_at) : null, evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) }, flow_settings: { ...form.flow_settings, node_times: toUtcNodeTimes(form.flow_settings.node_times) } } }
 function previewPayload(kind: 'matched' | 'task' | 'report_only' = 'matched', groupIndex: number | null = null): PerformanceEvaluatorPreviewPayload {
   return {
     project_id: projectId.value,
@@ -246,7 +287,7 @@ async function loadTemplateWorkflow() {
   } finally { if (requestedTemplateId === form.template_id) flowLoading.value = false }
 }
 async function loadEvaluatorOptions() { if (!cycleId.value || evaluatorOptionsLoaded.value || evaluatorOptionsLoading.value) return; evaluatorOptionsLoading.value = true; try { evaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(cycleId.value); evaluatorOptionsLoaded.value = true; notice.value = '' } catch (error: any) { notice.value = error?.response?.data?.detail || '被评估人名单加载失败，请稍后重试' } finally { evaluatorOptionsLoading.value = false } }
-async function loadProject() { if (!projectId.value) return; try { const project = await performanceProjectApi.get(projectId.value); basicDialogProject.value = { ...project, data_managers: project.data_managers ?? ['HRBP'] }; form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]; form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at); evaluatedCount.value = project.evaluated_count; const savedFlowSettings = project.flow_settings || { node_settings: {}, node_times: {} }; form.flow_settings = { node_settings: savedFlowSettings.node_settings || {}, node_times: savedFlowSettings.node_times || {} }; savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times)); projectStatus.value = project.status; if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules)); savedView.value = true; await loadAudiencePreview() } catch (error: any) { notice.value = error?.response?.data?.detail || '项目加载失败' } }
+async function loadProject() { if (!projectId.value) return; try { const project = await performanceProjectApi.get(projectId.value); basicDialogProject.value = { ...project, data_managers: project.data_managers ?? ['HRBP'] }; form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]; form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at); evaluatedCount.value = project.evaluated_count; const savedFlowSettings = project.flow_settings || { node_settings: {}, node_times: {} }; form.flow_settings = { node_settings: savedFlowSettings.node_settings || {}, node_times: toLocalNodeTimes(savedFlowSettings.node_times || {}) }; savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times)); projectStatus.value = project.status; if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules)); savedView.value = true; await loadAudiencePreview() } catch (error: any) { notice.value = error?.response?.data?.detail || '项目加载失败' } }
 async function saveDraft() { if (!projectId.value) return true; saving.value = true; try { await performanceProjectApi.update(projectId.value, payload()); return true } catch (error: any) { notice.value = error?.response?.data?.detail || '当前步骤保存失败'; return false } finally { saving.value = false } }
 async function nextStep() {
   if (currentStep.value === 0 && !validate()) return
