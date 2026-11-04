@@ -81,10 +81,10 @@ describe('PerformanceTemplatePreviewStep', () => {
     // 参考页签 = 来源环节名，内容解析自来源环节的填写内容
     expect(panels[0].text()).toContain('填写工作总结')
     expect(panels[0].text()).toContain('重点工作 1')
-    // 右栏含提示条与评级胶囊
+    // 右栏含提示条与评级控件（复用内容设置的 PerformanceContentRenderer 渲染链路）
     expect(panels[1].text()).toContain('111')
     expect(panels[1].text()).toContain('1星')
-    expect(panels[1].findAll('.ptp-pill')).toHaveLength(3)
+    expect(panels[1].findAll('.performance-content-renderer__rating')).toHaveLength(1)
   })
 
   it('renders result view as single panel without footer', async () => {
@@ -94,7 +94,10 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.findAll('.ptp-panel')).toHaveLength(1)
     expect(wrapper.find('.ptp-tab').text()).toBe('配置查看内容')
     expect(wrapper.find('.ptp-footer').exists()).toBe(false)
-    expect(wrapper.text()).toContain('这里展示用户填写的内容')
+    // 内容以查看态渲染（复用内容设置渲染器的 view 模式，而非填写编辑框）
+    expect(wrapper.text()).toContain('绩效结果')
+    expect(wrapper.findAll('.content-renderer-item--view')).toHaveLength(1)
+    expect(wrapper.find('.performance-rich-text-box').exists()).toBe(false)
   })
 
   it('renders calibration with adjustment tab and final-node contents', async () => {

@@ -73,7 +73,7 @@ import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import type { PerformancePromptValue as PromptValue, PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
 type ContentItem = { id: string; label: string; hint?: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PromptValue; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式'; defaultAll?: boolean }
-type Content = { type: 'work_summary' | 'rating' | 'custom' | 'prompt'; prompt?: PromptValue; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
+type Content = { type: 'work_summary' | 'rating' | 'custom' | 'reference' | 'prompt'; prompt?: PromptValue; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
 type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean; readonlySurface?: boolean }
 
 const props = withDefaults(defineProps<{

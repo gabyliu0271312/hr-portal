@@ -8,6 +8,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { performanceTemplateApi, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
+import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
+import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -105,16 +107,26 @@ const rightTitle = computed(() => selectedNode.value?.content_page_name || selec
 const showFooter = computed(() => !isResultView.value)
 const isSinglePanel = computed(() => !showReferencePanel.value)
 
-/* ---------- 渲染辅助 ---------- */
-function ratingOptions(content: PerformanceTemplateContent) {
-  return (content.options || []).map(option => option.label || option.name || option.code || '').filter(Boolean)
+/* ---------- 渲染辅助 ----------
+ * 内容块复用内容设置的渲染链路（PerformanceAssessmentPreviewHeader + PerformanceContentRenderer），
+ * 与 REA「预览 = 内容设置的只读镜像」架构一致；条目 mode/required/hideName 等设置直接透传。 */
+type PreviewItemSettings = Record<string, { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; allowView?: boolean }>
+function itemSettingsFor(content: PerformanceTemplateContent, forceView = false): PreviewItemSettings {
+  const result: PreviewItemSettings = {}
+  for (const item of content.items || []) {
+    if (item.kind === 'prompt') continue
+    const settings = item.settings || {}
+    result[item.id] = {
+      mode: forceView ? 'view' : (settings.mode === 'hidden' || settings.mode === 'view' ? settings.mode : 'fill'),
+      required: settings.required === true,
+      hideName: settings.hideName || undefined,
+      allowView: settings.allowView,
+    }
+  }
+  return result
 }
-function visibleItems(content: PerformanceTemplateContent) {
-  return (content.items || []).filter(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')
-}
-function promptBannerStyle(content: PerformanceTemplateContent) {
-  const color = content.prompt?.color
-  return color ? { backgroundColor: color } : undefined
+function contentDescription(content: PerformanceTemplateContent) {
+  return content.settings?.hideDescription ? '' : content.description
 }
 </script>
 
@@ -172,27 +184,17 @@ function promptBannerStyle(content: PerformanceTemplateContent) {
               <span v-for="label in activeReferenceGroup.moreLabels" :key="label" class="ptp-chip">{{ label }}</span>
             </div>
             <div v-for="content in activeReferenceGroup.contents" :key="content.content_id || content.id || content.name" class="ptp-content">
-              <div v-if="content.type === 'prompt'" class="ptp-prompt" :style="promptBannerStyle(content)">
-                <span class="ptp-prompt__icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="#3370ff"/><path d="M7 6.2v3.6" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="4.2" r=".9" fill="#fff"/></svg></span>
-                <div>
-                  <div class="ptp-prompt__title">{{ content.prompt?.title || content.name }}</div>
-                  <div v-if="content.prompt?.content" class="ptp-prompt__desc">{{ content.prompt.content }}</div>
-                </div>
-              </div>
-              <template v-else>
-                <div class="ptp-sec-title">{{ content.name }}</div>
-                <div v-if="content.description && content.settings?.hideDescription !== true" class="ptp-sec-desc">{{ content.description }}</div>
-                <template v-for="item in visibleItems(content)" :key="item.id">
-                  <div v-if="content.type === 'rating'" class="ptp-rating-view">
-                    <span class="ptp-chip">{{ item.label }}</span>
-                  </div>
-                  <template v-else>
-                    <div class="ptp-block-label">{{ item.label }}</div>
-                    <div v-if="item.hint" class="ptp-sec-desc">{{ item.hint }}</div>
-                    <div class="ptp-static-box">这里展示用户填写的内容</div>
-                  </template>
-                </template>
-              </template>
+              <PerformanceAssessmentPreviewHeader
+                v-if="content.type !== 'prompt'"
+                :name="content.name"
+                :description="contentDescription(content)"
+                description-class="ptp-sec-desc"
+              />
+              <PerformanceContentRenderer
+                :content="content"
+                variant="configured-card"
+                :item-settings="itemSettingsFor(content)"
+              />
             </div>
           </template>
         </div>
@@ -231,48 +233,17 @@ function promptBannerStyle(content: PerformanceTemplateContent) {
             <div v-if="!rightContents.length" class="ptp-empty">暂未配置供参考内容</div>
 
             <div v-for="content in rightContents" :key="content.content_id || content.id || content.name" class="ptp-content">
-              <div v-if="content.type === 'prompt'" class="ptp-prompt" :style="promptBannerStyle(content)">
-                <span class="ptp-prompt__icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="#3370ff"/><path d="M7 6.2v3.6" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="4.2" r=".9" fill="#fff"/></svg></span>
-                <div>
-                  <div class="ptp-prompt__title">{{ content.prompt?.title || content.name }}</div>
-                  <div v-if="content.prompt?.content" class="ptp-prompt__desc">{{ content.prompt.content }}</div>
-                </div>
-              </div>
-              <template v-else>
-                <div class="ptp-sec-title">{{ content.name }}</div>
-                <div v-if="content.description && content.settings?.hideDescription !== true" class="ptp-sec-desc">{{ content.description }}</div>
-                <template v-for="item in visibleItems(content)" :key="item.id">
-                  <!-- 评级题：等级胶囊 -->
-                  <template v-if="content.type === 'rating' || item.kind === 'rating'">
-                    <div class="ptp-block-label" :class="{ 'ptp-block-label--req': item.settings?.required }">{{ item.label }}</div>
-                    <div v-if="item.hint" class="ptp-sec-desc">{{ item.hint }}</div>
-                    <div v-if="ratingOptions(content).length" class="ptp-pills">
-                      <template v-for="(option, index) in ratingOptions(content)" :key="`${item.id}-${index}`">
-                        <button type="button" class="ptp-pill">{{ option }}</button>
-                        <span v-if="index < ratingOptions(content).length - 1" class="ptp-pill__line" aria-hidden="true"></span>
-                      </template>
-                    </div>
-                    <div v-if="content.type === 'rating'" class="ptp-rating-tip">手动调整的等级不符合计算规则&nbsp;&nbsp;<span class="ptp-rating-tip__link">按规则重新计算</span></div>
-                  </template>
-                  <!-- 填写题：查看结果为展示灰盒，其余为富文本样例框 -->
-                  <template v-else-if="isResultView">
-                    <div class="ptp-block-label">{{ item.label }}</div>
-                    <div v-if="item.hint" class="ptp-sec-desc">{{ item.hint }}</div>
-                    <div class="ptp-static-box">这里展示用户填写的内容</div>
-                  </template>
-                  <template v-else>
-                    <div class="ptp-block-label" :class="{ 'ptp-block-label--req': item.settings?.required }">{{ item.label }}</div>
-                    <div v-if="item.hint" class="ptp-sec-desc">{{ item.hint }}</div>
-                    <div class="ptp-toolbar" aria-hidden="true"><span class="ptp-toolbar__b">B</span><span class="ptp-toolbar__i">I</span><span class="ptp-toolbar__u">U</span><span class="ptp-toolbar__s">S</span><span>≡</span><span>☰</span><span>🔗</span></div>
-                    <div v-if="item.richText" class="ptp-editor ptp-editor--sample">{{ item.richText }}</div>
-                    <div v-else class="ptp-editor"><br></div>
-                    <div v-if="item.settings?.allowMultiple" class="ptp-add">
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1.5v9M1.5 6h9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                      添加
-                    </div>
-                  </template>
-                </template>
-              </template>
+              <PerformanceAssessmentPreviewHeader
+                v-if="content.type !== 'prompt'"
+                :name="content.name"
+                :description="contentDescription(content)"
+                description-class="ptp-sec-desc"
+              />
+              <PerformanceContentRenderer
+                :content="content"
+                variant="configured-card"
+                :item-settings="itemSettingsFor(content, isResultView)"
+              />
             </div>
           </template>
         </div>
@@ -331,40 +302,11 @@ function promptBannerStyle(content: PerformanceTemplateContent) {
 .ptp-more { margin-bottom: 12px; }
 .ptp-chip { display: inline-flex; align-items: center; background: #e1eaff; color: #3370ff; font-size: 12px; font-weight: 500; border-radius: 10px; padding: 2px 10px; line-height: 18px; margin: 0 8px 8px 0; }
 
-/* 内容块 */
+/* 内容块（块内渲染复用 PerformanceContentRenderer / PerformanceAssessmentPreviewHeader） */
 .ptp-content { margin-bottom: 8px; }
 .ptp-sec-title { font-size: 16px; font-weight: 600; color: #1f2329; line-height: 24px; margin-top: 24px; }
 .ptp-sec-title--lead { margin-top: 0; }
 .ptp-sec-desc { font-size: 14px; color: #646a73; line-height: 22px; margin-top: 4px; }
-.ptp-block-label { font-size: 14px; font-weight: 600; color: #1f2329; line-height: 22px; margin-top: 16px; }
-.ptp-block-label--req::after { content: '*'; color: #f54a45; margin-left: 2px; }
-.ptp-static-box { background: #f5f6f7; border-radius: 8px; padding: 12px; margin-top: 8px; font-size: 14px; color: #646a73; line-height: 22px; }
-.ptp-rating-view { margin-top: 8px; }
-
-/* 提示条 */
-.ptp-prompt { background: #e8f3ff; border-radius: 8px; padding: 12px 16px; margin: 16px 0 20px; display: flex; gap: 8px; align-items: flex-start; }
-.ptp-prompt__icon { flex: none; margin-top: 2px; display: inline-flex; }
-.ptp-prompt__title { font-size: 14px; font-weight: 600; color: #1f2329; line-height: 22px; }
-.ptp-prompt__desc { font-size: 12px; color: #646a73; line-height: 20px; margin-top: 2px; }
-
-/* 评级胶囊 */
-.ptp-pills { display: flex; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-.ptp-pill { width: 52px; height: 28px; border: 1px solid #dee0e3; border-radius: 14px; background: #fff; font-size: 12px; color: #1f2329; display: inline-flex; align-items: center; justify-content: center; flex: none; cursor: pointer; padding: 0; }
-.ptp-pill:hover { border-color: #3370ff; color: #3370ff; }
-.ptp-pill__line { width: 26px; height: 1px; background: #dee0e3; flex: none; }
-.ptp-rating-tip { font-size: 12px; color: #646a73; margin-top: 12px; }
-.ptp-rating-tip__link { color: #3370ff; cursor: pointer; }
-
-/* 富文本样例 */
-.ptp-toolbar { display: flex; align-items: center; gap: 14px; border: 1px solid #dee0e3; border-bottom: none; border-radius: 6px 6px 0 0; padding: 6px 12px; color: #646a73; margin-top: 8px; }
-.ptp-toolbar span { font-size: 13px; line-height: 1; cursor: default; }
-.ptp-toolbar__b { font-weight: 700; }
-.ptp-toolbar__i { font-style: italic; font-family: Georgia, serif; }
-.ptp-toolbar__u { text-decoration: underline; }
-.ptp-toolbar__s { text-decoration: line-through; }
-.ptp-editor { border: 1px solid #dee0e3; border-radius: 0 0 6px 6px; min-height: 100px; padding: 8px 12px; font-size: 14px; line-height: 22px; color: #8f959e; }
-.ptp-editor--sample { color: #1f2329; }
-.ptp-add { display: inline-flex; align-items: center; gap: 4px; color: #3370ff; font-size: 14px; margin-top: 12px; cursor: default; }
 
 /* 邀请表单 */
 .ptp-invite-lead { font-size: 14px; font-weight: 600; color: #1f2329; margin-top: 16px; }
