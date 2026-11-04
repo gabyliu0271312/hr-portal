@@ -59,6 +59,10 @@ const summaryPlain = {
   content_id: 'c-summary2', type: 'work_summary', name: '工作总结', description: '请填写周期内的重点工作有效产出，包含数据、事例、项目进展等。',
   items: [{ id: 'i-keywork2', kind: 'fill', label: '重点工作', hint: '', questionType: 'text', settings: { required: true } }],
 }
+/** 字段级编辑器高度：REA 按字段持久化，不同环节/字段各不相同（默认 144） */
+const withEditorHeight = <T extends { settings?: Record<string, unknown> }>(item: T, editorHeight: number): T => ({
+  ...item, settings: { ...(item.settings || {}), editorHeight },
+})
 const contribution = {
   content_id: 'c-contribution', type: 'work_summary', name: '价值贡献',
   description: '基于角色职责预期，评估实际产出和贡献，包括专业上的和管理上的（若有）两个方面。',
@@ -67,9 +71,15 @@ const contribution = {
     { id: 'i-improve', kind: 'fill', label: '待改进的', hint: '', questionType: 'text', settings: { required: false } },
   ],
 }
+/* 直接上级评估 / 绩效校准：做得好的 188、待改进的 166（REA 实测 234/228 行距） */
+const contributionEval = {
+  ...contribution, content_id: 'c-contribution-eval',
+  items: [withEditorHeight(contribution.items[0], 188), withEditorHeight(contribution.items[1], 166)],
+}
 const feedback360 = {
   content_id: 'c-360', type: 'work_summary', name: '360°反馈',
-  items: [{ id: 'i-360', kind: 'fill', label: '360°反馈内容', hint: '', questionType: 'text', settings: { required: true } }],
+  /* REA 实测：该字段编辑器 132（默认 144 会让后续「留言」整体下移 12） */
+  items: [{ id: 'i-360', kind: 'fill', label: '360°反馈内容', hint: '', questionType: 'text', settings: { required: true, editorHeight: 132 } }],
 }
 const messageBox = {
   content_id: 'c-msg', type: 'work_summary', name: '留言',
@@ -92,12 +102,16 @@ const commPrompt = {
   content_id: 'c-cprompt', type: 'prompt', name: '说明',
   prompt: {
     title: '',
-    content: '1. 请先跟员工绩效面谈，再提交发展建议。提交后，员工将立即收到绩效结果。若未提交，员工将一直无法查看自己的绩效结果。\n2. 沟通时请保持专注，避免多任务处理。\n3. 请勿交流他人及团队的绩效或薪酬信息，并强调「绩效结果保密原则」；如遇无法回答的问题，请与 HRBP 沟通。',
+    content: '1. 请先跟员工绩效面谈，再提交发展建议。提交后，员工将立即收到绩效结果。若未提交，员工将一直无法查看绩效结果。\n2. 沟通时请保持专注，避免多任务处理。\n3. 请勿交流他人及团队的绩效或薪酬信息，并强调「绩效结果保密原则」；如遇无法回答的问题，请与 HRBP 确认后再回复。',
     color: '#3370ff', showIcon: true,
   },
   items: [],
 }
-const selfEvalSummary = { ...contribution, content_id: 'c-contribution-self' }
+/* 自评：两个字段编辑器同为 166（REA 行距 212/228，比默认 144 各多 22） */
+const selfEvalSummary = {
+  ...contribution, content_id: 'c-contribution-self',
+  items: [withEditorHeight(contribution.items[0], 166), withEditorHeight(contribution.items[1], 166)],
+}
 
 
 const refMoreSkeleton = {
@@ -143,6 +157,22 @@ const refTabsRecon = [
   refNode('r-summary', '工作总结', 'n1'), refNode('r-self', '自评', 'n2'), refNode('r-eval', '上级评估', 'n7'),
   refNode('r-comm', '结果沟通', 'n9'), refNode('r-360', '360°反馈', 'n4'), okrRelation, refMoreSkeleton,
 ]
+/* 直接上级评估同样含「标签型填写题」（REA 绩效评级 1144 → 标签型 1244，行距 100 与复议一致） */
+const evalTag = {
+  ...reconTag, content_id: 'c-eval-tag',
+  items: [{ ...reconTag.items[0], id: 'i-eval-tag' }],
+}
+
+/* ---- 绩效校准：内容挂在 adjustment 槽（REA 文案「配置供调整内容」，与上级评估同构） ---- */
+const adjustmentContents = [evalPrompt, summaryPlain, contributionEval, fillRating, evalTag].map((content, index) => ({
+  ...content, content_id: `c-adj-${index}`, content_slot: 'adjustment' as const,
+  items: (content.items as Array<{ id: string }>).map(item => ({ ...item, id: `adj-${item.id}` })),
+}))
+/* ---- 查看绩效结果：内容挂在 view 槽（REA 顺序：综合评级 → 价值贡献 → 发展建议 → 标签型填写题） ---- */
+const viewContents = [fillRating, contribution, developmentAdvice, evalTag].map((content, index) => ({
+  ...content, content_id: `c-view-${index}`, content_slot: 'view' as const,
+  items: (content.items as Array<{ id: string }>).map(item => ({ ...item, id: `view-${item.id}` })),
+}))
 
 const nodes = [
   {
@@ -154,10 +184,10 @@ const nodes = [
   { node_id: 'n4', name: '360°反馈（自愿评估）', node_type: 'work_summary', order: 3, executor_label: '360°评估人', include_final_result: false, content: [okrRelation, feedbackPrompt, feedback360, messageBox] },
   { node_id: 'n5', name: '评估型环节', node_type: 'work_summary', order: 4, executor_label: '360°评估人', include_final_result: false, content: [okrRelation] },
   { node_id: 'n6', name: '虚线上级评估', node_type: 'work_summary', order: 5, executor_label: '虚线上级', include_final_result: false, content: [okrRelation] },
-  { node_id: 'n7', name: '直接上级评估', node_type: 'work_summary', order: 6, executor_label: '直属上级', include_final_result: false, content: [...refTabsEval, evalPrompt, summaryPlain, contribution, fillRating] },
-  { node_id: 'n8', name: '绩效校准', content_page_name: '上级评估', node_type: 'calibration', order: 7, executor_label: '在项目配置时指定', include_final_result: false, content: [...refTabsEval, evalPrompt, summaryPlain, contribution, fillRating] },
+  { node_id: 'n7', name: '直接上级评估', node_type: 'work_summary', order: 6, executor_label: '直属上级', include_final_result: false, content: [...refTabsEval, evalPrompt, summaryPlain, contributionEval, fillRating, evalTag] },
+  { node_id: 'n8', name: '绩效校准', content_page_name: '上级评估', node_type: 'calibration', order: 7, executor_label: '在项目配置时指定', include_final_result: false, content: [...refTabsEval, ...adjustmentContents] },
   { node_id: 'n9', name: '绩效沟通并开通结果', node_type: 'work_summary', order: 8, executor_label: '直属上级', include_final_result: false, content: [...refTabsComm, commPrompt, developmentAdvice] },
-  { node_id: 'n10', name: '查看绩效结果', node_type: 'result_view', order: 9, executor_label: '被评估人', include_final_result: true, content: [okrRelation, fillSummary, fillRating] },
+  { node_id: 'n10', name: '查看绩效结果', node_type: 'result_view', order: 9, executor_label: '被评估人', include_final_result: true, content: viewContents },
   { node_id: 'n11', name: '结果复议处理', content_page_name: '绩效结果复议处理', node_type: 'result_reconsideration', order: 10, executor_label: '复议处理人', include_final_result: false, content: [...refTabsRecon, reconNotice, reconSummary, reconContribution, reconRating, reconTag] },
 ]
 

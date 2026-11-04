@@ -325,6 +325,7 @@ function contentDescription(content: PerformanceTemplateContent) {
                         :content="content"
                         variant="configured-card"
                         :empty-text="isResultView ? '请输入内容' : ''"
+                        :readonly-empty-answer-text="isResultView ? '这里展示用户填写的内容' : ''"
                         :item-settings="itemSettingsFor(content, isResultView)"
                       />
                       <PerformanceAddAnotherButton
@@ -443,6 +444,8 @@ function contentDescription(content: PerformanceTemplateContent) {
 /* ---------- 内容块：标题 16/24 600 + 描述 14/22 #646a73（无间隙），块间距 32 ---------- */
 .ptp-page-title { padding: 16px 0 12px; font-size: 20px; font-weight: 600; line-height: 30px; color: #1f2329; }
 .ptp-blocks { margin-top: 16px; }
+/* 查看结果：REA 页标题与首个内容块之间无 16 间距（标题文字 y=133、综合评级 y=174） */
+.ptp-body--result .ptp-blocks { margin-top: 0; }
 /* 结果复议处理：组标题自身带 20 间距（REA mb-10=20），块列表紧随其后 */
 .ptp-blocks--group { margin-top: 20px; }
 

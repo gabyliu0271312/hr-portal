@@ -104,7 +104,7 @@ const itemSettingsVariant = computed(() => {
 })
 const selectedItemKey = computed(() => props.active && owner.value === 'item' && selectedItemId.value ? `${props.content.id}:${selectedItemId.value}` : null)
 const selectedItemSettings = computed(() => selectedItemId.value ? props.itemSettings[selectedItemId.value] || { mode: 'fill', required: true, hideName: false } : { mode: 'fill' as const, required: true, hideName: false })
-const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) => Boolean(props.itemSettingsEnabled)
+const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }) => Boolean(props.itemSettingsEnabled)
   && item?.kind !== 'prompt'
   && (!isCalibration.value || supportsCalibrationItemSettings(props.content, item))
   && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationItemSettings(props.content, item))

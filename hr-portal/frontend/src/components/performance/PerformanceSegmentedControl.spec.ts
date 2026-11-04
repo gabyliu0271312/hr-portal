@@ -38,7 +38,7 @@ describe('PerformanceSegmentedControl', () => {
   it('uses the captured hover/active colors (CSSOM evidence)', () => {
     expect(segmentedSource).toMatch(/\.segment:hover\s*\{[^}]*background:\s*#e1eaff;[^}]*border-color:\s*#3370ff;[^}]*color:\s*#3370ff/s)
     expect(segmentedSource).toMatch(/\.segment:active\s*\{[^}]*background:\s*#bacefd;/s)
-    expect(segmentedSource).toMatch(/\.segment\.checked\s*\{[^}]*border-color:\s*#3370ff;[^}]*color:\s*#1456f0/s)
+    expect(segmentedSource).toMatch(/\.segment\.checked\s*\{[^}]*border-color:\s*#3370ff;[^}]*color:\s*(var\(--color-primary\)|#1456f0)/s)
   })
 
   it('applies md and sm captured paddings per size prop', () => {

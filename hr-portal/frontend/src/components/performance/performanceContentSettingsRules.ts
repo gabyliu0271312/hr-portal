@@ -42,27 +42,27 @@ export const itemSettingsCapabilities: Record<ItemSettingsVariant, ItemSettingsC
   'result-view-custom-text': { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
   'result-view-tag': { hideName: true, hideDescription: true, mode: false, required: false, allowView: true },
 }
-export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }): ItemSettingsVariant {
+export function getItemSettingsVariant(content: { type: string; questionType?: 'text' | 'tag' | 'single' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }): ItemSettingsVariant {
   if (content.type === 'prompt' || item?.kind === 'prompt') return 'prompt'
   if (item?.kind === 'rating' || content.type === 'rating' && item?.kind === undefined) return 'rating'
   if (content.type === 'custom' || content.type === 'rating' && item?.kind === 'fill') return (item?.questionType || content.questionType || 'text') === 'tag' ? 'custom-tag' : 'custom-text'
   return 'work-summary'
 }
 
-export function supportsEvaluationView(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
+export function supportsEvaluationView(content: { type: string; questionType?: 'text' | 'tag' | 'single' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }) {
   const variant = getItemSettingsVariant(content, item)
   return variant === 'work-summary' || variant === 'custom-text' || variant === 'custom-tag'
 }
 
-export function supportsEvaluationItemSettings(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
+export function supportsEvaluationItemSettings(content: { type: string; questionType?: 'text' | 'tag' | 'single' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }) {
   return supportsEvaluationView(content, item) || getItemSettingsVariant(content, item) === 'rating'
 }
 
-export function supportsResultViewSettings(content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
+export function supportsResultViewSettings(content: { type: string; questionType?: 'text' | 'tag' | 'single' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }) {
   return ['work-summary', 'rating', 'custom-text', 'custom-tag'].includes(getItemSettingsVariant(content, item))
 }
 
-export function supportsStageItemView(nodeType: string | undefined, content: { type: string; questionType?: 'text' | 'tag' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }) {
+export function supportsStageItemView(nodeType: string | undefined, content: { type: string; questionType?: 'text' | 'tag' | 'single' }, item?: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }) {
   if (nodeType === 'calibration') return supportsEvaluationView(content, item)
   if (nodeType === 'evaluation') return supportsEvaluationView(content, item)
   if (nodeType === 'result_communication') return ['work-summary', 'custom-text', 'custom-tag'].includes(getItemSettingsVariant(content, item))
@@ -75,7 +75,7 @@ export function getEvaluationExecutorKind(executorRoleCode?: string | null): Eva
   return 'other'
 }
 
-export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag'; items: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' }[] }, variant = '') {
+export function getRootSettingsCapabilities(content: { type: string; questionType?: 'text' | 'tag' | 'single'; items: { kind?: 'rating' | 'fill' | 'prompt'; questionType?: 'text' | 'tag' | 'single' }[] }, variant = '') {
   if (content.type === 'prompt') return { allowMultiple: false, allowUnknown: false }
   if (variant === 'evaluation-360-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: content.type === 'rating' }
   if (variant === 'evaluation-direct-root') return { allowMultiple: content.type === 'work_summary', allowUnknown: false }
