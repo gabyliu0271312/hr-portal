@@ -16,7 +16,6 @@ const pageSize = ref(10)
 const total = ref(0)
 const rows = ref<PerformanceCyclePerson[]>([])
 const loading = ref(false)
-const canUpdate = ref(false)
 
 const recordsTarget = ref<PerformanceCyclePerson | null>(null)
 const updateTarget = ref<PerformanceCyclePerson | null>(null)
@@ -41,14 +40,13 @@ const columnMinWidths = [...columns.map(column => column.width ?? performanceCol
 async function load() {
   loading.value = true
   try {
-    const { items, total: count, can_update } = await performanceCycleApi.listPeoplePage(props.cycleId, {
+    const { items, total: count } = await performanceCycleApi.listPeoplePage(props.cycleId, {
       keyword: keyword.value || undefined,
       offset: (page.value - 1) * pageSize.value,
       limit: pageSize.value,
     })
     rows.value = items
     total.value = count
-    canUpdate.value = Boolean(can_update)
   } finally {
     loading.value = false
   }
@@ -61,7 +59,6 @@ function openRecords(row: PerformanceCyclePerson) {
 }
 
 function openUpdate(row: PerformanceCyclePerson) {
-  if (!canUpdate.value) return
   updateTarget.value = row
   updateVisible.value = true
 }
@@ -135,24 +132,21 @@ function leafDepartment(row: PerformanceCyclePerson): string {
         <el-table-column label="操作" :width="columnWidths[columns.length]" min-width="280" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
-              <el-button
-                link
-                type="primary"
+              <button
+                type="button"
                 class="op-button"
                 :disabled="!(row as PerformanceCyclePerson).has_change"
                 @click="openRecords(row as PerformanceCyclePerson)"
               >
                 查看更新记录
-              </el-button>
-              <el-button
-                link
-                type="primary"
+              </button>
+              <button
+                type="button"
                 class="op-button"
-                :disabled="!canUpdate"
                 @click="openUpdate(row as PerformanceCyclePerson)"
               >
                 更新人员信息
-              </el-button>
+              </button>
             </div>
           </template>
         </el-table-column>
@@ -188,10 +182,34 @@ function leafDepartment(row: PerformanceCyclePerson): string {
 .row-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--spacing-25);
 }
 .op-button {
   padding: 0;
-  height: auto;
+  border: 0;
+  background: transparent;
+  border-radius: var(--performance-button-radius);
+  font: var(--performance-button-font-weight) var(--performance-button-font-size) / 22px var(--font-sans);
+  color: var(--performance-button-text-color);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
+}
+.op-button:hover:not(:disabled) {
+  color: var(--color-primary-hover);
+  background: var(--performance-button-text-hover-background);
+  text-decoration: underline;
+}
+.op-button:active:not(:disabled) {
+  background: var(--performance-button-text-active-background);
+}
+.op-button:focus-visible {
+  outline: 0;
+  box-shadow: var(--performance-button-focus-ring);
+}
+.op-button:disabled {
+  color: var(--performance-button-link-disabled-color);
+  cursor: not-allowed;
+  text-decoration: none;
 }
 </style>

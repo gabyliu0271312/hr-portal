@@ -134,7 +134,6 @@ class CyclePersonPage(BaseModel):
     total: int
     offset: int
     limit: int
-    can_update: bool = False
 
 
 class CyclePersonChangeItem(BaseModel):
@@ -718,8 +717,7 @@ async def page_cycle_people(
         people = [person for person in people if pattern in person["display_name"].casefold() or pattern in person["employee_no"].casefold()]
     total = len(people)
     items = people[offset : offset + limit]
-    can_update = datetime.now(timezone.utc) < cycle.start_at.astimezone(timezone.utc)
-    return {"items": items, "total": total, "offset": offset, "limit": limit, "can_update": can_update}
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 @router.get("/{cycle_id}/people/{employee_no}/change-records", response_model=list[CyclePersonChangeRecord])

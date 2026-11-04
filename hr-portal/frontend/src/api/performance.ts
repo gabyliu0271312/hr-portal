@@ -1805,7 +1805,6 @@ export interface PerformanceCyclePersonPage {
   total: number
   offset: number
   limit: number
-  can_update?: boolean
 }
 
 export interface PerformancePersonChangeItem {
