@@ -338,7 +338,6 @@ class PerformanceCycleService:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
         if leaver_fields_changed and datetime.now(UTC) >= cycle.start_at.astimezone(UTC):
-
             raise CycleValidationError("绩效环节已开始，不能修改离职人员参评范围")
         if leaver_fields_changed:
             await self._sync_snapshot(cycle, actor_type=actor_type, actor_id=actor_id, allow_locked_update=True)
