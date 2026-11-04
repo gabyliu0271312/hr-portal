@@ -317,6 +317,33 @@
   --performance-button-link-disabled-color: #bbbfc4;
   --performance-button-text-hover-background: rgba(20, 86, 240, 0.2);
   --performance-button-text-active-background: rgba(20, 86, 240, 0.32);
+
+  /* Shared feedback / notice tokens (REA 绩效线 ud__notice / 弹窗实测):
+   * 蓝色信息条、浅蓝底标签、弹窗遮罩与阴影、关闭钮交互，业务模块一律引用本层。 */
+  --performance-notice-info-background: #f0f4ff;
+  --performance-notice-info-icon: var(--color-primary-hover);
+  --performance-notice-info-text: var(--performance-text-secondary);
+  --performance-tag-blue-background: #e1eaff;
+  --performance-tag-blue-text: var(--color-primary-hover);
+  --performance-primary-bright: #336df4;
+  --performance-primary-deep: var(--color-primary-hover);
+  --performance-interactive-hover-background: rgba(31, 35, 41, 0.1);
+  --performance-overlay-dark: rgba(0, 0, 0, 0.55);
+  --performance-checkbox-border: var(--color-text-placeholder);
+  --performance-button-cancel-hover-background: var(--color-surface-page);
+  --performance-button-confirm-disabled-background: var(--color-surface-disabled);
+  --performance-button-confirm-disabled-text: var(--color-text-disabled);
+
+  /* Timeline / 状态 tag（弹窗 B「人员变更记录」实测） */
+  --performance-timeline-line: #dee0e3;
+  --performance-tag-success-background: var(--performance-submit-toast-background);
+  --performance-tag-success-text: var(--performance-submit-toast-success);
+
+  /* 空态插图（250×125 人物剪影） */
+  --performance-empty-illustration-background: #f5f6f7;
+  --performance-empty-illustration-body: #e1eaff;
+  --performance-empty-illustration-accent: #c2d4ff;
+  --performance-empty-illustration-line: #dee0e3;
   --performance-button-danger-background: var(--color-danger);
   --performance-button-danger-hover-background: #b42318;
   --performance-button-danger-outline-hover-background: #fdc6c4;
@@ -480,4 +507,56 @@
   --performance-submit-toast-success: #32a645;
   --performance-submit-toast-radius: 6px;
   --performance-submit-toast-shadow: 0 8px 24px 8px rgba(31,35,41,.04), 0 6px 12px rgba(31,35,41,.04), 0 4px 8px -8px rgba(31,35,41,.06);
+
+  /* ==========================================================
+   * Global UI layer (components/ui/**)
+   * 全局原子层令牌。数值基准：飞书人事组织架构页实测（REA capture-jf）。
+   * 业务模块不得新增同名魔法值，统一引用本层。
+   * ========================================================== */
+
+  /* Surface / 白色容器 */
+  --ui-surface-background: #ffffff;
+  --ui-surface-padding: 20px;
+  --ui-surface-padding-block: 20px;
+  --ui-surface-radius-all: 8px;
+  --ui-surface-radius-top: 8px 8px 0 0;
+  --ui-surface-shadow: none;
+  --ui-surface-min-width: 980px;
+
+  /* Table / 表格（页面级外层滚动模型） */
+  --ui-table-header-background: #f2f3f5;
+  --ui-table-header-color: #646a73;
+  --ui-table-header-height: 46px;
+  --ui-table-header-hover-background: #edeeef;
+  --ui-table-row-height: 51px;
+  --ui-table-row-hover-background: #f5f6f7;
+  --ui-table-cell-padding-inline: 12px;
+  --ui-table-border-color: rgba(31, 35, 41, 0.15);
+  --ui-table-font-size: 14px;
+  --ui-table-line-height: 22px;
+  --ui-table-text-color: #1f2329;
+  --ui-table-placeholder-color: #bdbfc4;
+  --ui-table-empty-height: 220px;
+  --ui-table-fixed-cell-background: #ffffff;
+  --ui-table-selection-width: 40px;
+
+  /* 分页（REA 绩效线 ud__pagination 实测：h28 / 页码 28×28 r6 / 激活 #1456f0 白底 / 箭头 #bbbfc4） */
+  --ui-pagination-height: 28px;
+  --ui-pagination-item-size: 28px;
+  --ui-pagination-item-radius: 6px;
+  --ui-pagination-color: #1f2329;
+  --ui-pagination-active-color: #1456f0;
+  --ui-pagination-hover-background: #eff0f1;
+  --ui-pagination-arrow-border: #d0d3d6;
+  --ui-pagination-arrow-background: #ffffff;
+  --ui-pagination-disabled-color: #bbbfc4;
+
+  /* 标题 / 描述（REA 页头实测） */
+  --ui-page-title-size: 18px;
+  --ui-page-title-weight: 500;
+  --ui-page-title-line-height: 26px;
+  --ui-page-title-color: #1f2329;
+  --ui-page-desc-size: 14px;
+  --ui-page-desc-line-height: 22px;
+  --ui-page-desc-color: #8f959e;
 }

@@ -8,18 +8,9 @@ vi.mock('@/api/performance', () => ({
   performanceCycleApi: { listPersonChangeRecords: (...args: unknown[]) => listPersonChangeRecords(...args) },
 }))
 
-const stubs = {
-  'el-dialog': { props: ['modelValue', 'title'], template: '<div v-if="modelValue" role="dialog"><h2>{{ title }}</h2><slot /><slot name="footer" /></div>' },
-  'el-empty': { props: ['description'], template: '<div class="empty">{{ description }}</div>' },
-  'el-timeline': { template: '<div class="timeline"><slot /></div>' },
-  'el-timeline-item': { props: ['timestamp', 'type', 'placement'], template: '<div class="timeline-item"><span class="ts">{{ timestamp }}</span><slot /></div>' },
-  'el-button': { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
-}
-
 function mountDialog() {
   return mount(PerformancePersonChangeRecordsDialog, {
     props: { modelValue: false, cycleId: 1, employeeNo: 'E001', employeeName: '张三' },
-    global: { stubs, directives: { loading: {} } },
   })
 }
 
@@ -50,10 +41,13 @@ describe('PerformancePersonChangeRecordsDialog', () => {
     expect(listPersonChangeRecords).toHaveBeenCalledWith(1, 'E001')
     const text = wrapper.text()
     expect(text).toContain('人员变更记录')
-    expect(text).toContain('更新人员信息')
+    expect(text).toContain('变更')
     expect(text).toContain('职类（序列）')
-    expect(text).toContain('技术 → 产品')
-    expect(text).toContain('（空） → P6')
+    expect(text).toContain('技术')
+    expect(text).toContain('产品')
+    expect(text).toContain('P6')
+    expect(wrapper.findAll('.pcr__item').length).toBe(1)
+    expect(wrapper.findAll('.pcr__change').length).toBe(2)
   })
 
   it('shows the empty state when the person has no change records', async () => {
@@ -63,6 +57,7 @@ describe('PerformancePersonChangeRecordsDialog', () => {
     await wrapper.vm.$nextTick()
     await Promise.resolve()
 
-    expect(wrapper.text()).toContain('暂无更新记录')
+    expect(wrapper.text()).toContain('暂无数据')
+    expect(wrapper.find('.pcr__empty').exists()).toBe(true)
   })
 })
