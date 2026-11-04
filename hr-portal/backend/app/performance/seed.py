@@ -51,7 +51,11 @@ FRONTEND_FUNCTION_PERMISSION_KEYS = (
     "performance.frontend.manage-evaluatees",
     "performance.frontend.manage-reviewers-360",
 )
-ALL_FUNCTION_PERMISSION_KEYS = BACKEND_FUNCTION_PERMISSION_KEYS + FRONTEND_FUNCTION_PERMISSION_KEYS
+TASK_AUTHORIZATION_FUNCTION_KEYS = (
+    "performance.frontend.authorize-evaluation-tasks",
+    "performance.frontend.authorize-calibration-tasks",
+)
+ALL_FUNCTION_PERMISSION_KEYS = BACKEND_FUNCTION_PERMISSION_KEYS + FRONTEND_FUNCTION_PERMISSION_KEYS + TASK_AUTHORIZATION_FUNCTION_KEYS
 _LEGACY_PERFORMANCE_SUPER_ADMIN_PASSWORD = "Performance@2026"
 
 

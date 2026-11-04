@@ -116,15 +116,16 @@ const FRONTEND_KEYS = [
   'performance.frontend.export-details',
   'performance.frontend.manage-evaluatees',
   'performance.frontend.manage-reviewers-360',
+  'performance.frontend.authorize-evaluation-tasks',
+  'performance.frontend.authorize-calibration-tasks',
 ]
 const ALL_KEYS = [...BACKEND_KEYS, ...FRONTEND_KEYS]
-const reviewer360Key = 'performance.frontend.manage-reviewers-360'
 
 function rolePermissionPolicy(role: PerformanceRoleListItem) {
   if (!role.is_system) return { selected: role.function_permission_keys || [], disabled: [] }
-  if (role.code === 'performance.hrbp') return { selected: FRONTEND_KEYS.filter(key => key !== reviewer360Key), disabled: BACKEND_KEYS }
+  if (role.code === 'performance.hrbp') return { selected: role.function_permission_keys || [], disabled: BACKEND_KEYS }
   if (role.code === 'performance.project_admin') return {
-    selected: ['performance.backend.cycles-projects', ...FRONTEND_KEYS.filter(key => key !== reviewer360Key)],
+    selected: role.function_permission_keys || [],
     disabled: BACKEND_KEYS.filter(key => key !== 'performance.backend.people-groups.project'),
   }
   return { selected: role.code === 'performance.admin' ? ALL_KEYS : (role.function_permission_keys || []), disabled: ALL_KEYS }

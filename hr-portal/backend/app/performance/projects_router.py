@@ -27,6 +27,7 @@ from app.performance.subject_visibility_service import load_subject_visibility_r
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
+from app.performance.okr_provider import fetch_employee_okr
 from app.performance.task_authorization_service import effective_handlers, task_handler_condition
 
 router = APIRouter(prefix="/performance", tags=["performance-projects"])
@@ -310,21 +311,71 @@ async def _reference_tabs(
     db: AsyncSession,
 ) -> list[dict]:
     template = await _self_summary_template(task, node, db)
-    references = []
+    references: list[str] = []
+    okr_relations: list[dict] = []
     seen_node_ids: set[str] = set()
+    seen_more_values: set[str] = set()
     for content in template.get("content") or []:
         if (content.get("content_slot") or "fill") != "reference":
             continue
-        if content.get("reference_kind") != "node":
+        kind = content.get("reference_kind")
+        if kind == "more":
+            value = str(content.get("reference_value") or "").strip()
+            # 目前只有 OKR 具备真实数据源；更多参考/团队统计暂不返回页签，避免出现空白页签
+            if value != "okr" or value in seen_more_values:
+                continue
+            seen_more_values.add(value)
+            okr_relations.append(content)
+            continue
+        if kind != "node":
             continue
         reference_node_id = str(content.get("reference_value") or "").strip()
         if not reference_node_id or reference_node_id in seen_node_ids or reference_node_id == node.node_id:
             continue
         seen_node_ids.add(reference_node_id)
         references.append(reference_node_id)
-    if not references:
+
+    if not references and not okr_relations:
         return []
 
+    result: list[dict] = []
+    if references:
+        result.extend(await _node_reference_tabs(task, node, project, actor_ref, db, template, references))
+    for relation in okr_relations:
+        result.append(await _okr_reference_tab(task, relation, db))
+    return result
+
+
+async def _okr_reference_tab(task: PerformanceNodeTask, relation: dict, db: AsyncSession) -> dict:
+    """OKR 参考页签：按被评估人实时取 OKR；数据源未启用/无数据时返回空态页签。"""
+    okr = await fetch_employee_okr(db, task.target_employee_no)
+    page_name = str((relation.get("reference_settings") or {}).get("page_name") or "").strip()
+    return {
+        "key": "reference-okr",
+        "kind": "okr",
+        "node_id": "",
+        "node_name": page_name or str(relation.get("name") or "OKR"),
+        "task_id": None,
+        "employee_no": task.target_employee_no,
+        "status": "completed" if okr and okr.objectives else "not_started",
+        "submitted_at": None,
+        "form_schema": [],
+        "answers": {},
+        "can_remind": False,
+        "okr": okr.model_dump() if okr is not None else None,
+    }
+
+
+async def _node_reference_tabs(
+    task: PerformanceNodeTask,
+    node: PerformanceProjectNodeSnapshot,
+    project: PerformanceProject,
+    actor_ref: str,
+    db: AsyncSession,
+    template: dict,
+    references: list[str],
+) -> list[dict]:
+    """引用其他环节内容的参考页签。"""
     node_rows = (await db.execute(
         select(PerformanceProjectNodeSnapshot).where(
             PerformanceProjectNodeSnapshot.project_id == project.id,
@@ -1428,6 +1479,37 @@ async def _member_task_options(
     return [option for option in options if option.role_key is not None]
 
 
+async def _task_authorization_members(project, scope, context, db, keyword, page, page_size, sort_by, sort_order):
+    if sort_by not in (None, "name"):
+        raise HTTPException(status_code=403, detail="PROJECT_DATA_FORBIDDEN")
+    snapshot_id = _latest_member_snapshot_statement(project.id)
+    statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
+    if scope is not None:
+        statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
+    if isinstance(keyword, str) and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        statement = statement.where(or_(PerformanceProjectMember.display_name.ilike(pattern), PerformanceProjectMember.employee_no.ilike(pattern)))
+    total = await db.scalar(select(func.count()).select_from(statement.subquery()))
+    name_order = PerformanceProjectMember.display_name.desc() if sort_order == "desc" else PerformanceProjectMember.display_name.asc()
+    members = list((await db.execute(statement.order_by(name_order, PerformanceProjectMember.id).offset((page - 1) * page_size).limit(page_size))).scalars().all())
+    stages = await _delegatable_stages(db, project)
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.member_snapshot_id == snapshot_id,
+        PerformanceNodeTask.target_employee_no.in_([member.employee_no for member in members]),
+    ))).scalars().all())
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+    items = []
+    for member in members:
+        options = await _member_task_options(member, [task for task in tasks if task.target_employee_no == member.employee_no], stages, {}, scope, project, context, actor.actor_ref, db)
+        items.append(ProjectMemberResponse(
+            id=member.id, employee_no=member.employee_no, display_name=member.display_name,
+            task_id=next((option.task_id for option in options if option.can_authorize), None),
+            can_authorize=any(option.can_authorize for option in options), task_map=options,
+        ))
+    return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size)
+
+
 @router.get("/projects/{project_id}/members", response_model=ProjectMemberPage)
 async def list_project_members(
     project_id: int,
@@ -1440,7 +1522,13 @@ async def list_project_members(
     db: AsyncSession = Depends(get_session),
 ):
     project = await _get_project(db, project_id)
-    scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+    try:
+        scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        scope = await _task_management_scope(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
+        return await _task_authorization_members(project, scope, context, db, keyword, page, page_size, sort_by, sort_order)
 
     snapshot_id = _latest_member_snapshot_statement(project_id)
     statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
@@ -1564,6 +1652,22 @@ def _can_manage_project(context: PerformanceAccessContext, project: PerformanceP
 async def _project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
     if _is_cycle_manager(context):
         return None
+    custom_codes = {grant.code for grant in context.role_grants if grant.code.startswith("custom.")}
+    if custom_codes:
+        grants = await _opening_role_grants(db, context)
+        org_paths = []
+        for role, assignment in grants:
+            if role.code not in custom_codes or function_key not in (role.function_permission_keys or []):
+                continue
+            if assignment.scope_type == "GLOBAL" or (assignment.scope_type == "PROJECT" and assignment.scope_ref == project.project_ref):
+                return None
+            if assignment.scope_type == "ORG":
+                org_paths.append(assignment.scope_ref)
+        if org_paths:
+            members = list((await db.execute(select(PerformanceProjectMember).where(
+                PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id),
+            ))).scalars().all())
+            return {member.employee_no for member in members if _organization_in_scope(member.organization_ref, org_paths)}
     selected = (project.settings or {}).get("data_managers", ["HRBP"])
     roles = list((await db.execute(select(PerformanceRole).where(
         PerformanceRole.code.in_(("performance.project_admin", "performance.hrbp")),
@@ -2382,6 +2486,17 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
 
 _SCOPE_NOT_PROVIDED = object()
 
+TASK_EVALUATION_AUTHORIZATION_KEY = "performance.frontend.authorize-evaluation-tasks"
+TASK_CALIBRATION_AUTHORIZATION_KEY = "performance.frontend.authorize-calibration-tasks"
+
+
+def _task_authorization_key(node: PerformanceProjectNodeSnapshot) -> str:
+    return TASK_CALIBRATION_AUTHORIZATION_KEY if node.node_type == "calibration" else TASK_EVALUATION_AUTHORIZATION_KEY
+
+
+async def _task_management_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
+    return await _project_data_scope(context, project, db, function_key)
+
 
 async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession, active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None = None, progress_scope: set[str] | None | object = _SCOPE_NOT_PROVIDED) -> bool:
     if node.node_type == "calibration":
@@ -2399,15 +2514,12 @@ async def _authorize_task_delegation(task: PerformanceNodeTask, node: Performanc
     transfers = [item for item in active if item.authorization_type == "TRANSFER"]
     if (not transfers and str(task.handler_ref) == actor_ref) or any(item.recipient_employee_no == actor_ref for item in transfers):
         return True
-    if progress_scope is _SCOPE_NOT_PROVIDED:
-        try:
-            scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
-        except HTTPException as exc:
-            if exc.status_code == 403:
-                return False
-            raise
-    else:
-        scope = progress_scope  # type: ignore[assignment]
+    try:
+        scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return False
+        raise
     return scope is None or task.target_employee_no in scope
 
 
@@ -2435,7 +2547,7 @@ async def task_delegation_candidates(
     ))).scalars().all())
     setting = await db.get(PerformanceOtherSetting, 1)
     restrict_subordinates = node.node_type == "calibration" and setting and not setting.calibration_authorization_outside_direct_reports_enabled
-    scope = await _project_data_scope(context, project, db, "performance.frontend.progress") if {"performance.projects.manage", "performance.cycles.manage"}.intersection(context.permission_codes) else None
+    scope = await _task_management_scope(context, project, db, _task_authorization_key(node)) if {"performance.projects.manage", "performance.cycles.manage"}.intersection(context.permission_codes) else None
     return [{"employee_no": person.employee_no, "display_name": person.display_name, "department_path": "/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)), "direct_supervisor_employee_no": person.direct_supervisor_employee_no} for person in people
             if person.employee_no != task.handler_ref and person.employment_status not in {"离职", "已离职"}
             and (scope is None or person.employee_no in scope)
@@ -2593,7 +2705,7 @@ async def revoke_task_delegation(
     if record.status != "ACTIVE":
         raise HTTPException(status_code=409, detail="TASK_AUTHORIZATION_NOT_ACTIVE")
     if record.grantor_employee_no != actor.actor_ref:
-        scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
+        scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
         if scope is not None and task.target_employee_no not in scope:
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_REVOKE_FORBIDDEN")
     record.status = "REVOKED"
@@ -2850,13 +2962,67 @@ async def project_management_department_completion(
     }
 
 
+async def _task_authorization_projects(cycle_id, context, db, function_key):
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    projects = list((await db.execute(select(PerformanceProject).where(
+        PerformanceProject.cycle_ref == cycle.cycle_ref,
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+    ))).scalars().all())
+    result = []
+    for project in projects:
+        try:
+            scope = await _task_management_scope(context, project, db, function_key)
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                continue
+            raise
+        if scope is None or scope:
+            result.append((project, scope))
+    if not result:
+        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    return result
+
+
+async def _can_revoke_management_authorization(context, project, record, db):
+    node = await db.scalar(select(PerformanceProjectNodeSnapshot).join(
+        PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id,
+    ).where(PerformanceNodeTask.id == record.task_id))
+    if node is None:
+        return False
+    try:
+        scope = await _task_management_scope(context, project, db, _task_authorization_key(node))
+        return scope is None or record.task_id is not None and await db.scalar(select(PerformanceNodeTask.target_employee_no).where(PerformanceNodeTask.id == record.task_id)) in scope
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return False
+        raise
+
+
 @router.get("/project-management/authorization-records")
 async def project_management_authorization_records(
     cycle_id: int = Query(..., ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    projects = await _managed_completion_projects(cycle_id, context, db)
+    projects_by_id = {}
+    for function_key in (TASK_EVALUATION_AUTHORIZATION_KEY, TASK_CALIBRATION_AUTHORIZATION_KEY):
+        try:
+            permitted = await _task_authorization_projects(cycle_id, context, db, function_key)
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                continue
+            raise
+        for project, scope in permitted:
+            current = projects_by_id.get(project.id)
+            if current is None or scope is None:
+                projects_by_id[project.id] = (project, scope)
+            elif current[1] is not None:
+                projects_by_id[project.id] = (project, current[1] | scope)
+    if not projects_by_id:
+        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
+    projects = list(projects_by_id.values())
     result = {"cycle_id": cycle_id, "authorization_records": [], "transfer_records": []}
     for project, scope in projects:
         events = list((await db.execute(select(PerformanceAuditEvent).where(
@@ -2868,6 +3034,19 @@ async def project_management_authorization_records(
         for event in events:
             state = event.after_state or {}
             if state.get("project_id") != project.id or (scope is not None and event.employee_no not in scope):
+                continue
+            task_node = await db.scalar(select(PerformanceProjectNodeSnapshot).join(
+                PerformanceNodeTask, PerformanceNodeTask.node_snapshot_id == PerformanceProjectNodeSnapshot.id,
+            ).where(PerformanceNodeTask.id == int(event.subject_ref))) if str(event.subject_ref).isdigit() else None
+            if task_node is None:
+                continue
+            try:
+                event_scope = await _task_management_scope(context, project, db, _task_authorization_key(task_node))
+            except HTTPException as exc:
+                if exc.status_code == 403:
+                    continue
+                raise
+            if event_scope is not None and event.employee_no not in event_scope:
                 continue
             record_id = str(state.get("authorization_id") or event.id)
             persisted = await db.get(PerformanceNodeTaskAuthorization, int(record_id)) if state.get("authorization_id") and str(record_id).isdigit() else None
@@ -2881,7 +3060,7 @@ async def project_management_authorization_records(
                 "authorized_person": state.get("recipient_name") or state.get("recipient_ref"),
                 "stages": state.get("stage_names") or [],
                 "reviewees": ([event.employee_no] if event.employee_no else []) if scope is not None else state.get("reviewee_names") or ([event.employee_no] if event.employee_no else []),
-                "submitted_at": event.event_at, "can_revoke": bool(persisted and persisted.status == "ACTIVE"),
+                "submitted_at": event.event_at, "can_revoke": bool(persisted and persisted.status == "ACTIVE" and await _can_revoke_management_authorization(context, project, persisted, db)),
                 "authorization_id": persisted.id if persisted else None, "task_id": int(event.subject_ref) if str(getattr(event, "subject_ref", "")).isdigit() else None, "project_id": project.id,
             })
     return result
@@ -2893,7 +3072,7 @@ async def project_management_calibration_authorization(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    projects = await _managed_completion_projects(cycle_id, context, db)
+    projects = await _task_authorization_projects(cycle_id, context, db, TASK_CALIBRATION_AUTHORIZATION_KEY)
     items = []
     for project, scope in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))

@@ -1,12 +1,12 @@
 """Performance role configuration API."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -16,7 +16,8 @@ from app.performance.auth_context import (
     resolve_trusted_performance_actor,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
-from app.performance.models import PerformanceRole, PerformanceRoleAssignment
+from app.performance.models import PerformanceRole, PerformanceRoleAssignment, PerformanceIdentityLink, PerformanceAuditEvent, SUBJECT_TYPE_PORTAL_USER, SCOPE_TYPE_GLOBAL
+from app.users.models import User
 
 
 ROLE_CONFIGURATION_PERMISSION = "performance.authorization.manage"
@@ -107,12 +108,320 @@ class PerformanceRoleOut(PerformanceRoleListItem):
     pass
 
 
+class PerformanceUserAuthorizationRoleOut(BaseModel):
+    id: int
+    name: str
+    function_permission_keys: list[str]
+    is_active: bool = True
+
+
+class PerformanceUserAuthorizationItem(BaseModel):
+    user_id: int
+    display_name: str
+    login_name: str
+    employee_no: str
+    role_ids: list[int]
+    roles: list[PerformanceUserAuthorizationRoleOut]
+    updated_at: datetime
+    updated_by: str | None = None
+
+
+class PerformanceUserAuthorizationPage(BaseModel):
+    items: list[PerformanceUserAuthorizationItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class PerformanceUserAuthorizationOptions(BaseModel):
+    users: list[dict]
+    roles: list[PerformanceUserAuthorizationRoleOut]
+
+
+class PerformanceUserAuthorizationPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: int = Field(..., gt=0)
+    role_ids: list[int] = Field(..., min_length=1, max_length=64)
+
+    @field_validator("role_ids")
+    @classmethod
+    def normalize_role_ids(cls, value: list[int]) -> list[int]:
+        if any(item <= 0 for item in value):
+            raise ValueError("角色ID必须为正整数")
+        return list(dict.fromkeys(value))
+
+
 async def _context(
     context: PerformanceAccessContext = Depends(
         require_performance_permission(ROLE_CONFIGURATION_PERMISSION)
     ),
 ) -> PerformanceAccessContext:
     return context
+
+
+def _user_authorization_role_statement():
+    return select(PerformanceRole).where(
+        PerformanceRole.role_type == "MANAGEMENT",
+        PerformanceRole.is_system.is_(False),
+        PerformanceRole.is_active.is_(True),
+    )
+
+
+async def _trusted_user(db: AsyncSession, user_id: int) -> tuple[User, PerformanceIdentityLink]:
+    row = (await db.execute(
+        select(User, PerformanceIdentityLink).join(
+            PerformanceIdentityLink,
+            PerformanceIdentityLink.portal_user_id == User.id,
+        ).where(
+            User.id == user_id,
+            User.is_active.is_(True),
+            PerformanceIdentityLink.is_active.is_(True),
+        ).with_for_update(of=User)
+    )).first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户未绑定有效绩效身份")
+    return row
+
+
+async def _managed_roles(db: AsyncSession, role_ids: list[int]) -> list[PerformanceRole]:
+    roles = list((await db.execute(
+        _user_authorization_role_statement().where(PerformanceRole.id.in_(role_ids)).order_by(PerformanceRole.id).with_for_update()
+    )).scalars().all())
+    if len(roles) != len(set(role_ids)):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="存在不可授权的角色")
+    return roles
+
+
+async def _authorization_item(db: AsyncSession, user_id: int) -> PerformanceUserAuthorizationItem | None:
+    user = await db.get(User, user_id)
+    link = await db.scalar(select(PerformanceIdentityLink).where(
+        PerformanceIdentityLink.portal_user_id == user_id,
+    ))
+    if user is None:
+        return None
+    rows = list((await db.execute(
+        select(PerformanceRole, PerformanceRoleAssignment).join(
+            PerformanceRoleAssignment,
+            PerformanceRoleAssignment.role_id == PerformanceRole.id,
+        ).where(
+            PerformanceRoleAssignment.subject_type == SUBJECT_TYPE_PORTAL_USER,
+            PerformanceRoleAssignment.subject_id == user_id,
+            PerformanceRoleAssignment.scope_type == SCOPE_TYPE_GLOBAL,
+            PerformanceRoleAssignment.scope_ref == SCOPE_TYPE_GLOBAL,
+            PerformanceRoleAssignment.is_active.is_(True),
+            PerformanceRole.role_type == "MANAGEMENT",
+            PerformanceRole.is_system.is_(False),
+        ).order_by(PerformanceRole.id)
+    )).all())
+    if not rows:
+        return None
+    event = await db.scalar(select(PerformanceAuditEvent).where(
+        PerformanceAuditEvent.subject_type == "PERFORMANCE_ROLE_ASSIGNMENT",
+        PerformanceAuditEvent.after_state["user_id"].as_integer() == user_id,
+    ).order_by(PerformanceAuditEvent.event_at.desc(), PerformanceAuditEvent.id.desc()).limit(1))
+    roles = [role for role, _ in rows]
+    updated_at = max((assignment.updated_at for _, assignment in rows), default=user.updated_at)
+    return PerformanceUserAuthorizationItem(
+        user_id=user.id,
+        display_name=user.display_name,
+        login_name=user.login_name,
+        employee_no=link.employee_no if link else "",
+        role_ids=[role.id for role in roles],
+        roles=[PerformanceUserAuthorizationRoleOut(id=role.id, name=role.name, function_permission_keys=list(role.function_permission_keys or []), is_active=role.is_active) for role in roles],
+        updated_at=event.event_at if event is not None else updated_at,
+        updated_by=(event.after_state or {}).get("updated_by") if event is not None else None,
+    )
+
+
+@router.get("/user-authorizations", response_model=PerformanceUserAuthorizationPage)
+async def list_user_authorizations(
+    keyword: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+    _: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> PerformanceUserAuthorizationPage:
+    if page < 1 or page_size < 1 or page_size > 100:
+        raise HTTPException(status_code=422, detail="分页参数无效")
+    statement = select(User.id).join(PerformanceRoleAssignment, PerformanceRoleAssignment.subject_id == User.id).join(
+        PerformanceRole, PerformanceRole.id == PerformanceRoleAssignment.role_id,
+    ).outerjoin(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).where(
+        PerformanceRoleAssignment.subject_type == SUBJECT_TYPE_PORTAL_USER,
+        PerformanceRoleAssignment.scope_type == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.scope_ref == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.is_active.is_(True),
+        PerformanceRole.role_type == "MANAGEMENT",
+        PerformanceRole.is_system.is_(False),
+    ).distinct()
+    if keyword and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        statement = statement.where((User.display_name.ilike(pattern)) | (User.login_name.ilike(pattern)) | (PerformanceIdentityLink.employee_no.ilike(pattern)) | (PerformanceRole.name.ilike(pattern)))
+    user_ids = list((await db.execute(statement.order_by(User.id).offset((page - 1) * page_size).limit(page_size))).scalars().all())
+    count = await db.scalar(select(func.count()).select_from(statement.subquery()))
+    items = [item for user_id in user_ids if (item := await _authorization_item(db, user_id)) is not None]
+    return PerformanceUserAuthorizationPage(items=items, total=count, page=page, page_size=page_size)
+
+
+@router.get("/user-authorizations/options", response_model=PerformanceUserAuthorizationOptions)
+async def user_authorization_options(
+    _: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> PerformanceUserAuthorizationOptions:
+    users = list((await db.execute(select(User, PerformanceIdentityLink).join(
+        PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id,
+    ).where(User.is_active.is_(True), PerformanceIdentityLink.is_active.is_(True)).order_by(User.display_name, User.id))).all())
+    roles = list((await db.execute(_user_authorization_role_statement().order_by(PerformanceRole.id))).scalars().all())
+    return PerformanceUserAuthorizationOptions(
+        users=[{"value": str(user.id), "label": f"{user.display_name}（{link.employee_no}）", "employee_no": link.employee_no} for user, link in users],
+        roles=[PerformanceUserAuthorizationRoleOut(id=role.id, name=role.name, function_permission_keys=list(role.function_permission_keys or [])) for role in roles],
+    )
+
+
+@router.post("/user-authorizations", response_model=PerformanceUserAuthorizationItem, status_code=status.HTTP_201_CREATED)
+async def create_user_authorization(
+    payload: PerformanceUserAuthorizationPayload,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> PerformanceUserAuthorizationItem:
+    user, link = await _trusted_user(db, payload.user_id)
+    roles = await _managed_roles(db, payload.role_ids)
+    existing = list((await db.execute(select(PerformanceRoleAssignment).where(
+        PerformanceRoleAssignment.subject_type == SUBJECT_TYPE_PORTAL_USER,
+        PerformanceRoleAssignment.subject_id == user.id,
+        PerformanceRoleAssignment.role_id.in_(payload.role_ids),
+        PerformanceRoleAssignment.scope_type == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.scope_ref == SCOPE_TYPE_GLOBAL,
+    ).with_for_update())).scalars().all())
+    if any(item.is_active for item in existing):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户已拥有所选角色")
+    existing_by_role = {item.role_id: item for item in existing}
+    actor = await resolve_trusted_performance_actor(db, context)
+    for role in roles:
+        assignment = existing_by_role.get(role.id)
+        if assignment is None:
+            db.add(PerformanceRoleAssignment(
+                subject_type=SUBJECT_TYPE_PORTAL_USER,
+                subject_id=user.id,
+                role_id=role.id,
+                scope_type=SCOPE_TYPE_GLOBAL,
+                scope_ref=SCOPE_TYPE_GLOBAL,
+                is_active=True,
+            ))
+        else:
+            assignment.is_active = True
+            assignment.starts_at = None
+            assignment.ends_at = None
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_ROLE_ASSIGNED",
+            actor_type=actor.actor_type,
+            actor_ref=actor.actor_ref,
+            subject_type="PERFORMANCE_ROLE_ASSIGNMENT",
+            subject_ref=f"{user.id}:{role.id}",
+            after_state={"updated_by": context.display_name, "user_id": user.id, "employee_no": link.employee_no, "role_id": role.id, "role_code": role.code, "scope_type": SCOPE_TYPE_GLOBAL},
+        ))
+    await db.commit()
+    item = await _authorization_item(db, user.id)
+    if item is None:
+        raise HTTPException(status_code=500, detail="授权保存后读取失败")
+    return item
+
+
+@router.put("/user-authorizations/{user_id}", response_model=PerformanceUserAuthorizationItem)
+async def replace_user_authorization(
+    user_id: int,
+    payload: PerformanceUserAuthorizationPayload,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> PerformanceUserAuthorizationItem:
+    if payload.user_id != user_id:
+        raise HTTPException(status_code=422, detail="用户参数不一致")
+    user, link = await _trusted_user(db, user_id)
+    roles = await _managed_roles(db, payload.role_ids)
+    assignments = list((await db.execute(select(PerformanceRoleAssignment).where(
+        PerformanceRoleAssignment.subject_type == SUBJECT_TYPE_PORTAL_USER,
+        PerformanceRoleAssignment.subject_id == user_id,
+        PerformanceRoleAssignment.scope_type == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.scope_ref == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.role_id.in_(select(PerformanceRole.id).where(PerformanceRole.is_system.is_(False), PerformanceRole.role_type == "MANAGEMENT")),
+    ).with_for_update())).scalars().all())
+    desired = set(payload.role_ids)
+    actor = await resolve_trusted_performance_actor(db, context)
+    by_role = {assignment.role_id: assignment for assignment in assignments}
+    for assignment in assignments:
+        should_be_active = assignment.role_id in desired
+        if assignment.is_active != should_be_active or (should_be_active and (assignment.starts_at is not None or assignment.ends_at is not None)):
+            assignment.is_active = should_be_active
+            if should_be_active:
+                assignment.starts_at = None
+                assignment.ends_at = None
+            PerformanceAuditService(db).append_event(AuditEventInput(
+                event_type="PERFORMANCE_ROLE_ASSIGNED" if should_be_active else "PERFORMANCE_ROLE_REVOKED",
+                actor_type=actor.actor_type,
+                actor_ref=actor.actor_ref,
+                subject_type="PERFORMANCE_ROLE_ASSIGNMENT",
+                subject_ref=str(assignment.id),
+                before_state={"is_active": not should_be_active},
+                after_state={"updated_by": context.display_name, "is_active": should_be_active, "user_id": user_id, "role_id": assignment.role_id},
+            ))
+    for role in roles:
+        if role.id not in by_role:
+            db.add(PerformanceRoleAssignment(
+                subject_type=SUBJECT_TYPE_PORTAL_USER,
+                subject_id=user_id,
+                role_id=role.id,
+                scope_type=SCOPE_TYPE_GLOBAL,
+                scope_ref=SCOPE_TYPE_GLOBAL,
+                is_active=True,
+            ))
+            PerformanceAuditService(db).append_event(AuditEventInput(
+                event_type="PERFORMANCE_ROLE_ASSIGNED",
+                actor_type=actor.actor_type,
+                actor_ref=actor.actor_ref,
+                subject_type="PERFORMANCE_ROLE_ASSIGNMENT",
+                subject_ref=f"{user_id}:{role.id}",
+                after_state={"updated_by": context.display_name, "user_id": user_id, "employee_no": link.employee_no, "role_id": role.id, "role_code": role.code, "scope_type": SCOPE_TYPE_GLOBAL},
+            ))
+    await db.commit()
+    item = await _authorization_item(db, user_id)
+    if item is None:
+        raise HTTPException(status_code=500, detail="授权保存后读取失败")
+    return item
+
+
+@router.delete("/user-authorizations/{user_id}", response_model=None, status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_user_authorization(
+    user_id: int,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    assignments = list((await db.execute(select(PerformanceRoleAssignment).join(
+        PerformanceRole, PerformanceRole.id == PerformanceRoleAssignment.role_id,
+    ).where(
+        PerformanceRoleAssignment.subject_type == SUBJECT_TYPE_PORTAL_USER,
+        PerformanceRoleAssignment.subject_id == user_id,
+        PerformanceRoleAssignment.scope_type == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.scope_ref == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.is_active.is_(True),
+        PerformanceRole.role_type == "MANAGEMENT",
+        PerformanceRole.is_system.is_(False),
+    ).with_for_update())).scalars().all())
+    actor = await resolve_trusted_performance_actor(db, context)
+    for assignment in assignments:
+        assignment.is_active = False
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_ROLE_REVOKED",
+            actor_type=actor.actor_type,
+            actor_ref=actor.actor_ref,
+            subject_type="PERFORMANCE_ROLE_ASSIGNMENT",
+            subject_ref=str(assignment.id),
+            before_state={"is_active": True},
+            after_state={"updated_by": context.display_name, "is_active": False, "user_id": user_id, "role_id": assignment.role_id},
+        ))
+    await db.commit()
 
 
 def _role_out(role: PerformanceRole) -> PerformanceRoleOut:

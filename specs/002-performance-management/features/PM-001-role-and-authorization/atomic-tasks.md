@@ -95,3 +95,16 @@ PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
   - 其他角色已核查但未纳入：员工/实线上级/校准人在当前项目任务链有实际授权；自定义管理角色function_permission_keys到通用permission_codes转换及人员授予配置仍未闭环；虚线上级/360评估人/指标评价人当前项目启动任务生成链未完整覆盖。不以角色目录或基础授权服务存在视为业务已完成，后续按独立任务接入。
 
   - 最终复核修复两项：周期管理员成员字段按真实actor解析，不冒充每行成员本人；仅data-view无progress仍可从总览发现项目，completion_nodes为空防止进度泄漏。独立SQL/API专项增加管理员入职日期可见、仅数据权限项目可发现/进度不返回的断言后再次1通过；普通后端整合285通过4跳过。无其他指定读取路径的已确认越权/人员范围泄漏。
+
+## PM-001-T09 指定用户角色授予/撤销与任务授权权限闭环（2026-11-04）
+
+- [ ] PM-001-T09（进行中，用户明确批准）
+  - 目标：原角色页增加“评估任务授权/转交”“校准任务授权”；指定用户授权可保存、重新读取/编辑、撤销，任务授权接口消费真实角色权限，撤权下次请求生效。
+  - 阅读/复用：002基线、PM001规格/矩阵/交互/T06/T08、ADR001、012 UI门禁/N000/N00、execution-contract/task-card-template/acceptance-evidence；PerformanceRole/RoleAssignment/IdentityLink、原角色API、真实任务授权/审计链、共享选择器/弹窗/表格。
+  - 修改：performance/role_configuration_router.py、projects_router.py、seed.py；frontend api/performance.ts及其已有JS镜像、原角色树/角色编辑页/授权配置页/授权弹窗和对应测试；本目录spec/ui-interaction/atomic-tasks。允许新增performance/user_authorization.py和tests/test_performance_user_authorization.py。共享文件串行局部编辑，保留既有未提交改动。
+  - 合同：本轮仅指定已启用且有可信IdentityLink的Portal用户，授予非系统MANAGEMENT角色；不授予系统管理员/评估角色，不按姓名匹配、不创建账号或入口权。使用既有PORTAL_USER/GLOBAL作用域；GLOBAL是显式角色授权范围，不改周期人员或任务快照。批量添加只增选中角色；编辑/撤销仅作用于该用户的自定义GLOBAL管理角色，不改系统/ORG/PROJECT授权。撤销置is_active=false保留行和审计。角色停用/去掉权限键/撤销分配在下一请求失效。
+  - API：原角色router下 /user-authorizations（GET分页搜索/POST添加）、/user-authorizations/options（GET可信用户及角色候选）、/user-authorizations/{user_id}（PUT替换本入口角色/DELETE撤销）；均要求performance.authorization.manage；参数422、未知404、角色或身份不可用409、无权403。用户行锁串行化同一人的添加/编辑/撤销，批量失败整事务无半写，审计同事务。
+  - 权限：performance.frontend.authorize-evaluation-tasks / performance.frontend.authorize-calibration-tasks 分开判断；管理者代操作不得借progress扩权。原任务处理人/有效转交人/获准校准再授权沿既有对象规则，不因新建管理角色改变其流程身份。现有cycle管理员全局路径保持；新增自定义角色GLOBAL授权按显式功能点裁决，不自动给配置/评分/其他数据读取权。
+  - UI：既有页面及两字段弹窗增量，无新增页面/信息架构；指定用户真实列表/搜索/分页/添加/编辑/确认撤销/错误重试；规则Tab保持未接入。选人/角色多选复用SearchSelect；提交失败不关闭、不伪成功；关闭清理旧异步结果。用户本轮要求DOM/API为主证据，不以截图替代接口与授权验证。
+  - 测试：Given自定义角色含一种权限，When授予有效用户/保存读回/撤销，Then另一权限不放行、撤销后403且快照/答案不变；无权/停用/伪造/重复/失效身份拒绝；前端保存payload/失败保留/重开回显/撤销刷新。真实PG/API、DOM、定向测试和build分别记，不运行不得勾选。
+  - 不做：规则授权、系统角色改权、人员来源接管、生产、提交推送；不改数据库模型/旧迁移，不批量授权存量角色。停止方式仅撤销本卡局部差异，不整包回滚。

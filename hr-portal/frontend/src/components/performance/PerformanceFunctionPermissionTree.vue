@@ -74,6 +74,8 @@ const nodes: FunctionPermissionTreeNode[] = [
       { key: 'performance.frontend.export-details', label: '导出绩效详情' },
       { key: 'performance.frontend.manage-evaluatees', label: '添加/删除/转移被评估人' },
       { key: 'performance.frontend.manage-reviewers-360', label: '添加/删除360 评估人' },
+      { key: 'performance.frontend.authorize-evaluation-tasks', label: '评估任务授权/转交' },
+      { key: 'performance.frontend.authorize-calibration-tasks', label: '校准任务授权' },
     ],
   },
 ]

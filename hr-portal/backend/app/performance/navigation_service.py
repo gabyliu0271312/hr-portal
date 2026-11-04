@@ -130,6 +130,9 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
     hrbp_permissions = list((await db.execute(select(PerformanceHrbpPermission))).scalars().all()) if "performance.hrbp" in management_roles else []
     related_refs = set()
     frontend_features = {"performance.frontend.progress", "performance.frontend.data-view"}
+    custom_task_features = {"performance.frontend.authorize-evaluation-tasks", "performance.frontend.authorize-calibration-tasks"}
+    custom_global_features = set().union(*(management_roles.get(grant.code, set()) for grant in context.role_grants if grant.code.startswith("custom.") and grant.scope_type == "GLOBAL")) & (frontend_features | custom_task_features)
+
     for cycle in cycles:
         actor_ref = result.actor_refs_by_cycle.get(cycle.cycle_ref, result.actor_ref)
         permission = next((item for item in hrbp_permissions if item.cycle_ref == cycle.cycle_ref and item.hrbp_employee_no == actor_ref), None)
@@ -180,6 +183,14 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
             result.task_ids_by_project[project.id] = task_ids
             result.voluntary_node_ids_by_project[project.id] = voluntary_ids
             related_refs.add(project.cycle_ref)
+
+        if custom_global_features:
+            related_refs.add(project.cycle_ref)
+            result.manageable_cycle_refs.add(project.cycle_ref)
+            result.manage_projects.append((project, cycle))
+            result.management_scopes[project.id] = None
+            result.management_features[project.id] = custom_global_features
+            continue
 
         admin_people = [person for person in people if person.display_name in (project.administrators or [])]
         own_person = next((person for person in admin_people if person.employee_no == actor_ref), None)
