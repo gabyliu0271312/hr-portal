@@ -1640,7 +1640,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await (wrapper.vm as any).save()
     const saved = update.mock.calls.at(-1)![1]
     const relation = saved.nodes[1].content!.find((content: any) => content.content_slot === 'reference')
-    expect(relation.reference_settings?.content_settings?.['eval-text']?.items?.['eval-item']?.allowView).toBe(false)
+    expect(relation?.reference_settings?.content_settings?.['eval-text']?.items?.['eval-item']?.allowView).toBe(false)
     expect(saved.nodes[1].calibration_settings).toBeUndefined()
     wrapper.unmount()
   })
@@ -1705,7 +1705,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await (wrapper.vm as any).save()
     const saved = update.mock.calls.at(-1)![1]
     const relation = saved.nodes[1].content!.find((content: any) => content.content_slot === 'reference')
-    expect(relation.reference_settings.page_name).toBe('校准参考页')
+    expect(relation?.reference_settings?.page_name).toBe('校准参考页')
     expect(saved.nodes[0].content_page_name).toBeUndefined()
     expect(saved.nodes[1].content_page_name).toBeUndefined()
     wrapper.unmount()

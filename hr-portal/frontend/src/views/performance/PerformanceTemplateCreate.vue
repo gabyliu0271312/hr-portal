@@ -31,6 +31,7 @@
       </section>
       <PerformanceTemplateWorkflowSettings v-if="currentStep === 1" ref="workflowRef" :template-id="activeTemplateId" @back="goBack" @next="goNext" />
       <PerformanceTemplateContentSettings v-else-if="currentStep === 2" ref="contentSettingsRef" :template-id="activeTemplateId" />
+      <PerformanceTemplatePreviewStep v-else-if="isPreviewStep" :template-id="activeTemplateId" />
       <section v-else-if="currentStep >= 3" class="placeholder-panel" aria-live="polite"><h1>{{ steps[currentStep].label }}</h1><p>当前为前端原型，后续配置功能开放。</p></section>
     </main><div v-if="notice" class="notice" role="alert">{{ notice }}</div>
   </div>
@@ -47,6 +48,7 @@ import PerformanceTextField from '@/components/performance/PerformanceTextField.
 import { performanceTemplateApi } from '@/api/performance'
 import PerformanceTemplateWorkflowSettings from './PerformanceTemplateWorkflowSettings.vue'
 import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue'
+import PerformanceTemplatePreviewStep from '@/components/performance/PerformanceTemplatePreviewStep.vue'
 
 const router = useRouter()
 const workflowRef = ref<InstanceType<typeof PerformanceTemplateWorkflowSettings> | null>(null)
@@ -67,6 +69,7 @@ const saving = ref(false)
 const loadingTemplate = ref(false)
 const calculationOptions = [{ key: 'content', label: '按评估内容计算', description: '可配置环节内的各个评估项评分计算得到环节内的总分' }, { key: 'role', label: '按评估角色计算', description: '可配置不同环节的评估项评分计算得到最终结果' }]
 const steps = computed(() => { const result = [{ key: 'basic', label: '基本信息' }, { key: 'flow', label: '流程设置' }, { key: 'content', label: '内容设置' }]; if (calculationEnabled.value) result.push({ key: 'calculation', label: '计算规则' }); result.push({ key: 'preview', label: '模板预览' }); return result })
+const isPreviewStep = computed(() => currentStep.value === steps.value.length - 1 && steps.value[currentStep.value]?.key === 'preview')
 function toggleCalculation(value: boolean) { calculationEnabled.value = value; calculationError.value = false; selectedRules.value = [] }
 function validate() { const name = templateName.value.trim(); if (!name) { nameError.value = '名称为必填'; return false }; nameError.value = ''; if (calculationEnabled.value && selectedRules.value.length === 0) { calculationError.value = true; return false }; calculationError.value = false; return true }
 function templatePayload() {
