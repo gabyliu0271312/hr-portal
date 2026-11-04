@@ -28,6 +28,20 @@ describe('PerformanceOkrPanel', () => {
     const wrapper = mount(PerformanceOkrPanel, { props: { okr: null } })
     expect(wrapper.find('.okr-empty').text()).toContain('暂无 OKR 内容')
   })
+  it('keeps the period switcher identical to the REA two-arrow control', () => {
+    // REA DOM：左右按钮完全同构（只有 top/left/bottom 三条边 + 左上左下 6px 圆角），
+    // 右按钮靠整体 rotate(180deg) 翻到右侧。若给右按钮再加镜像边框/圆角，两次镜像会互相抵消，
+    // 边框会跑到错误一侧、视觉上像「方向反了」。
+    const wrapper = mount(PerformanceOkrPanel, { props: { okr } })
+    const period = wrapper.find('.okr-period')
+    expect(period.element.children).toHaveLength(3)
+    const cursors = period.findAll('.okr-period__cursor')
+    expect(cursors).toHaveLength(2)
+    expect(cursors[0].classes()).toContain('okr-period__cursor--prev')
+    expect(cursors[1].classes()).toEqual(['okr-period__cursor', 'okr-period__cursor--next'])
+    expect(cursors[1].attributes('style')).toBeUndefined()
+    expect(period.find('.okr-period__label').text()).toBe('2026 年度 OKR')
+  })
 })
 
 describe('PerformanceReferenceContent · OKR tab', () => {

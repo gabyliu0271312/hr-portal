@@ -95,10 +95,12 @@ function barColor(status?: PerformanceOkrStatus | null) {
     <div class="okr-card__head">
       <span class="okr-card__title">{{ title }}</span>
       <span class="okr-period" aria-hidden="true">
-        <span class="okr-period__cursor">
+        <span class="okr-period__cursor okr-period__cursor--prev">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M16.293 2.293a1 1 0 0 1 0 1.414L8 12l8.293 8.293a1 1 0 0 1-1.414 1.414l-8.293-8.293a2 2 0 0 1 0-2.828l8.293-8.293a1 1 0 0 1 1.414 0Z" fill="currentColor"/></svg>
         </span>
         <span class="okr-period__label">{{ periodLabel }}</span>
+        <!-- 右按钮与 REA DOM 同构：自身仍是「左圆角 + 无右边框」，靠整体 rotate(180deg) 翻到右侧。
+             千万不能先把边框 / 圆角手动镜像再旋转——两次镜像会互相抵消，边框跑到错误一侧。 -->
         <span class="okr-period__cursor okr-period__cursor--next">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M16.293 2.293a1 1 0 0 1 0 1.414L8 12l8.293 8.293a1 1 0 0 1-1.414 1.414l-8.293-8.293a2 2 0 0 1 0-2.828l8.293-8.293a1 1 0 0 1 1.414 0Z" fill="currentColor"/></svg>
         </span>
@@ -164,14 +166,17 @@ function barColor(status?: PerformanceOkrStatus | null) {
 /* 卡片：白底 r8、padding 16/20、无边框无阴影（实测 box-shadow: none） */
 .okr-card { --okr-bw: .666667px; padding: 16px 20px; border-radius: 8px; background: #fff; }
 
-/* 头部行 32：标题 16/24 600；周期选择器 216×32；详情按钮 100.5×32 */
-.okr-card__head { display: flex; align-items: center; height: 32px; }
-.okr-card__title { font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
-.okr-period { display: flex; width: 216px; height: 32px; margin-left: auto; margin-right: 10px; border-radius: 4px; }
-.okr-period__cursor { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; box-sizing: border-box; border: var(--okr-bw) solid #d0d3d4; border-right: 0; border-radius: 6px 0 0 6px; background: #fff; color: #bbbfc4; }
-.okr-period__cursor--next { border-left: 0; border-right: var(--okr-bw) solid #d0d3d4; border-radius: 0 6px 6px 0; transform: rotate(180deg); }
-.okr-period__label { width: 152px; height: 32px; box-sizing: border-box; padding: 0 12px; border-top: var(--okr-bw) solid #d0d3d4; border-bottom: var(--okr-bw) solid #d0d3d4; background: #fff; font-size: 14px; line-height: 32px; color: #1f2329; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.okr-detail { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 4px 11px; box-sizing: border-box; border: var(--okr-bw) solid #d0d3d4; border-radius: 6px; background: #fff; font-family: inherit; font-feature-settings: normal; font-variant-numeric: normal; font-size: 14px; line-height: 22px; color: #1f2329; white-space: nowrap; cursor: pointer; }
+/* 头部行 32：标题 16/24 600；周期选择器 216×32；详情按钮 100.5×32
+   REA 实测：头部是 flex，宽度不足时周期选择器整体收缩、文本省略，不允许换行。 */
+.okr-card__head { display: flex; align-items: center; min-width: 0; height: 32px; }
+.okr-card__title { flex: none; font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; white-space: nowrap; }
+.okr-period { display: flex; flex: 0 1 216px; width: 216px; min-width: 0; height: 32px; margin-left: auto; margin-right: 10px; border-radius: 4px; }
+/* 左右按钮同构（REA 实测两层完全相同）：只有 top/left/bottom 三条边，无右边框，圆角在左上/左下；
+   右按钮靠 rotate(180deg) 翻到右侧，边框与圆角随之镜像到正确的方向。 */
+.okr-period__cursor { display: flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; box-sizing: border-box; border: var(--okr-bw) solid #d0d3d6; border-right: 0; border-radius: 6px 0 0 6px; background: #fff; color: #bbbfc4; }
+.okr-period__cursor--next { transform: rotate(180deg); }
+.okr-period__label { flex: 1 1 auto; width: auto; min-width: 0; height: 32px; box-sizing: border-box; padding: 0 12px; border: var(--okr-bw) solid #d0d3d6; background: #fff; font-size: 14px; line-height: 32px; color: #1f2329; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.okr-detail { display: inline-flex; align-items: center; flex: none; gap: 4px; height: 32px; padding: 4px 11px; box-sizing: border-box; border: var(--okr-bw) solid #d0d3d6; border-radius: 6px; background: #fff; font-family: inherit; font-feature-settings: normal; font-variant-numeric: normal; font-size: 14px; line-height: 22px; color: #1f2329; white-space: nowrap; cursor: pointer; }
 
 /* 空态 */
 .okr-empty { display: flex; flex-direction: column; align-items: center; padding: 24px 0 8px; }
@@ -186,7 +191,7 @@ function barColor(status?: PerformanceOkrStatus | null) {
 /* O 行：左侧 padding-top 16（文案 14/22 600），右侧 两列各 70 */
 .okr-objective { display: flex; align-items: flex-start; margin-bottom: 12px; }
 .okr-objective__left { display: flex; flex: 1; min-width: 0; padding-top: 16px; margin-right: 6px; }
-.okr-objective__tag { display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; box-sizing: border-box; margin: 4px 8px 0 0; flex: none; border-radius: 32px; background: #4e83fd; color: #fff; font-size: 14px; font-weight: 600; line-height: 20px; }
+.okr-objective__tag { display: inline-flex; align-items: center; justify-content: center; height: 20px; padding: 0 8px; box-sizing: border-box; margin: 4px 8px 0 0; flex: none; border-radius: 32px; background: #4e83fd; color: #fff; font-size: 14px; font-weight: 600; line-height: 24px; }
 .okr-objective__text { margin-top: 3px; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; overflow-wrap: anywhere; }
 .okr-o-metrics { display: flex; width: 140px; flex: none; }
 .okr-o-col { width: 70px; text-align: right; }
@@ -195,10 +200,10 @@ function barColor(status?: PerformanceOkrStatus | null) {
 .okr-pending { display: inline-block; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 4px; background: #e7e9e9; color: #646a73; font-size: 12px; line-height: 16px; }
 
 /* KR 行：border-top 1px #dee0e3，padding 8/0；左文 14/22，右 250（180 + 70） */
-.okr-kr { display: flex; align-items: flex-start; padding: 8px 0; border-top: var(--okr-bw) solid #dee0e3; }
+.okr-kr { display: flex; align-items: flex-start; padding: 8px 0; border-top: var(--okr-bw) solid #dee0e3; line-height: 22px; }
 .okr-kr:last-child { padding-bottom: 0; }
 .okr-kr__main { display: flex; flex: 1; min-width: 0; margin-right: 20px; }
-.okr-kr__tag { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 18px; padding: 0 4px; box-sizing: border-box; margin: 2px 8px 0 0; flex: none; border-radius: 32px; background: #f0f4ff; color: #3370ff; font-size: 12px; font-weight: 400; line-height: 18px; }
+.okr-kr__tag { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 18px; padding: 0 4px; box-sizing: border-box; margin: 2px 8px 0 0; flex: none; border-radius: 32px; background: #f0f4ff; color: #3370ff; font-size: 12px; font-weight: 400; line-height: 22px; }
 .okr-kr__text { font-size: 14px; font-weight: 400; line-height: 22px; color: #1f2329; overflow-wrap: anywhere; }
 .okr-kr__metrics { display: flex; width: 250px; flex: none; }
 .okr-kr__col { width: 180px; }
