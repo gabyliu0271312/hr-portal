@@ -100,7 +100,7 @@ function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将�
         >
           <el-table-column :key="activeTab" :prop="isRuleTab ? 'userScope' : 'users'" :label="isRuleTab ? '用户范围' : '选择用户'" min-width="240"><template #default="{ row }">{{ row?.display_name ? `${row.display_name}（${row.employee_no}）` : '' }}</template></el-table-column>
           <el-table-column prop="roles" label="授权角色" min-width="200">
-            <template #default="{ row }">{{ row?.roles?.map(role => role.name).join('、') || '' }}</template>
+            <template #default="{ row }">{{ row?.roles?.map((role: any) => role.name).join('、') || '' }}</template>
           </el-table-column>
           <el-table-column prop="updatedBy" label="更新人" min-width="160"><template #default="{ row }">{{ row?.updated_by || '--' }}</template></el-table-column>
           <el-table-column prop="updatedAt" label="最近更新时间" min-width="200"><template #default="{ row }">{{ row?.updated_at ? formatDisplayDateTime(row.updated_at) : '' }}</template></el-table-column>

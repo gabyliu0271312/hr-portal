@@ -529,9 +529,9 @@ defineExpose({ open })
 </script>
 
 <template>
-  <FullScreenModal v-if="visible" title="新建资产" :show-footer="false" @back="attemptClose">
+  <UiFullScreenModal v-if="visible" title="新建资产" :show-footer="false" @back="attemptClose">
     <template #actions>
-      <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="新建资产步骤" />
+      <UiStepFlow :steps="stepItems" :current-step="step" aria-label="新建资产步骤" />
       <el-button v-if="step > 0" :disabled="finishing || syncing || previewing" @click="prev">上一步</el-button>
       <el-button
         v-if="step < stepItems.length - 1"
@@ -742,7 +742,7 @@ defineExpose({ open })
                   </el-option-group>
                 </el-select>
                 <div class="match-key">
-                  <PerformanceSwitch
+                  <UiSwitch
                     v-model="businessKeys[item.code]"
                     :aria-label="`${item.label} 是否作为业务主键`"
                   />
@@ -753,7 +753,7 @@ defineExpose({ open })
         </div>
       </section>
     </div>
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <style scoped>

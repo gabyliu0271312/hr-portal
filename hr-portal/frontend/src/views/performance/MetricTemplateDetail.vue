@@ -1,18 +1,18 @@
 <template>
-  <FullScreenModal title="编辑指标模板" :show-footer="false" @back="goBack">
+  <UiFullScreenModal title="编辑指标模板" :show-footer="false" @back="goBack">
     <template #actions>
-      <PerformanceButton variant="primary" disabled aria-label="启用指标模板">启用</PerformanceButton>
-      <PerformanceButton variant="outline-primary" aria-label="保存指标模板" :loading="saving" :disabled="!template" @click="save">保存</PerformanceButton>
-      <PerformanceButton variant="secondary" aria-label="通过导入更新" @click="notify('通过导入更新功能将在后续开放')">
+      <UiButton variant="primary" disabled aria-label="启用指标模板">启用</UiButton>
+      <UiButton variant="outline-primary" aria-label="保存指标模板" :loading="saving" :disabled="!template" @click="save">保存</UiButton>
+      <UiButton variant="secondary" aria-label="通过导入更新" @click="notify('通过导入更新功能将在后续开放')">
         <span class="metric-template-detail-button-icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 9h3v2H4v10h16V11h-2V9h3a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" fill="currentColor" /><path d="M7 13.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-1Zm0 4a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-1Zm9.692-10.598a.5.5 0 0 0 0-.707l-.707-.707-2.297 2.297.037-6.282a.5.5 0 0 0-.5-.497l-.947.003a.5.5 0 0 0-.498.497l-.036 6.109-2.12-2.121a.5.5 0 0 0-.708 0l-.707.707a.5.5 0 0 0 0 .707l3.89 3.89a1 1 0 0 0 1.413 0l3.89-3.89a.5.5 0 0 0 .003-.707Z" fill="currentColor" /></svg></span>
-      </PerformanceButton>
+      </UiButton>
     </template>
 
     <main class="metric-template-detail-content" aria-label="指标模板详情">
       <p v-if="loading" class="metric-template-detail-state" role="status">正在加载模板</p>
       <div v-else-if="error" class="metric-template-detail-state metric-template-detail-state--error" role="alert">
         <p>{{ error }}</p>
-        <PerformanceButton variant="secondary" @click="load">重新加载</PerformanceButton>
+        <UiButton variant="secondary" @click="load">重新加载</UiButton>
       </div>
       <template v-else-if="template">
         <PerformanceSurfaceCard class="metric-template-detail-card">
@@ -64,7 +64,7 @@
       @confirm="saveDimension"
     />
     <div v-if="notice" class="metric-template-detail-notice" role="status">{{ notice }}</div>
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <script setup lang="ts">

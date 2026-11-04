@@ -1,12 +1,12 @@
 ﻿<template>
   <div class="full-screen-modal">
-    <PageHeader :title="isEditing ? '编辑绩效模板' : '新建绩效模板'" @back="goBackToList">
+    <UiPageHeader :title="isEditing ? '编辑绩效模板' : '新建绩效模板'" @back="goBackToList">
       <template #actions>
-        <PerformanceStepFlow class="step-flow" :steps="steps" :current-step="currentStep" aria-label="创建步骤" />
-        <PerformanceButton v-if="currentStep > 0" class="previous-button" variant="secondary" @click="goBack">上一步</PerformanceButton>
-        <PerformanceButton class="next-button" variant="primary" :disabled="loadingTemplate || saving" @click="handleNext">{{ currentStep === steps.length - 1 ? '保存' : '下一步' }}</PerformanceButton>
+        <UiStepFlow class="step-flow" :steps="steps" :current-step="currentStep" aria-label="创建步骤" />
+        <UiButton v-if="currentStep > 0" class="previous-button" variant="secondary" @click="goBack">上一步</UiButton>
+        <UiButton class="next-button" variant="primary" :disabled="loadingTemplate || saving" @click="handleNext">{{ currentStep === steps.length - 1 ? '保存' : '下一步' }}</UiButton>
       </template>
-    </PageHeader>
+    </UiPageHeader>
     <main class="full-screen-modal-content">
       <section v-if="currentStep === 0" class="basic-info-panel" aria-labelledby="basic-info-title">
         <h1 id="basic-info-title">基本信息</h1><p class="panel-description">请填写绩效模板基本信息</p>

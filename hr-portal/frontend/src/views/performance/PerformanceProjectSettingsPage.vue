@@ -1,13 +1,13 @@
 <template>
   <div class="project-settings-page">
-    <PageHeader :title="projectName || '新建项目'" @back="goBack">
+    <UiPageHeader :title="projectName || '新建项目'" @back="goBack">
       <template #subtitle><span v-if="savedView" class="project-status-badge">待完成配置</span></template>
       <template #actions>
-        <PerformanceStepFlow :steps="steps" :current-step="currentStep" aria-label="项目设置步骤" />
-        <PerformanceButton v-if="currentStep > 0" variant="secondary" @click="currentStep--">上一步</PerformanceButton>
-        <PerformanceButton variant="primary" :disabled="saving" @click="nextStep">{{ currentStep === steps.length - 1 ? '完成' : '下一步' }}</PerformanceButton>
+        <UiStepFlow :steps="steps" :current-step="currentStep" aria-label="项目设置步骤" />
+        <UiButton v-if="currentStep > 0" variant="secondary" @click="currentStep--">上一步</UiButton>
+        <UiButton variant="primary" :disabled="saving" @click="nextStep">{{ currentStep === steps.length - 1 ? '完成' : '下一步' }}</UiButton>
       </template>
-    </PageHeader>
+    </UiPageHeader>
 
     <main class="project-settings-content">
       <PerformanceContentSurface class="settings-surface">

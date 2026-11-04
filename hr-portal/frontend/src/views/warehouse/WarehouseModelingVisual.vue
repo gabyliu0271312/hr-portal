@@ -510,9 +510,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <FullScreenModal :title="pageTitle" :show-footer="false" @back="goBack">
+  <UiFullScreenModal :title="pageTitle" :show-footer="false" @back="goBack">
     <template #actions>
-      <PerformanceStepFlow :steps="stepItems" :current-step="step" aria-label="数据模型步骤" />
+      <UiStepFlow :steps="stepItems" :current-step="step" aria-label="数据模型步骤" />
       <span class="save-state">{{ saving ? '保存中…' : dirty ? '未保存' : (modelId ? '已保存' : '') }}</span>
       <el-button v-if="step > 0" :disabled="saving || publishing" @click="step -= 1">上一步</el-button>
       <el-button v-if="step < stepItems.length - 1" type="primary" :loading="saving" @click="nextStep">下一步</el-button>
@@ -830,7 +830,7 @@ onBeforeUnmount(() => {
     <el-dialog v-model="cfDialogVisible" title="管理计算字段" width="800px" v-if="modelId">
       <CalculatedFieldBridge :dataset-id="modelId" :datasets="[]" :tables="[]" @saved="onCalculatedFieldSaved" />
     </el-dialog>
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <style scoped>
