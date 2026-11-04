@@ -330,7 +330,8 @@ describe('performance content shared primitives', () => {
     expect(result.findAll(':scope > *')).toHaveLength(3)
     expect(wrapper.findAll('.rating-option')).toHaveLength(0)
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
-    expect(wrapper.get('.content-renderer-rating__result-code').attributes('style')).toContain('rgb(20, 45, 102)')
+    /* REA 结果态是纯文本徽标（无胶囊底色）：前景色由容器上的 --rating-foreground 下发 */
+    expect(wrapper.get('.content-renderer-rating__result').attributes('style')).toContain('rgb(20, 45, 102)')
   })
 
   it('adds a single unknown preview option without changing source levels', async () => {

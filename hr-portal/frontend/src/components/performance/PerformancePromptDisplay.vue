@@ -9,7 +9,10 @@
     </span>
     <div class="performance-prompt-display__text">
       <div v-if="value.title" class="performance-prompt-display__title">{{ value.title }}</div>
-      <div class="performance-prompt-display__content">{{ value.content }}</div>
+      <!-- REA 的提示正文按源码换行拆成多个块（每行一个 div），行高 22 与逐行渲染一致 -->
+      <div class="performance-prompt-display__content">
+        <div v-for="(line, index) in contentLines" :key="index" class="performance-prompt-display__line">{{ line || '\u200b' }}</div>
+      </div>
     </div>
   </div>
 </template>
@@ -24,6 +27,7 @@ const props = defineProps<{ value: PerformancePromptValue }>()
 const safeColor = computed(() => /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(props.value.color) ? props.value.color : '#3370ff')
 const definition = computed(() => promptDefinitions[promptTypeForColor(safeColor.value)])
 const displayStyle = computed(() => ({ backgroundColor: definition.value.noticeBackground }))
+const contentLines = computed(() => String(props.value.content ?? '').split(/\r?\n/))
 </script>
 
 <style scoped>
@@ -32,6 +36,7 @@ const displayStyle = computed(() => ({ backgroundColor: definition.value.noticeB
 .performance-prompt-display__icon svg { display: block; width: 16px; height: 16px; }
 .performance-prompt-display__text { min-width: 0; }
 .performance-prompt-display__title { min-width: 0; margin: 0 0 2px; overflow-wrap: anywhere; font: 600 16px/24px var(--font-sans); }
+.performance-prompt-display__line { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .performance-prompt-display__content { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-text-secondary); font: 400 14px/22px var(--font-sans); }
 .performance-prompt-display.is-unavailable { padding-right: calc(var(--spacing-2) + var(--performance-icon-button-size) + var(--spacing-2)); background: var(--performance-content-hidden-background); color: var(--performance-content-hidden-text); opacity: var(--performance-content-hidden-opacity); }
 .performance-prompt-display.is-unavailable .performance-prompt-display__content { color: var(--performance-content-hidden-text); }

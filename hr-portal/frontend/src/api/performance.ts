@@ -621,6 +621,42 @@ export const performanceRoleApi = {
     await api.delete(`/performance/permission-settings/roles/${id}`)
   },
 }
+export interface PerformanceUserAuthorization {
+  user_id: number
+  display_name: string
+  login_name: string
+  employee_no: string
+  role_ids: number[]
+  roles: Array<{ id: number; name: string; function_permission_keys: string[] }>
+  updated_at: string
+  updated_by?: string | null
+}
+
+export interface PerformanceUserAuthorizationOptions {
+  users: Array<{ value: string; label: string; employee_no: string }>
+  roles: Array<{ id: number; name: string; function_permission_keys: string[] }>
+}
+
+const userAuthorizationPath = '/performance/permission-settings/roles/user-authorizations'
+export const performanceUserAuthorizationApi = {
+  async list(keyword = '', page = 1, pageSize = 10): Promise<{ items: PerformanceUserAuthorization[]; total: number; page: number; page_size: number }> {
+    const { data } = await api.get(userAuthorizationPath, { params: { keyword: keyword || undefined, page, page_size: pageSize } })
+    return data
+  },
+  async options(): Promise<PerformanceUserAuthorizationOptions> {
+    const { data } = await api.get(userAuthorizationPath + '/options')
+    return data
+  },
+  async save(userId: number, roleIds: number[], edit = false): Promise<PerformanceUserAuthorization> {
+    const payload = { user_id: userId, role_ids: roleIds }
+    const { data } = edit ? await api.put(`${userAuthorizationPath}/${userId}`, payload) : await api.post(userAuthorizationPath, payload)
+    return data
+  },
+  async revoke(userId: number): Promise<void> {
+    await api.delete(`${userAuthorizationPath}/${userId}`)
+  },
+}
+
 export interface PerformanceSubjectVisibilityFieldOption {
   key: string
   label: string
@@ -1016,10 +1052,10 @@ export const projectManagementApi = {
   },
 }
 
-export type PerformanceTemplateOption = { id: string; code?: string; label: string; name?: string; color?: string; placeholder?: string; description?: string; required?: boolean }
+export type PerformanceTemplateOption = { id: string; code?: string; label: string; name?: string; color?: string; placeholder?: string; description?: string; required?: boolean; foreground?: string }
 export type PerformanceTemplateField = {
   id: string
-  type: 'rich_text' | 'rating' | 'tag_with_followup'
+  type: 'rich_text' | 'rating' | 'tag_with_followup' | 'single_select'
   label: string
   required?: boolean
   placeholder?: string
@@ -1034,8 +1070,39 @@ export type PerformanceTemplateField = {
 }
 export type PerformanceTemplateElement = { kind: 'field'; id: string } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
 export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[]; elements?: PerformanceTemplateElement[] }
+export type PerformanceOkrStatus = 'unset' | 'normal' | 'risk' | 'extended' | (string & {})
+export type PerformanceOkrKeyResult = {
+  id: string
+  content: string
+  weight?: number | null
+  percent?: number | null
+  status?: PerformanceOkrStatus | null
+}
+export type PerformanceOkrObjective = {
+  id: string
+  content: string
+  weight?: number | null
+  percent?: number | null
+  status?: PerformanceOkrStatus | null
+  key_results: PerformanceOkrKeyResult[]
+}
+export type PerformanceOkrView = {
+  source: string
+  okr_id: string
+  period_id?: string | null
+  period_label: string
+  objectives: PerformanceOkrObjective[]
+}
+export type EmployeeOkrResponse = {
+  enabled: boolean
+  source?: string | null
+  employee_no: string
+  okr?: PerformanceOkrView | null
+}
 export type PerformanceReferenceTab = {
   key: string
+  /** node=引用其他环节内容；okr=内置 OKR 参考内容（数据来自 OKR 数据源） */
+  kind?: 'node' | 'okr'
   node_id: string
   node_name: string
   task_id?: number | null
@@ -1045,6 +1112,8 @@ export type PerformanceReferenceTab = {
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
   can_remind: boolean
+  /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
+  okr?: PerformanceOkrView | null
 }
 export type SelfSummaryOption = PerformanceTemplateOption
 export type SelfSummaryField = PerformanceTemplateField
@@ -1449,7 +1518,7 @@ export interface PerformanceTemplateContentItem {
   label: string
   hint: string
   richText?: string
-  questionType?: 'text' | 'tag'
+  questionType?: 'text' | 'tag' | 'single'
   tagOptionId?: string
   defaultAll?: boolean
   settings?: {
@@ -1498,7 +1567,7 @@ export interface PerformanceTemplateContent {
   }
   ratingOptionId?: string
   ratingDisplayMode?: '标签样式' | '下拉样式'
-  questionType?: 'text' | 'tag'
+  questionType?: 'text' | 'tag' | 'single'
   tagOptionId?: string
   defaultAll?: boolean
   options?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; color?: string; placeholder?: string }>
@@ -2062,5 +2131,13 @@ export const performanceProjectApi = {
   },
   async remove(id: number): Promise<void> {
     await api.delete(`/performance/projects/${id}`)
+  },
+}
+
+export const performanceOkrApi = {
+  /** 取指定被评估人的 OKR（内容设置配置了 OKR 参考内容时使用） */
+  async employeeOkr(employeeNo: string): Promise<EmployeeOkrResponse> {
+    const { data } = await api.get<EmployeeOkrResponse>(`/performance/okr/${encodeURIComponent(employeeNo)}`)
+    return data
   },
 }

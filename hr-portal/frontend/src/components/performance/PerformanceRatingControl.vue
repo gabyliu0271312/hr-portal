@@ -7,7 +7,7 @@
         <DownBoldOutlinedIcon class="performance-rating-control__arrow" :size="12" />
       </div>
     </template>
-    <div v-else class="performance-rating-control__labels" role="radiogroup" :aria-label="ariaLabel">
+    <div v-else ref="labelsRow" class="performance-rating-control__labels" role="radiogroup" :aria-label="ariaLabel">
       <template v-for="(option, index) in selectableOptions" :key="option.id">
         <button
           type="button"
@@ -15,7 +15,7 @@
           :aria-checked="modelValue === option.id"
           :tabindex="interactive || previewHover ? 0 : -1"
           :class="['performance-rating-control__option', 'rating-option', { selected: modelValue === option.id, hovered: hoveredOptionId === option.id }]"
-          :style="{ '--rating-color': option.color || '#3370ff', '--rating-background': levelBackground(option.color) }"
+          :style="{ '--rating-color': option.color || '#3370ff', '--rating-background': levelBackground(option.color), ...capsuleWidthStyle }"
           :disabled="!interactive && !previewHover"
           :aria-disabled="!interactive ? 'true' : undefined"
           @mouseenter="showHover(option, $event)"
@@ -37,7 +37,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
@@ -79,6 +79,38 @@ const hoveredOptionId = ref<string | null>(null)
 const hoveredOption = computed(() => selectableOptions.value.find(option => option.id === hoveredOptionId.value))
 const selectedOption = computed(() => selectableOptions.value.find(option => option.id === props.modelValue))
 const hoverAnchor = ref<HTMLElement | null>(null)
+const labelsRow = ref<HTMLElement | null>(null)
+/** 最宽档位标签的渲染宽度：REA 里所有胶囊等宽（= 最宽标签 + 左右内缩 26），短标签居中 */
+const widestLabelWidth = ref(0)
+const capsuleWidthStyle = computed(() => widestLabelWidth.value > 0
+  ? { minWidth: `calc(${widestLabelWidth.value}px + 26px)` }
+  : {})
+function measureCapsules() {
+  const row = labelsRow.value
+  if (!row || normalizedMode.value !== 'labels') return
+  const chip = row.querySelector('.performance-rating-control__option') as HTMLElement | null
+  if (!chip) return
+  const cs = getComputedStyle(chip)
+  const probe = document.createElement('span')
+  probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap'
+  probe.style.fontFamily = cs.fontFamily
+  probe.style.fontSize = cs.fontSize
+  probe.style.fontWeight = cs.fontWeight
+  probe.style.fontStyle = cs.fontStyle
+  probe.style.letterSpacing = cs.letterSpacing
+  probe.style.fontFeatureSettings = cs.fontFeatureSettings
+  probe.style.fontVariantNumeric = cs.fontVariantNumeric
+  document.body.appendChild(probe)
+  let widest = 0
+  for (const option of selectableOptions.value) {
+    probe.textContent = option.code || option.label
+    widest = Math.max(widest, probe.getBoundingClientRect().width)
+  }
+  probe.remove()
+  widestLabelWidth.value = widest > 0 ? Math.round(widest * 100) / 100 : 0
+}
+onMounted(() => requestAnimationFrame(measureCapsules))
+watch([selectableOptions, normalizedMode], () => nextTick(measureCapsules), { deep: true })
 const dropdownPreview = ref<HTMLElement | null>(null)
 const levelBackground = (color?: string) => performanceLevelBackground(color)
 function showHover(option: PerformanceRatingOption, event: MouseEvent | FocusEvent) {

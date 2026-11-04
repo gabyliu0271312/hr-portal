@@ -4,6 +4,7 @@ export const performanceTemplateFieldRegistry = {
   rich_text: { modes: ['edit', 'readonly'] },
   rating: { modes: ['edit', 'readonly'] },
   tag_with_followup: { modes: ['edit', 'readonly'] },
+  single_select: { modes: ['edit', 'readonly'] },
 } as const
 
 export function isRegisteredPerformanceTemplateField(field: PerformanceTemplateField, mode: 'edit' | 'readonly') {

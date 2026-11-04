@@ -53,6 +53,14 @@
             <template v-else>
               <PerformanceFormField v-model="item.label" inside label="填写题名称" required placeholder="请输入" :invalid="invalid && !item.label.trim()" />
               <PerformanceFormField v-model="item.hint" inside label="提示" textarea placeholder="请输入填写提示" />
+              <div v-if="item.questionType === 'single'" class="single-options">
+                <span class="single-options__legend">选项<i>*</i></span>
+                <div v-for="(option, index) in item.options || []" :key="option.id" class="single-options__row">
+                  <input class="single-options__input" :value="option.label" placeholder="请输入选项内容" :aria-label="`选项 ${index + 1}`" @input="updateOptionLabel(item, index, ($event.target as HTMLInputElement).value)">
+                  <button class="single-options__remove" type="button" :aria-label="`删除选项 ${index + 1}`" :disabled="(item.options || []).length <= 2" @click="removeOption(item, index)"><Delete /></button>
+                </div>
+                <button class="single-options__add" type="button" @click="addOption(item)"><Plus /> 添加选项</button>
+              </div>
             </template>
           </div>
           <template v-else>
@@ -86,7 +94,7 @@ import UiSwitch from '../ui/UiSwitch.vue'
 
 type TagOption = { id: string; label: string; description?: string; defaultFields?: Array<{ label: string; content: string }> }
 type RatingOption = { id: string; label: string; description?: string; disabled?: boolean; disabledReason?: string; levels?: string[]; levelOptions?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; color?: string }>; displayMode?: '标签样式' | '下拉样式' }
-export type FillItem = { id: string; label: string; hint: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PerformancePromptValue; ratingOptionId?: string; ratingDisplayMode?: '标签样式' | '下拉样式'; questionType?: 'text' | 'tag'; tagOptionId?: string; defaultAll?: boolean; options?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; placeholder?: string; color?: string }> }
+export type FillItem = { id: string; label: string; hint: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PerformancePromptValue; ratingOptionId?: string; ratingDisplayMode?: '标签样式' | '下拉样式'; questionType?: 'text' | 'tag' | 'single'; tagOptionId?: string; defaultAll?: boolean; options?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; placeholder?: string; color?: string }> }
 
 const props = withDefaults(defineProps<{ items: FillItem[]; horizontalHandle?: boolean; invalid?: boolean; showQuestionType?: boolean; tagOptions?: TagOption[]; mixed?: boolean; ratingOptions?: RatingOption[] }>(), { invalid: false, showQuestionType: false, tagOptions: () => [], mixed: false, ratingOptions: () => [] })
 const emit = defineEmits<{
@@ -104,10 +112,31 @@ const dragAnnouncement = ref('')
 const hoveredItemId = ref<string | null>(null)
 function leaveItem(itemId: string) { if (hoveredItemId.value === itemId) hoveredItemId.value = null }
 const controlsVisible = computed(() => props.items.length >= 2)
-const questionTypeOptions = [{ value: 'text', label: '文本型填写题' }, { value: 'tag', label: '标签型填写题' }]
+const questionTypeOptions = [{ value: 'text', label: '文本型填写题' }, { value: 'tag', label: '标签型填写题' }, { value: 'single', label: '单选组' }]
 function itemTitle(item: FillItem) { return item.kind === 'prompt' ? '提示' : item.kind === 'rating' ? '评估项' : '填写项' }
 function startPointerDrag(event: PointerEvent) { sortableListRef.value?.startPointerDrag(event) }
-function setQuestionType(id: string, questionType: string) { const type = questionType === 'tag' ? 'tag' : 'text'; emit('update:items', props.items.map(item => item.id === id ? { ...item, questionType: type, tagOptionId: '', defaultAll: false, options: undefined } : item)) }
+function setQuestionType(id: string, questionType: string) {
+  const type = questionType === 'tag' ? 'tag' : questionType === 'single' ? 'single' : 'text'
+  emit('update:items', props.items.map(item => item.id === id ? {
+    ...item, questionType: type, tagOptionId: '', defaultAll: false,
+    /* 单选组默认给两个空选项，保证配置面板一打开就能填 */
+    options: type === 'single' ? [{ id: `${item.id}-option-1`, label: '' }, { id: `${item.id}-option-2`, label: '' }] : undefined,
+  } : item))
+}
+function updateItemOptions(item: FillItem, options: Array<{ id: string; label: string }>) {
+  emit('update:items', props.items.map(candidate => candidate.id === item.id ? { ...candidate, options } : candidate))
+}
+function updateOptionLabel(item: FillItem, index: number, label: string) {
+  const options = (item.options || []).map((option, optionIndex) => optionIndex === index ? { ...option, label } : option)
+  updateItemOptions(item, options)
+}
+function addOption(item: FillItem) {
+  const options = [...(item.options || []), { id: `${item.id}-option-${(item.options || []).length + 1}`, label: '' }]
+  updateItemOptions(item, options)
+}
+function removeOption(item: FillItem, index: number) {
+  updateItemOptions(item, (item.options || []).filter((_, optionIndex) => optionIndex !== index))
+}
 function selectedTag(item: FillItem) { return props.tagOptions.find(option => option.id === item.tagOptionId) }
 function updateTag(id: string, tagOptionId: string) { const tag = props.tagOptions.find(option => option.id === tagOptionId); const options = tag?.defaultFields?.map((field, index) => ({ id: `${tag.id}-${index}`, label: field.label, placeholder: field.content })); emit('update:items', props.items.map(item => item.id === id ? { ...item, label: tag?.label || '', hint: tag?.description || '', tagOptionId, defaultAll: false, options } : item)) }
 function selectRating(item: FillItem, value: string) { const option = props.ratingOptions.find(candidate => candidate.id === value); emit('update:items', props.items.map(candidate => candidate.id === item.id ? { ...candidate, kind: 'rating', ratingOptionId: value, options: option?.levelOptions || option?.levels?.map((label, index) => ({ id: `${value}-${index}`, label })), ratingDisplayMode: option?.displayMode, label: option?.label || '', hint: '' } : candidate)) }
@@ -133,6 +162,15 @@ function selectRating(item: FillItem, value: string) { const option = props.rati
 .fill-item-fields .type-field i { margin-left: 2px; color: #f54a45; font-style: normal; }
 .question-type-option { display: inline-flex; align-items: center; height: 22px; margin-right: 24px; color: #1f2329; line-height: 22px; cursor: pointer; }
 .question-type-option input { width: 16px; height: 16px; margin: 0 8px 0 0; accent-color: var(--color-primary); }
+.single-options { display: flex; flex-direction: column; gap: 8px; }
+.single-options__legend { color: #1f2329; font-size: 14px; line-height: 22px; }
+.single-options__legend i { margin-left: 2px; color: #f54a45; font-style: normal; }
+.single-options__row { display: flex; align-items: center; gap: 8px; }
+.single-options__input { flex: 1; min-width: 0; height: 32px; padding: 0 12px; box-sizing: border-box; border: 1px solid #d0d3d6; border-radius: 6px; font-family: inherit; font-size: 14px; line-height: 22px; color: #1f2329; }
+.single-options__input:focus { border-color: #1456f0; outline: none; }
+.single-options__remove { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #646a73; cursor: pointer; }
+.single-options__remove:disabled { color: #bbbfc4; cursor: not-allowed; }
+.single-options__add { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; height: 32px; padding: 0 12px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; font-family: inherit; font-size: 14px; color: #1f2329; cursor: pointer; }
 .fill-item-fields .inside-select, .saved-item > .inside-select { margin: 18px 20px; }
 .fill-item-fields .default-all { margin: 16px 0 0; }
 .drag-instruction, .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

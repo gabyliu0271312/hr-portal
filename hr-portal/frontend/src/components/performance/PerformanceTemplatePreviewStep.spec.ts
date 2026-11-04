@@ -146,10 +146,10 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(panel.text()).toContain(`${new Date().getFullYear()} 年度 OKR`)
     expect(panel.text()).toContain('OKR 详情')
     expect(panel.text()).toContain('展示内容以实际数据为准')
-    expect(panel.findAll('.okr-tag').map(tag => tag.text())).toEqual(['O1', 'KR1', 'KR2'])
+    expect(panel.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O1', 'KR1', 'KR2'])
     expect(panel.text()).toContain('进度')
     expect(panel.text()).toContain('权重')
-    expect(panel.findAll('.okr-badge').map(badge => badge.text())).toEqual(['正常', '正常'])
+    expect(panel.findAll('.okr-kr__badge').map(badge => badge.text())).toEqual(['正常', '正常'])
   })
 
   it('renders more_reference units and team stats placeholder', async () => {

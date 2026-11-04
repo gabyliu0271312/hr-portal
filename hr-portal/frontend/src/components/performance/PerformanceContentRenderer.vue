@@ -33,11 +33,12 @@
       <div v-else-if="itemState(item.id).mode === 'view' && !isRatingItem(item)">
         <PerformanceTemplateFieldRenderer class="content-renderer-view-preview" mode="readonly" :field="viewField(item)" :value="viewPreviewValue(item)" :label="item.label" :empty-answer-text="readonlyEmptyAnswerText" :hide-item-description="true" />
       </div>
+      <PerformanceTemplateFieldRenderer v-else-if="isCustomSingleItem(item)" mode="edit" :editable="false" preview-only :field="singleField(item)" :value="singlePreviewValue(item)" :label="item.label" />
       <PerformanceTemplateFieldRenderer v-else-if="isCustomTagItem(item)" mode="edit" :editable="false" preview-only :field="tagField(item)" :value="tagPreviewValue(item)" :label="item.label" />
       <template v-else-if="isRatingItem(item)">
         <div v-if="itemState(item.id).mode === 'view'" class="content-renderer-rating__result" :style="{ '--rating-foreground': ratingResult(item).foreground }">
           <strong v-if="!itemState(item.id).hideName" class="performance-item-title content-renderer-rating__result-title">{{ item.label }}</strong>
-          <PerformanceRatingTag class="content-renderer-rating__result-code" :label="ratingResult(item).code" :color="ratingResult(item).color" />
+          <span class="content-renderer-rating__result-code">{{ ratingResult(item).code }}</span>
           <span class="content-renderer-rating__result-name">{{ ratingResult(item).name }}</span>
         </div>
         <template v-else>
@@ -49,7 +50,7 @@
           </div>
         </template>
       </template>
-      <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'">
+      <PerformanceAssessmentRichTextField v-else :label="item.label" :required="itemState(item.id).required && itemState(item.id).mode === 'fill'" :style="editorHeightStyle(item)">
         <PerformanceRichTextBox readonly>
           <div v-if="item.richText" class="content-renderer-editor__body" v-html="item.richText" />
           <div v-else class="content-renderer-editor__body">{{ item.hint || emptyText }}</div>
@@ -68,12 +69,11 @@ import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame
 import PerformanceVisibleLockIcon from './PerformanceVisibleLockIcon.vue'
 import PerformanceUnavailableOverlay from './PerformanceUnavailableOverlay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
-import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import type { PerformancePromptValue as PromptValue, PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
-type ContentItem = { id: string; label: string; hint?: string; richText?: string; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PromptValue; questionType?: 'text' | 'tag'; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式'; defaultAll?: boolean }
-type Content = { type: 'work_summary' | 'rating' | 'custom' | 'reference' | 'prompt'; prompt?: PromptValue; settings?: { allowUnknown?: boolean }; questionType?: 'text' | 'tag'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
+type ContentItem = { id: string; label: string; hint?: string; richText?: string; settings?: { editorHeight?: number } & Record<string, unknown>; kind?: 'rating' | 'fill' | 'prompt'; prompt?: PromptValue; questionType?: 'text' | 'tag' | 'single'; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式'; defaultAll?: boolean }
+type Content = { type: 'work_summary' | 'rating' | 'custom' | 'reference' | 'prompt'; prompt?: PromptValue; settings?: { allowUnknown?: boolean; sampleOptionId?: string }; questionType?: 'text' | 'tag' | 'single'; defaultAll?: boolean; items: ContentItem[]; options?: PerformanceTemplateOption[]; ratingDisplayMode?: '标签样式' | '下拉样式' }
 type ItemSettings = { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; hideDescription?: boolean; allowView?: boolean; readonlySurface?: boolean }
 
 const props = withDefaults(defineProps<{
@@ -101,9 +101,19 @@ const isHiddenItem = (itemId: string) => hasItemSettings(itemId) && itemState(it
 const isUnavailableItem = (itemId: string) => hasItemSettings(itemId) && itemState(itemId).allowView === false
 const isCustomTextItem = (item: ContentItem) => isFillItem(item) && (content.value.type === 'custom' || content.value.type === 'rating' && item.kind === 'fill') && (item.questionType || content.value.questionType || 'text') === 'text'
 const isCustomTagItem = (item: ContentItem) => isFillItem(item) && (content.value.type === 'custom' || content.value.type === 'rating' && item.kind === 'fill') && (item.questionType || content.value.questionType || 'text') === 'tag'
+const isCustomSingleItem = (item: ContentItem) => isFillItem(item) && (content.value.type === 'custom' || content.value.type === 'rating' && item.kind === 'fill') && (item.questionType || content.value.questionType || 'text') === 'single'
+const singleField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'single_select', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
+/* 预览无真实答案：单选组保持未选中（与 REA 模板预览一致） */
+const singlePreviewValue = (_item?: ContentItem) => ''
+/* REA 的富文本编辑器高度按字段持久化（工作总结 144 / 做得好的 188 / 待改进的 166），
+   预览用 CSS 变量下发，未配置时回落到 144（预览默认值） */
+const editorHeightStyle = (item: ContentItem) => item.settings?.editorHeight
+  ? { '--content-editor-height': `${item.settings.editorHeight}px` }
+  : {}
 const tagField = (item: ContentItem): PerformanceTemplateField => ({ id: item.id, type: 'tag_with_followup', label: item.label, description: item.hint, hide_name: itemState(item.id).hideName === true, hide_description: itemState(item.id).hideDescription === true, required: itemState(item.id).required && itemState(item.id).mode === 'fill', options: item.options ?? content.value.options ?? [] })
 const viewField = (item: ContentItem): PerformanceTemplateField => {
   if (isCustomTagItem(item)) return { ...tagField(item), required: false }
+  if (isCustomSingleItem(item)) return { ...singleField(item), required: false }
   return { id: item.id, type: 'rich_text', label: item.label, required: false, hide_name: itemState(item.id).hideName === true }
 }
 const viewPreviewValue = (item: ContentItem) => {
@@ -118,11 +128,14 @@ const ratingOptionsFor = (item: ContentItem) => mergeRatingOptions(item.options,
 // 查看绩效结果环节（mode === 'view'）的评分评级按最终结果展示：标题 + 等级代号 + 等级名称，
 // 而不是像填写环节那样平铺所有可选等级代号。预览态无真实答案，取第一个等级作为示例值。
 const ratingResult = (item: ContentItem) => {
-  const selected = ratingOptionsFor(item)[0]
+  const options = ratingOptionsFor(item)
+  /* 预览无真实答案：优先取内容上配置的示例档位（REA 该环节展示「3星 符合预期」） */
+  const sampleOptionId = content.value.settings?.sampleOptionId
+  const selected = (sampleOptionId && options.find(option => option.id === sampleOptionId || option.code === sampleOptionId)) || options[0]
   if (!selected) return { code: '—', name: '', color: undefined, foreground: '#1f2329' }
   const code = selected.code || selected.label
   const name = selected.code ? selected.label : selected.description || ''
-  return { code, name, color: selected.color, foreground: performanceLevelForeground(selected.color) }
+  return { code, name, color: selected.color, foreground: selected.foreground || performanceLevelForeground(selected.color) }
 }
 </script>
 <style scoped>
@@ -131,7 +144,7 @@ const ratingResult = (item: ContentItem) => {
 .content-renderer-prompt{margin:0}
 .content-renderer-rating{position:relative;margin:16px 0 0}
 .content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}
-.content-renderer-rating__result{display:flex;align-items:center;min-width:0;min-height:24px}.content-renderer-rating__result-title{flex:0 0 auto;margin-right:var(--performance-rating-result-gap,var(--spacing-2))}.content-renderer-rating__result :deep(.performance-rating-tag){flex:0 0 auto}.content-renderer-rating__result-name{flex:0 0 auto;margin-left:var(--performance-rating-result-gap,var(--spacing-2));overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
+.content-renderer-rating__result{display:flex;align-items:center;min-width:0;min-height:24px}.content-renderer-rating__result-title{flex:0 0 auto;margin-right:var(--performance-rating-result-gap,var(--spacing-2))}.content-renderer-rating__result-code{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;box-sizing:border-box;min-width:44px;padding:0 10px;color:var(--rating-foreground,#1f2329);font-size:14px;font-weight:400;line-height:22px;text-align:center}.content-renderer-rating__result-name{flex:0 0 auto;margin-left:var(--performance-rating-result-gap,var(--spacing-2));overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{position:relative;padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}

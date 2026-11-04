@@ -1,7 +1,7 @@
 <template>
   <div class="performance-template-field summary-field" :class="{ invalid, 'performance-template-field--tag': field.type === 'tag_with_followup', 'readonly-field-rating': mode === 'readonly' && field.type === 'rating' }">
     <div v-if="!field.hide_name" class="template-field-label field-label performance-item-title" :class="{ 'readonly-label': mode === 'readonly' }"><strong><span>{{ label }}</span></strong><em v-if="mode === 'edit' && field.required" aria-label="必填">*</em></div>
-    <p v-if="field.type === 'tag_with_followup' && mode === 'edit' && field.description && !field.hide_description && !props.hideItemDescription" class="template-field-description tag-preview__description">{{ field.description }}</p>
+    <p v-if="(field.type === 'tag_with_followup' || field.type === 'single_select') && mode === 'edit' && field.description && !field.hide_description && !props.hideItemDescription" class="template-field-description tag-preview__description">{{ field.description }}</p>
     <p v-if="!registered" class="unsupported-template-field" role="alert">不支持的填写类型</p>
     <template v-else>
     <PerformanceReadonlyAnswer v-if="mode === 'readonly'" :field="field" :value="value" :empty-answer-text="props.emptyAnswerText" />
@@ -10,6 +10,10 @@
     </template>
     <template v-else-if="field.type === 'rating'">
       <div class="rating-field"><PerformanceRatingControl :model-value="String(value || '')" :options="field.options || []" :allow-unknown="field.allow_unknown === true" :display-mode="field.display_mode" :interactive="editable" preview-hover :invalid="invalid" :aria-label="field.label" @update:model-value="$emit('update:value', $event)" /><span v-if="!field.options?.length" class="empty-options">暂无可用评级选项</span></div>
+    </template>
+    <template v-else-if="field.type === 'single_select'">
+      <PerformanceSingleSelectControl :model-value="String(value || '')" :options="field.options || []" :interactive="editable" :invalid="invalid" :aria-label="field.label" @update:model-value="$emit('update:value', $event)" />
+      <p v-if="!field.options?.length" class="empty-options">暂无可用选项</p>
     </template>
     <template v-else-if="field.type === 'tag_with_followup'">
       <div :class="['tag-followup', { invalid }]">
@@ -28,6 +32,7 @@ import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import PerformanceRichTextEditor from './PerformanceRichTextEditor.vue'
+import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
 import PerformanceTagRichTextInput from './PerformanceTagRichTextInput.vue'
 import { isRegisteredPerformanceTemplateField } from './performanceTemplateFieldRegistry'
 

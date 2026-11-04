@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 模板预览弹窗：在弹层中以只读三栏布局预览已保存的绩效模板。
+ * 模板预览弹窗：以全屏页形式呈现三栏预览，与 REA「模板预览」页保持同一视口几何
+ * （左栏 320 + 中/右各 (100vw-320)/2，1680 视口下即 320 / 679.3 / 679.3）。
  * 复用向导第 4 步的 PerformanceTemplatePreviewStep（同一数据源与渲染逻辑）。
  */
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
@@ -14,7 +15,7 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
   <PerformanceDialogShell
     :model-value="open"
     :title="`模板预览${name ? ` · ${name}` : ''}`"
-    width="min(1240px, calc(100vw - 64px))"
+    width="100vw"
     dialog-class="performance-template-preview-dialog"
     @update:model-value="emit('update:open', $event)"
   >
@@ -24,7 +25,13 @@ const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 </template>
 
 <style scoped>
-/* 预览步骤按视口高度自撑，弹层 body 定高并去掉内边距，让三栏贴边铺满 */
-:deep(.performance-dialog__body) { height: min(74vh, 780px); padding: 0; overflow: hidden; }
-.preview-empty { margin: 0; padding: 48px 0; text-align: center; color: var(--color-text-secondary); font-size: var(--font-size-md); }
+/* 全屏页：顶部 56（对齐 REA 页头）+ 三栏铺满剩余高度；弹层去掉圆角/阴影/内边距 */
+:deep(.performance-dialog-overlay) { padding: 0; }
+:deep(.performance-dialog) { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; box-shadow: none; }
+:deep(.performance-dialog__header) { display: flex; align-items: center; height: 56px; min-height: 56px; padding: 0 24px; box-sizing: border-box; border-bottom: 1px solid #eff0f1; }
+:deep(.performance-dialog__header h2) { font-size: 16px; font-weight: 600; line-height: 22px; }
+:deep(.performance-dialog__close) { top: 16px; right: 20px; }
+:deep(.performance-dialog__body) { flex: 1; min-height: 0; height: auto; margin: 0; padding: 0; overflow: hidden; }
+:deep(.performance-dialog__footer) { display: none; }
+.preview-empty { margin: 0; padding: 48px 0; text-align: center; color: #646a73; font-size: 14px; }
 </style>

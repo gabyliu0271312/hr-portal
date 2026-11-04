@@ -1,16 +1,24 @@
 <script setup lang="ts">
 /**
  * 绩效模板编辑向导 · 第 4 步「模板预览」
- * 按 REA 飞书绩效「模板预览」页像素规格还原（rea-extract/replica/index.html）：
- * 左栏评估流程 + 中栏配置参考内容 + 右栏配置填写内容（只读渲染，切换环节零请求）。
- * 数据源：GET /performance/templates/{id}/workflow（nodes + content_library）。
+ *
+ * 100% 按 REA 飞书绩效「模板预览」DOM 实测参数还原
+ * （specs/002-performance-management/rea-extract/out/domspec、probe-okr*.json）：
+ *   三栏：左 320px（padding 20）+ 中/右各 flex:1（1680 视口 → 679.3 / 679.3，分割线位置恒定）
+ *   面板：tab 绝对定位 108×30（padding 4/12，bg #eff0f1，radius 0），内容区上留 30
+ *        中栏 inner padding 54/20/20，右栏 34/20/20，wrap max-width 1000、滚动条占 8px
+ *        单面板（自评 / 查看绩效结果）：内容列固定 800px 居中
+ *   页脚：高 63，按钮 80×32；双栏贴面板左缘，单栏随 800 内容列（padding 0 24）
+ * 数据源：GET /performance/templates/{id}/workflow（nodes + content_library），切换环节零请求。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { performanceTemplateApi, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
-import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
+import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
+import PerformanceAddAnotherButton from './PerformanceAddAnotherButton.vue'
+import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -42,6 +50,13 @@ const selectedNode = computed(() => nodes.value.find(node => node.node_id === se
 const isResultView = computed(() => selectedNode.value?.node_type === 'result_view')
 const isCalibration = computed(() => selectedNode.value?.node_type === 'calibration')
 const isInvite = computed(() => selectedNode.value?.node_type === 'reviewer_360_invite')
+const isResultReconsideration = computed(() => selectedNode.value?.node_type === 'result_reconsideration')
+/* REA 实测：复议处理环节的「是否保持复议前结果」默认为「变更结果」（选中态 #1456f0） */
+const keepResultOptions = [
+  { id: 'keep', label: '保持原结果' },
+  { id: 'change', label: '变更结果' },
+]
+const keepResultValue = 'change'
 
 function slotContents(node: PerformanceWorkflowNode | null, slot: 'fill' | 'reference' | 'adjustment' | 'view') {
   if (!node) return []
@@ -73,7 +88,8 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
     const id = relation.content_id || relation.id || `reference-${index}`
     if (relation.reference_kind === 'node' && relation.reference_value) {
       const source = nodes.value.find(item => item.node_id === relation.reference_value && item.node_id !== node.node_id)
-      const contents = source ? visibleFillContents(source) : []
+      /* REA 的参考内容只展示被引用环节的填写项，不包含「说明」块 */
+      const contents = source ? visibleFillContents(source).filter(content => content.type !== 'prompt') : []
       return {
         id, kind: 'node' as const, value: relation.reference_value,
         label: relation.reference_settings?.page_name || source?.name || relation.name || '参考内容',
@@ -86,7 +102,7 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
     }
   })
 })
-const showReferencePanel = computed(() => !isResultView.value && !isInvite.value && referenceGroups.value.length > 0)
+const showReferencePanel = computed(() => !isResultView.value && referenceGroups.value.length > 0)
 const activeReferenceGroup = computed(() => referenceGroups.value[activeReferenceTab.value] || null)
 
 function selectStage(id: string) {
@@ -123,9 +139,7 @@ const rightTitle = computed(() => selectedNode.value?.content_page_name || selec
 const showFooter = computed(() => !isResultView.value)
 const isSinglePanel = computed(() => !showReferencePanel.value)
 
-/* ---------- 渲染辅助 ----------
- * 内容块复用内容设置的渲染链路（PerformanceAssessmentPreviewHeader + PerformanceContentRenderer），
- * 与 REA「预览 = 内容设置的只读镜像」架构一致；条目 mode/required/hideName 等设置直接透传。 */
+/* ---------- 渲染辅助 ---------- */
 type PreviewItemSettings = Record<string, { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; allowView?: boolean }>
 function itemSettingsFor(content: PerformanceTemplateContent, forceView = false): PreviewItemSettings {
   const result: PreviewItemSettings = {}
@@ -141,6 +155,16 @@ function itemSettingsFor(content: PerformanceTemplateContent, forceView = false)
   }
   return result
 }
+/** 中栏参考内容：全部条目按「查看态」渲染（REA 里参考内容不出现可填写控件） */
+function referenceItemSettings(content: PerformanceTemplateContent): PreviewItemSettings {
+  const result: PreviewItemSettings = {}
+  for (const item of content.items || []) {
+    if (item.kind === 'prompt') continue
+    const settings = item.settings || {}
+    result[item.id] = { mode: 'view', required: false, hideName: settings.hideName || undefined }
+  }
+  return result
+}
 function contentDescription(content: PerformanceTemplateContent) {
   return content.settings?.hideDescription ? '' : content.description
 }
@@ -153,191 +177,344 @@ function contentDescription(content: PerformanceTemplateContent) {
     <div v-else-if="!nodes.length" class="ptp-loading">暂无流程节点，请先完成流程设置。</div>
 
     <div v-else class="ptp-layout">
-      <!-- 左栏 评估流程 -->
+      <!-- 左栏 评估流程：320 / padding 20 / 卡 280×64.3 / 间距 12 -->
       <aside class="ptp-left">
         <div class="ptp-left__head">
           <span class="ptp-left__title">评估流程</span>
-          <span class="ptp-left__all">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M4 2L1.5 4.5 4 7M1.5 4.5H8M8 5l2.5 2.5L8 10m2.5-2.5H4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            全部内容
-          </span>
+          <!-- REA 预览态：该按钮盒子 64×26、文字左内缩 4、颜色 #1f2329，整块 invisible 占位 -->
+          <button type="button" class="ptp-left__all" tabindex="-1" aria-hidden="true">全部内容</button>
         </div>
         <div class="ptp-stage-list" role="listbox" aria-label="评估流程环节">
-          <button
-            v-for="node in nodes" :key="node.node_id || node.name"
-            type="button" role="option" :aria-selected="node.node_id === selectedId"
-            class="ptp-stage-card" :class="{ 'ptp-stage-card--active': node.node_id === selectedId }"
-            @click="selectStage(node.node_id || node.name)"
-          >
-            <span class="ptp-stage-card__top">
-              <span class="ptp-stage-card__icon" aria-hidden="true"><PerformanceWorkflowStageIcon :type="node.node_type" /></span>
-              <span class="ptp-stage-card__name">{{ node.name }}</span>
-            </span>
-            <span class="ptp-stage-card__executor">执行人：{{ node.executor_label || '未配置' }}</span>
-          </button>
+          <div v-for="node in nodes" :key="node.node_id || node.name" class="ptp-stage">
+            <!-- REA 侧卡片是 div（不是 button）：点击不取焦点，列表也因此不会因 focus 自动滚动 -->
+            <div
+              role="option" :aria-selected="node.node_id === selectedId"
+              class="ptp-stage-card" :class="{ 'ptp-stage-card--active': node.node_id === selectedId }"
+              @click="selectStage(node.node_id || node.name)"
+            >
+              <span class="ptp-stage-card__top">
+                <span class="ptp-stage-card__icon" aria-hidden="true"><PerformanceWorkflowStageIcon :type="node.node_type" /></span>
+                <span class="ptp-stage-card__name">{{ node.name }}</span>
+              </span>
+              <span class="ptp-stage-card__executor">执行人：{{ node.executor_label || '未配置' }}</span>
+            </div>
+          </div>
         </div>
       </aside>
+      <div class="ptp-divider" aria-hidden="true"></div>
 
-      <!-- 中栏 配置参考内容 -->
-      <section v-if="showReferencePanel" class="ptp-panel" aria-label="配置参考内容">
-        <div class="ptp-tab">配置参考内容</div>
-        <div class="ptp-body">
-          <div class="ptp-user">
-            <span class="ptp-user__avatar" aria-hidden="true">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3" fill="#fff"/><path d="M3 15.5c.9-3 3.2-4.5 6-4.5s5.1 1.5 6 4.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
-            </span>
-            <span class="ptp-user__name">被评估人</span>
-          </div>
-          <div class="ptp-ref-tabs">
-            <button
-              v-for="(group, index) in referenceGroups" :key="group.id"
-              type="button" class="ptp-ref-tab" :class="{ 'ptp-ref-tab--active': index === activeReferenceTab }"
-              @click="selectReferenceTab(index)"
-            >{{ group.label }}</button>
-          </div>
-          <template v-if="activeReferenceGroup">
-            <!-- 内置引用（OKR / 更多参考 / 团队统计）：无内容条目，渲染内置骨架 -->
-            <PerformanceReferenceSkeleton
-              v-if="activeReferenceGroup.kind === 'more'"
-              :kind="activeReferenceGroup.value"
-              :label="activeReferenceGroup.label"
-              :description="activeReferenceGroup.description"
-            />
-            <div v-for="content in activeReferenceGroup.contents" v-else :key="content.content_id || content.id || content.name" class="ptp-content">
-              <PerformanceAssessmentPreviewHeader
-                v-if="content.type !== 'prompt'"
-                :name="content.name"
-                :description="contentDescription(content)"
-                description-class="ptp-sec-desc"
-              />
-              <PerformanceContentRenderer
-                :content="content"
-                variant="configured-card"
-                :item-settings="itemSettingsFor(content)"
-              />
-            </div>
-          </template>
-        </div>
-      </section>
+      <div class="ptp-panels" :class="{ 'ptp-panels--single': isSinglePanel }">
+        <!-- 中栏 配置参考内容 -->
+        <section v-if="showReferencePanel" class="ptp-panel" aria-label="配置参考内容">
+          <div class="ptp-tab">配置参考内容</div>
+          <div class="ptp-scroll">
+            <div class="ptp-scroll__wrap">
+              <div class="ptp-body ptp-body--reference">
+                <div class="ptp-user">
+                  <span class="ptp-user__avatar" aria-hidden="true">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8.4" r="3.9" fill="#fff"/><path d="M4.6 20.4c1.2-4.1 4.1-6.1 7.4-6.1s6.2 2 7.4 6.1" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>
+                  </span>
+                  <span class="ptp-user__name">被评估人</span>
+                </div>
 
-      <!-- 右栏 配置填写内容 / 查看内容 / 调整内容 -->
-      <section class="ptp-panel" :class="{ 'ptp-panel--single': isSinglePanel }" :aria-label="rightTabLabel">
-        <div class="ptp-tab">{{ rightTabLabel }}</div>
-        <div class="ptp-body">
-          <!-- 360°邀请环节：邀请表单 -->
-          <template v-if="isInvite">
-            <div class="ptp-sec-title">{{ rightTitle }}</div>
-            <div class="ptp-invite-lead">通过<span class="ptp-invite-lead__em">「搜索」</span>添加 360° 评估人</div>
-            <div class="ptp-sec-desc">已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。</div>
-            <div class="ptp-search">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><circle cx="5" cy="5" r="3.5" stroke="#8f959e" stroke-width="1.2"/><path d="M8 8l2.5 2.5" stroke="#8f959e" stroke-width="1.2" stroke-linecap="round"/></svg>
-              搜索成员
-            </div>
-            <div class="ptp-invite-count">已邀请列表：当前共 0 人</div>
-            <div class="ptp-invite-tabs">
-              <span class="ptp-invite-tab ptp-invite-tab--active">按关系</span>
-              <span class="ptp-invite-tab">按邀请人</span>
-            </div>
-            <div class="ptp-invite-list">
-              <div v-for="relation in ['相同上级同事', '不同上级同事', '虚线上级', '直属下级']" :key="relation" class="ptp-invite-row">
-                <span class="ptp-invite-row__label">{{ relation }}</span>
+                <div class="ptp-ref-tabs" role="tablist" aria-label="参考内容">
+                  <button
+                    v-for="(group, index) in referenceGroups" :key="group.id"
+                    type="button" role="tab" :aria-selected="index === activeReferenceTab"
+                    class="ptp-ref-tab" :class="{ 'ptp-ref-tab--active': index === activeReferenceTab }"
+                    @click="selectReferenceTab(index)"
+                  >{{ group.label }}</button>
+                </div>
+
+                <div class="ptp-pane">
+                  <template v-if="activeReferenceGroup">
+                    <!-- OKR：内置引用，模板预览阶段渲染骨架；数据字段结构与填写页一致 -->
+                    <PerformanceOkrPanel
+                      v-if="activeReferenceGroup.kind === 'more' && activeReferenceGroup.value === 'okr'"
+                      placeholder
+                    />
+                    <!-- 更多参考 / 团队统计：内置骨架 -->
+                    <PerformanceReferenceSkeleton
+                      v-else-if="activeReferenceGroup.kind === 'more'"
+                      :kind="activeReferenceGroup.value"
+                      :label="activeReferenceGroup.label"
+                      :description="activeReferenceGroup.description"
+                    />
+                    <div
+                      v-for="content in activeReferenceGroup.contents"
+                      v-else :key="content.content_id || content.id || content.name"
+                      class="ptp-block"
+                    >
+                      <div v-if="content.type !== 'prompt'" class="ptp-block__header">
+                        <div class="ptp-block__title">{{ content.name }}</div>
+                        <div v-if="contentDescription(content)" class="ptp-block__desc">{{ contentDescription(content) }}</div>
+                      </div>
+                      <!-- REA 中栏参考内容为只读结果态：值占位「这里展示用户填写的内容」、评级显示为评级标签 -->
+                      <PerformanceContentRenderer
+                        :content="content"
+                        variant="configured-card"
+                        empty-text=""
+                        readonly-empty-answer-text="这里展示用户填写的内容"
+                        :item-settings="referenceItemSettings(content)"
+                      />
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
-          </template>
+          </div>
+        </section>
 
-          <!-- 查看结果 / 校准 / 通用填写 -->
-          <template v-else>
-            <div v-if="rightTitle && !isResultView" class="ptp-sec-title ptp-sec-title--lead">{{ rightTitle }}</div>
-            <div v-if="isResultView" class="ptp-sec-title ptp-sec-title--lead">绩效结果</div>
+        <!-- 右栏 配置填写内容 / 查看内容 / 调整内容 -->
+        <section
+          class="ptp-panel"
+          :class="{ 'ptp-panel--single': isSinglePanel, 'ptp-panel--result': isResultView, 'ptp-panel--with-footer': showFooter }"
+          :aria-label="rightTabLabel"
+        >
+          <div class="ptp-tab">{{ rightTabLabel }}</div>
+          <div class="ptp-scroll">
+            <div class="ptp-scroll__wrap">
+              <div class="ptp-body" :class="{ 'ptp-body--fill': !isSinglePanel, 'ptp-body--result': isResultView }">
+                <!-- 360°邀请环节：邀请表单（REA 实测：标题 58 / 引导 21 / 说明 2 行 / 搜索 32 / 单选 32 / 表格 52×4） -->
+                <template v-if="isInvite">
+                  <div class="ptp-page-title">{{ rightTitle }}</div>
+                  <div class="ptp-invite-lead">通过「搜索」添加 360° 评估人</div>
+                  <div class="ptp-invite-desc">已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。</div>
+                  <div class="ptp-search"><span class="ptp-search__placeholder">搜索成员</span></div>
+                  <div class="ptp-invite-count">已邀请列表：当前共 0 人</div>
+                  <div class="ptp-invite-tabs">
+                    <span class="ptp-invite-tab ptp-invite-tab--active">按关系</span>
+                    <span class="ptp-invite-tab">按邀请人</span>
+                  </div>
+                  <div class="ptp-invite-table">
+                    <div v-for="relation in ['相同上级同事', '不同上级同事', '虚线上级', '直属下级']" :key="relation" class="ptp-invite-row">
+                      <span class="ptp-invite-row__label">{{ relation }}</span>
+                      <span class="ptp-invite-row__cell"></span>
+                    </div>
+                  </div>
+                </template>
 
-            <div v-if="!rightContents.length" class="ptp-empty">暂未配置供参考内容</div>
+                <!-- 查看结果 / 校准 / 通用填写 -->
+                <template v-else>
+                  <!-- REA：内容为空时只渲染空态，不渲染页标题 -->
+                  <div v-if="rightContents.length || isResultView" class="ptp-page-title">{{ isResultView ? '绩效结果' : rightTitle }}</div>
 
-            <div v-for="content in rightContents" :key="content.content_id || content.id || content.name" class="ptp-content">
-              <PerformanceAssessmentPreviewHeader
-                v-if="content.type !== 'prompt'"
-                :name="content.name"
-                :description="contentDescription(content)"
-                description-class="ptp-sec-desc"
-              />
-              <PerformanceContentRenderer
-                :content="content"
-                variant="configured-card"
-                :item-settings="itemSettingsFor(content, isResultView)"
-              />
+                  <!-- 结果复议处理：复议理由（分节标题 + 灰底只读引用）+ 是否保持复议前结果（单选组） -->
+                  <div v-if="isResultReconsideration" class="ptp-recon">
+                    <div class="ptp-recon__head">复议理由</div>
+                    <div class="ptp-recon__value">这里展示被评估人发起复议时填写的内容</div>
+                    <div class="ptp-recon__label">是否保持复议前结果</div>
+                    <PerformanceSingleSelectControl class="ptp-recon__radios" :model-value="keepResultValue" :options="keepResultOptions" aria-label="是否保持复议前结果" />
+                  </div>
+                  <div v-if="isResultReconsideration" class="ptp-result-group__title">绩效结果</div>
+
+                  <div v-if="!rightContents.length" class="ptp-empty">
+                    <span class="ptp-empty__image" aria-hidden="true">
+                      <svg width="120" height="120" viewBox="0 0 120 120" fill="none"><rect x="18" y="26" width="84" height="68" rx="8" fill="#f2f3f5"/><rect x="30" y="42" width="46" height="6" rx="3" fill="#e0e2e6"/><rect x="30" y="56" width="60" height="6" rx="3" fill="#e9ebee"/><rect x="30" y="70" width="36" height="6" rx="3" fill="#e9ebee"/><circle cx="94" cy="94" r="16" fill="#eff0f1"/><path d="M88 94l4 4 8-8" stroke="#c9cdd4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </span>
+                    <div class="ptp-empty__desc">暂未配置供参考内容</div>
+                  </div>
+
+                  <div v-else class="ptp-blocks" :class="{ 'ptp-blocks--group': isResultReconsideration }">
+                    <div v-for="content in rightContents" :key="content.content_id || content.id || content.name" class="ptp-block">
+                      <div v-if="content.type !== 'prompt'" class="ptp-block__header">
+                        <div class="ptp-block__title">{{ content.name }}</div>
+                        <div v-if="contentDescription(content)" class="ptp-block__desc">{{ contentDescription(content) }}</div>
+                      </div>
+                      <PerformanceContentRenderer
+                        :content="content"
+                        variant="configured-card"
+                        :empty-text="isResultView ? '请输入内容' : ''"
+                        :item-settings="itemSettingsFor(content, isResultView)"
+                      />
+                      <PerformanceAddAnotherButton
+                        v-if="!isResultView && content.type !== 'prompt' && content.settings?.allowMultiple"
+                        class="ptp-block__add"
+                      />
+                    </div>
+                  </div>
+                </template>
+              </div>
             </div>
-          </template>
-        </div>
-        <div v-if="showFooter" class="ptp-footer">
-          <button type="button" class="ptp-btn ptp-btn--disabled" disabled>提交</button>
-          <button type="button" class="ptp-btn ptp-btn--cancel" disabled>取消</button>
-        </div>
-      </section>
+          </div>
+
+          <div v-if="showFooter" class="ptp-footer">
+            <div class="ptp-footer__inner">
+              <button type="button" class="ptp-btn ptp-btn--disabled" disabled>提交</button>
+              <button type="button" class="ptp-btn ptp-btn--cancel" disabled>取消</button>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.ptp { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+/* 基础：REA 正文 14/21，主文字 #1f2329；字体栈与数字等宽特性取自 REA 实测
+   （font-family: LarkHackSafariFont…；font-feature-settings: "tnum"），
+   不继承则所有文本宽度、标签宽度、按钮宽度都会与 REA 产生 3~5px 偏差。 */
+.ptp {
+  height: 100%; min-height: 0; display: flex; flex-direction: column;
+  font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont,
+    'Helvetica Neue', Tahoma, 'PingFang SC', 'Microsoft Yahei', Arial, 'Hiragino Sans GB', sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+  font-size: 14px; line-height: 21px; color: #1f2329;
+  /* REA 全站边框实测 0.666667px（2/3 设计刻度），用变量统一，保证卡片高度 64.33 而非 65 */
+  --ptp-bw: .666667px;
+}
 .ptp-loading { padding: 48px 0; text-align: center; color: #646a73; font-size: 14px; }
 .ptp-loading--error { color: #f54a45; }
 
 .ptp-layout { flex: 1; min-height: 0; display: flex; }
 
-/* 左栏：宽 320 / 内边距 20 / 环节卡（实测 REA 规格） */
-.ptp-left { width: 320px; flex: none; padding: 20px; border-right: 1px solid #dee0e3; display: flex; flex-direction: column; overflow: hidden; }
-.ptp-left__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex: none; }
-.ptp-left__title { font-size: 14px; font-weight: 600; color: #1f2329; }
-.ptp-left__all { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #3370ff; }
-.ptp-stage-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 20px; }
-.ptp-stage-card { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid #dee0e3; border-radius: 8px; padding: 10px 12px; cursor: pointer; flex: none; transition: background-color 0.15s; }
+/* ---------- 左栏：外框 321 = 内容 280 + padding 20×2 + 右侧 1px 分割线 ---------- */
+.ptp-left { width: 320px; flex: none; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; overflow: hidden; }
+.ptp-divider { width: 1px; flex: none; background: #dee0e3; }
+.ptp-left__head { display: flex; align-items: center; height: 26px; flex: none; }
+.ptp-left__title { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 21px; color: #1f2329; }
+/* REA 模板预览态该按钮为 invisible（占位不可见）：盒 64×26、文字 x=240（左内缩 4）、色 #1f2329 */
+.ptp-left__all { display: inline-flex; align-items: center; justify-content: flex-start; width: 64px; height: 26px; padding: 0 4px; box-sizing: border-box; border: 0; background: none; font-family: inherit; font-size: 14px; line-height: 22px; color: #1f2329; visibility: hidden; }
+.ptp-stage-list { flex: 1; min-height: 0; margin-top: 8px; overflow-y: auto; display: flex; flex-direction: column; }
+.ptp-stage-list::-webkit-scrollbar { width: 8px; }
+.ptp-stage-list::-webkit-scrollbar-thumb { background: #d3d6d9; border-radius: 3px; }
+.ptp-stage { flex: none; padding-bottom: 12px; }
+.ptp-stage-card { display: block; width: 100%; box-sizing: border-box; padding: 12px 16px; border: var(--ptp-bw) solid #dee0e3; border-radius: 8px; background: #fff; text-align: left; cursor: pointer; transition: background-color .15s; font-family: inherit; }
 .ptp-stage-card:hover { background: #f5f6f7; }
-.ptp-stage-card--active { border: 1.5px solid #3370ff; padding: 9.5px 11.5px; }
-.ptp-stage-card__top { display: flex; align-items: center; gap: 8px; color: #646a73; }
-.ptp-stage-card--active .ptp-stage-card__top { color: #3370ff; }
-.ptp-stage-card__icon { display: inline-flex; flex: none; }
-.ptp-stage-card__name { font-size: 14px; line-height: 21px; color: #1f2329; }
+.ptp-stage-card--active, .ptp-stage-card--active:hover { border-color: #3370ff; background: #fff; }
+.ptp-stage-card__top { display: flex; align-items: center; height: 21px; }
+.ptp-stage-card__icon { width: 18px; flex: none; margin-right: 8px; display: flex; align-items: center; justify-content: center; color: #646a73; }
+.ptp-stage-card--active .ptp-stage-card__icon { color: #3370ff; }
+.ptp-stage-card__name { flex: 1; min-width: 0; font-size: 14px; font-weight: 400; line-height: 21px; color: #1f2329; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; }
 .ptp-stage-card--active .ptp-stage-card__name { color: #3370ff; font-weight: 600; }
-.ptp-stage-card__executor { display: block; font-size: 12px; line-height: 18px; color: #646a73; margin-top: 2px; padding-left: 26px; }
+.ptp-stage-card__executor { display: flex; align-items: center; font-size: 12px; line-height: 18px; color: #646a73; }
+.ptp-stage-card__executor::before { content: ''; width: 26px; flex: none; }
 
-/* 面板 */
-.ptp-panels { flex: 1; display: flex; min-width: 0; }
-.ptp-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.ptp-panel + .ptp-panel { border-left: 1px solid #dee0e3; }
-.ptp-panel--single { flex: 1.6; }
-.ptp-tab { flex: none; align-self: flex-start; display: inline-flex; align-items: center; height: 30px; padding: 0 16px; background: #eff0f1; font-size: 14px; color: #1f2329; border-radius: 0 6px 0 0; }
-.ptp-body { flex: 1; overflow-y: auto; padding: 24px 20px 20px; }
-.ptp-footer { flex: none; height: 56px; display: flex; align-items: center; justify-content: center; gap: 12px; }
-.ptp-btn { width: 80px; height: 32px; border-radius: 6px; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; border: none; cursor: default; }
-.ptp-btn--disabled { background: #bbbfc4; color: #fff; }
-.ptp-btn--cancel { background: #fff; border: 1px solid #dee0e3; color: #1f2329; }
+/* ---------- 中/右面板：1359 = 679 + 1（分割线）+ 679，与 REA 逐像素一致 ---------- */
+.ptp-panels { flex: 1; min-width: 0; display: grid; grid-template-columns: calc(50% - 0.5px) calc(50% - 0.5px); column-gap: 1px; background: #dee0e3; }
+.ptp-panels--single { grid-template-columns: 1fr; column-gap: 0; background: #fff; }
+.ptp-panel { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+/* REA 右栏内容列高 886（底部留 8），页脚位于 879~942 */
+.ptp-panel--with-footer { padding-bottom: 8px; box-sizing: border-box; }
+/* 面板标签：绝对定位 108×30，padding 4/12，无圆角（实测 radius 0） */
+.ptp-tab { position: absolute; left: 0; top: 0; z-index: 2; display: inline-flex; align-items: center; height: 30px; padding: 4px 12px; box-sizing: border-box; background: #eff0f1; font-size: 14px; line-height: 22px; color: #1f2329; }
 
-/* 中栏 */
-.ptp-user { display: flex; align-items: center; gap: 10px; background: #f5f6f7; border-radius: 8px; padding: 9px 12px; margin-bottom: 20px; }
-.ptp-user__avatar { width: 32px; height: 32px; border-radius: 50%; background: #3370ff; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.ptp-user__name { font-size: 14px; font-weight: 500; color: #1f2329; }
-.ptp-ref-tabs { display: flex; gap: 24px; border-bottom: 1px solid #eff0f1; margin-bottom: 20px; }
-.ptp-ref-tab { border: none; background: none; padding: 8px 2px; font-size: 14px; color: #646a73; cursor: pointer; position: relative; white-space: nowrap; }
-.ptp-ref-tab--active { color: #3370ff; font-weight: 500; }
-.ptp-ref-tab--active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: #3370ff; border-radius: 1px; }
+/* 滚动区：上留 30（标签高度）；wrap max-width 1000；滚动条固定占 8px（实测 679.3 → 671.3） */
+.ptp-scroll { flex: 1; min-height: 0; padding-top: 30px; overflow-y: auto; scrollbar-gutter: stable; }
+.ptp-scroll::-webkit-scrollbar { width: 8px; }
+.ptp-scroll::-webkit-scrollbar-thumb { background: #d3d6d9; border-radius: 3px; }
+.ptp-scroll__wrap { width: 100%; max-width: 1000px; margin: 0 auto; }
+.ptp-body { box-sizing: border-box; }
 
-/* 内容块（块内渲染复用 PerformanceContentRenderer / PerformanceAssessmentPreviewHeader） */
-.ptp-content { margin-bottom: 8px; }
-.ptp-sec-title { font-size: 16px; font-weight: 600; color: #1f2329; line-height: 24px; margin-top: 24px; }
-.ptp-sec-title--lead { margin-top: 0; }
-.ptp-sec-desc { font-size: 14px; color: #646a73; line-height: 22px; margin-top: 4px; }
+/* 中栏正文：padding 54/20/20 → 内容起点 y=140 */
+.ptp-body--reference { padding: 54px 20px 20px; }
+/* 双栏右栏：padding 34/20/20 → 标题起点 y=120 */
+.ptp-body--fill { padding: 34px 20px 20px; }
+/* 单面板：内容列固定 800 居中，内部 20 padding（实测 inner-scroll 800 / 文案 760） */
+.ptp-panel--single .ptp-body { width: 800px; max-width: calc(100% - 40px); margin: 0 auto; padding: 34px 20px 20px; }
+/* 查看结果：整栏浅底 + 800 白卡（py-14 px-10） */
+.ptp-panel--result, .ptp-panel--result .ptp-scroll { background: #f8f9fa; }
+.ptp-panel--result .ptp-body { width: 800px; max-width: calc(100% - 40px); margin: 0 auto; padding: 28px 20px; background: #fff; }
 
-/* 邀请表单 */
-.ptp-invite-lead { font-size: 14px; font-weight: 600; color: #1f2329; margin-top: 16px; }
-.ptp-invite-lead__em { color: #3370ff; }
-.ptp-search { margin-top: 12px; height: 32px; border: 1px solid #dee0e3; border-radius: 6px; display: flex; align-items: center; padding: 0 12px; color: #8f959e; font-size: 14px; gap: 6px; }
-.ptp-invite-count { font-size: 14px; font-weight: 600; color: #1f2329; margin-top: 16px; }
-.ptp-invite-tabs { display: flex; gap: 8px; margin-top: 8px; }
-.ptp-invite-tab { height: 24px; padding: 0 10px; font-size: 12px; border-radius: 4px; color: #646a73; background: #f5f6f7; display: inline-flex; align-items: center; }
-.ptp-invite-tab--active { color: #3370ff; background: #e1eaff; }
-.ptp-invite-list { border: 1px solid #dee0e3; border-radius: 6px; margin-top: 12px; overflow: hidden; }
-.ptp-invite-row { height: 34px; display: flex; align-items: center; font-size: 12px; color: #646a73; border-bottom: 1px solid #eff0f1; }
-.ptp-invite-row:last-child { border-bottom: none; }
-.ptp-invite-row__label { width: 110px; flex: none; padding: 0 12px; border-right: 1px solid #eff0f1; height: 100%; display: flex; align-items: center; background: #fafbfc; }
+/* 页脚：高 63；双栏按钮贴面板左缘；单栏随 800 内容列（padding 0 24） */
+.ptp-footer { flex: none; height: 63px; display: flex; align-items: center; background: #fff; }
+.ptp-footer__inner { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 1000px; }
+.ptp-panel--single .ptp-footer__inner { width: 800px; max-width: 100%; margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
+.ptp-btn { width: 80px; height: 32px; padding: 4px 11px; box-sizing: border-box; border: var(--ptp-bw) solid transparent; border-radius: 6px; font-family: inherit; font-size: 14px; line-height: 22px; display: inline-flex; align-items: center; justify-content: center; cursor: default; }
+.ptp-btn--disabled { background: #bbbfc4; border-color: #bbbfc4; color: #fff; }
+.ptp-btn--cancel { background: #fff; border-color: #d0d3d4; color: #bbbfc4; }
 
-.ptp-empty { font-size: 14px; color: #646a73; text-align: center; padding: 60px 0; }
+/* ---------- 被评估人：头像 40（mt 4）、姓名 16/22 600 #1d252f、行高 49.5、下距 20 ---------- */
+.ptp-user { display: flex; align-items: flex-start; width: 100%; min-height: 50px; margin-bottom: 20px; overflow: hidden; }
+.ptp-user__avatar { width: 40px; height: 40px; margin-top: 4px; flex: none; border-radius: 50%; background: #3370ff; display: inline-flex; align-items: center; justify-content: center; }
+.ptp-user__name { margin-left: 12px; margin-right: 4px; max-width: fit-content; font-size: 16px; font-weight: 600; line-height: 22px; color: #1d252f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 参考页签：条高 48、文字 16/24、右间距 28、选中 6px 指示条（bottom -3） ---------- */
+.ptp-ref-tabs { display: flex; align-items: center; height: 48px; margin: 0 -20px; padding: 0 28px; box-sizing: border-box; background: #fff; overflow-x: auto; overflow-y: hidden; }
+.ptp-ref-tabs::-webkit-scrollbar { height: 0; }
+.ptp-ref-tab { position: relative; flex: none; margin-right: 28px; padding: 12px 0; border: 0; background: none; font-family: inherit; font-size: 16px; font-weight: 400; line-height: 24px; color: #1f2329; white-space: nowrap; cursor: pointer; }
+.ptp-ref-tab:last-child { margin-right: 0; }
+.ptp-ref-tab--active { font-weight: 600; color: #3370ff; }
+.ptp-ref-tab--active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; border-radius: 3px; background: #3370ff; }
+.ptp-pane { padding-top: 20px; }
+
+/* ---------- 内容块：标题 16/24 600 + 描述 14/22 #646a73（无间隙），块间距 32 ---------- */
+.ptp-page-title { padding: 16px 0 12px; font-size: 20px; font-weight: 600; line-height: 30px; color: #1f2329; }
+.ptp-blocks { margin-top: 16px; }
+/* 结果复议处理：组标题自身带 20 间距（REA mb-10=20），块列表紧随其后 */
+.ptp-blocks--group { margin-top: 20px; }
+
+/* ---------- 结果复议处理：复议理由（16/24 600 + 2×16 蓝条）+ 灰底只读引用 + 单选组 ----------
+   实测：标题盒 24 高、下方 16 到灰框；灰框 631×53 = padding 16/20 + 21、radius 4、bg #f8f9fa、下距 28；
+   单选标签 14/22 600、下距 8；单选行 22 高、选项间距 24。 */
+.ptp-recon__head { position: relative; padding-left: 10px; font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
+.ptp-recon__head::before { content: ''; position: absolute; left: 0; top: 4px; width: 2px; height: 16px; background: #3370ff; }
+.ptp-recon__value { margin-top: 16px; margin-bottom: 28px; padding: 16px 20px; border-radius: 4px; background: #f8f9fa; font-size: 14px; line-height: 21px; color: #1f2329; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ptp-recon__label { margin-bottom: 8px; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; }
+.ptp-result-group__title { margin-top: 20px; font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
+.ptp-block { margin-bottom: 32px; }
+.ptp-block:last-child { margin-bottom: 0; }
+.ptp-block__add { margin-top: 4px; }
+/* 「添加」按 REA 实测：图标 14 与文字间距 4，字形走预览字体栈（默认 --font-sans 会高 2px） */
+/* 「添加」按 REA 实测：图标 14 与文字间距 4、左内缩 4；块级化避免行盒多出 1px 基线空隙 */
+.ptp :deep(.performance-add-another-button.performance-add-another-button) { display: flex; gap: 4px; padding-left: 4px; font-family: inherit; line-height: 22px; }
+.ptp-block__header { margin-bottom: 16px; }
+.ptp-block__title { font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
+.ptp-block__desc { font-size: 14px; font-weight: 400; line-height: 22px; color: #646a73; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 预览态内容项无编辑态内边距（REA 只读渲染：字段名与块标题同左缘，不预留拖拽把手位） */
+.ptp :deep(.content-renderer-item--configured) { padding: 0; border-width: 0; }
+/* 预览是只读预览态：REA 不渲染必填星号 */
+.ptp :deep(.performance-assessment-rich-text-field__label i),
+.ptp :deep(.performance-item-title em),
+.ptp :deep(.content-renderer-rating__header > i) { display: none; }
+/* 同一内容块内的多个填写项之间间距 16（REA 字段容器 mb-8=16） */
+.ptp :deep(.content-renderer-item + .content-renderer-item) { margin-top: 16px; }
+/* 字段名沿用预览字体栈（performance-item-title 默认走 --font-sans，会与 REA 字体度量差 2px） */
+.ptp :deep(.performance-item-title) { font-family: inherit; }
+
+/* ---------- 说明（prompt）：REA 预览用 ud__notice 规格 ----------
+   容器 631×66 = padding 9/16 + 标题 22 + 4 + 正文 22；radius 6、bg #f0f4ff；
+   标题 14/22 600、正文 14/22，均 #1f2329；图标 16 与正文间距 8。 */
+.ptp :deep(.performance-prompt-display) { align-items: flex-start; padding: 9px 16px; border-radius: 6px; }
+.ptp :deep(.performance-prompt-display__icon) { flex: 0 0 16px; margin: 3px 8px 0 0; }
+.ptp :deep(.performance-prompt-display__title) { margin: 0 0 4px; font-family: inherit; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; }
+.ptp :deep(.performance-prompt-display__content) { font-family: inherit; font-size: 14px; font-weight: 400; line-height: 22px; color: #1f2329; }
+
+/* ---------- 富文本填写项：REA 预览为真实编辑器外壳（工具栏 36 + 内容 100 + 边框） ----------
+   实测：盒 144 高、字段名与盒间距 8、工具栏内缩 4/4 且图标步距 32、内容区 100 高且左内缩 8。 */
+.ptp :deep(.performance-assessment-rich-text-field__label) { margin-bottom: 8px; }
+.ptp :deep(.performance-rich-text-box) { min-height: var(--content-editor-height, 144px); }
+.ptp :deep(.performance-rich-text-box__content) { min-height: calc(var(--content-editor-height, 144px) - 44px); }
+.ptp :deep(.next-remix-rich-text-editor-content) { min-height: calc(var(--content-editor-height, 144px) - 44px); }
+.ptp :deep(.rich-input) { min-height: calc(var(--content-editor-height, 144px) - 44px); padding: 6px 8px; }
+.ptp :deep(.content-renderer-editor__body) { min-height: 0; padding: 6px 8px; color: #1f2329; }
+.ptp :deep(.performance-rich-toolbar) { gap: 8px; padding: 4px 4px; }
+/* 评级项：REA 字段名行（22）与档位行间距 8（mb-4），默认 12 会多出 4px */
+.ptp :deep(.content-renderer-rating__body) { margin-top: 8px; }
+/* REA 档位行高 38（胶囊 32 + 上 4 下 2），默认 4/4 会多出 2px 并把后续内容整体下推 */
+.ptp :deep(.performance-rating-control__labels) { padding: 4px 0 2px; }
+
+/* ---------- 空态：mt 240，图 120 + 文案 14/22（间距 16） ---------- */
+.ptp-empty { margin-top: 240px; display: flex; flex-direction: column; align-items: center; }
+.ptp-empty__image { display: block; width: 120px; height: 120px; }
+.ptp-empty__desc { margin-top: 16px; font-size: 14px; line-height: 22px; color: #646a73; text-align: center; }
+
+/* ---------- 360° 邀请：按 REA 实测（引导 21 / 说明 21×2 / 搜索 32 / 单选 32 / 表格 52×4） ---------- */
+.ptp-invite-lead { margin-top: 16px; font-size: 14px; font-weight: 600; line-height: 21px; color: #1f2329; }
+.ptp-invite-desc { font-size: 14px; line-height: 21px; color: #646a73; }
+.ptp-search { margin-top: 8px; height: 32px; padding: 0 12px; box-sizing: border-box; border: 1px solid #d0d3d4; border-radius: 6px; display: flex; align-items: center; }
+.ptp-search__placeholder { font-size: 14px; line-height: 21px; color: #8f959e; }
+.ptp-invite-count { margin-top: 20px; font-size: 14px; font-weight: 600; line-height: 21px; color: #1f2329; }
+.ptp-invite-tabs { display: flex; margin-top: 8px; }
+.ptp-invite-tab { height: 32px; padding: 0 16px; box-sizing: border-box; border: 1px solid #d0d3d4; background: #fff; display: inline-flex; align-items: center; font-size: 14px; line-height: 22px; font-weight: 400; color: #1f2329; }
+.ptp-invite-tab:first-child { border-radius: 6px 0 0 6px; }
+.ptp-invite-tab:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+.ptp-invite-tab--active { font-weight: 500; color: #1456f0; }
+.ptp-invite-table { margin-top: 12px; border: 1px solid #d0d3d4; border-radius: 6px; overflow: hidden; }
+.ptp-invite-row { display: flex; height: 52px; box-sizing: border-box; align-items: stretch; }
+.ptp-invite-row + .ptp-invite-row { box-shadow: inset 0 1px 0 #eff0f1; }
+.ptp-invite-row__label { width: 109px; flex: none; padding: 0 12px; box-sizing: border-box; background: #f5f6f7; display: flex; align-items: center; font-size: 14px; line-height: 21px; color: #646a73; }
+.ptp-invite-row__cell { flex: 1; min-width: 0; }
 </style>
