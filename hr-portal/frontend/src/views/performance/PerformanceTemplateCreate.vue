@@ -191,6 +191,9 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .full-screen-modal {
   position: fixed;
   inset: 0;
+  /* 全局 html 有 scrollbar-gutter: stable 会永久预留滚动条槽，inset:0 会少算 10px，
+     导致三栏从 679 被压到 674、中线偏移。这里显式取视口宽，对齐 REA 的 1680 满宽。 */
+  width: 100vw;
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -252,7 +255,7 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .full-screen-modal-header .previous-button, .full-screen-modal-header .next-button { position: relative; z-index: 1; display: inline-flex; flex: 0 0 80px; align-items: center; justify-content: center; width: 80px; min-width: 80px; height: 32px; padding: 4px 11px; box-sizing: border-box; border-radius: 6px; font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; white-space: nowrap; cursor: pointer; }
 .full-screen-modal-header .previous-button { border: .666667px solid #d0d3d6; background: #fff; color: #1f2329; }
 .full-screen-modal-header .next-button { margin-left: 0; border: .666667px solid #3370ff; background: #3370ff; color: #fff; }
-.full-screen-modal-content { display: flex; flex: 1 1 auto; min-width: 1200px; overflow: auto; background: #fff; }
+.full-screen-modal-content { display: flex; flex: 1 1 auto; min-height: 0; min-width: 1200px; overflow: auto; background: #fff; }
 .full-screen-modal-content .basic-info-panel, .full-screen-modal-content .placeholder-panel { width: auto; min-width: 640px; margin: 20px 280px 0; padding: 0; border-radius: 0; background: transparent; }
 .full-screen-modal-content .basic-info-panel h1, .full-screen-modal-content .panel-description { display: none; }
 .full-screen-modal-content .basic-info-form { width: 640px; }

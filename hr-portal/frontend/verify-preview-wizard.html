@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>预览几何校验（向导通道）</title>
+    <style>
+      /* 复刻 PerformanceTemplateCreate.vue 的整页壳：fixed + padding-top 56 + 内容区 flex:1 可滚 */
+      html { scrollbar-gutter: stable; }
+      html, body { margin: 0; padding: 0; height: 100%; }
+      body { overflow: hidden; }
+      .full-screen-modal { position: fixed; inset: 0; width: 100vw; display: flex; flex-direction: column; padding-top: 56px; overflow: auto; box-sizing: border-box; background: #f5f6f7; }
+      .full-screen-modal-header { position: absolute; inset: 0 0 auto; height: 56px; background: #fff; border-bottom: 1px solid #eff0f1; }
+      .full-screen-modal-content { display: flex; flex: 1 1 auto; min-height: 0; min-width: 1200px; overflow: auto; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <div class="full-screen-modal">
+      <header class="full-screen-modal-header"></header>
+      <main class="full-screen-modal-content" id="wizard-root"></main>
+    </div>
+    <script type="module" src="/verify/preview-harness-wizard.ts"></script>
+  </body>
+</html>

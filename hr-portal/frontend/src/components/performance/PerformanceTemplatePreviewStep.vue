@@ -203,7 +203,7 @@ function contentDescription(content: PerformanceTemplateContent) {
       </aside>
       <div class="ptp-divider" aria-hidden="true"></div>
 
-      <div class="ptp-panels" :class="{ 'ptp-panels--single': isSinglePanel }">
+      <div class="ptp-panels">
         <!-- 中栏 配置参考内容 -->
         <section v-if="showReferencePanel" class="ptp-panel" aria-label="配置参考内容">
           <div class="ptp-tab">配置参考内容</div>
@@ -264,6 +264,10 @@ function contentDescription(content: PerformanceTemplateContent) {
             </div>
           </div>
         </section>
+
+        <!-- 中/右分割线：REA 是右栏外层 1px border-left，位置恒在 x=1000、撑满整列高度，
+             与左栏分割线同为 #dee0e3 实线；用独立元素实现，避免随内容高度/滚动条漂移 -->
+        <div v-if="showReferencePanel" class="ptp-divider" aria-hidden="true"></div>
 
         <!-- 右栏 配置填写内容 / 查看内容 / 调整内容 -->
         <section
@@ -356,7 +360,9 @@ function contentDescription(content: PerformanceTemplateContent) {
    （font-family: LarkHackSafariFont…；font-feature-settings: "tnum"），
    不继承则所有文本宽度、标签宽度、按钮宽度都会与 REA 产生 3~5px 偏差。 */
 .ptp {
-  height: 100%; min-height: 0; display: flex; flex-direction: column;
+  /* 父容器可能是 flex 行（向导第 4 步的 .full-screen-modal-content）：显式占满宽度，
+     避免按 max-content 撑出横向滚动条，进而让三栏宽度与 REA 不一致 */
+  width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
   font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont,
     'Helvetica Neue', Tahoma, 'PingFang SC', 'Microsoft Yahei', Arial, 'Hiragino Sans GB', sans-serif,
     'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
@@ -369,7 +375,7 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-loading { padding: 48px 0; text-align: center; color: #646a73; font-size: 14px; }
 .ptp-loading--error { color: #f54a45; }
 
-.ptp-layout { flex: 1; min-height: 0; display: flex; }
+.ptp-layout { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 
 /* ---------- 左栏：外框 321 = 内容 280 + padding 20×2 + 右侧 1px 分割线 ---------- */
 .ptp-left { width: 320px; flex: none; box-sizing: border-box; padding: 20px; display: flex; flex-direction: column; overflow: hidden; }
@@ -393,10 +399,11 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-stage-card__executor { display: flex; align-items: center; font-size: 12px; line-height: 18px; color: #646a73; }
 .ptp-stage-card__executor::before { content: ''; width: 26px; flex: none; }
 
-/* ---------- 中/右面板：1359 = 679 + 1（分割线）+ 679，与 REA 逐像素一致 ---------- */
-.ptp-panels { flex: 1; min-width: 0; display: grid; grid-template-columns: calc(50% - 0.5px) calc(50% - 0.5px); column-gap: 1px; background: #dee0e3; }
-.ptp-panels--single { grid-template-columns: 1fr; column-gap: 0; background: #fff; }
-.ptp-panel { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
+/* ---------- 中/右面板：REA 321 w1359 = 679 + 1（分割线）+ 679，与视口高度无关 ----------
+   两栏等分且各占 (1359-1)/2 = 679 整像素；高度由 .ptp-layout 决定，面板不参与撑高，
+   因此切换环节 / 切换页签时两条分割线位置与长度都恒定不变。 */
+.ptp-panels { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden; background: #fff; }
+.ptp-panel { flex: 1 1 0; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
 /* REA 右栏内容列高 886（底部留 8），页脚位于 879~942 */
 .ptp-panel--with-footer { padding-bottom: 8px; box-sizing: border-box; }
 /* 面板标签：绝对定位 108×30，padding 4/12，无圆角（实测 radius 0） */

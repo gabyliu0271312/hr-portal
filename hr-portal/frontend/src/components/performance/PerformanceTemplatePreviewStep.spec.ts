@@ -165,6 +165,47 @@ describe('PerformanceTemplatePreviewStep', () => {
     wrapper.unmount()
   })
 
+  it('keeps the three-column skeleton stable across stages and reference tabs', async () => {
+    // 回归：中/右分割线曾是 grid 的 1px 间隙（依靠容器背景露出），容器高度一旦被内容撑开
+    // （弹窗壳的整页覆写失效时就会发生），分割线长度和位置会随环节 / 页签切换而变。
+    // 现在分割线是与左栏同款的独立 1px 元素，DOM 结构必须恒定：[面板][分割线][面板]。
+    const reference = (key: string, target: string) => ({
+      content_id: `ref-${key}`, type: 'reference', content_slot: 'reference', name: key,
+      reference_kind: 'node', reference_value: target, items: [],
+    }) as any
+    const nodes = [
+      node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [fillSummary] }),
+      node({
+        node_id: 'n2', node_type: 'evaluation', name: '直接上级评估',
+        content: [reference('a', 'n1'), reference('b', 'n1'), promptContent, fillSummary, fillRating],
+      }),
+      node({
+        node_id: 'n3', node_type: 'evaluation', name: '绩效沟通并开通结果',
+        content: [reference('c', 'n1'), fillRating],
+      }),
+    ]
+    const wrapper = mountStep(nodes)
+    await flushPromises()
+
+    const skeleton = () => wrapper.find('.ptp-panels').element.children.length
+    const shape = () => Array.from(wrapper.find('.ptp-panels').element.children)
+      .map(el => `${el.tagName.toLowerCase()}.${(el.className || '').split(' ').filter(Boolean)[0]}`)
+
+    // n2：两个参考页签来回切换
+    await wrapper.findAll('.ptp-stage-card')[1].trigger('click')
+    expect(shape()).toEqual(['section.ptp-panel', 'div.ptp-divider', 'section.ptp-panel'])
+    const tabs = wrapper.findAll('.ptp-ref-tab')
+    expect(tabs.length).toBeGreaterThan(1)
+    for (let i = 0; i < tabs.length; i++) {
+      await tabs[i].trigger('click')
+      expect(shape()).toEqual(['section.ptp-panel', 'div.ptp-divider', 'section.ptp-panel'])
+      expect(skeleton()).toBe(3)
+    }
+    // n3：另一个环节，仍是同一骨架（分割线数量与顺序不变）
+    await wrapper.findAll('.ptp-stage-card')[2].trigger('click')
+    expect(shape()).toEqual(['section.ptp-panel', 'div.ptp-divider', 'section.ptp-panel'])
+  })
+
   it('shows error state when workflow loading fails', async () => {
     vi.mocked(performanceTemplateApi.getWorkflow).mockRejectedValue(new Error('网络错误'))
     const wrapper = mount(PerformanceTemplatePreviewStep, { props: { templateId: 1 } })

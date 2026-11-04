@@ -1,10 +1,15 @@
 <template>
   <Teleport to="body" :disabled="!teleport">
-    <div v-if="modelValue" class="performance-dialog-overlay" :class="overlayClass" @mousedown.self="close">
+    <div
+      v-if="modelValue"
+      class="performance-dialog-overlay"
+      :class="[overlayClass, { 'performance-dialog-overlay--fullscreen': fullscreen }]"
+      @mousedown.self="close"
+    >
       <section
         class="performance-dialog"
-        :class="dialogClass"
-        :style="{ width }"
+        :class="[dialogClass, { 'performance-dialog--fullscreen': fullscreen }]"
+        :style="{ width: fullscreen ? '100vw' : width }"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
@@ -34,6 +39,8 @@ const props = withDefaults(defineProps<{
   title: string
   width?: string
   loading?: boolean
+  /** 全屏页形态（无遮罩留白、无圆角阴影、页头 56、内容区撑满剩余高度且自身不滚动） */
+  fullscreen?: boolean
   overlayClass?: string
   dialogClass?: string
   titleId?: string
@@ -41,6 +48,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   width: '600px',
   loading: false,
+  fullscreen: false,
   overlayClass: '',
   dialogClass: '',
   titleId: undefined,
@@ -74,4 +82,16 @@ function close() {
 .performance-dialog__close:disabled { cursor: not-allowed; opacity: .6; }
 .performance-dialog__body { min-height: 62px; overflow: auto; margin-bottom: var(--performance-dialog-content-gap); padding: 0 var(--performance-dialog-padding); box-sizing: border-box; }
 .performance-dialog__footer { flex: 0 0 auto; padding: 0 var(--performance-dialog-padding) var(--performance-dialog-padding); box-sizing: border-box; }
+
+/* ---------- 全屏页形态：整页 100vh，页头 56，内容区 flex:1 且自身不滚动 ----------
+   页面内容区（如模板预览的三栏）依赖「确定高度」才能让内部滚动条与分割线位置稳定；
+   若内容区高度由内容撑开，切换内容时分割线长度会跟着变。 */
+.performance-dialog-overlay--fullscreen { padding: 0; }
+.performance-dialog--fullscreen { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; box-shadow: none; }
+.performance-dialog--fullscreen .performance-dialog__header { display: flex; align-items: center; flex: 0 0 56px; height: 56px; min-height: 56px; padding: 0 24px; border-bottom: 1px solid #eff0f1; }
+.performance-dialog--fullscreen .performance-dialog__header h2 { font-size: 16px; font-weight: 600; line-height: 22px; }
+.performance-dialog--fullscreen .performance-dialog__close { top: 16px; right: 20px; }
+.performance-dialog--fullscreen .performance-dialog__body { flex: 1; min-height: 0; height: auto; margin: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.performance-dialog--fullscreen .performance-dialog__body > * { flex: 1; min-height: 0; }
+.performance-dialog--fullscreen .performance-dialog__footer { display: none; }
 </style>
