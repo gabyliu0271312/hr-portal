@@ -749,7 +749,7 @@ defineExpose({ open })
                 </div>
               </div>
             </template>
-          </PerformanceSortableList>
+          </UiSortableList>
         </div>
       </section>
     </div>
