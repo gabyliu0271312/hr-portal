@@ -1,0 +1,2533 @@
+[
+  {
+    "t": 1793757460500,
+    "url": "https://idreamsky.feishu.cn/perf/admin/templates/7699791798989900738/3",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757460820,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/css/font_1288981_zi6wvdujmts.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757460821,
+    "url": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757460826,
+    "url": "https://ipolyfill-origin.bytedance.com/0.0.6/polyfill.min.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757460826,
+    "url": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757460827,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/watermark.min.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757460829,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/js/browser-compatibility-tools.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757460832,
+    "url": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757460892,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/manifest.json",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757460893,
+    "url": "https://ipolyfill-origin.bytedance.com/0.0.6/polyfill.min.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461011,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/js/font_1288981_zi6wvdujmts.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461176,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/notice?appId=perf-x&platform=PC",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/javascript"
+  },
+  {
+    "t": 1793757461178,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/js/font_972114_5k3hha09wdt.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461178,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/main.8d341ea7.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461195,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.7c42fcab.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461227,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.9b944395.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461448,
+    "url": "https://next.feishu.cn/compatibility/check-ua?appId=perf-x&levels=d3&env=production",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/javascript"
+  },
+  {
+    "t": 1793757461450,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6327.bac018a8.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757461527,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/2525.f707d40d.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757461528,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/7255.032b5a6a.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757461548,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.ae9e17a7.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461698,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/rxjs.c0f662e1.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461701,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/moment-timezone.b29d5d80.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461702,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.df3f1ce4.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461707,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/i18n.6395ad88.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461710,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/formily.507e6137.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757461981,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.1a4129b8.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757462100,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/browser.cn.js?bid=performance_x_fe&globalName=SlardarWeb",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757462320,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/7255.02afdc6e.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757462526,
+    "url": "https://slardar-bd.feishu.cn/monitor_web/settings/browser-settings?bid=performance_x_fe&store=1",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757462614,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.6d805569.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757463643,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/feelgood-sdk.1373c7d1.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757463646,
+    "url": "https://idreamsky.feishu.cn/riskinsight/open/getBasicSafetyInfo?type=1",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757463825,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757463894_033_idreamsky.feishu.cn__perf__api__user__custom_settings.json"
+  },
+  {
+    "t": 1793757463861,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/stage_indicators",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757463905_034_idreamsky.feishu.cn__perf__api__review__v2__stage_indicators.json"
+  },
+  {
+    "t": 1793757463942,
+    "url": "blob:https://idreamsky.feishu.cn/69172798-badc-4450-8746-1ae0266ab630",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/javascript"
+  },
+  {
+    "t": 1793757464112,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/settings",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757464121_036_idreamsky.feishu.cn__perf__api__user__settings.json"
+  },
+  {
+    "t": 1793757464536,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_text_setting",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757464636_037_idreamsky.feishu.cn__perf__api__review__custom_text_setting.json"
+  },
+  {
+    "t": 1793757464894,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/template/indicators",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465064_038_idreamsky.feishu.cn__perf__api__review__template__indicators.json"
+  },
+  {
+    "t": 1793757465076,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/plugins/action.1.16.9.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757465079,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/plugins/common-monitors.1.16.9.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757464987,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/coefficients",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465081_041_idreamsky.feishu.cn__perf__api__review__coefficients.json"
+  },
+  {
+    "t": 1793757465195,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757465223,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/auth",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465228_043_idreamsky.feishu.cn__perf__api__review__auth.json"
+  },
+  {
+    "t": 1793757465226,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/manager/isManager",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465233_044_idreamsky.feishu.cn__perf__api__user__manager__isManager.json"
+  },
+  {
+    "t": 1793757465274,
+    "url": "https://mcs.snssdk.com/list",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757465311,
+    "url": "https://mcs.snssdk.com/list",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757465315,
+    "url": "https://mcs.snssdk.com/list",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757465373,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465379_048_idreamsky.feishu.cn__perf__api__review__release.json"
+  },
+  {
+    "t": 1793757465414,
+    "url": "https://starling.snssdk.com/check_and_get_text/960d43f0848511eab64bb9ba1e3063e8/normal/fe?lang=zh-CN,zh&version=1793689558219522000",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757465398,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/auth",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465415_050_idreamsky.feishu.cn__perf__api__review__v2__auth.json"
+  },
+  {
+    "t": 1793757465459,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/custom_setting",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757465464_051_idreamsky.feishu.cn__perf__api__review__okr__custom_setting.json"
+  },
+  {
+    "t": 1793757465472,
+    "url": "https://starling.snssdk.com/check_and_get_text/960d43f0848511eab64bb9ba1e3063e8/normal/fe?lang=en-US,zh&version=1793689558219522000",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757465783,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/5672.76d6aab5.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757465593,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/licenses",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757465783_054_idreamsky.feishu.cn__perf__api__user__licenses.json"
+  },
+  {
+    "t": 1793757465787,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/8615.0641a129.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757465954,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/loader?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757465960,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/2360.d05233bc.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466051,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757465961,
+    "url": "https://idreamsky.feishu.cn/perf/api/foundation/translation/get_supported_languages",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466051_059_idreamsky.feishu.cn__perf__api__foundation__translation__get_supported_languages.json"
+  },
+  {
+    "t": 1793757465969,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466059_060_idreamsky.feishu.cn__perf__api__user__mark.json"
+  },
+  {
+    "t": 1793757465969,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/license_status",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466063_061_idreamsky.feishu.cn__perf__api__user__license_status.json"
+  },
+  {
+    "t": 1793757466069,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/client.v3.0.4.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466027,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466080_063_idreamsky.feishu.cn__perf__api__user__mark.json"
+  },
+  {
+    "t": 1793757466145,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/translation/get_translation_setting",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466175_064_idreamsky.feishu.cn__perf__api__user__translation__get_translation_setting.json"
+  },
+  {
+    "t": 1793757466146,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757466178_065_idreamsky.feishu.cn__perf__api__user__custom_settings.json"
+  },
+  {
+    "t": 1793757466306,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757466309,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757466310,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757466310,
+    "url": "https://lf-static.applogcdn.com/obj/applog-sdk-static/log-sdk/collect/5/collect.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466310,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/EEUserCard?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757466338,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/template_groups/7699791798989900738",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466345_071_idreamsky.feishu.cn__perf__api__review__v2__template_groups__7699791798989900738.json"
+  },
+  {
+    "t": 1793757466351,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/browser.cn.js?bid=ee_next_sdk&globalName=NextSdkSlardarWeb",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466392,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.bytedance_system_notice_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757466344,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/template_groups/7699791798989900738/detail",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466427_074_idreamsky.feishu.cn__perf__api__review__v2__template_groups__7699791798989900738__detail.json"
+  },
+  {
+    "t": 1793757466531,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_setting_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757466535,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_notice_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757466536,
+    "url": "https://api.feelgood.cn/athena/survey/platform/action/report/",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757466614,
+    "url": "https://mcs.zijieapi.com/list?aid=1508&sdk_version=5.4.1&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757466725,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757466797,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/basic/tenant",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757466865_080_idreamsky.feishu.cn__perf__api__review__okr__basic__tenant.json"
+  },
+  {
+    "t": 1793757466957,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6201.28156c76.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757466957,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/i18n.15fd8cac.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466958,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.d6348414.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466958,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/rxjs.c8a57450.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466959,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.6dbfe982.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757466959,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/4073.88b15309.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757466970,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.1cab1e93.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467104,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/1363.92c8559f.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757467138,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/5883.e831fd2e.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757467138,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6374.9448ad37.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757467138,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.0afb1a82.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467149,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.89f91fd8.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467152,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.56434f29.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467152,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.179ac036.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467211,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.c34db9e3.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467222,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.de7437d0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467222,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/zrender-lib.1073caa0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467223,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.a8fd05e0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467223,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.2b0d3617.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467223,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.18896f12.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467224,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.b7c151d7.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467224,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.480650e8.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467224,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/echarts.3719c64a.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467224,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.13527643.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467225,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.de584af6.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467225,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/ui-lib.2c1e3bc5.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467225,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.ddac6b4e.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467225,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/2065.8c605db8.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467226,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/6357.13ebef8a.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467227,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/6359.7c4ac1a7.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467227,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/8747.0a351402.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467260,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/4673.482fbd76.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467261,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.0ffc8041.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467279,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/4221.c06af0ee.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467279,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/3427.c2d4211a.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467378,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/133.f533d945.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467378,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/7973.835eba6f.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757467397,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/user-card/v5.10.5.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757468067,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.3c5682bb.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757468067,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.f75a3da2.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757468068,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757468068,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/6374.042e4d58.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757470485,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757470503,
+    "url": "https://internal-api-lark-api.feishu.cn/accounts/csrf?_t=1793757467975",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757470505,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_setting_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757470536,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757470543_126_idreamsky.feishu.cn__perf__api__user__custom_settings.json"
+  },
+  {
+    "t": 1793757471239,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757471244,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757471245,
+    "url": "https://slardar-bd.feishu.cn/monitor_web/settings/browser-settings?bid=ee_next_sdk&store=1",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757471256,
+    "url": "https://internal-api-lark-api.feishu.cn/accounts/web/user?app_id=12&_t=1793757470497",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757471099,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/stage_indicators",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471263_131_idreamsky.feishu.cn__perf__api__review__v2__stage_indicators.json"
+  },
+  {
+    "t": 1793757471223,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/coefficients",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471381_132_idreamsky.feishu.cn__perf__api__review__coefficients.json"
+  },
+  {
+    "t": 1793757471230,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/basic/tenant",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471393_133_idreamsky.feishu.cn__perf__api__review__okr__basic__tenant.json"
+  },
+  {
+    "t": 1793757471242,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/questions_select",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471412_134_idreamsky.feishu.cn__perf__api__review__questions_select.json"
+  },
+  {
+    "t": 1793757471243,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_roles?keyword=&enable_status=1&offset=0&limit=100",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471415_135_idreamsky.feishu.cn__perf__api__review__custom_review_roles.json"
+  },
+  {
+    "t": 1793757471244,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/template/references/settings",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471422_136_idreamsky.feishu.cn__perf__api__review__template__references__settings.json"
+  },
+  {
+    "t": 1793757471262,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/pdt/get_all_type_roles",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757471475_137_idreamsky.feishu.cn__perf__api__user__pdt__get_all_type_roles.json"
+  },
+  {
+    "t": 1793757472646,
+    "url": "https://internal-api-lark-api.feishu.cn/settings/v3/?version=7.12.3-fix-user-profile-copy-alpha.0&app_id=161471&app=lark&platform=web&action=startup&locale=zh_CN&app_channel=saas",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757473044,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/AppLauncher?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757473063,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/app-launcher-v2.6.0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757473360,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757473366_141_idreamsky.feishu.cn__perf__api__review__release.json"
+  },
+  {
+    "t": 1793757473453,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/EEUserCenter?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757473480,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/user-center-v2.27.0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757473591,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/static/c/fa1.png",
+    "status": 200,
+    "method": "GET",
+    "ct": "image/png"
+  },
+  {
+    "t": 1793757473678,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/PeopleSearch?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757473738,
+    "url": "https://idreamsky.feishu.cn/people-suite/api/component/timezones",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757473740,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/search-v4.8.3.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757473977,
+    "url": "https://idreamsky.feishu.cn/people-suite/api/common/user_info/6733065964654462476",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757473983,
+    "url": "https://s3-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=72x72&cut_type=&quality=&format=png&sticker_format=.webp",
+    "status": 200,
+    "method": "GET",
+    "ct": "image/png"
+  },
+  {
+    "t": 1793757478247,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757479272,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757480300,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757480588,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757480709,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757480759,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=ee_next_sdk",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757480881,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=ee_next_sdk",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757487412,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757487558,
+    "url": "https://idreamsky.feishu.cn/perf/admin/templates/7699791798989900738/4",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757487665,
+    "url": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487675,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/watermark.min.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487685,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/js/browser-compatibility-tools.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487686,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/js/font_1288981_zi6wvdujmts.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487687,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/css/font_1288981_zi6wvdujmts.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757487687,
+    "url": "https://sf3-cn.feishucdn.com/obj/eeperformance/js/font_972114_5k3hha09wdt.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487688,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.7c42fcab.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487688,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.9b944395.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487701,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/main.8d341ea7.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487702,
+    "url": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757487702,
+    "url": "https://ipolyfill-origin.bytedance.com/0.0.6/polyfill.min.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487702,
+    "url": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757487703,
+    "url": "https://ipolyfill-origin.bytedance.com/0.0.6/polyfill.min.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487707,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/browser.cn.js?bid=performance_x_fe&globalName=SlardarWeb",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487746,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/i18n.6395ad88.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487746,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/rxjs.c0f662e1.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487749,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/moment-timezone.b29d5d80.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487759,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.ae9e17a7.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487759,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.df3f1ce4.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487760,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/formily.507e6137.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487760,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6327.bac018a8.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757487760,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.1a4129b8.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487761,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/2525.f707d40d.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757487761,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.6d805569.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487763,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/7255.032b5a6a.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757487764,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/7255.02afdc6e.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757487807,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/manifest.json",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757487809,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/notice?appId=perf-x&platform=PC",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/javascript"
+  },
+  {
+    "t": 1793757487902,
+    "url": "https://next.feishu.cn/compatibility/check-ua?appId=perf-x&levels=d3&env=production",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/javascript"
+  },
+  {
+    "t": 1793757487919,
+    "url": "https://slardar-bd.feishu.cn/monitor_web/settings/browser-settings?bid=performance_x_fe&store=1",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757488238,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/feelgood-sdk.1373c7d1.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757488282,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/plugins/common-monitors.1.16.9.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757488284,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/plugins/action.1.16.9.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757490261,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757490331,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/stage_indicators",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490346_193_idreamsky.feishu.cn__perf__api__review__v2__stage_indicators.json"
+  },
+  {
+    "t": 1793757490344,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757490358_194_idreamsky.feishu.cn__perf__api__user__custom_settings.json"
+  },
+  {
+    "t": 1793757490351,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/settings",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490361_195_idreamsky.feishu.cn__perf__api__user__settings.json"
+  },
+  {
+    "t": 1793757490366,
+    "url": "blob:https://idreamsky.feishu.cn/91dd5a2e-e39f-42e9-8beb-6149df9836e3",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/javascript"
+  },
+  {
+    "t": 1793757490437,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757490507,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_text_setting",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490518_198_idreamsky.feishu.cn__perf__api__review__custom_text_setting.json"
+  },
+  {
+    "t": 1793757490603,
+    "url": "https://mcs.snssdk.com/list",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757490626,
+    "url": "https://mcs.snssdk.com/list",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757490627,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/coefficients",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490658_201_idreamsky.feishu.cn__perf__api__review__coefficients.json"
+  },
+  {
+    "t": 1793757490632,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/template/indicators",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490663_202_idreamsky.feishu.cn__perf__api__review__template__indicators.json"
+  },
+  {
+    "t": 1793757490789,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/auth",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490844_203_idreamsky.feishu.cn__perf__api__review__v2__auth.json"
+  },
+  {
+    "t": 1793757490793,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/auth",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490852_204_idreamsky.feishu.cn__perf__api__review__auth.json"
+  },
+  {
+    "t": 1793757490856,
+    "url": "https://starling.snssdk.com/check_and_get_text/960d43f0848511eab64bb9ba1e3063e8/normal/fe?lang=zh-CN,zh&version=1793689558219522000",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757490833,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/custom_setting",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490857_206_idreamsky.feishu.cn__perf__api__review__okr__custom_setting.json"
+  },
+  {
+    "t": 1793757490841,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/manager/isManager",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490894_207_idreamsky.feishu.cn__perf__api__user__manager__isManager.json"
+  },
+  {
+    "t": 1793757490964,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757490988_208_idreamsky.feishu.cn__perf__api__review__release.json"
+  },
+  {
+    "t": 1793757491088,
+    "url": "https://mcs.snssdk.com/list",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491121,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/5672.76d6aab5.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757491122,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/8615.0641a129.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757491209,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/2360.d05233bc.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757491237,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_setting_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757491241,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.bytedance_system_notice_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757491118,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/licenses",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757491241_215_idreamsky.feishu.cn__perf__api__user__licenses.json"
+  },
+  {
+    "t": 1793757491263,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_notice_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757491266,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/loader?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757491317,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757491341,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/client.v3.0.4.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757491309,
+    "url": "https://idreamsky.feishu.cn/perf/api/foundation/translation/get_supported_languages",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491342_220_idreamsky.feishu.cn__perf__api__foundation__translation__get_supported_languages.json"
+  },
+  {
+    "t": 1793757491311,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/license_status",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491346_221_idreamsky.feishu.cn__perf__api__user__license_status.json"
+  },
+  {
+    "t": 1793757491351,
+    "url": "https://api.feelgood.cn/athena/survey/platform/action/report/",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491355,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491355,
+    "url": "https://starling.snssdk.com/check_and_get_text/960d43f0848511eab64bb9ba1e3063e8/normal/fe?lang=en-US,zh&version=1793689558219522000",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491355,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491321,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491355_226_idreamsky.feishu.cn__perf__api__user__mark.json"
+  },
+  {
+    "t": 1793757491327,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/mark",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491359_227_idreamsky.feishu.cn__perf__api__user__mark.json"
+  },
+  {
+    "t": 1793757491379,
+    "url": "https://lf3-short.ibytedapm.com/slardar/fe/sdk-web/browser.cn.js?bid=ee_next_sdk&globalName=NextSdkSlardarWeb",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757491380,
+    "url": "https://lf-static.applogcdn.com/obj/applog-sdk-static/log-sdk/collect/5/collect.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757491388,
+    "url": "https://slardar-bd.feishu.cn/monitor_web/settings/browser-settings?bid=ee_next_sdk&store=1",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491441,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757491470_231_idreamsky.feishu.cn__perf__api__user__custom_settings.json"
+  },
+  {
+    "t": 1793757491477,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491515,
+    "url": "https://mcs.zijieapi.com/list?aid=1508&sdk_version=5.4.1&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757491715,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/EEUserCard?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757491735,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/translation/get_translation_setting",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491738_235_idreamsky.feishu.cn__perf__api__user__translation__get_translation_setting.json"
+  },
+  {
+    "t": 1793757491749,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/template_groups/7699791798989900738/detail",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491812_236_idreamsky.feishu.cn__perf__api__review__v2__template_groups__7699791798989900738__detail.json"
+  },
+  {
+    "t": 1793757491776,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/template_groups/7699791798989900738",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757491815_237_idreamsky.feishu.cn__perf__api__review__v2__template_groups__7699791798989900738.json"
+  },
+  {
+    "t": 1793757492015,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/user-card/v5.10.5.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492077,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/i18n.15fd8cac.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492081,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/rxjs.c8a57450.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492082,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/zrender-lib.1073caa0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492082,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.6dbfe982.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492082,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/lodash.d6348414.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492095,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/ui-lib.2c1e3bc5.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492096,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/echarts.3719c64a.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492096,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.1cab1e93.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492096,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.0afb1a82.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492097,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6201.28156c76.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757492097,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.89f91fd8.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492097,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/4073.88b15309.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757492097,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/universe-design.480650e8.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492098,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/1363.92c8559f.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757492098,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.f75a3da2.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492114,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.56434f29.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492114,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.179ac036.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492115,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.de584af6.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492115,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.c34db9e3.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492115,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.ddac6b4e.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492116,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.2b0d3617.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492116,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.a8fd05e0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492117,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.de7437d0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492117,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.18896f12.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492117,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.13527643.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492118,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.0ffc8041.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492118,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.b7c151d7.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492118,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/5883.e831fd2e.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757492118,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/vendor.3c5682bb.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492119,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/4221.c06af0ee.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492119,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/133.f533d945.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492119,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/3427.c2d4211a.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492119,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/7973.835eba6f.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492122,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/4673.482fbd76.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492123,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/6359.7c4ac1a7.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492123,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/2065.8c605db8.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492123,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/6357.13ebef8a.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492125,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/8747.0a351402.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492125,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6374.9448ad37.chunk.css",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/css"
+  },
+  {
+    "t": 1793757492125,
+    "url": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/js/6374.042e4d58.chunk.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757492012,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/basic/tenant",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757492207_279_idreamsky.feishu.cn__perf__api__review__okr__basic__tenant.json"
+  },
+  {
+    "t": 1793757493970,
+    "url": "https://internal-api-lark-api.feishu.cn/accounts/csrf?_t=1793757492204",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757493970,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757493973,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/v2/stage_indicators",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496014_282_idreamsky.feishu.cn__perf__api__review__v2__stage_indicators.json"
+  },
+  {
+    "t": 1793757496023,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757496024,
+    "url": "https://internal-api-lark-api.feishu.cn/accounts/web/user?app_id=12&_t=1793757493918",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757496024,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757495708,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/custom_settings",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json",
+    "savedAs": "1793757496280_286_idreamsky.feishu.cn__perf__api__user__custom_settings.json"
+  },
+  {
+    "t": 1793757495725,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/business_line_release/0",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496295_287_idreamsky.feishu.cn__perf__api__review__business_line_release__0.json"
+  },
+  {
+    "t": 1793757495972,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/coefficients",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496314_288_idreamsky.feishu.cn__perf__api__review__coefficients.json"
+  },
+  {
+    "t": 1793757495979,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/basic/tenant",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496656_289_idreamsky.feishu.cn__perf__api__review__okr__basic__tenant.json"
+  },
+  {
+    "t": 1793757495982,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/template/references/settings",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496659_290_idreamsky.feishu.cn__perf__api__review__template__references__settings.json"
+  },
+  {
+    "t": 1793757495994,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/custom_review_roles?keyword=&enable_status=1&offset=0&limit=100",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496682_291_idreamsky.feishu.cn__perf__api__review__custom_review_roles.json"
+  },
+  {
+    "t": 1793757495998,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/features",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496686_292_idreamsky.feishu.cn__perf__api__review__okr__features.json"
+  },
+  {
+    "t": 1793757495998,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/questions_select",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496689_293_idreamsky.feishu.cn__perf__api__review__questions_select.json"
+  },
+  {
+    "t": 1793757496024,
+    "url": "https://idreamsky.feishu.cn/perf/api/user/pdt/get_all_type_roles",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757496692_294_idreamsky.feishu.cn__perf__api__user__pdt__get_all_type_roles.json"
+  },
+  {
+    "t": 1793757496699,
+    "url": "https://internal-api-lark-api.feishu.cn/settings/v3/?version=7.12.3-fix-user-profile-copy-alpha.0&app_id=161471&app=lark&platform=web&action=startup&locale=zh_CN&app_channel=saas",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757496699,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757496703,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=ee_next_sdk",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757496703,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757496703,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757496703,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_setting_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757497287,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757497972,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/AppLauncher?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757497991,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/app-launcher-v2.6.0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757498315,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/release",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757498333_304_idreamsky.feishu.cn__perf__api__review__release.json"
+  },
+  {
+    "t": 1793757498408,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/EEUserCenter?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757498438,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/user-center-v2.27.0.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757498474,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/static/c/fa1.png",
+    "status": 200,
+    "method": "GET",
+    "ct": "image/png"
+  },
+  {
+    "t": 1793757498600,
+    "url": "https://idreamsky.feishu.cn/people-suite/next-sdk/api/modules/PeopleSearch?appId=perf-x&userId=6733065964654462476&tenantId=6732051441411884552&env=production&isByteDance=false",
+    "status": 302,
+    "method": "GET",
+    "ct": "text/html"
+  },
+  {
+    "t": 1793757498601,
+    "url": "https://idreamsky.feishu.cn/people-suite/api/component/timezones",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757498650,
+    "url": "https://sf1-scmcdn-cn.feishucdn.com/obj/feishu-static/next-sdk/component/search-v4.8.3.js",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/javascript"
+  },
+  {
+    "t": 1793757498674,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=ee_next_sdk",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757498799,
+    "url": "https://idreamsky.feishu.cn/people-suite/api/common/user_info/6733065964654462476",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757498808,
+    "url": "https://s3-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=72x72&cut_type=&quality=&format=png&sticker_format=.webp",
+    "status": 200,
+    "method": "GET",
+    "ct": "image/png"
+  },
+  {
+    "t": 1793757498982,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757502293,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=ee_next_sdk",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757502413,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757502825,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757502831,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757505777,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757507269,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757508483,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757509981,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757511935,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757512149,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/features",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757512177_324_idreamsky.feishu.cn__perf__api__review__okr__features.json"
+  },
+  {
+    "t": 1793757513369,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757515347,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757515353,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/features",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757515364_327_idreamsky.feishu.cn__perf__api__review__okr__features.json"
+  },
+  {
+    "t": 1793757516769,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757518640,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757518661,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/features",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757518675_330_idreamsky.feishu.cn__perf__api__review__okr__features.json"
+  },
+  {
+    "t": 1793757519939,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757521131,
+    "url": "https://lf3-config.bytetcc.com/obj/tcc-config-web/tcc-v2-data-ee.performance.feishu_system_notice_prod-default",
+    "status": 200,
+    "method": "GET",
+    "ct": "text/plain"
+  },
+  {
+    "t": 1793757522011,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757522014,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/okr/features",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757522026_334_idreamsky.feishu.cn__perf__api__review__okr__features.json"
+  },
+  {
+    "t": 1793757523272,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757526246,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757526656,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757527876,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757529970,
+    "url": "https://idreamsky.feishu.cn/perf/api/review/questions_select",
+    "status": 200,
+    "method": "GET",
+    "ct": "application/json",
+    "savedAs": "1793757530262_339_idreamsky.feishu.cn__perf__api__review__questions_select.json"
+  },
+  {
+    "t": 1793757530273,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757530429,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757531539,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757533584,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757535031,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757537357,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757537617,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757538676,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757541450,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757541658,
+    "url": "https://mcs.zijieapi.com/list?aid=5616&sdk_version=5.3.8&device_platform=web",
+    "status": 200,
+    "method": "POST",
+    "ct": "application/json"
+  },
+  {
+    "t": 1793757541749,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  },
+  {
+    "t": 1793757542834,
+    "url": "https://slardar-bd.feishu.cn/monitor_browser/collect/batch/?biz_id=performance_x_fe",
+    "status": 204,
+    "method": "POST",
+    "ct": ""
+  }
+]

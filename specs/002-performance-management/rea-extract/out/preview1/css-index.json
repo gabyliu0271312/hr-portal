@@ -1,0 +1,76 @@
+[
+  {
+    "href": "(inline)",
+    "len": 97
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/eden-cn/nuvzuhpqnulm/performance-x/font_1769538_no05thuu20i.css",
+    "len": 0,
+    "error": "TypeError: Failed to fetch"
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/eeperformance/css/font_1288981_zi6wvdujmts.css",
+    "len": 0,
+    "error": "TypeError: Failed to fetch"
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6327.bac018a8.chunk.css",
+    "len": 373027
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/2525.f707d40d.chunk.css",
+    "len": 282735
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/7255.032b5a6a.chunk.css",
+    "len": 90305
+  },
+  {
+    "href": "(inline)",
+    "len": 257
+  },
+  {
+    "href": "(inline)",
+    "len": 791
+  },
+  {
+    "href": "(inline)",
+    "len": 12670
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6201.28156c76.chunk.css",
+    "len": 55200
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/4073.88b15309.chunk.css",
+    "len": 178574
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/1363.92c8559f.chunk.css",
+    "len": 49254
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/5883.e831fd2e.chunk.css",
+    "len": 161854
+  },
+  {
+    "href": "https://sf3-cn.feishucdn.com/obj/people-performance/prod/static/css/6374.9448ad37.chunk.css",
+    "len": 37226
+  },
+  {
+    "href": "(inline)",
+    "len": 344
+  },
+  {
+    "href": "(inline)",
+    "len": 106
+  },
+  {
+    "href": "(inline)",
+    "len": 6472
+  },
+  {
+    "href": "(inline)",
+    "len": 6358
+  }
+]

@@ -1,0 +1,51 @@
+body { padding: 0px; margin: 0px; }
+.skeleton-item { animation: 2s linear 0s infinite normal none running skeleton-loading; background: linear-gradient(90deg, rgba(31, 35, 41, 0.05), rgba(31, 35, 41, 0.05) 33.33%, rgba(31, 35, 41, 0.08) 50%, rgba(31, 35, 41, 0.05) 66.67%, rgba(31, 35, 41, 0.05)) 180% / 200% 100%; border-radius: 32px; border-width: medium !important; border-style: none !important; border-color: currentcolor !important; border-image: none !important; }
+@keyframes skeleton-loading { 
+  100% { background-position-x: -20%; }
+}
+#old-home-skeleton { padding: 0px; border: 0px; margin: auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-feature-settings: "tnum", "tnum"; -webkit-font-smoothing: antialiased; font-variant: tabular-nums; font-weight: 400; line-height: 1.5; vertical-align: baseline; visibility: hidden; }
+#old-home-skeleton * { box-sizing: border-box; }
+#old-home-skeleton .page { position: fixed; z-index: 10000; top: 0px; left: 0px; display: flex; width: 100%; min-width: 1000px; height: 100%; flex-direction: column; background: rgb(242, 243, 245); }
+#old-home-skeleton .header { display: flex; height: 56px; align-items: center; padding: 0px 20px; background-color: rgb(255, 255, 255); }
+#old-home-skeleton .header .logo { width: 24px; height: 24px; margin-right: 16px; border-radius: 4px !important; }
+#old-home-skeleton .header .title { width: 193px; height: 16px; }
+#old-home-skeleton .header .nav-item { min-height: 18px; padding: 16px 8px; margin: 0px 8px; color: rgb(31, 35, 41); font-size: 16px; }
+#old-home-skeleton .header .nav-item.active { color: rgb(51, 112, 255); font-weight: 500; }
+#old-home-skeleton .header .avatar { width: 24px; height: 24px; margin-left: auto; border-radius: 100%; }
+#old-home-skeleton .semester-picker { width: 150px; height: 12px; margin-bottom: 16px; }
+#old-home-skeleton .content-wrapper { padding: 16px; width: calc(-32px + 100vw); max-width: 1408px; min-width: 992px; margin: 0px auto; }
+#old-home-skeleton .content { width: 100%; }
+#old-home-skeleton .main { display: flex; }
+#old-home-skeleton .content .event { display: flex; overflow: hidden; min-height: 500px; flex: 1 1 0%; flex-direction: column; padding: 20px; background-color: rgb(255, 255, 255); }
+#old-home-skeleton .progress { height: 98px; padding: 24px; margin-bottom: 16px; background-color: rgb(255, 255, 255); border-radius: 4px; }
+#old-home-skeleton .progress-title { width: 150px; height: 12px; margin: 28px 0px 16px; }
+#old-home-skeleton .progress-inner { position: relative; display: flex; overflow: hidden; height: 52px; }
+#old-home-skeleton .progress-item { width: 140px; margin-right: 32px; }
+#old-home-skeleton .progress .line1 { width: 80px; height: 16px; margin: 0px auto; }
+#old-home-skeleton .progress .line2 { width: 120px; height: 14px; margin: 6px auto; }
+#old-home-skeleton .evaluate-content { flex: 1 1 0%; background-color: rgb(255, 255, 255); border-radius: 4px; }
+#old-home-skeleton .evaluate-content .title { position: relative; display: flex; overflow: hidden; height: 47px; align-items: center; color: rgba(0, 0, 0, 0.85); font-size: 16px; padding-left: 16px; }
+#old-home-skeleton .evaluate-content .title::after { position: absolute; right: 0px; bottom: 0px; left: 0px; height: 1px; background-color: rgba(31, 35, 41, 0.15); content: ""; }
+#old-home-skeleton .card { background: rgb(255, 255, 255); border-radius: 12px; box-shadow: rgba(31, 35, 41, 0.03) 0px 4px 16px 4px, rgba(31, 35, 41, 0.02) 0px 4px 8px, rgba(31, 35, 41, 0.02) 0px 2px 4px -4px; }
+#old-home-skeleton .inner-card { border-radius: 8px; border: 1px solid rgb(222, 224, 227); }
+#old-home-skeleton .evaluate-content .title .text { min-width: 62px; min-height: 22px; padding: 12px 0px; margin-right: 28px; }
+#old-home-skeleton .evaluate-content .title .active { position: relative; color: rgb(51, 112, 255); font-weight: 500; }
+#old-home-skeleton .evaluate-content .title .active::after { position: absolute; z-index: 1; bottom: -3px; left: 0px; width: 100%; height: 6px; background: rgb(51, 112, 255); border-radius: 3px; content: ""; }
+#old-home-skeleton .todo-items { padding: 28px 16px 11px; }
+#old-home-skeleton .todo-item { display: flex; align-items: center; margin-bottom: 24px; font-size: 14px; }
+#old-home-skeleton .todo-item .logo { height: 44px; flex: 0 0 44px; padding: 10px; margin-right: 16px; background: rgb(245, 246, 247); border-radius: 8px; }
+#old-home-skeleton .todo-item .name { width: 150px; height: 18px; }
+#old-home-skeleton .todo-item .event-name { display: flex; height: 22px; align-items: center; margin-bottom: 4px; color: rgb(31, 35, 41); font-size: 14px; line-height: 22px; }
+#old-home-skeleton .todo-item .event-description { height: 18px; margin-bottom: 0px; color: rgb(100, 106, 115); font-size: 12px; line-height: 18px; }
+#old-home-skeleton .todo-item .todo-count { display: inline-block; }
+#old-home-skeleton .todo-item .todo-count::before { display: inline-block; height: 12px; border-left: 1px solid rgb(187, 191, 196); margin: 2px 5px; content: ""; vertical-align: text-bottom; }
+#old-home-skeleton .todo-item .button { min-width: 80px; min-height: 32px; padding: 4px 12px; border: 1px solid rgb(51, 112, 255); margin-left: auto; background: rgb(255, 255, 255); border-radius: 6px; color: rgb(51, 112, 255); cursor: pointer; font-size: 14px; line-height: 22px; text-align: center; }
+#old-home-skeleton .todo-item .button.primary { border-color: rgb(51, 112, 255); background: rgb(51, 112, 255); color: rgb(255, 255, 255); }
+#old-home-skeleton .nav-items { display: flex; }
+#old-home-skeleton .content .aside { display: flex; flex-direction: column; }
+#old-home-skeleton .content .profile { flex-grow: 1; display: flex; width: 400px; flex-direction: column; padding: 20px; margin-left: 20px; background: rgb(255, 255, 255); }
+#old-home-skeleton .content .aside .first-child { margin-bottom: 12px; }
+#old-home-skeleton .profile .name { width: 80px; height: 12px; margin-bottom: 12px; }
+#old-home-skeleton .profile .info { width: 100%; height: 12px; }
+#old-home-skeleton .info .line1 { width: 300px; height: 20px; margin-bottom: 4px; }
+#old-home-skeleton .info .line2 { width: 400px; height: 16px; }

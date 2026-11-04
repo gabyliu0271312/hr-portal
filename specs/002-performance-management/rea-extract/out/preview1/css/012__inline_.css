@@ -1,0 +1,4 @@
+.universe-icon { display: inline-block; font-style: normal; line-height: 0; text-align: center; text-transform: none; text-rendering: optimizelegibility; -webkit-font-smoothing: antialiased; }
+.universe-icon > * { line-height: 1; }
+.universe-icon svg { display: inline-block; vertical-align: -0.14em; }
+.universe-icon::before { display: none; }

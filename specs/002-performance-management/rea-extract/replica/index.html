@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>编辑绩效模板 - 模板预览（还原）</title>
+<style>
+/* ============ 设计令牌（实测值） ============ */
+:root{
+  --blue:#3370ff;          /* 主色/选中 */
+  --blue-deep:#1456f0;     /* 主按钮 */
+  --blue-bg:#e8f3ff;       /* 浅蓝提示底 */
+  --blue-chip:#e1eaff;     /* O1/KR 蓝芯片 */
+  --n900:#1f2329;          /* 主文字 */
+  --n600:#646a73;          /* 次要文字 */
+  --n500:#8f959e;          /* 占位 */
+  --n300:#dee0e3;          /* 边框 */
+  --n200:#eff0f1;          /* 标签底 */
+  --n100:#f5f6f7;          /* 灰底/灰盒 */
+  --btn-disabled:#bbbfc4;  /* 禁用按钮 */
+  --danger:#f54a45;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  color:var(--n900);font-size:14px;background:#fff;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+svg{display:block}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:#d3d6d9;border-radius:3px}
+
+/* ============ 顶部页头 56px ============ */
+.page-header{
+  height:56px;display:flex;align-items:center;padding:0 16px;
+  border-bottom:1px solid var(--n200);background:#fff;position:relative;z-index:5;
+}
+.back-btn{display:flex;align-items:center;gap:4px;color:var(--blue);font-size:14px;padding:4px 4px}
+.ph-divider{width:1px;height:20px;background:var(--n300);margin:0 12px}
+.ph-title{font-size:16px;font-weight:600;color:var(--n900)}
+.breadcrumb{
+  position:absolute;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:8px;font-size:14px;color:var(--n900);white-space:nowrap;
+}
+.breadcrumb .bc-item{color:var(--n900)}
+.breadcrumb .bc-item.active{color:var(--blue)}
+.breadcrumb .bc-sep{color:var(--n500);font-size:12px}
+.ph-actions{margin-left:auto;display:flex;gap:8px}
+.btn{
+  height:32px;padding:0 15px;border-radius:6px;font-size:14px;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.btn-default{background:#fff;border:1px solid var(--n300);color:var(--n900)}
+.btn-default:hover{background:var(--n100)}
+.btn-primary{background:var(--blue-deep);color:#fff}
+.btn-primary:hover{background:#0e42c4}
+
+/* ============ 主体三栏 ============ */
+.layout{display:flex;height:calc(100vh - 56px)}
+/* 左栏 评估流程 */
+.left-panel{width:320px;flex:none;padding:20px;border-right:1px solid var(--n300);display:flex;flex-direction:column;overflow:hidden}
+.lp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex:none}
+.lp-title{font-size:14px;font-weight:600;color:var(--n900)}
+.lp-all{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--blue);cursor:pointer}
+.stage-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:20px}
+.stage-card{
+  border:1px solid var(--n300);border-radius:8px;background:#fff;
+  padding:10px 12px;cursor:pointer;flex:none;transition:background .15s;
+}
+.stage-card:hover{background:var(--n100)}
+.stage-card.active{border:1.5px solid var(--blue);padding:9.5px 11.5px}
+.sc-top{display:flex;align-items:center;gap:8px}
+.sc-icon{width:18px;height:18px;flex:none;color:var(--n600)}
+.stage-card.active .sc-icon{color:var(--blue)}
+.sc-name{font-size:14px;line-height:21px;color:var(--n900);font-weight:400}
+.stage-card.active .sc-name{color:var(--blue);font-weight:600}
+.sc-exec{font-size:12px;line-height:18px;color:var(--n600);margin-top:2px;padding-left:26px}
+
+/* 右侧面板区 */
+.panels-wrap{flex:1;display:flex;overflow:hidden}
+.panel{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.panel + .panel{border-left:1px solid var(--n300)}
+.panel-tab{
+  flex:none;align-self:flex-start;display:flex;align-items:center;
+  height:30px;padding:0 16px;background:var(--n200);font-size:14px;color:var(--n900);
+  border-radius:0 6px 0 0;margin-left:0;
+}
+.panel-body{flex:1;overflow-y:auto;padding:24px 20px 20px}
+.panel-footer{
+  flex:none;height:56px;display:flex;align-items:center;justify-content:center;gap:12px;
+}
+.panel-footer .btn{width:80px}
+.btn-disabled{background:var(--btn-disabled);color:#fff;cursor:default}
+.btn-cancel{background:#fff;border:1px solid var(--n300);color:var(--n900)}
+
+/* ============ 中栏内容组件 ============ */
+.ref-user{
+  display:flex;align-items:center;gap:10px;background:var(--n100);
+  border-radius:8px;padding:9px 12px;margin-bottom:20px;
+}
+.ref-avatar{width:32px;height:32px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;flex:none}
+.ref-user-name{font-size:14px;font-weight:500;color:var(--n900)}
+.mid-tabs{display:flex;gap:24px;border-bottom:1px solid var(--n200);margin-bottom:20px}
+.mid-tab{
+  font-size:14px;color:var(--n600);padding:8px 2px;cursor:pointer;position:relative;white-space:nowrap;
+}
+.mid-tab.active{color:var(--blue);font-weight:500}
+.mid-tab.active::after{
+  content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--blue);border-radius:1px;
+}
+.sec-title{font-size:16px;font-weight:600;color:var(--n900);line-height:24px}
+.sec-desc{font-size:14px;color:var(--n600);line-height:22px;margin-top:4px}
+.block-label{font-size:14px;font-weight:600;color:var(--n900);line-height:22px;margin-top:16px}
+.req::after{content:"*";color:var(--danger);margin-left:2px}
+.static-box{
+  background:var(--n100);border-radius:8px;padding:12px;margin-top:8px;
+  font-size:14px;color:var(--n600);line-height:22px;
+}
+.rating-view{display:flex;align-items:center;gap:8px;margin-top:8px}
+.star-chip{
+  background:var(--blue-chip);color:var(--blue);font-size:12px;font-weight:500;
+  border-radius:10px;padding:2px 10px;line-height:18px;
+}
+.rating-name{font-size:14px;color:var(--blue)}
+
+/* OKR */
+.okr-toolbar{display:flex;align-items:center;justify-content:space-between;margin:16px 0 12px}
+.okr-toolbar .sec-title{margin:0}
+.okr-right-ctl{display:flex;align-items:center;gap:12px}
+.okr-pager{display:flex;align-items:center;border:1px solid var(--n300);border-radius:6px;height:28px;overflow:hidden}
+.okr-pager button{width:28px;height:100%;display:flex;align-items:center;justify-content:center;color:var(--n600)}
+.okr-pager .okr-period{padding:0 12px;font-size:12px;color:var(--n900);border-left:1px solid var(--n200);border-right:1px solid var(--n200);line-height:28px}
+.okr-detail-link{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--blue)}
+.okr-o1-row{display:flex;align-items:center;gap:8px;padding:10px 0}
+.o1-chip{background:var(--blue);color:#fff;font-size:12px;font-weight:600;border-radius:10px;padding:2px 10px;line-height:18px;flex:none}
+.okr-o1-text{font-size:14px;color:var(--n900);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.okr-head-nums{display:flex;gap:24px;font-size:12px;color:var(--n600);flex:none}
+.okr-head-nums span:first-child{width:132px;text-align:left}
+.kr-card{background:var(--n100);border-radius:8px;padding:12px;margin-bottom:8px}
+.kr-top{display:flex;align-items:center;gap:8px}
+.kr-chip{background:var(--blue-chip);color:var(--blue);font-size:12px;font-weight:500;border-radius:4px;padding:2px 8px;line-height:18px;flex:none}
+.kr-text{font-size:14px;color:var(--n900);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kr-progress-wrap{width:132px;flex:none}
+.kr-bar-row{display:flex;align-items:center;gap:8px}
+.kr-bar{flex:1;height:6px;background:#e5e6eb;border-radius:3px;overflow:hidden}
+.kr-bar-fill{height:100%;background:var(--blue);border-radius:3px}
+.kr-status{font-size:12px;color:var(--n600);flex:none}
+.kr-sub{display:flex;justify-content:space-between;font-size:12px;color:var(--n600);margin-top:6px}
+.kr-weight{width:52px;text-align:right;font-size:14px;color:var(--n900);flex:none}
+
+/* ============ 右栏表单组件 ============ */
+.prompt-banner{
+  background:var(--blue-bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;
+  display:flex;gap:8px;align-items:flex-start;
+}
+.prompt-banner .pb-icon{flex:none;margin-top:2px;color:var(--blue)}
+.pb-title{font-size:14px;font-weight:600;color:var(--n900);line-height:22px}
+.pb-desc{font-size:12px;color:var(--n600);line-height:20px;margin-top:2px}
+.notice-banner{
+  background:var(--blue-bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;
+  display:flex;gap:8px;align-items:flex-start;
+}
+.notice-banner .nb-icon{flex:none;margin-top:3px;color:var(--blue)}
+.nb-line{font-size:14px;color:var(--n900);line-height:22px}
+.rt-toolbar{display:flex;align-items:center;gap:14px;border:1px solid var(--n300);border-bottom:none;border-radius:6px 6px 0 0;padding:6px 12px;color:var(--n600)}
+.rt-toolbar span{cursor:pointer;font-size:13px;line-height:1}
+.rt-editor{
+  border:1px solid var(--n300);border-radius:0 0 6px 6px;min-height:100px;padding:8px 12px;
+  font-size:14px;line-height:22px;color:var(--n500);
+}
+.rt-editor.sample{color:var(--n900)}
+.rt-editor.sample .sm{color:var(--n500)}
+.rt-editor.plain{min-height:36px;color:var(--n500)}
+.rt-toolbar + .rt-editor.plain{min-height:36px}
+.rt-solo{border:1px solid var(--n300);border-radius:6px;min-height:100px;padding:8px 12px;font-size:14px;line-height:22px;color:var(--n500)}
+.add-link{display:inline-flex;align-items:center;gap:4px;color:var(--blue);font-size:14px;margin-top:12px;cursor:pointer}
+.rating-pills{display:flex;align-items:center;margin-top:12px}
+.pill{
+  width:52px;height:28px;border:1px solid var(--n300);border-radius:14px;background:#fff;
+  font-size:12px;color:var(--n900);display:flex;align-items:center;justify-content:center;flex:none;cursor:pointer;
+}
+.pill:hover{border-color:var(--blue);color:var(--blue)}
+.pill-line{width:26px;height:1px;background:var(--n300);flex:none}
+.rating-tip{font-size:12px;color:var(--n600);margin-top:12px;display:flex;align-items:center;gap:4px}
+.rating-tip .rt-link{color:var(--blue);cursor:pointer}
+.radio-row{display:flex;gap:24px;margin-top:12px}
+.radio-item{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--n900);cursor:pointer}
+.radio-dot{width:14px;height:14px;border-radius:50%;border:1px solid var(--n300);background:#fff;position:relative;flex:none}
+.radio-item.checked .radio-dot{border-color:var(--blue)}
+.radio-item.checked .radio-dot::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--blue)}
+.invite-search{
+  margin-top:12px;height:32px;border:1px solid var(--n300);border-radius:6px;
+  display:flex;align-items:center;padding:0 12px;color:var(--n500);font-size:14px;gap:6px;
+}
+.invite-count{font-size:14px;font-weight:600;color:var(--n900);margin-top:16px}
+.invite-tabs{display:flex;gap:8px;margin-top:8px}
+.invite-tab{
+  height:24px;padding:0 10px;font-size:12px;border-radius:4px;color:var(--n600);
+  background:var(--n100);display:flex;align-items:center;cursor:pointer;
+}
+.invite-tab.active{color:var(--blue);background:var(--blue-chip)}
+.invite-list{border:1px solid var(--n300);border-radius:6px;margin-top:12px;overflow:hidden}
+.invite-row{height:34px;display:flex;align-items:center;font-size:12px;color:var(--n600);border-bottom:1px solid var(--n200)}
+.invite-row:last-child{border-bottom:none}
+.invite-row .ir-label{width:110px;flex:none;padding:0 12px;border-right:1px solid var(--n200);height:100%;display:flex;align-items:center;background:#fafbfc}
+.empty-hint{font-size:14px;color:var(--n600);text-align:center;padding:60px 0}
+.tag-chip{
+  display:inline-flex;align-items:center;background:var(--blue-chip);color:var(--blue);
+  font-size:12px;border-radius:4px;padding:2px 8px;margin:0 8px 8px 0;
+}
+.tag-block{background:var(--n100);border-radius:8px;padding:12px;margin-top:8px;font-size:14px;color:var(--n600)}
+</style>
+</head>
+<body>
+
+<!-- ================= 页头 ================= -->
+<div class="page-header">
+  <button class="back-btn">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="#3370ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    返回
+  </button>
+  <div class="ph-divider"></div>
+  <div class="ph-title">编辑绩效模板</div>
+  <div class="breadcrumb">
+    <span class="bc-item">基本信息</span><span class="bc-sep">›</span>
+    <span class="bc-item">流程设置</span><span class="bc-sep">›</span>
+    <span class="bc-item">内容设置</span><span class="bc-sep">›</span>
+    <span class="bc-item active">模板预览</span>
+  </div>
+  <div class="ph-actions">
+    <button class="btn btn-default">上一步</button>
+    <button class="btn btn-primary">保存</button>
+  </div>
+</div>
+
+<!-- ================= 主体 ================= -->
+<div class="layout">
+  <!-- 左栏 评估流程 -->
+  <div class="left-panel">
+    <div class="lp-head">
+      <div class="lp-title">评估流程</div>
+      <div class="lp-all">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4 2L1.5 4.5 4 7M1.5 4.5H8M8 5l2.5 2.5L8 10m2.5-2.5H4" stroke="#3370ff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        全部内容
+      </div>
+    </div>
+    <div class="stage-list" id="stageList"></div>
+  </div>
+
+  <!-- 右侧面板（动态） -->
+  <div class="panels-wrap" id="panelsWrap"></div>
+</div>
+
+<script>
+/* =========================================================
+ * 数据源：out/preview1/api/0063 detail（frontend ref-graph）
+ * 按 entities.stage(12) → template → templateItem → entry
+ * 的实测内容静态化还原；环节切换 = 纯前端渲染（与原实现一致）
+ * ========================================================= */
+const ICONS = {
+  doc:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><path d="M4.5 2.5h6L13.5 5.5v10h-9v-13z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M10.5 2.5v3h3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M6.5 9h5M6.5 11.5h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  user:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><circle cx="9" cy="6" r="2.8" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 15c.8-2.8 3-4.2 5.5-4.2s4.7 1.4 5.5 4.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  invite:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 9.2l1.8 1.8 3.4-3.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chat:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><path d="M3 4h12v8H8l-3.5 3v-3H3V4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M6 7.5h6M6 9.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  dial:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.2"/><circle cx="9" cy="9" r="2.5" stroke="currentColor" stroke-width="1.2"/></svg>',
+  leader:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><circle cx="9" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 15c.7-2.5 2.7-3.8 5-3.8s4.3 1.3 5 3.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  calib:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><path d="M9 2.5l1.6 3.4 3.7.5-2.7 2.6.7 3.7L9 11l-3.3 1.7.7-3.7-2.7-2.6 3.7-.5L9 2.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+  eye:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><path d="M2 9s2.7-4.5 7-4.5S16 9 16 9s-2.7 4.5-7 4.5S2 9 2 9z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="9" cy="9" r="2" stroke="currentColor" stroke-width="1.2"/></svg>',
+  appeal:'<svg viewBox="0 0 18 18" fill="none" width="18" height="18"><path d="M9 2.5a6.5 6.5 0 016.5 6.5c0 3.6-2.9 6.5-6.5 6.5S2.5 12.6 2.5 9 5.4 2.5 9 2.5z" stroke="currentColor" stroke-width="1.2"/><path d="M9 5.5V9l2.3 2.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+};
+const ICON_USER_WHITE = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3" fill="#fff"/><path d="M3 15.5c.9-3 3.2-4.5 6-4.5s5.1 1.5 6 4.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>';
+const ICON_INFO = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" fill="#3370ff"/><path d="M7 6.2v3.6" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="4.2" r=".9" fill="#fff"/></svg>';
+const RT_ICONS = '<span style="font-weight:700">B</span><span style="font-style:italic;font-family:Georgia">I</span><span style="text-decoration:underline">U</span><span style="text-decoration:line-through">S</span><span>≡</span><span style="letter-spacing:-1px">☰</span><span>🔗</span>';
+
+/* ---------- 环节配置（与 detail 实体一一对应） ---------- */
+const STAGES = [
+  { id:'9152', name:'填写工作总结', exec:'执行人：被评估人', icon:'doc',
+    mid:{kind:'okr', tabs:['OKR','更多']},
+    right:{title:'填写工作总结', body:[
+      {t:'prompt', title:'111', desc:'222'},
+      {t:'sec', title:'工作总结', desc:'请填写周期内的重点工作有效产出，包含数据、事例、项目进展等。'},
+      {t:'multiText', label:'重点工作 1'},
+      {t:'rating', desc:'描述'},
+    ]}},
+  { id:'9153', name:'自评', exec:'执行人：被评估人', icon:'user',
+    mid:{kind:'none'},
+    single:'填写内容',
+    right:{title:'填写自评', body:[
+      {t:'sec', title:'价值贡献', desc:'基于角色职责预期，评估实际产出和贡献，包括专业上的和管理上的（若有）两个方面。'},
+      {t:'rt', label:'做得好的', sample:'【做得好的】在在工作中，基于什么需求/项目目标，通过什么举措/克服什么困难，有哪些超出预期的产出和影响。通过数据、具体行为或事例来说明。\n范例：作为***系统的产品经理，在需求调研阶段，能够深入业务进行实际体验，了解用户具体的使用场景和在实际业务中遇到的问题。在系统上线后该系统的用户满意度达到***，超出预期目标。'},
+      {t:'rt', label:'待改进的', sample:'【待改进的】在哪些工作中，哪些产出未能达成的目标/哪些能力仍有提升之处的工作，造成了什么样的影响、有什么改进空间。通过数据、具体行为或事例说明。\n范例：在***产品的设计过程中，对***功能实现的难度缺乏合理评估，在发现问题后没有及时向上反馈来调整更多资源辅助，导致项目上线周期延迟2周。'},
+      {t:'rating', desc:'描述'},
+    ]}},
+  { id:'440448', name:'360°邀请环节', exec:'执行人：被评估人', icon:'invite',
+    mid:{kind:'okr', tabs:['OKR','更多']},
+    right:{title:'360°邀请环节', body:[{t:'invite'}]}},
+  { id:'9154', name:'360°反馈（自愿评估）', exec:'执行人：360°评估人', icon:'chat',
+    mid:{kind:'okr', tabs:['OKR','更多']},
+    right:{title:'360°反馈（自愿评估）', body:[
+      {t:'plain', lines:['可以谈谈你在过往的协作中，看到的 TA 的闪光点。','也可以谈谈你希望 TA 如何更好的支持你的工作。','或者从今后协作的角度给 TA 提供一些建议吧~']},
+      {t:'rt', label:'360°反馈内容', sub:'360°反馈内容'},
+      {t:'rt', label:'留言', sub:'留言内容'},
+    ]}},
+  { id:'400768', name:'评估型环节', exec:'执行人：360°评估人', icon:'dial',
+    mid:{kind:'okr', tabs:['OKR','更多']},
+    right:{title:'', empty:'暂未配置供参考内容'}},
+  { id:'400769', name:'虚线上级评估', exec:'执行人：虚线上级', icon:'leader',
+    mid:{kind:'okr', tabs:['OKR','更多']},
+    right:{title:'', empty:'暂未配置供参考内容'}},
+  { id:'9155', name:'直接上级评估', exec:'执行人：直属上级', icon:'leader',
+    mid:{kind:'summary', tabs:['工作总结','自评','360°反馈','OKR','更多参考']},
+    right:{title:'直接上级评估', body:[
+      {t:'notice', lines:['1. 评级和评语，在上级完成「绩效沟通并开通结果」后对被评估人可见。','2. 评语不得出现任何歧视、职场骚扰、打击报复性质的内容，请做出客观评估。']},
+      {t:'sec', title:'工作总结', desc:'请填写周期内的重点工作有效产出，包含数据、事例、项目进展等。'},
+      {t:'multiText', label:'重点工作', sampleOnly:true},
+      {t:'sec', title:'价值贡献', desc:'基于角色职责预期，评估实际产出和贡献，包括专业上的和管理上的（若有）两个方面。'},
+      {t:'rt', label:'做得好的', sample:'【做得好的】在在工作中，基于什么需求/项目目标，通过什么举措/克服什么困难，有哪些超出预期的产出和影响。通过数据、具体行为或事例来说明。\n范例：作为***系统的产品经理，在需求调研阶段，能够深入业务进行实际体验，了解用户具体的使用场景和在实际业务中遇到的问题。'},
+      {t:'rt', label:'待改进的', sample:'【待改进的】在哪些工作中，哪些产出未能达成的目标/哪些能力仍有提升之处的工作，造成了什么样的影响、有什么改进空间。\n范例：在***产品的设计过程中，对***功能实现的难度缺乏合理评估。'},
+      {t:'rating', desc:'描述'},
+    ]}},
+  { id:'9156', name:'绩效校准', exec:'执行人：在项目配置时指定', icon:'calib',
+    mid:{kind:'summary', tabs:['工作总结','自评','360°反馈','OKR','更多参考']},
+    rightTitle:'配置供调整内容',
+    right:{title:'上级评估', body:[
+      {t:'notice', lines:['1. 评级和评语，在上级完成「绩效沟通并开通结果」后对被评估人可见。','2. 评语不得出现任何歧视、职场骚扰、打击报复性质的内容，请做出客观评估。']},
+      {t:'sec', title:'工作总结', desc:'请填写周期内的重点工作有效产出，包含数据、事例、项目进展等。'},
+      {t:'multiText', label:'重点工作', sampleOnly:true},
+      {t:'sec', title:'价值贡献', desc:'基于角色职责预期，评估实际产出和贡献，包括专业上的和管理上的（若有）两个方面。'},
+      {t:'rt', label:'做得好的', sample:'【做得好的】在在工作中，基于什么需求/项目目标，通过什么举措/克服什么困难，有哪些超出预期的产出和影响。\n范例：作为***系统的产品经理，能够深入业务进行实际体验。'},
+      {t:'rt', label:'待改进的', sample:'【待改进的】在哪些工作中，哪些产出未能达成的目标/哪些能力仍有提升之处。\n范例：在***产品的设计过程中，对***功能实现的难度缺乏合理评估。'},
+      {t:'rating', desc:'描述'},
+    ]}},
+  { id:'9157', name:'绩效沟通并开通结果', exec:'执行人：直属上级', icon:'chat',
+    mid:{kind:'summary', tabs:['工作总结','自评','上级评估','360°反馈','OKR','更多参考']},
+    right:{title:'绩效沟通并开通结果', body:[
+      {t:'notice', lines:['1. 请先跟员工绩效面谈，再提交发展建议。提交后，员工将立即收到绩效结果。若未提交，员工将一直无法查看绩效结果。','2. 沟通时请保持专注，避免多任务处理。']},
+      {t:'sec', title:'发展建议'},
+      {t:'rt', label:'短期/长期发展建议'},
+    ]}},
+  { id:'9158', name:'查看绩效结果', exec:'执行人：被评估人', icon:'eye',
+    single:'查看内容',
+    mid:{kind:'none'},
+    right:{title:'', resultView:true, body:[
+      {t:'sec', title:'综合评级'},
+      {t:'ratingView'},
+      {t:'sec', title:'价值贡献', desc:'基于角色职责预期，评估实际产出和贡献，包括专业上的和管理上的（若有）两个方面。'},
+      {t:'sub', label:'做得好的'},
+      {t:'sub', label:'待改进的'},
+      {t:'sec', title:'发展建议'},
+      {t:'sub', label:'短期/长期发展建议'},
+      {t:'sec', title:'标签型填写题', desc:'描述'},
+      {t:'sub', label:'价值贡献', tags:['做得好的','待改进的']},
+    ]}},
+  { id:'9159', name:'结果复议处理', exec:'执行人：复议处理人', icon:'appeal',
+    mid:{kind:'summary', tabs:['工作总结','自评','上级评估','结果沟通','360°反馈','OKR','更多参考']},
+    right:{title:'绩效结果复议处理', body:[
+      {t:'label', text:'复议理由'},
+      {t:'staticBox', text:'这里展示被评估人发起复议时填写的内容'},
+      {t:'label', text:'是否保持复议前结果'},
+      {t:'radio'},
+      {t:'label', text:'绩效结果'},
+      {t:'notice', lines:['1. 评级和评语，在上级完成「绩效沟通并开通结果」后对被评估人可见。','2. 评语不得出现任何歧视、职场骚扰、打击报复性质的内容，请做出客观评估。']},
+      {t:'sec', title:'工作总结', desc:'请填写周期内的重点工作有效产出，包含数据、事例、项目进展等。'},
+      {t:'multiText', label:'重点工作', sampleOnly:true},
+      {t:'sec', title:'价值贡献', desc:'基于角色职责预期，评估实际产出和贡献，包括专业上的和管理上的（若有）两个方面。'},
+      {t:'rt', label:'做得好的', sample:'【做得好的】在在工作中，基于什么需求/项目目标，通过什么举措/克服什么困难，有哪些超出预期的产出和影响。\n范例：作为***系统的产品经理，能够深入业务进行实际体验。'},
+      {t:'rt', label:'待改进的', sample:'【待改进的】在哪些工作中，哪些产出未能达成的目标/哪些能力仍有提升之处。\n范例：在***产品的设计过程中，对***功能实现的难度缺乏合理评估。'},
+      {t:'rating', desc:'描述'},
+    ]}},
+];
+const RATING_OPTIONS = ['1星','2星','3星-','3星','3星+','4星','5星'];
+
+/* ---------- 渲染 ---------- */
+let curStage = 0;
+
+function el(html){ const d=document.createElement('div'); d.innerHTML=html.trim(); return d.firstElementChild; }
+
+function renderStageList(){
+  const list = document.getElementById('stageList');
+  list.innerHTML = '';
+  STAGES.forEach((s,i)=>{
+    const card = el(`<div class="stage-card${i===curStage?' active':''}">
+      <div class="sc-top"><span class="sc-icon">${ICONS[s.icon]}</span><span class="sc-name">${s.name}</span></div>
+      <div class="sc-exec">${s.exec}</div>
+    </div>`);
+    card.onclick = ()=>{ curStage=i; render(); };
+    list.appendChild(card);
+  });
+}
+
+/* --- 中栏 --- */
+function midOkr(tabs){
+  return `
+  <div class="ref-user"><div class="ref-avatar">${ICON_USER_WHITE}</div><div class="ref-user-name">被评估人</div></div>
+  <div class="mid-tabs">${tabs.map((t,i)=>`<div class="mid-tab${i===0?' active':''}">${t}</div>`).join('')}</div>
+  <div class="okr-toolbar" style="margin-top:12px">
+    <div class="sec-title">OKR 内容</div>
+    <div class="okr-right-ctl">
+      <div class="okr-pager">
+        <button><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M6.5 1.5L3 5l3.5 3.5" stroke="#8f959e" stroke-width="1.2" stroke-linecap="round"/></svg></button>
+        <span class="okr-period">2026 年度 OKR</span>
+        <button><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3.5 1.5L7 5 3.5 8.5" stroke="#8f959e" stroke-width="1.2" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="okr-detail-link">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#3370ff" stroke-width="1.1"/><circle cx="6" cy="6" r="1.8" stroke="#3370ff" stroke-width="1.1"/></svg>
+        OKR 详情
+      </div>
+    </div>
+  </div>
+  <div class="okr-o1-row">
+    <span class="o1-chip">O1</span>
+    <span class="okr-o1-text">展示内容以实际数据为准&nbsp;</span>
+    <div class="okr-head-nums"><span>进度</span><span>权重</span></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;padding:2px 0 10px 0">
+    <div style="flex:1"></div>
+    <div class="okr-head-nums"><span>暂无</span><span>100%</span></div>
+  </div>
+  ${krRow('KR1')}${krRow('KR2')}`;
+}
+function krRow(kr){
+  return `<div class="kr-card">
+    <div class="kr-top">
+      <span class="kr-chip">${kr}</span>
+      <span class="kr-text">展示内容以实际数据为准&nbsp;</span>
+      <div class="kr-progress-wrap">
+        <div class="kr-bar-row"><div class="kr-bar"><div class="kr-bar-fill" style="width:100%"></div></div><span class="kr-status">正常</span></div>
+        <div class="kr-sub"><span>0%</span><span>100%</span></div>
+      </div>
+      <span class="kr-weight">50.0%</span>
+    </div>
+  </div>`;
+}
+function midSummary(tabs){
+  return `
+  <div class="ref-user"><div class="ref-avatar">${ICON_USER_WHITE}</div><div class="ref-user-name">被评估人</div></div>
+  <div class="mid-tabs">${tabs.map((t,i)=>`<div class="mid-tab${i===0?' active':''}">${t}</div>`).join('')}</div>
+  <div class="sec-title">工作总结</div>
+  <div class="sec-desc">请填写周期内的重点工作有效产出，包含数据、事例、项目进展等。</div>
+  <div class="block-label">重点工作 1</div>
+  <div class="static-box">这里展示用户填写的内容</div>
+  <div class="sec-title" style="margin-top:24px">综合评级</div>
+  <div class="sec-desc">描述</div>
+  <div class="rating-view"><span class="star-chip">3星</span><span class="rating-name">符合预期</span></div>`;
+}
+
+/* --- 右栏块渲染 --- */
+function blockHtml(b){
+  switch(b.t){
+    case 'prompt': return `<div class="prompt-banner"><span class="pb-icon">${ICON_INFO}</span><div><div class="pb-title">${b.title}</div><div class="pb-desc">${b.desc}</div></div></div>`;
+    case 'notice': return `<div class="notice-banner"><span class="nb-icon">${ICON_INFO}</span><div>${b.lines.map(l=>`<div class="nb-line">${l}</div>`).join('')}</div></div>`;
+    case 'sec': return `<div class="sec-title" style="margin-top:24px">${b.title}</div>${b.desc?`<div class="sec-desc">${b.desc}</div>`:''}`;
+    case 'label': return `<div class="block-label req" style="margin-top:24px">${b.text}</div>`;
+    case 'staticBox': return `<div class="static-box">${b.text}</div>`;
+    case 'radio': return `<div class="radio-row">
+        <div class="radio-item checked"><span class="radio-dot"></span>保持原结果</div>
+        <div class="radio-item"><span class="radio-dot"></span>变更结果</div>
+      </div>`;
+    case 'multiText': return `<div class="block-label req" style="margin-top:16px">${b.label}</div>
+      <div class="rt-toolbar" style="margin-top:8px">${RT_ICONS}</div>
+      <div class="rt-editor plain"><br></div>
+      <div class="add-link"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1.5v9M1.5 6h9" stroke="#3370ff" stroke-width="1.4" stroke-linecap="round"/></svg>添加</div>`;
+    case 'rt': return `<div class="block-label req" style="margin-top:24px">${b.label}</div>
+      ${b.sub?`<div class="sec-desc" style="margin-top:2px">${b.sub}</div>`:''}
+      <div class="rt-toolbar" style="margin-top:8px">${RT_ICONS}</div>
+      ${b.sample?`<div class="rt-editor sample">${b.sample.split('\n').map(l=>`<div>${l}</div>`).join('')}</div>`:`<div class="rt-editor"><br></div>`}`;
+    case 'rating': return `<div class="sec-title" style="margin-top:24px">综合评级</div>
+      <div class="sec-desc">${b.desc||'描述'}</div>
+      <div class="block-label req" style="margin-top:12px">绩效评级</div>
+      <div class="rating-pills">${RATING_OPTIONS.map((o,i)=>`<button class="pill">${o}</button>${i<RATING_OPTIONS.length-1?'<span class="pill-line"></span>':''}`).join('')}</div>
+      <div class="rating-tip">手动调整的等级不符合计算规则&nbsp;&nbsp;<span class="rt-link">按规则重新计算</span></div>`;
+    case 'ratingView': return `<div class="sec-desc">描述</div>
+      <div class="block-label" style="margin-top:12px">绩效评级</div>
+      <div class="rating-view"><span class="star-chip">3星</span><span class="rating-name">符合预期</span></div>`;
+    case 'sub': return `<div class="block-label" style="margin-top:20px">${b.label}</div>
+      ${b.tags?`<div style="margin-top:8px">${b.tags.map(t=>`<span class="tag-chip">${t}</span>`).join('')}</div>`:''}
+      <div class="static-box">这里展示用户填写的内容</div>`;
+    case 'invite': return `
+      <div style="font-size:14px;color:var(--n900);font-weight:600">通过<span style="color:var(--blue)">「搜索」</span>添加 360° 评估人</div>
+      <div class="sec-desc" style="margin-top:4px">已邀请 0 人，除系统默认邀请外，仍需邀请至少 5 人。上级和 HRBP 也可以给员工邀请 360° 评估人。</div>
+      <div class="invite-search"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="5" cy="5" r="3.5" stroke="#8f959e" stroke-width="1.2"/><path d="M8 8l2.5 2.5" stroke="#8f959e" stroke-width="1.2" stroke-linecap="round"/></svg>搜索成员</div>
+      <div class="invite-count">已邀请列表：当前共 0 人</div>
+      <div class="invite-tabs"><div class="invite-tab active">按关系</div><div class="invite-tab">按邀请人</div></div>
+      <div class="invite-list">
+        ${['相同上级同事','不同上级同事','虚线上级','直属下级'].map(x=>`<div class="invite-row"><span class="ir-label">${x}</span></div>`).join('')}
+      </div>`;
+    case 'plain': return `<div style="margin-top:8px">${b.lines.map(l=>`<div class="sec-desc" style="margin-top:2px">${l}</div>`).join('')}</div>`;
+    default: return '';
+  }
+}
+function rightPanelHtml(s){
+  const body = s.right;
+  if(body.empty) return `<div class="panel-body"><div class="empty-hint">${body.empty}</div></div>`;
+  let inner = '';
+  if(body.resultView){
+    inner += `<div class="sec-title" style="margin-top:0">绩效结果</div>`;
+  } else if(body.title){
+    inner += `<div class="sec-title" style="margin-top:0">${body.title}</div>`;
+  }
+  inner += body.body.map(blockHtml).join('');
+  return `<div class="panel-body">${inner}</div>`;
+}
+function renderPanels(){
+  const wrap = document.getElementById('panelsWrap');
+  const s = STAGES[curStage];
+  const noFooter = !!s.right.resultView;
+  const footer = noFooter ? '' : `<div class="panel-footer"><button class="btn btn-disabled">提交</button><button class="btn btn-cancel">取消</button></div>`;
+  let html = '';
+  if(s.single){
+    // 单面板（自评 / 查看绩效结果）
+    const tabLabel = s.single==='查看内容' ? '配置查看内容' : '配置填写内容';
+    html = `<div class="panel"><div class="panel-tab">${tabLabel}</div>${rightPanelHtml(s)}${footer}</div>`;
+  } else {
+    const midTitle = '配置参考内容';
+    const midBody = s.mid.kind==='okr' ? midOkr(s.mid.tabs) : midSummary(s.mid.tabs);
+    const rightTab = s.rightTitle || '配置填写内容';
+    html = `
+      <div class="panel" style="flex:1.0"><div class="panel-tab">${midTitle}</div><div class="panel-body">${midBody}</div></div>
+      <div class="panel" style="flex:1.0"><div class="panel-tab">${rightTab}</div>${rightPanelHtml(s)}${footer}</div>`;
+  }
+  wrap.innerHTML = html;
+}
+function render(){ renderStageList(); renderPanels(); }
+render();
+</script>
+</body>
+</html>

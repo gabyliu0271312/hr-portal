@@ -1,0 +1,2 @@
+!function(){var _params={};!function(){"use strict";var l,a,i=_params,r=i.resultCallback,n=i.resultVariable;(n&&(window[n]=!0),r)&&(null===(l=(a=window)[r])||void 0===l||l.call(a,!0))}();
+}()

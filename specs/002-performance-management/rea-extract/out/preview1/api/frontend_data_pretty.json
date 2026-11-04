@@ -1,0 +1,82 @@
+{
+  "name": {
+    "zh-CN": "全量测试模板"
+  },
+  "description": {
+    "zh-CN": "半年度评估-360自愿评估-无投入度价值观"
+  },
+  "stages": [
+    {
+      "id": "7699791836252209152",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209153",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699821228462440448",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209154",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699850684346400768",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699850684346400769",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209155",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209156",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209157",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209158",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209159",
+      "type": "stage",
+      "_type": "ref"
+    },
+    {
+      "id": "7699791836252209160",
+      "type": "stage",
+      "_type": "ref"
+    }
+  ],
+  "langs": [
+    "zh-CN"
+  ],
+  "id": "7699791836252209161",
+  "finalResult": "7699791836252209155",
+  "keyIndicator": "7111630637920829442",
+  "computationRule": false,
+  "customPages": [],
+  "subComputationRuleType": [],
+  "scenes": [
+    "review"
+  ]
+}

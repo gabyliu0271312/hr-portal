@@ -1,0 +1,87 @@
+
+/* -------------------------------------------------------------------------- */
+/*                          Schema Worker (Inline Blob)                        */
+/* -------------------------------------------------------------------------- */
+
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isString(value) {
+  return typeof value === 'string' || value instanceof String;
+}
+
+function createSchemaRaw(value) {
+  if (value === null) return { type: 'null' };
+  var t = typeof value;
+  if (t === 'boolean') return { type: 'boolean' };
+  if (t === 'number') return { type: Number.isInteger(value) ? 'integer' : 'number' };
+  if (isString(value)) return { type: 'string' };
+  if (Array.isArray(value)) return { type: 'array' };
+  if (isObject(value)) return { type: 'object' };
+  return { type: t };
+}
+
+function createFlattenedArraySchema(value) {
+  if (Array.isArray(value)) {
+    var len = value.length;
+    // 如果数组长度小于200，schema 还有排查作用；多于就不考虑 items 细节了
+    if (len < 200) {
+      var items = value.map(function (v) {
+        return createFlattenedArraySchema(v);
+      });
+      var schema = { type: 'array', items: items, len: len };
+      // 避免 schema 过大导致上报失败
+      try {
+        if (JSON.stringify(items).length > 1500000) {
+          schema = { type: 'array', len: len };
+        }
+      } catch (e) {
+        schema = { type: 'array', len: len };
+      }
+      return schema;
+    }
+    return { type: 'array', len: len };
+  }
+
+  if (isObject(value)) {
+    var keys = Object.keys(value);
+    var props = {};
+    for (var i = 0; i < keys.length; i += 1) {
+      var k = keys[i];
+      props[k] = createFlattenedArraySchema(value[k]);
+    }
+    return { type: 'object', properties: props };
+  }
+
+  if (isString(value)) {
+    return { type: 'string', len: value.length };
+  }
+
+  return createSchemaRaw(value);
+}
+
+function createSchema(value) {
+  try {
+    return createFlattenedArraySchema(value);
+  } catch (e) {
+    try {
+      return createSchemaRaw(value);
+    } catch (e2) {
+      return null;
+    }
+  }
+}
+
+var ctx = self;
+ctx.onmessage = function (event) {
+  var data = event && event.data ? event.data : {};
+  var id = data.id;
+  try {
+    var requestSchema = createSchema(data.requestBody);
+    var responseSchema = createSchema(data.responseData);
+    ctx.postMessage({ id: id, requestSchema: requestSchema, responseSchema: responseSchema });
+  } catch (error) {
+    ctx.postMessage({ id: id, error: error instanceof Error ? error.message : String(error) });
+  }
+};
