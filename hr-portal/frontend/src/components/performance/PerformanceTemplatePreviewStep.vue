@@ -14,13 +14,12 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { performanceTemplateApi, type PerformanceTemplateContent, type PerformanceTemplateSection, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
-import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
+import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import { performanceContentKey, contentToSections } from './performanceContentToSections'
-import { resolveFieldSettings } from './performanceContentSettingsResolver'
 import { performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -180,27 +179,27 @@ watch(selectedId, () => {
   })
 })
 
-/* ---------- 渲染辅助 ---------- */
-type PreviewItemSettings = Record<string, { mode: 'fill' | 'hidden' | 'view'; required: boolean; hideName?: boolean; allowView?: boolean }>
-/** 只读复刻（参考内容 / 查看内容 / 供调整内容）也从解析层取设置，保证只有一种读法 */
-function itemSettingsFor(content: PerformanceTemplateContent, forceView = false): PreviewItemSettings {
-  const result: PreviewItemSettings = {}
-  for (const item of content.items || []) {
-    if (item.kind === 'prompt') continue
-    const settings = resolveFieldSettings({ node: selectedNode.value, content, item, readonly: forceView })
-    result[item.id] = {
-      mode: settings.viewType === 'hide' ? 'hidden' : settings.permission === 'read' ? 'view' : 'fill',
-      required: settings.required,
-      hideName: settings.hideName || undefined,
-      allowView: settings.allowView,
+/* ---------- 只读场景（参考内容 / 查看结果 / 校准）也走统一渲染链路 ---------- */
+/** 每个内容块的只读 sections（字段 readonly、无 required），按渲染上下文一次性投影 */
+const readonlySections = computed<Record<string, PerformanceTemplateSection[]>>(() => {
+  const result: Record<string, PerformanceTemplateSection[]> = {}
+  /* 右栏：查看结果 / 校准（供调整内容）按整环节只读投影 */
+  for (const content of rightContents.value) {
+    if (canEditContent(content)) continue
+    result[contentKeyOf(content)] = contentToSections(selectedNode.value, [content], { readonly: true })
+  }
+  /* 中栏：参考内容（查看态）同样只读投影 */
+  for (const group of referenceGroups.value) {
+    for (const content of group.contents) {
+      const key = contentKeyOf(content)
+      if (!(key in result)) result[key] = contentToSections(selectedNode.value, [content], { readonly: true })
     }
   }
   return result
-}
-/** 中栏参考内容：全部条目按「查看态」渲染（REA 里参考内容不出现可填写控件） */
-function referenceItemSettings(content: PerformanceTemplateContent): PreviewItemSettings {
-  return itemSettingsFor(content, true)
-}
+})
+function readonlySectionsFor(content: PerformanceTemplateContent) { return readonlySections.value[contentKeyOf(content)] || [] }
+
+/* ---------- 渲染辅助 ---------- */
 function contentDescription(content: PerformanceTemplateContent) {
   return content.settings?.hideDescription ? '' : content.description
 }
@@ -285,13 +284,19 @@ function contentDescription(content: PerformanceTemplateContent) {
                         <div class="ptp-block__title">{{ content.name }}</div>
                         <div v-if="contentDescription(content)" class="ptp-block__desc">{{ contentDescription(content) }}</div>
                       </div>
-                      <!-- REA 中栏参考内容为只读结果态：值占位「这里展示用户填写的内容」、评级显示为评级标签 -->
-                      <PerformanceContentRenderer
-                        :content="content"
-                        variant="configured-card"
-                        empty-text=""
-                        readonly-empty-answer-text="这里展示用户填写的内容"
-                        :item-settings="referenceItemSettings(content)"
+                      <!-- REA 中栏参考内容为只读结果态：走统一渲染链路（mode=readonly），
+                           富文本/评级/标签按只读答案渲染，值与 REA 一样是「这里展示用户填写的内容」 -->
+                      <PerformanceTemplateRenderer
+                        v-if="content.type !== 'prompt'"
+                        mode="readonly"
+                        :show-header="false"
+                        :sections="readonlySectionsFor(content)"
+                        :answers="{ }"
+                      />
+                      <PerformancePromptDisplay
+                        v-else-if="content.prompt"
+                        :value="content.prompt"
+                        class="content-renderer-prompt"
                       />
                     </div>
                   </template>
@@ -374,14 +379,19 @@ function contentDescription(content: PerformanceTemplateContent) {
                         :answers="answersFor(content)"
                         @update-answer="(fieldId, value) => setPreviewAnswer(content, fieldId, value)"
                       />
-                      <!-- 查看 / 校准 / 说明：只读复刻（REA 只读态） -->
-                      <PerformanceContentRenderer
-                        v-else
-                        :content="content"
-                        variant="configured-card"
-                        :empty-text="isResultView ? '请输入内容' : ''"
-                        :readonly-empty-answer-text="isResultView ? '这里展示用户填写的内容' : ''"
-                        :item-settings="itemSettingsFor(content, isResultView)"
+                      <!-- 查看结果 / 校准（供调整）/ 复议后的绩效结果：同一渲染链路的只读态（mode=readonly） -->
+                      <PerformanceTemplateRenderer
+                        v-else-if="content.type !== 'prompt'"
+                        mode="readonly"
+                        :show-header="false"
+                        :sections="readonlySectionsFor(content)"
+                        :answers="{ }"
+                      />
+                      <!-- 说明块（prompt）：说明展示，不占填写位 -->
+                      <PerformancePromptDisplay
+                        v-else-if="content.prompt"
+                        :value="content.prompt"
+                        class="content-renderer-prompt"
                       />
                     </div>
                   </div>

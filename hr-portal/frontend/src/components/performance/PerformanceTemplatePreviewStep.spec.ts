@@ -94,10 +94,10 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.findAll('.ptp-panel')).toHaveLength(1)
     expect(wrapper.find('.ptp-tab').text()).toBe('配置查看内容')
     expect(wrapper.find('.ptp-footer').exists()).toBe(false)
-    // 内容以查看态渲染（复用内容设置渲染器的 view 模式，而非填写编辑框）
+    // 内容以查看态渲染（复用真实渲染器 readonly 态：评级/富文本走只读答案，而非填写编辑框）
     expect(wrapper.text()).toContain('绩效结果')
-    expect(wrapper.findAll('.content-renderer-item--view')).toHaveLength(1)
-    expect(wrapper.find('.performance-rich-text-box').exists()).toBe(false)
+    expect(wrapper.findAll('.readonly-rating, .readonly-answer')).toHaveLength(1)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
   })
 
   it('renders calibration with adjustment tab and final-node contents', async () => {
