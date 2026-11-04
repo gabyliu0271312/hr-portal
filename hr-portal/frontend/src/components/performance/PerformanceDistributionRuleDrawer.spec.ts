@@ -6,6 +6,7 @@ import PerformanceDistributionRuleDrawer from './PerformanceDistributionRuleDraw
 import PerformanceDistributionRuleEditor from './PerformanceDistributionRuleEditor.vue'
 import PerformanceAudienceRuleEditor from './PerformanceAudienceRuleEditor.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 
 const assessmentOptions = [{ id: 'grade', label: '绩效等级', description: '最终评级', grade_options: [{ value: 'A', label: 'A' }, { value: 'B', label: 'B' }] }]
@@ -64,6 +65,22 @@ describe('PerformanceDistributionRuleDrawer', () => {
     ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('confirm')?.[0]?.[0]).toMatchObject({ min_people_operator: 'GTE', min_people_count: 0 })
+  })
+
+  it('keeps the applicable-people number input editable with stepper and 90px width', async () => {
+    const wrapper = mount(PerformanceDistributionRuleDrawer, { props: { modelValue: true, assessmentOptions }, attachTo: document.body })
+    const numberInput = wrapper.findComponent(PerformanceNumberInput)
+    expect(numberInput.props('showControls')).toBe(true)
+    expect(numberInput.props('readonly')).toBe(false)
+    expect(numberInput.props('width')).toBe('90px')
+    const input = document.body.querySelector('input[aria-label="分布适用人数"]') as HTMLInputElement
+    expect(input.readOnly).toBe(false)
+    expect(input.disabled).toBe(false)
+    // 键入更新 draft
+    input.value = '12'
+    input.dispatchEvent(new Event('input'))
+    await wrapper.vm.$nextTick()
+    expect(numberInput.props('modelValue')).toBe('12')
   })
 
   it('offers no-forced-rounding with the exact explanatory tooltip', async () => {

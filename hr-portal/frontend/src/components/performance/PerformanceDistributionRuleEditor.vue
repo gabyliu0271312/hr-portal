@@ -45,7 +45,7 @@
     <PerformanceFormItem label="适用人数" required :invalid="submitted && modelValue.min_people_count < 0" error-message="适用人数不合法">
       <div class="distribution-applicable-count">
         <PerformanceSearchSelect class="distribution-applicable-count__operator" :model-value="modelValue.min_people_operator" :options="operatorOptions" selection-style="plain" aria-label="分布适用人数比较符" :disabled="disabled" @update:model-value="update({ min_people_operator: single($event) as PerformanceDistributionOperator })" />
-        <PerformanceNumberInput :model-value="String(modelValue.min_people_count)" width="120px" :min="0" suffix="人" aria-label="分布适用人数" :disabled="disabled" @update:model-value="update({ min_people_count: Number($event) || 0 })" />
+        <PerformanceNumberInput :model-value="String(modelValue.min_people_count)" width="90px" :min="0" suffix="人" aria-label="分布适用人数" :disabled="disabled" @update:model-value="update({ min_people_count: Number($event) || 0 })" />
       </div>
     </PerformanceFormItem>
 
@@ -165,7 +165,7 @@ function setScopeEnabled(key: 'calibration_scope' | 'department' | 'other_dimens
 <style scoped>
 .distribution-rule-editor{display:flex;flex-direction:column;gap:var(--spacing-5);min-width:0;color:var(--color-text-primary)}
 .distribution-assessment-summary{display:flex;align-items:center;flex-wrap:wrap;gap:var(--spacing-1);margin:var(--spacing-2) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.distribution-assessment-summary span{display:inline-flex;align-items:center;min-height:24px;padding:1px 6px;border-radius:var(--radius-sm);background:var(--performance-select-tag-background);color:var(--performance-select-tag-text)}
-.distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}.distribution-applicable-count :deep(.performance-select-shell){flex:0 0 120px;min-width:0}.distribution-applicable-count :deep(.performance-number-input){flex:0 0 120px}
+.distribution-applicable-count{display:flex;align-items:center;gap:var(--spacing-2);width:288px}.distribution-applicable-count :deep(.performance-select-shell){flex:0 0 120px;min-width:0}.distribution-applicable-count :deep(.performance-number-input){flex:0 0 90px}
 .distribution-condition-list{display:flex;flex-direction:column;gap:var(--spacing-2);margin-bottom:var(--spacing-2)}.distribution-rule-editor :deep(.performance-form-item__label){gap:var(--spacing-1)}.distribution-rule-editor :deep(.performance-form-item__description){font-size:var(--font-size-md);line-height:20px}
 .distribution-scope-options{display:flex;flex-direction:column;gap:var(--spacing-2)}.distribution-scope-group{min-width:0;margin:0 0 var(--spacing-2);padding:var(--spacing-2) 0 0;border-radius:var(--radius-sm);background:transparent}
 .distribution-scope-group :deep(.performance-audience-rule-editor__groups){width:100%}.distribution-scope-group :deep(.performance-audience-rule-editor__main){width:100%}
