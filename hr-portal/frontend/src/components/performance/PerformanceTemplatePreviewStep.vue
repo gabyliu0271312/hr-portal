@@ -569,6 +569,14 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-block__header { margin-bottom: 16px; }
 .ptp-block__title { font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
 .ptp-block__desc { font-size: 14px; font-weight: 400; line-height: 22px; color: #646a73; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* 预览内真实填写渲染器：取消自身水平 padding（REA 实测块标题/描述/字段左缘完全一致 x=1021），
+   左缘统一由 .ptp-body--fill 的 padding 20 提供；垂直间距由 .ptp-block__header margin 与字段 margin 控制 */
+.ptp :deep(.performance-template-renderer--edit),
+.ptp :deep(.performance-template-renderer--readonly) { padding: 0; border-radius: 0; background: transparent; }
+.ptp :deep(.performance-template-renderer--edit) .template-content-prompt { margin: 16px 0; }
+/* 字段容器左缘与块标题一致（渲染器无缩进），字段间距 16（REA mb-8） */
+.ptp :deep(.performance-template-field) { margin-bottom: 16px; }
+.ptp :deep(.performance-template-field:last-child) { margin-bottom: 0; }
 /* 预览态内容项无编辑态内边距（REA 只读渲染：字段名与块标题同左缘，不预留拖拽把手位） */
 .ptp :deep(.content-renderer-item--configured) { padding: 0; border-width: 0; }
 /* 预览是只读预览态：REA 不渲染必填星号 */

@@ -39,6 +39,26 @@ function mountStep(nodes: PerformanceWorkflowNode[]) {
 describe('PerformanceTemplatePreviewStep', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
+  it('aligns block title and field labels to the same left edge (REA x=1021 全左对齐)', async () => {
+    // REA 实测：模板预览右栏块标题「工作总结」/ 描述 / 字段「重点工作 1」左缘完全一致（x=1021），
+    // 渲染器不得引入自身水平 padding（块标题在渲染器外，字段在渲染器内，padding 必须归零）。
+    // jsdom 不注入 scoped 样式，这里做结构断言：渲染器在 .ptp-block 内、无内联 padding，
+    // 像素校验由浏览器 harness（verify/preview-harness）执行。
+    const wrapper = mountStep([node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [fillSummary] })])
+    await flushPromises()
+    const blockTitle = wrapper.find('.ptp-block__title')
+    const fieldLabel = wrapper.find('.template-field-label')
+    expect(blockTitle.exists()).toBe(true)
+    expect(fieldLabel.exists()).toBe(true)
+    // 渲染器在 .ptp-block 内（块标题与字段同一内容列容器）
+    const renderer = wrapper.find('.performance-template-renderer')
+    const block = wrapper.find('.ptp-block')
+    expect(renderer.exists()).toBe(true)
+    expect(block.element.contains(renderer.element)).toBe(true)
+    // 无内联水平 padding（样式由 .ptp :deep 覆盖归零，见 PerformanceTemplatePreviewStep.vue）
+    expect(renderer.element.style.paddingLeft || renderer.element.style.padding).toBe('')
+  })
+
   it('renders stage cards and switches preview per stage with zero extra requests', async () => {
     const nodes = [
       node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [promptContent, fillSummary, fillRating] }),
