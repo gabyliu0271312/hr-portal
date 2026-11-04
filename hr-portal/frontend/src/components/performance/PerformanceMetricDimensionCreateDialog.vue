@@ -32,7 +32,7 @@
 
       <div class="metric-dimension-switch-row">
         <span>需设置维度权重</span>
-        <PerformanceSwitch v-model="form.need_weight" :disabled="saving" aria-label="需设置维度权重" @update:model-value="setNeedWeight" />
+        <UiSwitch v-model="form.need_weight" :disabled="saving" aria-label="需设置维度权重" @update:model-value="setNeedWeight" />
       </div>
       <PerformanceFormItem v-if="form.need_weight" label="维度权重" required :invalid="Boolean(weightError)" :error-message="weightError">
         <div class="metric-dimension-weight">
@@ -68,7 +68,7 @@
 
       <div class="metric-dimension-switch-row metric-dimension-switch-row--spaced">
         <span>允许被评估人添加指标</span>
-        <PerformanceSwitch v-model="form.allow_reviewee_add_metrics" :disabled="saving" aria-label="允许被评估人添加指标" />
+        <UiSwitch v-model="form.allow_reviewee_add_metrics" :disabled="saving" aria-label="允许被评估人添加指标" />
       </div>
       <PerformanceMetricRevieweeSettings v-if="form.allow_reviewee_add_metrics" v-model="revieweeSettings" :disabled="saving" />
 
@@ -104,8 +104,8 @@
     </form>
     <template #footer>
       <div class="metric-dimension-footer">
-        <PerformanceButton variant="primary" :loading="saving" @click="submit">确定</PerformanceButton>
-        <PerformanceButton variant="secondary" :disabled="saving" @click="close">取消</PerformanceButton>
+        <UiButton variant="primary" :loading="saving" @click="submit">确定</UiButton>
+        <UiButton variant="secondary" :disabled="saving" @click="close">取消</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -118,14 +118,14 @@ import type { PerformanceMetricType } from '@/api/performanceMetricTypes'
 import type { PerformanceReviewRuleOption } from '@/api/performance'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
 import PerformanceAssessmentSelect, { type PerformanceAssessmentSelectOption } from './PerformanceAssessmentSelect.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceLocalizedInput from './PerformanceLocalizedInput.vue'
 import PerformanceMetricRevieweeSettings, { type MetricRevieweeSettings } from './PerformanceMetricRevieweeSettings.vue'
 import PerformanceRadioGroup, { type PerformanceRadioOption } from './PerformanceRadioGroup.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 

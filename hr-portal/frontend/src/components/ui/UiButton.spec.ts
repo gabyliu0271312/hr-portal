@@ -1,11 +1,11 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import PerformanceButton from './PerformanceButton.vue'
-import buttonSource from './PerformanceButton.vue?raw'
+import UiButton from './UiButton.vue'
+import buttonSource from './UiButton.vue?raw'
 
-describe('PerformanceButton', () => {
+describe('UiButton', () => {
   it('maps variants to shared state classes and disables loading actions', () => {
-    const wrapper = mount(PerformanceButton, {
+    const wrapper = mount(UiButton, {
       props: { variant: 'primary', loading: true },
       slots: { default: '保存' },
     })
@@ -17,7 +17,7 @@ describe('PerformanceButton', () => {
   })
 
   it.each([{ disabled: true }, { loading: true }])('keeps shared link actions natively disabled for %j', async state => {
-    const wrapper = mount(PerformanceButton, { props: { variant: 'link', ...state }, slots: { default: '编辑' } })
+    const wrapper = mount(UiButton, { props: { variant: 'link', ...state }, slots: { default: '编辑' } })
     expect(wrapper.get('button').classes()).toContain('performance-button--link')
     expect(wrapper.get('button').attributes('disabled')).toBeDefined()
     await wrapper.get('button').trigger('click')
@@ -26,7 +26,7 @@ describe('PerformanceButton', () => {
   })
 
   it.each(['text', 'link'] as const)('uses the shared disabled token for %s actions', async variant => {
-    const wrapper = mount(PerformanceButton, { props: { variant, disabled: true }, slots: { default: '删除' } })
+    const wrapper = mount(UiButton, { props: { variant, disabled: true }, slots: { default: '删除' } })
     expect(wrapper.get('button').attributes('disabled')).toBeDefined()
     await wrapper.get('button').trigger('click')
     expect(wrapper.emitted('click')).toBeUndefined()
@@ -35,7 +35,7 @@ describe('PerformanceButton', () => {
   })
 
   it('emits the native click event for enabled actions', async () => {
-    const wrapper = mount(PerformanceButton, { slots: { default: '取消' } })
+    const wrapper = mount(UiButton, { slots: { default: '取消' } })
 
     await wrapper.get('button').trigger('click')
 

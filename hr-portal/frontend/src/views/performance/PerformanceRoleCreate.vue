@@ -1,6 +1,6 @@
 <template>
   <div class="role-create-workspace">
-    <PageHeader :title="isEdit ? '编辑角色' : '新建角色'" @back="goBack">
+    <UiPageHeader :title="isEdit ? '编辑角色' : '新建角色'" @back="goBack">
       <template #actions>
         <PermissionButton
           menu="performance.admin"
@@ -13,7 +13,7 @@
           保存
         </PermissionButton>
       </template>
-    </PageHeader>
+    </UiPageHeader>
 
     <main class="role-create-content">
       <section class="role-form-card" aria-labelledby="role-create-title">
@@ -77,7 +77,7 @@ import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceRoleApi, type PerformanceRoleListItem } from '@/api/performance'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
-import PageHeader from '@/components/performance/PageHeader.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import PerformanceFunctionPermissionTree from '@/components/performance/PerformanceFunctionPermissionTree.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'

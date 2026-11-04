@@ -3,10 +3,10 @@ import { computed, ref } from 'vue'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
 import ColorPicker from './ColorPicker.vue'
 import { PERFORMANCE_LEVEL_COLORS } from './performanceColorOptions'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 import type { ReviewRuleLevel } from './ReviewRuleForm.vue'
 
 const props = withDefaults(defineProps<{
@@ -81,10 +81,10 @@ function removeLevel(index: number) {
 
 <template>
   <div class="level-config-editor" :class="{ quantified }" :data-quantified="quantified" aria-label="等级编辑器">
-    <PerformanceSortableList :items="stableLevels" item-key="id" :disabled="structureLocked" :gap="8" @reorder="reorderLevels">
+    <UiSortableList :items="stableLevels" item-key="id" :disabled="structureLocked" :gap="8" @reorder="reorderLevels">
       <template #default="{ item: level, index, dragging, itemStyle }">
         <div class="level-row" :class="{ 'is-dragging': dragging, quantified }" :style="itemStyle" :data-sortable-index="index" :data-level-id="level.id">
-          <PerformanceDragHandle :label="`拖拽第${index + 1}个等级`" :dragging="dragging" :disabled="structureLocked" />
+          <UiDragHandle :label="`拖拽第${index + 1}个等级`" :dragging="dragging" :disabled="structureLocked" />
           <div class="level-content-grid" :class="{ quantified }">
             <ColorPicker :model-value="level.color" :label="`选择第${index + 1}个等级颜色`" @update:model-value="(color) => updateLevel(index, { color })" />
             <div class="level-code-control">
@@ -124,7 +124,7 @@ function removeLevel(index: number) {
           <PerformanceIconButton v-if="!structureLocked" icon="DeleteTrashOutlined" :label="`删除第${index + 1}个等级`" :disabled="levels.length <= 1" @click="removeLevel(index)" />
         </div>
       </template>
-    </PerformanceSortableList>
+    </UiSortableList>
     <button v-if="!structureLocked" class="add-level-button" type="button" :disabled="levels.length >= 10" @click="addLevel"><AddOutlinedIcon />添加等级</button>
     <div v-if="levelActionError || minimumError" class="mt-1 text-R-500 whitespace-pre-line">无法删除，需保留至少两个非隐藏型等级</div>
   </div>

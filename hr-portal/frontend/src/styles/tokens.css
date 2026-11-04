@@ -153,16 +153,19 @@
   --performance-page-title-line-height: 32px;
   --performance-page-title-color: #1f2329;
   --performance-page-title-gap: 16px;
-  /* 通用页面标题 + 描述（飞书 title-description 参数：标题 margin 0，描述层自带 12px 上 / 8px 下，无描述时不渲染自动上移） */
+  /* 通用页面标题 + 描述（REA 实测 capture-jf/measure-jf.json：标题 18/26 w500 #1f2329、
+     描述 14/22 #8f959e；头部块 h48 = 26 + 22，两者间距 0；描述底到内容卡 20px；
+     无描述时不渲染自动上移） */
   --page-title-size: 18px;
-  --page-title-weight: 600;
-  --page-title-line-height: 32px;
-  --page-title-color: #1f2329;
-  --page-title-desc-size: 12px;
-  --page-title-desc-line-height: 20px;
-  --page-title-desc-color: #999999;
+  --page-title-weight: 500;
+  --page-title-line-height: 26px;
+  --page-title-color: var(--color-text-primary);
+  --page-title-desc-size: 14px;
+  --page-title-desc-weight: 400;
+  --page-title-desc-line-height: 22px;
+  --page-title-desc-color: var(--color-text-placeholder);
   --page-title-gap-with-desc: var(--page-gap-title-desc);
-  --page-title-gap-bottom: 8px;
+  --page-title-gap-bottom: 20px;
   /* 通用控件 token（值沿用绩效基线，跨模块共享）；页面级间距 token 见下方 */
   --control-height: var(--performance-control-height);
   --control-radius: var(--performance-control-radius);
@@ -174,8 +177,8 @@
   --field-label-gap: var(--performance-field-label-gap);
   --icon-size: var(--performance-icon-size);
   --button-radius: var(--performance-button-radius);
-  /* 页面纵排间距（飞书 title-description 12px / toolbar-table 16px） */
-  --page-gap-title-desc: 12px;
+  /* 页面纵排间距（REA 实测：标题-描述 0（头部块 h48）／toolbar 控件 12／toolbar-table 16／table-pagination 12） */
+  --page-gap-title-desc: 0px;
   --page-gap-toolbar-items: 12px;
   --page-gap-toolbar-table: 16px;
   --page-gap-table-pagination: 12px;
@@ -428,6 +431,7 @@
   --color-text-primary: #1f2329;
   --color-text-regular: #374151;
   --color-text-secondary: #5c6b82;
+  --color-text-tertiary: #646a73;
   --color-text-placeholder: #8f959e;
   --color-text-disabled: #c4cad4;
   --color-link: #1890ff;
@@ -521,7 +525,25 @@
   --ui-surface-radius-all: 8px;
   --ui-surface-radius-top: 8px 8px 0 0;
   --ui-surface-shadow: none;
+  /* UiSurface 显式开启投影时的规格（非 REA 默认形态，默认 --ui-surface-shadow: none） */
+  --ui-surface-shadow-raised: 0 1px 4px rgba(31, 35, 41, 0.05);
   --ui-surface-min-width: 980px;
+  /* 页面壳（REA 实测：内容区灰底 #f5f6f7，padding 上/左/右 20，底边距由滚动容器承接） */
+  --ui-page-background: #f5f6f7;
+  --ui-page-padding: 20px 20px 0;
+  /* 树形表格（REA 实测：展开钮 18×18 r4 图标 12px #646a73，每级缩进 14px，行内容高 26） */
+  --ui-tree-indent: 14px;
+  --ui-tree-name-height: 26px;
+  --ui-tree-expand-size: 18px;
+  --ui-tree-expand-icon-size: 12px;
+  --ui-tree-expand-radius: 4px;
+  --ui-tree-expand-gap: 4px;
+  --ui-tree-expand-color: var(--color-text-tertiary);
+  --ui-tree-expand-hover-background: rgba(31, 35, 41, 0.08);
+  --ui-tree-tag-gap: var(--spacing-2);
+  /* 全局动效基线 */
+  --motion-duration-standard: 0.2s;
+  --motion-easing-standard: cubic-bezier(0.34, 0.69, 0.1, 1);
 
   /* Table / 表格（页面级外层滚动模型） */
   --ui-table-header-background: #f2f3f5;
@@ -550,6 +572,13 @@
   --ui-pagination-arrow-border: #d0d3d6;
   --ui-pagination-arrow-background: #ffffff;
   --ui-pagination-disabled-color: #bbbfc4;
+  --ui-pagination-group-gap: 12px;
+  --ui-pagination-item-gap: 4px;
+  --ui-pagination-arrow-icon-size: 12px;
+  --ui-pagination-select-width: 96px;
+  --ui-pagination-jump-input-width: 44px;
+  /* 排序表头按钮可视高度（撑起 th = 表头高 - padding，见 UiTable） */
+  --ui-table-sort-header-height: 22px;
 
   /* 标题 / 描述（REA 页头实测） */
   --ui-page-title-size: 18px;

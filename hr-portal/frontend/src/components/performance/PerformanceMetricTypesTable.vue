@@ -24,8 +24,8 @@
     <el-table-column label="操作" width="180" fixed="right">
       <template #default="{ row }">
         <div class="metric-type-actions">
-          <PerformanceButton variant="text" size="small" @click="emit('edit', row)">编辑</PerformanceButton>
-          <PerformanceButton variant="text" size="small" disabled @click="emit('remove', row)">删除</PerformanceButton>
+          <UiButton variant="text" size="small" @click="emit('edit', row)">编辑</UiButton>
+          <UiButton variant="text" size="small" disabled @click="emit('remove', row)">删除</UiButton>
         </div>
       </template>
     </el-table-column>
@@ -33,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 
 export interface PerformanceMetricTypeRow {

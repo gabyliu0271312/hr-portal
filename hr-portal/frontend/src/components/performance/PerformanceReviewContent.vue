@@ -18,7 +18,7 @@
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
         </div>
         <div v-if="shows360Feedback" class="review-heading-actions">
-          <PerformanceButton v-if="feedbackPanel?.allowVoluntary" variant="primary" aria-label="自愿评估" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</PerformanceButton>
+          <UiButton v-if="feedbackPanel?.allowVoluntary" variant="primary" aria-label="自愿评估" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</UiButton>
         </div>
       </div>
       <div class="review-body" :class="{ 'review-body--completed': node.status === 'completed' && !showsEvaluationWorkspace }">
@@ -77,7 +77,7 @@
 import { computed, ref, watch } from 'vue'
 import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'

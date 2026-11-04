@@ -2,17 +2,17 @@
   <PerformanceListPage title="绩效模板">
       <PerformanceListToolbar v-model:keyword="keyword" search-aria-label="通过名称、备注搜索" @filter="showComingSoon('筛选')">
         <template #left>
-          <PerformanceButton variant="primary" class="create-button" @click="openCreatePage">
+          <UiButton variant="primary" class="create-button" @click="openCreatePage">
             <el-icon><Plus /></el-icon>
             <span>新建</span>
-          </PerformanceButton>
+          </UiButton>
         </template>
       </PerformanceListToolbar>
 
       <div v-if="loading" class="template-loading" role="status">正在加载绩效模板...</div>
       <div v-else-if="loadError" class="template-empty" role="alert">
         <span>{{ loadError }}</span>
-        <PerformanceButton @click="loadTemplates">重试</PerformanceButton>
+        <UiButton @click="loadTemplates">重试</UiButton>
       </div>
       <div v-else-if="filteredTemplates.length === 0" class="template-empty">
         <el-empty :description="keyword ? '没有找到匹配的绩效模板' : '暂无绩效模板'" />
@@ -66,7 +66,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { performanceTemplateApi } from '@/api/performance'
 import { formatDisplayDateTime } from '@/utils/datetime'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'

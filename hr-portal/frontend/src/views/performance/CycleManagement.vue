@@ -149,7 +149,7 @@
 
     <div v-if="editing" class="cycle-modal" role="presentation">
       <form ref="cycleFormRef" class="cycle-form" role="dialog" aria-modal="true" novalidate :aria-label="formMode === 'create' ? '新建周期' : '编辑周期'" @input="updateInputValidity" @submit.prevent="submitForm">
-        <PageHeader class="cycle-form-header" :title="formMode === 'create' ? '新建周期' : '编辑周期'" @back="cancelEdit" />
+        <UiPageHeader class="cycle-form-header" :title="formMode === 'create' ? '新建周期' : '编辑周期'" @back="cancelEdit" />
         <div class="form-layout">
           <nav class="form-anchor" aria-label="周期表单导航">
             <div class="anchor-track" aria-hidden="true"></div>
@@ -289,7 +289,7 @@ import PerformanceSelectShell from '@/components/performance/PerformanceSelectSh
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceCycleSettingsMenu from '@/components/performance/PerformanceCycleSettingsMenu.vue'
 import PerformanceCycleOverdueSubmissionDialog from '@/components/performance/PerformanceCycleOverdueSubmissionDialog.vue'
-import PageHeader from '@/components/performance/PageHeader.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import { performanceApi, performanceCycleApi, performanceOtherSettingsApi, performanceProjectApi, performanceTemplateApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType } from '@/api/performance'
 
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const

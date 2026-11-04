@@ -1,5 +1,5 @@
 <template>
-  <PerformanceSortableList :items="regions" item-key="id" :gap="16" :disabled="disabled" class="content-region-list" @reorder="(from, to) => $emit('reorder', from, to)">
+  <UiSortableList :items="regions" item-key="id" :gap="16" :disabled="disabled" class="content-region-list" @reorder="(from, to) => $emit('reorder', from, to)">
     <template #default="{ item: region, index, dragging, itemStyle }">
       <PerformanceContentSelectionFrame
         tag="section"
@@ -25,14 +25,14 @@
         <slot v-else name="reference" :group="region" />
       </PerformanceContentSelectionFrame>
     </template>
-  </PerformanceSortableList>
+  </UiSortableList>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import PerformanceHorizontalDragHandle from './PerformanceHorizontalDragHandle.vue'
 import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 defineProps<{ regions: Array<{ id: string; kind: string; name: string }>; disabled?: boolean; selectedRegionId?: string | null }>()
 const emit = defineEmits<{ reorder: [from: number, to: number]; activate: [regionId: string] }>()
 const hoveredRegionId = ref<string | null>(null)

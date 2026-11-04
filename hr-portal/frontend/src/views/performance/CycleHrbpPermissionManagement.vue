@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceCycleApi, type PerformanceHrbpOrganizationNode, type PerformanceHrbpPermission, type PerformanceHrbpPersonOption } from '@/api/performance'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceHrbpPermissionTable from '@/components/performance/PerformanceHrbpPermissionTable.vue'
@@ -179,7 +179,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <FullScreenModal title="HRBP 权限管理" :show-footer="false" @back="goBack">
+  <UiFullScreenModal title="HRBP 权限管理" :show-footer="false" @back="goBack">
     <div class="hrbp-permission-page">
       <PerformanceHrbpScopeSummary />
       <PerformanceContentSurface class="hrbp-permission-panel">
@@ -219,7 +219,7 @@ onMounted(() => {
         @submit="submitPermission"
       />
     </div>
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <style scoped>

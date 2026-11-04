@@ -10,7 +10,7 @@ const api = vi.hoisted(() => ({
 vi.mock('@/api/performance', () => ({ performanceOtherPermissionSettingsApi: api }))
 
 const stubs = {
-  PerformanceSwitch: {
+  UiSwitch: {
     props: ['modelValue', 'disabled'],
     emits: ['update:modelValue'],
     template: '<button role="switch" :aria-checked="modelValue" :disabled="disabled" @click="$emit(\'update:modelValue\', !modelValue)">switch</button>',

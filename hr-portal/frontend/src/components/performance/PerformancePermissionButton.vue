@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/user'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 const props = withDefaults(defineProps<{
   allowed: boolean
@@ -28,7 +28,7 @@ const buttonVariant = computed(() => props.danger ? 'danger' : props.variant)
 </script>
 
 <template>
-  <PerformanceButton
+  <UiButton
     v-if="visible"
     :variant="buttonVariant"
     :disabled="internalDisabled"
@@ -36,5 +36,5 @@ const buttonVariant = computed(() => props.danger ? 'danger' : props.variant)
     :title="!hasPermission ? '无权限' : undefined"
   >
     <slot />
-  </PerformanceButton>
+  </UiButton>
 </template>

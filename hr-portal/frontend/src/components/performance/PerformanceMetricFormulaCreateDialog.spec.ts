@@ -22,7 +22,7 @@ const stubs = {
     emits: ['update:modelValue', 'insert', 'more'],
     template: '<textarea aria-label="公式编辑器" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
   },
-  PerformanceButton: {
+  UiButton: {
     props: ['variant', 'type', 'loading', 'disabled', 'ariaLabel'],
     emits: ['click'],
     template: '<button :type="type || \'button\'" :aria-label="ariaLabel" :disabled="disabled || loading" @click="$emit(\'click\')"><slot /></button>',

@@ -5,7 +5,7 @@ import PerformanceExpandButton from '@/components/performance/PerformanceExpandB
 import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue'
 import PerformanceAssessmentContentLayers from '@/components/performance/PerformanceAssessmentContentLayers.vue'
 import PerformanceRatingControl from '@/components/performance/PerformanceRatingControl.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
@@ -57,7 +57,7 @@ describe('PerformanceTemplateContentSettings', () => {
       await wrapper.vm.$nextTick()
     }
     await emitPrompt('页面提示', '页面说明')
-    const sortable = wrapper.getComponent({ name: 'PerformanceSortableList' })
+    const sortable = wrapper.getComponent({ name: 'UiSortableList' })
     sortable.vm.$emit('reorder', 1, 0)
     await wrapper.vm.$nextTick()
     wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [mixed])
@@ -614,7 +614,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.findAll('.stage-card')[1].trigger('click')
     await wrapper.get('[data-content-item-id="item"]').trigger('click')
     expect((wrapper.get('.work-summary-allow-modify-setting input').element as HTMLInputElement).disabled).toBe(true)
-    expect(wrapper.getComponent({ name: 'PerformanceSortableList' }).props('disabled')).toBe(true)
+    expect(wrapper.getComponent({ name: 'UiSortableList' }).props('disabled')).toBe(true)
     wrapper.unmount()
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [mockNodes[4]] } as any)
     const empty = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
@@ -834,7 +834,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.find('[data-content-item-id="tag-item"] .template-field-description').exists()).toBe(false)
     await blocks[2].get('[data-content-item-id="rating-item"]').trigger('click')
     await wrapper.get('.content-settings-detail--item input[type="checkbox"]').setValue(true)
-    wrapper.getComponent(PerformanceSwitch).vm.$emit('update:modelValue', true)
+    wrapper.getComponent(UiSwitch).vm.$emit('update:modelValue', true)
     await wrapper.vm.$nextTick()
     await (wrapper.vm as any).save()
     const saved = update.mock.calls.at(-1)![1]

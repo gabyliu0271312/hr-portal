@@ -12,7 +12,7 @@
         <div v-if="tagsLoading" class="settings-360__empty" role="status">标签加载中…</div>
         <div v-else-if="tagsError" class="settings-360__error" role="alert">
           <span>{{ tagsError }}</span>
-          <PerformanceButton variant="text" :disabled="disabled" @click="$emit('retry')">重新加载标签</PerformanceButton>
+          <UiButton variant="text" :disabled="disabled" @click="$emit('retry')">重新加载标签</UiButton>
         </div>
         <ul v-else-if="tags.length" class="settings-360__list" aria-label="360°评估人标签">
           <li v-for="tag in tags" :key="tag.id">{{ tag.name_zh }}</li>
@@ -25,7 +25,7 @@
 
 <script setup lang="ts">
 import type { PerformanceReviewer360Tag } from '@/api/performance'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceIconAction from './PerformanceIconAction.vue'
 import PerformanceOtherSettingsCard from './PerformanceOtherSettingsCard.vue'
 import PerformanceReadOnlySettingRow from './PerformanceReadOnlySettingRow.vue'

@@ -20,11 +20,11 @@
             <PerformanceMetricFieldRow v-for="field in lockedFields" :key="field.id" :field="field" locked />
           </div>
 
-          <PerformanceSortableList v-if="sortableFields.length" :items="sortableFields" item-key="id" :disabled="saving" :gap="0" aria-label="指标字段排序" @reorder="reorderFields">
+          <UiSortableList v-if="sortableFields.length" :items="sortableFields" item-key="id" :disabled="saving" :gap="0" aria-label="指标字段排序" @reorder="reorderFields">
             <template #default="{ item: field, index, dragging, itemStyle }">
               <PerformanceMetricFieldRow :field="field" :index="index" :dragging="dragging" :disabled="saving" :item-style="itemStyle" @remove="removeField" />
             </template>
-          </PerformanceSortableList>
+          </UiSortableList>
           <span v-if="!selectedFields.length" class="metric-type-fields__empty">暂无可选指标字段</span>
           <div class="metric-type-fields__picker">
             <PerformanceTextButton label="选择字段" :disabled="saving" :aria-expanded="pickerOpen" @click="openPicker">
@@ -55,8 +55,8 @@
                   <template #icon><AddOutlinedIcon /></template>
                 </PerformanceTextButton>
                 <div class="metric-type-field-picker__footer">
-                  <PerformanceButton variant="secondary" size="small" @click="pickerOpen = false">取消</PerformanceButton>
-                  <PerformanceButton variant="primary" size="small" @click="confirmPicker">确定</PerformanceButton>
+                  <UiButton variant="secondary" size="small" @click="pickerOpen = false">取消</UiButton>
+                  <UiButton variant="primary" size="small" @click="confirmPicker">确定</UiButton>
                 </div>
               </div>
             </div>
@@ -68,8 +68,8 @@
     </form>
     <template #footer>
       <div class="metric-type-footer">
-        <PerformanceButton variant="secondary" :disabled="saving" @click="open = false">取消</PerformanceButton>
-        <PerformanceButton variant="primary" :loading="saving" @click="submit">确定</PerformanceButton>
+        <UiButton variant="secondary" :disabled="saving" @click="open = false">取消</UiButton>
+        <UiButton variant="primary" :loading="saving" @click="submit">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -79,13 +79,13 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import type { PerformanceMetricTypeDraft, PerformanceMetricTypeFieldOption } from '@/api/performanceMetricTypes'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceMetricFieldIcon from './PerformanceMetricFieldIcon.vue'
 import PerformanceMetricFieldRow from './PerformanceMetricFieldRow.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 

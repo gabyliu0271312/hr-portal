@@ -42,7 +42,7 @@
               <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
             </div>
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel result-view-section__configured-content" aria-label="配置填写内容">
-          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -74,7 +74,7 @@
                 @delete="removeConfigured(index)"
               />
             </template>
-          </PerformanceSortableList>
+          </UiSortableList>
         </section>
 
               <PerformanceTemplateOperateBar v-if="summaryActions.length" class="result-view-content-footer" :actions="summaryActions" @action="handleContentAction" />
@@ -134,7 +134,7 @@
           <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         </template>
         <section v-if="configuredContents.length && !isResultView && !isReferenceTab" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
-          <PerformanceSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -166,7 +166,7 @@
                 @delete="removeConfigured(index)"
               />
             </template>
-          </PerformanceSortableList>
+          </UiSortableList>
           <PerformanceTemplateOperateBar v-if="summaryActions.length" class="configured-content-footer" :actions="summaryActions" @action="handleContentAction" />
         </section>
       </PerformanceContentWorkspace>
@@ -198,7 +198,7 @@ import PerformanceExpandButton from '@/components/performance/PerformanceExpandB
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
 import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type AssessmentContentType, type AssessmentOption, type AssessmentTagOption } from '@/components/performance/PerformanceAssessmentContentLayers.vue'
-import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
+import UiSortableList from '@/components/ui/UiSortableList.vue'
 import PerformanceTemplateOperateBar from '@/components/performance/PerformanceTemplateOperateBar.vue'
 import PerformanceReviewer360Content from '@/components/performance/PerformanceReviewer360Content.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'

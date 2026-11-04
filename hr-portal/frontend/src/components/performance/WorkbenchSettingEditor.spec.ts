@@ -24,7 +24,7 @@ const stubs = {
     emits: ['update:modelValue', 'open'],
     template: '<button class="search-select" type="button" @click="$emit(\'update:modelValue\', ariaLabel === \'指定周期\' ? \'cycle:1\' : \'HRBP\')">选择框</button>',
   },
-  PerformanceSwitch: {
+  UiSwitch: {
     props: ['modelValue'],
     emits: ['update:modelValue'],
     template: '<button class="switch" type="button" @click="$emit(\'update:modelValue\', !modelValue)">switch</button>',

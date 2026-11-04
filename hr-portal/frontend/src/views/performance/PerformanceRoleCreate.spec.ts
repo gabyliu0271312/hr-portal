@@ -14,7 +14,7 @@ vi.mock('vue-router', () => ({
 }))
 
 const stubs = {
-  PageHeader: {
+  UiPageHeader: {
     props: ['title'],
     emits: ['back'],
     template: '<header class="page-header"><span>{{ title }}</span><button class="back" @click="$emit(\'back\')">返回</button><slot name="actions" /></header>',

@@ -102,10 +102,11 @@ describe('ReviewRuleTable', () => {
     expect(performanceManagementTableSource).toContain('line-height: 22px;')
   })
 
-  it('keeps target icon names on pagination controls', () => {
-    expect(performanceManagementTableSource).toContain('data-icon="LeftBoldOutlined"')
-    expect(performanceManagementTableSource).toContain('data-icon="RightBoldOutlined"')
-    expect(performanceManagementTableSource).toContain(':suffix-icon="DownBoldOutlinedIcon"')
+  it('keeps target icon names on pagination controls', async () => {
+    const uiPaginationSource = (await import('../ui/UiPagination.vue?raw')).default
+    expect(uiPaginationSource).toContain('data-icon="LeftBoldOutlined"')
+    expect(uiPaginationSource).toContain('data-icon="RightBoldOutlined"')
+    expect(uiPaginationSource).toContain(':suffix-icon="ArrowDown"')
   })
 
   it('emits edit and keeps captured delete disabled', async () => {

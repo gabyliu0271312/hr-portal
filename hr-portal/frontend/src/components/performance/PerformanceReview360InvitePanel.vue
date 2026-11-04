@@ -7,7 +7,7 @@ import {
   type PerformanceReview360InvitedReviewer,
 } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
@@ -186,7 +186,7 @@ onMounted(() => void load())
       @clear="load()"
     >
       <template #actions>
-        <PerformanceButton variant="primary" aria-label="邀请 360° 评估人" @click="openInviteDrawer">邀请评估人</PerformanceButton>
+        <UiButton variant="primary" aria-label="邀请 360° 评估人" @click="openInviteDrawer">邀请评估人</UiButton>
       </template>
     </PerformanceListToolbar>
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
@@ -214,7 +214,7 @@ onMounted(() => void load())
       </el-table-column>
       <el-table-column label="操作" width="120" fixed="right">
         <template #default="{ row }">
-          <PerformanceButton variant="text" size="small" :disabled="row.status === 'completed' || Boolean(revoking)" aria-label="撤销邀请" @click="revoke(row.employee_no)">撤销</PerformanceButton>
+          <UiButton variant="text" size="small" :disabled="row.status === 'completed' || Boolean(revoking)" aria-label="撤销邀请" @click="revoke(row.employee_no)">撤销</UiButton>
         </template>
       </el-table-column>
     </PerformanceManagementTable>
@@ -246,7 +246,7 @@ onMounted(() => void load())
         </ul>
         <div class="invite-candidates__footer">
           <span>已选 {{ selectedCandidates.size }} 人</span>
-          <PerformanceButton variant="primary" :disabled="selectedCandidates.size === 0 || inviting" :loading="inviting" @click="confirmInvite">确认邀请</PerformanceButton>
+          <UiButton variant="primary" :disabled="selectedCandidates.size === 0 || inviting" :loading="inviting" @click="confirmInvite">确认邀请</UiButton>
         </div>
       </div>
     </PerformanceDrawerShell>

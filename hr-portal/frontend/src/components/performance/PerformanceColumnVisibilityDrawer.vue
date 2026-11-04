@@ -11,14 +11,14 @@
     <div class="column-drawer__side column-drawer__selected">
       <h3>已选：{{ draftKeys.length }}</h3>
       <div v-if="lockedColumn" class="selected-column locked"><div class="selected-column__text"><PerformanceIconButton icon="LockOutlined" label="锁定列" static /><span>{{ lockedColumn.label }}</span></div></div>
-      <PerformanceSortableList :items="draftColumns.filter(column => !column.locked)" item-key="key" :disabled="false" @reorder="reorder">
+      <UiSortableList :items="draftColumns.filter(column => !column.locked)" item-key="key" :disabled="false" @reorder="reorder">
         <template #default="{ item, index, dragging, itemStyle }">
           <div class="selected-column" :data-sortable-index="index" :style="itemStyle">
-            <div class="selected-column__text"><PerformanceDragHandle :label="`拖拽排序${item.label}`" :dragging="dragging" variant="compact" /><span>{{ item.label }}</span></div>
+            <div class="selected-column__text"><UiDragHandle :label="`拖拽排序${item.label}`" :dragging="dragging" variant="compact" /><span>{{ item.label }}</span></div>
             <PerformanceRemoveButton :label="`移除${item.label}`" @click="toggle(item.key)" />
           </div>
         </template>
-      </PerformanceSortableList>
+      </UiSortableList>
     </div>
     <template #footer><PerformanceDrawerFooter @confirm="confirm" @cancel="cancel" /></template>
   </PerformanceDrawerShell>
@@ -28,10 +28,10 @@
 import { computed, ref, watch } from 'vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceRemoveButton from './PerformanceRemoveButton.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 
 export type PerformanceColumnOption = { key: string; label: string; locked?: boolean }
 const props = defineProps<{ modelValue: boolean; columns: PerformanceColumnOption[]; selectedKeys: string[] }>()

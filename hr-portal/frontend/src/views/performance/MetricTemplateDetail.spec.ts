@@ -10,8 +10,8 @@ vi.mock('vue-router', () => ({
 }))
 
 const stubs = {
-  FullScreenModal: { props: ['title'], emits: ['back'], template: `<section class="full-screen-modal"><header><h1>{{ title }}</h1><button class="back" @click="$emit('back')">返回</button><slot name="actions" /></header><main><slot /></main></section>` },
-  PerformanceButton: { props: ['ariaLabel', 'variant', 'disabled'], template: '<button :aria-label="ariaLabel" :disabled="disabled"><slot /></button>' },
+  UiFullScreenModal: { props: ['title'], emits: ['back'], template: `<section class="full-screen-modal"><header><h1>{{ title }}</h1><button class="back" @click="$emit('back')">返回</button><slot name="actions" /></header><main><slot /></main></section>` },
+  UiButton: { props: ['ariaLabel', 'variant', 'disabled'], template: '<button :aria-label="ariaLabel" :disabled="disabled"><slot /></button>' },
   PerformanceSurfaceCard: { template: '<section class="surface-card"><slot /></section>' },
   PerformanceRadioGroup: { props: ['options'], template: '<div class="radio-group"><span v-for="option in options" :key="option.value">{{ option.label }}</span></div>' },
   AddOutlinedIcon: { template: '<svg data-icon="AddOutlined" />' },

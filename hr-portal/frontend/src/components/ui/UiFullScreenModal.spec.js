@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
-import FullScreenModal from './FullScreenModal.vue';
+import UiFullScreenModal from './UiFullScreenModal.vue';
 function mountModal(showFooter = true) {
-    return mount(FullScreenModal, {
+    return mount(UiFullScreenModal, {
         props: { title: '新建评估规则', showFooter },
         slots: { default: '<section data-testid="content">内容</section>' },
         global: {
@@ -15,7 +15,7 @@ function mountModal(showFooter = true) {
         },
     });
 }
-describe('FullScreenModal', () => {
+describe('UiFullScreenModal', () => {
     it('assembles the shared header, scroll content and 48px action bar', () => {
         const wrapper = mountModal();
         expect(wrapper.get('.full-screen-modal-header-title').text()).toBe('新建评估规则');

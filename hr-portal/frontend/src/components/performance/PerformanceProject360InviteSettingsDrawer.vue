@@ -51,11 +51,11 @@
         <div class="invite-settings-surface invite-settings-surface--settings">
           <div class="invite-settings-switch-line">
             <span>只邀请在职人员</span>
-            <PerformanceSwitch v-model="activeOnly" aria-label="只邀请在职人员" />
+            <UiSwitch v-model="activeOnly" aria-label="只邀请在职人员" />
           </div>
           <div class="invite-settings-switch-line">
             <span>直属下级不计入邀请人数限制</span>
-            <PerformanceSwitch v-model="draft.exclude_default_invite_from_limit" aria-label="直属下级不计入邀请人数限制" />
+            <UiSwitch v-model="draft.exclude_default_invite_from_limit" aria-label="直属下级不计入邀请人数限制" />
           </div>
         </div>
       </section>
@@ -63,9 +63,9 @@
       <section class="invite-settings-section invite-settings-section--spaced" aria-labelledby="import-invite-title">
         <h3 id="import-invite-title">导入默认邀请名单</h3>
         <div class="invite-settings-surface invite-settings-surface--import">
-          <PerformanceButton variant="secondary" aria-label="导入默认邀请名单" @click="importInviteList">
+          <UiButton variant="secondary" aria-label="导入默认邀请名单" @click="importInviteList">
             <span class="invite-settings-import-icon" aria-hidden="true">↥</span>导入默认邀请名单
-          </PerformanceButton>
+          </UiButton>
         </div>
       </section>
 
@@ -198,7 +198,7 @@
       <section class="invite-settings-section invite-settings-section--spaced" aria-labelledby="voluntary-title">
         <div class="invite-settings-switch-line invite-settings-switch-line--section-title">
           <h3 id="voluntary-title">允许自愿评估</h3>
-          <PerformanceSwitch v-model="draft.allow_voluntary_evaluation" aria-label="允许自愿评估" />
+          <UiSwitch v-model="draft.allow_voluntary_evaluation" aria-label="允许自愿评估" />
         </div>
         <p class="invite-settings-muted">开启后，所有人可主动选择本项目中未邀请自己的被评估人进行评估</p>
       </section>
@@ -214,13 +214,13 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import type { PerformanceProjectFlowSettings } from '@/api/performance'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 type InviteSettings = NonNullable<PerformanceProjectFlowSettings['node_settings'][string]['invite']>
 type PeopleOption = { value: string; label: string }

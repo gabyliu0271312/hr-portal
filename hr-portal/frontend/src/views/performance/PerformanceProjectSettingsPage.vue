@@ -77,7 +77,7 @@
         />
         <div v-if="manualOpeningError" class="flow-setting-error" role="alert">
           <span>{{ manualOpeningError }}</span>
-          <PerformanceButton variant="secondary" size="small" @click="loadManualOpeningSetting">重新加载</PerformanceButton>
+          <UiButton variant="secondary" size="small" @click="loadManualOpeningSetting">重新加载</UiButton>
         </div>
         <p v-if="!form.template_id" class="flow-summary">请先返回基本信息选择绩效模板</p>
         <p v-if="validationError" class="error" role="alert">{{ validationError }}</p>
@@ -117,11 +117,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import PageHeader from '@/components/performance/PageHeader.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceSelectTag from '@/components/performance/PerformanceSelectTag.vue'
-import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
+import UiStepFlow from '@/components/ui/UiStepFlow.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'

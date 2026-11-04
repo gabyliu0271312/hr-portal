@@ -162,7 +162,7 @@ describe("PerformanceAssessmentContentLayers", () => {
     expect(firstHeading.attributes("data-drag-enabled")).toBe("true");
     expect(firstHeading.attributes("data-rbd-drag-handle-draggable-id")).toBe("form-array-list-draggable-default.entries.assessment-content-1");
     expect(firstHeading.get("svg").attributes("data-icon")).toBe("DragOutlined");
-    const sortable = wrapper.findComponent({ name: "PerformanceSortableList" });
+    const sortable = wrapper.findComponent({ name: "UiSortableList" });
     sortable.vm.$emit("reorder", 0, 1);
     await wrapper.vm.$nextTick();
     expect(wrapper.findAll('.saved-item input[placeholder="\u8BF7\u8F93\u5165"]').map((item) => item.element.value)).toEqual(["Second item", "First item"]);

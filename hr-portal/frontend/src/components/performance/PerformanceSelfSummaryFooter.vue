@@ -1,13 +1,13 @@
 <template>
   <footer class="self-summary-footer">
-    <PerformanceButton variant="primary" :disabled="submitting || !submitAllowed || !editable" :loading="submitting" @click="$emit('submit')">{{ submitting ? '提交中…' : '提交' }}</PerformanceButton>
-    <PerformanceButton variant="secondary" :disabled="submitting" @click="$emit('cancel')">取消</PerformanceButton>
+    <UiButton variant="primary" :disabled="submitting || !submitAllowed || !editable" :loading="submitting" @click="$emit('submit')">{{ submitting ? '提交中…' : '提交' }}</UiButton>
+    <UiButton variant="secondary" :disabled="submitting" @click="$emit('cancel')">取消</UiButton>
     <span role="status">{{ message }}</span>
   </footer>
 </template>
 
 <script setup lang="ts">
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 defineProps<{ submitting: boolean; submitAllowed: boolean; editable: boolean; message: string }>()
 defineEmits<{ submit: []; cancel: [] }>()

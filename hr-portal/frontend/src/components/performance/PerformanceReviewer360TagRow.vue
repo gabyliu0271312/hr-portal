@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PerformanceReviewer360Tag } from '@/api/performance'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 
@@ -29,7 +29,7 @@ function update(field: Field, value: string) {
 
 <template>
   <div class="reviewer-tag-row" :data-sortable-index="index">
-    <PerformanceDragHandle v-if="multiple" class="reviewer-tag-drag" :label="`拖拽第${index + 1}个标签`" :dragging="dragging" :disabled="disabled" />
+    <UiDragHandle v-if="multiple" class="reviewer-tag-drag" :label="`拖拽第${index + 1}个标签`" :dragging="dragging" :disabled="disabled" />
     <div class="reviewer-tag-card">
       <div v-for="group in groups" :key="group.label" class="reviewer-tag-group">
         <label class="reviewer-tag-label" :for="`reviewer-tag-${tag.id}-${group.fields[0].key}`">{{ group.label }}</label>

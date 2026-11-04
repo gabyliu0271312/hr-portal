@@ -2,8 +2,8 @@ import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElMessage } from 'element-plus'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceRatingLevelRuleSettings from './PerformanceRatingLevelRuleSettings.vue'
 import ratingRuleSource from './PerformanceRatingLevelRuleSettings.vue?raw'
 import PerformanceConfiguredContentBlock from './PerformanceConfiguredContentBlock.vue'
@@ -498,27 +498,27 @@ describe('PerformanceConfiguredContentBlock', () => {
     await wrapper.setProps({ itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: true } } })
     expect(wrapper.find('[data-content-item-id="rating-item"] strong').exists()).toBe(false)
     expect(wrapper.find('[data-content-item-id="rating-item"] > i').exists()).toBe(false)
-    const toggle = wrapper.getComponent(PerformanceSwitch)
+    const toggle = wrapper.getComponent(UiSwitch)
     expect(toggle.props('modelValue')).toBe(false)
     expect(wrapper.find('.rating-level-rule-settings__details').exists()).toBe(false)
     await toggle.trigger('click')
     expect(wrapper.emitted('update:item-settings')?.at(-1)).toEqual([{ 'rating-item': { mode: 'fill', required: true, hideName: true, levelRulesEnabled: true } }])
     await wrapper.setProps({ itemSettings: { 'rating-item': { mode: 'fill', required: true, hideName: true, levelRulesEnabled: true } } })
     expect(wrapper.get('.rating-level-rule-settings__details p').text()).toBe('当满足条件时，当前评估题仅可选如下规则配置的可选项，当不满足所有规则时，当前评估题可选任意选项。')
-    expect(wrapper.getComponent(PerformanceButton).text()).toBe('添加规则')
+    expect(wrapper.getComponent(UiButton).text()).toBe('添加规则')
     expect(wrapper.get('[data-icon="GanttsetOutlined"]').findAll('path')).toHaveLength(2)
     expect(ratingRuleSource).toContain('var(--performance-settings-help-line-height)')
     expect(ratingRuleSource).toContain('var(--color-line-control)')
     const info = vi.spyOn(ElMessage, 'info').mockImplementation(() => ({ close: () => {} }))
-    await wrapper.getComponent(PerformanceButton).trigger('click')
+    await wrapper.getComponent(UiButton).trigger('click')
     expect(info).toHaveBeenCalledWith('添加规则弹窗暂未开放')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     info.mockRestore()
     await wrapper.get('.configured-content-card__row').trigger('click')
     expect(wrapper.findComponent(PerformanceRatingLevelRuleSettings).exists()).toBe(false)
     await wrapper.get('[data-content-item-id="rating-item"]').trigger('click')
-    expect(wrapper.getComponent(PerformanceSwitch).props('modelValue')).toBe(true)
-    await wrapper.getComponent(PerformanceSwitch).trigger('click')
+    expect(wrapper.getComponent(UiSwitch).props('modelValue')).toBe(true)
+    await wrapper.getComponent(UiSwitch).trigger('click')
     await wrapper.setProps({ itemSettings: (wrapper.emitted('update:item-settings')!.at(-1) as [typeof wrapper.vm.$props.itemSettings])[0] })
     expect(wrapper.find('.rating-level-rule-settings__details').exists()).toBe(false)
     expect(wrapper.findAll('.content-settings-detail--item legend').map(group => group.text())).toEqual(['显示设置', '必填项设置'])

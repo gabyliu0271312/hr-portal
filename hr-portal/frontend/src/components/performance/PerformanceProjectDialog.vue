@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch, ref } from 'vue'
 import type { PerformanceAudienceGroup, PerformanceCycleProjectShell, PerformanceHrbpOrganizationNode, PerformanceProjectPayload } from '@/api/performance'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformancePermissionButton from './PerformancePermissionButton.vue'
@@ -9,7 +9,7 @@ import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import PerformanceAudienceRuleEditor from './PerformanceAudienceRuleEditor.vue'
 
 const props = withDefaults(defineProps<{
@@ -135,7 +135,7 @@ watch(() => [props.modelValue, props.project], () => {
         </div>
       </PerformanceFormItem>
       <div class="project-scope-limit__field" :class="{ 'project-scope-limit__field--invalid': Boolean(scopeError) }">
-        <div class="project-scope-limit__label-row"><span class="project-scope-limit__label">限定考核范围</span><PerformanceSwitch v-model="form.scopeLimited" aria-label="限定考核范围" :disabled="saving" /></div>
+        <div class="project-scope-limit__label-row"><span class="project-scope-limit__label">限定考核范围</span><UiSwitch v-model="form.scopeLimited" aria-label="限定考核范围" :disabled="saving" /></div>
         <p class="project-scope-limit__description">开启后，只能在限定范围内圈选被评估人</p>
         <PerformanceAudienceRuleEditor
           v-if="form.scopeLimited"
@@ -152,7 +152,7 @@ watch(() => [props.modelValue, props.project], () => {
 
     <template #footer>
       <div class="project-dialog-footer">
-        <PerformanceButton variant="secondary" :disabled="saving" @click="close">取消</PerformanceButton>
+        <UiButton variant="secondary" :disabled="saving" @click="close">取消</UiButton>
         <PerformancePermissionButton :allowed="canSubmit" variant="primary" :disabled="saving || Boolean(error) || Boolean(dataManagersError) || Boolean(scopeError)" @click="submit">{{ saving ? '保存中...' : '确定' }}</PerformancePermissionButton>
       </div>
     </template>

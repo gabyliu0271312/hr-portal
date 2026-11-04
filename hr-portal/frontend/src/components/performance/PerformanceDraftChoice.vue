@@ -3,7 +3,7 @@
     <div ref="dialog" @keydown="onKeydown" @keydown.esc.stop="close">
       <div class="draft-choice-title"><span class="draft-choice-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24"><path :d="promptDefinitions.info.iconPath" fill="currentColor" /><path :d="promptDefinitions.info.iconInnerPath" fill="#fff" /></svg></span><strong>有未提交的草稿，是否使用？</strong></div>
       <p v-if="error" role="alert">{{ error }}</p>
-      <div class="draft-choice-buttons"><PerformanceButton size="small" :disabled="busy" @click="choose('discard')">不使用</PerformanceButton><PerformanceButton size="small" variant="primary" :disabled="busy" @click="choose('use')">使用草稿</PerformanceButton></div>
+      <div class="draft-choice-buttons"><UiButton size="small" :disabled="busy" @click="choose('discard')">不使用</UiButton><UiButton size="small" variant="primary" :disabled="busy" @click="choose('use')">使用草稿</UiButton></div>
     </div>
   </PerformancePopover>
 </template>
@@ -11,7 +11,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { performanceReviewApi, type PerformanceTemplateTask } from '@/api/performance'
 import PerformancePopover from './PerformancePopover.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import { promptDefinitions } from './PerformancePromptNotice.vue'
 const props = defineProps<{ visible: boolean; anchor: HTMLElement | null; task: PerformanceTemplateTask; employeeNo?: string }>()
 const emit = defineEmits<{ close: []; choose: [choice: 'use' | 'discard'] }>()

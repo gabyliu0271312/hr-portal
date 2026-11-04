@@ -3,14 +3,14 @@
     <svg class="performance-review-completion-notice__icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.996 22.98c-6.067 0-10.983-4.918-10.983-10.984S5.93 1.013 11.996 1.013c6.066 0 10.983 4.917 10.983 10.983 0 6.066-4.917 10.984-10.983 10.984Z" fill="currentColor"/><path d="M17.537 10.746a1.38 1.38 0 0 0-.005-1.95 1.378 1.378 0 0 0-1.95-.005l-4.89 4.89-2.285-2.285a1.375 1.375 0 0 0-1.942.012 1.373 1.373 0 0 0-.013 1.942c1.178 1.175 2.356 2.348 3.53 3.528.392.394 1.03.394 1.422 0 2.037-2.051 4.087-4.09 6.133-6.132Z" fill="#fff"/></svg>
     <div class="performance-review-completion-notice__main">
       <div class="performance-review-completion-notice__description">{{ message }}</div>
-      <div v-if="editable" class="performance-review-completion-notice__action"><span ref="editAnchor"><PerformanceButton variant="secondary" size="small" class="performance-review-completion-notice__edit" aria-label="编辑已提交内容" :loading="checking" @click="edit"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="EditOutlined" aria-hidden="true"><path d="m17.57 7.244-.006-.006.37-.37a1 1 0 0 0 .001-1.412l-3.434-3.453-.002-.002a1 1 0 0 0-1.414 0l-.705.706.01.01L2 13.186V17a1 1 0 0 0 1 1h3.814L17.57 7.244Zm-3.273.389-2.015-2.015 1.487-1.515 2.023 2.034-1.495 1.496Zm-3.415-.587 2.002 2.002-6.913 6.92h-.004l-1.934-1.935v-.003l6.849-6.984ZM3 20a1 1 0 1 0 0 2h18a1 1 0 0 0 0-2H3Z" fill="currentColor"/></svg></span>编辑</PerformanceButton></span><PerformanceDraftChoice v-if="draftTask" :visible="draftOpen" :anchor="editAnchor" :task="draftTask" :employee-no="employeeNo" @close="draftOpen = false" @choose="choose" /><span v-if="draftError" role="alert">{{ draftError }}</span></div>
+      <div v-if="editable" class="performance-review-completion-notice__action"><span ref="editAnchor"><UiButton variant="secondary" size="small" class="performance-review-completion-notice__edit" aria-label="编辑已提交内容" :loading="checking" @click="edit"><span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="EditOutlined" aria-hidden="true"><path d="m17.57 7.244-.006-.006.37-.37a1 1 0 0 0 .001-1.412l-3.434-3.453-.002-.002a1 1 0 0 0-1.414 0l-.705.706.01.01L2 13.186V17a1 1 0 0 0 1 1h3.814L17.57 7.244Zm-3.273.389-2.015-2.015 1.487-1.515 2.023 2.034-1.495 1.496Zm-3.415-.587 2.002 2.002-6.913 6.92h-.004l-1.934-1.935v-.003l6.849-6.984ZM3 20a1 1 0 1 0 0 2h18a1 1 0 0 0 0-2H3Z" fill="currentColor"/></svg></span>编辑</UiButton></span><PerformanceDraftChoice v-if="draftTask" :visible="draftOpen" :anchor="editAnchor" :task="draftTask" :employee-no="employeeNo" @close="draftOpen = false" @choose="choose" /><span v-if="draftError" role="alert">{{ draftError }}</span></div>
     </div>
   </div>
 </template>
 <script setup lang="ts">
 import { ref } from 'vue'
 import { performanceReviewApi, type PerformanceTemplateTask } from '@/api/performance'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDraftChoice from './PerformanceDraftChoice.vue'
 const props = withDefaults(defineProps<{ editable: boolean; message: string; variant?: 'default' | 'evaluation-drawer'; taskId?: number | string; taskKind?: string; employeeNo?: string }>(), { variant: 'default' })
 const emit = defineEmits<{ edit: [choice?: 'use' | 'discard'] }>()

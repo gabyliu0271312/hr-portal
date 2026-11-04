@@ -31,15 +31,15 @@
     </div>
     <template #footer>
       <div class="authorization-dialog-actions">
-        <PerformanceButton variant="secondary" @click="emit('update:modelValue', false)">取消</PerformanceButton>
-        <PerformanceButton variant="primary" disabled @click="emit('next')">下一步</PerformanceButton>
+        <UiButton variant="secondary" @click="emit('update:modelValue', false)">取消</UiButton>
+        <UiButton variant="primary" disabled @click="emit('next')">下一步</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
 </template>
 
 <script setup lang="ts">
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'

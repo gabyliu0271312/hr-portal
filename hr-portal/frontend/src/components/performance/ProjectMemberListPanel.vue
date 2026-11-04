@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, performanceWorkbenchApi, type ProjectMember, type PerformanceWorkbenchTaskPerson } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
@@ -278,8 +278,8 @@ onMounted(() => void loadMembers())
         <div v-else class="member-state">暂无成员</div>
       </template>
       <template #selection-actions>
-        <PerformanceButton variant="outline-primary" aria-label="授权他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('authorize-selected', selectedMembers)">授权他人处理</PerformanceButton>
-        <PerformanceButton variant="outline-primary" aria-label="转交他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('transfer-selected', selectedMembers)">转交他人处理</PerformanceButton>
+        <UiButton variant="outline-primary" aria-label="授权他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('authorize-selected', selectedMembers)">授权他人处理</UiButton>
+        <UiButton variant="outline-primary" aria-label="转交他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('transfer-selected', selectedMembers)">转交他人处理</UiButton>
       </template>
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />

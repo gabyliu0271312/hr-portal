@@ -6,7 +6,7 @@
     :data-sortable-index="locked ? undefined : index"
     :data-field-id="field.id"
   >
-    <PerformanceDragHandle
+    <UiDragHandle
       v-if="!locked"
       :label="`拖拽第${index + 1}个指标字段`"
       :dragging="dragging"
@@ -17,14 +17,14 @@
     </span>
     <PerformanceMetricFieldIcon :field-type="field.field_type" />
     <span class="performance-metric-field-row__name">{{ field.name }}</span>
-    <PerformanceButton v-if="!locked" class="performance-metric-field-row__remove" variant="text" size="small" :disabled="disabled" @click="emit('remove', field.id)">移除</PerformanceButton>
+    <UiButton v-if="!locked" class="performance-metric-field-row__remove" variant="text" size="small" :disabled="disabled" @click="emit('remove', field.id)">移除</UiButton>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { PerformanceMetricTypeFieldOption } from '@/api/performanceMetricTypes'
-import PerformanceButton from './PerformanceButton.vue'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiButton from '../ui/UiButton.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceMetricFieldIcon from './PerformanceMetricFieldIcon.vue'
 
 withDefaults(defineProps<{

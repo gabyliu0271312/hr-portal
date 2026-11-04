@@ -4,7 +4,7 @@ import PerformanceMetricFieldCreateDialog from './PerformanceMetricFieldCreateDi
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceLocalizedInput from './PerformanceLocalizedInput.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 function render(props = {}) {
   return mount(PerformanceMetricFieldCreateDialog, { props: { modelValue: true, ...props }, global: { stubs: { Teleport: true } } })
@@ -23,7 +23,7 @@ describe('PM-T017-T04 metric field create dialog', () => {
     expect(wrapper.findAll('.performance-form-item__label').map(item => item.text())).toEqual(['名称*', '字段类型*'])
     expect(wrapper.findAll('.radio-label').map(item => item.text())).toEqual(['文本', '数字', '百分比'])
     expect((wrapper.get('input[value="text"]').element as HTMLInputElement).checked).toBe(true)
-    expect(wrapper.findAllComponents(PerformanceButton).filter(button => button.text()).map(button => button.text())).toEqual(['取消', '确定'])
+    expect(wrapper.findAllComponents(UiButton).filter(button => button.text()).map(button => button.text())).toEqual(['取消', '确定'])
     expect(wrapper.text()).not.toContain('人员单选')
     expect(wrapper.text()).not.toContain('字段编码')
     expect(wrapper.text()).not.toContain('描述')
@@ -64,7 +64,7 @@ describe('PM-T017-T04 metric field create dialog', () => {
     await wrapper.setProps({ errorMessage: '字段保存失败，请重试' })
     expect((wrapper.get('#metric-field-name').element as HTMLInputElement).value).toBe('待保存字段')
     expect(wrapper.get('[role="alert"]').text()).toContain('保存失败')
-    await wrapper.findAllComponents(PerformanceButton)[0].trigger('click')
+    await wrapper.findAllComponents(UiButton)[0].trigger('click')
     expect(wrapper.emitted('confirm')).toBeUndefined()
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
     await wrapper.setProps({ modelValue: false })
@@ -92,7 +92,7 @@ describe('PM-T017-T04 metric field create dialog', () => {
     const wrapper = render({ saving: true })
     expect(wrapper.get('#metric-field-name').attributes('disabled')).toBeDefined()
     expect(wrapper.findAll('input[type="radio"]').every(input => input.attributes('disabled') !== undefined)).toBe(true)
-    expect(wrapper.findAllComponents(PerformanceButton).every(button => button.attributes('disabled') !== undefined)).toBe(true)
+    expect(wrapper.findAllComponents(UiButton).every(button => button.attributes('disabled') !== undefined)).toBe(true)
     await wrapper.get('form').trigger('submit')
     await wrapper.get('[role="dialog"]').trigger('keydown', { key: 'Escape' })
     expect(wrapper.emitted('confirm')).toBeUndefined()

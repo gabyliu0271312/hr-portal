@@ -2,11 +2,11 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SmartCodeInput from '@/components/common/SmartCodeInput.vue'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
-import PerformanceDragHandle from '@/components/performance/PerformanceDragHandle.vue'
-import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
-import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
+import UiDragHandle from '@/components/ui/UiDragHandle.vue'
+import UiSortableList from '@/components/ui/UiSortableList.vue'
+import UiStepFlow from '@/components/ui/UiStepFlow.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 import { SOURCE_TYPES } from '@/config/dataSources'
 import { adminTablesApi } from '@/api/admin_tables'
 import { datasourcesApi, type ConnectorTypeDefinition, type DiscoveredField } from '@/api/datasources'
@@ -649,7 +649,7 @@ defineExpose({ open })
             <span class="field-hint">拖拽左侧手柄调整字段顺序；手工字段不参与接口同步，数据通过数据视图的 Excel 导入维护。</span>
           </div>
           <el-empty v-if="!manualFields.length" description="请添加字段；保存草稿后可在数据视图导入 Excel" :image-size="48" />
-          <PerformanceSortableList
+          <UiSortableList
             v-else
             :items="manualFields"
             item-key="uid"
@@ -663,7 +663,7 @@ defineExpose({ open })
                 :style="itemStyle"
                 :data-sortable-index="index"
               >
-                <PerformanceDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
+                <UiDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
                 <el-input v-model="field.column_code" placeholder="字段编码，如 employee_no" style="width: 180px" />
                 <el-input v-model="field.column_label" placeholder="字段名称" style="width: 160px" />
                 <el-select v-model="field.data_type" style="width: 110px">
@@ -681,7 +681,7 @@ defineExpose({ open })
                 <el-button text type="danger" @click="removeManualField(index)">删除</el-button>
               </div>
             </template>
-          </PerformanceSortableList>
+          </UiSortableList>
         </div>
 
         <div v-else class="panel-body">
@@ -703,7 +703,7 @@ defineExpose({ open })
             <span>标准字段</span>
             <span class="match-head-key">业务主键</span>
           </div>
-          <PerformanceSortableList :items="matchFields" item-key="code" :gap="8" @reorder="reorderMatch">
+          <UiSortableList :items="matchFields" item-key="code" :gap="8" @reorder="reorderMatch">
             <template #default="{ item, index, dragging, itemStyle }">
               <div
                 class="match-row"
@@ -711,7 +711,7 @@ defineExpose({ open })
                 :style="itemStyle"
                 :data-sortable-index="index"
               >
-                <PerformanceDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
+                <UiDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
                 <div class="match-source">
                   <strong>{{ item.label }}</strong>
                   <span class="sub">{{ item.code }}</span>

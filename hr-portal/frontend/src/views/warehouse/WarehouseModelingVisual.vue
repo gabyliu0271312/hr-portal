@@ -14,10 +14,10 @@ import {
 import PermissionButton from '@/components/PermissionButton.vue'
 import CalculatedFieldBridge from '@/components/formula/CalculatedFieldBridge.vue'
 import WarehouseModelReadinessPanel from '@/components/warehouse/WarehouseModelReadinessPanel.vue'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
-import PerformanceDragHandle from '@/components/performance/PerformanceDragHandle.vue'
-import PerformanceSortableList from '@/components/performance/PerformanceSortableList.vue'
-import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
+import UiDragHandle from '@/components/ui/UiDragHandle.vue'
+import UiSortableList from '@/components/ui/UiSortableList.vue'
+import UiStepFlow from '@/components/ui/UiStepFlow.vue'
 import { datasetsApi, type DatasetCalculatedField, type DatasetItem } from '@/api/datasets'
 
 const route = useRoute(); const router = useRouter()
@@ -687,7 +687,7 @@ onBeforeUnmount(() => {
             <span>描述</span>
             <span></span>
           </div>
-          <PerformanceSortableList
+          <UiSortableList
             v-if="outputFields.length"
             :items="outputFields"
             item-key="_uid"
@@ -696,7 +696,7 @@ onBeforeUnmount(() => {
           >
             <template #default="{ item: f, index, dragging, itemStyle }">
               <div class="of-row" :class="{ 'is-dragging': dragging }" :style="itemStyle" :data-sortable-index="index">
-                <PerformanceDragHandle :label="`拖拽第${index + 1}个输出字段`" :dragging="dragging" />
+                <UiDragHandle :label="`拖拽第${index + 1}个输出字段`" :dragging="dragging" />
                 <el-select v-model="f.source_alias" size="small" filterable allow-create placeholder="来源表">
                   <el-option v-for="t in tables" :key="t.alias" :label="t.label || t.alias" :value="t.alias" />
                 </el-select>
@@ -723,7 +723,7 @@ onBeforeUnmount(() => {
                 <el-button text size="small" type="danger" @click="removeOF(index)">删除</el-button>
               </div>
             </template>
-          </PerformanceSortableList>
+          </UiSortableList>
           <el-empty v-else description="暂无输出字段，点击右上角「添加字段」" :image-size="60" />
         </div>
       </section>

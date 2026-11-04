@@ -114,7 +114,7 @@ const placeholderStyle = computed(() => ({
 function getItemKey(item: object, index: number) {
   const value = typeof props.itemKey === 'function' ? props.itemKey(item, index) : (item as Record<string, unknown>)[props.itemKey]
   if (value === undefined || value === null || String(value).trim() === '') {
-    throw new Error('PerformanceSortableList requires a stable itemKey for every item')
+    throw new Error('UiSortableList requires a stable itemKey for every item')
   }
   return String(value)
 }

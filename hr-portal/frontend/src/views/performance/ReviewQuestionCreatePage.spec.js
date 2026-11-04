@@ -25,7 +25,7 @@ function mountPage() {
   return mount(ReviewQuestionCreatePage, {
     global: {
       stubs: {
-        FullScreenModal: { props: ["title"], emits: ["submit"], template: `<div><h1>{{ title }}</h1><slot /><button data-submit @click="$emit('submit')" /></div>` },
+        UiFullScreenModal: { props: ["title"], emits: ["submit"], template: `<div><h1>{{ title }}</h1><slot /><button data-submit @click="$emit('submit')" /></div>` },
         ReviewQuestionFormBasic: { template: "<div />" },
         ReviewQuestionFormType: {
           props: ["modelValue"],

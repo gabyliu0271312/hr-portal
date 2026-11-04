@@ -32,7 +32,7 @@ const stubs = {
   },
   PerformanceManagementTable: { props: ['rows'], template: '<div class="management-table"><slot /></div>' },
   PerformancePermissionButton: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
-  PerformanceSwitch: { props: ['modelValue'], emits: ['update:modelValue'], template: '<button role="switch" :aria-checked="modelValue" @click="$emit(\'update:modelValue\', !modelValue)">switch</button>' },
+  UiSwitch: { props: ['modelValue'], emits: ['update:modelValue'], template: '<button role="switch" :aria-checked="modelValue" @click="$emit(\'update:modelValue\', !modelValue)">switch</button>' },
   WorkbenchSettingEditor: { template: '<div class="editor" />' },
   PerformanceConfirmDialog: { template: '<div class="confirm" />' },
 }

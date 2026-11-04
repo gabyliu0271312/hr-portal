@@ -1,5 +1,5 @@
 <template>
-  <FullScreenModal v-if="modelValue" title="评分公式管理" :show-footer="false" @back="close">
+  <UiFullScreenModal v-if="modelValue" title="评分公式管理" :show-footer="false" @back="close">
     <PerformanceContentSurface variant="table" class="formula-management-surface" aria-label="评分公式管理内容">
       <div class="formula-management-toolbar">
         <PerformanceCreateButton variant="text" label="新建评分公式" @click="openCreateDialog" />
@@ -29,7 +29,7 @@
         <el-table-column prop="updatedAt" label="最近更新时间" width="446" />
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <PerformanceButton variant="text" size="small" @click="emit('edit', row)">编辑</PerformanceButton>
+            <UiButton variant="text" size="small" @click="emit('edit', row)">编辑</UiButton>
           </template>
         </el-table-column>
 
@@ -49,14 +49,14 @@
       @help="emit('help')"
       @insert="emit('insert', $event)"
     />
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import FullScreenModal from './FullScreenModal.vue'
+import UiFullScreenModal from '../ui/UiFullScreenModal.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceContentSurface from './PerformanceContentSurface.vue'
 import PerformanceCreateButton from './PerformanceCreateButton.vue'
 import PerformanceFilterButton from './PerformanceFilterButton.vue'

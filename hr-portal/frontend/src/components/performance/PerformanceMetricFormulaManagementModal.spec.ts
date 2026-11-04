@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import PerformanceMetricFormulaManagementModal from './PerformanceMetricFormulaManagementModal.vue'
 
 const stubs = {
-  FullScreenModal: {
+  UiFullScreenModal: {
     props: ['title', 'showFooter'],
     emits: ['back'],
     template: '<div class="full-screen-modal-stub"><header>{{ title }}</header><button class="back" @click="$emit(\'back\')">back</button><slot /></div>',
@@ -11,7 +11,7 @@ const stubs = {
   PerformanceContentSurface: {
     template: '<section class="surface-stub"><slot /></section>',
   },
-  PerformanceButton: {
+  UiButton: {
     props: ['variant', 'size', 'disabled'],
     emits: ['click'],
     template: '<button class="performance-button" :disabled="disabled" v-bind="$attrs" @click="$emit(\'click\', $event)"><slot /></button>',

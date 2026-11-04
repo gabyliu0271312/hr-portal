@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import SpaceLeftOutlinedIcon from './SpaceLeftOutlinedIcon.vue'
+import SpaceLeftOutlinedIcon from '../performance/SpaceLeftOutlinedIcon.vue'
 
 defineProps<{ title: string }>()
 const emit = defineEmits<{ back: [] }>()

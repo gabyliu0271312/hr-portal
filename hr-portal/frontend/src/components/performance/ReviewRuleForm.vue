@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import AsteriskOutlinedIcon from './AsteriskOutlinedIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import ReviewTypeRadioGroup from './ReviewTypeRadioGroup.vue'
 import LevelConfigEditor from './LevelConfigEditor.vue'
 import InfoOutlinedIcon from './InfoOutlinedIcon.vue'
@@ -241,7 +241,7 @@ defineExpose({ submit, preview, form })
         <h2>评级设置</h2>
         <div class="rating-switch-row">
           <span class="strong-label">评级可参与计算</span>
-          <PerformanceSwitch v-model="form.gradeParticipatesInCalculation" aria-label="评级可参与计算" :disabled="usedEdit" @update:model-value="emitValue" />
+          <UiSwitch v-model="form.gradeParticipatesInCalculation" aria-label="评级可参与计算" :disabled="usedEdit" @update:model-value="emitValue" />
         </div>
         <p class="helper-text">开启后，等级需配置量化分，使用该评估规则的评估题以量化分参与计算。</p>
         <div class="rating-preview" aria-label="配置等级">

@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { performanceReviewRuleApi, type PerformanceReviewRuleDetail } from '@/api/performance'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import ReviewRuleForm, { type ReviewRuleFormValue, type ReviewRulePreviewPayload } from '@/components/performance/ReviewRuleForm.vue'
 import ReviewRulePreviewModal from '@/components/performance/ReviewRulePreviewModal.vue'
 
@@ -97,7 +97,7 @@ onMounted(() => { void loadRule() })
 </script>
 
 <template>
-  <FullScreenModal
+  <UiFullScreenModal
     :title="title"
     :submitting="submitting"
     @back="returnToRuleList"
@@ -115,7 +115,7 @@ onMounted(() => { void loadRule() })
       :form-value="previewPayload"
       @close="closePreview"
     />
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <style scoped>

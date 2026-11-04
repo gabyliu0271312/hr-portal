@@ -1,11 +1,16 @@
 <template>
-  <StickyTable
+  <UiTable
     :columns="columns"
     :rows="rows"
-    :row-key="row => String(row.id)"
+    :row-key="rowKeyOf"
+    aria-label="组织架构"
   >
-    <template #name="{ row }">
-      <div class="org-table__name" :style="{ paddingLeft: `${8 + (row.depth - 1) * 18}px` }">
+    <template #cell="{ row, column }">
+      <div
+        v-if="column.key === 'name'"
+        class="org-table__name"
+        :style="{ paddingLeft: `calc(var(--ui-table-cell-padding-inline) + ${(row.depth - 1) * 1} * var(--ui-tree-indent))` }"
+      >
         <button
           v-if="row.children?.length"
           class="org-table__expand"
@@ -21,17 +26,16 @@
         <span class="org-table__label" :title="row.name">{{ row.name }}</span>
         <el-tag v-if="!row.is_active" type="info" size="small" class="org-table__inactive">停用</el-tag>
       </div>
+      <span v-else-if="column.key === 'action'" class="org-table__action-placeholder">--</span>
+      <template v-else>{{ (row as Row)[column.key as keyof Row] ?? '--' }}</template>
     </template>
-    <template #action>
-      <span class="org-table__action-placeholder">--</span>
-    </template>
-  </StickyTable>
+  </UiTable>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { TreeNode } from '@/api/data'
-import StickyTable from '@/components/common/StickyTable.vue'
+import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 
 type Row = Omit<TreeNode, 'children'> & {
   depth: number
@@ -49,15 +53,17 @@ const props = withDefaults(defineProps<{ nodes: TreeNode[]; searching?: boolean 
 
 const expandedKeys = ref<Set<string>>(new Set())
 
-const columns = [
-  { key: 'name', label: '名称', width: 220, fixed: 'left' as const, slot: 'name' },
+const columns: UiTableColumn[] = [
+  { key: 'name', label: '名称', width: 220, fixed: 'left' },
   { key: 'manager', label: '部门负责人', minWidth: 150 },
   { key: 'hrbp', label: '部门 HRBP', minWidth: 150 },
   { key: 'employee_count', label: '人数', minWidth: 100 },
   { key: 'updated_by', label: '更新人', minWidth: 150 },
   { key: 'updated_at', label: '更新时间', minWidth: 150 },
-  { key: 'action', label: '操作', width: 194, fixed: 'right' as const, slot: 'action' },
+  { key: 'action', label: '操作', width: 194, fixed: 'right' },
 ]
+
+const rowKeyOf = (row: Row) => String(row.id)
 
 function assignDepth(nodes: TreeNode[], depth: number): Row[] {
   return nodes.map(node => ({
@@ -123,13 +129,14 @@ function toggleExpand(row: Row) {
 </script>
 
 <style scoped>
-.org-table__name { display: flex; align-items: center; gap: 4px; min-width: 0; height: 26px; box-sizing: border-box; }
-.org-table__expand { display: grid; place-items: center; width: 18px; height: 18px; flex: 0 0 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #646a73; cursor: pointer; }
-.org-table__expand:hover { background: rgba(31, 35, 41, 0.08); }
-.org-table__expand svg { transition: transform 0.2s cubic-bezier(0.34, 0.69, 0.1, 1); }
+/* 规格 token 见 tokens.css --ui-tree-*（REA 实测：展开钮 18×18 r4、图标 12、每级缩进 14、行内容高 26） */
+.org-table__name { display: flex; align-items: center; gap: var(--ui-tree-expand-gap); min-width: 0; height: var(--ui-tree-name-height); box-sizing: border-box; }
+.org-table__expand { display: grid; place-items: center; width: var(--ui-tree-expand-size); height: var(--ui-tree-expand-size); flex: 0 0 var(--ui-tree-expand-size); padding: 0; border: 0; border-radius: var(--ui-tree-expand-radius); background: transparent; color: var(--ui-tree-expand-color); cursor: pointer; }
+.org-table__expand:hover { background: var(--ui-tree-expand-hover-background); }
+.org-table__expand svg { width: var(--ui-tree-expand-icon-size); height: var(--ui-tree-expand-icon-size); transition: transform var(--motion-duration-standard) var(--motion-easing-standard); }
 .org-table__expand svg.is-collapsed { transform: rotate(-90deg); }
 .org-table__expand--placeholder { pointer-events: none; }
-.org-table__label { overflow: hidden; min-width: 0; flex: 1; color: #1f2329; font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.org-table__inactive { margin-left: 8px; }
-.org-table__action-placeholder { color: #8f959e; }
+.org-table__label { overflow: hidden; min-width: 0; flex: 1; color: var(--color-text-primary); font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.org-table__inactive { margin-left: var(--ui-tree-tag-gap); }
+.org-table__action-placeholder { color: var(--color-text-placeholder); }
 </style>

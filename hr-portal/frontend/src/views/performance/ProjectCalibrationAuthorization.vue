@@ -1,6 +1,6 @@
 <template>
   <div class="calibration-authorization">
-    <PageHeader title="校准任务授权" @back="goBack" />
+    <UiPageHeader title="校准任务授权" @back="goBack" />
     <div class="calibration-toolbar">
       <PerformanceSearchSelect class="cycle-select" selection-style="plain" :model-value="String(cycleId)" :options="cycleOptions" aria-label="选择绩效周期" placeholder="选择绩效周期" @update:model-value="selectCycle" />
     </div>
@@ -44,7 +44,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { projectManagementApi, type ProjectCalibrationAuthorization } from '@/api/performance'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
-import PageHeader from '@/components/performance/PageHeader.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import PerformanceSearchSelect from '@/components/performance/PerformanceSearchSelect.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'

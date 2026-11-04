@@ -50,8 +50,8 @@ function button(wrapper: ReturnType<typeof mount>, text: string) {
 }
 async function page() {
   const wrapper = shallowMount(WarehouseModelingVisual, { global: {
-    stubs: { ...stubs, FullScreenModal: { template: '<main><slot name="actions" /><slot /></main>' },
-      PerformanceStepFlow: { props: ['steps'], template: '<nav><span v-for="item in steps" :key="item.key">{{ item.label }}</span></nav>' },
+    stubs: { ...stubs, UiFullScreenModal: { template: '<main><slot name="actions" /><slot /></main>' },
+      UiStepFlow: { props: ['steps'], template: '<nav><span v-for="item in steps" :key="item.key">{{ item.label }}</span></nav>' },
       WarehouseModelReadinessPanel: readinessStub },
     directives: { loading: () => {} },
   } })

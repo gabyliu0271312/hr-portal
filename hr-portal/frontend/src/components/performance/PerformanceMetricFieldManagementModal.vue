@@ -1,5 +1,5 @@
 <template>
-  <FullScreenModal v-if="modelValue" :title="title" :show-footer="false" @back="close">
+  <UiFullScreenModal v-if="modelValue" :title="title" :show-footer="false" @back="close">
     <div class="metric-field-management" aria-label="指标字段管理">
       <div class="metric-field-management__tabs" role="tablist" aria-label="指标管理分类">
         <button
@@ -21,7 +21,7 @@
         <PerformanceCreateButton variant="wide-icon" label="新建指标类型" :disabled="typeLoading" @click="typeApiEnabled ? typeApi.openCreate() : emit('create-type')" />
         <p v-if="typeLoadError" class="metric-field-management__error" role="alert">
           {{ typeLoadError }}
-          <PerformanceButton variant="text" @click="typeApi.load()">重试</PerformanceButton>
+          <UiButton variant="text" @click="typeApi.load()">重试</UiButton>
         </p>
         <PerformanceMetricTypesTable
           class="metric-field-management__table"
@@ -52,7 +52,7 @@
         </PerformanceListToolbar>
         <div v-if="loadError" class="metric-field-management__error" role="alert">
           <span>{{ loadError }}</span>
-          <PerformanceButton variant="text" @click="load()">重试</PerformanceButton>
+          <UiButton variant="text" @click="load()">重试</UiButton>
         </div>
         <p v-if="actionError" class="metric-field-management__error" role="alert">{{ actionError }}</p>
         <PerformanceMetricFieldsTable
@@ -84,7 +84,7 @@
     />
     <PerformanceMetricFieldCreateDialog v-model="createOpen" :mode="editing ? 'edit' : 'create'" :initial-value="editing" :type-locked="editing?.in_use" :saving="saving" :error-message="saveError" @confirm="handleFieldSave" />
     <PerformanceConfirmDialog v-if="deleteOpen" v-model="deleteOpen" :message="`确定删除字段“${removing?.name || ''}”吗？`" description="删除后无法恢复，已分配的业务编号不会复用。" :loading="deleting" :error-message="deleteError" :confirm-disabled="deleteBlocked" @confirm="remove" />
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <script setup lang="ts">
@@ -93,9 +93,9 @@ import { usePerformanceMetricFields } from '@/composables/usePerformanceMetricFi
 import { usePerformanceMetricTypes } from '@/composables/usePerformanceMetricTypes'
 import PerformanceMetricFieldCreateDialog from './PerformanceMetricFieldCreateDialog.vue'
 import PerformanceMetricTypeCreateDialog from './PerformanceMetricTypeCreateDialog.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
-import FullScreenModal from './FullScreenModal.vue'
+import UiFullScreenModal from '../ui/UiFullScreenModal.vue'
 import PerformanceContentSurface from './PerformanceContentSurface.vue'
 import PerformanceCreateButton from './PerformanceCreateButton.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'

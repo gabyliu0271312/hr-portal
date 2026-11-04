@@ -1,5 +1,5 @@
 <template>
-  <PerformanceButton
+  <UiButton
     variant="secondary"
     class="filter-button"
     :class="{ 'is-icon-only': variant === 'icon-only' }"
@@ -10,12 +10,12 @@
   >
     <span class="filter-icon" aria-hidden="true"><FilterOutlinedIcon /></span>
     <span v-if="variant !== 'icon-only'">{{ label }}</span>
-  </PerformanceButton>
+  </UiButton>
 </template>
 
 <script setup lang="ts">
 import FilterOutlinedIcon from './FilterOutlinedIcon.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 withDefaults(defineProps<{ label?: string; variant?: 'default' | 'icon-only'; disabled?: boolean }>(), { label: '筛选', variant: 'default', disabled: false })
 const emit = defineEmits<{ click: [] }>()

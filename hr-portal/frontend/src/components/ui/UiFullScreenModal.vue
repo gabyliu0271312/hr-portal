@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import FixedActionBar from './FixedActionBar.vue'
-import PageHeader from './PageHeader.vue'
+import UiFixedActionBar from './UiFixedActionBar.vue'
+import UiPageHeader from './UiPageHeader.vue'
 
 withDefaults(defineProps<{
   title: string
@@ -23,18 +23,18 @@ const emit = defineEmits<{
 
 <template>
   <div class="full-screen-modal">
-    <PageHeader :title="title" @back="emit('back')">
+    <UiPageHeader :title="title" @back="emit('back')">
       <template #subtitle><slot name="subtitle" /></template>
       <template #actions><slot name="actions" /></template>
-    </PageHeader>
+    </UiPageHeader>
 
     <main class="full-screen-modal-content" :class="{ 'full-screen-modal-content--inner': contentScroll === 'inner' }">
       <slot />
     </main>
 
-    <FixedActionBar v-if="showFooter" :submitting="submitting" @submit="emit('submit')" @preview="emit('preview')" @cancel="emit('cancel')">
+    <UiFixedActionBar v-if="showFooter" :submitting="submitting" @submit="emit('submit')" @preview="emit('preview')" @cancel="emit('cancel')">
       <template v-if="$slots.footer" #default><slot name="footer" /></template>
-    </FixedActionBar>
+    </UiFixedActionBar>
   </div>
 </template>
 

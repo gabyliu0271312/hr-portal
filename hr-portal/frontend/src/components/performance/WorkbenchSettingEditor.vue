@@ -93,7 +93,7 @@
 
       <div v-if="kind === 'announcement'" class="workbench-editor-ack">
         <span class="workbench-editor-ack__label">弹窗并要求查看人确认知悉</span>
-        <PerformanceSwitch v-model="form.requireAck" aria-label="弹窗并要求查看人确认知悉" />
+        <UiSwitch v-model="form.requireAck" aria-label="弹窗并要求查看人确认知悉" />
         <a href="#" @click.prevent="showComingSoon('查看示例')">查看示例</a>
       </div>
     </form>
@@ -123,7 +123,7 @@ import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceRadioGroup, { type PerformanceRadioOption } from './PerformanceRadioGroup.vue'
 import PerformanceRequiredLabel from './PerformanceRequiredLabel.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 
 type Kind = 'entry' | 'announcement'

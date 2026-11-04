@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { PerformanceProjectTemplate } from '@/api/performance'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceTemplatePreviewButton from './PerformanceTemplatePreviewButton.vue'
 import PerformanceTemplatePreviewDialog from './PerformanceTemplatePreviewDialog.vue'
@@ -42,7 +42,7 @@ function confirm() {
 <template>
   <PerformanceDialogShell :model-value="open" title="选择绩效模板" width="var(--performance-template-picker-width)" @update:model-value="emit('update:open', $event)">
     <p v-if="loading" class="template-state" role="status">正在加载绩效模板...</p>
-    <div v-else-if="error" class="template-state" role="alert"><p>{{ error }}</p><PerformanceButton variant="text" @click="emit('retry')">重试</PerformanceButton></div>
+    <div v-else-if="error" class="template-state" role="alert"><p>{{ error }}</p><UiButton variant="text" @click="emit('retry')">重试</UiButton></div>
     <p v-else-if="!templates.length" class="template-state" role="status">当前周期尚未配置绩效模板，请先在周期的评估设置中选择模板。</p>
     <PerformanceRadioGroup v-else v-model="draft" :options="options" name="project-template" direction="vertical" variant="card" :gap="20" aria-label="绩效模板">
       <template #label="{ option }">
@@ -51,7 +51,7 @@ function confirm() {
       </template>
       <template #after-option="{ option }"><PerformanceTemplatePreviewButton :name="option.label" @click="openPreview(option)" /></template>
     </PerformanceRadioGroup>
-    <template #footer><div class="template-footer"><PerformanceButton variant="secondary" @click="close">取消</PerformanceButton><PerformanceButton variant="primary" :disabled="!canConfirm" @click="confirm">确定</PerformanceButton></div></template>
+    <template #footer><div class="template-footer"><UiButton variant="secondary" @click="close">取消</UiButton><UiButton variant="primary" :disabled="!canConfirm" @click="confirm">确定</UiButton></div></template>
   </PerformanceDialogShell>
   <PerformanceTemplatePreviewDialog v-model:open="previewOpen" :template-id="previewId" :name="previewName" />
 </template>

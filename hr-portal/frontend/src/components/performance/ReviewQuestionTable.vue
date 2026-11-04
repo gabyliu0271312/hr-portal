@@ -2,7 +2,7 @@
 import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import { questionTypeLabel, type ReviewQuestion } from './reviewQuestionTypes'
 
 withDefaults(defineProps<{
@@ -59,9 +59,9 @@ const emit = defineEmits<{
     <el-table-column label="操作" min-width="128" fixed="right">
       <template #default="{ row }">
         <div class="row-actions">
-          <PerformanceButton variant="text" class="edit-button" @click="emit('edit', row)">编辑</PerformanceButton>
+          <UiButton variant="text" class="edit-button" @click="emit('edit', row)">编辑</UiButton>
           <PerformanceDisabledReason :disabled="!row.deletable" :reason="row.delete_reason || ''">
-            <PerformanceButton variant="text" class="delete-button" :disabled="!row.deletable" @click="row.deletable && emit('remove', row)">删除</PerformanceButton>
+            <UiButton variant="text" class="delete-button" :disabled="!row.deletable" @click="row.deletable && emit('remove', row)">删除</UiButton>
           </PerformanceDisabledReason>
         </div>
       </template>

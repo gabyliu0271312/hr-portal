@@ -28,10 +28,10 @@
       <template #default="{ row }">
         <div class="metric-field-actions">
           <PerformanceDisabledReason :disabled="row.isSystem" reason="系统预置字段，不允许编辑" variant="popover">
-            <PerformanceButton variant="link" :disabled="actionsDisabled || row.isSystem" @click="!actionsDisabled && !row.isSystem && emit('edit', row)">编辑</PerformanceButton>
+            <UiButton variant="link" :disabled="actionsDisabled || row.isSystem" @click="!actionsDisabled && !row.isSystem && emit('edit', row)">编辑</UiButton>
           </PerformanceDisabledReason>
           <PerformanceDisabledReason :disabled="row.isSystem || row.inUse" :reason="row.isSystem ? '系统预置字段，不允许删除' : '该字段已被指标类型使用，不允许删除'" variant="popover">
-            <PerformanceButton variant="link" :disabled="actionsDisabled || row.isSystem || row.inUse" @click="!actionsDisabled && !row.isSystem && !row.inUse && emit('remove', row)">删除</PerformanceButton>
+            <UiButton variant="link" :disabled="actionsDisabled || row.isSystem || row.inUse" @click="!actionsDisabled && !row.isSystem && !row.inUse && emit('remove', row)">删除</UiButton>
           </PerformanceDisabledReason>
         </div>
       </template>
@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 

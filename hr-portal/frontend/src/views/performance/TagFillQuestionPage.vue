@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceTagFillQuestionApi, type PerformanceTagFillQuestionPayload } from '@/api/performance'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import TagFillQuestionForm from '@/components/performance/TagFillQuestionForm.vue'
 import type { TagFillQuestionRecord } from '@/components/performance/tagFillQuestionFixtures'
 
@@ -65,7 +65,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <FullScreenModal
+  <UiFullScreenModal
     :title="title"
     :submitting="submitting"
     @back="back"
@@ -74,7 +74,7 @@ onMounted(async () => {
     @cancel="back"
   >
     <TagFillQuestionForm ref="formRef" v-model="form" :mode="mode" @preview="showPreview" @submit="submit" />
-  </FullScreenModal>
+  </UiFullScreenModal>
 
   <el-dialog :model-value="preview !== null" title="预览" width="600px" destroy-on-close @close="closePreview">
     <div class="preview-content">

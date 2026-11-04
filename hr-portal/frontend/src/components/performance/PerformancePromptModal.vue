@@ -10,8 +10,8 @@
 
     <template #footer>
       <div class="prompt-modal__footer">
-        <PerformanceButton variant="primary" :disabled="!draft.content.trim()" @click="confirm">确定</PerformanceButton>
-        <PerformanceButton variant="secondary" @click="close">取消</PerformanceButton>
+        <UiButton variant="primary" :disabled="!draft.content.trim()" @click="confirm">确定</UiButton>
+        <UiButton variant="secondary" @click="close">取消</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -19,7 +19,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePromptForm, { type PerformancePromptValue } from './PerformancePromptForm.vue'
 

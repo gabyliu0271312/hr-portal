@@ -1,10 +1,10 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import PageHeader from './PageHeader.vue'
+import UiPageHeader from './UiPageHeader.vue'
 
-describe('PageHeader', () => {
+describe('UiPageHeader', () => {
   it('renders the captured shared header contract', () => {
-    const wrapper = mount(PageHeader, {
+    const wrapper = mount(UiPageHeader, {
       props: { title: '新建评估规则' },
       slots: {
         subtitle: '<span data-testid="subtitle">副标题</span>',
@@ -21,7 +21,7 @@ describe('PageHeader', () => {
   })
 
   it('emits back from the shared return control', async () => {
-    const wrapper = mount(PageHeader, { props: { title: '编辑评估规则' } })
+    const wrapper = mount(UiPageHeader, { props: { title: '编辑评估规则' } })
     await wrapper.get('.full-screen-modal-header-back').trigger('click')
     expect(wrapper.emitted('back')).toHaveLength(1)
   })

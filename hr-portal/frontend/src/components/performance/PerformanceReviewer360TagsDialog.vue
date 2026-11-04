@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { PerformanceReviewer360Tag } from '@/api/performance'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import PerformanceReviewer360TagRow from './PerformanceReviewer360TagRow.vue'
 
@@ -145,7 +145,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', trapFocus))
     <template #description>在360评估结果页，标签顺序将与当前的顺序保持一致。描述将展示给标记标签的被评估人及其leader、HRBP。标签名称和描述支持修改，修改后，已引用标签的地方将同步展示最新名称和描述。</template>
     <form ref="form" class="reviewer-tags-form" @submit.prevent="confirm" @keydown.esc.stop="!$event.defaultPrevented && close()">
       <div class="reviewer-tags-heading">标签</div>
-      <PerformanceSortableList :items="draftTags" item-key="id" :gap="8" :disabled="locked" @reorder="reorder">
+      <UiSortableList :items="draftTags" item-key="id" :gap="8" :disabled="locked" @reorder="reorder">
         <template #default="{ item, index, dragging, itemStyle }">
           <PerformanceReviewer360TagRow
             :tag="item"
@@ -160,7 +160,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', trapFocus))
             @remove="removeTag"
           />
         </template>
-      </PerformanceSortableList>
+      </UiSortableList>
       <PerformanceTextButton class="reviewer-tags-add" label="添加标签" aria-label="添加标签" :disabled="locked || draftTags.length >= 50" @click="addTag">
         <template #icon><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg></template>
       </PerformanceTextButton>
@@ -168,12 +168,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', trapFocus))
     </form>
     <template #footer>
       <div class="reviewer-tags-footer">
-        <PerformanceButton variant="text" :disabled="locked" :aria-label="multilingual ? '收起多语言设置' : '展开多语言设置'" :aria-expanded="multilingual" @click="multilingual = !multilingual">
+        <UiButton variant="text" :disabled="locked" :aria-label="multilingual ? '收起多语言设置' : '展开多语言设置'" :aria-expanded="multilingual" @click="multilingual = !multilingual">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" data-icon="LanguageOutlined" aria-hidden="true"><path d="M12 1c6.075 0 11 4.925 11 11s-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1ZM8.66 3.64A9.009 9.009 0 0 0 3.054 11h3.964c.015-3.2.981-6 1.64-7.36ZM20.944 11a9.009 9.009 0 0 0-5.604-7.36C16 5 16.966 8.2 16.98 11h3.964ZM12 3c-1.5 0-3 4.5-2.98 8h5.96C15 7.5 13.5 3 12 3Zm3.34 17.36A9.009 9.009 0 0 0 20.946 13h-3.964c-.015 3.2-.981 6-1.64 7.36ZM3.056 13a9.009 9.009 0 0 0 5.604 7.36C8 19 7.034 15.8 7.02 13H3.055ZM12 21c1.5 0 3-4.5 2.98-8H9.02C9 16.5 10.5 21 12 21Z" fill="currentColor" /></svg>
-        </PerformanceButton>
+        </UiButton>
         <div class="reviewer-tags-actions">
-          <PerformanceButton :disabled="locked" @click="close">取消</PerformanceButton>
-          <PerformanceButton variant="primary" :loading="locked" @click="confirm">确定</PerformanceButton>
+          <UiButton :disabled="locked" @click="close">取消</UiButton>
+          <UiButton variant="primary" :loading="locked" @click="confirm">确定</UiButton>
         </div>
       </div>
     </template>

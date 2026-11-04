@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue'
 import type { ReviewQuestionForm, ReviewRuleOption } from './reviewQuestionTypes'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceRequiredLabel from './PerformanceRequiredLabel.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
@@ -91,8 +91,8 @@ function submit() {
 
     <template #footer>
       <div class="sub-question-modal-footer">
-        <PerformanceButton class="sub-question-modal-button secondary" variant="secondary" @click="close">取消</PerformanceButton>
-        <PerformanceButton class="sub-question-modal-button primary" variant="primary" @click="submit">提交</PerformanceButton>
+        <UiButton class="sub-question-modal-button secondary" variant="secondary" @click="close">取消</UiButton>
+        <UiButton class="sub-question-modal-button primary" variant="primary" @click="submit">提交</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>

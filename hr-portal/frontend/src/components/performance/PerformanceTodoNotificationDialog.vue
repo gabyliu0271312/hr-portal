@@ -7,7 +7,7 @@ import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceTimeField from './PerformanceTimeField.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import { defaultTodoNotificationRule, notificationFrequencyOptions, notificationTimezoneOptions, notificationWeekdayOptions } from './performanceTodoNotificationRule'
 
@@ -132,8 +132,8 @@ function confirm() {
     </form>
     <template #footer>
       <div class="todo-notification-actions">
-        <PerformanceButton type="button" :disabled="saving" @click="emit('update:modelValue', false)">取消</PerformanceButton>
-        <PerformanceButton type="button" variant="primary" :loading="saving" @click="confirm">确定</PerformanceButton>
+        <UiButton type="button" :disabled="saving" @click="emit('update:modelValue', false)">取消</UiButton>
+        <UiButton type="button" variant="primary" :loading="saving" @click="confirm">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>

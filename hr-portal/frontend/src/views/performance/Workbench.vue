@@ -45,7 +45,7 @@
           <strong>查看绩效结果</strong>
           <span>查看你的绩效评估结果，请注意信息保密</span>
         </div>
-        <PerformanceButton variant="secondary" @click="goToResults">查看</PerformanceButton>
+        <UiButton variant="secondary" @click="goToResults">查看</UiButton>
       </section>
 
       <section class="todo-section">
@@ -144,7 +144,7 @@ import InviteTaskIcon from '@/components/performance/InviteTaskIcon.vue'
 import ReadinfoOutlinedIcon from '@/components/performance/ReadinfoOutlinedIcon.vue'
 import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
 import { isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
 import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'

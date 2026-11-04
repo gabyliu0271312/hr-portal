@@ -12,7 +12,7 @@
 
     <div class="project-role-dialog__inner" data-source-state-id="SNAPSPEC-PM-T015-ROLE-EDIT-20260924">
       <div class="project-role-dialog__droppable" data-rbd-droppable-id="pdt-role-config">
-        <PerformanceSortableList
+        <UiSortableList
           :items="roles"
           item-key="id"
           :gap="8"
@@ -21,7 +21,7 @@
         >
           <template #default="{ item: role, index, dragging, itemStyle }">
             <div class="project-role-dialog__role-row" :class="{ 'project-role-dialog__role-row--multiple': roles.length >= 2 }" :data-sortable-index="index" :style="itemStyle">
-              <PerformanceDragHandle
+              <UiDragHandle
                 v-if="roles.length >= 2"
                 class="project-role-dialog__drag"
                 :dragging="dragging"
@@ -43,7 +43,7 @@
               </div>
             </div>
           </template>
-        </PerformanceSortableList>
+        </UiSortableList>
       </div>
       <PerformanceTextButton class="project-role-dialog__add" label="添加角色" aria-label="添加项目角色" @click="addRole">
         <template #icon><AddOutlinedIcon /></template>
@@ -69,9 +69,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'

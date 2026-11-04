@@ -1,10 +1,10 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from './UiSwitch.vue'
 
-describe('PerformanceSwitch', () => {
+describe('UiSwitch', () => {
   it('renders the shared 28x16 switch contract and emits updates', async () => {
-    const wrapper = mount(PerformanceSwitch, { props: { modelValue: false, ariaLabel: '测试开关' } })
+    const wrapper = mount(UiSwitch, { props: { modelValue: false, ariaLabel: '测试开关' } })
     const button = wrapper.get('button')
     expect(button.attributes('role')).toBe('switch')
     expect(button.attributes('aria-checked')).toBe('false')
@@ -16,7 +16,7 @@ describe('PerformanceSwitch', () => {
   })
 
   it('keeps the disabled state non-interactive', async () => {
-    const wrapper = mount(PerformanceSwitch, { props: { modelValue: true, disabled: true } })
+    const wrapper = mount(UiSwitch, { props: { modelValue: true, disabled: true } })
     const button = wrapper.get('button')
     expect(button.attributes('disabled')).toBeDefined()
     expect(button.attributes('aria-checked')).toBe('true')

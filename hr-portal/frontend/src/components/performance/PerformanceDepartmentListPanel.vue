@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { ElTableColumn } from 'element-plus'
+import { ElOption, ElSelect } from 'element-plus'
 import { performanceCycleApi, type PerformanceCycleDepartmentItem } from '@/api/performance'
-import type { PerformanceTableColumn } from './performanceTableColumns'
-import PerformanceManagementTable from './PerformanceManagementTable.vue'
+import PerformancePagination from './PerformancePagination.vue'
 import PerformanceSearchInput from './PerformanceSearchInput.vue'
+import UiSurface from '@/components/ui/UiSurface.vue'
+import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 
 const props = defineProps<{ cycleId: number }>()
 
@@ -15,12 +16,13 @@ const total = ref(0)
 const rows = ref<PerformanceCycleDepartmentItem[]>([])
 const loading = ref(false)
 
-const columns: PerformanceTableColumn[] = [
+/** 列规格对齐飞书人事组织架构页：操作列固定右侧（sticky，无投影） */
+const columns: UiTableColumn[] = [
   { key: 'department_name', label: '部门名称', width: 280 },
   { key: 'parent_department', label: '上级部门', width: 280 },
-  { key: 'people_count', label: '人数' },
+  { key: 'people_count', label: '人数', width: 160 },
+  { key: 'actions', label: '操作', width: 280, fixed: 'right' },
 ]
-const columnMinWidths = [...columns.map(column => column.width ?? 160), 280]
 
 async function load() {
   loading.value = true
@@ -43,7 +45,7 @@ function onPageChange(next: number) {
 }
 
 function onPageSizeChange(next: number) {
-  pageSize.value = next
+  pageSize.value = Number(next) || 10
   page.value = 1
   void load()
 }
@@ -61,44 +63,45 @@ watch(() => props.cycleId, () => {
 
 <template>
   <div class="department-panel">
-    <PerformanceManagementTable
-      viewport-surface
-      viewport-fill
-      :browser-column-min-widths="columnMinWidths"
-      :rows="rows"
-      :loading="loading"
-      loading-text="加载中"
-      empty-text="暂无部门"
-      table-aria-label="周期部门列表"
-      pagination-aria-label="周期部门分页"
-      scroll-mode="inner"
-      :max-height="600"
-      :page="page"
-      :page-size="pageSize"
-      :total="total"
-      row-key="department_name"
-      @page-change="onPageChange"
-      @page-size-change="onPageSizeChange"
-    >
-      <template #toolbar>
+    <UiSurface class="department-surface">
+      <div class="department-toolbar">
         <PerformanceSearchInput v-model="keyword" placeholder="搜索部门名称" @search="onSearch" @clear="onSearch" />
-      </template>
-      <template #default="{ columnWidths }">
-        <el-table-column
-          v-for="(column, index) in columns"
-          :key="column.key"
-          :prop="column.key"
-          :label="column.label"
-          :min-width="column.width ?? 160"
-          :width="columnWidths[index]"
-          align="left"
-          header-align="left"
-        />
-        <el-table-column label="操作" :width="columnWidths[columns.length]" min-width="280" fixed="right">
-          <template #default>—</template>
-        </el-table-column>
-      </template>
-    </PerformanceManagementTable>
+      </div>
+      <UiTable
+        :columns="columns"
+        :rows="rows"
+        :loading="loading"
+        loading-text="加载中"
+        empty-text="暂无部门"
+        aria-label="周期部门列表"
+        row-key="department_name"
+        :min-width="980"
+      >
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'actions'" class="department-action-placeholder">—</span>
+          <span v-else>{{ (row as unknown as Record<string, unknown>)[column.key] }}</span>
+        </template>
+      </UiTable>
+    </UiSurface>
+    <div class="department-footer">
+      <span class="department-total">共 {{ total }} 个部门</span>
+      <PerformancePagination
+        :page="page"
+        :page-size="pageSize"
+        :total="total"
+        aria-label="周期部门分页"
+        @page-change="onPageChange"
+      />
+      <ElSelect
+        class="department-page-size"
+        :model-value="pageSize"
+        size="small"
+        aria-label="每页条数"
+        @change="onPageSizeChange"
+      >
+        <ElOption v-for="size in [10, 20, 50, 100]" :key="size" :label="`${size} 条/页`" :value="size" />
+      </ElSelect>
+    </div>
   </div>
 </template>
 
@@ -106,9 +109,25 @@ watch(() => props.cycleId, () => {
 .department-panel {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   min-width: 0;
-  min-height: 0;
-  overflow: hidden;
 }
+.department-surface { margin-bottom: 12px; }
+.department-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  margin-bottom: 16px;
+}
+.department-action-placeholder { color: var(--ui-table-placeholder-color); }
+.department-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-height: 28px;
+  padding-bottom: 4px;
+}
+.department-total { color: var(--ui-table-header-color); font-size: 14px; line-height: 22px; }
+.department-page-size { width: 104px; }
 </style>

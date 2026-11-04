@@ -21,7 +21,7 @@ const stubs = {
     props: ['label'],
   },
   PerformanceExportIcon: { template: '<svg class="export-icon" />' },
-  PerformanceButton: {
+  UiButton: {
     props: ['disabled'],
     template: '<button class="performance-button" :disabled="disabled"><slot /></button>',
   },

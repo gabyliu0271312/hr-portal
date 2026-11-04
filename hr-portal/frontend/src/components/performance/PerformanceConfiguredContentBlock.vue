@@ -7,7 +7,7 @@ import PerformanceAddAnotherButton from './PerformanceAddAnotherButton.vue'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import PerformanceConfiguredCardActionToolbar from './PerformanceConfiguredCardActionToolbar.vue'
 import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame.vue'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceHorizontalDragHandle from './PerformanceHorizontalDragHandle.vue'
 import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceWorkSummaryItemSettings, { type WorkSummaryItemSettings } from './PerformanceWorkSummaryItemSettings.vue'
@@ -165,7 +165,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     @click="horizontalHandle && $event.stopPropagation()"
   >
     <PerformanceHorizontalDragHandle v-if="!isCalibration && structureEditable && horizontalHandle" :label="`拖拽${content.name}`" :dragging="dragging" :disabled="settingsDisabled" :visible="horizontalHandleVisible" />
-    <PerformanceDragHandle v-else-if="!isCalibration && structureEditable" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
+    <UiDragHandle v-else-if="!isCalibration && structureEditable" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
     <PerformanceConfiguredCardActionToolbar
       v-if="structureEditable"
       :visible="toolbarVisible || dragging || (horizontalHandle === true && rootSelected)"

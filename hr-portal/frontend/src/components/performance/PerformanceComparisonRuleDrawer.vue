@@ -82,10 +82,10 @@
           </div>
         </div>
         <p v-if="ruleError" class="comparison-rule-error" role="alert">{{ ruleError }}</p>
-        <PerformanceButton class="comparison-condition-add" variant="text" @click="addRule">
+        <UiButton class="comparison-condition-add" variant="text" @click="addRule">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 1 0 2 0v-8h8a1 1 0 1 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg>
           <span>添加规则</span>
-        </PerformanceButton>
+        </UiButton>
       </section>
 
       <section class="comparison-rule-section" aria-labelledby="prompt-methods-title">
@@ -114,7 +114,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import PerformanceAssessmentSelect, { type PerformanceAssessmentSelectOption } from './PerformanceAssessmentSelect.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'

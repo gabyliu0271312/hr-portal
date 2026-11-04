@@ -43,7 +43,7 @@
               <span class="metric-template-dimension-meta">{{ dimension.need_weight ? '需设置权重' : '不设置权重' }}</span>
             </div>
           </div>
-          <PerformanceButton variant="outline-primary" class="metric-template-detail-add" aria-label="添加指标维度" :disabled="dimensionLoading || dimensionSaving" @click="openDimensionDialog"><AddOutlinedIcon />添加指标维度</PerformanceButton>
+          <UiButton variant="outline-primary" class="metric-template-detail-add" aria-label="添加指标维度" :disabled="dimensionLoading || dimensionSaving" @click="openDimensionDialog"><AddOutlinedIcon />添加指标维度</UiButton>
         </PerformanceSurfaceCard>
       </template>
     </main>
@@ -73,8 +73,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { performanceReviewRuleApi, performanceTemplateApi, type PerformanceMetricTemplateDimension, type PerformanceReviewRuleOption, type PerformanceTemplateDetail } from '@/api/performance'
 import { performanceMetricTypesApi, type PerformanceMetricType } from '@/api/performanceMetricTypes'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import MetricTemplateCreateDialog, { type MetricTemplateDraft } from '@/components/performance/MetricTemplateCreateDialog.vue'
 import PerformanceMetricDimensionCreateDialog, { type MetricDimensionDraft } from '@/components/performance/PerformanceMetricDimensionCreateDialog.vue'

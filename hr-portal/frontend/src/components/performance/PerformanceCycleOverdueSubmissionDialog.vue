@@ -4,7 +4,7 @@ import type { PerformanceCyclePayload } from '@/api/performance'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -70,8 +70,8 @@ function confirm() {
     </div>
     <template #footer>
       <div class="cycle-overdue-submission-actions">
-        <PerformanceButton :disabled="saving" @click="close">取消</PerformanceButton>
-        <PerformanceButton variant="primary" :loading="saving" @click="confirm">确定</PerformanceButton>
+        <UiButton :disabled="saving" @click="close">取消</UiButton>
+        <UiButton variant="primary" :loading="saving" @click="confirm">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>

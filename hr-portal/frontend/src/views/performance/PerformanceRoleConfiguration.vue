@@ -77,8 +77,8 @@
           <template #default="{ row }">
             <div class="role-actions">
               <template v-if="activeTab === 'assessment'">
-                <PerformanceButton variant="text" aria-label="编辑角色" disabled>编辑</PerformanceButton>
-                <PerformanceButton variant="text" aria-label="停用角色" disabled>停用</PerformanceButton>
+                <UiButton variant="text" aria-label="编辑角色" disabled>编辑</UiButton>
+                <UiButton variant="text" aria-label="停用角色" disabled>停用</UiButton>
               </template>
               <template v-else>
                 <PerformancePermissionButton allowed op="U" aria-label="编辑角色" @click="goEdit(row)">编辑</PerformancePermissionButton>
@@ -132,7 +132,7 @@ import {
   type PerformanceRoleListItem,
 } from '@/api/performance'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceExportIcon from '@/components/performance/PerformanceExportIcon.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'

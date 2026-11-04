@@ -1,13 +1,13 @@
 <template>
   <footer class="performance-drawer-footer" :class="`performance-drawer-footer--${variant}`">
-    <PerformanceButton class="performance-drawer-footer__confirm" variant="primary" :disabled="confirmDisabled" @click="$emit('confirm')">{{ confirmText }}</PerformanceButton>
-    <PerformanceButton v-if="continueText" class="performance-drawer-footer__continue" variant="continue" @click="$emit('continue')">{{ continueText }}</PerformanceButton>
-    <PerformanceButton class="performance-drawer-footer__cancel" variant="secondary" @click="$emit('cancel')">{{ cancelText }}</PerformanceButton>
+    <UiButton class="performance-drawer-footer__confirm" variant="primary" :disabled="confirmDisabled" @click="$emit('confirm')">{{ confirmText }}</UiButton>
+    <UiButton v-if="continueText" class="performance-drawer-footer__continue" variant="continue" @click="$emit('continue')">{{ continueText }}</UiButton>
+    <UiButton class="performance-drawer-footer__cancel" variant="secondary" @click="$emit('cancel')">{{ cancelText }}</UiButton>
   </footer>
 </template>
 
 <script setup lang="ts">
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 
 withDefaults(defineProps<{ confirmText?: string; continueText?: string; cancelText?: string; confirmDisabled?: boolean; variant?: 'default' | 'captured' | 'captured-invite' }>(), { confirmText: '确定', continueText: '', cancelText: '取消', confirmDisabled: false, variant: 'default' })
 defineEmits<{ confirm: []; continue: []; cancel: [] }>()

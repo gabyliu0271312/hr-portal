@@ -9,7 +9,7 @@ import {
   type PerformanceWorkbenchTaskPerson,
 } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -279,7 +279,7 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       </template>
       <template #empty="{ loading: emptyLoading, text }">
         <div v-if="emptyLoading" class="feedback-empty feedback-empty--text" role="status">{{ text }}</div>
-        <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}<PerformanceButton variant="secondary" @click="load">重新加载</PerformanceButton></div>
+        <div v-else-if="error" class="feedback-empty feedback-empty--text" role="alert">{{ error }}<UiButton variant="secondary" @click="load">重新加载</UiButton></div>
         <div v-else class="feedback-empty" role="status">
           <MetricTemplateEmptyIllustration />
           <p class="feedback-empty__text">{{ communicationMode ? '暂无可沟通人员' : '暂无 360° 评估邀请，可以自愿评估其他同事' }}</p>
@@ -300,8 +300,8 @@ defineExpose({ allowVoluntary, openVoluntaryDialog })
       />
       <template #footer>
         <div class="voluntary-dialog__footer">
-          <PerformanceButton variant="secondary" @click="dialogOpen = false">取消</PerformanceButton>
-          <PerformanceButton variant="primary" :disabled="!selectedTarget" :loading="submitting" @click="confirmVoluntary">前往评估</PerformanceButton>
+          <UiButton variant="secondary" @click="dialogOpen = false">取消</UiButton>
+          <UiButton variant="primary" :disabled="!selectedTarget" :loading="submitting" @click="confirmVoluntary">前往评估</UiButton>
         </div>
       </template>
     </PerformanceDialogShell>

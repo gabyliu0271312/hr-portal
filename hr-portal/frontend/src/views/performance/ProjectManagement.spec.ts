@@ -349,7 +349,7 @@ describe('ProjectManagement', () => {
     await wrapper.findAll('.line-tab')[1].trigger('click')
     await flushPromises()
 
-    expect(wrapper.findAll('.performance-sort-header .sort-header-label').map(item => item.text())).toEqual(['姓名', '绩效评级', '360° 评估率', '直属上级', '序列', '职级', '入职日期', '所属部门'])
+    expect(wrapper.findAll('.ui-table__sort-label').map(item => item.text())).toEqual(['姓名', '绩效评级', '360° 评估率', '直属上级', '序列', '职级', '入职日期', '所属部门'])
     expect(wrapper.text()).toContain('暂无成员')
     expect(wrapper.findAll('.member-name')).toHaveLength(0)
   })

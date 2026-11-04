@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { formatDisplayDateTime } from '@/utils/datetime'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import { REVIEW_RULE_METHOD_LABELS, type ReviewRule } from './reviewRuleTypes'
 
@@ -62,9 +62,9 @@ function handleRemove(rule: ReviewRule) {
     <el-table-column label="操作" min-width="128" fixed="right">
       <template #default="{ row }">
         <div class="row-actions">
-          <PerformanceButton variant="text" @click="emit('edit', row)">编辑</PerformanceButton>
+          <UiButton variant="text" @click="emit('edit', row)">编辑</UiButton>
           <PerformanceDisabledReason :disabled="!row.deletable" reason="此评估规则已被使用，不允许删除">
-            <PerformanceButton variant="text" :disabled="!row.deletable" @click="handleRemove(row)">删除</PerformanceButton>
+            <UiButton variant="text" :disabled="!row.deletable" @click="handleRemove(row)">删除</UiButton>
           </PerformanceDisabledReason>
         </div>
       </template>

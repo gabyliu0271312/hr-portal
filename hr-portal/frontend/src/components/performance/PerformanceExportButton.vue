@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceExportIcon from './PerformanceExportIcon.vue'
 
 const props = defineProps<{ loadRows: () => Promise<string[][]>; filename: string; disabled?: boolean }>()
@@ -37,7 +37,7 @@ async function exportRows() {
 </script>
 
 <template>
-  <PerformanceButton class="performance-export-button" aria-label="导出" :disabled="disabled" :loading="exporting" @click="exportRows"><PerformanceExportIcon /><span>导出</span></PerformanceButton>
+  <UiButton class="performance-export-button" aria-label="导出" :disabled="disabled" :loading="exporting" @click="exportRows"><PerformanceExportIcon /><span>导出</span></UiButton>
 </template>
 
 <style scoped>

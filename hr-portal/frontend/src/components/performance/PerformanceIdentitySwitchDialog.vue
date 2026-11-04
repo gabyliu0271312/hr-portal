@@ -8,22 +8,22 @@
             <span class="favorite-person__name">{{ person.display_name }}</span>
             <span class="favorite-person__meta">{{ person.employee_no }}<template v-if="person.organization_label"> · {{ person.organization_label }}</template></span>
           </button>
-          <PerformanceButton variant="text" size="small" :disabled="switching || savingFavorite" @click="removeFavorite(person)">删除</PerformanceButton>
+          <UiButton variant="text" size="small" :disabled="switching || savingFavorite" @click="removeFavorite(person)">删除</UiButton>
         </div>
       </div>
       <p v-else-if="!adding" class="favorite-empty">暂无添加的用户，点击下方「+添加用户」添加</p>
       <div v-if="adding" class="favorite-row is-adding">
         <PerformancePersonSelect :model-value="selected" :options="options" :disabled="savingFavorite" aria-label="添加人员" placeholder="搜索姓名或员工编号" @search="searchPeople" @update:model-value="pickPerson" />
-        <PerformanceButton variant="text" size="small" :disabled="savingFavorite" @click="cancelAdd">删除</PerformanceButton>
+        <UiButton variant="text" size="small" :disabled="savingFavorite" @click="cancelAdd">删除</UiButton>
       </div>
       <p v-if="error" class="switch-error" role="alert">{{ error }}</p>
       <div class="add-action">
-        <PerformanceButton variant="text" :disabled="adding || switching || savingFavorite" @click="startAdd">+添加用户</PerformanceButton>
+        <UiButton variant="text" :disabled="adding || switching || savingFavorite" @click="startAdd">+添加用户</UiButton>
       </div>
     </div>
     <template #footer>
       <div class="switch-actions">
-        <PerformanceButton :disabled="switching" @click="$emit('update:modelValue', false)">取消</PerformanceButton>
+        <UiButton :disabled="switching" @click="$emit('update:modelValue', false)">取消</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -32,7 +32,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import { identitySwitchApi, type SwitchPerson } from '@/api/identitySwitch'

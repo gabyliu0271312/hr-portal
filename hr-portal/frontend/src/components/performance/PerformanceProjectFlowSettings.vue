@@ -27,7 +27,7 @@
       <section v-else-if="node.node_type === 'calibration'" class="node-settings calibration-settings" aria-label="校准规则设置">
         <div class="calibration-distribution-heading">
           <strong>绩效结果强制 / 建议分布</strong>
-          <PerformanceSwitch :model-value="calibrationSettings(node).force_distribution_enabled" aria-label="绩效结果强制建议分布" @update:model-value="calibrationSettings(node).force_distribution_enabled = $event" />
+          <UiSwitch :model-value="calibrationSettings(node).force_distribution_enabled" aria-label="绩效结果强制建议分布" @update:model-value="calibrationSettings(node).force_distribution_enabled = $event" />
         </div>
         <p class="calibration-distribution-help">开启后，可以选择一个评估项，针对评估项的等级设置强制分布和建议分布规则</p>
         <div v-if="calibrationSettings(node).force_distribution_enabled" class="distribution-settings">
@@ -167,7 +167,7 @@ import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopo
 import PerformanceRadioGroup from '@/components/performance/PerformanceRadioGroup.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 import PerformanceCalibrationRuleDrawer from '@/components/performance/PerformanceCalibrationRuleDrawer.vue'
 import PerformanceProject360InviteSettingsDrawer from '@/components/performance/PerformanceProject360InviteSettingsDrawer.vue'
 import { isReviewer360Node } from '@/components/performance/performanceExecutorOptions'

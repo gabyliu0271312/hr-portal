@@ -9,7 +9,7 @@
         <main class="drawer-body">
           <section class="visibility-row">
             <div>
-              <div class="visibility-title"><strong>评估内容分人群可见</strong><PerformanceSwitch v-model="groupVisible" aria-label="评估内容分人群可见" /></div>
+              <div class="visibility-title"><strong>评估内容分人群可见</strong><UiSwitch v-model="groupVisible" aria-label="评估内容分人群可见" /></div>
               <p>分组后，可根据不同人群评估要求，设置对应的评估内容</p>
             </div>
             <button v-if="groupVisible" class="button button--secondary" type="button">设置分组</button>
@@ -118,7 +118,7 @@ import PerformanceFormField from './PerformanceFormField.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import { resolveRatingOptions } from './performanceRatingOptions'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceContentOptionCard from './PerformanceContentOptionCard.vue'

@@ -2,13 +2,13 @@
   <div class="performance-switch-setting-row">
     <span class="performance-switch-setting-row__label invite-executor-title">{{ label }}</span>
     <PerformanceInfoPopover v-if="info" class="performance-switch-setting-row__info" :content="info" :delay="infoDelay" :icon-color="infoColor" />
-    <PerformanceSwitch :model-value="modelValue" :disabled="disabled" :aria-label="label" @update:model-value="$emit('update:modelValue', $event)" />
+    <UiSwitch :model-value="modelValue" :disabled="disabled" :aria-label="label" @update:model-value="$emit('update:modelValue', $event)" />
   </div>
 </template>
 
 <script setup lang="ts">
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 withDefaults(defineProps<{
   modelValue: boolean

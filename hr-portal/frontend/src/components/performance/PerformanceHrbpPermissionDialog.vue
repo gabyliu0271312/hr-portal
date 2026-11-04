@@ -30,7 +30,7 @@
 
       <div class="hrbp-permission-dialog__switch-row">
         <label for="hrbp-invisible-people">设置「不可见人员」</label>
-        <PerformanceSwitch id="hrbp-invisible-people" v-model="form.invisiblePeopleEnabled" aria-label="设置不可见人员" />
+        <UiSwitch id="hrbp-invisible-people" v-model="form.invisiblePeopleEnabled" aria-label="设置不可见人员" />
       </div>
       <p class="hrbp-permission-dialog__description hrbp-permission-dialog__invisible-description">开启并设置人员后，HRBP 将无法管理这些人的评估进度和绩效数据</p>
 
@@ -63,7 +63,7 @@ import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 export type PerformanceHrbpPermissionFormValue = {
   hrbp: string

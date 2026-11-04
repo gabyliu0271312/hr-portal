@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import ReviewQuestionOrderSection from './ReviewQuestionOrderSection.vue'
 
 const props = withDefaults(defineProps<{
@@ -98,7 +98,7 @@ function selectDisplayMode(value: '标签样式' | '下拉样式') {
       <div v-if="showHideScoreOption" class="hide-score-option">
         <div class="hide-score-heading">
           <strong>隐藏等级量化分</strong>
-          <PerformanceSwitch :model-value="localHideGradeQuantifiedScore" aria-label="隐藏等级量化分" @update:model-value="localHideGradeQuantifiedScore = $event" />
+          <UiSwitch :model-value="localHideGradeQuantifiedScore" aria-label="隐藏等级量化分" @update:model-value="localHideGradeQuantifiedScore = $event" />
         </div>
         <small class="hide-score-description">开启后，前台参与计算时不展示等级量化分</small>
       </div>

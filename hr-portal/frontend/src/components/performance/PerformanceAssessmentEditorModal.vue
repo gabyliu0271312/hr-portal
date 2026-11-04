@@ -8,8 +8,8 @@
         </header>
         <slot />
         <footer v-if="chrome" class="performance-editor-modal__footer modal-footer">
-          <PerformanceButton variant="secondary" @click="$emit('close')">取消</PerformanceButton>
-          <PerformanceButton variant="primary" @click="$emit('confirm')">确定</PerformanceButton>
+          <UiButton variant="secondary" @click="$emit('close')">取消</UiButton>
+          <UiButton variant="primary" @click="$emit('confirm')">确定</UiButton>
         </footer>
       </section>
     </div>
@@ -18,7 +18,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 withDefaults(defineProps<{ open: boolean; type: string; label: string; mode?: 'create' | 'edit'; sorting?: boolean; chrome?: boolean }>(), { chrome: true })
 defineEmits<{ close: []; confirm: []; keydown: [event: KeyboardEvent] }>()
 const modalRef = ref<HTMLElement | null>(null)

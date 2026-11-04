@@ -158,9 +158,9 @@
                     <span class="final-result-label">设置此环节绩效结果为最终结果</span>
                     <div class="final-result-switch-anchor">
                       <PerformanceInfoPopover v-if="isFinalResultRestricted" :content="finalResultRestrictionMessage" variant="disabled-action" width="auto" :delay="138">
-                        <PerformanceSwitch v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" />
+                        <UiSwitch v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" />
                       </PerformanceInfoPopover>
-                      <PerformanceSwitch v-else v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" />
+                      <UiSwitch v-else v-model="selectedNode.include_final_result" :disabled="finalResultDisabled" aria-label="设置此环节绩效结果为最终结果" />
                     </div>
                   </div>
                   <div v-if="selectedNode.include_final_result" class="final-result-help">设置了最终绩效结果的环节必须在评估内容中添加评估型问题</div>
@@ -227,7 +227,7 @@ import { performanceTemplateApi, type PerformanceWorkflowNode } from '@/api/perf
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
 import PerformanceFormField from '@/components/performance/PerformanceFormField.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 import PerformanceSwitchSettingRow from '@/components/performance/PerformanceSwitchSettingRow.vue'
 import PerformanceInfoPopover from '@/components/performance/PerformanceInfoPopover.vue'
 import WorkflowFixedExecutorField from '@/components/performance/WorkflowFixedExecutorField.vue'

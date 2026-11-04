@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceCountedTextarea from './PerformanceCountedTextarea.vue'
 
 const props = withDefaults(defineProps<{
@@ -63,8 +63,8 @@ function confirm() {
     </form>
     <template #footer>
       <div class="authorization-prompt-actions">
-        <PerformanceButton :disabled="saving" @click="emit('update:modelValue', false)">取消</PerformanceButton>
-        <PerformanceButton variant="primary" :loading="saving" @click="confirm">确定</PerformanceButton>
+        <UiButton :disabled="saving" @click="emit('update:modelValue', false)">取消</UiButton>
+        <UiButton variant="primary" :loading="saving" @click="confirm">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>

@@ -65,10 +65,10 @@
           <div v-else class="table-state">{{ mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人' }}</div>
         </template>
         <template #selection-actions>
-          <PerformanceButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通所选成员</PerformanceButton>
-          <PerformanceButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')">催办</PerformanceButton>
-          <PerformanceButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</PerformanceButton>
-          <PerformanceButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</PerformanceButton>
+          <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通所选成员</UiButton>
+          <UiButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')">催办</UiButton>
+          <UiButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</UiButton>
+          <UiButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</UiButton>
         </template>
       </PerformanceManagementTable>
       <div v-if="notice" class="performance-reminder-notice" role="status">{{ notice }}</div>
@@ -119,7 +119,7 @@ import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 import { defaultReminderColumns, reminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'

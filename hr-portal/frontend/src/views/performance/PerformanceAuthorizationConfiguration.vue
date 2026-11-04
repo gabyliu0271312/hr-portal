@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import PerformanceAuthorizationDialog from '@/components/performance/PerformanceAuthorizationDialog.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import PerformanceExportIcon from '@/components/performance/PerformanceExportIcon.vue'
@@ -55,9 +55,9 @@ function notifyUnavailable(action: string) {
             <PerformanceCreateButton :label="isRuleTab ? '添加规则' : '添加授权'" @click="openCreateDialog" />
           </template>
           <template #actions>
-            <PerformanceButton aria-label="导出" @click="notifyUnavailable('导出')">
+            <UiButton aria-label="导出" @click="notifyUnavailable('导出')">
               <span class="authorization-export"><PerformanceExportIcon />导出</span>
-            </PerformanceButton>
+            </UiButton>
           </template>
         </PerformanceListToolbar>
 

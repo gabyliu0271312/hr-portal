@@ -22,7 +22,7 @@
           <label class="form-item" :class="{ invalid: nameError }"><span class="field-label">名称<span class="required-mark">*</span></span><input v-model="templateName" class="native-input" maxlength="100" placeholder="请输入模板名称" aria-label="模板名称" /><span v-if="nameError" class="field-error">{{ nameError }}</span></label>
           <label class="form-item"><span class="field-label">描述</span><PerformanceTextField v-model="description" type="textarea" aria-label="模板描述" :maxlength="2000" show-count placeholder="请输入模板描述" input-id="template-description" /></label>
           <fieldset class="form-item calculation-field" :class="{ invalid: calculationError }">
-            <div class="calculation-heading"><span>配置「计算规则」</span><PerformanceSwitch :model-value="calculationEnabled" aria-label="配置计算规则" @update:model-value="toggleCalculation" /></div>
+            <div class="calculation-heading"><span>配置「计算规则」</span><UiSwitch :model-value="calculationEnabled" aria-label="配置计算规则" @update:model-value="toggleCalculation" /></div>
             <div class="calculation-hint">开启后，可为评估项配置计算规则</div>
             <div v-if="calculationEnabled" class="calculation-options"><label v-for="option in calculationOptions" :key="option.key" class="checkbox-row option-row"><input v-model="selectedRules" type="checkbox" :value="option.key" /><span class="checkbox-box" :class="{ checked: selectedRules.includes(option.key) }">{{ selectedRules.includes(option.key) ? '✓' : '' }}</span><span class="option-copy"><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span></label></div>
             <span v-if="calculationError" class="field-error">如果开启计算规则配置，则至少配置一个计算规则</span>
@@ -40,10 +40,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
-import PageHeader from '@/components/performance/PageHeader.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
-import PerformanceStepFlow from '@/components/performance/PerformanceStepFlow.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
+import UiStepFlow from '@/components/ui/UiStepFlow.vue'
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import { performanceTemplateApi } from '@/api/performance'
 import PerformanceTemplateWorkflowSettings from './PerformanceTemplateWorkflowSettings.vue'

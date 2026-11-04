@@ -1,6 +1,6 @@
 <template>
   <div class="authorization-records">
-    <PageHeader title="授权及转交记录" @back="goBack" />
+    <UiPageHeader title="授权及转交记录" @back="goBack" />
     <PerformanceLineTabs v-model="activeTab" :tabs="tabs" flush class="record-tabs">
       <section class="records-surface">
         <div class="records-toolbar"><span>{{ rows.length }} 个记录</span><button class="filter-button" type="button" disabled title="筛选暂不可用">筛选</button></div>
@@ -41,7 +41,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { projectManagementApi, type ProjectAuthorizationRecord } from '@/api/performance'
-import PageHeader from '@/components/performance/PageHeader.vue'
+import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import PerformanceLineTabs from '@/components/performance/PerformanceLineTabs.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'

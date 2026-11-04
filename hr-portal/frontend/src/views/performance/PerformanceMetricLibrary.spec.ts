@@ -8,7 +8,7 @@ vi.mock('element-plus', () => ({
 }))
 
 const stubs = {
-  PerformanceButton: {
+  UiButton: {
     inheritAttrs: false,
     template: '<button class="performance-button" v-bind="$attrs"><slot /></button>',
   },

@@ -10,7 +10,7 @@
           <h3>通用规则：不可查看对应部门负责人的绩效详情</h3>
           <p>打开后，将向 HRBP 隐藏对应部门负责人的绩效详情，但下级部门负责人的绩效详情依然对 HRBP 可见</p>
         </div>
-        <PerformanceSwitch
+        <UiSwitch
           :model-value="enabled"
           aria-label="HRBP不可见范围通用规则"
           :disabled="loading || savingTarget === 'hrbp-switch'"
@@ -63,7 +63,7 @@
           <h3>管理者可催办任务</h3>
           <p>开启后，有绩效查看权限的实线上级、虚线上级可催办下级的任务进展，校准人可催办被校准人的任务进展。</p>
         </div>
-        <PerformanceSwitch
+        <UiSwitch
           :model-value="managerReminderEnabled"
           aria-label="管理者可催办任务"
           :disabled="loading || savingTarget === 'manager-switch'"
@@ -104,8 +104,8 @@
       </PerformanceFormItem>
       <template #footer>
         <div class="permission-settings-editor__actions">
-          <PerformanceButton variant="secondary" :disabled="savingTarget === 'reminder-editor'" @click="reminderEditorVisible = false">取消</PerformanceButton>
-          <PerformanceButton variant="primary" :disabled="savingTarget === 'reminder-editor'" @click="saveReminderNodeTypes">确定</PerformanceButton>
+          <UiButton variant="secondary" :disabled="savingTarget === 'reminder-editor'" @click="reminderEditorVisible = false">取消</UiButton>
+          <UiButton variant="primary" :disabled="savingTarget === 'reminder-editor'" @click="saveReminderNodeTypes">确定</UiButton>
         </div>
       </template>
     </PerformanceDialogShell>
@@ -134,13 +134,13 @@ import {
   type PerformanceOtherPermissionPerson,
   type PerformanceOtherPermissionSettings,
 } from '@/api/performance'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
 import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
 import PerformanceHrbpPermissionDialog, { type PerformanceHrbpPermissionFormValue } from '@/components/performance/PerformanceHrbpPermissionDialog.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 
 const enabled = ref(false)
 const selectedPeople = ref<PerformanceOtherPermissionPerson[]>([])

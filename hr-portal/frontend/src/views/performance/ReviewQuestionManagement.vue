@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { performanceReviewQuestionApi } from '@/api/performance'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import ReviewQuestionTable from '@/components/performance/ReviewQuestionTable.vue'
@@ -119,8 +119,8 @@ async function handleRemove(question: ReviewQuestion) {
       <PerformanceListToolbar v-model:keyword="keyword">
         <template #left>
           <el-dropdown trigger="click" @command="handleCreate">
-            <PerformanceButton variant="primary" class="create-button">
-              <AddOutlinedIcon class="create-icon" /><span class="create-label">新建</span></PerformanceButton>
+            <UiButton variant="primary" class="create-button">
+              <AddOutlinedIcon class="create-icon" /><span class="create-label">新建</span></UiButton>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="create">新建评估题</el-dropdown-item>

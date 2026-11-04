@@ -34,7 +34,7 @@ describe('PerformanceReminderPanel', () => {
     expect(overlaySource).toMatch(/\.performance-task-overlay__body\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*0;/)
     expect(reminderPageSource).toMatch(/\.project-reminder-page__body\s*\{[^}]*position:\s*relative;[^}]*z-index:\s*0;/)
     expect(wrapper.find('.performance-search-input input').attributes('placeholder')).toBe('搜索成员')
-    expect(wrapper.findAll('.feishu-table__header th').map(cell => cell.text())).toEqual(['', '被评估人', '状态'])
+    expect(wrapper.findAll('.ui-table thead th').map(cell => cell.text().trim())).toEqual(['', '被评估人', '状态'])
 
     await wrapper.find('tbody input[type="checkbox"]').setValue(true)
     expect(wrapper.find('.selection-bar').text()).toContain('已选择 1 条')

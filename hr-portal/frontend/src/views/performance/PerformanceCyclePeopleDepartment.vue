@@ -1,5 +1,5 @@
 <template>
-  <FullScreenModal title="人员与部门列表" :show-footer="false" content-scroll="inner" @back="goBack">
+  <UiFullScreenModal title="人员与部门列表" :show-footer="false" content-scroll="inner" @back="goBack">
     <PerformancePeopleDepartmentTabs
       v-model="activeKey"
       :cycle-id="cycleId"
@@ -7,13 +7,13 @@
       :people-count="peopleCount"
       :department-count="departmentCount"
     />
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformancePeopleDepartmentTabs from '@/components/performance/PerformancePeopleDepartmentTabs.vue'
 
 const route = useRoute()

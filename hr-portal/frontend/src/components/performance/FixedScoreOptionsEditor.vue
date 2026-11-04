@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
 import { fixedScoreErrorMessage, getFixedScoreError, type FixedScoreError } from './fixedScoreValidation'
 
@@ -69,10 +69,10 @@ function reorderOptions(from: number, to: number) {
 
 <template>
   <div class="fixed-score-options-editor" aria-label="固定分值选项">
-    <PerformanceSortableList :items="options" item-key="id" :disabled="disabled" :gap="8" class="fixed-score-options-list" @reorder="reorderOptions">
+    <UiSortableList :items="options" item-key="id" :disabled="disabled" :gap="8" class="fixed-score-options-list" @reorder="reorderOptions">
       <template #default="{ item: option, index, dragging, itemStyle }">
         <div class="fixed-score-option-row" :class="{ 'is-dragging': dragging }" :style="itemStyle" :data-sortable-index="index">
-          <PerformanceDragHandle :label="`拖拽第${index + 1}个固定分值`" :dragging="dragging" :disabled="disabled" />
+          <UiDragHandle :label="`拖拽第${index + 1}个固定分值`" :dragging="dragging" :disabled="disabled" />
           <div class="fixed-score-option-field">
             <PerformanceTextField
               :model-value="option.value"
@@ -88,7 +88,7 @@ function reorderOptions(from: number, to: number) {
           <PerformanceIconButton v-if="!disabled && options.length > 2" icon="DeleteTrashOutlined" :label="`删除第${index + 1}个固定分值`" @click="removeOption(index)" />
         </div>
       </template>
-    </PerformanceSortableList>
+    </UiSortableList>
     <button v-if="!disabled" class="add-fixed-score-button" :class="{ 'is-disabled': !canAddOption }" type="button" :disabled="!canAddOption" @click="addOption">＋ 添加分值</button>
   </div>
 </template>

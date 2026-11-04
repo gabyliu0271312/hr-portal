@@ -21,7 +21,7 @@ function page(realDialog = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
       teleport: true,
-      PageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
+      UiPageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
       PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions'], template: '<div data-testid="audience-editor" />' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },

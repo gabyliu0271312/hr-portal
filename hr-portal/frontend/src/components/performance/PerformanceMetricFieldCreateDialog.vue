@@ -28,8 +28,8 @@
     </form>
     <template #footer>
       <div class="metric-field-footer">
-        <PerformanceButton variant="secondary" :disabled="saving" @click="open = false">取消</PerformanceButton>
-        <PerformanceButton variant="primary" :loading="saving" @click="submit">确定</PerformanceButton>
+        <UiButton variant="secondary" :disabled="saving" @click="open = false">取消</UiButton>
+        <UiButton variant="primary" :loading="saving" @click="submit">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -38,7 +38,7 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { type MetricFieldDraft, metricFieldTypeLabels } from '@/api/performanceMetricFields'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceLocalizedInput from './PerformanceLocalizedInput.vue'

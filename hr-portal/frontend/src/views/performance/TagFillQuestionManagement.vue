@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { performanceTagFillQuestionApi } from '@/api/performance'
 import AddOutlinedIcon from '@/components/performance/AddOutlinedIcon.vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import TagFillQuestionTable from '@/components/performance/TagFillQuestionTable.vue'
@@ -65,9 +65,9 @@ onMounted(load)
       @filter="ElMessage.info('当前列表仅支持名称、描述和备注搜索')"
     >
       <template #left>
-        <PerformanceButton variant="primary" class="create-button" @click="create">
+        <UiButton variant="primary" class="create-button" @click="create">
           <AddOutlinedIcon class="create-icon" aria-hidden="true" />新建
-        </PerformanceButton>
+        </UiButton>
       </template>
     </PerformanceListToolbar>
     <TagFillQuestionTable

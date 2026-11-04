@@ -29,7 +29,7 @@ beforeEach(() => {
 
 const stubs = {
   Teleport: true,
-  FullScreenModal: {
+  UiFullScreenModal: {
     props: ['title', 'showFooter'],
     emits: ['back'],
     template: '<div class="full-screen-modal-stub"><header>{{ title }}</header><button class="back" @click="$emit(\'back\')">back</button><slot /></div>',

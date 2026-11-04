@@ -42,12 +42,12 @@
         </PerformanceRadioGroup>
       </PerformanceFormItem>
       <PerformanceFormItem label="强制 / 建议分布规则" required><PerformanceRadioGroup v-model="distribution" :options="[{value:'INHERIT',label:'沿用此任务的分布规则'},{value:'NONE',label:'无需满足分布规则',disabled:true,info:'后端拒绝此策略，本轮不可选择'}]" name="authorization-distribution" /></PerformanceFormItem>
-      <div class="switch-setting"><span>允许继续授权他人校准</span><PerformanceSwitch v-model="allowReauthorize" aria-label="允许继续授权他人校准" /></div>
+      <div class="switch-setting"><span>允许继续授权他人校准</span><UiSwitch v-model="allowReauthorize" aria-label="允许继续授权他人校准" /></div>
       <p class="helper">开启后，被授权人和项目管理角色可以继续授权他人对校准范围内的人员进行校准</p>
-      <div class="switch-setting"><span>通知原校准人任务将授权他人处理</span><PerformanceSwitch v-model="notifyOriginal" aria-label="通知原校准人任务将授权他人处理" /></div>
+      <div class="switch-setting"><span>通知原校准人任务将授权他人处理</span><UiSwitch v-model="notifyOriginal" aria-label="通知原校准人任务将授权他人处理" /></div>
     </template>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <template #footer><div class="actions"><PerformanceButton :disabled="saving" @click="open = false">取消</PerformanceButton><PerformanceButton variant="primary" :disabled="!recipient || (!calibration && !reason.trim()) || (!calibration && stageGroups.length && !selectedStages.length) || !filteredTasks.length || saving || loading || Boolean(error)" @click="confirm">确定</PerformanceButton></div></template>
+    <template #footer><div class="actions"><UiButton :disabled="saving" @click="open = false">取消</UiButton><UiButton variant="primary" :disabled="!recipient || (!calibration && !reason.trim()) || (!calibration && stageGroups.length && !selectedStages.length) || !filteredTasks.length || saving || loading || Boolean(error)" @click="confirm">确定</UiButton></div></template>
   </PerformanceDialogShell>
 </template>
 
@@ -57,9 +57,9 @@ import { projectManagementApi, type PerformanceTaskDelegationTarget } from '@/ap
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 
 const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & {

@@ -5,7 +5,7 @@
       <div v-if="description" class="performance-assessment-method-header__description">{{ description }}</div>
       <a class="performance-assessment-method-header__help" :href="helpHref" target="_blank" rel="noreferrer">查看使用说明</a>
     </div>
-    <PerformanceSwitch
+    <UiSwitch
       class="performance-assessment-method-header__switch"
       :model-value="modelValue"
       :aria-label="`${title}开关`"
@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 defineProps<{
   title: string

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import OrganizationTree from '@/components/master-data/OrganizationTree.vue'
 import PageTitle from '@/components/common/PageTitle.vue'
+import UiSurface from '@/components/ui/UiSurface.vue'
 import { treesApi, type TreeNode } from '@/api/data'
 import { useUserStore } from '@/stores/user'
 
@@ -60,7 +61,7 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 <template>
   <div class="organization">
     <PageTitle title="组织架构" description="展示所有组织相关的信息" />
-    <div class="organization__card">
+    <UiSurface class="organization__card">
       <el-alert v-if="!canView" title="需要组织查看权限。" type="info" :closable="false" />
 
       <template v-else>
@@ -76,15 +77,32 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
           </div>
         </template>
       </template>
-    </div>
+    </UiSurface>
   </div>
 </template>
 
 <style scoped>
-.organization { display: flex; flex-direction: column; box-sizing: border-box; height: 100%; min-width: 0; padding: 20px 20px 0; background: #f5f6f7; }
-.organization__card { display: flex; flex-direction: column; flex: 1 1; min-width: 0; min-height: 0; padding: 20px; box-sizing: border-box; background: #fff; border-radius: 8px 8px 0 0; }
-.organization__card > .el-alert { margin-top: 16px; }
+/* REA 滚动模型：本页不设高度约束、自身不滚，内容自然生长，
+   纵向/横向滚动都交给布局层 .people-main（唯一滚动容器，对应 REA #smb-content-container）。
+   表头高度对齐 REA 部门页实测 51px（序列页为 46，故在页级覆盖而非改全局 token）。 */
+.organization {
+  --ui-table-header-height: 51px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-height: 100%;
+  min-width: 0;
+  padding: var(--ui-page-padding);
+  background: var(--ui-page-background);
+}
+.organization__card {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.organization__card > .el-alert { margin-top: var(--spacing-4); }
 .organization__toolbar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: var(--page-gap-toolbar-items); margin-bottom: var(--page-gap-toolbar-table); }
-.organization__tree { display: flex; flex: 1 1; min-width: 0; min-height: 0; }
+.organization__tree { display: flex; flex-direction: column; min-width: 0; }
 
 </style>

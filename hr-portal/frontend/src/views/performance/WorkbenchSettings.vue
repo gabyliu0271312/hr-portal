@@ -20,7 +20,7 @@
         @filter="entryFilterOpen = !entryFilterOpen"
       >
         <template #actions>
-          <PerformanceButton variant="primary" @click="openCreate('entry')"><el-icon><Plus /></el-icon>新建</PerformanceButton>
+          <UiButton variant="primary" @click="openCreate('entry')"><el-icon><Plus /></el-icon>新建</UiButton>
         </template>
       </PerformanceListToolbar>
       <div v-if="entryFilterOpen" class="filter-row" aria-label="入口状态筛选">
@@ -77,7 +77,7 @@
           <h2>公告功能</h2>
           <p>开启后，公告入口将会出现在工作台，管理员可以在公告发布内容。<a href="#" @click.prevent="showComingSoon('功能示例')">查看功能示例</a></p>
         </div>
-        <PerformanceSwitch :model-value="announcementEnabled" aria-label="公告功能" :disabled="announcementSaving" @update:model-value="toggleAnnouncements" />
+        <UiSwitch :model-value="announcementEnabled" aria-label="公告功能" :disabled="announcementSaving" @update:model-value="toggleAnnouncements" />
       </div>
       <div class="section-heading section-heading--announcement">
         <strong>公告列表</strong>
@@ -92,7 +92,7 @@
         @filter="announcementFilterOpen = !announcementFilterOpen"
       >
         <template #actions>
-          <PerformanceButton variant="primary" @click="openCreate('announcement')"><el-icon><Plus /></el-icon>新建</PerformanceButton>
+          <UiButton variant="primary" @click="openCreate('announcement')"><el-icon><Plus /></el-icon>新建</UiButton>
         </template>
       </PerformanceListToolbar>
       <div v-if="announcementFilterOpen" class="filter-row" aria-label="公告状态筛选">
@@ -162,11 +162,11 @@ import {
   type PerformanceWorkbenchEntry,
   type PerformanceWorkbenchEntryPayload,
 } from '@/api/performance'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
-import PerformanceSwitch from '@/components/performance/PerformanceSwitch.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 import PerformanceTextButton from '@/components/performance/PerformanceTextButton.vue'
 import WorkbenchSettingEditor from '@/components/performance/WorkbenchSettingEditor.vue'
 

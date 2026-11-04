@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from './UiButton.vue'
 
 withDefaults(defineProps<{ submitting?: boolean }>(), { submitting: false })
 
@@ -13,9 +13,9 @@ const emit = defineEmits<{
 <template>
   <footer class="full-screen-modal-footer">
     <slot>
-      <PerformanceButton variant="primary" class="full-screen-modal-footer-button" :loading="submitting" @click="emit('submit')">提交</PerformanceButton>
-      <PerformanceButton variant="secondary" class="full-screen-modal-footer-button preview-button" @click="emit('preview')">预览</PerformanceButton>
-      <PerformanceButton variant="secondary" class="full-screen-modal-footer-button cancel-button" @click="emit('cancel')">取消</PerformanceButton>
+      <UiButton variant="primary" class="full-screen-modal-footer-button" :loading="submitting" @click="emit('submit')">提交</UiButton>
+      <UiButton variant="secondary" class="full-screen-modal-footer-button preview-button" @click="emit('preview')">预览</UiButton>
+      <UiButton variant="secondary" class="full-screen-modal-footer-button cancel-button" @click="emit('cancel')">取消</UiButton>
     </slot>
   </footer>
 </template>

@@ -29,7 +29,7 @@ describe('AssessmentMethodSettings', () => {
     expect(wrapper.text()).not.toContain('新建')
     expect(wrapper.findAll('.assessment-method-card').length).toBe(1)
     expect(wrapper.findAll('.assessment-project-card').length).toBe(1)
-    expect(wrapper.findAllComponents({ name: 'PerformanceSwitch' })).toHaveLength(2)
+    expect(wrapper.findAllComponents({ name: 'UiSwitch' })).toHaveLength(2)
     expect(wrapper.find('.assessment-project-card__secondary-source').exists()).toBe(false)
     expect(wrapper.find('.assessment-project-card__visibility-row > .assessment-project-card__visibility-checkbox').exists()).toBe(true)
     expect(wrapper.find('.assessment-project-card__visibility-row > .assessment-project-card__visibility-copy').text()).toContain('项目上级可查看「项目团队绩效结果」')

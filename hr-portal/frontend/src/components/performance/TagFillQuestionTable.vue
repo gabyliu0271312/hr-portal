@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDisplayDateTime } from '@/utils/datetime'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import type { TagFillQuestionRecord } from './tagFillQuestionFixtures'
 
@@ -47,8 +47,8 @@ const emit = defineEmits<{
     <el-table-column label="操作" min-width="160" fixed="right">
       <template #default="{ row }">
         <div class="row-actions">
-          <PerformanceButton variant="text" @click="emit('edit', row)">编辑</PerformanceButton>
-          <PerformanceButton variant="text" @click="emit('remove', row)">删除</PerformanceButton>
+          <UiButton variant="text" @click="emit('edit', row)">编辑</UiButton>
+          <UiButton variant="text" @click="emit('remove', row)">删除</UiButton>
         </div>
       </template>
     </el-table-column>

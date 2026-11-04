@@ -1,7 +1,7 @@
 import { h } from 'vue';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import PerformanceSortableList from './PerformanceSortableList.vue';
+import UiSortableList from './UiSortableList.vue';
 const items = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' }];
 function pointerEvent(type, values) {
     const event = new Event(type, { bubbles: true, cancelable: true });
@@ -12,7 +12,7 @@ function keyEvent(key) {
     return new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
 }
 function mountList() {
-    return mount(PerformanceSortableList, {
+    return mount(UiSortableList, {
         props: { items, itemKey: 'id', gap: 8 },
         slots: {
             default: ({ item, index, dragging, over, itemStyle }) => h('div', {
@@ -24,7 +24,7 @@ function mountList() {
         },
     });
 }
-describe('PerformanceSortableList', () => {
+describe('UiSortableList', () => {
     it('reorders by pointer movement and keeps drag scope on the handle', async () => {
         const wrapper = mountList();
         const rows = wrapper.findAll('[data-sortable-index]');

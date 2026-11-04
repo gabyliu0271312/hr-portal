@@ -1,7 +1,7 @@
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ElTableColumn } from 'element-plus'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceMetricFieldsTable from './PerformanceMetricFieldsTable.vue'
@@ -39,7 +39,7 @@ describe('PM-T017-T04 protected system field actions', () => {
     expect(reasons.every(reason => reason.props('disabled') && reason.props('variant') === 'popover')).toBe(true)
     expect(reasons.filter(reason => reason.props('reason') === '系统预置字段，不允许编辑')).toHaveLength(7)
     expect(reasons.filter(reason => reason.props('reason') === '系统预置字段，不允许删除')).toHaveLength(7)
-    for (const button of wrapper.findAllComponents(PerformanceButton)) {
+    for (const button of wrapper.findAllComponents(UiButton)) {
       button.vm.$emit('click', new MouseEvent('click'))
     }
     expect(wrapper.emitted('edit')).toBeUndefined()
@@ -73,7 +73,7 @@ describe('PM-T017-T04 protected system field actions', () => {
     expect(buttons[0].attributes('disabled')).toBeUndefined()
     expect(buttons[1].attributes('disabled')).toBeDefined()
     expect(wrapper.findAllComponents(PerformanceDisabledReason)[1].props('reason')).toBe('该字段已被指标类型使用，不允许删除')
-    wrapper.findAllComponents(PerformanceButton)[1].vm.$emit('click', new MouseEvent('click'))
+    wrapper.findAllComponents(UiButton)[1].vm.$emit('click', new MouseEvent('click'))
     expect(wrapper.emitted('remove')).toBeUndefined()
   })
 

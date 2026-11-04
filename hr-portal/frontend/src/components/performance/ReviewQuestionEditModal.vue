@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue'
 import type { ReviewQuestion, ReviewQuestionForm, ReviewRuleOption } from './reviewQuestionTypes'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import ReviewQuestionFormType from './ReviewQuestionFormType.vue'
 
@@ -91,9 +91,9 @@ function handleSubmit() {
 
     <template #footer>
       <div class="review-question-edit-footer">
-        <PerformanceButton variant="secondary" @click="close">取消</PerformanceButton>
-        <PerformanceButton variant="secondary" @click="emit('preview', { ...form })">预览</PerformanceButton>
-        <PerformanceButton variant="primary" @click="handleSubmit">提交</PerformanceButton>
+        <UiButton variant="secondary" @click="close">取消</UiButton>
+        <UiButton variant="secondary" @click="emit('preview', { ...form })">预览</UiButton>
+        <UiButton variant="primary" @click="handleSubmit">提交</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>

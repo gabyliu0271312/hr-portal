@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { performanceReviewQuestionApi, performanceReviewRuleApi, type PerformanceReviewRuleDetail, type PerformanceReviewSubQuestionOption } from '@/api/performance'
-import FullScreenModal from '@/components/performance/FullScreenModal.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceRequiredLabel from '@/components/performance/PerformanceRequiredLabel.vue'
 import ReviewQuestionFormBasic from '@/components/performance/ReviewQuestionFormBasic.vue'
 import ReviewQuestionFormType from '@/components/performance/ReviewQuestionFormType.vue'
@@ -204,7 +204,7 @@ function preview() { ElMessage.info('预览') }
 </script>
 
 <template>
-  <FullScreenModal :title="title" :submitting="submitting" @back="back" @submit="submit" @preview="preview" @cancel="back">
+  <UiFullScreenModal :title="title" :submitting="submitting" @back="back" @submit="submit" @preview="preview" @cancel="back">
     <div class="question-create-content">
       <section class="question-card">
         <h2>基本信息</h2>
@@ -261,7 +261,7 @@ function preview() { ElMessage.info('预览') }
         </el-form>
       </section>
     </div>
-  </FullScreenModal>
+  </UiFullScreenModal>
 </template>
 
 <style scoped>

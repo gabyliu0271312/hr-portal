@@ -2,7 +2,7 @@
   <PerformanceListPage title="指标库" class="performance-metric-library">
     <template #title-actions>
       <div class="metric-library-heading-actions" aria-label="指标库辅助入口">
-        <PerformanceButton
+        <UiButton
           class="metric-fields-button"
           aria-label="字段管理"
           @click="fieldManagementOpen = true"
@@ -11,8 +11,8 @@
             <path d="M8.437 4.898 5.447 13h6.063L8.437 4.898Zm6.025 15.881L12.269 15h-7.56l-2.131 5.78a1 1 0 1 1-1.873-.703L7.02 2.982c.491-1.31 2.344-1.31 2.835 0l6.48 17.095a1 1 0 1 1-1.872.702ZM15.056 5a1 1 0 1 0 0 2H23a1 1 0 1 0 0-2h-7.944Zm1.055 7a1 1 0 0 1 1-1H23a1 1 0 1 1 0 2h-5.89a1 1 0 1 1-1-2Zm3.056 5a1 1 0 1 0 0 2H23a1 1 0 0 0 0-2-0h-3.833Z" fill="currentColor" />
           </svg>
           <span>字段管理</span>
-        </PerformanceButton>
-        <PerformanceButton
+        </UiButton>
+        <UiButton
           class="metric-formula-button"
           aria-label="公式管理"
           @click="formulaManagementOpen = true"
@@ -21,7 +21,7 @@
             <path d="M11 6.5C11 4.011 13.028 2 15.51 2 17.98 2 20 4.002 20 6.48v.02a1 1 0 1 1-2 0v-.02A2.489 2.489 0 0 0 15.51 4 2.508 2.508 0 0 0 13 6.5V10h4a1 1 0 1 1 0 2h-4v5.5c0 2.489-2.028 4.5-4.51 4.5A4.489 4.489 0 0 1 4 17.52v-.02a1 1 0 1 1 2 0v.02A2.489 2.489 0 0 0 8.49 20 2.508 2.508 0 0 0 11 17.5V12H8a1 1 0 1 1 0-2h3V6.5Z" fill="currentColor" />
           </svg>
           <span>公式管理</span>
-        </PerformanceButton>
+        </UiButton>
       </div>
     </template>
 
@@ -40,21 +40,21 @@
           width="160px"
         />
         <PerformanceFilterButton label="筛选" @click="notifyUnavailable('筛选')" />
-        <PerformanceButton
+        <UiButton
           class="metric-column-button"
           aria-label="自定义列"
           @click="columnDrawerOpen = true"
         >
           <PerformanceColumnVisibilityIcon class="metric-column-icon" />
           <span>自定义列</span>
-        </PerformanceButton>
-        <PerformanceButton
+        </UiButton>
+        <UiButton
           class="metric-icon-button"
           aria-label="使用多维表格编辑"
           @click="notifyUnavailable('使用多维表格编辑')"
         >
           <el-icon><EditPen /></el-icon>
-        </PerformanceButton>
+        </UiButton>
       </div>
 
       <div class="metric-library-empty" role="status">
@@ -95,7 +95,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { EditPen } from '@element-plus/icons-vue'
-import PerformanceButton from '@/components/performance/PerformanceButton.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import PerformanceColumnVisibilityIcon from '@/components/performance/PerformanceColumnVisibilityIcon.vue'
 import PerformanceFilterButton from '@/components/performance/PerformanceFilterButton.vue'

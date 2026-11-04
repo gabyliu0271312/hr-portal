@@ -1,5 +1,5 @@
 <template>
-  <PerformanceSortableList
+  <UiSortableList
     ref="sortableListRef"
     :items="items"
     item-key="id"
@@ -33,7 +33,7 @@
         >
           <span class="item-card__title">{{ itemTitle(item) }}</span>
           <PerformanceHorizontalDragHandle v-if="controlsVisible && horizontalHandle" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" :visible="hoveredItemId === item.id || dragging" @pointerdown="startPointerDrag" />
-          <PerformanceDragHandle v-else-if="controlsVisible" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
+          <UiDragHandle v-else-if="controlsVisible" :label="`拖拽${itemTitle(item)} ${index + 1} 调整顺序`" :dragging="dragging" @pointerdown="startPointerDrag" />
           <span class="item-card__actions"><button v-if="controlsVisible" type="button" :aria-label="`删除${item.label?.trim() || itemTitle(item)}`" @pointerdown.stop @mousedown.stop @click.stop="emit('remove', index)"><Delete /></button></span>
         </div>
 
@@ -48,7 +48,7 @@
             <fieldset class="type-field"><legend>填写题类型<i>*</i></legend><label v-for="option in questionTypeOptions" :key="option.value" class="question-type-option"><input :checked="(item.questionType || 'text') === option.value" type="radio" :name="`custom-question-type-${item.id}`" :value="option.value" @change="setQuestionType(item.id, option.value)" /><span>{{ option.label }}</span></label></fieldset>
             <template v-if="item.questionType === 'tag'">
               <PerformanceAssessmentSelect class="inside-select" label="标签型填写题" required placeholder="请选择" :options="tagOptions" :model-value="item.tagOptionId" empty-text="暂无标签题" @update:model-value="updateTag(item.id, $event)" />
-              <div v-if="selectedTag(item)" class="default-all"><strong>默认全部填写</strong><PerformanceSwitch v-model="item.defaultAll" aria-label="默认全部填写" /></div>
+              <div v-if="selectedTag(item)" class="default-all"><strong>默认全部填写</strong><UiSwitch v-model="item.defaultAll" aria-label="默认全部填写" /></div>
             </template>
             <template v-else>
               <PerformanceFormField v-model="item.label" inside label="填写题名称" required placeholder="请输入" :invalid="invalid && !item.label.trim()" />
@@ -62,7 +62,7 @@
         </template>
       </div>
     </template>
-  </PerformanceSortableList>
+  </UiSortableList>
   <div v-if="controlsVisible" id="rbd-hidden-text-0-hidden-text-0" class="drag-instruction" aria-hidden="true">Press space bar to start a drag. When dragging you can use the arrow keys to move the item around and escape to cancel. Some screen readers may require you to be in focus mode or to pass through key</div>
   <div class="sr-only" aria-live="assertive">{{ dragAnnouncement }}</div>
   <div class="add-area">
@@ -76,13 +76,13 @@ import { computed, ref } from 'vue'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import type { PerformancePromptValue } from '@/api/performance'
 import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceHorizontalDragHandle from './PerformanceHorizontalDragHandle.vue'
 import PerformanceFormField from './PerformanceFormField.vue'
 import PerformanceItemAddMenu from './PerformanceItemAddMenu.vue'
 import PerformancePromptForm from './PerformancePromptForm.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 type TagOption = { id: string; label: string; description?: string; defaultFields?: Array<{ label: string; content: string }> }
 type RatingOption = { id: string; label: string; description?: string; disabled?: boolean; disabledReason?: string; levels?: string[]; levelOptions?: Array<{ id: string; code?: string; label: string; name?: string; description?: string; color?: string }>; displayMode?: '标签样式' | '下拉样式' }

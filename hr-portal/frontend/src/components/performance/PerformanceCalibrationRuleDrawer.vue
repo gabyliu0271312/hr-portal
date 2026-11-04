@@ -85,7 +85,7 @@
       </section>
 
       <section class="calibration-rule-section calibration-rule-delegation" aria-labelledby="delegation-title">
-        <h3 id="delegation-title" class="calibration-rule-section__title">允许授权他人校准 <PerformanceSwitch v-model="draft.allow_authorize" aria-label="允许授权他人校准" /></h3>
+        <h3 id="delegation-title" class="calibration-rule-section__title">允许授权他人校准 <UiSwitch v-model="draft.allow_authorize" aria-label="允许授权他人校准" /></h3>
         <p class="calibration-rule-help">开启后，校准人和项目管理角色可授权他人对校准范围内的人员进行校准</p>
       </section>
       </template>
@@ -140,7 +140,7 @@ import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceTextButton from './PerformanceTextButton.vue'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import { HIRE_DATE_OPERATOR_OPTIONS, PERFORMANCE_CONDITION_FIELDS, conditionValueOptions, validHireDateCondition } from './performanceConditionFields'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 type PeopleOption = { value: string; label: string }
 type RuleDraft = {

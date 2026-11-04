@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { PerformanceReviewSubQuestionOption } from '@/api/performance'
-import PerformanceDragHandle from './PerformanceDragHandle.vue'
+import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
-import PerformanceSortableList from './PerformanceSortableList.vue'
+import UiSortableList from '../ui/UiSortableList.vue'
 import ReviewQuestionSubQuestionSelect from './ReviewQuestionSubQuestionSelect.vue'
 
 export type ReviewQuestionSubQuestion = { id: string; question_id: number | string | null }
@@ -97,10 +97,10 @@ watch(() => [props.calculationRule, props.options.map((option) => String(option.
         <span class="bounds-column">评分上下限</span>
         <span v-if="showWeight" class="weight-column">权重</span>
       </div>
-      <PerformanceSortableList :items="modelValue" item-key="id" :gap="12" @reorder="reorder">
+      <UiSortableList :items="modelValue" item-key="id" :gap="12" @reorder="reorder">
         <template #default="{ item, index, dragging, itemStyle }">
           <div class="sub-question-row sortable-grid" :class="{ 'is-dragging': dragging }" :data-sortable-index="index" :style="itemStyle">
-            <PerformanceDragHandle :label="`拖动第${index + 1}个子评估题`" :dragging="dragging" />
+            <UiDragHandle :label="`拖动第${index + 1}个子评估题`" :dragging="dragging" />
             <ReviewQuestionSubQuestionSelect class="name-column" :model-value="item.question_id" :options="options" :loading="loading" @update:model-value="updateQuestion(index, $event)" />
             <div class="derived-cell rule-column" aria-label="评估规则">{{ selectedOption(item.question_id)?.rule_name ?? '--' }}</div>
             <div class="derived-cell bounds-column" aria-label="评分上下限">{{ scoreBounds(selectedOption(item.question_id)) }}</div>
@@ -108,7 +108,7 @@ watch(() => [props.calculationRule, props.options.map((option) => String(option.
             <PerformanceIconButton class="delete-column" icon="DeleteTrashOutlined" :label="`删除第${index + 1}个子评估题`" @click="removeRow(index)" />
           </div>
         </template>
-      </PerformanceSortableList>
+      </UiSortableList>
     </template>
 
     <template v-else>

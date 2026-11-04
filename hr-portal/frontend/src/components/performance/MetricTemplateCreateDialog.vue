@@ -23,7 +23,7 @@
       <div class="metric-template-group-setting">
         <div class="metric-template-group-setting__row">
           <span>分人群设置指标内容</span>
-          <PerformanceSwitch v-model="form.byAudience" size="medium" aria-label="分人群设置指标内容" />
+          <UiSwitch v-model="form.byAudience" size="medium" aria-label="分人群设置指标内容" />
         </div>
         <p>可添加多个人群，并为各人群设置不同的指标内容</p>
       </div>
@@ -32,8 +32,8 @@
     </form>
     <template #footer>
       <div class="metric-template-dialog-footer">
-        <PerformanceButton variant="secondary" :disabled="saving" @click="close">取消</PerformanceButton>
-        <PerformanceButton variant="primary" :loading="saving" @click="submit">确定</PerformanceButton>
+        <UiButton variant="secondary" :disabled="saving" @click="close">取消</UiButton>
+        <UiButton variant="primary" :loading="saving" @click="submit">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -41,10 +41,10 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import PerformanceButton from './PerformanceButton.vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformanceLocalizedInput from './PerformanceLocalizedInput.vue'
-import PerformanceSwitch from './PerformanceSwitch.vue'
+import UiSwitch from '../ui/UiSwitch.vue'
 
 export interface MetricTemplateDraft {
   name: string
