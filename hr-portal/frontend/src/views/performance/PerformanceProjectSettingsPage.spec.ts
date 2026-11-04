@@ -20,7 +20,11 @@ import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceA
 function page(realDialog = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
-      teleport: true,
+      teleport: { template: '<div><slot /></div>' },
+      // element-plus 2.7 的 ElSelect 在被 stub 的 Teleport 下会无限递归更新（仅 jsdom + stub 环境），
+      // 这里只关心受众预览的人员列表与统计，下拉本身不做像素断言，故用桩替换。
+      ElSelect: true,
+      ElOption: true,
       UiPageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
       PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions'], template: '<div data-testid="audience-editor" />' },
       PerformanceProjectDialog: !realDialog,
@@ -130,10 +134,10 @@ describe('project audience preview', () => {
     await flushPromises()
     await wrapper.get('.audience-summary p button').trigger('click')
     await flushPromises()
-    const table = wrapper.get('.performance-task-table')
-    const statusIndex = table.findAll('th').findIndex(cell => cell.text() === '当前在职状态')
+    const table = wrapper.get('.performance-management-table .ui-table__grid')
+    const statusIndex = table.findAll('thead th').findIndex(cell => cell.text().trim() === '当前在职状态')
     expect(statusIndex).toBeGreaterThan(-1)
-    expect(table.findAll('tbody td')[statusIndex].text()).toBe(displayed)
+    expect(table.findAll('tbody tr')[0].findAll('td')[statusIndex].text()).toBe(displayed)
     expect(mocks.previewEvaluatorPeople).toHaveBeenLastCalledWith(1, expect.objectContaining({ evaluator_rules: rules }), '', 1, 50)
     expect(wrapper.get('.audience-summary').text()).toContain('共计 5人')
     wrapper.unmount()
