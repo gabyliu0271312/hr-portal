@@ -100,6 +100,31 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
   })
 
+  it('renders 360° feedback block in result view for 360°评估人 source references', async () => {
+    // REA：查看绩效结果单面板内，360°反馈作为独立区块（标题 + 展开详情 + 时间戳 + 展开条目）
+    const reviewer360 = node({ node_id: 'n360', node_type: 'evaluation', name: '360°反馈（自愿评估）', executor_label: '360°评估人' })
+    const reference = {
+      content_id: 'ref-360', type: 'reference', content_slot: 'reference', name: '360°反馈（自愿评估）',
+      reference_kind: 'node', reference_value: 'n360', items: [],
+    } as any
+    const wrapper = mountStep([
+      node({ node_id: 'n8', node_type: 'result_view', name: '查看绩效结果', content: [fillSummary, reference] }),
+      reviewer360,
+    ])
+    await flushPromises()
+    // 360°反馈区块渲染在右栏（单面板）
+    const block = wrapper.find('.pr360-block')
+    expect(block.exists()).toBe(true)
+    expect(block.text()).toContain('360°反馈（自愿评估）')
+    expect(block.find('.pr360-toggle').text()).toBe('展开详情')
+    // 默认收起：不显示条目，点展开后显示
+    expect(wrapper.findAll('.pr360-item')).toHaveLength(0)
+    await block.find('.pr360-toggle').trigger('click')
+    expect(wrapper.findAll('.pr360-item')).toHaveLength(2)
+    expect(wrapper.text()).toContain('360°反馈内容')
+    expect(wrapper.text()).toContain('留言内容')
+  })
+
   it('renders calibration with adjustment tab and final-node contents', async () => {
     const nodes = [
       node({ node_id: 'n7', node_type: 'evaluation', name: '直接上级评估', include_final_result: true, content: [fillSummary, fillRating] }),

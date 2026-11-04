@@ -18,6 +18,7 @@ import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
+import PerformanceResultReviewer360Block from './PerformanceResultReviewer360Block.vue'
 import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import { performanceContentKey, contentToSections } from './performanceContentToSections'
@@ -152,6 +153,14 @@ const rightTabLabel = computed(() => {
 const rightTitle = computed(() => selectedNode.value?.content_page_name || selectedNode.value?.name || '')
 const showFooter = computed(() => !isResultView.value)
 const isSinglePanel = computed(() => !showReferencePanel.value)
+
+/* ---------- 查看绩效结果：360°反馈区块（REA 实测：单面板内独立区块） ---------- */
+/** result_view 环节的 360°反馈引用（reference 区域，源执行人为 360°评估人） */
+const resultReviewer360Groups = computed(() => {
+  const node = selectedNode.value
+  if (!node || !isResultView.value) return []
+  return referenceGroups.value.filter(group => group.isReviewer360)
+})
 
 /* ---------- 配置填写内容：作答草稿（纯前端预览动作，不落库） ---------- */
 /**
@@ -412,6 +421,15 @@ function contentDescription(content: PerformanceTemplateContent) {
                       />
                     </div>
                   </div>
+
+                  <!-- 查看绩效结果：360°反馈区块（REA 实测：绩效结果内容后独立区块，标题+展开详情+时间戳+展开条目） -->
+                  <div v-if="isResultView && resultReviewer360Groups.length" class="ptp-result-360">
+                    <PerformanceResultReviewer360Block
+                      v-for="group in resultReviewer360Groups"
+                      :key="group.id"
+                      :title="group.label"
+                    />
+                  </div>
                 </template>
               </div>
             </div>
@@ -540,6 +558,10 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-result-group__title { margin-top: 20px; font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
 .ptp-block { margin-bottom: 32px; }
 .ptp-block:last-child { margin-bottom: 0; }
+/* 查看绩效结果：360°反馈区块紧随绩效结果内容，间距与内容块一致（REA mb-8=16 距上一块，块间 32） */
+.ptp-result-360 { margin-top: 16px; }
+.ptp-result-360 :deep(.pr360-block) { margin-bottom: 32px; }
+.ptp-result-360 :deep(.pr360-block:last-child) { margin-bottom: 0; }
 .ptp-block__add { margin-top: 4px; }
 /* 「添加」按 REA 实测：图标 14 与文字间距 4，字形走预览字体栈（默认 --font-sans 会高 2px） */
 /* 「添加」按 REA 实测：图标 14 与文字间距 4、左内缩 4；块级化避免行盒多出 1px 基线空隙 */
