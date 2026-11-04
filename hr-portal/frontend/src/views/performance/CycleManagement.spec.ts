@@ -562,6 +562,37 @@ describe('CycleManagement', () => {
     expect(wrapper.find('.lock-settings-card .sync-field').exists()).toBe(true)
   })
 
+  it('does not show the six-hour rule when reopening a historical scheduled cycle', async () => {
+    const scheduled = { ...cycle, lock_rule: 'SCHEDULED', lock_at: '2026-11-03T10:00:00.000Z', template_ids: [101], status: 'DRAFT' }
+    mocks.get.mockResolvedValue(scheduled)
+    mocks.update.mockResolvedValue(scheduled)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-11-04T07:44:00.000Z').getTime())
+    try {
+      const wrapper = await mountView('/performance/settings/cycles/1/edit')
+      expect(wrapper.find('#lock-at-rule-error').exists()).toBe(false)
+      expect((wrapper.get('#lock-at').element as HTMLInputElement).disabled).toBe(true)
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ name: cycle.name }))
+    } finally {
+      now.mockRestore()
+    }
+  })
+
+  it('still shows the six-hour rule for a new scheduled cycle', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-11-03T03:00:00.000Z').getTime())
+    try {
+      const wrapper = await mountView('/performance/settings/cycles/new')
+      await wrapper.find('input[type="radio"][value="SCHEDULED"]').setValue(true)
+      await wrapper.get('#lock-at').setValue('2026-11-03T16:59')
+      expect(wrapper.get('#lock-at-rule-error').text()).toContain('至少 6 小时')
+      await wrapper.get('#lock-at').setValue('2026-11-03T17:00')
+      expect(wrapper.find('#lock-at-rule-error').exists()).toBe(false)
+    } finally {
+      now.mockRestore()
+    }
+  })
+
   it('opens the comparison rule drawer from the evaluation result validation rule card', async () => {
     const wrapper = await mountView('/performance/settings/cycles/new')
 

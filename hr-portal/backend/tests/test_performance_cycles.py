@@ -166,6 +166,83 @@ def test_cycle_service_requires_scheduled_lock_six_hours_ahead():
         PerformanceCycleService._validate_payload(_payload(lock_rule="SCHEDULED", lock_at=too_soon))
 
 
+@pytest.mark.parametrize("minutes, allowed", [(359, False), (360, True), (361, True)])
+def test_scheduled_lock_creation_six_hour_boundary(minutes, allowed, monkeypatch):
+    from app.performance import cycle_service
+
+    now = datetime(2026, 11, 3, 3, 0, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(cycle_service, "datetime", Clock)
+    payload = _payload(lock_rule="SCHEDULED", lock_at=now + timedelta(minutes=minutes))
+    if allowed:
+        PerformanceCycleService._validate_payload(payload)
+    else:
+        with pytest.raises(CycleValidationError, match="至少 6 小时"):
+            PerformanceCycleService._validate_payload(payload)
+
+
+def test_cycle_service_does_not_revalidate_historical_scheduled_lock_on_edit():
+    now = datetime.now(timezone.utc)
+    cycle = SimpleNamespace(
+        name="历史定时周期",
+        start_at=now - timedelta(days=1),
+        end_at=now + timedelta(days=30),
+        lock_rule="SCHEDULED",
+        lock_at=now - timedelta(hours=12),
+        leaver_enabled=False,
+        leaver_start_date=None,
+        leaver_end_date=None,
+    )
+
+    PerformanceCycleService._validate_cycle(cycle)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cycle_status", ["DRAFT", "LOCKED"])
+async def test_update_historical_scheduled_cycle_preserves_lock_and_audits(cycle_status, monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+
+    now = datetime.now(timezone.utc)
+    cycle = SimpleNamespace(
+        **PerformanceCycleService._normalize_payload(_payload(
+            start_at=now - timedelta(days=1), end_at=now + timedelta(days=30),
+            lock_rule="SCHEDULED", lock_at=now - timedelta(hours=12),
+        )),
+        id=1, cycle_ref="cycle:historical", language="zh-CN", status=cycle_status,
+        leaver_start_date=None, leaver_end_date=None,
+    )
+    original_lock_at = cycle.lock_at
+    db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    service = PerformanceCycleService(db)
+    audit = Mock()
+    monkeypatch.setattr(service.audit, "append_event", audit)
+    monkeypatch.setattr(service, "_sync_snapshot", AsyncMock())
+
+    await service.update_cycle(cycle, {"name": "修订历史周期", "leaver_enabled": False, "leaver_start_date": None, "leaver_end_date": None}, actor_type="PORTAL_USER", actor_id=1)
+
+    assert cycle.name == "修订历史周期"
+    assert cycle.lock_rule == "SCHEDULED"
+    assert cycle.lock_at == original_lock_at
+    assert cycle.status == cycle_status
+    db.commit.assert_awaited_once()
+    service._sync_snapshot.assert_not_awaited()
+    assert audit.call_args.args[0].after_state["name"] == "修订历史周期"
+    with pytest.raises(CycleValidationError, match="不支持修改锁定规则"):
+        await service.update_cycle(cycle, {"lock_at": now}, actor_type="PORTAL_USER", actor_id=1)
+    with pytest.raises(CycleValidationError, match="需晚于开始时间"):
+        await service.update_cycle(cycle, {"end_at": cycle.start_at}, actor_type="PORTAL_USER", actor_id=1)
+    assert db.commit.await_count == 1
+    cycle.end_at = now + timedelta(days=30)
+    with pytest.raises(CycleValidationError, match="不能修改离职人员参评范围"):
+        await service.update_cycle(cycle, {"leaver_enabled": True, "leaver_start_date": now.date(), "leaver_end_date": now.date()}, actor_type="PORTAL_USER", actor_id=1)
+    assert db.commit.await_count == 1
+
+
 def test_cycle_payload_requires_leaver_date_range_when_enabled():
     with pytest.raises(ValidationError, match="日期范围"):
         CyclePayload(**_payload(leaver_enabled=True))
@@ -244,6 +321,44 @@ class _DueLockDb:
 
     async def commit(self):
         self.committed = True
+
+
+@pytest.mark.asyncio
+async def test_overdue_scheduled_cycle_locks_snapshot_and_audits_once(monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+    from app.performance import cycle_service, snapshot_service
+
+    now = datetime(2026, 11, 4, 7, 44, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(cycle_service, "datetime", Clock)
+    monkeypatch.setattr(snapshot_service, "datetime", Clock)
+    cycle = SimpleNamespace(
+        cycle_ref="cycle:overdue", status="DRAFT", lock_rule="SCHEDULED",
+        lock_at=datetime(2026, 11, 3, 10, 0, tzinfo=timezone.utc), pre_lock_sync_mode="MANUAL",
+    )
+    snapshot = SimpleNamespace(status="DRAFT", locked_at=None)
+    db = SimpleNamespace(
+        execute=AsyncMock(side_effect=[_RefsResult([cycle.cycle_ref]), _SnapshotResult(cycle), _RefsResult([])]),
+        commit=AsyncMock(),
+    )
+    service = PerformanceCycleService(db)
+    monkeypatch.setattr(service.snapshots, "_get_snapshot", AsyncMock(return_value=snapshot))
+    audit = Mock()
+    monkeypatch.setattr(service.snapshots, "_append_audit_event", audit)
+
+    assert await service.process_due_locks() == 1
+    assert cycle.status == "LOCKED"
+    assert snapshot.status == "LOCKED"
+    assert snapshot.locked_at == now
+    assert audit.call_args.kwargs["event_type"] == "AUTHORIZATION_SNAPSHOT_LOCKED"
+    assert await service.process_due_locks() == 0
+    db.commit.assert_awaited_once()
+    audit.assert_called_once()
 
 
 @pytest.mark.asyncio

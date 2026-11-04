@@ -55,16 +55,18 @@ class SchedulerEngine:
         return f"job-{job_id}"
 
     async def _ensure_internal_jobs(self) -> None:
-        """确保系统级质量队列有持久化轮询任务。"""
+        """确保系统级轮询任务有持久化定义。"""
         async with self._session_factory() as db:
             for kind, payload in (
                 ("quality_queue", {}),
                 ("cost_center_notification_queue", {"batch_size": 20}),
                 ("performance_result_opening", {}),
                 ("performance_reconsideration_notifications", {}),
+                ("performance_cycle_lifecycle", {}),
             ):
+                cron = "*/5 * * * *" if kind == "performance_cycle_lifecycle" else "* * * * *"
                 statement = pg_insert(ScheduledJob).values(
-                    kind=kind, business_id=0, cron="* * * * *",
+                    kind=kind, business_id=0, cron=cron,
                     payload=payload, enabled=True,
                 ).on_conflict_do_nothing(index_elements=["kind", "business_id"])
                 await db.execute(statement)

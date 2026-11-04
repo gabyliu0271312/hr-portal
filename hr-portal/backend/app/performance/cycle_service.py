@@ -332,12 +332,13 @@ class PerformanceCycleService:
                 raise CycleValidationError("未开启按周期关闭逾期任务提交机会")
         await self.validate_templates(payload, cycle)
         before = self.serialize(cycle)
+        leaver_fields_changed = any(field in payload and payload[field] != getattr(cycle, field) for field in ("leaver_enabled", "leaver_start_date", "leaver_end_date"))
         for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "template_ids", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "overdue_submission_enabled", "overdue_submission_scope"):
             if field in payload:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
-        leaver_fields_changed = any(field in payload for field in ("leaver_enabled", "leaver_start_date", "leaver_end_date"))
         if leaver_fields_changed and datetime.now(UTC) >= cycle.start_at.astimezone(UTC):
+
             raise CycleValidationError("绩效环节已开始，不能修改离职人员参评范围")
         if leaver_fields_changed:
             await self._sync_snapshot(cycle, actor_type=actor_type, actor_id=actor_id, allow_locked_update=True)
@@ -745,12 +746,12 @@ class PerformanceCycleService:
         return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
-    def _validate_payload(payload: dict[str, Any]) -> None:
+    def _validate_payload(payload: dict[str, Any], *, validate_lock_lead_time=True) -> None:
         if not payload["name"].strip():
             raise CycleValidationError("周期名称不能为空")
         if payload["end_at"] <= payload["start_at"]:
             raise CycleValidationError("需晚于开始时间")
-        if payload["lock_rule"] == CYCLE_LOCK_RULE_SCHEDULED:
+        if validate_lock_lead_time and payload["lock_rule"] == CYCLE_LOCK_RULE_SCHEDULED:
             if payload.get("lock_at") is None or payload["lock_at"] < datetime.now(UTC) + timedelta(hours=6):
                 raise CycleValidationError("锁定时间必须比当前时间晚至少 6 小时")
         if payload["leaver_enabled"] and (payload.get("leaver_start_date") is None or payload.get("leaver_end_date") is None or payload["leaver_end_date"] < payload["leaver_start_date"]):
@@ -758,7 +759,7 @@ class PerformanceCycleService:
 
     @classmethod
     def _validate_cycle(cls, cycle: PerformanceCycle) -> None:
-        cls._validate_payload({"name": cycle.name, "start_at": cycle.start_at, "end_at": cycle.end_at, "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date, "leaver_end_date": cycle.leaver_end_date})
+        cls._validate_payload({"name": cycle.name, "start_at": cycle.start_at, "end_at": cycle.end_at, "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date, "leaver_end_date": cycle.leaver_end_date}, validate_lock_lead_time=False)
     @staticmethod
     def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(payload)

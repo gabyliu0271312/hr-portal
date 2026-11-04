@@ -55,14 +55,48 @@ async def test_internal_quality_queue_creation_is_atomic_upsert():
     await engine._ensure_internal_jobs()
 
     assert db.commits == 1
-    assert len(db.statements) == 2
+    assert len(db.statements) == 5
     sql = "\n".join(
         str(statement.compile(dialect=postgresql.dialect()))
         for statement in db.statements
     )
-    assert sql.count("ON CONFLICT (kind, business_id) DO NOTHING") == 2
-    assert db.statements[0].compile().params["kind"] == "quality_queue"
-    assert db.statements[1].compile().params["kind"] == "cost_center_notification_queue"
+    assert sql.count("ON CONFLICT (kind, business_id) DO NOTHING") == 5
+    assert [statement.compile().params["kind"] for statement in db.statements] == [
+        "quality_queue",
+        "cost_center_notification_queue",
+        "performance_result_opening",
+        "performance_reconsideration_notifications",
+        "performance_cycle_lifecycle",
+    ]
+    assert db.statements[-1].compile().params["cron"] == "*/5 * * * *"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_start_bootstraps_cycle_lifecycle_before_loading_jobs(monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+    from app.scheduler import engine as scheduler_module
+
+    db = _InternalJobDb()
+    engine = SchedulerEngine(lambda: _SessionContext(db))
+    scheduler = SimpleNamespace(start=Mock())
+    monkeypatch.setattr(scheduler_module, "AsyncIOScheduler", lambda **kwargs: scheduler)
+
+    async def reload_jobs():
+        lifecycle = next(statement.compile().params for statement in db.statements if statement.compile().params["kind"] == "performance_cycle_lifecycle")
+        assert db.commits == 1
+        assert lifecycle["business_id"] == 0
+        assert lifecycle["cron"] == "*/5 * * * *"
+        assert lifecycle["enabled"] is True
+        return len(db.statements)
+
+    reload = AsyncMock(side_effect=reload_jobs)
+    monkeypatch.setattr(engine, "reload_all_jobs", reload)
+    await engine.start()
+    await engine.start()
+
+    scheduler.start.assert_called_once()
+    reload.assert_awaited_once()
+    assert db.commits == 1
 
 
 @pytest.mark.asyncio
