@@ -30,10 +30,7 @@
           <PerformanceCreateButton v-if="activeTab === 'management'" label="新建角色" @click="goCreate" />
         </template>
         <template #actions>
-          <button v-if="activeTab === 'management'" class="role-export-button" type="button" aria-label="导出" @click="notifyUnavailable('导出')">
-            <PerformanceExportIcon />
-            <span>导出</span>
-          </button>
+          <PerformanceExportButton v-if="activeTab === 'management'" :load-rows="exportRows" filename="绩效管理角色" :disabled="loading || !total" @success="ElMessage.success('导出成功')" @error="ElMessage.error('导出失败，请稍后重试')" />
         </template>
       </PerformanceListToolbar>
 
@@ -134,11 +131,11 @@ import {
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
-import PerformanceExportIcon from '@/components/performance/PerformanceExportIcon.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
+import PerformanceExportButton from '@/components/performance/PerformanceExportButton.vue'
 
 type RoleTab = 'management' | 'assessment'
 
@@ -214,6 +211,22 @@ watch([keyword, activeTab], () => {
 
 onMounted(() => void loadRoles())
 
+async function exportRows() {
+  const exported = [['角色', '描述', '状态', '更新人', '最近更新时间']]
+  let currentPage = 1
+  let expected: number | undefined
+  let count = 0
+  do {
+    const result = await performanceRoleApi.list(keyword.value, currentPage, 100, 'MANAGEMENT')
+    if (expected === undefined) expected = result.total
+    if (result.total !== expected || (count < expected && !result.items.length)) throw new Error('角色列表已变化，请刷新后重试')
+    exported.push(...result.items.map(item => [item.name, item.description || '--', item.is_active ? '已启用' : '已停用', '--', formatDisplayDateTime(item.updated_at)]))
+    count += result.items.length
+    currentPage += 1
+  } while (count < expected)
+  return exported
+}
+
 function goCreate() {
   void router.push({ name: 'PerformancePermissionRoleCreate' })
 }
@@ -281,8 +294,6 @@ function notifyUnavailable(action: string) {
 .role-tab.active::after { position: absolute; right: 16px; bottom: -1px; left: 16px; height: 3px; border-radius: 3px 3px 0 0; background: #3370ff; content: ''; }
 .role-card { box-sizing: border-box; margin-top: 16px; padding: 10px; border-radius: 8px; background: #fff; box-shadow: rgba(31, 35, 41, .02) 0 1px 2px -2px, rgba(31, 35, 41, .02) 0 2px 4px, rgba(31, 35, 41, .02) 0 2px 8px 2px; }
 .role-toolbar :deep(.list-toolbar) { margin-bottom: 8px; }
-.role-export-button { display: inline-flex; height: 32px; align-items: center; gap: 4px; padding: 4px 11px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; cursor: pointer; font: 400 14px/22px var(--font-sans); }
-.role-export-button:hover { background: #f2f3f5; }
 .role-name-button { padding: 0; border: 0; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; text-align: left; }
 .role-name-button:hover { color: #3370ff; }
 .role-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }

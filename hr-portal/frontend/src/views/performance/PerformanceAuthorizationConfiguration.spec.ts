@@ -7,7 +7,7 @@ import PerformanceManagementTable from '@/components/performance/PerformanceMana
 import pageSource from './PerformanceAuthorizationConfiguration.vue?raw'
 import routerSource from '@/router/index.ts?raw'
 
-const api = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }))
+const api = vi.hoisted(() => ({ list: vi.fn(), exportAll: vi.fn(), revoke: vi.fn() }))
 vi.mock('@/api/performance', () => ({ performanceUserAuthorizationApi: api }))
 const messages = vi.hoisted(() => ({ info: vi.fn() }))
 vi.mock('element-plus', async (importOriginal) => ({ ...await importOriginal<typeof import('element-plus')>(), ElMessage: messages }))
@@ -86,12 +86,30 @@ describe('PerformanceAuthorizationConfiguration', () => {
     expect(routerSource).toContain("import('@/views/performance/PerformanceAuthorizationConfiguration.vue')")
   })
 
-  it('keeps rule mutations and export explicitly unavailable', async () => {
+  it('exports all authorizations through the full-result API with the current search', async () => {
+    const all = Array.from({ length: 151 }, (_, index) => ({ user_id: index + 1, display_name: `员工${index}`, employee_no: `E${index}`, roles: [{ name: '管理员' }], updated_at: '2026-11-04T00:00:00Z' }))
+    api.exportAll.mockResolvedValue({ items: all, total: all.length })
+    const wrapper = mountPage()
+    await flushPromises()
+    wrapper.getComponent(PerformanceListToolbar).vm.$emit('update:keyword', '管理员')
+    await flushPromises()
+    const loadRows = wrapper.getComponent({ name: 'PerformanceExportButton' }).props('loadRows') as () => Promise<string[][]>
+    const rows = await loadRows()
+    expect(rows).toHaveLength(152)
+    expect(rows.at(-1)?.[0]).toBe('员工150（E150）')
+    expect(api.exportAll).toHaveBeenCalledWith('管理员')
+    api.exportAll.mockRejectedValueOnce(new Error('denied'))
+    await expect(loadRows()).rejects.toThrow('denied')
+    wrapper.unmount()
+  })
+
+  it('keeps unsupported rule mutations explicit and shows no fabricated export', async () => {
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.findAll('[role="tab"]')[1].trigger('click')
     await wrapper.get('[aria-label="删除规则"]').trigger('click')
     expect(messages.info).toHaveBeenLastCalledWith('删除规则功能将在后续任务接入')
+    expect(wrapper.findComponent({ name: 'PerformanceExportButton' }).exists()).toBe(false)
     expect(pageSource).not.toMatch(/#[\da-fA-F]{3,8}\b|rgba?\(/)
   })
 })

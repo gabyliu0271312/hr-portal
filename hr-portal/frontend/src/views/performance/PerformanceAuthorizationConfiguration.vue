@@ -8,7 +8,7 @@ import PerformanceConfirmDialog from '@/components/performance/PerformanceConfir
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
-import PerformanceExportIcon from '@/components/performance/PerformanceExportIcon.vue'
+import PerformanceExportButton from '@/components/performance/PerformanceExportButton.vue'
 import PerformanceLineTabs from '@/components/performance/PerformanceLineTabs.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
@@ -78,6 +78,14 @@ async function revoke() {
   }
 }
 
+async function exportRows() {
+  const result = await performanceUserAuthorizationApi.exportAll(keyword.value)
+  return [
+    ['选择用户', '授权角色', '更新人', '最近更新时间'],
+    ...result.items.map(item => [`${item.display_name}（${item.employee_no}）`, item.roles.map(role => role.name).join('、'), item.updated_by || '--', formatDisplayDateTime(item.updated_at)]),
+  ]
+}
+
 function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将在后续任务接入`) }
 </script>
 
@@ -88,7 +96,9 @@ function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将�
       <PerformanceContentSurface class="authorization-surface">
         <PerformanceListToolbar v-model:keyword="keyword" :search-placeholder="searchPlaceholder" :search-aria-label="searchPlaceholder" :show-filter="false">
           <template #left><PerformanceCreateButton :label="isRuleTab ? '添加规则' : '添加授权'" @click="openCreateDialog" /></template>
-          <template #actions><UiButton aria-label="导出" @click="notifyUnavailable('导出')"><span class="authorization-export"><PerformanceExportIcon />导出</span></UiButton></template>
+          <template #actions>
+            <PerformanceExportButton v-if="!isRuleTab" :load-rows="exportRows" filename="绩效用户授权" :disabled="loading || !total" @success="ElMessage.success('导出成功')" @error="ElMessage.error('导出失败，请稍后重试')" />
+          </template>
         </PerformanceListToolbar>
         <p v-if="loadError" role="alert">{{ loadError }} <UiButton variant="text" @click="loadRows">重试</UiButton></p>
         <PerformanceManagementTable
@@ -126,7 +136,6 @@ function notifyUnavailable(action: string) { ElMessage.info(`${action}功能将�
 .authorization-tabs { --performance-line-tabs-surface: transparent; }
 .authorization-surface { margin-top: var(--spacing-4); padding: var(--spacing-25); }
 .authorization-surface :deep(.list-toolbar) { margin-bottom: var(--spacing-2); }
-.authorization-export { display: inline-flex; align-items: center; gap: var(--spacing-1); }
 .authorization-actions { display: inline-flex; align-items: center; gap: var(--spacing-2); white-space: nowrap; }
 @media (max-width: 720px) { .authorization-surface :deep(.list-toolbar) { flex-wrap: wrap; } }
 </style>

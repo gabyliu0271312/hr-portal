@@ -20,8 +20,7 @@
           @filter="handleFilter"
         >
           <template #actions>
-            <PerformanceExportButton v-if="mode === 'preview' || mode === 'cycle-remind'" :load-rows="exportPreviewRows" :filename="context.title" :disabled="loading || Boolean(error) || !total || !capabilities.canExport" @success="notice = '导出成功'" @error="notice = '导出失败，请稍后重试'" />
-            <button v-else class="export-button" type="button" aria-label="导出" :disabled="!capabilities.canExport" @click="handleExport"><PerformanceExportIcon /><span>导出</span></button>
+            <PerformanceExportButton :load-rows="exportPreviewRows" :filename="context.title" :disabled="loading || Boolean(error) || !total || !capabilities.canExport" @success="notice = '导出成功'" @error="notice = '导出失败，请稍后重试'" />
           </template>
         </PerformanceListToolbar>
       </div>
@@ -113,7 +112,6 @@ import PerformanceTaskDelegationDialog from './PerformanceTaskDelegationDialog.v
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import InfoFilledIcon from './InfoFilledIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
-import PerformanceExportIcon from './PerformanceExportIcon.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
@@ -126,7 +124,7 @@ import { defaultReminderColumns, reminderCellValue, reminderColumnsForVisibility
 import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
 const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
-const emit = defineEmits<{ filter: []; export: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
+const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const loadedKeyword = ref('')
 const columnsInitialized = ref(false)
@@ -202,7 +200,7 @@ async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<
         { key: 'project_name', label: '所属项目', visibleByDefault: true },
         { key: 'unavailable_reason', label: '开通状态', visibleByDefault: true },
       ],
-      capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: false },
+      capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: true },
     }
   }
   const result = await performanceWorkbenchApi.taskPeople(query.context.projectId, query.context.nodeId, 'pending', query.keyword.trim() || undefined)
@@ -211,7 +209,7 @@ async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<
     items: result.slice(start, start + query.pageSize),
     total: result.length,
     columns: reminderColumnsForVisibility(result),
-    capabilities: { canRemind: true, canAuthorize: false, canTransfer: false, canExport: false },
+    capabilities: { canRemind: true, canAuthorize: false, canTransfer: false, canExport: true },
   }
 }
 
@@ -327,11 +325,6 @@ async function exportPreviewRows() {
     query.page += 1
   } while (count < expected)
   return exported
-}
-
-function handleExport() {
-  notice.value = '导出能力暂未接入'
-  emit('export')
 }
 
 async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-result') {

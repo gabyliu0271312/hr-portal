@@ -5520,6 +5520,40 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
 
 
 @pytest.mark.asyncio
+async def test_member_export_returns_all_rows_and_intersects_view_export_scopes(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    project = SimpleNamespace(id=1)
+    rows = [routes.ProjectMemberResponse(id=i, employee_no=f"E{i}", display_name=f"员工{i}") for i in range(151)]
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=project))
+    scopes = AsyncMock(side_effect=[{"E1", "E2"}, {"E2", "E3"}])
+    monkeypatch.setattr(routes, "_project_data_scope", scopes)
+    loader = AsyncMock(return_value=rows)
+    monkeypatch.setattr(routes, "_project_member_rows", loader)
+    actor, db = context(), object()
+    result = await routes.export_project_members(1, "员工", "name", "desc", actor, db)
+    assert len(result.items) == result.total == 151
+    loader.assert_awaited_once_with(project, {"E2"}, "员工", "name", "desc", actor, db)
+    assert [call.args[3] for call in scopes.await_args_list] == ["performance.frontend.data-view", "performance.frontend.export-members"]
+
+
+@pytest.mark.asyncio
+async def test_member_export_denies_missing_export_permission_before_reading_rows(monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=SimpleNamespace(id=1)))
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(side_effect=[None, HTTPException(403, "PROJECT_DATA_FORBIDDEN")]))
+    loader = AsyncMock()
+    monkeypatch.setattr(routes, "_project_member_rows", loader)
+    with pytest.raises(HTTPException) as error:
+        await routes.export_project_members(1, None, None, None, context(), object())
+    assert error.value.status_code == 403
+    assert error.value.detail == "PERFORMANCE_MEMBER_EXPORT_FORBIDDEN"
+    loader.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_member_task_map_skips_non_delegatable_stage_without_key_error(monkeypatch):
     from app.performance import projects_router
     from app.performance.models import PerformanceProject, PerformanceProjectMember

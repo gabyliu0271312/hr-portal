@@ -75,7 +75,24 @@ describe('PerformanceRoleConfiguration', () => {
     expect(wrapper.findAll('.table-column').some(column => column.text().startsWith('操作'))).toBe(true)
     expect(pageSource).toContain('PerformanceListToolbar')
     expect(pageSource).toContain('PerformanceCreateButton')
-    expect(pageSource).toContain('PerformanceExportIcon')
+    expect(pageSource).toContain('PerformanceExportButton')
+  })
+
+  it('exports all 101 searched roles across pages and rejects a failed page', async () => {
+    const all = Array.from({ length: 101 }, (_, index) => ({ id: index + 1, name: `角色${index}`, description: '', is_active: true, updated_at: '2026-11-04T00:00:00Z' }))
+    performanceRoleApi.list.mockImplementation(async (_keyword, page, size) => ({ items: all.slice((page - 1) * size, page * size), total: all.length }))
+    const wrapper = mount(PerformanceRoleConfiguration, { global: { stubs } })
+    await flushPromises()
+    await wrapper.get('input').setValue('角色')
+    await flushPromises()
+    const loadRows = wrapper.getComponent({ name: 'PerformanceExportButton' }).props('loadRows') as () => Promise<string[][]>
+    const rows = await loadRows()
+    expect(rows).toHaveLength(102)
+    expect(rows.at(-1)?.[0]).toBe('角色100')
+    expect(performanceRoleApi.list).toHaveBeenLastCalledWith('角色', 2, 100, 'MANAGEMENT')
+    performanceRoleApi.list.mockResolvedValueOnce({ items: all.slice(0, 100), total: 101 }).mockRejectedValueOnce(new Error('network'))
+    await expect(loadRows()).rejects.toThrow('network')
+    wrapper.unmount()
   })
 
   it('renders the assessment role six-column contract', async () => {

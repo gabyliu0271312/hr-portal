@@ -643,6 +643,10 @@ export const performanceUserAuthorizationApi = {
     const { data } = await api.get(userAuthorizationPath, { params: { keyword: keyword || undefined, page, page_size: pageSize } })
     return data
   },
+  async exportAll(keyword = ''): Promise<{ items: PerformanceUserAuthorization[]; total: number }> {
+    const { data } = await api.get(userAuthorizationPath + '/export', { params: { keyword: keyword || undefined } })
+    return data
+  },
   async options(): Promise<PerformanceUserAuthorizationOptions> {
     const { data } = await api.get(userAuthorizationPath + '/options')
     return data
@@ -1015,6 +1019,12 @@ export const projectManagementApi = {
   async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
     const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members`, {
       params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), page, page_size: pageSize },
+    })
+    return data
+  },
+  async exportMembers(projectId: number | string, keyword?: string, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/export`, {
+      params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}) },
     })
     return data
   },

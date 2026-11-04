@@ -1492,6 +1492,28 @@ async def _task_authorization_members(project, scope, context, db, keyword, page
     return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/projects/{project_id}/members/export", response_model=ProjectMemberPage)
+async def export_project_members(
+    project_id: int,
+    keyword: str | None = Query(default=None, max_length=128),
+    sort_by: str | None = Query(default=None, pattern="^(name|rating|completion|job_sequence|position_level|hire_date|department)$"),
+    sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    project = await _get_project(db, project_id)
+    view_scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+    try:
+        export_scope = await _project_data_scope(context, project, db, "performance.frontend.export-members")
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        raise HTTPException(status_code=403, detail="PERFORMANCE_MEMBER_EXPORT_FORBIDDEN") from None
+    scope = export_scope if view_scope is None else view_scope if export_scope is None else view_scope & export_scope
+    items = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
+    return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items))
+
+
 @router.get("/projects/{project_id}/members", response_model=ProjectMemberPage)
 async def list_project_members(
     project_id: int,
@@ -1512,10 +1534,15 @@ async def list_project_members(
         scope = await _task_management_scope(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
         return await _task_authorization_members(project, scope, context, db, keyword, page, page_size, sort_by, sort_order)
 
+    items = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
+    start = (page - 1) * page_size
+    return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size)
+
+
+async def _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db):
+    project_id = project.id
     snapshot_id = _latest_member_snapshot_statement(project_id)
     statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
-    count_statement = select(func.count(PerformanceProjectMember.id)).where(PerformanceProjectMember.snapshot_id == snapshot_id)
-    actor_ref = None
     if scope is not None:
         statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
@@ -1528,7 +1555,6 @@ async def list_project_members(
             PerformanceProjectMember.organization_ref.ilike(pattern),
         )
         statement = statement.where(condition)
-        count_statement = count_statement.where(condition)
 
     members = list((await db.execute(statement.order_by(PerformanceProjectMember.display_name.asc(), PerformanceProjectMember.id.asc()))).scalars().all())
 
@@ -1602,14 +1628,7 @@ async def list_project_members(
         items.append(ProjectMemberResponse(**item))
     if sort_by and sort_order:
         items.sort(key=lambda item: (getattr(item, "display_name" if sort_by == "name" else sort_by) is None, str(getattr(item, "display_name" if sort_by == "name" else sort_by) or "")), reverse=sort_order == "desc")
-    total = len(items)
-    start = (page - 1) * page_size
-    return ProjectMemberPage(
-        items=items[start:start + page_size],
-        total=total,
-        page=page,
-        page_size=page_size,
-    )
+    return items
 
 
 def _project_scope_refs(context: PerformanceAccessContext) -> set[str]:

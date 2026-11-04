@@ -234,6 +234,30 @@ async def _authorization_item(db: AsyncSession, user_id: int) -> PerformanceUser
     )
 
 
+@router.get("/user-authorizations/export")
+async def export_user_authorizations(
+    keyword: str | None = None,
+    context: PerformanceAccessContext = Depends(_context),
+    db: AsyncSession = Depends(get_session),
+):
+    statement = select(User.id).join(PerformanceRoleAssignment, PerformanceRoleAssignment.subject_id == User.id).join(
+        PerformanceRole, PerformanceRole.id == PerformanceRoleAssignment.role_id,
+    ).outerjoin(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).where(
+        PerformanceRoleAssignment.subject_type == SUBJECT_TYPE_PORTAL_USER,
+        PerformanceRoleAssignment.scope_type == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.scope_ref == SCOPE_TYPE_GLOBAL,
+        PerformanceRoleAssignment.is_active.is_(True),
+        PerformanceRole.role_type == "MANAGEMENT",
+        PerformanceRole.is_system.is_(False),
+    ).distinct()
+    if keyword and keyword.strip():
+        pattern = f"%{keyword.strip()}%"
+        statement = statement.where((User.display_name.ilike(pattern)) | (User.login_name.ilike(pattern)) | (PerformanceIdentityLink.employee_no.ilike(pattern)) | (PerformanceRole.name.ilike(pattern)))
+    user_ids = list((await db.execute(statement.order_by(User.id))).scalars().all())
+    items = [item for user_id in user_ids if (item := await _authorization_item(db, user_id)) is not None]
+    return {"items": items, "total": len(items)}
+
+
 @router.get("/user-authorizations", response_model=PerformanceUserAuthorizationPage)
 async def list_user_authorizations(
     keyword: str | None = None,

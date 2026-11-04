@@ -28,7 +28,7 @@
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @export="emit('member-export')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" />
+            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
@@ -42,7 +42,7 @@
       </template>
     </section>
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
-      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" @export="handleReminderExport" />
+      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" />
     </PerformanceTaskOverlay>
     <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
   </div>
@@ -90,7 +90,6 @@ const emit = defineEmits<{
   'completion-action': [payload: { action: 'remind' | 'enable-result'; nodeKey: string; departmentPath?: string }]
   'authorization-view': [item: AuthorizationItem]
   'member-filter': []
-  'member-export': []
 }>()
 const overview = ref<ProjectManagementOverview | null>(null)
 const activeCycleId = computed(() => projectContext.activeCycleId)
@@ -285,7 +284,6 @@ function closeReminder() {
 }
 
 function handleReminderFilter() {}
-function handleReminderExport() {}
 
 onMounted(async () => {
   const routeCycleId = Number(route.query.cycle_id)

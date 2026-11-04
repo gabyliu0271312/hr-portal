@@ -15,7 +15,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
-  return { ...actual, projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), members: vi.fn(), matrix: vi.fn() } }
+  return { ...actual, projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn() } }
 })
 
 import ProjectManagement from './ProjectManagement.vue'
@@ -93,6 +93,7 @@ describe('ProjectManagement', () => {
     vi.spyOn(performanceNavigationApi, 'get').mockImplementation(async cycleId => navigationOf(cycleId || 1))
     vi.mocked(mockedApi.overview).mockReset()
     vi.mocked(mockedApi.members).mockReset()
+    vi.mocked(mockedApi.exportMembers).mockReset()
     vi.mocked(mockedApi.matrix).mockReset()
     vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 406, page: 1, page_size: 50 })
     vi.mocked(mockedApi.matrix).mockResolvedValue({
@@ -339,6 +340,39 @@ describe('ProjectManagement', () => {
     }))
     wrapper.unmount()
     dept.mockRestore()
+  })
+
+  it('exports every matching member from a later page with the selected columns and permits retry', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const all = Array.from({ length: 151 }, (_, index) => ({
+      id: index + 1, employee_no: `E${index}`, display_name: `员工${index}`, avatar_url: null,
+      rating: null, rating_tone: null, completion: '0/0', job_family: null, job_category: null,
+      job_sequence: null, position_level: null, hire_date: null, department: null,
+      employee_type: null, employment_status: null,
+    }))
+    vi.mocked(mockedApi.members).mockImplementation(async (_id, _keyword, page = 1, size = 50) => ({ items: all.slice((page - 1) * size, page * size), total: all.length, page, page_size: size }))
+    vi.mocked(mockedApi.exportMembers).mockResolvedValue({ items: all, total: all.length, page: 1, page_size: all.length })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    const panel = wrapper.getComponent({ name: 'ProjectMemberListPanel' })
+    panel.getComponent({ name: 'PerformanceManagementTable' }).vm.$emit('page-change', 2)
+    await flushPromises()
+    panel.getComponent({ name: 'ProjectMemberColumnDrawer' }).vm.$emit('confirm', ['name'])
+    await flushPromises()
+    const button = panel.getComponent({ name: 'PerformanceExportButton' })
+    const loadRows = button.props('loadRows') as () => Promise<string[][]>
+    expect(await loadRows()).toEqual([['姓名'], ...all.map(member => [member.display_name])])
+    expect(mockedApi.exportMembers).toHaveBeenLastCalledWith(3, undefined, undefined, undefined)
+    button.vm.$emit('error', new Error('network'))
+    await flushPromises()
+    expect(panel.text()).toContain('导出失败，请稍后重试')
+    expect(button.props('disabled')).toBe(false)
+    button.vm.$emit('success')
+    await flushPromises()
+    expect(panel.text()).toContain('导出成功')
+    wrapper.unmount()
   })
 
   it('keeps member headers when the member list is empty', async () => {

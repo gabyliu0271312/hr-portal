@@ -8,7 +8,7 @@ import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
-import PerformanceExportIcon from './PerformanceExportIcon.vue'
+import PerformanceExportButton from './PerformanceExportButton.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 import { type PerformanceTableColumn } from './performanceTableColumns'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
@@ -30,7 +30,6 @@ const props = withDefaults(defineProps<{
 })
 const emit = defineEmits<{
   filter: []
-  export: []
   'columns-change': [keys: string[]]
   'select-member': [member: MemberRow]
   'authorize-selected': [members: MemberRow[]]
@@ -45,6 +44,7 @@ const page = ref(1)
 const pageSize = ref(50)
 const loading = ref(false)
 const error = ref('')
+const exportNotice = ref('')
 const sortBy = ref('')
 const sortOrder = ref<PerformanceSortOrder>('')
 
@@ -189,6 +189,14 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
   fixed: column.key === 'name',
 })))
 
+async function exportRows() {
+  const result = await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
+  return [
+    visibleColumns.value.map(column => column.label),
+    ...result.items.map(member => visibleColumns.value.map(column => String(cellValue(member, column.key)))),
+  ]
+}
+
 function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder }) {
   sortBy.value = order ? key : ''
   sortOrder.value = order
@@ -236,7 +244,7 @@ onMounted(() => void loadMembers())
       @filter="emit('filter')"
     >
       <template v-if="showExport" #actions>
-        <button class="member-action-button" type="button" aria-label="导出" @click="emit('export')"><PerformanceExportIcon class="export-icon" /><span>导出</span></button>
+        <PerformanceExportButton :load-rows="exportRows" :filename="`项目成员_${props.projectId}`" :disabled="loading || Boolean(error) || !total" @success="exportNotice = '导出成功'" @error="exportNotice = '导出失败，请稍后重试'" />
       </template>
     </PerformanceListToolbar>
     <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="columnDrawerOpen = true" />
@@ -282,6 +290,7 @@ onMounted(() => void loadMembers())
         <UiButton variant="outline-primary" aria-label="转交他人处理" :disabled="!selectedMembers.some(member => member.can_authorize)" @click="emit('transfer-selected', selectedMembers)">转交他人处理</UiButton>
       </template>
     </PerformanceManagementTable>
+    <p v-if="exportNotice" role="status">{{ exportNotice }}</p>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="availableColumns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
   </section>
 </template>
@@ -289,7 +298,7 @@ onMounted(() => void loadMembers())
 <style scoped>
 .member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }
 .card-sticky-mask { position: sticky; top: calc(var(--performance-table-sticky-top, 0px) - 20px); z-index: 19; flex: none; height: 20px; margin: 0 -20px; border-radius: 8px 8px 0 0; background: var(--color-bg-card, #fff); }
-.member-list-toolbar{display:flex;align-items:center;gap:12px;height:32px;margin-bottom:16px}.member-action-button{display:inline-flex;align-items:center;justify-content:center;flex:0 0 80px;height:32px;padding:4px 11px;border:1px solid #d0d3d6;border-radius:6px;background:#fff;color:#1f2329;cursor:pointer;font:400 14px/22px inherit}.export-icon{display:block;flex:0 0 14px;width:14px;height:14px;margin-right:4px}
+.member-list-toolbar{display:flex;align-items:center;gap:12px;height:32px;margin-bottom:16px}
 .rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
 .table-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .completion-text{color:var(--color-primary)}
