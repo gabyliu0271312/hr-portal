@@ -125,6 +125,46 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.findAll('.ptp-invite-row')).toHaveLength(4)
   })
 
+  it('renders built-in OKR skeleton for more-reference relations', async () => {
+    // 内容设置「配置参考内容 → 更多参考内容 → OKR」落库为 reference_kind='more' + reference_value='okr'
+    const okrRelation = {
+      content_id: 'reference-okr', type: 'reference', content_slot: 'reference', name: 'OKR',
+      description: '支持展示 OKR 内容、OKR 日志、OKR 异常完成情况等信息',
+      reference_kind: 'more', reference_value: 'okr', items: [],
+    } as any
+    const nodes = [
+      node({ node_id: 'n2', node_type: 'evaluation', name: '直接上级评估', content: [okrRelation, fillSummary] }),
+    ]
+    const wrapper = mountStep(nodes)
+    await flushPromises()
+    // 中栏出现 OKR 页签
+    const tabs = wrapper.findAll('.ptp-ref-tab')
+    expect(tabs.map(tab => tab.text())).toContain('OKR')
+    const panel = wrapper.findAll('.ptp-panel')[0]
+    // 内置骨架：期间选择器 / OKR 详情 / O1 / KR 占位
+    expect(panel.text()).toContain('OKR 内容')
+    expect(panel.text()).toContain(`${new Date().getFullYear()} 年度 OKR`)
+    expect(panel.text()).toContain('OKR 详情')
+    expect(panel.text()).toContain('展示内容以实际数据为准')
+    expect(panel.findAll('.okr-tag').map(tag => tag.text())).toEqual(['O1', 'KR1', 'KR2'])
+    expect(panel.text()).toContain('进度')
+    expect(panel.text()).toContain('权重')
+    expect(panel.findAll('.okr-badge').map(badge => badge.text())).toEqual(['正常', '正常'])
+  })
+
+  it('renders more_reference units and team stats placeholder', async () => {
+    const moreRelation = {
+      content_id: 'reference-more', type: 'reference', content_slot: 'reference', name: '更多参考',
+      description: '支持展示绩效信息、异动信息、补充信息等其他信息',
+      reference_kind: 'more', reference_value: 'more_reference', items: [],
+    } as any
+    const wrapper = mountStep([node({ node_id: 'n2', node_type: 'evaluation', name: '直接上级评估', content: [moreRelation] })])
+    await flushPromises()
+    const panel = wrapper.findAll('.ptp-panel')[0]
+    expect(panel.findAll('.ref-block__unit-title').map(unit => unit.text())).toEqual(['绩效信息', '异动信息', '补充信息'])
+    wrapper.unmount()
+  })
+
   it('shows error state when workflow loading fails', async () => {
     vi.mocked(performanceTemplateApi.getWorkflow).mockRejectedValue(new Error('网络错误'))
     const wrapper = mount(PerformanceTemplatePreviewStep, { props: { templateId: 1 } })

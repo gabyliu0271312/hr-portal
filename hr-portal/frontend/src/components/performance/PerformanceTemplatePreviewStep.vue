@@ -10,6 +10,7 @@ import { performanceTemplateApi, type PerformanceTemplateContent, type Performan
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import PerformanceContentRenderer from './PerformanceContentRenderer.vue'
+import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -54,7 +55,16 @@ function visibleFillContents(node: PerformanceWorkflowNode | null) {
 }
 
 /* ---------- 参考内容（中栏） ---------- */
-interface ReferenceGroup { id: string; label: string; contents: PerformanceTemplateContent[]; moreLabels: string[] }
+interface ReferenceGroup {
+  id: string
+  label: string
+  /** node=引用其他环节内容；more=内容设置「更多参考内容」里的内置引用（OKR / 更多参考 / 团队统计） */
+  kind: 'node' | 'more'
+  /** kind='more' 时的引用值：okr / more_reference / team_stats */
+  value: string
+  description: string
+  contents: PerformanceTemplateContent[]
+}
 const referenceGroups = computed<ReferenceGroup[]>(() => {
   const node = selectedNode.value
   if (!node) return []
@@ -64,10 +74,16 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
     if (relation.reference_kind === 'node' && relation.reference_value) {
       const source = nodes.value.find(item => item.node_id === relation.reference_value && item.node_id !== node.node_id)
       const contents = source ? visibleFillContents(source) : []
-      return { id, label: relation.reference_settings?.page_name || source?.name || relation.name || '参考内容', contents, moreLabels: [] }
+      return {
+        id, kind: 'node' as const, value: relation.reference_value,
+        label: relation.reference_settings?.page_name || source?.name || relation.name || '参考内容',
+        description: '', contents,
+      }
     }
-    const moreLabels = (relation.items || []).map(item => item.label).filter(Boolean)
-    return { id, label: relation.name || '更多参考', contents: [], moreLabels }
+    return {
+      id, kind: 'more' as const, value: relation.reference_value || '',
+      label: relation.name || '更多参考', description: relation.description || '', contents: [],
+    }
   })
 })
 const showReferencePanel = computed(() => !isResultView.value && !isInvite.value && referenceGroups.value.length > 0)
@@ -180,10 +196,14 @@ function contentDescription(content: PerformanceTemplateContent) {
             >{{ group.label }}</button>
           </div>
           <template v-if="activeReferenceGroup">
-            <div v-if="activeReferenceGroup.moreLabels.length" class="ptp-more">
-              <span v-for="label in activeReferenceGroup.moreLabels" :key="label" class="ptp-chip">{{ label }}</span>
-            </div>
-            <div v-for="content in activeReferenceGroup.contents" :key="content.content_id || content.id || content.name" class="ptp-content">
+            <!-- 内置引用（OKR / 更多参考 / 团队统计）：无内容条目，渲染内置骨架 -->
+            <PerformanceReferenceSkeleton
+              v-if="activeReferenceGroup.kind === 'more'"
+              :kind="activeReferenceGroup.value"
+              :label="activeReferenceGroup.label"
+              :description="activeReferenceGroup.description"
+            />
+            <div v-for="content in activeReferenceGroup.contents" v-else :key="content.content_id || content.id || content.name" class="ptp-content">
               <PerformanceAssessmentPreviewHeader
                 v-if="content.type !== 'prompt'"
                 :name="content.name"
@@ -299,8 +319,6 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-ref-tab { border: none; background: none; padding: 8px 2px; font-size: 14px; color: #646a73; cursor: pointer; position: relative; white-space: nowrap; }
 .ptp-ref-tab--active { color: #3370ff; font-weight: 500; }
 .ptp-ref-tab--active::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: #3370ff; border-radius: 1px; }
-.ptp-more { margin-bottom: 12px; }
-.ptp-chip { display: inline-flex; align-items: center; background: #e1eaff; color: #3370ff; font-size: 12px; font-weight: 500; border-radius: 10px; padding: 2px 10px; line-height: 18px; margin: 0 8px 8px 0; }
 
 /* 内容块（块内渲染复用 PerformanceContentRenderer / PerformanceAssessmentPreviewHeader） */
 .ptp-content { margin-bottom: 8px; }
