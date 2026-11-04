@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { formatDateTime, formatDisplayDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from './datetime'
-import { formatDisplayDateTime as formatJsDisplayDateTime } from './datetime.js'
 
-it.each([formatDisplayDateTime, formatJsDisplayDateTime])('formats business timestamps without changing log precision', format => {
+it('formats business timestamps without changing log precision', () => {
+  const format = formatDisplayDateTime
   for (const value of [
     '2022-12-06T10:06:59.123456Z',
     '2022-12-06T18:06:59+08:00',

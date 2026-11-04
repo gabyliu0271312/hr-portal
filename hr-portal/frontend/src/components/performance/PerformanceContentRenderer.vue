@@ -38,7 +38,7 @@
       <template v-else-if="isRatingItem(item)">
         <div v-if="itemState(item.id).mode === 'view'" class="content-renderer-rating__result" :style="{ '--rating-foreground': ratingResult(item).foreground }">
           <strong v-if="!itemState(item.id).hideName" class="performance-item-title content-renderer-rating__result-title">{{ item.label }}</strong>
-          <span class="content-renderer-rating__result-code">{{ ratingResult(item).code }}</span>
+          <PerformanceRatingTag class="content-renderer-rating__result-code" :label="ratingResult(item).code" :color="ratingResult(item).color" :foreground="ratingResult(item).foreground" />
           <span class="content-renderer-rating__result-name">{{ ratingResult(item).name }}</span>
         </div>
         <template v-else>
@@ -69,6 +69,7 @@ import PerformanceContentSelectionFrame from './PerformanceContentSelectionFrame
 import PerformanceVisibleLockIcon from './PerformanceVisibleLockIcon.vue'
 import PerformanceUnavailableOverlay from './PerformanceUnavailableOverlay.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceTemplateFieldRenderer from './PerformanceTemplateFieldRenderer.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import type { PerformancePromptValue as PromptValue, PerformanceTemplateField, PerformanceTemplateOption } from '@/api/performance'
@@ -144,7 +145,7 @@ const ratingResult = (item: ContentItem) => {
 .content-renderer-prompt{margin:0}
 .content-renderer-rating{position:relative;margin:16px 0 0}
 .content-renderer-rating__header{min-height:24px;line-height:24px}.content-renderer-rating__header>i{margin-left:3px;color:#f54a45;font-style:normal}.content-renderer-rating__body{margin-top:12px}
-.content-renderer-rating__result{display:flex;align-items:center;min-width:0;min-height:24px}.content-renderer-rating__result-title{flex:0 0 auto;margin-right:var(--performance-rating-result-gap,var(--spacing-2))}.content-renderer-rating__result-code{display:inline-flex;flex:0 0 auto;align-items:center;justify-content:center;box-sizing:border-box;min-width:44px;padding:0 10px;color:var(--rating-foreground,#1f2329);font-size:14px;font-weight:400;line-height:22px;text-align:center}.content-renderer-rating__result-name{flex:0 0 auto;margin-left:var(--performance-rating-result-gap,var(--spacing-2));overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
+.content-renderer-rating__result{display:flex;align-items:center;min-width:0;min-height:24px}.content-renderer-rating__result-title{flex:0 0 auto;margin-right:var(--performance-rating-result-gap,var(--spacing-2))}.content-renderer-rating__result-code{flex:0 0 auto;max-width:100%}.content-renderer-rating__result-name{flex:0 0 auto;margin-left:var(--performance-rating-result-gap,var(--spacing-2));overflow:hidden;color:var(--rating-foreground,#1f2329);font-size:14px;line-height:22px;white-space:nowrap;text-overflow:ellipsis}.content-renderer-rating--name-hidden .content-renderer-rating__header{display:none}.content-renderer-rating--name-hidden .content-renderer-rating__body{margin-top:0}
 .content-renderer-item{position:relative}
 .content-renderer-item--view :deep(.readonly-tag-panel){background:var(--performance-review-readonly-surface)}.content-renderer-view-preview{pointer-events:none}
 .content-renderer-item--interactive{position:relative;padding:var(--spacing-2);border:var(--performance-content-item-border-width) solid transparent;border-radius:var(--radius-md);box-sizing:border-box;cursor:pointer}

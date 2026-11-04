@@ -1,18 +1,21 @@
 export interface PerformanceColorOption {
   value: string
   trigger: string
+  foreground?: string
 }
 
+/* 档位色板：value = 配置里存的档位色，trigger = 结果态/选中态胶囊底色，foreground = 胶囊文字色。
+   trigger/foreground 取自 REA 实测令牌（例如 3星：bg rgb(225,234,255) / 文字 rgb(12,41,110)）。 */
 export const PERFORMANCE_LEVEL_COLORS: PerformanceColorOption[] = [
-  { value: 'rgb(251, 191, 188)', trigger: 'rgb(253, 226, 226)' },
-  { value: 'rgb(254, 212, 164)', trigger: 'rgb(254, 234, 210)' },
+  { value: 'rgb(251, 191, 188)', trigger: 'rgb(253, 226, 226)', foreground: 'rgb(122, 28, 22)' },
+  { value: 'rgb(254, 212, 164)', trigger: 'rgb(254, 234, 210)', foreground: 'rgb(122, 71, 16)' },
   { value: 'rgb(248, 230, 171)', trigger: 'rgb(250, 241, 209)' },
-  { value: 'rgb(183, 237, 177)', trigger: 'rgb(217, 245, 214)' },
+  { value: 'rgb(183, 237, 177)', trigger: 'rgb(217, 245, 214)', foreground: 'rgb(31, 82, 26)' },
   { value: 'rgb(169, 239, 230)', trigger: 'rgb(211, 247, 242)' },
   { value: 'rgb(177, 232, 252)', trigger: 'rgb(215, 243, 253)' },
-  { value: 'rgb(186, 206, 253)', trigger: 'rgb(221, 232, 254)' },
+  { value: 'rgb(186, 206, 253)', trigger: 'rgb(225, 234, 255)', foreground: 'rgb(12, 41, 110)' },
   { value: 'rgb(180, 185, 243)', trigger: 'rgb(222, 224, 250)' },
-  { value: 'rgb(205, 178, 250)', trigger: 'rgb(233, 220, 252)' },
+  { value: 'rgb(205, 178, 250)', trigger: 'rgb(233, 220, 252)', foreground: 'rgb(66, 32, 120)' },
   { value: 'rgb(239, 185, 239)', trigger: 'rgb(248, 221, 248)' },
   { value: 'rgb(249, 174, 217)', trigger: 'rgb(252, 217, 237)' },
   { value: 'rgb(210, 211, 212)', trigger: 'rgb(235, 236, 237)' },
@@ -36,9 +39,10 @@ export function performanceLevelForeground(value: unknown): string {
   if (typeof value !== 'string') return '#1f2329'
   const normalized = value.replace(/\s+/g, '').toLowerCase()
   const level = PERFORMANCE_LEVEL_COLORS.find(option => option.value.replace(/\s+/g, '').toLowerCase() === normalized)
+  if (level?.foreground) return level.foreground
   const source = parseLevelColor(level ? level.value : value)
   if (!source) return '#1f2329'
-  // 等级代号徽章与名称使用同一色系的深色文字（约为主色 ×0.4，对齐飞书 B-900 的做法）。
+  // 自定义色没有对应令牌：以同色相压暗到 ~24% 明度，得到与令牌同族的深色文字。
   const [r, g, b] = source.map(channel => Math.round(channel * 0.4))
   return `rgb(${r}, ${g}, ${b})`
 }

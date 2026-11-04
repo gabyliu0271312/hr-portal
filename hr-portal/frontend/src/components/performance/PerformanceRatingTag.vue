@@ -7,8 +7,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { performanceLevelBackground, performanceLevelForeground } from './performanceColorOptions'
-const props = defineProps<{ label: string; color?: string }>()
-const labelColor = computed(() => props.color ? performanceLevelForeground(props.color) : '#1f2329')
+const props = defineProps<{ label: string; color?: string; foreground?: string }>()
+/* 前景色优先取档位自身配置（评估题里选中的那颗胶囊的实际颜色），其次按档位色推导 */
+const labelColor = computed(() => props.foreground || (props.color ? performanceLevelForeground(props.color) : '#1f2329'))
 </script>
 
 <style scoped>

@@ -313,6 +313,10 @@ describe('performance content shared primitives', () => {
     expect(wrapper.get('.content-renderer-rating__result-title').text()).toBe('年度评级')
     expect(wrapper.get('.content-renderer-rating__result-code').text()).toBe('1星')
     expect(wrapper.get('.content-renderer-rating__result-name').text()).toBe('不合格')
+    /* 结果态胶囊的底色/文字色来自该档位自身配置（1星：trigger 253,226,226 / 文字 122,28,22） */
+    const code = wrapper.get('.content-renderer-rating__result-code')
+    expect(code.attributes('style')).toContain('background-color: rgb(253, 226, 226)')
+    expect(code.attributes('style')).toContain('color: rgb(122, 28, 22)')
     expect(wrapper.find('.content-renderer-rating__header').exists()).toBe(false)
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
   })
@@ -330,7 +334,8 @@ describe('performance content shared primitives', () => {
     expect(result.findAll(':scope > *')).toHaveLength(3)
     expect(wrapper.findAll('.rating-option')).toHaveLength(0)
     expect(wrapper.find('.performance-rating-control').exists()).toBe(false)
-    /* REA 结果态是纯文本徽标（无胶囊底色）：前景色由容器上的 --rating-foreground 下发 */
+    /* REA 结果态是 44×24 胶囊（radius 9999）：底色按档位色推导，前景色由容器 --rating-foreground 下发 */
+    expect(result.find('.content-renderer-rating__result-code').attributes('style')).toContain('background-color: rgb(51, 112, 255)')
     expect(wrapper.get('.content-renderer-rating__result').attributes('style')).toContain('rgb(20, 45, 102)')
   })
 

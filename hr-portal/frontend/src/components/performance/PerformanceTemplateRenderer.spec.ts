@@ -81,9 +81,22 @@ describe('PerformanceTemplateRenderer', () => {
     } })
     expect(wrapper.get('.readonly-field-rating .template-field-label').text()).toBe('年度评级')
     expect(wrapper.get('.readonly-rating-badge').text()).toBe('A')
-    // REA 结果态为无底色纯文本：徽标不渲染背景色，前景色由 --rating-foreground 下发到等级名
-    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toBeUndefined()
+    // REA 结果态是胶囊：底色取档位色对应的 trigger 令牌，文字取档位前景色（不再是裸文本）
+    expect(wrapper.get('.readonly-rating-badge').attributes('style')).toContain('background-color')
     expect(wrapper.get('.readonly-rating-label').text()).toBe('优秀')
+  })
+
+  it('renders the REA result capsule for 3星 with token background and foreground', () => {
+    const wrapper = mount(PerformanceTemplateRenderer, { props: {
+      mode: 'readonly', sections: [{ id: 'grades', name: '评级内容', fields: [
+        { id: 'grade', type: 'rating', label: '绩效评级', options: [{ id: 'level-3', code: '3星', label: '符合预期', color: 'rgb(186, 206, 253)', foreground: 'rgb(12, 41, 110)' }] },
+      ] }], answers: { grade: 'level-3' },
+    } })
+    const badge = wrapper.get('.readonly-rating-badge')
+    expect(badge.text()).toBe('3星')
+    expect(badge.attributes('style')).toContain('background-color: rgb(225, 234, 255)')
+    expect(badge.attributes('style')).toContain('color: rgb(12, 41, 110)')
+    expect(wrapper.get('.readonly-rating-label').attributes('style')).toContain('rgb(12, 41, 110)')
   })
 
   it('uses the same answer accessor for edit updates and repeated sections', async () => {
