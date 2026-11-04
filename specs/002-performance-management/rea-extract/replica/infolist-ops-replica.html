@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>人员与部门 — 像素级还原（REA）</title>
+<style>
+/* ============ 设计 Token（全部来自 capture3b 实测） ============ */
+:root{
+  --B-500:#1456f0; --B-500-hover:#336df4; --B-50:#f0f4ff;
+  --N-900:#1f2329; --N-600:#646a73; --N-400:#bbbfc4;
+  --N-100:#f5f6f7; --N-200:#f2f3f5; --N-300:rgba(31,35,41,.15);
+  --tag-bg:rgba(31,35,41,.1);
+  --shadow-card:0 1px 4px rgba(31,35,41,.05);
+  --font:,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:var(--font);font-size:14px;line-height:22px;color:var(--N-900);background:#fff;overflow:hidden}
+button{font-family:var(--font);cursor:pointer;border:none;background:none}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:#bbbec4;border-radius:4px}
+
+/* ============ 顶栏 ============ */
+.topbar{height:56px;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid var(--N-300);background:#fff;position:relative;z-index:5}
+.back-btn{display:flex;align-items:center;color:var(--N-900);font-size:16px;gap:4px}
+.back-btn svg{width:16px;height:16px}
+.divider-v{width:1px;height:20px;background:var(--N-300);margin:0 16px}
+.page-title{font-size:16px;font-weight:600}
+
+/* ============ 列表区 ============ */
+.list-body{height:calc(100% - 56px);background:var(--N-100);padding:8px 20px 20px;overflow:auto}
+.tabs{display:flex;gap:32px;padding:8px 4px 12px}
+.tab{font-size:16px;line-height:24px;color:var(--N-600);cursor:pointer;position:relative;padding-bottom:10px}
+.tab.active{color:var(--B-500);font-weight:600}
+.tab.active::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;border-radius:2px 2px 0 0;background:var(--B-500)}
+.tab .count{font-weight:400}
+.content-list{background:#fff;border-radius:8px;padding:20px;box-shadow:var(--shadow-card);min-width:1520px}
+.toolbar{display:flex;justify-content:flex-end;align-items:center;gap:12px;margin-bottom:16px}
+.search-box{display:flex;align-items:center;gap:8px;border:1px solid var(--N-300);border-radius:6px;height:32px;padding:0 12px;width:220px;color:var(--N-400)}
+.btn{height:32px;min-width:80px;border-radius:6px;font-size:14px;line-height:22px;padding:4px 11px}
+.btn-primary{background:var(--B-500);color:#fff}
+.btn-primary:hover{background:var(--B-500-hover)}
+.btn-secondary{border:1px solid var(--N-300);color:var(--N-900);background:#fff}
+.btn-filter{display:flex;align-items:center;gap:4px;border:1px solid var(--N-300);border-radius:6px;height:32px;padding:0 12px;color:var(--N-900);background:#fff}
+
+/* ============ 表格 ============ */
+.ud-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.ud-table th{background:var(--N-200);color:var(--N-600);font-weight:500;text-align:left;padding:12px;height:46px;font-size:14px;border-bottom:1px solid var(--N-300);white-space:nowrap;overflow:hidden}
+.ud-table td{padding:12px;height:52px;border-bottom:1px solid var(--N-300);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ud-table tbody tr:hover td{background:#f5f6f7}
+.ud-table tbody tr:last-child td{border-bottom:none}
+.cell-empty{color:var(--N-600)}
+.emp-cell{display:flex;align-items:center;gap:8px}
+.avatar{width:24px;height:24px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}
+.ud-tag{display:inline-flex;align-items:center;background:var(--tag-bg);border-radius:12px;height:24px;padding:0 10px;font-size:14px;color:var(--N-900)}
+.op-col{width:204px;position:sticky;right:0;background:#fff;box-shadow:-4px 0 8px -4px rgba(31,35,41,.08)}
+.ud-table th.op-col{background:var(--N-200)}
+.op-btn{font-size:14px;line-height:22px;padding:0;border-radius:6px;color:var(--B-500)}
+.op-btn:hover{color:var(--B-500-hover);text-decoration:underline}
+.op-btn:disabled{color:var(--N-400);cursor:not-allowed;text-decoration:none}
+.op-btn.ml6{margin-left:6px}
+
+/* ============ 弹窗通用 ============ */
+.modal-mask{position:fixed;inset:0;background:rgba(31,35,41,.5);display:none;align-items:flex-start;justify-content:center;z-index:100}
+.modal-mask.open{display:flex}
+.modal{background:#fff;border-radius:8px;box-shadow:0 8px 24px rgba(31,35,41,.12);animation:pop .18s ease-out}
+@keyframes pop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.modal-header{display:flex;align-items:center;padding:24px 56px 24px 24px;position:relative}
+.modal-title{font-size:16px;line-height:24px;font-weight:600;color:var(--N-900);flex:1}
+.modal-close{position:absolute;right:16px;top:24px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:var(--N-600)}
+.modal-close:hover{background:var(--N-200)}
+.modal-body{padding:0 24px}
+.modal-footer{padding:0 24px 24px;display:flex;justify-content:flex-end;gap:12px}
+.required::after{content:"*";color:#f54a45;margin-left:2px}
+.form-label{font-weight:500;margin-bottom:8px}
+.ud-notice{display:flex;gap:8px;background:var(--B-50);border-radius:6px;padding:10px 12px;color:var(--N-600);margin-bottom:12px}
+.ud-notice .icon{color:var(--B-500);flex:none}
+.desc-row{color:var(--N-600);margin-bottom:12px}
+.link{color:var(--B-500);cursor:pointer}
+.link:hover{color:var(--B-500-hover)}
+.ud-checkbox-group{display:inline-flex;flex-wrap:wrap;column-gap:24px;row-gap:8px}
+.ud-checkbox{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.ud-checkbox .box{width:16px;height:16px;border-radius:4px;border:1px solid var(--N-300);background:#fff;display:inline-flex;align-items:center;justify-content:center;transition:all .15s;flex:none}
+.ud-checkbox.checked .box{background:var(--B-500);border-color:var(--B-500)}
+.ud-checkbox .box svg{opacity:0;transition:opacity .15s}
+.ud-checkbox.checked .box svg{opacity:1}
+
+/* ============ 弹窗B: 人员变更记录 (480px, 时间线) ============ */
+.record-mask{position:fixed;inset:0;display:none;justify-content:flex-end;z-index:100}
+.record-mask.open{display:flex}
+.record-panel{width:480px;height:100%;background:#fff;box-shadow:-8px 0 24px rgba(31,35,41,.12);display:flex;flex-direction:column;animation:slide .2s ease-out}
+@keyframes slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.record-header{display:flex;align-items:center;padding:24px;position:relative;flex:none}
+.timeline{flex:1;overflow:auto;padding:8px 24px 24px;position:relative}
+.tl-item{position:relative;padding:0 0 24px 28px}
+.tl-item::before{content:"";position:absolute;left:7px;top:22px;bottom:0;width:1px;background:var(--N-300)}
+.tl-item:last-child::before{display:none}
+.tl-dot{position:absolute;left:0;top:6px;width:15px;height:15px;border-radius:50%;background:#fff;border:3px solid var(--B-500)}
+.tl-item.op-add .tl-dot{border-color:#32a645}
+.tl-item.op-del .tl-dot{border-color:#bbbfc4}
+.tl-head{display:flex;align-items:center;gap:8px}
+.tl-avatar{width:32px;height:32px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.tl-name{font-weight:500;line-height:22px}
+.tl-time{color:var(--N-600);font-size:12px;line-height:18px}
+.tl-tag{font-size:12px;line-height:18px;border-radius:4px;padding:0 6px;margin-left:auto;flex:none}
+.tl-tag.change{background:var(--B-50);color:var(--B-500)}
+.tl-tag.add{background:#e4fae1;color:#32a645}
+.tl-tag.end{background:var(--N-200);color:var(--N-600)}
+.tl-changes{margin-top:10px;background:var(--N-100);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.tl-change-row{display:flex;align-items:center;gap:8px}
+.tl-field{color:var(--N-600);flex:none;min-width:70px}
+.tl-val{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-arrow{color:var(--N-400);flex:none;display:flex}
+.empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px;color:var(--N-900)}
+.empty-img{width:250px;height:125px;background:var(--N-100);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--N-400);font-size:12px}
+
+/* ============ mock 接口日志 ============ */
+.api-log{position:fixed;left:0;bottom:0;right:0;background:#1f2329;color:#a8c7fa;font:12px/18px Consolas,monospace;padding:8px 16px;display:none;z-index:200;max-height:120px;overflow:auto}
+.api-log.open{display:block}
+.api-log .t{color:#646a73}
+</style>
+</head>
+<body>
+
+<!-- ================= 页面 ================= -->
+<div class="topbar">
+  <button class="back-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3L5 8l5 5"/></svg>返回</button>
+  <div class="divider-v"></div>
+  <div class="page-title">人员与部门</div>
+</div>
+
+<div class="list-body">
+  <div class="tabs">
+    <div class="tab active">人员 <span class="count">(601)</span></div>
+    <div class="tab">部门 <span class="count">(933)</span></div>
+  </div>
+  <div class="content-list">
+    <div class="toolbar">
+      <div class="search-box"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="6" r="4.5"/><path d="M9.5 9.5L13 13"/></svg>搜索成员</div>
+      <button class="btn-filter"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 2.5h11L8.5 7.5v4l-3 1.5v-5.5z"/></svg>筛选</button>
+      <button class="btn btn-primary" onclick="openUpdate()">批量更新</button>
+    </div>
+    <table class="ud-table">
+      <colgroup><col style="width:170px"><col style="width:190px"><col style="width:150px"><col style="width:170px"><col style="width:230px"><col style="width:150px"><col style="width:130px"><col style="width:150px"><col style="width:204px"></colgroup>
+      <thead><tr>
+        <th>姓名</th><th>直属上级</th><th>虚线上级</th><th>一级部门</th><th>末级部门</th><th>序列</th><th>子序列</th><th>职务</th>
+        <th class="op-col" style="box-shadow:none">操作</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ================= 弹窗A: 更新人员信息 (600px, 实测) ================= -->
+<div class="modal-mask" id="updateMask">
+  <div class="modal" style="width:600px;margin-top:20vh" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title">更新人员信息</div>
+      <button class="modal-close" onclick="closeUpdate()"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.4"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-label required">更新信息内容</div>
+      <div class="ud-notice">
+        <svg class="icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5A6.5 6.5 0 1 1 8 14.5 6.5 6.5 0 0 1 8 1.5zm0 5a.75.75 0 0 0-.75.75v3.5a.75.75 0 0 0 1.5 0v-3.5A.75.75 0 0 0 8 6.5zm0-2.75a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8z"/></svg>
+        <span>仅支持人员在原有序列/职级/直属上级/部门范围内的变更（不支持新增及名称修改）</span>
+      </div>
+      <div class="desc-row">更新后将影响信息展示、报表统计范围、任务执行人、角色权限和校准范围等 <span class="link">查看详情</span></div>
+      <div class="ud-checkbox-group" id="fieldsGroup" style="margin-bottom:16px">
+        <label class="ud-checkbox" data-value="category"><span class="box"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M1.5 5.5l2.5 2.5 4.5-5.5"/></svg></span>序列</label>
+        <label class="ud-checkbox" data-value="level"><span class="box"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M1.5 5.5l2.5 2.5 4.5-5.5"/></svg></span>职级</label>
+        <label class="ud-checkbox" data-value="direct_leader"><span class="box"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M1.5 5.5l2.5 2.5 4.5-5.5"/></svg></span>直属上级</label>
+        <label class="ud-checkbox" data-value="department"><span class="box"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" stroke-width="1.8"><path d="M1.5 5.5l2.5 2.5 4.5-5.5"/></svg></span>部门</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeUpdate()">取消</button>
+      <button class="btn btn-primary" onclick="submitUpdate()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 弹窗B: 人员变更记录 (480px, 代码逆向规格) ================= -->
+<div class="record-mask" id="recordMask">
+  <div class="record-panel">
+    <div class="record-header">
+      <div class="modal-title">人员变更记录</div>
+      <button class="modal-close" onclick="closeRecord()"><svg width="14" height="14" viewBox="0 0 14 14" stroke="currentColor" stroke-width="1.4"><path d="M2 2l10 10M12 2L2 12"/></svg></button>
+    </div>
+    <div class="timeline" id="timeline"></div>
+  </div>
+</div>
+
+<div class="api-log" id="apiLog"></div>
+
+<script>
+/* ============================================================
+ * 真实接口逻辑模拟层
+ * 接口名/请求体/响应 schema 全部来自 rea-extract/out/capture3b 实测与 bundle 逆向
+ * ============================================================ */
+const SEMESTER_ID = "7702053437998894368";
+
+/* GET /perf/api/review/snapshot/emp-list → data: userId[]（实测，截取前5） */
+const EMP_LIST = [
+  "6733065924410099214","6732646893589038595","6732646893589169667",
+  "6733065924942988813","6733065925991663112"
+];
+/* POST /perf/api/user/snapshot/simple_emp → {userId, i18nName, email, userNumber, avatar72} */
+const EMP_INFO = {
+  "6733065924410099214":{name:"neil.wang王胜",  color:"#4e8ff5"},
+  "6732646893589038595":{name:"bruce.lan蓝应志",color:"#8f6bf0"},
+  "6732646893589169667":{name:"michael.chen陈湘宇",color:"#2ba471"},
+  "6733065924942988813":{name:"danny.deng邓超", color:"#f5a623"},
+  "6733065925991663112":{name:"tony.xia夏亮",   color:"#e8684a"}
+};
+/* GET /perf/api/user/event/{id}/employee?user_ids=… → hasChange 控制按钮禁用（实测全员 false；此处演示两条 true） */
+const EMP_ROW = [
+  {userId:"6733065924410099214", hasChange:false, leader:"pengfei.yuan原鹏飞", dotted:"--", topDept:"技术中台", dept:"运营效率组", category:"创梦天地集", subCategory:"运维类", jobTitle:"--"},
+  {userId:"6732646893589038595", hasChange:false, leader:"anfernee.guan关嵩", dotted:"--", topDept:"技术中台", dept:"后端开发组", category:"创梦天地集", subCategory:"研发类", jobTitle:"--"},
+  {userId:"6732646893589169667", hasChange:false, leader:"--", dotted:"--", topDept:"--", dept:"ST", category:"--", subCategory:"--", jobTitle:"--"},
+  {userId:"6733065924942988813", hasChange:true,  leader:"michael.chen陈湘宇", dotted:"--", topDept:"--", dept:"ST", category:"--", subCategory:"--", jobTitle:"--"},
+  {userId:"6733065925991663112", hasChange:true,  leader:"pengfei.yuan原鹏飞", dotted:"--", topDept:"技术中台", dept:"卡拉彼丘测试2组", category:"创梦天地集", subCategory:"研发类", jobTitle:"--"}
+];
+/* GET /perf/api/review/semester/can_update_snapshot → {ok} （实测本周期 false→按钮可用按产品语义取反；演示为可更新） */
+const CAN_UPDATE = true;
+
+/* 15 字段映射（chunk 8113 `he` 组件 useMemo 原文） */
+const FIELD_MAP = {
+  leader_id:"直属上级", dotted_leader_ids:"虚线上级", department_id:"所属部门",
+  root_category_id:"序列", category_id:"子序列", second_direct_leader_id:"第二直属上级",
+  level_id:"职级", employee_type_id:"历史人员类型", work_location_id:"城市",
+  join_date:"入职日期", seniority_date:"司龄起算日期", job_title:"职务",
+  employee_subtype_id:"人员子类型", position_id:"岗位", recruitment_type:"招聘类型"
+};
+/* GET /perf/api/user/event/{id}/employee/history?employeeId= →
+   [{eventType:"update"|"add"|"delete", appliedTime, changes:[{attr, old, new}]}] （schema 来自 bundle，数据为演示值） */
+const HISTORY_MOCK = {
+  "6733065924942988813":[
+    {eventType:"update", appliedTime:"2026-10-21 14:32", changes:[
+      {attr:"department_id", old:{i18nName:"ST"}, new:{i18nName:"ST·平台组"}},
+      {attr:"level_id",      old:{i18nName:"P4"},  new:{i18nName:"P5"}}
+    ]},
+    {eventType:"update", appliedTime:"2026-09-02 09:15", changes:[
+      {attr:"leader_id", old:{i18nName:{zhCN:"jane.wang王琳"}}, new:{i18nName:{zhCN:"michael.chen陈湘宇"}}}
+    ]}
+  ],
+  "6733065925991663112":[
+    {eventType:"add",    appliedTime:"2026-08-11 10:02", changes:[]},
+    {eventType:"update", appliedTime:"2026-08-11 10:02", changes:[
+      {attr:"department_id", old:{i18nName:"技术中台"}, new:{i18nName:"卡拉彼丘测试2组"}},
+      {attr:"category_id",   old:{i18nName:"--"},       new:{i18nName:"研发类"}}
+    ]}
+  ]
+};
+
+/* ---- mock API 网关：打印真实请求形态 ---- */
+function api(method, path, body){
+  const log = document.getElementById("apiLog");
+  log.classList.add("open");
+  const line = document.createElement("div");
+  line.innerHTML = `<span class="t">[${new Date().toLocaleTimeString()}]</span> ${method} /perf/api${path}` + (body?`  body=${JSON.stringify(body)}`:"");
+  log.appendChild(line); log.scrollTop = log.scrollHeight;
+}
+
+/* ---- 渲染表格（GET emp-list → simple_emp → event/employee 组装，与真实前端一致） ---- */
+function renderRows(){
+  api("GET", `/review/snapshot/emp-list?id=${SEMESTER_ID}`);
+  api("POST", "/review/snapshot/simple", {semesterId:SEMESTER_ID, offset:0, limit:10});
+  api("POST", "/user/snapshot/simple_emp", {semesterId:SEMESTER_ID, userIds:EMP_LIST.slice(0,5)});
+  api("GET", `/user/event/${SEMESTER_ID}/employee?user_ids=${EMP_LIST.slice(0,5).join("&user_ids=")}`);
+  api("GET", `/review/semester/can_update_snapshot?id=${SEMESTER_ID}`);
+  const tb = document.getElementById("rows");
+  tb.innerHTML = EMP_ROW.map((r,i)=>{
+    const info = EMP_INFO[r.userId];
+    const init = info.name.replace(/^.*?(?=[\u4e00-\u9fa5])/,"").charAt(0) || info.name[0];
+    return `<tr>
+      <td><div class="emp-cell"><span class="avatar" style="background:${info.color}">${init}</span>${info.name}</div></td>
+      <td>${r.leader.startsWith("--")?'<span class="cell-empty">--</span>':`<span class="ud-tag">${r.leader}</span>`}</td>
+      <td><span class="cell-empty">${r.dotted}</span></td>
+      <td>${r.topDept==="--"?'<span class="cell-empty">--</span>':r.topDept}</td>
+      <td>${r.dept}</td>
+      <td>${r.category==="--"?'<span class="cell-empty">--</span>':r.category}</td>
+      <td>${r.subCategory==="--"?'<span class="cell-empty">--</span>':r.subCategory}</td>
+      <td><span class="cell-empty">${r.jobTitle}</span></td>
+      <td class="op-col">
+        <button class="op-btn" ${r.hasChange?"":"disabled"} onclick="openRecord('${r.userId}')">查看更新记录</button><button class="op-btn ml6" ${CAN_UPDATE?"":"disabled"} onclick="openUpdate()">更新人员信息</button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+/* ---- 弹窗A: 更新人员信息 ---- */
+document.querySelectorAll("#fieldsGroup .ud-checkbox").forEach(lb=>{
+  lb.addEventListener("click",()=>{ lb.classList.toggle("checked"); /* 纯前端，无请求（实测） */ });
+});
+function openUpdate(){ document.getElementById("updateMask").classList.add("open"); }
+function closeUpdate(){ document.getElementById("updateMask").classList.remove("open"); }
+function submitUpdate(){
+  const fields=[...document.querySelectorAll("#fieldsGroup .ud-checkbox.checked")].map(x=>x.dataset.value);
+  /* POST /user/snapshot/update_field/{semesterId}/update  {update_fields, user_id} */
+  api("POST", `/user/snapshot/update_field/${SEMESTER_ID}/update`, {update_fields:fields, user_id:EMP_ROW[3].userId});
+  closeUpdate();
+}
+
+/* ---- 弹窗B: 人员变更记录 ---- */
+function openRecord(userId){
+  api("GET", `/user/event/${SEMESTER_ID}/employee/history?employeeId=${userId}`);
+  const tl = document.getElementById("timeline");
+  const events = HISTORY_MOCK[userId] || [];
+  if(!events.length){
+    tl.innerHTML = `<div class="empty-state" style="min-height:60vh"><div class="empty-img">暂无数据插图 250×125</div><span>暂无数据</span></div>`;
+  } else {
+    tl.innerHTML = events.map(ev=>{
+      const info = EMP_INFO[userId];
+      const tag = ev.eventType==="update"?'<span class="tl-tag change">变更</span>'
+                : ev.eventType==="add"?'<span class="tl-tag add">新增</span>'
+                : '<span class="tl-tag end">停用</span>';
+      const changes = (ev.eventType==="update" && ev.changes.length)
+        ? `<div class="tl-changes">`+ev.changes.map(c=>{
+            const fmt=v=>typeof v==="object"?(v.i18nName?.zhCN||v.i18nName||"--"):v;
+            return `<div class="tl-change-row"><span class="tl-field">${FIELD_MAP[c.attr]||c.attr}</span><span class="tl-val">${fmt(c.old)}</span><span class="tl-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 6h9M7.5 3L10.5 6l-3 3"/></svg></span><span class="tl-val">${fmt(c.new)}</span></div>`;
+          }).join("")+`</div>` : "";
+      return `<div class="tl-item op-${ev.eventType}">
+        <span class="tl-dot"></span>
+        <div class="tl-head">
+          <span class="tl-avatar" style="background:${info.color}">${info.name.charAt(0)}</span>
+          <div><div class="tl-name">${info.name}</div><div class="tl-time">${ev.appliedTime}</div></div>
+          ${tag}
+        </div>${changes}</div>`;
+    }).join("");
+  }
+  document.getElementById("recordMask").classList.add("open");
+}
+function closeRecord(){ document.getElementById("recordMask").classList.remove("open"); }
+document.getElementById("recordMask").addEventListener("click", e=>{ if(e.target.id==="recordMask") closeRecord(); });
+document.getElementById("updateMask").addEventListener("click", e=>{ if(e.target.id==="updateMask") closeUpdate(); });
+
+renderRows();
+</script>
+<!-- 注：弹窗B规格来自 chunk 8113 `he` 组件源码逆向（本周期全员 hasChange=false 无法实拍）；
+     其余布局/颜色/尺寸均为 capture3b 实测值。 -->
+</body>
+</html>

@@ -64,3 +64,4 @@ build/
 # REA 抓取工作目录：浏览器登录态(含会话Cookie)与依赖绝不入库
 specs/002-performance-management/rea-extract/profile/
 specs/002-performance-management/rea-extract/node_modules/
+specs/002-performance-management/rea-extract/out/capture3b/js/
