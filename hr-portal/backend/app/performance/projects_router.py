@@ -27,7 +27,6 @@ from app.performance.subject_visibility_service import load_subject_visibility_r
 from app.data.employee_roster_contract import format_job_sequence, organization_leaf
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
-from app.performance.okr_provider import fetch_employee_okr
 from app.performance.task_authorization_service import effective_handlers, task_handler_condition
 
 router = APIRouter(prefix="/performance", tags=["performance-projects"])
@@ -311,23 +310,12 @@ async def _reference_tabs(
     db: AsyncSession,
 ) -> list[dict]:
     template = await _self_summary_template(task, node, db)
-    references: list[str] = []
-    okr_relations: list[dict] = []
+    references = []
     seen_node_ids: set[str] = set()
-    seen_more_values: set[str] = set()
     for content in template.get("content") or []:
         if (content.get("content_slot") or "fill") != "reference":
             continue
-        kind = content.get("reference_kind")
-        if kind == "more":
-            value = str(content.get("reference_value") or "").strip()
-            # 目前只有 OKR 具备真实数据源；更多参考/团队统计暂不返回页签，避免出现空白页签
-            if value != "okr" or value in seen_more_values:
-                continue
-            seen_more_values.add(value)
-            okr_relations.append(content)
-            continue
-        if kind != "node":
+        if content.get("reference_kind") != "node":
             continue
         reference_node_id = str(content.get("reference_value") or "").strip()
         if not reference_node_id or reference_node_id in seen_node_ids or reference_node_id == node.node_id:
@@ -335,35 +323,12 @@ async def _reference_tabs(
         seen_node_ids.add(reference_node_id)
         references.append(reference_node_id)
 
-    if not references and not okr_relations:
+    if not references:
         return []
 
     result: list[dict] = []
-    if references:
-        result.extend(await _node_reference_tabs(task, node, project, actor_ref, db, template, references))
-    for relation in okr_relations:
-        result.append(await _okr_reference_tab(task, relation, db))
+    result.extend(await _node_reference_tabs(task, node, project, actor_ref, db, template, references))
     return result
-
-
-async def _okr_reference_tab(task: PerformanceNodeTask, relation: dict, db: AsyncSession) -> dict:
-    """OKR 参考页签：按被评估人实时取 OKR；数据源未启用/无数据时返回空态页签。"""
-    okr = await fetch_employee_okr(db, task.target_employee_no)
-    page_name = str((relation.get("reference_settings") or {}).get("page_name") or "").strip()
-    return {
-        "key": "reference-okr",
-        "kind": "okr",
-        "node_id": "",
-        "node_name": page_name or str(relation.get("name") or "OKR"),
-        "task_id": None,
-        "employee_no": task.target_employee_no,
-        "status": "completed" if okr and okr.objectives else "not_started",
-        "submitted_at": None,
-        "form_schema": [],
-        "answers": {},
-        "can_remind": False,
-        "okr": okr.model_dump() if okr is not None else None,
-    }
 
 
 async def _node_reference_tabs(
