@@ -129,26 +129,62 @@
         </template>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="stagePageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <template v-else-if="isResultReconsiderationFill">
+          <!-- REA：页标题（环节名）+ 模块1 复议理由（表头+内容+底部操作条）+ 模块2 上级评估(final)（表头+内容链），模块间距 24 -->
           <PerformanceTemplateSectionCard :title="activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="[]" :selectable="activeTab === 'fill'" :selected="pageHeadingSelected" @select="selectPageHeading" />
-          <section class="result-reconsideration-section" aria-label="复议理由">
-            <PerformanceContentSelectionFrame variant="root" :selected="resultReconsiderationPreviewSelected" class="result-reconsideration-section__frame" role="button" tabindex="0" :aria-pressed="resultReconsiderationPreviewSelected" aria-label="选择复议理由预览" @click="selectResultReconsiderationPreview" @keydown.enter.prevent="selectResultReconsiderationPreview" @keydown.space.prevent="selectResultReconsiderationPreview">
-              <div class="result-reconsideration-section__header">
-                <PerformanceAssessmentPreviewHeader name="复议理由" />
-                <PerformanceExpandButton class="result-reconsideration-section__collapse" :expanded="resultReconsiderationExpanded" :hover-only="true" icon-variant="regular" :label="`${resultReconsiderationExpanded ? '收起' : '展开'}复议理由`" @toggle="resultReconsiderationExpanded = !resultReconsiderationExpanded" @click.stop />
-              </div>
-              <div v-if="resultReconsiderationExpanded" class="result-reconsideration-section__body">
-                <div class="result-reconsideration-section__preview">这里展示被评估人发起复议时填写的内容</div>
-              </div>
-            </PerformanceContentSelectionFrame>
-            <PerformanceTemplateOperateBar v-if="!configuredContents.length" :actions="summaryActions" @action="handleContentAction" />
-          </section>
+          <div class="recon-module recon-module--reason">
+            <div class="recon-module__head" role="button" tabindex="0" aria-label="复议理由">
+              <span class="recon-module__title">复议理由</span>
+            </div>
+            <div class="recon-module__body">
+              <div class="result-reconsideration-section__preview">这里展示被评估人发起复议时填写的内容</div>
+            </div>
+            <!-- REA sticky 工具条：添加内容/添加提示 -->
+            <PerformanceTemplateOperateBar v-if="!configuredContents.length" class="recon-module__bar" :actions="summaryActions" @action="handleContentAction" />
+          </div>
+          <!-- 模块2：最终评估结果(final)环节内容，独立模块含表头（REA：上级评估 58 高表头 + final 内容链） -->
+          <div v-if="configuredContents.length" class="recon-module recon-module--final">
+            <div class="recon-module__head" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="上级评估" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
+              <span class="recon-module__title">{{ finalModuleTitle }}</span>
+            </div>
+            <!-- final 内容链（reconsiderationContents = 上级评估环节 fill 内容投影，与校准同构） -->
+            <div v-if="configuredContents.length" class="recon-module__contents">
+              <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="true" class="configured-content-sortable-list">
+                <template #default="{ item: content }">
+                  <PerformanceConfiguredContentBlock
+                    :horizontal-handle="false"
+                    :content="content"
+                    :active="selectedConfiguredId === content.id"
+                    :expanded="configuredExpandedIds.has(content.id)"
+                    :dragging="false"
+                    :item-style="{}"
+                    :index="configuredContents.indexOf(content)"
+                    :count="configuredContents.length"
+                    :toolbar-visible="false"
+                    :root-settings="rootSettingFor(content.id)"
+                    :item-settings="itemSettingsForContent(content.id)"
+                    :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
+                    :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
+                    :settings-disabled="pageNameLocked"
+                    :root-settings-variant="activeStageContentRule.rootSettingsVariant"
+                    :item-settings-variant="activeStageContentRule.itemSettingsVariant"
+                    @activate="selectConfiguredContent"
+                    @settings-visibility="visible => { if (selectedConfiguredId === content.id) configuredSettingsVisible = visible }"
+                    @update:expanded="setConfiguredExpanded(content.id, $event)"
+                    @update:content="updateConfiguredContent(configuredContents.indexOf(content), $event)"
+                    @update:root-settings="setRootSettingsForContent(content.id, $event)"
+                    @update:item-settings="setItemSettingsForContent(content.id, $event)"
+                  />
+                </template>
+              </UiSortableList>
+            </div>
+          </div>
         </template>
         <template v-else-if="!referenceTabEmpty">
           <!-- 系统固有提示（非配置项）：绩效校准人修改评估内容后会产生修改记录 -->
           <PerformancePromptNotice v-if="isCalibration" class="calibration-notice" type="info" multiline>绩效校准人修改评估内容后会产生修改记录</PerformancePromptNotice>
           <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         </template>
-        <section v-if="configuredContents.length && !isResultView && !isReferenceTab" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
+        <section v-if="configuredContents.length && !isResultView && !isReferenceTab && !isResultReconsiderationFill" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
           <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
@@ -207,9 +243,6 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanceTemplateApi, type PerformancePromptValue, type PerformanceReferenceDisplaySettings, type PerformanceReviewQuestion, type PerformanceTemplateContent, type PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
 import PerformanceTemplateSectionCard from '@/components/performance/PerformanceTemplateSectionCard.vue'
-import PerformanceAssessmentPreviewHeader from '@/components/performance/PerformanceAssessmentPreviewHeader.vue'
-import PerformanceContentSelectionFrame from '@/components/performance/PerformanceContentSelectionFrame.vue'
-import PerformanceExpandButton from '@/components/performance/PerformanceExpandButton.vue'
 import PerformancePromptModal from '@/components/performance/PerformancePromptModal.vue'
 import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
 import PerformanceAssessmentContentLayers, { type AssessmentContentDraft, type AssessmentContentType, type AssessmentOption, type AssessmentTagOption } from '@/components/performance/PerformanceAssessmentContentLayers.vue'
@@ -373,6 +406,8 @@ const calibrationContents = computed(() => resolveCalibrationContents(finalFillC
 /** 结果复议处理：与校准同构——默认添加上级评估（final 环节）内容为供调整内容
  *  （REA appeal 环节 modifyTemplates=上级评估，无额外设置覆盖，直接投影 final 内容） */
 const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value))
+/** REA 复议处理模块2 表头 = final 环节名（如「上级评估」，finalResult 指向的最终绩效结果环节） */
+const finalModuleTitle = computed(() => finalNode.value?.name || selectedStageData.value?.title || '上级评估')
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
@@ -1161,6 +1196,14 @@ onMounted(async () => {
 .content-card__actions i { width: 1px; height: 24px; background: #bbbfc4; }
 
 .calibration-notice{width:var(--performance-content-width);max-width:100%;margin:0 0 12px}
+/* ---------- 复议处理模块结构（REA：模块1 复议理由 + 模块2 上级评估(final)，间距 24） ---------- */
+.recon-module{width:var(--performance-content-width);max-width:100%;margin:0 0 24px;border-radius:4px;background:var(--color-bg-card);overflow:hidden}
+.recon-module:last-child{margin-bottom:0}
+.recon-module__head{display:flex;align-items:center;min-height:58px;padding:16px 24px;box-sizing:border-box;cursor:pointer}
+.recon-module__title{font-size:18px;font-weight:600;line-height:26px;color:var(--color-text-primary)}
+.recon-module__body{padding:0 24px 16px;box-sizing:border-box}
+.recon-module__bar{position:sticky;z-index:20;top:0;padding:10px 24px;box-sizing:border-box;background:#fff}
+.recon-module__contents{padding:0 24px 16px;box-sizing:border-box}
 .result-reconsideration-section{width:var(--performance-content-width);max-width:100%;border-radius:4px;background:var(--color-bg-card);overflow:hidden}
 .result-reconsideration-section__frame{display:block;min-height:120px;padding:8px 0 0;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card);cursor:pointer}
 .result-reconsideration-section__header{position:relative;display:flex;align-items:flex-start;min-height:56px;padding:16px 24px;box-sizing:border-box}

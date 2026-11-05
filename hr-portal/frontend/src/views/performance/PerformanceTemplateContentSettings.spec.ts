@@ -464,31 +464,19 @@ describe('PerformanceTemplateContentSettings', () => {
     reopened.unmount()
   })
 
-  it('renders the result reconsideration fixed preview with shared collapse, title line, and action bar', async () => {
+  it('renders the result reconsideration module structure with reason module and action bar (REA)', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.findAll('.stage-card')[8].trigger('click')
 
-    expect(wrapper.get('.result-reconsideration-section').text()).toContain('复议理由')
     expect(wrapper.get('.template-section__title').text()).toBe('结果复议处理')
-    expect(wrapper.get('.result-reconsideration-section__preview').text()).toBe('这里展示被评估人发起复议时填写的内容')
-    expect(wrapper.get('.result-reconsideration-section').findComponent(PerformanceExpandButton).exists()).toBe(true)
-    expect(wrapper.get('.result-reconsideration-section').findComponent(PerformanceTemplateOperateBar).exists()).toBe(true)
-    expect(wrapper.get('.result-reconsideration-section').find('.performance-assessment-preview-header').exists()).toBe(true)
-
-    const collapse = wrapper.get('.result-reconsideration-section .performance-expand-button')
-    expect(collapse.classes()).toContain('is-hover-only')
-    expect(collapse.attributes('aria-label')).toBe('收起复议理由')
-    await collapse.trigger('click')
-    expect(wrapper.find('.result-reconsideration-section__preview').exists()).toBe(false)
-    expect(wrapper.get('.text-normal__body').text()).toBe('暂未选择内容')
-
-    await wrapper.get('.result-reconsideration-section__frame').trigger('click')
-    expect(wrapper.get('.text-normal__body').text()).toBe('暂无可配置内容')
-    expect(wrapper.get('.result-reconsideration-section__frame').classes()).toContain('is-selected')
+    // 模块1：复议理由（表头 + 内容 + 底部操作条）
+    expect(wrapper.get('.recon-module--reason .recon-module__title').text()).toBe('复议理由')
+    expect(wrapper.get('.recon-module--reason .result-reconsideration-section__preview').text()).toBe('这里展示被评估人发起复议时填写的内容')
+    expect(wrapper.get('.recon-module--reason .recon-module__bar').findComponent(PerformanceTemplateOperateBar).exists()).toBe(true)
 
     await wrapper.findAll('.stage-card')[0].trigger('click')
-    expect(wrapper.find('.result-reconsideration-section').exists()).toBe(false)
+    expect(wrapper.find('.recon-module').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -510,13 +498,14 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(reconCard).toBeTruthy()
     await reconCard!.trigger('click')
     await flushPromises()
-    // 复议理由 section 保留
-    expect(wrapper.get('.result-reconsideration-section').text()).toContain('复议理由')
-    // 默认展示终评环节内容（工作总结）
-    expect(wrapper.get('.configured-content-section').text()).toContain('工作总结')
-    expect(wrapper.get('.configured-content-section').text()).toContain('重点工作')
+    // 模块1：复议理由保留
+    expect(wrapper.get('.recon-module--reason .recon-module__title').text()).toBe('复议理由')
+    // 模块2：最终评估结果(final)独立模块含表头，默认展示终评环节内容（工作总结）
+    expect(wrapper.get('.recon-module--final .recon-module__title').text()).toContain('评估')
+    expect(wrapper.get('.recon-module--final .recon-module__contents').text()).toContain('工作总结')
+    expect(wrapper.get('.recon-module--final .recon-module__contents').text()).toContain('重点工作')
     // 空操作栏不再显示（有默认内容）
-    expect(wrapper.find('.result-reconsideration-section .performance-template-operate-bar, .result-reconsideration-section [class*=operate-bar]').exists()).toBe(false)
+    expect(wrapper.find('.recon-module--reason [class*=operate-bar]').exists()).toBe(false)
     wrapper.unmount()
   })
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {
