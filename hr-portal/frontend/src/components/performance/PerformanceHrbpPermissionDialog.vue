@@ -7,7 +7,7 @@
       </div>
     </PerformancePromptNotice>
 
-    <div v-if="props.loadingOptions" class="hrbp-permission-dialog__loading" role="status">正在加载实时花名册...</div>
+    <div v-if="props.loadingOptions" class="hrbp-permission-dialog__loading" role="status">{{ props.loadingText }}</div>
     <div v-else class="hrbp-permission-dialog__form">
       <PerformanceFormItem label="HRBP" required :invalid="submitted && !form.hrbp">
         <PerformancePersonSelect
@@ -20,7 +20,7 @@
 
       <PerformanceFormItem label="权限范围" required :invalid="submitted && !form.scope.length">
         <template #description>
-          <p class="hrbp-permission-dialog__description">部门内的人员信息来自实时花名册中当前在职人员的组织架构</p>
+          <p class="hrbp-permission-dialog__description">{{ props.scopeDescription }}</p>
         </template>
         <PerformanceOrganizationSelect
           v-model="form.scope"
@@ -81,6 +81,8 @@ const props = withDefaults(defineProps<{
   hrbpOptions?: PerformanceSearchSelectOption[]
   organizationTree?: PerformanceHrbpOrganizationNode[]
   invisiblePeopleOptions?: PerformanceSearchSelectOption[]
+  scopeDescription?: string
+  loadingText?: string
 }>(), {
   mode: 'create',
   saving: false,
@@ -89,6 +91,8 @@ const props = withDefaults(defineProps<{
   hrbpOptions: () => [],
   organizationTree: () => [],
   invisiblePeopleOptions: () => [],
+  scopeDescription: '部门内的人员信息来自实时花名册中当前在职人员的组织架构',
+  loadingText: '正在加载实时花名册...',
 })
 
 const emit = defineEmits<{

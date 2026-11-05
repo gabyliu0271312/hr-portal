@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceCycleApi, type PerformanceHrbpOrganizationNode, type PerformanceHrbpPermission, type PerformanceHrbpPersonOption } from '@/api/performance'
+import { utcToShanghaiLocal } from '@/utils/datetime'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceContentSurface from '@/components/performance/PerformanceContentSurface.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
@@ -36,6 +37,13 @@ const deleteTarget = ref<HrbpPermissionRow | null>(null)
 const hrbpOptions = ref<PerformanceHrbpPersonOption[]>([])
 const invisiblePeopleOptions = ref<PerformanceHrbpPersonOption[]>([])
 const organizationTree = ref<PerformanceHrbpOrganizationNode[]>([])
+const snapshotLockAt = ref<string | null>(null)
+const scopeDescription = computed(() => {
+  const date = utcToShanghaiLocal(snapshotLockAt.value)?.slice(0, 10)
+  return date
+    ? `部门内的人员信息以周期组织架构生成时间「${date}」为准`
+    : '部门内的人员信息以本周期人员快照为准'
+})
 const dialogMode = ref<'create' | 'edit'>('create')
 const editingPermissionId = ref<number | null>(null)
 const initialValue = ref<{ hrbp?: string; scope?: string[]; invisiblePeopleEnabled?: boolean; invisiblePeople?: string[] }>()
@@ -84,6 +92,7 @@ async function openCreateDialog() {
   dialogMode.value = 'create'
   editingPermissionId.value = null
   initialValue.value = undefined
+  snapshotLockAt.value = null
   showCreateDialog.value = true
   optionsLoading.value = true
   try {
@@ -91,10 +100,12 @@ async function openCreateDialog() {
     hrbpOptions.value = options.people
     invisiblePeopleOptions.value = options.invisible_people || []
     organizationTree.value = options.organization_tree
+    snapshotLockAt.value = options.snapshot_lock_at
   } catch {
     hrbpOptions.value = []
     invisiblePeopleOptions.value = []
     organizationTree.value = []
+    snapshotLockAt.value = null
     ElMessage.error('周期快照人员加载失败，请稍后重试')
   } finally {
     optionsLoading.value = false
@@ -212,6 +223,8 @@ onMounted(() => {
         :loading-options="optionsLoading"
         :hrbp-options="hrbpOptions"
         :organization-tree="organizationTree"
+        :scope-description="scopeDescription"
+        loading-text="正在加载周期人员快照..."
         :invisible-people-options="invisiblePeopleOptions"
         :mode="dialogMode"
         :saving="saving"

@@ -193,6 +193,7 @@ class HrbpOptionsResponse(BaseModel):
     people: list[HrbpPersonOption]
     organization_tree: list[HrbpOrganizationNode]
     invisible_people: list[HrbpPersonOption] = Field(default_factory=list)
+    snapshot_lock_at: datetime | None = None
 
 
 class HrbpPermissionPayload(BaseModel):
@@ -233,6 +234,7 @@ def _build_hrbp_organization_tree(rows: list[dict[str, Any]]) -> list[HrbpOrgani
 
 async def _load_hrbp_options(db: AsyncSession, cycle: PerformanceCycle | None = None) -> HrbpOptionsResponse:
     snapshot_people: list[PerformanceAuthorizationSnapshotPerson] = []
+    snapshot = None
     if cycle is not None:
         snapshot = await db.scalar(
             select(PerformanceAuthorizationSnapshot).where(
@@ -295,6 +297,7 @@ async def _load_hrbp_options(db: AsyncSession, cycle: PerformanceCycle | None = 
         people=list(people_by_no.values()),
         organization_tree=_build_hrbp_organization_tree(organization_rows),
         invisible_people=invisible_people,
+        snapshot_lock_at=(cycle.lock_at or (snapshot.locked_at if snapshot is not None else None)) if cycle is not None else None,
     )
 
 

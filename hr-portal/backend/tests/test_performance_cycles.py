@@ -667,20 +667,19 @@ async def test_load_hrbp_options_filters_active_people_and_builds_tree():
     assert result.people[0].model_dump() == {"value": "E001", "label": "张三", "department": "研发中心"}
     assert result.organization_tree[0].children[0].children[0].label == "平台部"
     assert "在职" in db.statement.compile().params.values()
+    assert result.snapshot_lock_at is None
+    assert result.invisible_people == []
 
 
 @pytest.mark.asyncio
-async def test_load_hrbp_options_exposes_cycle_snapshot_people_for_invisible_selector():
-    from app.performance.cycles_router import _load_hrbp_options
+async def test_load_hrbp_options_exposes_cycle_snapshot_people_for_invisible_selector(monkeypatch):
+    from app.performance import cycles_router
 
-    columns = [
-        Column("employee_no", String), Column("full_name", String), Column("employment_status", String),
-        Column("company_org", String), Column("department", String), Column("department_2", String),
-        Column("department_3", String), Column("department_4", String), Column("department_5", String),
-    ]
-    model = SimpleNamespace(__table__=Table("emp_realtime_roster", MetaData(), *columns))
-    previous = DATA_TABLES.get("emp_realtime_roster")
-    DATA_TABLES["emp_realtime_roster"] = model
+    def reject_live_roster():
+        raise AssertionError("周期 HRBP 选项不得读取实时花名册")
+
+    monkeypatch.setattr(cycles_router, "employee_roster_table", reject_live_roster)
+    lock_at = datetime(2026, 11, 5, 16, 30, tzinfo=timezone.utc)
 
     class SnapshotResult:
         def scalars(self):
@@ -689,28 +688,69 @@ async def test_load_hrbp_options_exposes_cycle_snapshot_people_for_invisible_sel
         def all(self):
             return [SimpleNamespace(employee_no="E002", display_name="李四", employment_status="在职", company_org="集团", department="研发中心", department_2=None, department_3=None, department_4=None, department_5=None)]
 
-    class Db(_HrbpRosterDb):
-        def __init__(self):
-            super().__init__([])
-            self.calls = 0
-
+    class Db:
         async def scalar(self, _statement):
-            return SimpleNamespace(id=3)
+            return SimpleNamespace(id=3, status="LOCKED", locked_at=lock_at)
 
         async def execute(self, statement):
-            self.calls += 1
+            assert statement.column_descriptions[0]["entity"] is cycles_router.PerformanceAuthorizationSnapshotPerson
             return SnapshotResult()
 
-    try:
-        result = await _load_hrbp_options(Db(), SimpleNamespace(cycle_ref="cycle:1"))
-    finally:
-        if previous is None:
-            DATA_TABLES.pop("emp_realtime_roster", None)
-        else:
-            DATA_TABLES["emp_realtime_roster"] = previous
+    result = await _load_hrbp_options(Db(), SimpleNamespace(cycle_ref="cycle:1", lock_at=None))
 
     assert [item.value for item in result.invisible_people] == ["E002"]
     assert result.invisible_people[0].label == "李四（E002）"
+    assert result.people[0].model_dump() == {"value": "E002", "label": "李四", "department": "研发中心"}
+    assert result.organization_tree[0].value == "集团"
+    assert result.organization_tree[0].children[0].value == "集团/研发中心"
+    assert result.snapshot_lock_at == lock_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lock_rule, configured_at, snapshot_status, locked_at, expected_at",
+    [
+        ("SCHEDULED", "2026-11-05T16:30:00+00:00", "LOCKED", "2026-11-06T01:00:00+00:00", "2026-11-05T16:30:00+00:00"),
+        ("SCHEDULED", "2027-01-01T16:30:00+00:00", "DRAFT", None, "2027-01-01T16:30:00+00:00"),
+        ("IMMEDIATE", None, "LOCKED", "2026-11-06T01:00:00+00:00", "2026-11-06T01:00:00+00:00"),
+        ("SCHEDULED", "2027-01-01T16:30:00+00:00", None, None, "2027-01-01T16:30:00+00:00"),
+        ("IMMEDIATE", None, None, None, None),
+        ("SCHEDULED", None, "DRAFT", None, None),
+    ],
+    ids=["scheduled-config-first", "draft-future-config", "immediate-fallback", "missing-snapshot-config", "missing-snapshot-no-date", "draft-no-date"],
+)
+async def test_load_hrbp_options_returns_lock_date_even_without_people(
+    monkeypatch, lock_rule, configured_at, snapshot_status, locked_at, expected_at
+):
+    from app.performance import cycles_router
+
+    def reject_live_roster():
+        raise AssertionError("周期 HRBP 选项不得读取实时花名册")
+
+    monkeypatch.setattr(cycles_router, "employee_roster_table", reject_live_roster)
+    snapshot = SimpleNamespace(
+        id=3, status=snapshot_status,
+        locked_at=datetime.fromisoformat(locked_at) if locked_at else None,
+    ) if snapshot_status else None
+
+    class Db:
+        async def scalar(self, _statement):
+            return snapshot
+
+        async def execute(self, statement):
+            assert snapshot is not None
+            assert statement.column_descriptions[0]["entity"] is cycles_router.PerformanceAuthorizationSnapshotPerson
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+
+    cycle = SimpleNamespace(
+        cycle_ref="cycle:1", lock_rule=lock_rule,
+        lock_at=datetime.fromisoformat(configured_at) if configured_at else None,
+    )
+    result = await _load_hrbp_options(Db(), cycle)
+
+    assert result.snapshot_lock_at == (datetime.fromisoformat(expected_at) if expected_at else None)
+    assert result.people == result.invisible_people == result.organization_tree == []
+    assert "snapshot_status" not in result.model_dump()
 
 
 @pytest.mark.asyncio

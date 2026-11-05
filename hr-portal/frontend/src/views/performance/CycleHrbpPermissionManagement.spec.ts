@@ -55,6 +55,7 @@ describe('CycleHrbpPermissionManagement', () => {
       people: [{ value: 'E001', label: '张三' }],
       organization_tree: [{ value: '集团', label: '集团', level: 1, children: [] }],
       invisible_people: [{ value: 'E002', label: '李四（E002）' }],
+      snapshot_lock_at: null,
     }
     vi.spyOn(performanceCycleApi, 'listHrbpPermissions').mockResolvedValue([])
     const request = vi.spyOn(performanceCycleApi, 'listHrbpOptions').mockResolvedValue(options)
@@ -70,11 +71,93 @@ describe('CycleHrbpPermissionManagement', () => {
     expect(document.body.querySelector('.performance-organization-tree-select__trigger')).not.toBeNull()
   })
 
+  it.each([
+    ['locked cycle', '2026-11-05T16:30:00Z', '2026-11-06'],
+    ['draft cycle with a future lock date', '2027-01-01T16:30:00Z', '2027-01-02'],
+  ])('shows the same exact scope copy for a %s in Beijing time', async (_state, lockAt, date) => {
+    vi.spyOn(performanceCycleApi, 'listHrbpOptions').mockResolvedValue({
+      people: [], organization_tree: [], invisible_people: [], snapshot_lock_at: lockAt,
+    })
+    const { wrapper } = await mountPage()
+
+    await wrapper.get('.permission-create-button').trigger('click')
+    await flushPromises()
+
+    expect(document.querySelector('.hrbp-permission-dialog__description')?.textContent).toBe(`部门内的人员信息以周期组织架构生成时间「${date}」为准`)
+    expect(document.body.textContent).not.toContain('待锁定')
+    expect(document.body.textContent).not.toContain('实时花名册')
+    wrapper.unmount()
+  })
+
+  it.each([null, 'invalid-date'])('uses neutral scope copy for an unavailable lock date %s', async lockAt => {
+    vi.spyOn(performanceCycleApi, 'listHrbpOptions').mockResolvedValue({
+      people: [], organization_tree: [], invisible_people: [], snapshot_lock_at: lockAt,
+    })
+    const { wrapper } = await mountPage()
+
+    await wrapper.get('.permission-create-button').trigger('click')
+    await flushPromises()
+
+    expect(document.querySelector('.hrbp-permission-dialog__description')?.textContent).toBe('部门内的人员信息以本周期人员快照为准')
+    expect(document.body.textContent).not.toContain('周期组织架构生成时间')
+    expect(document.body.textContent).not.toContain('待锁定')
+    wrapper.unmount()
+  })
+
+  it('refreshes the date on edit and clears stale dates and edit values when creating again', async () => {
+    const options = {
+      people: [{ value: 'E001', label: '张三' }],
+      organization_tree: [{ value: '集团', label: '集团', level: 1, children: [] }],
+      invisible_people: [],
+      snapshot_lock_at: '2026-11-05T16:30:00Z',
+    }
+    let resolveOptions!: (value: typeof options) => void
+    const request = vi.spyOn(performanceCycleApi, 'listHrbpOptions')
+      .mockResolvedValueOnce(options)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOptions = resolve }))
+    const { wrapper } = await mountPage()
+
+    wrapper.findComponent(PerformanceHrbpPermissionTable).vm.$emit('edit', {
+      id: 7, hrbp: '张三', hrbpRef: 'E001', scopeValues: ['集团'], invisiblePeopleValues: [],
+    })
+    await flushPromises()
+    const dialog = wrapper.findComponent(PerformanceHrbpPermissionDialog)
+    expect(dialog.props('mode')).toBe('edit')
+    expect(dialog.props('initialValue')?.hrbp).toBe('E001')
+    expect(document.querySelector('.hrbp-permission-dialog__description')?.textContent).toBe('部门内的人员信息以周期组织架构生成时间「2026-11-06」为准')
+    dialog.vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    await wrapper.get('.permission-create-button').trigger('click')
+    expect(dialog.props('initialValue')).toBeUndefined()
+    expect(dialog.props('mode')).toBe('create')
+    expect(dialog.props('scopeDescription')).toBe('部门内的人员信息以本周期人员快照为准')
+    expect(document.querySelector('[role="status"]')?.textContent).toBe('正在加载周期人员快照...')
+    expect(document.body.textContent).not.toContain('2026-11-06')
+    resolveOptions({ ...options, snapshot_lock_at: '2027-01-01T16:30:00Z' })
+    await flushPromises()
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(document.querySelector('.hrbp-permission-dialog__description')?.textContent).toBe('部门内的人员信息以周期组织架构生成时间「2027-01-02」为准')
+    wrapper.unmount()
+  })
+
+  it('keeps neutral scope copy when reloading cycle options fails', async () => {
+    vi.spyOn(performanceCycleApi, 'listHrbpOptions').mockRejectedValue(new Error('failed'))
+    const { wrapper } = await mountPage()
+    await wrapper.get('.permission-create-button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent(PerformanceHrbpPermissionDialog).props('scopeDescription')).toBe('部门内的人员信息以本周期人员快照为准')
+    expect(document.body.textContent).not.toContain('实时花名册')
+    wrapper.unmount()
+  })
+
   it('saves invisible snapshot people through the real permission API client', async () => {
     const options = {
       people: [{ value: 'E001', label: '张三' }],
       organization_tree: [{ value: '集团', label: '集团', level: 1, children: [] }],
       invisible_people: [{ value: 'E002', label: '李四（E002）' }],
+      snapshot_lock_at: null,
     }
     vi.spyOn(performanceCycleApi, 'listHrbpOptions').mockResolvedValue(options)
     const create = vi.spyOn(performanceCycleApi, 'createHrbpPermission').mockResolvedValue({

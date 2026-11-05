@@ -1839,6 +1839,7 @@ export interface PerformanceHrbpOptions {
   people: PerformanceHrbpPersonOption[]
   organization_tree: PerformanceHrbpOrganizationNode[]
   invisible_people: PerformanceHrbpPersonOption[]
+  snapshot_lock_at: string | null
 }
 
 export interface PerformanceHrbpPermissionPerson {

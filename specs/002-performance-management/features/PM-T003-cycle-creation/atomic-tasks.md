@@ -62,6 +62,9 @@
 
   - 节点时间统一修复（2026-11-05）：项目设置页以北京时间墙上值编辑，保存节点/校准阶段时间时统一通过 `shanghaiLocalToUtcIso` 转为 UTC ISO；回读带时区值转换回北京时间显示，无时区值按既有墙上值显示。后端 `_parse_time` 统一将无时区节点时间按 `Asia/Shanghai` 解释、带时区值转 UTC，覆盖项目启动任务、评估页节点状态、工作台时间线、任务开放/截止、360°邀请及复议时间。后端项目回归 389 passed、5 skipped；前端项目设置/日期工具 23 passed；生产构建完成（Vite 3591 modules，既有 VueUse PURE warning）。不做旧数据兼容分支、不修改生产数据；真实生产 API/SQL 回读与部署待后续执行。
 
+  - HRBP 权限范围说明修正（2026-11-05，代码与定向测试完成）：用户确认仅显示“部门内的人员信息以周期组织架构生成时间「YYYY-MM-DD」为准”，未锁定/已锁定统一显示周期配置的锁定日期；立即锁定无配置日期时取快照实际锁定时间，按北京时间显示，不展示参数来源说明。已核查周期 HRBP 选项和保存人员校验读取周期快照，全局共用入口才读取实时花名册；本次不改权限计算、快照或迁移。修改范围限定 cycles_router.py、frontend api/performance.ts、PerformanceHrbpPermissionDialog.vue、CycleHrbpPermissionManagement.vue 及现有对应测试，本目录交互/任务记录串行局部更新，保留其他未提交修改。不新增脚本、报告或测试文档；用户随后明确授权将本次相关代码、测试和规格记录提交并推送到 main，不部署。验收需覆盖定时/立即锁定、草稿未来日期、北京时间跨日、无日期不伪造及全局文案不变；定向测试、构建、浏览器和生产证据分别记，未完成不勾选 I03。停止方式仅撤销本次局部差异，不整包回滚。
+  - 实际证据：后端目录 `.venv/Scripts/python.exe -m pytest tests/test_performance_cycles.py -k hrbp -q --tb=short`，9 passed、44 deselected，既有 `python_multipart` 弃用警告 1 项。前端目录 `npm run test -- src/components/performance/PerformanceHrbpPermissionDialog.spec.ts src/views/performance/CycleHrbpPermissionManagement.spec.ts src/views/performance/OtherPermissionSettings.spec.ts`，3 文件、24 passed；覆盖快照选项禁止读取实时花名册、配置时间优先、无快照仍可返回配置时间、立即锁定回退、未来草稿日期、北京时间跨日、无效日期、编辑重开及全局默认文案。`git diff --check` 通过。完整 `npm run build` 退出 2，被非本次修改的 `PerformanceConfiguredContentBlock.spec.ts:778` 的 TS2339（`get()` 返回的 DOMWrapper 无 `exists`）阻塞，未修改该文件。独立 `node node_modules/vite/bin/vite.js build` 打包通过（3602 modules，3m 57s，exit 0），仅既有 VueUse PURE 注释警告；未执行真实浏览器截图、真实 API/SQL 或生产验收，I03 整体仍保留未勾选。
+
 - [x] PM-T003-I04 实现离职人员参评设置
   - 前置任务：PM-T003-I03
   - 功能范围：开关、离职日期范围、生成任务/仅报表统计方式及周期快照准入。

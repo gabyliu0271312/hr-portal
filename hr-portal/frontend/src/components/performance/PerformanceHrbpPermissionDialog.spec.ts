@@ -65,6 +65,35 @@ describe('PerformanceHrbpPermissionDialog', () => {
     expect(document.body.querySelector('.performance-organization-tree-select__trigger')).not.toBeNull()
   })
 
+  it('uses the shared defaults for global HRBP options', async () => {
+    const wrapper = mount(PerformanceHrbpPermissionDialog, {
+      props: { modelValue: true, ...options },
+      attachTo: document.body,
+    })
+
+    expect(document.body.querySelector('.hrbp-permission-dialog__description')?.textContent).toBe('部门内的人员信息来自实时花名册中当前在职人员的组织架构')
+    await wrapper.setProps({ loadingOptions: true })
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('正在加载实时花名册...')
+  })
+
+  it('accepts cycle-specific scope and loading copy', async () => {
+    const wrapper = mount(PerformanceHrbpPermissionDialog, {
+      props: {
+        modelValue: true,
+        ...options,
+        scopeDescription: '部门内的人员信息以周期组织架构生成时间「2026-11-06」为准',
+        loadingText: '正在加载周期人员快照...',
+        loadingOptions: true,
+      },
+      attachTo: document.body,
+    })
+
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('正在加载周期人员快照...')
+    expect(document.body.querySelector('.hrbp-permission-dialog__description')).toBeNull()
+    await wrapper.setProps({ loadingOptions: false })
+    expect(document.body.querySelector('.hrbp-permission-dialog__description')?.textContent).toBe('部门内的人员信息以周期组织架构生成时间「2026-11-06」为准')
+  })
+
   it('shows invisible people selector after opening the switch', async () => {
     const wrapper = mount(PerformanceHrbpPermissionDialog, {
       props: { modelValue: true, ...options },
