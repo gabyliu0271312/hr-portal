@@ -10,7 +10,7 @@ from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVA
 from app.performance.auth_context import PerformanceAccessContext
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.task_authorization_service import task_handler_condition
-from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceRole, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceRole, PROJECT_STATUS_STARTED
 
 
 @dataclass
@@ -206,7 +206,8 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
             result.management_features[project.id] = admin_features
             continue
         if permission and frontend_features.intersection(hrbp_features):
-            scope = {member.employee_no for member in members if member.employee_no not in (permission.invisible_people or []) and any(member.organization_ref == org or str(member.organization_ref or "").startswith(f"{org}/") for org in permission.scope)}
+            global_invisible = await _global_hrbp_invisible_people(db)
+            scope = {member.employee_no for member in members if member.employee_no not in (permission.invisible_people or []) and member.employee_no not in global_invisible and any(member.organization_ref == org or str(member.organization_ref or "").startswith(f"{org}/") for org in permission.scope)}
             if scope:
                 result.manage_projects.append((project, cycle))
                 result.management_scopes[project.id] = scope
@@ -217,3 +218,23 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
     result.workbench_projects.sort(key=lambda item: (item[1].start_at, item[1].id, -item[0].id), reverse=True)
     result.review_projects.sort(key=lambda item: (item[1].start_at, item[1].id, -item[0].id), reverse=True)
     return result
+
+
+async def _global_hrbp_invisible_people(db: AsyncSession) -> set[str]:
+    """全局 HRBP 不可见人员（租户级，对所有 HRBP 生效）。
+
+    与 projects_router._global_hrbp_invisible_people 同源：
+    读 PerformanceOtherPermissionSetting(id=1).hrbp_invisible_people。
+    """
+    try:
+        setting = await db.get(PerformanceOtherPermissionSetting, 1)
+    except AttributeError:
+        # 测试替身未实现 get 时按未配置处理
+        return set()
+    if setting is None:
+        return set()
+    return {
+        str(ref).strip()
+        for ref in (setting.hrbp_invisible_people or [])
+        if str(ref).strip()
+    }

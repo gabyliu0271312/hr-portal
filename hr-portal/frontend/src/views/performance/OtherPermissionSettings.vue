@@ -120,6 +120,16 @@
       :initial-value="editorInitialValue"
       @submit="saveHrbpPermission"
     />
+
+    <PerformanceHrbpScopeDialog
+      v-model="scopeEditorVisible"
+      :saving="savingTarget === 'scope-editor'"
+      :organization-tree="organizationTree"
+      :person-options="invisiblePeopleOptions"
+      :initial-value="scopeEditorInitialValue"
+      @open-options="loadSettings"
+      @submit="saveHrbpScope"
+    />
   </div>
 </template>
 
@@ -138,6 +148,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
 import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
 import PerformanceHrbpPermissionDialog, { type PerformanceHrbpPermissionFormValue } from '@/components/performance/PerformanceHrbpPermissionDialog.vue'
+import PerformanceHrbpScopeDialog, { type PerformanceHrbpScopeFormValue } from '@/components/performance/PerformanceHrbpScopeDialog.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
@@ -162,11 +173,13 @@ const reminderNodeTypeLabels = computed(() => reminderOptions
 const defaultReminderNodeTypes = reminderOptions.map(option => option.value)
 const editorMode = ref<'create' | 'edit'>('create')
 const editorInitialValue = ref<Partial<PerformanceHrbpPermissionFormValue>>({})
+const scopeEditorVisible = ref(false)
+const scopeEditorInitialValue = ref<import('@/api/performance').PerformanceAudienceGroup[] | undefined>(undefined)
 const reminderEditorNodeTypes = ref<string[]>([])
 const editorVisible = ref(false)
 const reminderEditorVisible = ref(false)
 const loading = ref(false)
-type SavingTarget = 'hrbp-switch' | 'manager-switch' | 'people-editor' | 'reminder-editor'
+type SavingTarget = 'hrbp-switch' | 'manager-switch' | 'people-editor' | 'scope-editor' | 'reminder-editor'
 const savingTarget = ref<SavingTarget | null>(null)
 const loadError = ref('')
 
@@ -244,17 +257,12 @@ async function toggleManagerReminder(value: boolean) {
 }
 
 function openEditor() {
+  // 特定范围（全局 HRBP 不可见）：打开条件组编辑弹窗
   const current = hrbpPermissions.value[0]
-  editorMode.value = current ? 'edit' : 'create'
-  editorInitialValue.value = current
-    ? {
-        hrbp: current.hrbp.employee_no,
-        scope: [...current.scope],
-        invisiblePeopleEnabled: current.invisible_people.length > 0,
-        invisiblePeople: current.invisible_people.map(person => person.employee_no),
-      }
-    : {}
-  editorVisible.value = true
+  scopeEditorInitialValue.value = current
+    ? [{ conditions: current.invisible_people.map(person => ({ field: 'employee', operator: 'include', values: [person.employee_no] })) }]
+    : undefined
+  scopeEditorVisible.value = true
 }
 
 async function saveHrbpPermission(value: PerformanceHrbpPermissionFormValue) {
@@ -275,6 +283,13 @@ async function saveHrbpPermission(value: PerformanceHrbpPermissionFormValue) {
   const saved = await updateSettings({ hrbp_permissions: permissions }, 'people-editor')
   if (!saved) return
   editorVisible.value = false
+  ElMessage.success('保存成功')
+}
+
+async function saveHrbpScope(value: PerformanceHrbpScopeFormValue) {
+  const saved = await updateSettings({ hrbp_invisible_people: value.employeeNos }, 'scope-editor')
+  if (!saved) return
+  scopeEditorVisible.value = false
   ElMessage.success('保存成功')
 }
 

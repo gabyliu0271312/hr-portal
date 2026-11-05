@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.performance.projects_router import ProjectPayload, _can_manage_project, _review_node_category, _review_node_status
+from app.performance.models import PerformanceOtherPermissionSetting
 from app.performance.auth_context import PerformanceAccessContext, PerformanceRoleGrant, performance_admin_preview_enabled
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 
@@ -2591,6 +2592,8 @@ def statistics_db(monkeypatch):
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
 
         async def get(self, model, identity):
+            if model is PerformanceOtherPermissionSetting:
+                return None  # 全局 HRBP 不可见未配置
             assert model is PerformanceProject
             return next((item for item in self.projects if item.id == identity), None)
 

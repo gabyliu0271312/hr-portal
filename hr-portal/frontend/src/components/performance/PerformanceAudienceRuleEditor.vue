@@ -12,7 +12,13 @@
           <div class="performance-audience-rule-editor__rows">
           <template v-if="scopeMode">
           <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
-            <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition" :class="{ 'has-delete': modelValue.length > 1 }">
+            <div v-if="showGroupTitle" class="performance-audience-rule-editor__group-heading performance-audience-rule-editor__group-heading--scope">
+              <span>{{ groupTitleText(groupIndex) }}</span>
+              <div v-if="scopeMode && groupTitleActions" class="performance-audience-rule-editor__group-heading-actions">
+                <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
+              </div>
+            </div>
+            <div v-for="(condition, conditionIndex) in group.conditions" :key="conditionIndex" class="performance-audience-rule-editor__condition" :class="{ 'has-delete': addActionMode === 'add-condition' ? group.conditions.length > 1 : modelValue.length > 1 }">
               <PerformanceSearchSelect :model-value="condition.field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
               <PerformanceSearchSelect :model-value="condition.operator" :options="operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || operatorDisabled || !condition.field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
               <PerformanceOrganizationSelect v-if="condition.field === 'department'" :model-value="condition.values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
@@ -21,14 +27,15 @@
               <PerformanceSearchSelect v-else-if="condition.field === 'employee_type'" :model-value="condition.values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
               <PerformancePositionLevelSelect v-else-if="condition.field === 'position_level'" :model-value="condition.values" :options="positionLevelOptions" multiple aria-label="职级范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
               <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
-              <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
+              <PerformanceIconButton v-if="addActionMode === 'add-condition' ? group.conditions.length > 1 : modelValue.length > 1" icon="DeleteTrashOutlined" :label="addActionMode === 'add-condition' ? `删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}` : `删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="addActionMode === 'add-condition' ? removeCondition(groupIndex, conditionIndex) : removeGroup(groupIndex)" />
             </div>
+            <PerformanceTextButton v-if="scopeMode && addActionMode === 'add-condition'" class="performance-audience-rule-editor__condition-add" label="＋ 添加条件" :disabled="disabled" @click="addCondition(groupIndex)" />
           </div>
           </template>
           <template v-else>
             <div v-for="(group, groupIndex) in modelValue" :key="groupIndex" class="performance-audience-rule-editor__group">
                 <div class="performance-audience-rule-editor__group-heading">
-                  <span>范围 {{ groupIndex + 1 }}</span>
+                  <span>{{ groupTitleText(groupIndex) }}</span>
                   <div class="performance-audience-rule-editor__group-heading-actions">
                     <span class="performance-audience-rule-editor__group-count">同时满足以下条件：<button class="performance-audience-rule-editor__count-link" type="button" :disabled="disabled || groupCounts[groupIndex] == null" @click="emit('open-preview', groupIndex)">{{ groupCounts[groupIndex] ?? 0 }}</button></span>
                     <PerformanceIconButton v-if="modelValue.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
@@ -59,10 +66,22 @@
       </div>
       <div class="performance-audience-rule-editor__scope-tools">
         <PerformanceTextButton
-          v-if="scopeMode"
+          v-if="scopeMode && addActionMode === 'add-group'"
           class="performance-audience-rule-editor__scope-add"
           label="添加条件"
           aria-label="添加条件"
+          :disabled="disabled"
+          @click="addGroup"
+        >
+          <template #icon>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v8h8a1 1 0 1 1 0 2h-8v8a1 1 0 1 1-2 0v-8H3a1 1 0 1 1 0-2h8V3a1 1 0 0 1 1-1Z" fill="currentColor" /></svg>
+          </template>
+        </PerformanceTextButton>
+        <PerformanceTextButton
+          v-else-if="scopeMode && addActionMode === 'add-condition'"
+          class="performance-audience-rule-editor__scope-add"
+          label="添加人员范围"
+          aria-label="添加人员范围"
           :disabled="disabled"
           @click="addGroup"
         >
@@ -119,6 +138,14 @@ const props = withDefaults(defineProps<{
   showScopeHeading?: boolean
   operatorDisabled?: boolean
   defaultField?: string
+  /** 组标题模板，{index} 替换为组序号（1 起）。默认「范围 {index}」。 */
+  groupTitlePattern?: string
+  /** 是否显示组标题：默认 scopeMode 不显示、非 scopeMode 显示；HRBP 范围弹窗显式开启。 */
+  showGroupTitle?: boolean
+  /** 组标题右侧是否显示操作（删除组）。默认跟随非 scopeMode 行为；scopeMode 组标题时可选。 */
+  groupTitleActions?: boolean
+  /** 「添加条件」按钮语义：add-group=加一个组（默认，分配规则场景）；add-condition=组内加条件（REA 范围弹窗场景）。 */
+  addActionMode?: 'add-condition' | 'add-group'
   disabled?: boolean
   loading?: boolean
   error?: string
@@ -132,6 +159,10 @@ const props = withDefaults(defineProps<{
   showScopeHeading: true,
   operatorDisabled: false,
   defaultField: '',
+  groupTitlePattern: '范围 {index}',
+  showGroupTitle: undefined,
+  groupTitleActions: undefined,
+  addActionMode: 'add-group',
   disabled: false,
   loading: false,
   error: '',
@@ -156,6 +187,9 @@ const fieldOptions = computed(() => [
 const allowMultipleConditions = computed(() => !props.scopeMode)
 
 function customField(field: string) { return props.customFields?.find(option => option.value === field) }
+function groupTitleText(index: number) {
+  return (props.groupTitlePattern || '范围 {index}').replace('{index}', String(index + 1))
+}
 function fieldLabel(field: string) {
   return customField(field)?.label || (field && field in PERFORMANCE_CONDITION_FIELDS ? PERFORMANCE_CONDITION_FIELDS[field as PerformanceConditionField].label : '')
 }
@@ -231,6 +265,9 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-heading + .performance-audience-rule-editor__groups { min-width: 0; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition.has-delete { grid-template-columns: 128px 88px minmax(0, 1fr) 24px; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { --performance-icon-button-size: 24px; margin-top: 4px; }
+.performance-audience-rule-editor__group-heading--scope { margin-bottom: var(--spacing-2); color: var(--color-text-primary); font-weight: 400; }
+.performance-audience-rule-editor__condition-add { margin-top: var(--spacing-2); }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition-add { align-self: flex-start; }
 .performance-audience-rule-editor__scope-or { display: flex; width: 20px; flex: 0 0 20px; flex-direction: column; align-items: center; align-self: stretch; margin: 0 var(--spacing-2) 0 0; padding: 6px 0; box-sizing: border-box; color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); }
 .performance-audience-rule-editor__scope-or span:first-child, .performance-audience-rule-editor__scope-or span:last-child { width: 7px; min-height: 0; flex: 1; margin-left: 7px; border-left: 1px solid var(--color-border); }
 .performance-audience-rule-editor__scope-or span:nth-child(2) { margin: 2px 0; }

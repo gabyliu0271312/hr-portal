@@ -1,9 +1,12 @@
 import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 
-export type PerformanceConditionField = 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position' | 'calibrator_relation'
+export type PerformanceConditionField = 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position' | 'calibrator_relation' | 'directLeader'
 export type PerformanceConditionValueSource = 'organization' | 'people' | 'employee_types' | 'hire_date' | 'employment_statuses' | 'departure_date' | 'job_families' | 'job_categories' | 'position_levels' | 'standard_positions' | 'fixed'
 
 export const REVIEWEE_CONDITION_FIELDS = ['department', 'employee_type', 'hire_date', 'employee', 'employment_status', 'departure_date', 'job_family', 'job_category', 'position_level', 'standard_position'] as const
+
+/** REA HRBP 不可见范围（scene=hrbp_blacklist）可用字段：直属上级 / 员工 / 部门 */
+export const HRBP_BLACKLIST_FIELDS = ['directLeader', 'employee', 'department'] as const
 
 export function isDateConditionField(field: string) {
   return field === 'hire_date' || field === 'departure_date'
@@ -36,6 +39,7 @@ export const PERFORMANCE_CONDITION_FIELDS: Record<PerformanceConditionField, {
   options?: PerformanceSearchSelectOption[]
 }> = {
   department: { label: '部门', valueSource: 'organization' },
+  directLeader: { label: '直属上级', valueSource: 'people' },
   employee_type: { label: '人员类型', valueSource: 'employee_types' },
   hire_date: { label: '入职日期', valueSource: 'hire_date' },
   employee: { label: '员工', valueSource: 'people' },

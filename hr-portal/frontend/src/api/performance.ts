@@ -1654,7 +1654,7 @@ export type PerformanceCycleLockRule = 'IMMEDIATE' | 'SCHEDULED'
 export type PerformanceCycleSyncMode = 'MANUAL' | 'AUTO_DAILY'
 export type PerformanceCycleLeaverMode = 'CREATE_TASK' | 'REPORT_ONLY'
 
-export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position'
+export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position' | 'directLeader'
 export type PerformanceAudienceOperator = 'include' | 'exclude' | 'before' | 'not_before' | 'after' | 'not_after'
 export interface PerformanceAudienceCondition {
   field: PerformanceAudienceField

@@ -34,6 +34,11 @@ const stubs = {
     emits: ['submit', 'update:modelValue'],
     template: '<div v-if="modelValue" class="hrbp-dialog"><button class="hrbp-dialog-save" @click="$emit(\'submit\', { hrbp: initialValue?.hrbp || \'E001\', scope: initialValue?.scope || [], invisiblePeopleEnabled: true, invisiblePeople: [\'E001\'] })">确定</button></div>',
   },
+  PerformanceHrbpScopeDialog: {
+    props: ['modelValue'],
+    emits: ['submit', 'update:modelValue'],
+    template: '<div v-if="modelValue" class="hrbp-scope-dialog"><button class="hrbp-scope-dialog-save" @click="$emit(\'submit\', { groups: [{ conditions: [{ field: \'employee\', operator: \'include\', values: [\'E001\'] }] }], employeeNos: [\'E001\'] })">确定</button></div>',
+  },
   PerformanceFormItem: { template: '<div class="form-item"><slot /></div>' },
   PerformanceDialogShell: {
     props: ['modelValue', 'loading'],
@@ -146,7 +151,7 @@ describe('OtherPermissionSettings', () => {
     })
   })
 
-  it('opens the HRBP range editor and saves selected people', async () => {
+  it('opens the global HRBP scope editor and saves invisible people', async () => {
     api.get.mockResolvedValue(response({
       hrbp_invisible_scope_enabled: true,
       hrbp_invisible_people: [{ employee_no: 'E001', display_name: '张娜' }],
@@ -159,12 +164,12 @@ describe('OtherPermissionSettings', () => {
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.findAll('.permission-button')[0].trigger('click')
-    expect(wrapper.find('.hrbp-dialog').exists()).toBe(true)
-    await wrapper.get('.hrbp-dialog-save').trigger('click')
+    expect(wrapper.find('.hrbp-scope-dialog').exists()).toBe(true)
+    await wrapper.get('.hrbp-scope-dialog-save').trigger('click')
     await flushPromises()
 
     expect(api.update).toHaveBeenCalledWith(expect.objectContaining({
-      hrbp_permissions: [{ hrbp: 'E001', scope: [], invisible_people: ['E001'] }],
+      hrbp_invisible_people: ['E001'],
     }))
   })
 })
