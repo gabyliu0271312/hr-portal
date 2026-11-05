@@ -1,50 +1,58 @@
 <template>
   <div class="r360-preview" aria-label="360°评估详情">
-    <!-- 信息条：已评估 1 / 1 直属上级 1 -->
-    <div class="r360-info">
-      <span class="r360-info__label">已评估</span>
-      <span class="r360-info__num">1 / 1</span>
-      <span class="r360-info__relation">{{ relationLabel }}</span>
-      <span class="r360-info__num">{{ evaluatedCount }}</span>
-    </div>
-
-    <!-- 表头：评估维度 / 员工关系 / 人员类型 -->
-    <div class="r360-head">
-      <span class="r360-head__col">评估维度</span>
-      <span class="r360-head__col">员工关系</span>
-      <span class="r360-head__col">人员类型</span>
-    </div>
-
-    <!-- 工具行：详情视图 + 排序 + 收起详情 -->
-    <div class="r360-tools">
-      <span class="r360-tools__title">详情视图</span>
-      <span class="r360-tools__spacer"></span>
-      <button type="button" class="r360-tools__btn" tabindex="-1">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z" fill="currentColor"/></svg>
-        排序
-      </button>
-      <button type="button" class="r360-tools__btn" tabindex="-1">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 10.586 7.707 6.293l-1.414 1.414L12 13.414l5.707-5.707-1.414-1.414L12 10.586Z" fill="currentColor"/></svg>
-        收起详情
-      </button>
-    </div>
-
-    <!-- 卡片：展开图标 + 标题行 + 列描述 -->
-    <div class="r360-card">
-      <button type="button" class="r360-card__toggle" tabindex="-1" aria-label="展开">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 10.586 7.707 6.293l-1.414 1.414L12 13.414l5.707-5.707-1.414-1.414L12 10.586Z" fill="currentColor"/></svg>
-      </button>
-      <div class="r360-card__body">
-        <div class="r360-card__title">{{ relationLabel }}</div>
-        <div class="r360-card__desc">所属部门 · 系统默认邀请</div>
+    <!-- ud__card 白卡容器（REA：x=340.7 宽 631.3 白底 shadow-md，内容内缩 20） -->
+    <div class="r360-card-wrap">
+      <!-- 信息条：已评估 ：1/1 直属上级 1（REA 有冒号） -->
+      <div class="r360-info">
+        <span class="r360-info__label">已评估</span>
+        <span class="r360-info__colon">：</span>
+        <span class="r360-info__num">{{ evaluatedText }}</span>
+        <span class="r360-info__relation">{{ relationLabel }}</span>
+        <span class="r360-info__num">{{ evaluatedCount }}</span>
       </div>
-    </div>
 
-    <!-- 表单区：灰底，内嵌空评估条目 -->
-    <div class="r360-form">
-      <div v-for="index in entryCount" :key="index" class="r360-form__item">
-        <div class="r360-form__review">
-          <div class="r360-form__empty">这里展示用户填写的内容</div>
+      <!-- 表头：评估维度 / 员工关系 / 人员类型（REA 固定 3 列） -->
+      <div class="r360-head">
+        <span class="r360-head__col">评估维度</span>
+        <span class="r360-head__col">员工关系</span>
+        <span class="r360-head__col">人员类型</span>
+      </div>
+
+      <!-- 工具行：详情视图按钮（双图标）+ 排序 + 收起详情 -->
+      <div class="r360-tools">
+        <button type="button" class="r360-tools__btn r360-tools__btn--view" tabindex="-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm2 0v16h16V4H4Z" fill="currentColor"/><path d="M12.5 7a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5Z" fill="currentColor"/></svg>
+          <span class="r360-tools__view-text">详情视图</span>
+          <svg class="r360-tools__arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0 0-1.414l-.707-.707a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor"/></svg>
+        </button>
+        <span class="r360-tools__spacer"></span>
+        <button type="button" class="r360-tools__btn r360-tools__btn--sort" tabindex="-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17 1.333h-1.803s-.419.137-.498.343l-3.664 9.598a.533.533 0 0 0 .498.724h.978a.533.533 0 0 0 .5-.347l.664-1.785h4.841l.663 1.786c.078.21.277.348.5.348h.93a.5.5 0 0 0 .47-.64L17.8 2.316a.56.56 0 0 0-.8-.983ZM13.98 9.933l1.3-3.5 1.343 3.5h-2.643Z" fill="currentColor"/></svg>
+          排序
+        </button>
+        <button type="button" class="r360-tools__btn r360-tools__btn--collapse" tabindex="-1">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.468 5a.25.25 0 0 1 .25.25v2.419h1.572a.2.2 0 0 1 .08.017l.036.02a.2.2 0 0 1 .076.222l-.028.057-2.307 3.265a.2.2 0 0 1-.32 0l-2.306-3.265a.2.2 0 0 1 .049-.28l.027-.019a.2.2 0 0 1 .081-.017h1.571V5.25a.25.25 0 0 1 .25-.25h1.069ZM6.97 12h8.9l-1.843 1.804a1.2 1.2 0 0 0 1.695 1.698l3.716-3.638a1.2 1.2 0 0 0 0-1.699l-3.716-3.638a1.2 1.2 0 1 0-1.695 1.698L15.87 9.6H6.6a1.2 1.2 0 1 0 0 2.4Z" fill="currentColor"/></svg>
+          收起详情
+        </button>
+      </div>
+
+      <!-- 卡片：展开图标 + 标题行 + 列描述（REA：直属上级 | 所属部门 | 系统默认邀请） -->
+      <div class="r360-card">
+        <button type="button" class="r360-card__toggle" tabindex="-1" aria-label="展开">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 10.586 7.707 6.293l-1.414 1.414L12 13.414l5.707-5.707-1.414-1.414L12 10.586Z" fill="currentColor"/></svg>
+        </button>
+        <div class="r360-card__body">
+          <div class="r360-card__title">{{ relationLabel }}</div>
+          <div class="r360-card__desc">{{ departmentLabel }} | 所属部门 | 系统默认邀请</div>
+        </div>
+      </div>
+
+      <!-- 表单区：灰底，内嵌空评估条目 -->
+      <div class="r360-form">
+        <div v-for="index in entryCount" :key="index" class="r360-form__item">
+          <div class="r360-form__review">
+            <div class="r360-form__empty">这里展示用户填写的内容</div>
+          </div>
         </div>
       </div>
     </div>
@@ -53,25 +61,33 @@
 
 <script setup lang="ts">
 /**
- * 参考区「360°反馈」页签预览（REA 实测：360°评估详情视图）。
+ * 参考区「360°反馈」页签预览（REA 实测：360°评估详情视图，DOM 二次精准核对）。
  *
- * 100% 按 REA 飞书绩效 DOM 实测参数还原（rea-extract/out/domspec1x/参考区-360反馈-直接上级评估.json）：
- *   信息条：14/24，#646a73，数字 #3370ff
- *   表头：评估维度 / 员工关系 / 人员类型，14/22 #1f2329
- *   工具行：详情视图 14/22 + 排序 / 收起详情 ud button 28 高 r6
- *   卡片：591.3×66.2，展开图标 20×20 r6 + 标题 + 列描述 12/20 #646a73
+ * REA（rea-extract/out/domspec1x/参考区-360反馈-直接上级评估.json + 实时按钮 DOM）：
+ *   外层 ud__card 白卡（x=340.7 宽 631.3 bg #fff shadow-md），内容内缩 20（x=360.7）
+ *   信息条：「已评估 ：1/1 直属上级 1」，14/24，#646a73，数字 #3370ff（有冒号）
+ *   表头：评估维度/员工关系/人员类型 固定 3 列（14/22 #1f2329）
+ *   工具行：详情视图按钮 98×26（start 网格+放大镜 14 + end 下拉箭头 12，pd 2/4）、
+ *           排序按钮 54×26（排序图标 14）、收起详情按钮 88×28（图标 24×24 text-N-800）
+ *   卡片：展开图标 20×20 r6 + 标题 + 描述「直属上级 | 所属部门 | 系统默认邀请」（竖线分隔 12/20 #646a73）
  *   表单区：591.3×244.7 bg #f5f6f7 r6 px-6；评估条目 567.3×120 bg #f5f6f7 r4
  */
 withDefaults(defineProps<{
   /** 信息条「已评估 N / M」的评估人关系文案（默认「直属上级」） */
   relationLabel?: string
-  /** 已评估人数（信息条右侧数字） */
+  /** 已评估数（信息条右侧数字） */
   evaluatedCount?: number
+  /** 已评估文本「N / M」（默认「1 / 1」） */
+  evaluatedText?: string
+  /** 卡片描述部门文案（REA：直属上级 | 所属部门 | 系统默认邀请） */
+  departmentLabel?: string
   /** 表单区评估条目数（REA 模板预览默认 2 个空条目） */
   entryCount?: number
 }>(), {
   relationLabel: '直属上级',
   evaluatedCount: 1,
+  evaluatedText: '1 / 1',
+  departmentLabel: '直属上级',
   entryCount: 2,
 })
 </script>
@@ -80,26 +96,45 @@ withDefaults(defineProps<{
 /* 与模板预览字体栈一致（REA 正文 14/21 #1f2329） */
 .r360-preview { color: #1f2329; font-family: inherit; font-size: 14px; line-height: 21px; }
 
-/* ---------- 信息条：y≈297，14/24 ---------- */
+/* ---------- ud__card 白卡容器（REA：x=340.7 宽 631.3 白底 shadow-md r4，内容内缩 20） ---------- */
+.r360-card-wrap {
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06);
+  padding: 20px;
+}
+
+/* ---------- 信息条：y≈297，14/24，有冒号 ---------- */
 .r360-info { display: flex; align-items: center; min-height: 24px; line-height: 24px; }
 .r360-info__label { color: #646a73; }
+.r360-info__colon { margin-left: 4px; color: #646a73; }
 .r360-info__num { margin-left: 4px; color: #3370ff; }
 .r360-info__relation { margin-left: 4px; color: #646a73; }
 
-/* ---------- 表头：y≈336，14/22，3 列 ---------- */
+/* ---------- 表头：y≈336，14/22，固定 3 列（REA：368.7/466.7/564.7，间距 98） ---------- */
 .r360-head { display: flex; margin-top: 16px; }
 .r360-head__col { flex: 1; min-width: 0; line-height: 22px; color: #1f2329; }
 
-/* ---------- 工具行：y≈368，28 高 ---------- */
+/* ---------- 工具行：y≈368 ---------- */
 .r360-tools { display: flex; align-items: center; margin-top: 16px; }
-.r360-tools__title { font-size: 14px; line-height: 22px; color: #1f2329; }
 .r360-tools__spacer { flex: 1; }
 .r360-tools__btn {
-  display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 4px 11px;
-  box-sizing: border-box; border: 0; border-radius: 6px; background: transparent;
+  display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box;
+  border: 0; border-radius: 6px; background: transparent; padding: 2px 4px;
   font-family: inherit; font-size: 14px; line-height: 22px; color: #1f2329; cursor: pointer;
+  transition: background-color .1s ease-in;
 }
+.r360-tools__btn:hover { background: rgba(31, 35, 41, 0.1); }
 .r360-tools__btn + .r360-tools__btn { margin-left: 8px; }
+/* 详情视图按钮（REA 98×26：start 14 图标 + end 12 下拉箭头） */
+.r360-tools__btn--view { height: 26px; }
+.r360-tools__arrow { margin-left: 4px; color: #646a73; }
+/* 排序按钮（REA 54×26） */
+.r360-tools__btn--sort { height: 26px; }
+/* 收起详情按钮（REA 88×28，图标 24×24 text-N-800） */
+.r360-tools__btn--collapse { height: 28px; gap: 2px; }
+.r360-tools__btn--collapse svg { color: #1f2329; }
 
 /* ---------- 卡片：591.3×66.2 ---------- */
 .r360-card { display: flex; align-items: flex-start; margin-top: 16px; }
