@@ -18,7 +18,7 @@
   --color-action-primary-hover: var(--color-primary-hover);
 
   /* Shared performance content surfaces */
-  --performance-content-width: 792px;
+  --performance-content-width: 800px;
   --performance-content-item-border-width: 2px;
   --performance-content-hover-border: #3370ff;
   --performance-content-hover-outline: 1px dashed var(--performance-content-hover-border);
