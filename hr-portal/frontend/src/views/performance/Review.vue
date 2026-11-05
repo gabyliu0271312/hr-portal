@@ -82,7 +82,7 @@ import PerformanceReviewContent from '@/components/performance/PerformanceReview
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
-import { isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
+import { isReviewer360Node, isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
 import { performanceReviewDisplay } from '@/components/performance/performanceReviewDisplay'
 
 const route = useRoute()
@@ -280,7 +280,10 @@ async function openMember(payload: { node: PerformanceReviewNode; member: Perfor
     return
   }
   drawerMember.value = null
-  const taskRoute = performanceTaskEntryRoute({ ...payload.node, task_id: taskId }, activeProjectId.value)
+  const taskNode = isReviewer360Node(payload.node)
+    ? { ...payload.node, task_id: taskId, task_kind: 'evaluation' as const, entry_mode: 'template_task' as const }
+    : { ...payload.node, task_id: taskId }
+  const taskRoute = performanceTaskEntryRoute(taskNode, activeProjectId.value)
   if (!taskRoute) return
   await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: payload.node.node_id, task_id: String(taskId), employee_no: payload.member.employee_no } })
   await router.push(taskRoute)

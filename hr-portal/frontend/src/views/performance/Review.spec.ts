@@ -624,6 +624,35 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('opens a newly created voluntary 360 task even when the overview node has no existing task metadata', async () => {
+    const node = {
+      node_id: 'evaluation-1',
+      node_name: '360°反馈（自愿评估）',
+      node_type: 'evaluation',
+      executor_label: '360°评估人',
+      executor_role_code: 'assessment.reviewer_360',
+      status: 'pending' as const,
+      start_at: null,
+      end_at: null,
+      action_url: '/performance/review?node=evaluation-1',
+    }
+    Object.assign(routeQuery, { project_id: '1', node: 'evaluation-1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'others', label: '给他人的评估', nodes: [node] }] })
+    const wrapper = mountView()
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'PerformanceReview360FeedbackPanel' }).vm.$emit('open-task', {
+      task_id: 12975,
+      employee_no: '107187',
+      display_name: '被评估人',
+      status: 'pending',
+    })
+    await flushPromises()
+
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=12975&project_id=1&node=evaluation-1')
+    wrapper.unmount()
+  })
+
   it('opens a pending communication task through the shared template route', async () => {
     const node = { ...overview.categories[0].nodes[0], node_id: 'communicate', node_name: '绩效结果沟通', node_type: 'result_communication', task_kind: 'result_communication', status: 'pending' as const }
     Object.assign(routeQuery, { project_id: '1', node: 'communicate' })
