@@ -5,7 +5,9 @@
       <div class="content-tabs__divider" aria-hidden="true"></div>
     </div>
     <div ref="scrollBodyRef" class="content-canvas__body">
-      <slot />
+      <div class="content-canvas__scroll">
+        <slot />
+      </div>
     </div>
   </section>
 </template>
@@ -31,7 +33,9 @@ watch(() => props.activeTab, () => { if (scrollBodyRef.value) scrollBodyRef.valu
 .content-canvas { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; overflow: hidden; padding: 0 20px; box-sizing: border-box; background: #f5f6f7; }
 .content-tabs { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; width: var(--performance-content-width); max-width: 100%; height: 46px; margin: 8px auto 0; }
 .content-tabs__divider { position: absolute; right: 0; top: 46px; left: 0; z-index: 0; height: .666667px; background: rgba(31, 35, 41, .15); }
-.content-canvas__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-bottom: 20px; box-sizing: border-box; }
+.content-canvas__body { flex: 1 1 auto; min-height: 0; overflow: hidden; padding-bottom: 20px; box-sizing: border-box; }
+/* REA 对齐：滚动容器 = 内容区宽度（800，贴内容卡片右缘），居中于外层灰底 */
+.content-canvas__scroll { width: var(--performance-content-width); max-width: 100%; height: 100%; margin: 0 auto; overflow-y: auto; scrollbar-gutter: stable; box-sizing: border-box; }
 .content-tab { position: relative; z-index: 1; display: inline-flex; align-items: center; max-width: 240px; height: 46px; margin-right: 28px; padding: 12px 0; box-sizing: border-box; border: 0; background: transparent; color: #1f2329; font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; cursor: pointer; }
 .content-tab:last-of-type { margin-right: 0; }
 .content-tab--active { color: var(--color-primary); font-weight: 500; }

@@ -1587,6 +1587,9 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(okrPanel.exists()).toBe(true)
     expect(okrPanel.text()).toContain('OKR 内容')
     expect(okrPanel.text()).toContain('OKR 详情')
+    // OKR 内置引用不产生内容条目（无下方重复段落/卡片）
+    expect(wrapper.findAll('.configured-content-panel').filter(w => w.text().includes('OKR')).length).toBe(0)
+    expect(wrapper.findAll('.reference-content-group .configured-content-card').length).toBe(0)
   })
 
   it('loads live reference content and persists isolated display overrides without source copies', async () => {

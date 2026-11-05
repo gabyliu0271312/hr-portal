@@ -88,6 +88,13 @@
               v-if="referenceGroupById(group.id)?.relation?.reference_kind === 'more' && referenceGroupById(group.id)?.relation?.reference_value === 'okr'"
               placeholder
             />
+            <!-- 更多参考 / 团队统计：内置骨架（与模板预览一致），不产生内容条目 -->
+            <PerformanceReferenceSkeleton
+              v-else-if="referenceGroupById(group.id)?.relation?.reference_kind === 'more'"
+              :kind="referenceGroupById(group.id)?.relation?.reference_value || 'more_reference'"
+              :label="group.name"
+              :description="referenceGroupById(group.id)?.relation?.description"
+            />
             <div v-else-if="!referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents.length" class="result-view-section__empty">该环节尚未配置内容</div>
             <div v-for="content in referenceGroups.find(item => `reference:${item.id}` === group.id)!.contents" :key="content.id" class="configured-content-panel result-view-section__configured-content">
               <PerformanceConfiguredContentBlock
@@ -212,6 +219,7 @@ import PerformanceReviewer360Content from '@/components/performance/PerformanceR
 import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import PerformanceConfiguredContentBlock from '@/components/performance/PerformanceConfiguredContentBlock.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
+import PerformanceReferenceSkeleton from '@/components/performance/PerformanceReferenceSkeleton.vue'
 import type { WorkSummaryRootSettings } from '@/components/performance/PerformanceWorkSummaryRootSettings.vue'
 import type { WorkSummaryItemSettings } from '@/components/performance/PerformanceWorkSummaryItemSettings.vue'
 import ContentSettingsStageRenderer from '@/components/performance/ContentSettingsStageRenderer.vue'
@@ -532,7 +540,11 @@ function serializeReferenceRelations(): PerformanceTemplateContent[] {
 const referencePreviewContents = computed(() => isResultView.value ? resultReferenceContents.value : configuredContents.value)
 const referenceGroups = computed(() => referenceRelations.value.map(relation => {
   const source = workflowNodes.value.find(node => node.node_id === relation.reference_value)
-  const contents = referencePreviewContents.value.filter(content => relation.reference_kind === 'node' ? referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation) : contentIdentity(content) === contentIdentity(relation))
+  const contents = relation.reference_kind === 'node'
+    ? referencePreviewContents.value.filter(content => referenceContentMeta.value[content.id]?.relationId === referenceRelationId(relation))
+    : relation.reference_kind === 'more'
+      ? []
+      : referencePreviewContents.value.filter(content => contentIdentity(content) === contentIdentity(relation))
   const name = source?.name || relation.name
   const configuredPageName = relation.reference_settings?.page_name
   return { id: referenceRelationId(relation), name, pageName: typeof configuredPageName === 'string' ? configuredPageName : name, contents, relation }
