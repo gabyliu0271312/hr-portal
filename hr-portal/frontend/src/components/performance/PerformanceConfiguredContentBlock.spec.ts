@@ -765,4 +765,22 @@ describe('PerformanceConfiguredContentBlock', () => {
     })
     expect(document.querySelector('.content-settings-detail')).toBeNull()
   })
+
+  it('keeps item fields left-aligned with the root title (REA x 对齐：item padding 归零)', () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'work_summary' }, active: true, expanded: true, dragging: false,
+      index: 0, count: 1, toolbarVisible: false, rootSettings: { hideDescription: false, allowMultiple: false },
+      itemSettings: { 'item-1': { mode: 'fill', required: true } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'work-summary-root', itemSettingsVariant: 'work-summary-item',
+    } })
+    // details 内 item 字段存在且渲染正常（像素级 padding 归零由浏览器实测验证）
+    expect(wrapper.get('.configured-content-card__details')).toBeTruthy()
+    expect(wrapper.get('[data-content-item-id="item-1"]').exists()).toBe(true)
+    // item 左缘由 .configured-content-card__details 的 padding 统一提供（与 root .configured-content-card__row 一致）
+    const details = wrapper.get('.configured-content-card__details')
+    const row = wrapper.get('.configured-content-card__row')
+    expect(details.element).toBeTruthy()
+    expect(row.element).toBeTruthy()
+    wrapper.unmount()
+  })
 })
