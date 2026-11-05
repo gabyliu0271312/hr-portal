@@ -311,7 +311,7 @@ describe('PerformanceAudienceRuleEditor', () => {
     await wrapper.setProps({ modelValue: twoGroups })
     expect(wrapper.findAll('.performance-condition-logic-group__rail').map(rail => rail.text())).toEqual(['且'])
     expect(wrapper.get('.performance-audience-rule-editor__or').text()).toBe('或')
-    expect(wrapper.get('.performance-audience-rule-editor__or').element.parentElement?.className).toBe('performance-audience-rule-editor__group')
+    expect(wrapper.get('.performance-audience-rule-editor__or').element.parentElement?.className).toBe('performance-audience-rule-editor__rows')
     await wrapper.get('[aria-label="删除范围 2"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(twoConditions)
   })
