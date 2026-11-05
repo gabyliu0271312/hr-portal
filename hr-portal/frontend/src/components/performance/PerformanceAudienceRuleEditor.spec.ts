@@ -376,5 +376,10 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.find('.performance-audience-rule-editor__scope-conditions .performance-audience-rule-editor__condition-add').exists()).toBe(true)
     // 删除条件（组内多条时）
     expect(wrapper.findAll('[aria-label^="删除范围 1 条件"]')).toHaveLength(2)
+    // 组级删除按钮：每组一个、在灰底外（scope-group 直接子级，非 scope-conditions 内）
+    expect(wrapper.findAll('.performance-audience-rule-editor__scope-group-delete')).toHaveLength(2)
+    const groupDelete = wrapper.get('.performance-audience-rule-editor__scope-group-delete')
+    expect(groupDelete.element.parentElement?.classList.contains('performance-audience-rule-editor__scope-group')).toBe(true)
+    expect(wrapper.findAll('[aria-label^="删除范围 1"]').filter(el => !el.attributes('aria-label')?.includes('条件'))).toHaveLength(1)
   })
 })

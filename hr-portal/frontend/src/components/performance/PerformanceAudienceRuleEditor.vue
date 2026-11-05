@@ -15,9 +15,6 @@
             <div class="performance-audience-rule-editor__scope-conditions">
               <div v-if="showGroupTitle" class="performance-audience-rule-editor__group-heading performance-audience-rule-editor__group-heading--scope">
                 <span>{{ groupTitleText(groupIndex) }}</span>
-                <div v-if="modelValue.length > 1" class="performance-audience-rule-editor__group-heading-actions">
-                  <PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1}`" :disabled="disabled" @click="removeGroup(groupIndex)" />
-                </div>
               </div>
               <PerformanceConditionLogicGroup :count="group.conditions.length" operator="且">
                 <template #default="{ index: conditionIndex }">
@@ -36,6 +33,14 @@
               </PerformanceConditionLogicGroup>
               <PerformanceTextButton class="performance-audience-rule-editor__condition-add" label="＋ 添加条件" :disabled="disabled" @click="addCondition(groupIndex)" />
             </div>
+            <PerformanceIconButton
+              v-if="modelValue.length > 1"
+              class="performance-audience-rule-editor__scope-group-delete"
+              icon="DeleteTrashOutlined"
+              :label="`删除范围 ${groupIndex + 1}`"
+              :disabled="disabled"
+              @click="removeGroup(groupIndex)"
+            />
             <div v-if="groupIndex < modelValue.length - 1" class="performance-audience-rule-editor__or performance-audience-rule-editor__or--scope">或</div>
           </div>
           </template>
@@ -282,9 +287,13 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor__main { min-width: 0; flex: 1; }
 .performance-audience-rule-editor__rows { min-width: 0; }
 .performance-audience-rule-editor__scope-tools { min-width: 0; }
-/* scope 模式：add-condition 用 __scope-conditions 灰底（REA 结构，按钮在灰底外） */
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-group { margin: 0 0 var(--spacing-2); padding: 0; border-radius: 0; background: transparent; }
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-conditions { padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-review-readonly-surface); }
+/* scope 模式：add-condition 用 __scope-conditions 灰底（REA 结构，按钮在灰底外）
+   灰底右侧留 32px 给组级删除按钮（REA condition-wrap 766 vs 组容器 792） */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-group { position: relative; margin: 0 0 var(--spacing-2); padding: 0; border-radius: 0; background: transparent; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-conditions { padding: var(--spacing-4); padding-right: calc(var(--spacing-4) + var(--spacing-3) + 2px); border-radius: var(--radius-lg); background: var(--performance-review-readonly-surface); }
+/* 组级删除按钮：REA 在灰底外、组容器右上角（condition-group__delete-btn 24×24） */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-group-delete { position: absolute; top: 0; right: 0; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-group-delete :deep(.performance-icon-button) { --performance-icon-button-size: 24px; }
 /* scope 模式：add-group 保持整块灰底（既有分配规则行为） */
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { margin: 0 0 var(--spacing-2); padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-review-readonly-surface); }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition { grid-template-columns: 128px 88px minmax(0, 1fr); margin: 0; }
