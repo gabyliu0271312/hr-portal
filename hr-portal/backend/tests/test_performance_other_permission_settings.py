@@ -49,8 +49,8 @@ def test_selected_people_uses_roster_names_and_keeps_missing_refs():
     )
 
     assert [person.model_dump() for person in selected] == [
-        {"employee_no": "E001", "display_name": "张娜"},
-        {"employee_no": "E999", "display_name": "E999"},
+        {"employee_no": "E001", "display_name": "张娜", "department": None},
+        {"employee_no": "E999", "display_name": "E999", "department": None},
     ]
 
 

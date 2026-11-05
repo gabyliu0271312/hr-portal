@@ -32,7 +32,7 @@
                       <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].operator" :options="isDateConditionField(group.conditions[conditionIndex].field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || operatorDisabled || !group.conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
                       <PerformanceOrganizationSelect v-if="group.conditions[conditionIndex].field === 'department'" :model-value="group.conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
                       <component :is="customField(group.conditions[conditionIndex].field)?.component" v-else-if="customField(group.conditions[conditionIndex].field)" :model-value="group.conditions[conditionIndex].values" :options="customField(group.conditions[conditionIndex].field)?.options" :multiple="true" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                      <PerformancePersonSelect v-else-if="group.conditions[conditionIndex].field === 'employee'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                      <PerformancePersonSelect v-else-if="group.conditions[conditionIndex].field === 'employee'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" :remote-search="scopeMode" option-style="checkmark" @open="emit('open-options')" @search="emit('search-people', $event)" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field === 'employee_type'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceDepartureDateSelect v-else-if="group.conditions[conditionIndex].field === 'departure_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" :date-range="snapshotOptions?.departure_date_range ?? { min: null, max: null }" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
                       <PerformanceDateTimeField v-else-if="group.conditions[conditionIndex].field === 'hire_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(group.conditions[conditionIndex].field)" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
@@ -133,7 +133,7 @@ const props = withDefaults(defineProps<{
   loading: false,
   error: '',
 })
-const emit = defineEmits<{ 'update:modelValue': [value: PerformanceAudienceGroup[]]; 'open-options': [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: PerformanceAudienceGroup[]]; 'open-options': []; 'search-people': [value: string] }>()
 const operatorOptions: PerformanceSearchSelectOption[] = [
   { value: 'include', label: '包含' },
   { value: 'exclude', label: '不包含' },
@@ -230,8 +230,14 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition.has-delete { grid-template-columns: 128px 88px minmax(0, 1fr) 24px; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { --performance-icon-button-size: 24px; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-add { margin-top: var(--spacing-2); }
-.performance-audience-rule-editor.is-scope :deep(.performance-select-shell__tag) { background: #f0f4ff; color: #3370ff; }
-.performance-audience-rule-editor.is-scope :deep(.performance-select-shell__tag-close) { color: #3370ff; }
+/* REA 弹窗选择器 tag：灰底 rgba(31,35,41,.1) + 深字（与页面预览区蓝底区分） */
+.performance-audience-rule-editor.is-scope :deep(.performance-select-shell__tag) { background: var(--performance-select-tag-background); color: var(--performance-select-tag-text); }
+.performance-audience-rule-editor.is-scope :deep(.performance-select-shell__tag-close) { color: var(--performance-select-icon-color); }
+/* REA 删除按钮 hover 才显示（条件组/条件行） */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete,
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { opacity: 0; transition: opacity var(--duration-base) var(--ease-standard); }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group:hover .performance-audience-rule-editor__group-delete,
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition:hover > :deep(.performance-icon-button) { opacity: 1; }
 .performance-audience-rule-editor.is-scope.is-embedded .performance-audience-rule-editor__scope-add { margin-top: 0; }
 
 /* ===== 默认形态（被评估人）：白卡、计数由外部 slot 注入 ===== */

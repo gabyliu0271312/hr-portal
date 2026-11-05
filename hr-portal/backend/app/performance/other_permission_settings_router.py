@@ -31,6 +31,7 @@ DEFAULT_MANAGER_REMINDER_NODE_TYPES = list(MANAGER_REMINDER_NODE_TYPES)
 class OtherPermissionPersonOut(BaseModel):
     employee_no: str
     display_name: str
+    department: str | None = None
 
 
 class OtherPermissionHrbpPermissionOut(BaseModel):
@@ -115,7 +116,14 @@ async def _load_options(db: AsyncSession) -> tuple[list[OtherPermissionPersonOut
         options = await _load_hrbp_options(db)
     except Exception:
         return [], []
-    people = [OtherPermissionPersonOut(employee_no=item.value, display_name=item.label) for item in options.people]
+    people = [
+        OtherPermissionPersonOut(
+            employee_no=item.value,
+            display_name=item.label,
+            department=item.department,
+        )
+        for item in options.people
+    ]
     return people, options.organization_tree
 
 

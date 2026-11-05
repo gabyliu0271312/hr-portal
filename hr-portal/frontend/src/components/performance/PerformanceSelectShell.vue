@@ -3,11 +3,11 @@
     <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
       <div ref="content" class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
-        <PerformanceSelectTag v-for="item in visibleItems" :key="item.value" :label="item.label" :closable="selectionStyle !== 'plain'" :disabled="disabled" @remove="removeValue(item.value)" />
+        <PerformanceSelectTag v-for="item in visibleItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :closable="selectionStyle !== 'plain'" :disabled="disabled" @remove="removeValue(item.value)" />
         <ElPopover v-if="overflowItems.length" placement="top" trigger="hover" :width="'auto'" :show-after="0" :hide-after="100" :teleported="true" :popper-style="{ zIndex: 'calc(var(--performance-popover-z-index) + 1)' }" popper-class="performance-select-overflow-popper">
           <template #reference><button class="performance-select-shell__overflow-count" type="button" :aria-label="`${ariaLabel}还有${overflowItems.length}项`" @click.stop>+{{ overflowItems.length }}</button></template>
           <div class="performance-select-shell__overflow-items" :aria-label="`${ariaLabel}已选隐藏项`" @pointerdown.stop>
-            <PerformanceSelectTag v-for="item in overflowItems" :key="item.value" :label="item.label" :disabled="disabled" @remove="removeValue(item.value, false)" />
+            <PerformanceSelectTag v-for="item in overflowItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :disabled="disabled" @remove="removeValue(item.value, false)" />
           </div>
         </ElPopover>
         <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openOnFocus && openMenu()" @keydown.esc.stop="close" />
@@ -18,7 +18,7 @@
       <DownBoldOutlinedIcon v-if="!hideArrow" :size="12" class="performance-select-shell__arrow" />
     </div>
     <div ref="measureRoot" class="performance-select-shell__measure" aria-hidden="true" inert>
-      <span v-for="item in selectedItems" :key="item.value" class="performance-select-shell__measure-tag"><PerformanceSelectTag :label="item.label" :closable="selectionStyle !== 'plain'" measuring /></span>
+      <span v-for="item in selectedItems" :key="item.value" class="performance-select-shell__measure-tag"><PerformanceSelectTag :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :closable="selectionStyle !== 'plain'" measuring /></span>
       <span v-for="count in selectedItems.length" :key="`count-${count}`" class="performance-select-shell__overflow-count">+{{ count }}</span>
     </div>
     <Teleport to="body">
@@ -36,7 +36,7 @@ import DownBoldOutlinedIcon from './DownBoldOutlinedIcon.vue'
 import PerformanceSelectTag from './PerformanceSelectTag.vue'
 
 defineOptions({ inheritAttrs: false })
-export type PerformanceSelectItem = { value: string; label: string }
+export type PerformanceSelectItem = { value: string; label: string; avatarUrl?: string; avatarFallback?: string }
 const props = withDefaults(defineProps<{
   modelValue: string[]
   selectedItems?: PerformanceSelectItem[]

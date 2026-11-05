@@ -128,6 +128,7 @@
       :person-options="invisiblePeopleOptions"
       :initial-value="scopeEditorInitialValue"
       @open-options="loadSettings"
+      @search-people="searchScopePeople"
       @submit="saveHrbpScope"
     />
   </div>
@@ -144,6 +145,7 @@ import {
   type PerformanceOtherPermissionPerson,
   type PerformanceOtherPermissionSettings,
 } from '@/api/performance'
+import { identitySwitchApi } from '@/api/identitySwitch'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
 import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
@@ -182,6 +184,8 @@ const loading = ref(false)
 type SavingTarget = 'hrbp-switch' | 'manager-switch' | 'people-editor' | 'scope-editor' | 'reminder-editor'
 const savingTarget = ref<SavingTarget | null>(null)
 const loadError = ref('')
+let peopleSearchTimer: ReturnType<typeof setTimeout> | undefined
+let lastPeopleKeyword = ''
 
 function applySettings(settings: PerformanceOtherPermissionSettings) {
   enabled.value = settings.hrbp_invisible_scope_enabled ?? false
@@ -195,6 +199,8 @@ function applySettings(settings: PerformanceOtherPermissionSettings) {
   const options = (Array.isArray(settings.people_options) ? settings.people_options : []).map(person => ({
     value: person.employee_no,
     label: person.display_name,
+    avatarFallback: person.display_name.slice(-1),
+    subLabel: person.department ?? '',
   }))
   hrbpOptions.value = options
   invisiblePeopleOptions.value = options
@@ -211,6 +217,27 @@ async function loadSettings() {
   } finally {
     loading.value = false
   }
+}
+
+/** REA 员工选择器：输入关键词 → 远程搜索 → 更新选项（搜索后才显示结果） */
+function searchScopePeople(keyword: string) {
+  const trimmed = keyword.trim()
+  if (trimmed === lastPeopleKeyword) return
+  lastPeopleKeyword = trimmed
+  clearTimeout(peopleSearchTimer)
+  peopleSearchTimer = setTimeout(() => {
+    void identitySwitchApi
+      .people(trimmed, 1)
+      .then(result => {
+        invisiblePeopleOptions.value = result.items.map(person => ({
+          value: person.employee_no,
+          label: person.display_name,
+          avatarFallback: person.display_name.slice(-1),
+          subLabel: person.organization_label ?? '',
+        }))
+      })
+      .catch(() => { invisiblePeopleOptions.value = [] })
+  }, 300)
 }
 
 async function updateSettings(

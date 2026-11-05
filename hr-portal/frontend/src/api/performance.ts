@@ -403,6 +403,7 @@ export const performanceReviewApi = {
 export interface PerformanceOtherPermissionPerson {
   employee_no: string
   display_name: string
+  department?: string | null
 }
 
 export interface PerformanceOtherPermissionHrbpPermission {
@@ -1786,7 +1787,7 @@ export interface PerformanceProjectFlowSettings {
       manual_enabled: boolean
       automatic_rule: 'PREVIOUS_AND_START' | 'PREVIOUS_IMMEDIATE'
     }
-    result_reconsideration?: { handler: string | null }
+    result_reconsideration?: { handler_employee_nos: string[] }
   }>
   node_times: Record<string, PerformanceProjectNodeTime>
 }

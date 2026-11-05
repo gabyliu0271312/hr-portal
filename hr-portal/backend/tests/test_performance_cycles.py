@@ -664,7 +664,7 @@ async def test_load_hrbp_options_filters_active_people_and_builds_tree():
         else:
             DATA_TABLES["emp_realtime_roster"] = previous
 
-    assert result.people[0].model_dump() == {"value": "E001", "label": "张三"}
+    assert result.people[0].model_dump() == {"value": "E001", "label": "张三", "department": "研发中心"}
     assert result.organization_tree[0].children[0].children[0].label == "平台部"
     assert "在职" in db.statement.compile().params.values()
 

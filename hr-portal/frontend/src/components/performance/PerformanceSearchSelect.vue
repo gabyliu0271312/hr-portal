@@ -15,10 +15,28 @@
     @update:model-value="updateValues"
   >
     <template #default="{ query, close, focus }">
-      <div class="performance-flat-option-list performance-flat-option-list--checkmark">
-        <button v-for="option in filteredOptions(query)" :key="option.value" class="performance-flat-option-list__option" :class="{ 'is-selected': selectedValues.includes(option.value), 'is-disabled': option.disabled }" type="button" role="option" :aria-selected="selectedValues.includes(option.value)" :disabled="option.disabled" @click="select(option.value, close, focus)">
-          <span>{{ option.label }}</span>
-          <svg v-if="selectedValues.includes(option.value)" class="performance-flat-option-list__checkmark" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <div class="performance-flat-option-list" :class="{ 'performance-flat-option-list--checkmark': optionStyle === 'checkmark' }">
+        <button
+          v-for="option in filteredOptions(query)"
+          :key="option.value"
+          class="performance-flat-option-list__option"
+          :class="[
+            { 'is-selected': selectedValues.includes(option.value), 'is-disabled': option.disabled, 'has-avatar': Boolean(option.avatarUrl), 'has-sublabel': Boolean(option.subLabel) },
+            option.optionClass,
+          ]"
+          type="button"
+          role="option"
+          :aria-selected="selectedValues.includes(option.value)"
+          :disabled="option.disabled"
+          @click="select(option.value, close, focus)"
+        >
+          <img v-if="option.avatarUrl" class="performance-flat-option-list__avatar" :src="option.avatarUrl" alt="" aria-hidden="true" />
+          <span v-else-if="option.avatarFallback" class="performance-flat-option-list__avatar performance-flat-option-list__avatar--fallback" aria-hidden="true">{{ option.avatarFallback }}</span>
+          <span class="performance-flat-option-list__body">
+            <span class="performance-flat-option-list__name" :class="{ 'has-sub': Boolean(option.subLabel) }">{{ option.label }}</span>
+            <span v-if="option.subLabel" class="performance-flat-option-list__sub">{{ option.subLabel }}</span>
+          </span>
+          <svg v-if="optionStyle === 'checkmark' && selectedValues.includes(option.value)" class="performance-flat-option-list__checkmark" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
         </button>
         <div v-if="!filteredOptions(query).length" class="performance-flat-option-list__empty">{{ emptyText }}</div>
       </div>
@@ -30,7 +48,17 @@
 import { computed } from 'vue'
 import PerformanceSelectShell, { type PerformanceSelectItem } from './PerformanceSelectShell.vue'
 
-export type PerformanceSearchSelectOption = PerformanceSelectItem & { disabled?: boolean }
+export type PerformanceSearchSelectOption = PerformanceSelectItem & {
+  disabled?: boolean
+  /** 选项头像 URL（REA 员工搜索项 32 圆头像） */
+  avatarUrl?: string
+  /** 无头像时的文字兜底（成员列表约定：取名字末字） */
+  avatarFallback?: string
+  /** 副标签（REA 员工搜索项部门行 12px #8F959E） */
+  subLabel?: string
+  /** 附加选项 class（如高亮关键词） */
+  optionClass?: string
+}
 type SelectValue = string | string[] | null
 
 const props = withDefaults(defineProps<{
@@ -39,7 +67,9 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   emptyText?: string
   multiple?: boolean
-  optionStyle?: 'checkmark'
+  optionStyle?: 'checkmark' | 'none'
+  /** 有搜索关键词后才显示结果（REA 员工选择器机制：输入→请求→列表） */
+  remoteSearch?: boolean
   disabled?: boolean
   selectionStyle?: 'tags' | 'plain'
   disabledSurface?: 'muted' | 'white'
@@ -51,6 +81,7 @@ const props = withDefaults(defineProps<{
   emptyText: '暂无可选项',
   multiple: false,
   optionStyle: 'checkmark',
+  remoteSearch: false,
   disabled: false,
   selectionStyle: 'tags',
   disabledSurface: 'muted',
@@ -63,7 +94,13 @@ const selectedItems = computed(() => selectedValues.value.map(value => props.opt
 
 function filteredOptions(query: string) {
   const keyword = query.trim().toLowerCase()
-  const result = !keyword ? props.options : props.options.filter(option => option.label.toLowerCase().includes(keyword))
+  let result: PerformanceSearchSelectOption[]
+  if (props.remoteSearch) {
+    // 远程搜索：未输入关键词不显示结果（REA 实测行为）
+    result = !keyword ? [] : props.options
+  } else {
+    result = !keyword ? props.options : props.options.filter(option => option.label.toLowerCase().includes(keyword))
+  }
   if (keyword) emit('search', query)
   return result
 }
@@ -90,6 +127,14 @@ function select(value: string, close: () => void, focus: () => void) {
 .performance-flat-option-list__option.is-selected { background: var(--performance-select-option-selected); color: var(--performance-select-check-color); }
 .performance-flat-option-list__option:hover { background: var(--performance-select-option-hover); }
 .performance-flat-option-list__option.is-disabled { color: var(--performance-field-disabled-text); cursor: not-allowed; }
+/* REA 员工搜索项（ud__select__list__item 441×52）：头像 32 圆 + 姓名 14 + 部门 12 */
+.performance-flat-option-list__option.has-avatar, .performance-flat-option-list__option.has-sublabel { min-height: var(--performance-scope-search-item-height, 52px); }
+.performance-flat-option-list__avatar { display: inline-flex; width: var(--performance-scope-search-avatar-size, 32px); height: var(--performance-scope-search-avatar-size, 32px); flex: 0 0 var(--performance-scope-search-avatar-size, 32px); align-items: center; justify-content: center; border-radius: 50%; background: var(--performance-member-avatar-background, #e5eaf5); color: var(--performance-member-avatar-color, #3b5b92); font-size: var(--performance-member-avatar-font-size, 13px); }
+.performance-flat-option-list__avatar--fallback { background: var(--performance-member-avatar-background, #e5eaf5); }
+.performance-flat-option-list__body { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.performance-flat-option-list__name { overflow: hidden; color: var(--color-text-primary); font-size: var(--font-size-md); line-height: var(--performance-scope-search-name-line-height, 22px); text-overflow: ellipsis; white-space: nowrap; }
+.performance-flat-option-list__name.has-sub { line-height: var(--performance-scope-search-name-line-height, 22px); }
+.performance-flat-option-list__sub { overflow: hidden; color: var(--performance-scope-search-dept-color, #8f959e); font-size: var(--font-size-xs); line-height: var(--performance-scope-search-dept-line-height, 22px); text-overflow: ellipsis; white-space: nowrap; }
 .performance-flat-option-list__checkmark { flex: 0 0 var(--performance-select-check-size); width: var(--performance-select-check-size); height: var(--performance-select-check-size); margin-left: auto; color: var(--performance-select-check-color); }
 .performance-flat-option-list__empty { padding: var(--spacing-2) var(--performance-select-option-padding-x); color: var(--color-text-placeholder); line-height: 22px; }
 </style>

@@ -18,6 +18,7 @@
       :loading="loadingOptions"
       :disabled="saving"
       @open-options="$emit('open-options')"
+      @search-people="$emit('search-people', $event)"
     />
 
     <template #footer>
@@ -61,6 +62,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   submit: [value: PerformanceHrbpScopeFormValue]
   'open-options': []
+  'search-people': [value: string]
 }>()
 
 const open = computed({

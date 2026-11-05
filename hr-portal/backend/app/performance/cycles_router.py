@@ -179,6 +179,7 @@ class CycleDepartmentPage(BaseModel):
 class HrbpPersonOption(BaseModel):
     value: str
     label: str
+    department: str | None = None
 
 
 class HrbpOrganizationNode(BaseModel):
@@ -277,7 +278,14 @@ async def _load_hrbp_options(db: AsyncSession, cycle: PerformanceCycle | None = 
         employee_no = str(row.get("employee_no") or "").strip()
         full_name = str(row.get("full_name") or "").strip()
         if employee_no and full_name:
-            people_by_no.setdefault(employee_no, HrbpPersonOption(value=employee_no, label=full_name))
+            people_by_no.setdefault(
+                employee_no,
+                HrbpPersonOption(
+                    value=employee_no,
+                    label=full_name,
+                    department=_first_department(row),
+                ),
+            )
         organization_rows.append(dict(row))
     invisible_people = [
         HrbpPersonOption(value=person.employee_no, label=f"{person.display_name}（{person.employee_no}）")
@@ -290,8 +298,16 @@ async def _load_hrbp_options(db: AsyncSession, cycle: PerformanceCycle | None = 
     )
 
 
-def _snapshot_people_by_employee(people: list[PerformanceAuthorizationSnapshotPerson]) -> dict[str, HrbpPermissionPerson]:
-    return {
+def _first_department(row: dict[str, Any]) -> str | None:
+    """从组织字段中取第一个非空部门（一级部门优先）。"""
+    for field in ("department", "company_org", "department_2", "department_3", "department_4", "department_5"):
+        value = str(row.get(field) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _snapshot_people_by_employee(people: list[PerformanceAuthorizationSnapshotPerson]) -> dict[str, HrbpPermissionPerson]:    return {
         person.employee_no: HrbpPermissionPerson(employee_no=person.employee_no, display_name=person.display_name)
         for person in people
         if person.employee_no and person.display_name
