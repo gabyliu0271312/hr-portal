@@ -20,7 +20,7 @@
             </div>
           </fieldset>
           <label class="form-item" :class="{ invalid: nameError }"><span class="field-label">名称<span class="required-mark">*</span></span><input v-model="templateName" class="native-input" maxlength="100" placeholder="请输入模板名称" aria-label="模板名称" /><span v-if="nameError" class="field-error">{{ nameError }}</span></label>
-          <label class="form-item"><span class="field-label">描述</span><PerformanceTextField v-model="description" type="textarea" aria-label="模板描述" :maxlength="2000" show-count placeholder="请输入模板描述" input-id="template-description" /></label>
+          <label class="form-item"><span class="field-label">描述</span><PerformanceTextField v-model="description" type="textarea" aria-label="模板描述" :maxlength="2000" show-count placeholder="请输入模板描述" input-id="template-description" :auto-resize="false" /></label>
           <fieldset class="form-item calculation-field" :class="{ invalid: calculationError }">
             <div class="calculation-heading"><span>配置「计算规则」</span><UiSwitch :model-value="calculationEnabled" aria-label="配置计算规则" @update:model-value="toggleCalculation" /></div>
             <div class="calculation-hint">开启后，可为评估项配置计算规则</div>
@@ -254,9 +254,9 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .full-screen-modal-header .step-separator::before { width: 8px; height: 8px; border-top: 2px solid currentColor; border-right: 2px solid currentColor; content: ''; transform: rotate(45deg); }
 .full-screen-modal-header .previous-button, .full-screen-modal-header .next-button { position: relative; z-index: 1; display: inline-flex; flex: 0 0 80px; align-items: center; justify-content: center; width: 80px; min-width: 80px; height: 32px; padding: 4px 11px; box-sizing: border-box; border-radius: 6px; font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; white-space: nowrap; cursor: pointer; }
 .full-screen-modal-header .previous-button { border: .666667px solid #d0d3d6; background: #fff; color: #1f2329; }
-.full-screen-modal-header .next-button { margin-left: 0; border: .666667px solid #3370ff; background: #3370ff; color: #fff; }
+.full-screen-modal-header .next-button { margin-left: 0; border: .666667px solid var(--performance-button-primary, #1456f0); background: var(--performance-button-primary, #1456f0); color: #fff; }
 .full-screen-modal-content { display: flex; flex: 1 1 auto; min-height: 0; min-width: 1200px; overflow: auto; background: #fff; }
-.full-screen-modal-content .basic-info-panel, .full-screen-modal-content .placeholder-panel { width: auto; min-width: 640px; margin: 20px 280px 0; padding: 0; border-radius: 0; background: transparent; }
+.full-screen-modal-content .basic-info-panel, .full-screen-modal-content .placeholder-panel { width: auto; min-width: 640px; margin: 20px auto 0; padding: 0; border-radius: 0; background: transparent; }
 .full-screen-modal-content .basic-info-panel h1, .full-screen-modal-content .panel-description { display: none; }
 .full-screen-modal-content .basic-info-form { width: 640px; }
 .language-options { display: inline-flex; flex-wrap: wrap; column-gap: 24px; }
@@ -265,9 +265,12 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .language-field .fixed-checkbox .checkbox-box.checked { border-color: #bbbfc4; background: #bbbfc4; color: #eff0f1; }
 .language-field .fixed-checkbox .checkbox-label { color: #bbbfc4; }
 .full-screen-modal-content .form-item { margin-bottom: 20px; }
-.full-screen-modal-content .field-label { margin-bottom: 8px; line-height: 22px; }
+.full-screen-modal-content .form-item.language-field, .full-screen-modal-content .form-item.calculation-field { padding: 0; margin-inline: 0; }
+.full-screen-modal-content .field-label { display: flex; align-items: center; min-height: 32px; margin-bottom: 0; padding: 5px 0; box-sizing: border-box; line-height: 22px; }
 .full-screen-modal-content .native-input { height: 32px; }
-.full-screen-modal-content .native-textarea { min-height: 49px; }
+.full-screen-modal-content .form-item .native-input { width: calc(100% - 29px); margin-left: 12px; }
+/* REA 描述框固定 50 高（不随内容 auto-resize），覆盖 token min-height 49.3333 */
+.full-screen-modal-content .performance-text-field.is-textarea .native-textarea { height: 50px; min-height: 50px; resize: none; overflow: hidden; }
 .full-screen-modal-content .switch { width: 28px; height: 16px; padding: 2px; }
 .full-screen-modal-content .switch-thumb { width: 12px; height: 12px; }
 .full-screen-modal-content .switch.on .switch-thumb { transform: translateX(12px); }

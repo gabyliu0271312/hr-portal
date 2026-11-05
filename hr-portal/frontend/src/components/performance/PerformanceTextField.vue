@@ -13,6 +13,8 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   invalid?: boolean
   variant?: 'default' | 'feishu-input' | 'fixed-score'
+  /** 关闭后固定高度（REA 描述框 50 高不随内容撑高） */
+  autoResize?: boolean
 }>(), {
   type: 'input',
   width: '100%',
@@ -24,13 +26,14 @@ const props = withDefaults(defineProps<{
   disabled: false,
   invalid: false,
   variant: 'default',
+  autoResize: true,
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 function resizeTextarea(textarea = textareaRef.value) {
-  if (!textarea) return
+  if (!textarea || !props.autoResize) return
   textarea.style.height = 'auto'
   textarea.style.height = `${textarea.scrollHeight}px`
 }
@@ -38,11 +41,11 @@ function resizeTextarea(textarea = textareaRef.value) {
 function updateTextarea(event: Event) {
   const textarea = event.target as HTMLTextAreaElement
   emit('update:modelValue', textarea.value)
-  resizeTextarea(textarea)
+  if (props.autoResize) resizeTextarea(textarea)
 }
 
-onMounted(() => { void nextTick(() => resizeTextarea()) })
-watch(() => props.modelValue, () => { void nextTick(() => resizeTextarea()) })
+onMounted(() => { if (props.autoResize) void nextTick(() => resizeTextarea()) })
+watch(() => props.modelValue, () => { if (props.autoResize) void nextTick(() => resizeTextarea()) })
 </script>
 
 <template>
