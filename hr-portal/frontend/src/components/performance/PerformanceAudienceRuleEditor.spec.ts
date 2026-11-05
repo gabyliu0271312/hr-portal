@@ -342,4 +342,39 @@ describe('PerformanceAudienceRuleEditor', () => {
     await flushPromises()
     expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])?.[0].conditions[0].values).toEqual(['集团/研发'])
   })
+
+  it('renders AND rail inside group and OR separator between groups in add-condition scope mode', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: {
+        modelValue: [
+          { conditions: [{ field: 'employee', operator: 'include', values: ['E001'] }, { field: 'department', operator: 'include', values: ['集团/研发'] }] },
+          { conditions: [{ field: 'department', operator: 'include', values: [] }] },
+        ],
+        allowedFields: ['directLeader', 'employee', 'department'],
+        organizationTree,
+        scopeMode: true,
+        addActionMode: 'add-condition',
+        showGroupTitle: true,
+        groupTitlePattern: '条件组 {index}',
+        groupTitleActions: true,
+      },
+      attachTo: document.body,
+    })
+    // 组标题可配置
+    const titles = wrapper.findAll('.performance-audience-rule-editor__group-heading--scope > span').map(el => el.text())
+    expect(titles).toEqual(['条件组 1', '条件组 2'])
+    // 组内「且」rail（每个条件组一个 wrapper，仅多条件组显示 rail）
+    expect(wrapper.findAll('.performance-condition-logic-group')).toHaveLength(2)
+    expect(wrapper.findAll('.performance-condition-logic-group__rail')).toHaveLength(1)
+    // 组间「或」分隔符（非 rail）
+    expect(wrapper.findAll('.performance-audience-rule-editor__or--scope')).toHaveLength(1)
+    expect(wrapper.get('.performance-audience-rule-editor__or--scope').text()).toBe('或')
+    // 灰底只包条件区，不含按钮
+    expect(wrapper.findAll('.performance-audience-rule-editor__scope-conditions')).toHaveLength(2)
+    expect(wrapper.find('.performance-audience-rule-editor__scope-add').exists()).toBe(true)
+    // 「添加条件」在灰底内、「添加人员范围」在灰底外
+    expect(wrapper.find('.performance-audience-rule-editor__scope-conditions .performance-audience-rule-editor__condition-add').exists()).toBe(true)
+    // 删除条件（组内多条时）
+    expect(wrapper.findAll('[aria-label^="删除范围 1 条件"]')).toHaveLength(2)
+  })
 })
