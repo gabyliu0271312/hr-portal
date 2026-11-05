@@ -65,21 +65,20 @@ void props
 </script>
 
 <style scoped>
-.pr360-block { margin-bottom: 32px; color: #1f2329; }
-.pr360-block:last-child { margin-bottom: 0; }
+.pr360-block { color: #1f2329; }
 
-/* ---------- 标题行：20/30 600，58 高 ---------- */
-.pr360-head { position: relative; display: flex; align-items: flex-start; min-height: 58px; box-sizing: border-box; padding: 16px 0; }
+/* ---------- 标题行：20/30 600，REA pt-8 pb-8（58 高） ---------- */
+.pr360-head { position: relative; display: flex; align-items: flex-start; min-height: 58px; box-sizing: border-box; padding: 14px 0; }
 .pr360-title { margin: 0; font-size: 20px; font-weight: 600; line-height: 30px; color: #1f2329; }
 .pr360-toggle {
   position: absolute; right: 0; top: 15px; display: inline-flex; align-items: center; justify-content: center;
-  height: 28px; padding: 4px 11px; box-sizing: border-box; border: 0; border-radius: 6px;
+  width: 88px; height: 28px; padding: 4px 11px; box-sizing: border-box; border: 0; border-radius: 6px;
   background: transparent; font-family: inherit; font-size: 14px; line-height: 22px; color: #1f2329; cursor: pointer;
 }
 
-/* ---------- 评论容器：760×55.3 bg #fff r8 ---------- */
+/* ---------- 评论容器：REA 760×55.3 bg #fff r8（内容列内缩 20） ---------- */
 .pr360-comment {
-  display: flex; align-items: center; gap: 4px; width: 100%; min-height: 54px; padding: 8px;
+  display: flex; align-items: center; gap: 4px; width: 760px; min-height: 55.3px; padding: 8px;
   box-sizing: border-box; border-radius: 8px; background: #fff; cursor: pointer; user-select: none;
 }
 .pr360-comment__toggle {
@@ -89,14 +88,15 @@ void props
 .pr360-comment__toggle svg { width: 12px; height: 12px; }
 .pr360-comment__time { font-size: 12px; line-height: 21px; color: #646a73; }
 
-/* ---------- 展开态条目 ---------- */
+/* ---------- 展开态条目：REA templateItemContainer 726.7 宽 py-8=16 上下，内 ReviewContent 702.7×92 ≈ 120 高 ---------- */
 .pr360-items { margin-top: 8px; }
 .pr360-item {
-  padding: 8px 0 12px; box-sizing: border-box; border-radius: 4px; background: #f5f6f7;
+  width: 726.7px; padding: 16px 12px; box-sizing: border-box; border-radius: 4px; background: #f5f6f7;
 }
 .pr360-item + .pr360-item { border-top: 1px solid #dee0e3; border-top-left-radius: 0; border-top-right-radius: 0; }
-.pr360-item__title { padding: 0 12px; font-size: 14px; font-weight: 600; line-height: 24px; color: #1f2329; }
-.pr360-field { margin-top: 8px; padding: 8px 12px; box-sizing: border-box; border-radius: 8px; background: #f5f6f7; }
-.pr360-field__name { display: block; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; }
-.pr360-field__value { display: block; margin-top: 4px; padding: 8px 12px; box-sizing: border-box; border-radius: 6px; font-size: 14px; line-height: 22px; color: #1f2329; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pr360-item__title { padding: 0 12px; font-size: 14px; font-weight: 600; line-height: 24px; color: #1f2329; margin-bottom: 8px; }
+/* REA EnhancedReviewField：字段名 22 + mb-4 8 + 值 22 = 52 高，值块无 padding 无 bg */
+.pr360-field { padding: 0 12px; box-sizing: border-box; border-radius: 8px; background: #f5f6f7; }
+.pr360-field__name { display: block; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; margin-bottom: 8px; }
+.pr360-field__value { display: block; font-size: 14px; line-height: 22px; color: #1f2329; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>
