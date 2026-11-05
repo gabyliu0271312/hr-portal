@@ -10,7 +10,7 @@
   --color-surface-page: var(--color-bg-page);
   --color-surface-card: var(--color-bg-card);
   --color-surface-disabled: #eff0f1;
-  --color-line-control: #d0d3d6;
+  --color-line-control: #d0d3d4;
   --color-line-divider: rgba(31, 35, 41, 0.15);
   --color-text-danger-strong: #f54a45;
   --color-text-warning-strong: #ff8800;
@@ -97,7 +97,7 @@
   --performance-content-hidden-background: var(--color-bg-card);
   --performance-readonly-item-padding-block: var(--spacing-4);
   --performance-readonly-item-padding-inline: var(--spacing-6);
-  --performance-readonly-answer-padding: var(--spacing-2);
+  --performance-readonly-answer-padding: var(--spacing-4);
   --performance-readonly-field-gap: var(--spacing-2);
   --performance-readonly-tag-gap: var(--spacing-2);
   --performance-result-view-tag-inset-block: var(--spacing-2);
@@ -368,8 +368,8 @@
   --performance-select-tag-height: 24px;
   --performance-select-tag-padding-x: 6px;
   --performance-select-tag-gap: var(--spacing-1);
-  --performance-select-tag-background: rgba(31, 35, 41, 0.1);
-  --performance-select-tag-text: var(--color-text-primary);
+  --performance-select-tag-background: #f0f4ff;
+  --performance-select-tag-text: #3370ff;
   --performance-select-tag-radius: var(--radius-sm);
   --performance-select-tag-content-max-width: 144px;
   --performance-select-tag-close-size: 12px;
@@ -403,8 +403,58 @@
   --performance-dialog-content-gap: var(--spacing-6);
   --performance-dialog-content-bottom-space: var(--performance-dialog-footer-height);
   --performance-dialog-close-size: 28px;
-  --performance-dialog-header-height: 72px;
+  --performance-dialog-header-height: 96px;
   --performance-dialog-footer-gap: var(--performance-button-gap);
+
+  /* ===== 弹窗容器三段式（REA ud__dialog 实测基线）=====
+     上段 header / 中段 body / 下段 footer 的构成 token，
+     弹窗壳与业务弹窗一律引用本层，禁止魔法值。 */
+  --performance-dialog-header-padding-y: 24px;
+  --performance-dialog-header-padding-x: 24px;
+  --performance-dialog-header-title-size: 16px;
+  --performance-dialog-header-title-weight: 600;
+  --performance-dialog-header-title-line-height: 24px;
+  --performance-dialog-header-desc-size: 14px;
+  --performance-dialog-header-desc-weight: 400;
+  --performance-dialog-header-desc-line-height: 22px;
+  --performance-dialog-header-desc-gap: 4px;
+  --performance-dialog-body-padding-x: 24px;
+  --performance-dialog-body-gap-top: 24px;
+  --performance-dialog-body-gap-bottom: 24px;
+  --performance-dialog-footer-height: 56px;
+  --performance-dialog-footer-padding-x: 24px;
+  --performance-dialog-footer-button-height: 32px;
+  --performance-dialog-footer-button-min-width: 80px;
+  --performance-dialog-footer-button-gap: 12px;
+
+  /* ===== 范围规则编辑器（REA /perf/admin/selection 实测）=====
+     EmployeeScopeEditor：条件行三列 128/88/值、组标题、且/或逻辑、添加按钮 */
+  --performance-scope-field-width: 128px;
+  --performance-scope-operator-width: 88px;
+  --performance-scope-value-width: 476px;
+  --performance-scope-row-gap: 8px;
+  --performance-scope-group-title-height: 22px;
+  --performance-scope-group-title-size: 14px;
+  --performance-scope-group-title-weight: 400;
+  --performance-scope-group-title-color: #1f2329;
+  --performance-scope-group-title-gap: 8px;
+  --performance-scope-logic-rail-width: 27px;
+  --performance-scope-or-height: 22px;
+  --performance-scope-add-btn-size: 14px;
+  --performance-scope-delete-size: 24px;
+  /* 员工搜索（REA 实测） */
+  --performance-scope-search-item-height: 52px;
+  --performance-scope-search-avatar-size: 32px;
+  --performance-scope-search-name-line-height: 22px;
+  --performance-scope-search-dept-line-height: 22px;
+  --performance-scope-search-dept-color: #8f959e;
+  --performance-scope-highlight-color: #1456f0;
+  /* 部门树（REA 实测） */
+  --performance-tree-node-height: 30px;
+  --performance-tree-expand-size: 16px;
+  --performance-tree-expand-icon-size: 10px;
+  --performance-tree-indent: 16px;
+
   --performance-drawer-header-height: 56px;
   --performance-drawer-title-weight: 600;
   --performance-drawer-footer-height: 61px;
