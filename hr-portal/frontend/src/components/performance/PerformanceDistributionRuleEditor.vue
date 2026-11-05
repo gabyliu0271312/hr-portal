@@ -19,6 +19,7 @@
             :show-scope-heading="false"
             operator-disabled
             default-field="department"
+            :allow-multiple-conditions="false"
             :organization-tree="organizationTree"
             :disabled="disabled"
             @open-options="emit('open-options')"
@@ -34,6 +35,7 @@
             :show-scope-heading="false"
             operator-disabled
             default-field="position_level"
+            :allow-multiple-conditions="false"
             :position-level-options="positionLevelOptions"
             :disabled="disabled"
             @open-options="emit('open-options')"

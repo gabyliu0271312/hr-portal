@@ -45,11 +45,13 @@
           :person-options="evaluatorOptions.people"
           :employee-type-options="evaluatorOptions.employee_types"
           :hire-date-range="evaluatorOptions.hire_date_range"
-          :group-counts="previewSummary.group_counts"
           :disabled="saving"
           @open-options="loadEvaluatorOptions"
-          @open-preview="openAudiencePreview('matched', $event)"
-        />
+        >
+          <template #group-heading-extra="{ index }">
+            <span class="performance-audience-rule-editor__group-count">同时满足以下条件：<button class="performance-audience-rule-editor__count-link" type="button" :disabled="saving || previewSummary.group_counts[index] == null" @click="openAudiencePreview('matched', index)">{{ previewSummary.group_counts[index] ?? 0 }}</button></span>
+          </template>
+        </PerformanceAudienceRuleEditor>
       </section>
       <p v-if="currentStep === 0 && validationError" class="error" role="alert">{{ validationError }}</p>
 

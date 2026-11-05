@@ -265,15 +265,17 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.emitted('open-options')).toBeUndefined()
   })
 
-  it('matches the captured scope card and adds removable OR conditions', async () => {
+  it('renders scope card in REA shape with group title, OR separator and add-scope button', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
       props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: [] }] }], allowedFields: ['department', 'employee'], organizationTree, scopeMode: true },
       attachTo: document.body,
     })
     expect(wrapper.get('.performance-audience-rule-editor__scope-heading').text()).toBe('人员范围满足以下任一条件')
-    expect(wrapper.find('.performance-audience-rule-editor__group-heading').exists()).toBe(false)
-    expect(wrapper.find('.performance-audience-rule-editor__scope-or').exists()).toBe(false)
-    expect(wrapper.get('.performance-audience-rule-editor__scope-add').attributes('aria-label')).toBe('添加条件')
+    // 组标题默认「范围 N」（scopeMode 也渲染，REA 形态）
+    expect(wrapper.get('.performance-audience-rule-editor__group-heading > span').text()).toBe('范围 1')
+    // 底部按钮为「添加人员范围」（scopeMode 形态）
+    expect(wrapper.get('.performance-audience-rule-editor__scope-add').attributes('aria-label')).toBe('添加人员范围')
+    // 单组时无组删除按钮
     expect(wrapper.find('[aria-label="删除范围 1"]').exists()).toBe(false)
 
     await wrapper.get('.performance-audience-rule-editor__scope-add').trigger('click')
@@ -281,13 +283,9 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(added).toHaveLength(2)
     await wrapper.setProps({ modelValue: added })
     expect(wrapper.findAll('.performance-audience-rule-editor__condition')).toHaveLength(2)
-    expect(wrapper.get('.performance-audience-rule-editor__scope-or').text()).toBe('或')
-    expect(wrapper.get('.performance-audience-rule-editor__scope-or').findAll('span')).toHaveLength(3)
-    expect(wrapper.get('.performance-audience-rule-editor__scope-or').classes()).toContain('performance-condition-logic-group__rail')
-    expect(wrapper.get('.performance-audience-rule-editor__scope-or').element.parentElement?.className).toBe('performance-audience-rule-editor__groups')
-    expect(wrapper.get('.performance-audience-rule-editor__rows').element.children).toHaveLength(2)
-    expect(wrapper.get('.performance-audience-rule-editor__condition.has-delete').element.parentElement?.className).toBe('performance-audience-rule-editor__group')
-    expect(wrapper.find('.performance-condition-logic-group').exists()).toBe(false)
+    // 组间「或」分隔符（REA 22 高居中）
+    expect(wrapper.get('.performance-audience-rule-editor__or').text()).toBe('或')
+    // 多组时每组有组删除按钮（灰底外）
     expect(wrapper.findAll('[aria-label^="删除范围"]')).toHaveLength(2)
     await wrapper.get('[aria-label="删除范围 2"]').trigger('click')
     expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])).toHaveLength(1)
@@ -319,15 +317,17 @@ describe('PerformanceAudienceRuleEditor', () => {
   })
 
 
-  it('shows each group matched count as a preview link', async () => {
+  it('exposes group-heading-extra slot for external count/preview', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
-      props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }] }], allowedFields: ['department'], organizationTree, groupCounts: [5] },
+      props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }] }], allowedFields: ['department'], organizationTree },
+      slots: {
+        'group-heading-extra': '<span class="external-count">同时满足以下条件：<button class="external-link">5</button></span>',
+      },
     })
     expect(wrapper.get('.performance-audience-rule-editor__group-heading > span').text()).toBe('范围 1')
-    expect(wrapper.get('.performance-audience-rule-editor__group-count').text()).toBe('同时满足以下条件：5')
-    expect(wrapper.get('.performance-audience-rule-editor__count-link').text()).toBe('5')
-    await wrapper.get('.performance-audience-rule-editor__count-link').trigger('click')
-    expect(wrapper.emitted('open-preview')).toEqual([[0]])
+    // 计数由外部 slot 注入（组件不内置计数）
+    expect(wrapper.get('.external-count').text()).toBe('同时满足以下条件：5')
+    expect(wrapper.get('.external-link').text()).toBe('5')
   })
 
   it('reuses the organization tree and only selects a department after clicking a node', async () => {
@@ -343,7 +343,7 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])?.[0].conditions[0].values).toEqual(['集团/研发'])
   })
 
-  it('renders AND rail inside group and OR separator between groups in add-condition scope mode', async () => {
+  it('renders HRBP compact scope with AND rail, OR separator, hidden count and per-group delete', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
       props: {
         modelValue: [
@@ -352,34 +352,28 @@ describe('PerformanceAudienceRuleEditor', () => {
         ],
         allowedFields: ['directLeader', 'employee', 'department'],
         organizationTree,
-        scopeMode: true,
-        addActionMode: 'add-condition',
-        showGroupTitle: true,
+        compactScope: true,
+        hideGroupCount: true,
         groupTitlePattern: '条件组 {index}',
-        groupTitleActions: true,
       },
       attachTo: document.body,
     })
-    // 组标题可配置
-    const titles = wrapper.findAll('.performance-audience-rule-editor__group-heading--scope > span').map(el => el.text())
+    // 组标题可配置（复用默认分支 __group-heading）
+    const titles = wrapper.findAll('.performance-audience-rule-editor__group-heading > span').map(el => el.text())
     expect(titles).toEqual(['条件组 1', '条件组 2'])
+    // 计数隐藏
+    expect(wrapper.find('.performance-audience-rule-editor__group-count').exists()).toBe(false)
     // 组内「且」rail（每个条件组一个 wrapper，仅多条件组显示 rail）
     expect(wrapper.findAll('.performance-condition-logic-group')).toHaveLength(2)
     expect(wrapper.findAll('.performance-condition-logic-group__rail')).toHaveLength(1)
-    // 组间「或」分隔符（非 rail）
-    expect(wrapper.findAll('.performance-audience-rule-editor__or--scope')).toHaveLength(1)
-    expect(wrapper.get('.performance-audience-rule-editor__or--scope').text()).toBe('或')
-    // 灰底只包条件区，不含按钮
-    expect(wrapper.findAll('.performance-audience-rule-editor__scope-conditions')).toHaveLength(2)
-    expect(wrapper.find('.performance-audience-rule-editor__scope-add').exists()).toBe(true)
-    // 「添加条件」在灰底内、「添加人员范围」在灰底外
-    expect(wrapper.find('.performance-audience-rule-editor__scope-conditions .performance-audience-rule-editor__condition-add').exists()).toBe(true)
+    // 组间「或」分隔符（compact 下 22 高居中）
+    expect(wrapper.findAll('.performance-audience-rule-editor__or')).toHaveLength(1)
+    expect(wrapper.get('.performance-audience-rule-editor__or').text()).toBe('或')
+    // 组内「＋ 添加条件」存在（allowMultipleConditions 默认 true，默认分支裸按钮）
+    expect(wrapper.text()).toContain('＋ 添加条件')
     // 删除条件（组内多条时）
     expect(wrapper.findAll('[aria-label^="删除范围 1 条件"]')).toHaveLength(2)
-    // 组级删除按钮：每组一个、在灰底外（scope-group 直接子级，非 scope-conditions 内）
-    expect(wrapper.findAll('.performance-audience-rule-editor__scope-group-delete')).toHaveLength(2)
-    const groupDelete = wrapper.get('.performance-audience-rule-editor__scope-group-delete')
-    expect(groupDelete.element.parentElement?.classList.contains('performance-audience-rule-editor__scope-group')).toBe(true)
-    expect(wrapper.findAll('[aria-label^="删除范围 1"]').filter(el => !el.attributes('aria-label')?.includes('条件'))).toHaveLength(1)
+    // 组级删除按钮：多组时每组一个
+    expect(wrapper.findAll('[aria-label^="删除范围"]').filter(el => !el.attributes('aria-label')?.includes('条件'))).toHaveLength(2)
   })
 })

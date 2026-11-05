@@ -11,9 +11,7 @@
     <PerformanceAudienceRuleEditor
       v-model="groups"
       scope-mode
-      show-group-title
       group-title-pattern="条件组 {index}"
-      add-action-mode="add-condition"
       :allowed-fields="[...HRBP_BLACKLIST_FIELDS]"
       :organization-tree="organizationTree"
       :person-options="personOptions"
