@@ -21,8 +21,9 @@ import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceResultReviewer360Block from './PerformanceResultReviewer360Block.vue'
 import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
-import { performanceContentKey, contentToSections } from './performanceContentToSections'
+import { ASSESSMENT_ROLE_CODES, performanceExecutorDisplayLabel } from './performanceExecutorOptions'
 import { performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
+import { performanceContentKey, contentToSections } from './performanceContentToSections'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -96,7 +97,7 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
       const source = nodes.value.find(item => item.node_id === relation.reference_value && item.node_id !== node.node_id)
       /* 360°反馈环节 = 流程设置里执行人为「360°评估人」的评估环节：
          参考区对该引用渲染「360°评估详情」视图（REA 实测与普通引用不同） */
-      const isReviewer360 = Boolean(source && source.executor_label === '360°评估人')
+      const isReviewer360 = Boolean(source && (source.executor_role_code === ASSESSMENT_ROLE_CODES.REVIEWER_360 || source.executor_label === '360°评估人'))
       /* REA 的参考内容只展示被引用环节的填写项，不包含「说明」块 */
       const contents = source ? visibleFillContents(source).filter(content => content.type !== 'prompt') : []
       return {
@@ -252,7 +253,7 @@ function contentDescription(content: PerformanceTemplateContent) {
                 <span class="ptp-stage-card__icon" aria-hidden="true"><PerformanceWorkflowStageIcon :type="node.node_type" /></span>
                 <span class="ptp-stage-card__name">{{ node.name }}</span>
               </span>
-              <span class="ptp-stage-card__executor">执行人：{{ node.executor_label || '未配置' }}</span>
+              <span class="ptp-stage-card__executor">执行人：{{ performanceExecutorDisplayLabel(node) }}</span>
             </div>
           </div>
         </div>

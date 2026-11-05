@@ -261,7 +261,7 @@ import PerformanceContentRegionList from '@/components/performance/PerformanceCo
 import PerformanceReferenceEntryBar from '@/components/performance/PerformanceReferenceEntryBar.vue'
 import PerformanceReferenceContentDrawer, { type ReferenceOption } from '@/components/performance/PerformanceReferenceContentDrawer.vue'
 import { getItemSettingsVariant, resolveCalibrationContents, supportsCalibrationItemSettings, getEvaluationExecutorKind, getStageContentRule, getStageContentTabs, supportsEvaluationItemSettings, supportsResultViewSettings, supportsStageItemView } from '@/components/performance/performanceContentSettingsRules'
-import { ASSESSMENT_ROLE_CODES, REAL_LINE_MANAGER_LEVEL_OPTIONS, nodeRoleCode } from '@/components/performance/performanceExecutorOptions'
+import { performanceExecutorDisplayLabel } from '@/components/performance/performanceExecutorOptions'
 import { resolveRatingOptions } from '@/components/performance/performanceRatingOptions'
 
 const props = defineProps<{ templateId?: number | null }>()
@@ -381,11 +381,7 @@ const finalNode = computed(() => {
 const finalExecutorLabel = computed(() => {
   const node = finalNode.value
   if (!node) return '未配置'
-  if (nodeRoleCode(node) === ASSESSMENT_ROLE_CODES.LINE_MANAGER) {
-    const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
-    if (levels.length) return levels.map(option => option.label).join('、')
-  }
-  return node.executor_label || '未配置'
+  return performanceExecutorDisplayLabel(node)
 })
 const finalFillContents = computed(() => {
   const node = finalNode.value
@@ -1021,7 +1017,7 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
         : normalizeRatingContent(projectContentDefinition({ ...content, items: content.items || [] }, merged.get(contentIdentity(content))))),
     }
   })
-  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.node_type === 'result_reconsideration' ? '复议处理人' : node.executor_label, executorRoleCode: node.executor_role_code ?? null }))
+  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: performanceExecutorDisplayLabel(node), executorRoleCode: node.executor_role_code ?? null }))
 }
 async function save() {
   if (!props.templateId) return

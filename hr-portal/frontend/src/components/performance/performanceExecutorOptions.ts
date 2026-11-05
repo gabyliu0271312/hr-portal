@@ -67,3 +67,21 @@ export const REAL_LINE_MANAGER_LEVEL_OPTIONS: readonly PerformanceExecutorOption
 ]
 
 export const REVIEWER_360_CONFIRM_MANAGER_LEVEL_OPTIONS = REAL_LINE_MANAGER_LEVEL_OPTIONS.slice(0, 3)
+
+export type PerformanceExecutorDisplayNode = {
+  node_type?: string
+  executor_label?: string | null
+  executor_types?: string[]
+  executor_role_code?: string | null
+}
+
+/** 所有模板流程展示入口共用的执行人文案，不改变 executor_config 等业务配置。 */
+export function performanceExecutorDisplayLabel(node: PerformanceExecutorDisplayNode): string {
+  if (node.node_type === 'result_reconsideration') return '复议处理人'
+  if (node.executor_role_code === ASSESSMENT_ROLE_CODES.LINE_MANAGER) {
+    const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
+    if (levels.length) return levels.map(option => option.label).join('、')
+    return '--'
+  }
+  return node.executor_label || '--'
+}

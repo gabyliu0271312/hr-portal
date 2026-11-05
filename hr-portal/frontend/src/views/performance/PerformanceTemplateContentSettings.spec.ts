@@ -23,7 +23,7 @@ import { performanceReviewQuestionApi, performanceTagFillQuestionApi, performanc
 const mockNodes = [
   { node_id: 'n1', node_type: 'work_summary', name: '工作总结环节', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' },
   { node_id: 'n2', node_type: 'reviewer_360_invite', name: '360°邀请环节', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' },
-  { node_id: 'n3', node_type: 'reviewer_360_confirm', name: '360°确认环节', executor_label: '直属上级', executor_role_code: 'assessment.line_manager' },
+  { node_id: 'n3', node_type: 'reviewer_360_confirm', name: '360°确认环节', executor_label: '直属上级', executor_types: ['DIRECT_MANAGER'], executor_role_code: 'assessment.line_manager' },
   { node_id: 'n4', node_type: 'evaluation', name: '评估型环节', executor_label: '360°评估人', executor_role_code: 'assessment.reviewer_360' },
   { node_id: 'n5', node_type: 'calibration', name: '校准环节', executor_label: '在项目配置时指定', executor_role_code: 'assessment.calibrator' },
   { node_id: 'n6', node_type: 'result_communication', name: '结果沟通', executor_label: '直属上级', executor_role_code: 'assessment.line_manager' },
@@ -529,6 +529,26 @@ describe('PerformanceTemplateContentSettings', () => {
       '绩效结果查看环节',
       '结果复议处理',
     ])
+  })
+
+  it('uses the shared executor display labels for every workflow stage', async () => {
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [
+      { ...mockNodes[0], node_id: 'reviewee', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' },
+      { ...mockNodes[6], node_id: 'manager', executor_label: '实线上级', executor_role_code: 'assessment.line_manager', executor_types: ['DIRECT_MANAGER', 'LEVEL_1_MANAGER'] },
+      { ...mockNodes[5], node_id: 'dotted', executor_label: '虚线上级', executor_role_code: 'assessment.dotted_manager', executor_types: ['VIRTUAL_LINE_MANAGER'] },
+      { ...mockNodes[4], node_id: 'calibration', executor_label: '在项目配置时指定', executor_role_code: 'assessment.calibrator' },
+      { ...mockNodes[8], node_id: 'reconsideration', executor_label: 'HRBP、指定人员', executor_role_code: null },
+    ] } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    expect(wrapper.findAll('.stage-card__executor').map(item => item.text())).toEqual([
+      '执行人：被评估人',
+      '执行人：直属上级、隔 1 级上级',
+      '执行人：虚线上级',
+      '执行人：在项目配置时指定',
+      '执行人：复议处理人',
+    ])
+    wrapper.unmount()
   })
 
   it('keeps the content tab bar outside the scroll container so it never scrolls away', async () => {

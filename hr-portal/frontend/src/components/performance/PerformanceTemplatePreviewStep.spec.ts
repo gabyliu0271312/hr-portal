@@ -80,6 +80,26 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.find('.ptp-panel:last-of-type').text()).toContain('暂未配置供参考内容')
   })
 
+  it('uses the shared executor display labels for every workflow stage', async () => {
+    const nodes = [
+      node({ node_id: 'reviewee', name: '自评', executor_label: '被评估人', executor_role_code: 'assessment.reviewee' }),
+      node({ node_id: 'manager', name: '上级评估', executor_label: '实线上级', executor_role_code: 'assessment.line_manager', executor_types: ['DIRECT_MANAGER', 'LEVEL_1_MANAGER'] }),
+      node({ node_id: 'dotted', name: '虚线上级评估', executor_label: '虚线上级', executor_role_code: 'assessment.dotted_manager' }),
+      node({ node_id: 'calibration', node_type: 'calibration', name: '校准', executor_label: '在项目配置时指定', executor_role_code: 'assessment.calibrator' }),
+      node({ node_id: 'reconsideration', node_type: 'result_reconsideration', name: '结果复议处理', executor_label: 'HRBP、指定人员', executor_role_code: null }),
+    ]
+    const wrapper = mountStep(nodes)
+    await flushPromises()
+    expect(wrapper.findAll('.ptp-stage-card__executor').map(item => item.text())).toEqual([
+      '执行人：被评估人',
+      '执行人：直属上级、隔 1 级上级',
+      '执行人：虚线上级',
+      '执行人：在项目配置时指定',
+      '执行人：复议处理人',
+    ])
+    wrapper.unmount()
+  })
+
   it('renders reference panel resolving node references and prompt banners', async () => {
     const nodes = [
       node({ node_id: 'n1', node_type: 'work_summary', name: '填写工作总结', content: [fillSummary] }),
