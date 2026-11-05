@@ -94,7 +94,7 @@ void props
   width: 726.7px; padding: 16px 12px; box-sizing: border-box; border-radius: 4px; background: #f5f6f7;
 }
 .pr360-item + .pr360-item { border-top: 1px solid #dee0e3; border-top-left-radius: 0; border-top-right-radius: 0; }
-.pr360-item__title { padding: 0 12px; font-size: 14px; font-weight: 600; line-height: 24px; color: #1f2329; margin-bottom: 8px; }
+.pr360-item__title { padding: 0 12px; font-size: 14px; font-weight: 600; line-height: 24px; color: #1f2329; margin-bottom: 16px; }
 /* REA EnhancedReviewField：字段名 22 + mb-4 8 + 值 22 = 52 高，值块无 padding 无 bg */
 .pr360-field { padding: 0 12px; box-sizing: border-box; border-radius: 8px; background: #f5f6f7; }
 .pr360-field__name { display: block; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; margin-bottom: 8px; }
