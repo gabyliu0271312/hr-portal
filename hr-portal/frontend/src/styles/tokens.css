@@ -81,6 +81,14 @@
   --performance-review-completion-bg: #e4fae1;
   --performance-review-completion-icon: #32a645;
   --performance-review-readonly-surface: #f5f6f7;
+  /* REA 飞书色板（100% 还原：N-0/N-100/N-300/N-600/N-900 + B-500） */
+  --perf-n-0: #ffffff;
+  --perf-n-100: #f5f6f7;
+  --perf-n-200: #eff0f1;
+  --perf-n-300: #dee0e3;
+  --perf-n-600: #646a73;
+  --perf-n-900: #1f2329;
+  --perf-b-500: #3370ff;
   --performance-content-unavailable-overlay: rgba(255, 255, 255, 0.56);
   --performance-content-unavailable-icon: var(--color-text-placeholder);
   --performance-content-hidden-opacity: 0.5;
@@ -89,7 +97,7 @@
   --performance-content-hidden-background: var(--color-bg-card);
   --performance-readonly-item-padding-block: var(--spacing-4);
   --performance-readonly-item-padding-inline: var(--spacing-6);
-  --performance-readonly-answer-padding: var(--spacing-4);
+  --performance-readonly-answer-padding: var(--spacing-2);
   --performance-readonly-field-gap: var(--spacing-2);
   --performance-readonly-tag-gap: var(--spacing-2);
   --performance-result-view-tag-inset-block: var(--spacing-2);
