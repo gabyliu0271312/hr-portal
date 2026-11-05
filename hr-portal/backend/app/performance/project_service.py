@@ -681,10 +681,21 @@ class PerformanceProjectService:
             if reconsideration is not None:
                 if not isinstance(reconsideration, dict):
                     raise ProjectValidationError("结果复议设置格式不正确")
-                handler = reconsideration.get("handler")
-                if handler is not None and (not isinstance(handler, str) or len(handler) > 128):
-                    raise ProjectValidationError("结果复议处理人不合法")
-                normalized["result_reconsideration"] = {"handler": handler}
+                raw_handlers = reconsideration.get("handler_employee_nos")
+                if raw_handlers is None and "handler" in reconsideration:
+                    legacy_handler = reconsideration.get("handler")
+                    raw_handlers = [] if legacy_handler is None else [legacy_handler]
+                if raw_handlers is None:
+                    raw_handlers = []
+                if not isinstance(raw_handlers, list) or len(raw_handlers) > 100:
+                    raise ProjectValidationError("结果复议处理人设置不合法")
+                handlers = []
+                for employee_no in raw_handlers:
+                    if not isinstance(employee_no, str) or not employee_no.strip() or len(employee_no.strip()) > 128:
+                        raise ProjectValidationError("结果复议处理人不合法")
+                    if employee_no.strip() not in handlers:
+                        handlers.append(employee_no.strip())
+                normalized["result_reconsideration"] = {"handler_employee_nos": handlers}
             normalized_nodes[node_id] = normalized
         node_times = flow_settings.get("node_times", {})
         if not isinstance(node_times, dict):

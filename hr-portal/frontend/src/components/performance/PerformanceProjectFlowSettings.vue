@@ -113,7 +113,17 @@
 
       <section v-else-if="node.node_type === 'result_reconsideration'" class="node-settings reconsideration-settings" aria-label="结果复议处理设置">
         <h3>无法找到复议处理人时，由以下人员处理</h3>
-        <PerformanceSearchSelect :model-value="reconsiderationSettings(node).handler" :options="handlerOptions" class="reconsideration-handler-select" selection-style="plain" aria-label="结果复议处理人" @update:model-value="setReconsiderationHandler(node, $event)" />
+        <PerformancePersonSelect
+          :model-value="reconsiderationSettings(node).handler_employee_nos"
+          :options="reconsiderationPeopleOptions"
+          class="reconsideration-handler-select"
+          selection-style="plain"
+          aria-label="兜底复议处理人"
+          placeholder="请选择人员"
+          multiple
+          @open="emit('open-options')"
+          @update:model-value="setReconsiderationHandlers(node, $event)"
+        />
       </section>
     </article>
     <PerformanceDistributionRuleDrawer
@@ -156,6 +166,7 @@
 
 <script setup lang="ts">
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import { createCalibrationPhaseId, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { PerformanceCalibrationAssignment, PerformanceDistributionAssessmentOption, PerformanceDistributionMode, PerformanceDistributionRule, PerformanceDistributionRounding, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule, PerformanceProjectFlowSettings, PerformanceProjectPayload, PerformanceWorkflowNode } from '@/api/performance'
@@ -227,8 +238,14 @@ const first360NodeKey = computed(() => {
   const node = props.nodes.find(isReviewer360Node)
   return node ? nodeKey(node) : null
 })
-const handlerOptions = computed(() => [{ value: 'HRBP', label: 'HRBP' }, ...props.peopleOptions])
 const peopleOptions = computed(() => props.peopleOptions)
+const reconsiderationPeopleOptions = computed(() => {
+  const selected = props.nodes.flatMap(node => {
+    const settings = draft.value.node_settings[nodeKey(node)]?.result_reconsideration
+    return (settings?.handler_employee_nos || []).map(employeeNo => ({ value: employeeNo, label: employeeNo }))
+  })
+  return Array.from(new Map([...props.peopleOptions, ...selected].map(option => [option.value, option])).values())
+})
 
 function is360SettingsNode(node: PerformanceWorkflowNode) { return first360NodeKey.value !== null && nodeKey(node) === first360NodeKey.value }
 function cloneSettings(value?: PerformanceProjectFlowSettings): PerformanceProjectFlowSettings {
@@ -239,7 +256,7 @@ function defaultFor(node: PerformanceWorkflowNode) {
   if (is360SettingsNode(node)) return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false } }
   if (node.node_type === 'calibration') return { calibration: { force_distribution_enabled: false, distribution: { mode: 'UNIFIED' as const, rules: [], scope_configured: false }, phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }] } }
   if (node.node_type === 'result_view') return { result_view: { automatic_enabled: false, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' as const } }
-  if (node.node_type === 'result_reconsideration') return { result_reconsideration: { handler: null } }
+  if (node.node_type === 'result_reconsideration') return { result_reconsideration: { handler_employee_nos: [] } }
   return {}
 }
 function ensureNode(node: PerformanceWorkflowNode) {
@@ -249,7 +266,15 @@ function ensureNode(node: PerformanceWorkflowNode) {
   const settings = draft.value.node_settings[key]
   if (is360SettingsNode(node) && !settings.invite) settings.invite = defaults.invite
   if (node.node_type === 'result_view' && !settings.result_view) settings.result_view = defaults.result_view
-  if (node.node_type === 'result_reconsideration' && !settings.result_reconsideration) settings.result_reconsideration = defaults.result_reconsideration
+  if (node.node_type === 'result_reconsideration') {
+    if (!settings.result_reconsideration) settings.result_reconsideration = defaults.result_reconsideration
+    const reconsideration = settings.result_reconsideration as { handler_employee_nos?: unknown; handler?: unknown }
+    if (!Array.isArray(reconsideration.handler_employee_nos)) {
+      const legacy = typeof reconsideration.handler === 'string' && reconsideration.handler.trim() ? [reconsideration.handler.trim()] : []
+      reconsideration.handler_employee_nos = legacy
+    }
+    delete reconsideration.handler
+  }
   if (node.node_type === 'calibration') {
     const calibration = settings.calibration || defaults.calibration!
     if (!settings.calibration) settings.calibration = calibration
@@ -369,7 +394,10 @@ function setMinimumInviteCount(node: PerformanceWorkflowNode, event: Event) { in
 function removeRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) { const rules = calibrationSettings(node).phases[phaseIndex].rules; if (rules.length > 1) rules.splice(ruleIndex, 1) }
 function removePhase(node: PerformanceWorkflowNode, phaseIndex: number) { const phases = calibrationSettings(node).phases; if (phases.length > 1) phases.splice(phaseIndex, 1) }
 function addPhase(node: PerformanceWorkflowNode) { calibrationSettings(node).phases.push({ phase_id: createCalibrationPhaseId(), rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }) }
-function setReconsiderationHandler(node: PerformanceWorkflowNode, value: string | string[] | null) { reconsiderationSettings(node).handler = typeof value === 'string' ? value || null : null }
+function setReconsiderationHandlers(node: PerformanceWorkflowNode, value: string | string[] | null) {
+  const values = Array.isArray(value) ? value : value ? [value] : []
+  reconsiderationSettings(node).handler_employee_nos = [...new Set(values.filter(Boolean))]
+}
 function openingInvalid(node: PerformanceWorkflowNode) { const view = resultViewSettings(node); return props.showOpeningError && !view.automatic_enabled && !view.manual_enabled }
 function manualOpeningDisabled(node: PerformanceWorkflowNode) {
   if (node.node_type !== 'result_view') return false

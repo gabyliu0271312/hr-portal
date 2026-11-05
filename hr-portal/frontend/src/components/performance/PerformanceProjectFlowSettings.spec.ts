@@ -4,6 +4,7 @@ import { performanceProjectApi } from '@/api/performance'
 import type { PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 
 const node = (node_type: string, order: number, executor_role_code: string | null = 'assessment.reviewee'): PerformanceWorkflowNode => ({
   node_id: `${node_type}-${order}`,
@@ -36,6 +37,24 @@ const reviewer360Node = (order: number) => node('evaluation', order, 'assessment
 describe('PerformanceProjectFlowSettings', () => {
   beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
   afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
+  it('uses the multi-select person component for reconsideration fallback handlers', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, {
+      props: {
+        nodes: [node('result_reconsideration', 1)],
+        peopleOptions: [{ value: 'E001', label: '张三（E001）' }, { value: 'E002', label: '李四（E002）' }],
+        modelValue: { node_settings: { 'result_reconsideration-1': { result_reconsideration: { handler_employee_nos: ['E001'] } } }, node_times: {} },
+      },
+    })
+    const picker = wrapper.getComponent(PerformancePersonSelect)
+    expect(picker.props('multiple')).toBe(true)
+    expect(picker.props('modelValue')).toEqual(['E001'])
+    picker.vm.$emit('update:modelValue', ['E001', 'E002'])
+    await wrapper.vm.$nextTick()
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+    expect(emitted.node_settings['result_reconsideration-1'].result_reconsideration.handler_employee_nos).toEqual(['E001', 'E002'])
+    wrapper.unmount()
+  })
+
   it('renders template nodes in order and reuses the stage icon for every node', () => {
     const types = ['work_summary', 'reviewer_360_invite', 'reviewer_360_confirm', 'evaluation', 'calibration', 'result_communication', 'result_view', 'result_reconsideration']
     const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: types.map((type, index) => node(type, index + 1, type === 'evaluation' ? 'assessment.reviewer_360' : undefined)) } })
@@ -49,6 +68,7 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(wrapper.find('.calibration-settings').exists()).toBe(true)
     expect(wrapper.find('.result-view-settings').exists()).toBe(true)
     expect(wrapper.find('.reconsideration-settings').exists()).toBe(true)
+    wrapper.unmount()
   })
 
   it('shows the 360° settings only on the first reviewer-360 node', () => {

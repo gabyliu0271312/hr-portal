@@ -1021,7 +1021,7 @@ function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: Performan
         : normalizeRatingContent(projectContentDefinition({ ...content, items: content.items || [] }, merged.get(contentIdentity(content))))),
     }
   })
-  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.executor_label, executorRoleCode: node.executor_role_code ?? null }))
+  stages.value = nodes.map((node, index) => ({ id: node.node_id || `${node.node_type}-${index}`, nodeType: node.node_type, icon: iconByType[node.node_type] || '▧', title: node.name, executor: node.node_type === 'result_reconsideration' ? '复议处理人' : node.executor_label, executorRoleCode: node.executor_role_code ?? null }))
 }
 async function save() {
   if (!props.templateId) return

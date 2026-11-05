@@ -50,25 +50,44 @@ async def reconsideration_tasks(db, appeal):
     ).order_by(PerformanceNodeTask.id).execution_options(populate_existing=True))).scalars().all())
 
 
-def resolve_handlers(template, member, people):
+def _fallback_employee_nos(project, node) -> list[str]:
+    flow_settings = (project.settings or {}).get("flow_settings") or {}
+    node_settings = flow_settings.get("node_settings") or {}
+    reconsideration = (node_settings.get(node.node_id) or {}).get("result_reconsideration") or {}
+    values = reconsideration.get("handler_employee_nos")
+    if values is None and isinstance(reconsideration.get("handler"), str):
+        values = [reconsideration["handler"]]
+    return list(dict.fromkeys(
+        value.strip() for value in (values or [])
+        if isinstance(value, str) and value.strip()
+    ))
+
+
+def resolve_handlers(template, member, people, fallback_employee_nos=None):
     handlers = set()
     for role in normalize_executor_config(template.get("executor_config"))["roles"]:
         if role["type"] == "SPECIFIED_PERSON":
             handlers.update(person["employee_no"] for person in role["people"])
         elif role["type"] == "HRBP":
-            if not member.hrbp_employee_no:
-                raise HTTPException(409, "RECONSIDERATION_HRBP_NOT_CONFIGURED")
-            handlers.add(member.hrbp_employee_no)
+            if getattr(member, "hrbp_employee_no", None):
+                handlers.add(member.hrbp_employee_no)
         elif role["type"] == "REAL_LINE_MANAGER":
-            resolved = _manager_chain_handlers(member, people, set(role["levels"]))
-            if not resolved:
-                raise HTTPException(409, "RECONSIDERATION_MANAGER_NOT_CONFIGURED")
-            handlers.update(resolved)
+            handlers.update(_manager_chain_handlers(member, people, set(role["levels"])))
         else:
-            raise HTTPException(409, "RECONSIDERATION_DEPARTMENT_SNAPSHOT_REQUIRED")
-    if not handlers:
-        raise HTTPException(409, "RECONSIDERATION_HANDLER_NOT_CONFIGURED")
-    return sorted(handlers)
+            # Department-head resolution requires a frozen organization source;
+            # if it cannot resolve, the project fallback remains eligible.
+            continue
+    if handlers:
+        return sorted(handlers)
+    fallback = {
+        employee_no for employee_no in (fallback_employee_nos or [])
+        if employee_no in people
+    }
+    if fallback:
+        return sorted(fallback)
+    if fallback_employee_nos is not None:
+        raise HTTPException(409, "RECONSIDERATION_FALLBACK_NOT_CONFIGURED")
+    raise HTTPException(409, "RECONSIDERATION_HANDLER_NOT_CONFIGURED")
 
 
 async def submission_context(db, project_id, employee_no, *, lock=False):
@@ -136,7 +155,12 @@ async def submit_reconsideration(db, project_id, employee_no, reason, actor):
     people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
         PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
     ))).scalars().all())
-    handlers = resolve_handlers((node.config or {}).get("template") or {}, member, {person.employee_no: person for person in people})
+    handlers = resolve_handlers(
+        (node.config or {}).get("template") or {},
+        member,
+        {person.employee_no: person for person in people},
+        _fallback_employee_nos(project, node),
+    )
     appeal = PerformanceResultReconsideration(
         project_id=project_id, member_snapshot_id=snapshot.id, node_snapshot_id=node.id,
         employee_no=employee_no, reason=reason, result_version=opening.result_version or {}, submitted_at=now,

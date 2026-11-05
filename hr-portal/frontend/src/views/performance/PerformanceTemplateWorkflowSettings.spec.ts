@@ -209,6 +209,14 @@ describe('PerformanceTemplateWorkflowSettings', () => {
     expect(wrapper.get('.stage-node.selected .node-executor').text()).not.toContain('实线上级')
   })
 
+  it('keeps result reconsideration stage display as the business executor label', async () => {
+    const wrapper = mount(PerformanceTemplateWorkflowSettings)
+    await wrapper.findAll('.flow-connector')[2].trigger('mouseenter')
+    await wrapper.findAll('.popover-stage').find(option => option.text() === '结果复议处理')?.trigger('click')
+    expect(wrapper.get('.stage-node.selected .node-executor').text()).toBe('执行人：复议处理人')
+    wrapper.unmount()
+  })
+
   it('shows an empty executor when no manager level is selected', async () => {
     const wrapper = mount(PerformanceTemplateWorkflowSettings)
     const evaluationNode = wrapper.findAll('.stage-node').find(node => node.text().includes('评估型环节'))!

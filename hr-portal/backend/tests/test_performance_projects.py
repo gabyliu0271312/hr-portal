@@ -20,6 +20,18 @@ def test_reconsideration_handlers_merge_roles_without_duplicate_tasks():
         {"type": "SPECIFIED_PERSON", "people": [{"employee_no": "H1", "display_name": "HR"}, {"employee_no": "P1", "display_name": "指定处理人"}]},
     ]}}
     assert resolve_handlers(template, member, {"M1": manager}) == ["H1", "M1", "P1"]
+    missing_hrbp = {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "HRBP"}]}}
+    assert resolve_handlers(missing_hrbp, SimpleNamespace(employee_no="E1", direct_supervisor_employee_no=None, hrbp_employee_no=None), {"F1": SimpleNamespace(employee_no="F1")}, ["F1"]) == ["F1"]
+    partial = {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "HRBP"}, {"type": "REAL_LINE_MANAGER", "levels": ["DIRECT_MANAGER"]}]}}
+    assert resolve_handlers(partial, SimpleNamespace(employee_no="E1", direct_supervisor_employee_no="M1", hrbp_employee_no=None), {"M1": manager}, ["F1"]) == ["M1"]
+
+
+def test_reconsideration_fallback_people_round_trip_and_legacy_handler_compatibility():
+    flow = {"node_settings": {"reconsideration-1": {"result_reconsideration": {"handler_employee_nos": ["E1", "E1", "E2"]}}}}
+    normalized = PerformanceProjectService._validate_flow_settings(flow)
+    assert normalized["node_settings"]["reconsideration-1"]["result_reconsideration"] == {"handler_employee_nos": ["E1", "E2"]}
+    legacy = {"node_settings": {"reconsideration-1": {"result_reconsideration": {"handler": "E1"}}}}
+    assert PerformanceProjectService._validate_flow_settings(legacy)["node_settings"]["reconsideration-1"]["result_reconsideration"] == {"handler_employee_nos": ["E1"]}
 
 
 @pytest.mark.asyncio
@@ -28,8 +40,8 @@ async def test_reconsideration_submission_creates_tasks_and_durable_notification
     from fastapi import HTTPException
     from app.performance import reconsideration_service as service
     from app.performance.models import PerformanceNodeTask, PerformanceReconsiderationNotification, PerformanceResultReconsideration
-    project_row = SimpleNamespace(id=1, cycle_ref="cycle:one", settings={})
-    node = SimpleNamespace(id=4, node_id="appeal", config={"time": {"appeal_deadline": (datetime.now(UTC) + timedelta(days=1)).isoformat()}, "template": {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "SPECIFIED_PERSON", "people": [{"employee_no": "P1", "display_name": "甲"}, {"employee_no": "P2", "display_name": "乙"}]}]}}})
+    project_row = SimpleNamespace(id=1, cycle_ref="cycle:one", settings={"flow_settings": {"node_settings": {"appeal": {"result_reconsideration": {"handler_employee_nos": ["P1", "P2"]}}}}})
+    node = SimpleNamespace(id=4, node_id="appeal", config={"time": {"appeal_deadline": (datetime.now(UTC) + timedelta(days=1)).isoformat()}, "template": {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "HRBP"}]}}})
     values = [project_row, SimpleNamespace(id=2, source_snapshot_id=3), SimpleNamespace(employee_no="E1"), SimpleNamespace(result_version={"v": 2}), node, None]
     async def submission(*args, **kwargs):
         assert kwargs.get("lock") is True
@@ -42,13 +54,14 @@ async def test_reconsideration_submission_creates_tasks_and_durable_notification
         def __init__(self):
             self.rows = []
             self.commits = 0
+            self.people = [SimpleNamespace(employee_no="P1"), SimpleNamespace(employee_no="P2")]
         def add(self, row):
             row.id = len(self.rows) + 1
             self.rows.append(row)
         async def flush(self):
             pass
         async def execute(self, statement):
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: self.people))
         async def commit(self):
             self.commits += 1
     db = Db()
@@ -746,7 +759,7 @@ def test_project_flow_settings_validate_supported_editable_variants():
                 }
             },
             "result-view-1": {"result_view": {"automatic_enabled": False, "manual_enabled": True, "automatic_rule": "PREVIOUS_AND_START"}},
-            "reconsideration-1": {"result_reconsideration": {"handler": "HRBP"}},
+            "reconsideration-1": {"result_reconsideration": {"handler_employee_nos": ["HRBP"]}},
         }
     }
     normalized = PerformanceProjectService._validate_flow_settings(settings)

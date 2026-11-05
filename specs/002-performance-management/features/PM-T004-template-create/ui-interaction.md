@@ -18,7 +18,13 @@
 - The template stores rules only. Ordinary manager, HRBP, and department resolution is performed later from the cycle roster/snapshot; this task does not generate runtime tasks or alter cycle snapshots.
 - Implemented-state evidence: `../../ui-blueprints/PM-T004-T02-F34-implemented-result-reconsideration-executors.png`.
 
-状态：`pending visual confirmation`。本页只覆盖流程设置，以及上一步/下一步按钮。
+## Result reconsideration dispatch fallback (PM-T004-T02-F38)
+
+- 模板流程画布、模板内容设置左侧阶段列表对 `result_reconsideration` 统一显示业务执行人“复议处理人”；右侧多角色配置仍展示实际角色和指定人员。
+- 周期与项目 > 流程设置 > 结果复议处理的兜底人员使用 `PerformancePersonSelect`，支持多选、清空、回显和禁用；新写入保存为 `handler_employee_nos: string[]`，旧单值 `handler` 仅读取兼容。
+- 复议提交时先解析模板多角色执行人；只要解析出一人即使用模板结果。只有模板处理人集合为空时，才从项目设置读取兜底人员，并按项目启动人员快照过滤和去重；两者都为空返回 `RECONSIDERATION_FALLBACK_NOT_CONFIGURED`。
+- 不新增页面、菜单、迁移或平行任务链；任务、通知、审计和重试沿用既有复议派发链路。
+
 
 ## 已确认范围
 

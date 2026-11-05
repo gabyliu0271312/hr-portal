@@ -278,7 +278,8 @@ const executorLevelLabel: Record<string, string> = {
   DIRECT_MANAGER: '直属上级', LEVEL_1_MANAGER: '隔 1 级上级', LEVEL_2_MANAGER: '隔 2 级上级', LEVEL_3_MANAGER_PLUS: '隔 3 级上级及以上', CURRENT_DEPARTMENT: '所属部门负责人',
   PARENT_DEPARTMENT: '隔级部门负责人', LEVEL_1_DEPARTMENT: '所属一级部门负责人',
 }
-function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'executor_label' | 'executor_types' | 'executor_role_code'>) {
+function executorDisplayLabel(node: Pick<PerformanceWorkflowNode, 'node_type' | 'executor_label' | 'executor_types' | 'executor_role_code'>) {
+  if (node.node_type === 'result_reconsideration') return '复议处理人'
   if (node.executor_role_code === ASSESSMENT_ROLE_CODES.LINE_MANAGER) {
     const levels = REAL_LINE_MANAGER_LEVEL_OPTIONS.filter(option => node.executor_types?.includes(option.type))
     if (levels.length) return levels.map(option => option.label).join('、')

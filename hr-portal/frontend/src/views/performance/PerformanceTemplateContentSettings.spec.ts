@@ -470,6 +470,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.findAll('.stage-card')[8].trigger('click')
 
     expect(wrapper.get('.template-section__title').text()).toBe('结果复议处理')
+    expect(wrapper.findAll('.stage-card').find(card => card.text().includes('结果复议处理'))?.get('.stage-card__executor').text()).toBe('执行人：复议处理人')
     // 模块1：复议理由（表头 + 内容 + 底部操作条）
     expect(wrapper.get('.recon-module--reason .recon-module__title').text()).toBe('复议理由')
     expect(wrapper.get('.recon-module--reason .result-reconsideration-section__preview').text()).toBe('这里展示被评估人发起复议时填写的内容')
