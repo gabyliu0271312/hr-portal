@@ -105,4 +105,42 @@ describe('shared performance selectors', () => {
     expect(wrapper.get('.performance-flat-option-list__empty').text()).toBe('暂无可选项')
     wrapper.unmount()
   })
+
+  it('remoteSearch: keeps the popup closed until a keyword is typed (REA active state has no panel)', async () => {
+    const wrapper = mount(PerformanceSearchSelect, {
+      props: { modelValue: [], options, multiple: true, remoteSearch: true },
+      global: { stubs },
+    })
+    // active 态（点击选择器、无搜索词）：弹层不出现
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.performance-select-shell__popup').exists()).toBe(false)
+    // 输入搜索词后：弹层出现且渲染传入的 options（外部按关键词更新后传入）
+    const input = wrapper.get('input.performance-select-shell__input')
+    await input.setValue('周1')
+    await flushPromises()
+    expect(wrapper.find('.performance-select-shell__popup').exists()).toBe(true)
+    expect(wrapper.findAll('.performance-flat-option-list__option').length).toBe(options.length)
+    // 清空关键词：弹层关闭
+    await input.setValue('')
+    await flushPromises()
+    expect(wrapper.find('.performance-select-shell__popup').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('remoteSearch: emits search only when a keyword is present', async () => {
+    const wrapper = mount(PerformanceSearchSelect, {
+      props: { modelValue: [], options, multiple: true, remoteSearch: true },
+      global: { stubs },
+    })
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('search')).toBeUndefined()
+    const input = wrapper.get('input.performance-select-shell__input')
+    await input.setValue('周2')
+    await flushPromises()
+    const searches = (wrapper.emitted('search') ?? []).flat()
+    expect(searches).toContain('周2')
+    wrapper.unmount()
+  })
 })

@@ -9,6 +9,7 @@
     :selection-style="selectionStyle"
     :disabled-surface="disabledSurface"
     :hide-arrow="hideArrow"
+    :open-on-search="remoteSearch"
     class="performance-search-select__trigger"
     :disabled="disabled"
     @open="$emit('open')"

@@ -49,12 +49,14 @@ const props = withDefaults(defineProps<{
   popupMaxHeight?: number
   selectionStyle?: 'tags' | 'plain'
   openOnFocus?: boolean
+  /** 远程搜索模式：仅当输入搜索词后才打开弹层（REA 员工选择器 active 态不弹层） */
+  openOnSearch?: boolean
   hideArrow?: boolean
   disabledSurface?: 'muted' | 'white'
   disabled?: boolean
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, hideArrow: false, disabledSurface: 'muted', disabled: false,
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false,
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: [] }>()
 const root = ref<HTMLElement | null>(null)
@@ -103,6 +105,8 @@ function updatePosition() {
 }
 function openMenu() {
   if (props.disabled || open.value) return
+  // 远程搜索模式：无搜索词不打开弹层（REA 员工选择器 active 态无面板，输入后才弹），但聚焦输入框
+  if (props.openOnSearch && !query.value.trim()) { focusSearch(); return }
   open.value = true
   popupStyle.value = { visibility: 'hidden' }
   emit('open')
@@ -129,6 +133,12 @@ function onOutside(event: PointerEvent) {
 }
 function onViewportChange() { if (open.value) updatePosition() }
 watch([() => props.selectedItems, () => props.selectionStyle, query], () => { visibleCount.value = props.selectedItems.length; void nextTick(measureVisibleItems) }, { deep: true })
+watch(query, value => {
+  // 远程搜索模式：输入关键词才弹层（REA 员工选择器）
+  if (!props.openOnSearch) return
+  if (value.trim() && !open.value && !props.disabled) openMenu()
+  else if (!value.trim() && open.value) close()
+})
 watch(() => props.disabled, disabled => { if (disabled) close() })
 onMounted(() => {
   void nextTick(measureVisibleItems)
