@@ -137,6 +137,7 @@
           </section>
         </template>
         <template v-else-if="!referenceTabEmpty">
+          <!-- 系统固有提示（非配置项）：绩效校准人修改评估内容后会产生修改记录 -->
           <PerformancePromptNotice v-if="isCalibration" class="calibration-notice" type="info" multiline>绩效校准人修改评估内容后会产生修改记录</PerformancePromptNotice>
           <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         </template>
@@ -361,6 +362,9 @@ const finalFillContents = computed(() => {
 const finalContents = computed(() => finalFillContents.value.filter(content => content.type !== 'prompt' && content.items.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')))
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
 const calibrationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
+/** 结果复议处理：与校准同构——默认添加上级评估（final 环节）内容为供调整内容
+ *  （REA appeal 环节 modifyTemplates=上级评估，无额外设置覆盖，直接投影 final 内容） */
+const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value))
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const summaryActions = computed(() => {
   const type = selectedStageData.value?.nodeType
@@ -812,9 +816,9 @@ function replaceNodeContentSlot(node: PerformanceWorkflowNode, slot: string, con
   node.content_bindings = { ...(node.content_bindings || {}), [slot]: contents.map((content) => content.content_id || content.id || `${content.type}-${content.name}`) }
 }
 function syncSelectedStageContents() {
-  // 校准环节的供调整内容由 calibration_settings 承载（无需同步 node.content）；
+  // 校准/复议处理的供调整内容由 settings/运行时投影承载（无需同步 node.content）；
   // 参考内容页签与其他环节一致，需把 reference 关系同步回节点。
-  if (!selectedStage.value || (isCalibration.value && !isReferenceTab.value)) return
+  if (!selectedStage.value || ((isCalibration.value || isResultReconsiderationFill.value) && !isReferenceTab.value)) return
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (!node) return
   if (isReferenceTab.value || isResultView.value) {
@@ -832,7 +836,9 @@ function loadSelectedStageContents() {
   }
   if (isResultView.value) resultReferenceContents.value = normalizeConfiguredContents(resolveReferenceContents())
   else referenceContentMeta.value = {}
-  setConfiguredContents(node?.node_type === 'calibration' ? calibrationContents.value : node?.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
+  setConfiguredContents(node?.node_type === 'calibration' ? calibrationContents.value
+    : node?.node_type === 'result_reconsideration' ? reconsiderationContents.value
+    : node?.content?.filter(content => (content.content_slot || 'fill') === activeTab.value) || [])
 }
 function selectStage(id: string) {
   clearContentSelection()

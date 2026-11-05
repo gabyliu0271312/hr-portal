@@ -491,6 +491,34 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.find('.result-reconsideration-section').exists()).toBe(false)
     wrapper.unmount()
   })
+
+  it('reconsideration defaults to the final-result stage contents like calibration (REA appeal modifyTemplates=上级评估)', async () => {
+    // 终评环节（include_final_result）有填写内容 → 复议处理默认投影为供调整内容
+    const final = { ...mockNodes[6], include_final_result: true, content: [
+      { content_id: 'f-summary', type: 'work_summary', name: '工作总结', content_slot: 'fill', items: [{ id: 'f-item', kind: 'fill', label: '重点工作', settings: { required: true } }] },
+    ] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [final, mockNodes[8]],
+      content_library: [],
+      usage_summary: { cycle_count: 1 },
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    // 选中结果复议处理环节（最后一个）
+    const cards = wrapper.findAll('.stage-card')
+    const reconCard = cards.find(c => c.text().includes('结果复议处理'))
+    expect(reconCard).toBeTruthy()
+    await reconCard!.trigger('click')
+    await flushPromises()
+    // 复议理由 section 保留
+    expect(wrapper.get('.result-reconsideration-section').text()).toContain('复议理由')
+    // 默认展示终评环节内容（工作总结）
+    expect(wrapper.get('.configured-content-section').text()).toContain('工作总结')
+    expect(wrapper.get('.configured-content-section').text()).toContain('重点工作')
+    // 空操作栏不再显示（有默认内容）
+    expect(wrapper.find('.result-reconsideration-section .performance-template-operate-bar, .result-reconsideration-section [class*=operate-bar]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
