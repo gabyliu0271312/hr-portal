@@ -72,6 +72,28 @@ async def test_process_event_marks_all_failed_dispatches_as_failed(monkeypatch):
     assert event.error_code == "PIPELINE_INACTIVE"
 
 
+def test_after_commit_claims_pending_deliveries_once(monkeypatch):
+    import app.ucp.event_bus as event_bus
+
+    scheduled = []
+    loop = SimpleNamespace(create_task=scheduled.append)
+    monkeypatch.setattr(event_bus.asyncio, "get_running_loop", lambda: loop)
+
+    async def start_pending(_event_id):
+        return None
+
+    monkeypatch.setattr(event_bus, "start_pending_event_deliveries", start_pending)
+    session = SimpleNamespace(info={event_bus._PENDING_BACKGROUND_RUNS: [
+        {"event_db_id": 7}, {"event_db_id": 7}, {"event_db_id": 8},
+    ]})
+
+    event_bus._start_committed_background_pipelines(session)
+
+    assert len(scheduled) == 2
+    for task in scheduled:
+        task.close()
+
+
 def test_pipeline_execution_accepts_event_trace_contract():
     from app.ucp.pipeline_engine import execute_pipeline
 

@@ -47,8 +47,9 @@ def _start_committed_background_pipelines(session: SyncSession) -> None:
     except RuntimeError:
         logger.error("cannot start committed UCP pipelines without a running event loop")
         return
-    for kwargs in pending:
-        loop.create_task(_run_pipeline_in_background(**kwargs))
+    event_db_ids = {kwargs["event_db_id"] for kwargs in pending}
+    for event_db_id in event_db_ids:
+        loop.create_task(start_pending_event_deliveries(event_db_id))
 
 
 @sqlalchemy_event.listens_for(SyncSession, "after_rollback")
