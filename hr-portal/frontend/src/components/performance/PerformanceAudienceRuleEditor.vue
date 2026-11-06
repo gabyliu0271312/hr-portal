@@ -1,5 +1,5 @@
 <template>
-  <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled, 'is-scope': scopeMode, 'is-embedded': embedded }">
+  <div class="performance-audience-rule-editor" :class="{ 'is-disabled': disabled, 'is-scope': scopeMode, 'has-group-delete-gutter': scopeMode || groupDeleteOutside, 'is-embedded': embedded }">
     <div v-if="scopeMode && showScopeHeading" class="performance-audience-rule-editor__scope-heading">
       <span>人员范围</span>
       <span>满足以下任一条件</span>
@@ -107,6 +107,7 @@ const props = withDefaults(defineProps<{
   snapshotOptions?: PerformanceEvaluatorOptions
   /** 范围模式（REA 形态）：组卡灰底紧凑、组间「或」分隔、底部「添加人员范围」按钮 */
   scopeMode?: boolean
+  groupDeleteOutside?: boolean
   embedded?: boolean
   showScopeHeading?: boolean
   operatorDisabled?: boolean
@@ -124,6 +125,7 @@ const props = withDefaults(defineProps<{
   personOptions: () => [],
   employeeTypeOptions: () => [],
   scopeMode: false,
+  groupDeleteOutside: false,
   embedded: false,
   showScopeHeading: true,
   operatorDisabled: false,
@@ -225,9 +227,7 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 
 /* ===== 范围模式（REA 形态）：组卡灰底紧凑、组间「或」分隔、底部「添加人员范围」 ===== */
 /* REA 结构：外层容器（无底）包内层灰底(766)，右侧留 26px 按钮区；删除按钮在灰底外右上方与灰底顶对齐 */
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { position: relative; margin: 0; padding: 20px 38px 20px 20px; border-radius: 0; background: transparent; }
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; right: 26px; z-index: 0; border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group > * { position: relative; z-index: 1; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { margin: 0; padding: 20px; border-radius: 0; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-heading { color: var(--color-text-primary); }
 /* 组级删除按钮：REA delete-btn 灰底外右上方——right:0 使按钮右缘与外层容器右缘对齐，
    按钮左缘 = 灰底右缘(766) + 2px = REA x1212 位置，top:0 与灰底顶对齐 */
@@ -243,18 +243,22 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 /* REA 组内「添加条件」距上方条件行 8px（TextButton 自带 -2px，补足到 8px） */
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__add-condition { margin-top: 10px; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-add { margin-top: var(--spacing-2); }
-/* REA 弹窗选择器 tag：灰底 rgba(31,35,41,.1) + 深字（与页面预览区蓝底区分） */
-.performance-audience-rule-editor.is-scope :deep(.performance-select-shell__tag) { background: var(--performance-select-tag-background); color: var(--performance-select-tag-text); }
+.performance-audience-rule-editor.is-scope :deep(.performance-select-shell__selector:not(.is-plain) .performance-select-shell__tag) { background: var(--performance-select-tag-background); color: var(--performance-select-tag-text); }
 .performance-audience-rule-editor.is-scope :deep(.performance-select-shell__tag-close) { color: var(--performance-select-icon-color); }
 .performance-audience-rule-editor.is-scope.is-embedded .performance-audience-rule-editor__scope-add { margin-top: 0; }
-
-/* ===== 默认形态（被评估人）：白卡、计数由外部 slot 注入 ===== */
+/* ===== 默认形态（被评估人）：计数由外部 slot 注入 ===== */
 .performance-audience-rule-editor__group { position: relative; margin-top: var(--spacing-3); padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
 .performance-audience-rule-editor__group:first-child { margin-top: 0; }
 .performance-audience-rule-editor__group-delete { position: absolute; top: var(--spacing-2); right: var(--spacing-2); }
 .performance-audience-rule-editor__group-delete :deep(.performance-icon-button) { --performance-icon-button-size: 24px; }
 .performance-audience-rule-editor__group-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--spacing-3); padding-right: var(--spacing-7); color: var(--color-text-secondary); font: 400 var(--font-size-md)/22px var(--font-sans); }
 .performance-audience-rule-editor__group-heading-actions { display: flex; align-items: center; gap: var(--spacing-2); }
+.performance-audience-rule-editor.has-group-delete-gutter .performance-audience-rule-editor__group { padding-right: calc(var(--spacing-4) + var(--performance-scope-delete-size) + 2px); background: transparent; }
+.performance-audience-rule-editor.has-group-delete-gutter .performance-audience-rule-editor__group::before { content: ''; position: absolute; inset: 0 calc(var(--performance-scope-delete-size) + 2px) 0 0; z-index: 0; border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); pointer-events: none; }
+.performance-audience-rule-editor.has-group-delete-gutter .performance-audience-rule-editor__group > :not(.performance-audience-rule-editor__group-delete) { position: relative; z-index: 1; }
+.performance-audience-rule-editor.has-group-delete-gutter .performance-audience-rule-editor__group-delete { top: 0; right: 0; z-index: 1; width: var(--performance-scope-delete-size); height: var(--performance-scope-delete-size); }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { padding-right: calc(var(--performance-scope-delete-size) + 14px); }
+
 .performance-audience-rule-editor__condition { display: grid; grid-template-columns: 112px 96px minmax(0, 1fr) 24px; gap: var(--spacing-2); align-items: start; margin-top: var(--spacing-2); }
 .performance-audience-rule-editor__condition:first-child { margin-top: 0; }
 .performance-audience-rule-editor__condition > :deep(.performance-select-shell) { min-width: 0; }

@@ -46,6 +46,7 @@
           :employee-type-options="evaluatorOptions.employee_types"
           :hire-date-range="evaluatorOptions.hire_date_range"
           :disabled="saving"
+          group-delete-outside
           @open-options="loadEvaluatorOptions"
         >
           <template #group-heading-extra="{ index }">

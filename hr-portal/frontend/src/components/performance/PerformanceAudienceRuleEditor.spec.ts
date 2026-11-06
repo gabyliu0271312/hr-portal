@@ -346,6 +346,42 @@ describe('PerformanceAudienceRuleEditor', () => {
     wrapper.unmount()
   })
 
+  it('keeps scope field and operator labels plain while retaining muted value tags', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: {
+        modelValue: [{ conditions: [{ field: 'directLeader', operator: 'include', values: ['M1'] }] }],
+        allowedFields: ['directLeader'],
+        personOptions: [{ value: 'M1', label: '经理' }],
+        scopeMode: true,
+        minGroups: 0,
+      },
+    })
+    const selectors = wrapper.findAll('.performance-select-shell__selector')
+    expect(selectors).toHaveLength(3)
+    expect(selectors.slice(0, 2).every(selector => selector.classes().includes('is-plain'))).toBe(true)
+    expect(selectors[2].classes()).not.toContain('is-plain')
+    expect(wrapper.classes()).toContain('has-group-delete-gutter')
+    wrapper.unmount()
+  })
+
+  it('places project group deletion in a dedicated gutter without moving the group heading preview', async () => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: {
+        modelValue: [
+          { conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }] },
+          { conditions: [{ field: 'department', operator: 'exclude', values: ['集团/销售'] }] },
+        ],
+        allowedFields: ['department'],
+        groupDeleteOutside: true,
+      },
+      slots: { 'group-heading-extra': '<span class="preview">同时满足以下条件：5 人</span>' },
+    })
+    expect(wrapper.classes()).toContain('has-group-delete-gutter')
+    expect(wrapper.get('.preview').text()).toContain('5 人')
+    expect(wrapper.find('[aria-label="删除范围 1"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('exposes group-heading-extra slot for external count/preview', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
       props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }] }], allowedFields: ['department'], organizationTree },

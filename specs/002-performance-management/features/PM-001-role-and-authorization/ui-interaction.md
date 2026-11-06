@@ -39,6 +39,8 @@ PM-001 先确认授权模型和后端授权契约，不直接实现新的业务 
 - 保存完整 groups，不再提取员工并集；再次打开保留字段/操作符/值/分组。保存失败不关闭；开关、催办设置各自 PATCH，不隐式覆盖范围。
 - 已完成 77 项前端定向测试及隔离 API fixture 的真实前端交互：保存→刷新→重开→清空，未发生 page error。截图位于 ../../ui-blueprints/PM-001-T10-hrbp-empty-implemented-20261106.png、PM-001-T10-hrbp-rules-reopen-implemented-20261106.png、PM-001-T10-metric-empty-shared-svg-20261106.png，已查看；不代表真实数据库/生产验收。
 - Spec012 通用 UI 门禁已读，沿现有设计系统与 token，不引入 UCP 或数仓业务；数据库及负责人来源阻塞见 atomic-tasks.md T10，未勾选完成。
+- 2026-11-06 样式修正：HRBP scope tag 样式仅命中非 plain 选择器，字段及包含/不包含标签背景透明，人员/部门值标签保留灰底。项目被评估人通过 groupDeleteOutside 复用 HRBP 灰底绘制/删除按钮 gutter，不整体启用 scopeMode，保留人数预览、原内边距和至少一组约束。两处复用 --performance-scope-delete-size=24px，灰底右侧留出按钮宽度+2px，按钮 top/right=0；未修改 API、保存数据或权限。
+- 本次前端类型检查与生产构建通过（既有 @vueuse/core Rollup 注释警告保留）；最终双入口对照截图为 ../../ui-blueprints/PM-001-T10-scope-select-delete-alignment-implemented-20261106.png。本次定向回归 67 passed；独立 Chromium 加载当前源码组件计算样式验证：两处 plain tag=transparent、真实值 tag=rgba(31,35,41,.1)，灰底右缩26px、删除按钮24px、灰底到按钮间距2px、顶部偏移0；page errors=[]。组件级截图分别为 ../../ui-blueprints/PM-001-T10-hrbp-scope-style-corrected-20261106.png 与 ../../ui-blueprints/PM-001-T10-project-scope-style-corrected-20261106.png，均已查看；不以组件测试画布代替真实生产页面验收。
 
 ## PM-001-T09 两项任务授权权限与指定用户真实授权
 
