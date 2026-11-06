@@ -28,8 +28,20 @@
         <template v-else>
           <div v-show="isSplit || activeTab === 'current'" class="task-content">
             <div v-if="task.reconsideration_reason" class="task-notices"><PerformancePromptNotice type="info" multiline>复议理由：{{ task.reconsideration_reason }}</PerformancePromptNotice></div>
+            <!-- 复议处理：是否保持复议前结果（REA 单选项，保持原结果 → 隐藏下方绩效结果内容） -->
+            <section v-if="isReconsiderationTask" class="recon-decision">
+              <div class="recon-decision__label">是否保持复议前结果</div>
+              <PerformanceSingleSelectControl
+                class="recon-decision__radios"
+                :model-value="keepResultChoice"
+                :options="keepResultOptions"
+                interactive
+                aria-label="是否保持复议前结果"
+                @update:model-value="(value: string) => keepResultChoice = value as 'keep' | 'change'"
+              />
+            </section>
             <div v-if="task.calibration_notice" class="task-notices"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
-            <section v-if="!task.form_schema.length" class="state">暂无填写内容</section>
+            <section v-if="!task.form_schema.length || (isReconsiderationTask && keepResultChoice === 'keep')" class="state">{{ isReconsiderationTask && keepResultChoice === 'keep' ? '已保持复议前结果，不展示下方绩效结果' : '暂无填写内容' }}</section>
             <div v-else ref="draftAnchor" class="task-form-shell"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
@@ -59,6 +71,7 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
+import PerformanceSingleSelectControl from '@/components/performance/PerformanceSingleSelectControl.vue'
 import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
@@ -90,6 +103,13 @@ const selectedReference = computed(() => task.value.reference_tabs?.find(referen
 const displayMode = computed<PerformanceWriteMode>(() => mode.value === 'basicWriteMode' && splitAvailable.value ? 'basicWriteMode' : 'fullScreenMode')
 const isSplit = computed(() => displayMode.value === 'basicWriteMode')
 function changeMode(value: PerformanceWriteMode) { mode.value = value; activeTab.value = 'current' }
+/* 复议处理任务：单选项「是否保持复议前结果」联动隐藏/展示绩效结果内容（REA 运行时与模板预览一致） */
+const isReconsiderationTask = computed(() => (task.value.task_kind || props.taskKind) === 'result_reconsideration' || (task.value as any).reconsideration_reason != null)
+const keepResultOptions = [
+  { id: 'keep', label: '保持原结果' },
+  { id: 'change', label: '变更结果' },
+]
+const keepResultChoice = ref<'keep' | 'change'>('change')
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
 const canEdit = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
 let saveTimer: number | undefined
@@ -115,6 +135,7 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
       : employeeNo ? await performanceReviewApi.templateTask(taskId, employeeNo) : await performanceReviewApi.templateTask(taskId)
     task.value = loaded
     activeTab.value = 'current'
+    keepResultChoice.value = loaded.keep_result === 'keep' ? 'keep' : 'change'
     Object.keys(answers).forEach(key => delete answers[key])
     if (choice) {
       viewing.value = false
@@ -152,7 +173,9 @@ function saveDraft() {
     try {
       while (pendingSave && !disposed && !submitting.value && canEdit.value) {
         pendingSave = false
-        const serialized = JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers))
+        const writable = performanceTemplateWritableAnswers(task.value.form_schema, answers)
+        if (isReconsiderationTask.value) writable.keep_result = keepResultChoice.value
+        const serialized = JSON.stringify(writable)
         if (serialized === savedAnswers) continue
         const snapshot = JSON.parse(serialized) as Record<string, unknown>
         saveMessage.value = '正在保存…'
@@ -224,6 +247,7 @@ async function submit(overdueConfirmed = false) {
   try {
     await saveChain.catch(() => undefined)
     const payload = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers)))
+    if (isReconsiderationTask.value) payload.keep_result = keepResultChoice.value
     const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
     const result = props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
@@ -284,6 +308,10 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .task-reference-content :deep(.performance-reference-empty){flex:1 0 auto;min-height:0}
 .task-notices{display:flex;flex:none;flex-direction:column;gap:8px}
 .task-notices :deep(.performance-prompt-display),.task-notices :deep(.prompt-notice){width:100%}
+/* REA 复议处理：是否保持复议前结果（单选项，保持原结果 → 隐藏绩效结果内容） */
+.recon-decision{display:flex;flex:none;flex-direction:column;gap:8px;padding:16px 20px;border-radius:8px;background:var(--color-bg-card)}
+.recon-decision__label{margin-bottom:8px;font-size:14px;font-weight:600;line-height:22px;color:var(--color-text-primary)}
+.recon-decision__radios :deep(.performance-single-select__label){color:var(--color-text-primary)}
 .summary-tabs{display:flex;flex:none;min-width:0;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:var(--color-bg-card);overflow-x:auto}
 .summary-tabs button{position:relative;flex:none;min-height:48px;padding:0;border:0;background:transparent;color:var(--color-text-primary);font-size:16px;line-height:24px;white-space:nowrap;cursor:pointer}
 .summary-tabs button.active{color:var(--color-primary);font-weight:600}

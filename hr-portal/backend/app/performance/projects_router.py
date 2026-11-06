@@ -504,11 +504,19 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     visibility_role = await resolve_subject_visibility_role(db, context, actor_ref, member, node, project)
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     reconsideration_reason = None
+    show_result_and_modify = None
+    keep_result = None
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task
         reconsideration_reason = (await reconsideration_for_task(db, task)).reason
+        # 复议处理页：模板节点「显示绩效结果并允许修改」开关 + 处理人「是否保持复议前结果」选择（默认变更结果）
+        template = ((node.config or {}).get("template") or {})
+        show_result_and_modify = bool(template.get("show_result_and_modify", True))
+        keep_result = (task.answers or {}).get("keep_result") or "change"
     return {
         "reconsideration_reason": reconsideration_reason,
+        "show_result_and_modify": show_result_and_modify,
+        "keep_result": keep_result,
         "task_id": task.id,
         "project_id": task.project_id,
         "node_id": node.node_id,
@@ -604,6 +612,9 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     incoming_answers = payload.answers if submit else {**(current_draft if current_draft is not None else task.answers or {}), **payload.answers}
     answers = sanitize_self_summary_answers(schema, incoming_answers)
     if submit:
+        # 复议处理人「是否保持复议前结果」选择：不属填写 schema，独立持久化（默认变更结果）
+        if getattr(task, "task_kind", None) == "result_reconsideration" and payload.answers.get("keep_result") in {"keep", "change"}:
+            answers["keep_result"] = payload.answers["keep_result"]
         for section, field, index, value in iter_self_summary_field_instances(schema, answers):
             if self_summary_instance_unknown(section, answers, index):
                 continue

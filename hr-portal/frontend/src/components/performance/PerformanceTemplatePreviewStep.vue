@@ -56,12 +56,17 @@ const isResultView = computed(() => selectedNode.value?.node_type === 'result_vi
 const isCalibration = computed(() => selectedNode.value?.node_type === 'calibration')
 const isInvite = computed(() => selectedNode.value?.node_type === 'reviewer_360_invite')
 const isResultReconsideration = computed(() => selectedNode.value?.node_type === 'result_reconsideration')
+/** REA 复议 final：显示绩效结果并允许修改（模板节点级配置，取消后右栏绩效结果内容链隐藏只剩复议理由） */
+const showResultAndModify = computed(() => selectedNode.value?.show_result_and_modify !== false)
 /* REA 实测：复议处理环节的「是否保持复议前结果」默认为「变更结果」（选中态 #1456f0） */
 const keepResultOptions = [
   { id: 'keep', label: '保持原结果' },
   { id: 'change', label: '变更结果' },
 ]
-const keepResultValue = 'change'
+/** 模板预览为静态预览：复议处理人选择不在此交互（运行时由 SelfSummaryTask 提供真实单选项联动） */
+const keepResultValue = ref<'keep' | 'change'>('change')
+/** 复议环节右栏是否展示绩效结果内容链 = 节点配置开关 && 预览默认选择「变更结果」 */
+const showReconResultChain = computed(() => showResultAndModify.value && keepResultValue.value === 'change')
 
 function slotContents(node: PerformanceWorkflowNode | null, slot: 'fill' | 'reference' | 'adjustment' | 'view') {
   if (!node) return []
@@ -195,6 +200,7 @@ function setPreviewAnswer(content: PerformanceTemplateContent, fieldId: string, 
 }
 /** 切换环节时重置草稿：实例数与默认值按该环节自己的内容设置重新开始 */
 watch(selectedId, () => {
+  keepResultValue.value = 'change'
   Object.keys(previewAnswers).forEach(key => { delete previewAnswers[key] })
   Object.entries(editableSections.value).forEach(([key, sections]) => {
     previewAnswers[key] = performanceTemplateInitialAnswers(sections, {})
@@ -378,16 +384,17 @@ function contentDescription(content: PerformanceTemplateContent) {
                     <div class="ptp-recon__label">是否保持复议前结果</div>
                     <PerformanceSingleSelectControl class="ptp-recon__radios" :model-value="keepResultValue" :options="keepResultOptions" aria-label="是否保持复议前结果" />
                   </div>
-                  <div v-if="isResultReconsideration" class="ptp-result-group__title">绩效结果</div>
+                  <!-- 复议 final：仅当「显示绩效结果并允许修改」且预览默认「变更结果」时展示绩效结果区（REA 静态预览） -->
+                  <div v-if="isResultReconsideration && showReconResultChain" class="ptp-result-group__title">绩效结果</div>
 
-                  <div v-if="!rightContents.length" class="ptp-empty">
+                  <div v-if="!rightContents.length || (isResultReconsideration && !showReconResultChain)" class="ptp-empty">
                     <span class="ptp-empty__image" aria-hidden="true">
                       <svg width="120" height="120" viewBox="0 0 120 120" fill="none"><rect x="18" y="26" width="84" height="68" rx="8" fill="#f2f3f5"/><rect x="30" y="42" width="46" height="6" rx="3" fill="#e0e2e6"/><rect x="30" y="56" width="60" height="6" rx="3" fill="#e9ebee"/><rect x="30" y="70" width="36" height="6" rx="3" fill="#e9ebee"/><circle cx="94" cy="94" r="16" fill="#eff0f1"/><path d="M88 94l4 4 8-8" stroke="#c9cdd4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </span>
                     <div class="ptp-empty__desc">暂未配置供参考内容</div>
                   </div>
 
-                  <div v-else class="ptp-blocks" :class="{ 'ptp-blocks--group': isResultReconsideration }">
+                  <div v-else-if="!isResultReconsideration || showReconResultChain" class="ptp-blocks" :class="{ 'ptp-blocks--group': isResultReconsideration }">
                     <div v-for="content in rightContents" :key="content.content_id || content.id || content.name" class="ptp-block">
                       <div v-if="content.type !== 'prompt'" class="ptp-block__header">
                         <div class="ptp-block__title">{{ content.name }}</div>

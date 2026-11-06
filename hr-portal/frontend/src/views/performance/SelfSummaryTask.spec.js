@@ -139,6 +139,32 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.get('.summary-tabs .active').text()).toBe('上级评估')
   })
 
+  it('reconsideration task shows keep/change radio and hides result content on keep, submitting keep_result (REA 联动)', async () => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({
+      ...structuredClone(task), task_kind: 'result_reconsideration', entry_mode: 'template_task', node_name: '结果复议处理',
+      reconsideration_reason: '对评级有异议',
+      show_result_and_modify: true, keep_result: 'change',
+      form_schema: [{ id: 'recon', name: '复议处理结果', fields: [{ id: 'feedback', type: 'rich_text', label: '反馈说明', required: true }] }],
+    })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    // 复议理由 + 单选项 + 绩效结果内容链均渲染
+    expect(wrapper.text()).toContain('复议理由：对评级有异议')
+    expect(wrapper.get('.recon-decision__label').text()).toBe('是否保持复议前结果')
+    expect(wrapper.findAll('.recon-decision__radios .performance-single-select__option')).toHaveLength(2)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(true)
+    // 切换到「保持原结果」→ 内容链隐藏，显示保持提示
+    await wrapper.get('.recon-decision__radios input[value="keep"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('已保持复议前结果')
+    // 切回「变更结果」→ 内容链恢复；提交时携带 keep_result=change
+    await wrapper.get('.recon-decision__radios input[value="change"]').setValue(true)
+    await flushPromises()
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('renders the template-maintained title, employee context, and content hierarchy', async () => {
     const wrapper = mount(SelfSummaryTask)
     await flushPromises()

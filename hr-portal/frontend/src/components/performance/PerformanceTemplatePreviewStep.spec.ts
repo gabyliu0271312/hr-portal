@@ -134,13 +134,49 @@ describe('PerformanceTemplatePreviewStep', () => {
     await flushPromises()
     expect(wrapper.findAll('.ptp-panel')).toHaveLength(1)
     expect(wrapper.find('.ptp-tab').text()).toBe('配置查看内容')
-    expect(wrapper.find('.ptp-footer').exists()).toBe(false)
-    // 内容以查看态渲染（复用真实渲染器 readonly 态：评级/富文本走只读答案，而非填写编辑框）
+    expect(wrapper.find('.ptp-footer').exists()).toBe(false)    // 内容以查看态渲染（复用真实渲染器 readonly 态：评级/富文本走只读答案，而非填写编辑框）
     expect(wrapper.text()).toContain('绩效结果')
     expect(wrapper.findAll('.readonly-rating, .readonly-answer')).toHaveLength(1)
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
     // REA read 态：富文本显示占位文案（previewValue 生效），不再是空白
     expect(wrapper.text()).toContain('这里展示用户填写的内容')
+  })
+
+  it('reconsideration preview shows result chain by default and hides it when show_result_and_modify is off (REA 联动)', async () => {
+    const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
+    const recon = node({ node_id: 'r1', node_type: 'result_reconsideration', name: '结果复议处理', content: [reconContent] })
+    const wrapper = mountStep([recon])
+    await flushPromises()
+    // 默认（未配置/缺省 true）：复议理由 + 绩效结果标题 + 内容链均渲染
+    expect(wrapper.get('.ptp-recon__head').text()).toBe('复议理由')
+    expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
+    expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
+    wrapper.unmount()
+  })
+
+  it('reconsideration preview with show_result_and_modify=false keeps recon reason but hides result chain (REA 联动)', async () => {
+    const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
+    const recon = node({ node_id: 'r2', node_type: 'result_reconsideration', name: '结果复议处理', content: [reconContent], show_result_and_modify: false })
+    const wrapper = mountStep([recon])
+    await flushPromises()
+    expect(wrapper.get('.ptp-recon__head').text()).toBe('复议理由')
+    expect(wrapper.find('.ptp-result-group__title').exists()).toBe(false)
+    expect(wrapper.find('.ptp-block').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('reconsideration preview radio is static (preview only), default change shows result chain (REA)', async () => {
+    const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
+    const recon = node({ node_id: 'r3', node_type: 'result_reconsideration', name: '结果复议处理', content: [reconContent], show_result_and_modify: true })
+    const wrapper = mountStep([recon])
+    await flushPromises()
+    // 默认「变更结果」→ 绩效结果区展示
+    expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
+    expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
+    // 单选项为只读静态展示（模板预览不交互，运行时由 SelfSummaryTask 提供真实选择）
+    const radioInputs = wrapper.findAll('.ptp-recon__radios input')
+    expect(radioInputs.every(input => (input.element as HTMLInputElement).disabled)).toBe(true)
+    wrapper.unmount()
   })
 
   it('renders rating sample option in result view readonly state (REA 3星符合预期)', async () => {

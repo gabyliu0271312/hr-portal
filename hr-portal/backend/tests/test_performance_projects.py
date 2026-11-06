@@ -1812,6 +1812,59 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
 
 
 @pytest.mark.asyncio
+async def test_reconsideration_template_task_passes_show_result_and_keep_result(monkeypatch):
+    """复议处理任务透传模板节点开关 + 处理人选择（keep_result），供前端联动隐藏绩效结果内容"""
+    from app.performance import projects_router
+
+    task = SimpleNamespace(
+        id=9,
+        project_id=3,
+        task_kind="result_reconsideration",
+        member_snapshot_id=21,
+        target_employee_no="E001",
+        available_at=None,
+        due_at=None,
+        submitted_at=None,
+        answer_version=3,
+        answers={"keep_result": "keep"},
+    )
+    node = SimpleNamespace(node_id="recon", name="结果复议处理", config={"template": {
+        "show_result_and_modify": False,
+        "content": [{
+            "content_id": "recon-result", "type": "work_summary", "name": "复议处理结果",
+            "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}],
+        }],
+    }})
+    member = SimpleNamespace(display_name="刘琦", company_org="产品中心", organization_ref="产品中心", direct_supervisor_employee_no="M001")
+    page_name = None
+
+    async def fake_task(*_args):
+        return task, node
+
+    class Db:
+        def __init__(self):
+            self.values = [member, "刘芝萍"]
+
+        async def scalar(self, _statement):
+            return self.values.pop(0)
+
+        async def get(self, _model, _id):
+            return SimpleNamespace(settings={"flow_settings": {"node_times": {"recon": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}})
+
+    from app.performance import reconsideration_service
+    async def fake_reconsideration(db, t, **kwargs):
+        return SimpleNamespace(reason="对评级有异议")
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", fake_reconsideration)
+
+    result = await projects_router.get_template_task(9, context(), Db())
+    assert result["task_kind"] == "result_reconsideration"
+    assert result["reconsideration_reason"] == "对评级有异议"
+    assert result["show_result_and_modify"] is False
+    assert result["keep_result"] == "keep"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("answer", ["新内容", '<div class="ace-line list-div"><ol class="list-number1 r-list r-list-number" start="2"><li data-start="2"><strong>第二项</strong></li></ol></div>'])
 async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch, answer):
     from app.performance import projects_router
@@ -1859,6 +1912,65 @@ async def test_self_summary_partial_draft_merges_existing_answers(monkeypatch, a
     assert result["answers"]["work"] == "原内容"
     assert result["has_draft"] is True
     assert result["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_submit_persists_keep_result(monkeypatch):
+    """复议处理人选择「保持原结果/变更结果」随提交持久化（answers.keep_result），前端联动读取"""
+    from app.performance import projects_router
+
+    task = SimpleNamespace(
+        id=9,
+        project_id=3,
+        task_kind="result_reconsideration",
+        member_snapshot_id=21,
+        node_snapshot_id=31,
+        target_employee_no="E001",
+        cycle_ref="cycle:one",
+        available_at=None,
+        due_at=None,
+        submitted_at=None,
+        answer_version=1,
+        status="pending",
+        completed_at=None,
+        answers={"keep_result": "change"},
+    )
+    node = SimpleNamespace(node_id="recon", config={"template": {"content": [{
+        "content_id": "recon", "type": "work_summary", "name": "复议处理结果",
+        "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}],
+    }]}})
+
+    async def fake_task(*_args):
+        return task, node
+
+    class Db:
+        async def get(self, _model, _id):
+            return None
+
+        async def commit(self):
+            return None
+
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    async def allow_overdue(*_args):
+        return True
+    monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
+    from app.performance import reconsideration_service
+    async def fake_reconsideration(db, t, **kwargs):
+        return SimpleNamespace(id=1, reason="对评级有异议")
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", fake_reconsideration)
+    async def fake_reconsideration_tasks(db, appeal):
+        return []
+    monkeypatch.setattr(reconsideration_service, "reconsideration_tasks", fake_reconsideration_tasks)
+    result = await projects_router._save_self_summary(
+        9,
+        projects_router.SelfSummaryAnswersPayload(answers={"feedback": "<p>已变更</p>", "keep_result": "keep"}, version=1),
+        True,
+        context(),
+        Db(),
+    )
+
+    assert task.answers["keep_result"] == "keep"
+    assert task.answers["feedback"] == "<p>已变更</p>"
 
 
 @pytest.mark.asyncio
