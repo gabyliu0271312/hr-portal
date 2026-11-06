@@ -17,7 +17,7 @@ export interface WorkSummaryItemSettings {
   allowModify?: boolean
 }
 
-const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant; disabled?: boolean; allowViewLocked?: boolean; referencePrompt?: boolean }>(), {
+const props = withDefaults(defineProps<{ modelValue: WorkSummaryItemSettings; variant?: ItemSettingsVariant; disabled?: boolean; writeDisabled?: boolean; allowViewLocked?: boolean; referencePrompt?: boolean }>(), {
   variant: 'work-summary',
   allowViewLocked: false,
   referencePrompt: false,
@@ -30,11 +30,12 @@ const options = computed(() => [
   ...(capabilities.value.viewResults ? [{ value: 'view', label: '在此环节查看被评估人的填写结果' }] : []),
 ])
 const checkedColor = '#336df4'
-const allowModifyDisabled = computed(() => props.disabled || props.modelValue.mode !== 'fill')
+const writeLocked = computed(() => props.disabled || props.writeDisabled)
+const allowModifyDisabled = computed(() => writeLocked.value || props.modelValue.mode !== 'fill')
 const isCalibrationRating = computed(() => props.variant === 'calibration-rating')
 
 function update(patch: Partial<WorkSummaryItemSettings>) {
-  if (props.disabled || (patch.allowModify !== undefined && allowModifyDisabled.value)) return
+  if (props.disabled || (writeLocked.value && Object.keys(patch).some(key => !['hideName', 'hideDescription', 'allowView', 'onlyWhenFilling'].includes(key))) || (patch.allowModify !== undefined && allowModifyDisabled.value)) return
   const { mode, required, ...editable } = patch
   emit('update:modelValue', { ...props.modelValue, ...editable, ...(!capabilities.value.modeDisabled && mode !== undefined ? { mode } : {}), ...(!capabilities.value.requiredDisabled && required !== undefined ? { required } : {}) })
 }
@@ -61,19 +62,19 @@ function update(patch: Partial<WorkSummaryItemSettings>) {
     <fieldset v-if="!capabilities.allowView && (capabilities.viewResults || capabilities.mode)" class="work-summary-setting-group work-summary-view-setting">
       <legend>填写设置</legend>
       <div v-if="capabilities.modeDisabled" class="work-summary-inherited-setting"><div class="work-summary-inherited-setting-title"><span>引用设置</span><PerformanceInfoPopover content="以下配置为在上级评估环节中的对应设置，不可修改" :width="272" /></div></div>
-      <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" :disabled="disabled || capabilities.modeDisabled" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
+      <PerformanceRadioGroup :model-value="modelValue.mode" :options="options" name="work-summary-item-mode" aria-label="填写设置" :disabled="writeLocked || capabilities.modeDisabled" @update:model-value="update({ mode: $event as WorkSummaryItemSettings['mode'] })" />
       <PerformanceCheckbox v-if="capabilities.allowModify" class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="allowModifyDisabled" @update:model-value="update({ allowModify: $event })" />
     </fieldset>
     <fieldset v-if="capabilities.required && (!capabilities.mode || modelValue.mode === 'fill')" class="work-summary-setting-group work-summary-required-setting">
       <legend>必填项设置</legend>
-      <PerformanceCheckbox :model-value="modelValue.required" label="必填" :checked-color="checkedColor" :disabled="disabled || capabilities.requiredDisabled" @update:model-value="update({ required: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.required" label="必填" :checked-color="checkedColor" :disabled="writeLocked || capabilities.requiredDisabled" @update:model-value="update({ required: $event })" />
     </fieldset>
     <fieldset v-if="isCalibrationRating" class="work-summary-setting-group work-summary-rating-setting">
       <legend>评级设置</legend>
-      <PerformanceCheckbox class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="props.disabled" @update:model-value="update({ allowModify: $event })" />
-      <PerformanceRatingLevelRuleSettings :model-value="modelValue.levelRulesEnabled === true" :disabled="props.disabled" @update:model-value="update({ levelRulesEnabled: $event })" />
+      <PerformanceCheckbox class="work-summary-allow-modify-setting" :model-value="modelValue.allowModify !== false" label="允许修改" :checked-color="checkedColor" :disabled="writeLocked" @update:model-value="update({ allowModify: $event })" />
+      <PerformanceRatingLevelRuleSettings :model-value="modelValue.levelRulesEnabled === true" :disabled="writeLocked" @update:model-value="update({ levelRulesEnabled: $event })" />
     </fieldset>
-    <PerformanceRatingLevelRuleSettings v-if="capabilities.levelRules && !isCalibrationRating" class="work-summary-level-rules" :model-value="modelValue.levelRulesEnabled === true" @update:model-value="update({ levelRulesEnabled: $event })" />
+    <PerformanceRatingLevelRuleSettings v-if="capabilities.levelRules && !isCalibrationRating" class="work-summary-level-rules" :model-value="modelValue.levelRulesEnabled === true" :disabled="writeLocked" @update:model-value="update({ levelRulesEnabled: $event })" />
   </div>
 </template>
 

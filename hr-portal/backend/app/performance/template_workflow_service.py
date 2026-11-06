@@ -5,11 +5,14 @@ from copy import deepcopy
 import re
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
-from app.performance.models import PerformanceReviewQuestion, PerformanceTemplateWorkflow
+from app.performance.models import (
+    PerformanceCycle, PerformanceProject, PerformanceProjectNodeSnapshot,
+    PerformanceReviewQuestion, PerformanceTemplate, PerformanceTemplateWorkflow,
+)
 from app.performance.self_summary_service import review_question_ids
 from app.performance.assessment_roles import ROLE_DOTTED_MANAGER, normalize_executor_identity
 from app.performance.executor_config import normalize_result_reconsideration_executor
@@ -41,6 +44,158 @@ class TemplateWorkflowValidationError(ValueError):
     def __init__(self, message: str, *, node_id: str | None = None):
         super().__init__(message)
         self.node_id = node_id
+
+
+class TemplateWorkflowLockedError(ValueError):
+    pass
+
+
+_DISPLAY_KEYS = {"hideName", "hideDescription", "allowView"}
+_PROMPT_DISPLAY_KEYS = {"title", "content", "color", "showIcon", "allowView", "onlyWhenFilling"}
+
+
+def _without_display(settings: dict | None, defaults: dict | None = None, *, reference=False) -> dict:
+    result = {**(defaults or {}), **deepcopy(settings or {})}
+    for key in _DISPLAY_KEYS | ({"onlyWhenFilling"} if reference else set()):
+        result.pop(key, None)
+    return result
+
+
+def _locked_content(content: dict) -> dict:
+    result = deepcopy(content)
+    result["content_id"] = _content_id(content)
+    result.setdefault("content_slot", "fill")
+    if result.get("id") == result["content_id"]:
+        result.pop("id")
+    if content.get("type") in {"work_summary", "rating", "custom", "prompt"}:
+        result.pop("name", None)
+    if isinstance(result.get("prompt"), dict):
+        for key in _PROMPT_DISPLAY_KEYS:
+            result["prompt"].pop(key, None)
+    result["settings"] = _without_display(result.get("settings"), {"allowMultiple": False})
+    for item in result.get("items") or []:
+        item.pop("label", None)
+        item.pop("hint", None)
+        item["settings"] = _without_display(item.get("settings"), {"mode": "fill", "required": True})
+        if isinstance(item.get("prompt"), dict):
+            for key in _PROMPT_DISPLAY_KEYS:
+                item["prompt"].pop(key, None)
+    reference = result.get("reference_settings")
+    if isinstance(reference, dict):
+        reference.pop("page_name", None)
+        overrides = reference.get("content_settings") or {}
+        for content_id, override in list(overrides.items()):
+            root = _without_display(override.get("root"), reference=True)
+            items = {key: remaining for key, value in (override.get("items") or {}).items() if (remaining := _without_display(value, reference=True))}
+            remaining = {key: value for key, value in override.items() if key not in {"root", "items"}}
+            if root:
+                remaining["root"] = root
+            if items:
+                remaining["items"] = items
+            if remaining:
+                overrides[content_id] = remaining
+            else:
+                overrides.pop(content_id)
+        if not overrides:
+            reference.pop("content_settings", None)
+        if not reference:
+            result.pop("reference_settings", None)
+    return result
+
+
+def _locked_nodes(nodes: list[dict], library: list[dict]) -> list[dict]:
+    result = []
+    for raw in normalize_workflow_nodes(nodes):
+        node = _materialize_node_contents(raw, library)
+        bindings = node.get("content_bindings") or {}
+        if not bindings:
+            for content in node.get("content") or []:
+                bindings.setdefault(content.get("content_slot") or "fill", []).append(_content_id(content))
+        node["content_bindings"] = bindings
+        node["content"] = [_locked_content(content) for content in node.get("content") or []]
+        for key in ("appeal_prompt_content", "appeal_reason_instruction"):
+            node.pop(key, None)
+        calibration = node.get("calibration_settings") or {}
+        for content_id, override in list(calibration.items()):
+            root = _without_display(override.get("settings"))
+            items = {}
+            for item_id, settings in (override.get("items") or {}).items():
+                remaining = _without_display(settings, {"allowModify": True})
+                if remaining != {"allowModify": True}:
+                    items[item_id] = remaining
+            remaining = {key: value for key, value in override.items() if key not in {"settings", "items"}}
+            if root:
+                remaining["settings"] = root
+            if items:
+                remaining["items"] = items
+            if remaining:
+                calibration[content_id] = remaining
+            else:
+                calibration.pop(content_id)
+        node["calibration_settings"] = calibration
+        result.append(node)
+    return result
+
+
+_MISSING_DISPLAY = object()
+
+
+def _sync_display(target: dict, source: dict, keys: set[str], previous: dict) -> None:
+    for key in keys:
+        default = {"hideName": False, "hideDescription": False, "allowView": True, "onlyWhenFilling": False, "showIcon": True}.get(key, _MISSING_DISPLAY)
+        if source.get(key, default) == previous.get(key, default):
+            continue
+        if key in source:
+            target[key] = deepcopy(source[key])
+        else:
+            target.pop(key, None)
+
+
+def _sync_settings_display(target: dict, source: dict, previous: dict) -> None:
+    settings = deepcopy(target.get("settings") or {})
+    _sync_display(settings, source.get("settings") or {}, _DISPLAY_KEYS, previous.get("settings") or {})
+    if settings != (target.get("settings") or {}):
+        target["settings"] = settings
+
+
+def _sync_content_display(target: dict, source: dict, previous: dict) -> None:
+    if source.get("type") in {"work_summary", "rating", "custom", "prompt"}:
+        _sync_display(target, source, {"name"}, previous)
+    _sync_settings_display(target, source, previous)
+    if isinstance(source.get("prompt"), dict) and isinstance(target.get("prompt"), dict):
+        _sync_display(target["prompt"], source["prompt"], _PROMPT_DISPLAY_KEYS, previous.get("prompt") or {})
+    source_items = {str(item.get("id")): item for item in source.get("items") or []}
+    previous_items = {str(item.get("id")): item for item in previous.get("items") or []}
+    for item in target.get("items") or []:
+        item_id = str(item.get("id"))
+        other = source_items.get(item_id)
+        old = previous_items.get(item_id)
+        if other is None or old is None:
+            continue
+        _sync_display(item, other, {"label", "hint"}, old)
+        _sync_settings_display(item, other, old)
+        if isinstance(item.get("prompt"), dict) and isinstance(other.get("prompt"), dict):
+            _sync_display(item["prompt"], other["prompt"], _PROMPT_DISPLAY_KEYS, old.get("prompt") or {})
+    if isinstance(source.get("reference_settings"), dict) or isinstance(target.get("reference_settings"), dict):
+        reference = deepcopy(target.get("reference_settings") or {})
+        incoming = source.get("reference_settings") or {}
+        old_reference = previous.get("reference_settings") or {}
+        _sync_display(reference, incoming, {"page_name"}, old_reference)
+        overrides = reference.setdefault("content_settings", {})
+        incoming_overrides = incoming.get("content_settings") or {}
+        old_overrides = old_reference.get("content_settings") or {}
+        for content_id in overrides.keys() | incoming_overrides.keys():
+            local = overrides.setdefault(content_id, {})
+            other = incoming_overrides.get(content_id) or {}
+            old = old_overrides.get(content_id) or {}
+            _sync_display(local.setdefault("root", {}), other.get("root") or {}, _DISPLAY_KEYS | {"onlyWhenFilling"}, old.get("root") or {})
+            items = local.setdefault("items", {})
+            incoming_items = other.get("items") or {}
+            old_items = old.get("items") or {}
+            for item_id in items.keys() | incoming_items.keys():
+                _sync_display(items.setdefault(item_id, {}), incoming_items.get(item_id) or {}, _DISPLAY_KEYS | {"onlyWhenFilling"}, old_items.get(item_id) or {})
+        if incoming != old_reference:
+            target["reference_settings"] = reference
 
 
 def default_workflow_nodes() -> list[dict]:
@@ -537,6 +692,66 @@ class PerformanceTemplateWorkflowService:
             )
         ).scalar_one_or_none()
 
+    async def usage_summary(self, template_id: int) -> tuple[int, int]:
+        cycles = await self.db.scalar(select(func.count()).select_from(PerformanceCycle).where(or_(
+            PerformanceCycle.template_id == template_id,
+            PerformanceCycle.template_ids.contains([template_id]),
+        )))
+        projects = await self.db.scalar(select(func.count()).select_from(PerformanceProject).where(
+            PerformanceProject.settings["template_id"].as_string() == str(template_id),
+        ))
+        return int(cycles or 0), int(projects or 0)
+
+    async def lock_usage(self, template_id: int) -> None:
+        await self.db.execute(select(PerformanceTemplate.id).where(
+            PerformanceTemplate.id == template_id,
+        ).with_for_update())
+        await self.db.execute(select(PerformanceTemplateWorkflow).where(
+            PerformanceTemplateWorkflow.template_id == template_id,
+        ).with_for_update().execution_options(populate_existing=True))
+
+    async def sync_project_display(self, template_id: int, nodes: list[dict], library: list[dict], previous_nodes: list[dict], previous_library: list[dict]) -> None:
+        from app.performance.calibration_service import calibration_template
+
+        await self.db.execute(select(PerformanceProject.id).where(
+            PerformanceProject.settings["template_id"].as_string() == str(template_id),
+            PerformanceProject.status == "STARTED",
+        ).order_by(PerformanceProject.id).with_for_update())
+        snapshots = (await self.db.execute(select(PerformanceProjectNodeSnapshot).join(
+            PerformanceProject, PerformanceProject.id == PerformanceProjectNodeSnapshot.project_id,
+        ).where(
+            PerformanceProject.settings["template_id"].as_string() == str(template_id),
+            PerformanceProject.status == "STARTED",
+        ).order_by(PerformanceProjectNodeSnapshot.id).with_for_update(of=PerformanceProjectNodeSnapshot)
+          .execution_options(populate_existing=True))).scalars().all()
+        by_id = {node["node_id"]: node for node in nodes}
+        old_by_id = {node["node_id"]: _materialize_node_contents(node, previous_library) for node in normalize_workflow_nodes(previous_nodes)}
+        old_final = next((node for node in old_by_id.values() if node.get("include_final_result")), None)
+        final = next((node for node in nodes if node.get("include_final_result")), None)
+        for snapshot in snapshots:
+            source = by_id.get(snapshot.node_id)
+            previous = old_by_id.get(snapshot.node_id)
+            if source is None or previous is None:
+                continue
+            if source["node_type"] == "calibration" and final is not None and old_final is not None:
+                source = calibration_template(source, final, library)
+                previous = calibration_template(previous, old_final, previous_library)
+            config = deepcopy(snapshot.config or {})
+            target = config.get("template")
+            if not isinstance(target, dict):
+                continue
+            _sync_display(target, source, {"appeal_prompt_content", "appeal_reason_instruction"}, previous)
+            contents = {(_content_id(content), content.get("content_slot") or "fill"): content for content in source.get("content") or []}
+            old_contents = {(_content_id(content), content.get("content_slot") or "fill"): content for content in previous.get("content") or []}
+            for content in target.get("content") or []:
+                key = (_content_id(content), content.get("content_slot") or "fill")
+                other = contents.get(key)
+                old = old_contents.get(key)
+                if other is not None and old is not None:
+                    _sync_content_display(content, other, old)
+            if config != snapshot.config:
+                snapshot.config = config
+
     async def get_content_library(self, template_id: int) -> list[dict]:
         record = await self.get_record(template_id)
         if record is None:
@@ -548,16 +763,16 @@ class PerformanceTemplateWorkflowService:
             for content in (node.get("content") or [])
             if not ((content.get("content_slot") or "fill") == "reference" or content.get("type") == "reference")
         ]
-        # 节点上物化的定义优先，库补足未被任何环节引用的内容（读取时自愈历史数据）。
-        return _merge_content_library(library, legacy_contents)
+        return _fill_missing_contents(library, legacy_contents)
 
     async def get_nodes(self, template_id: int) -> tuple[list[dict], int, int]:
         record = await self.get_record(template_id)
+        cycle_count, project_count = await self.usage_summary(template_id)
         if record is None:
-            return default_workflow_nodes(), 0, 0
+            return default_workflow_nodes(), cycle_count, project_count
         library = await self.get_content_library(template_id)
         nodes = [_materialize_node_contents(node, library) for node in normalize_workflow_nodes(record.nodes)]
-        return nodes, record.cycle_count, record.project_count
+        return nodes, cycle_count, project_count
 
     async def save_nodes(
         self,
@@ -571,7 +786,10 @@ class PerformanceTemplateWorkflowService:
         normalized = normalize_workflow_nodes(nodes)
         if sum(node["include_final_result"] for node in normalized) != 1:
             raise TemplateWorkflowValidationError("请且仅请选择一个环节作为最终结果")
+        await self.lock_usage(template_id)
         record = await self.get_record(template_id)
+        cycle_count, project_count = await self.usage_summary(template_id)
+        used = cycle_count > 0 or project_count > 0
         existing_nodes = {
             str(node.get("node_id")): node
             for node in (record.nodes if record is not None else [])
@@ -603,6 +821,22 @@ class PerformanceTemplateWorkflowService:
                     grouped.setdefault(slot, []).append(_content_id(content))
                 bindings = grouped
             node["content_bindings"] = bindings
+        if used:
+            previous_nodes = (record.nodes if record is not None else None) or default_workflow_nodes()
+            previous_library = await self.get_content_library(template_id)
+            if content_library is not None and (
+                [_content_id(value) for value in incoming_library] != [_content_id(value) for value in previous_library]
+                or [_locked_content(value) for value in incoming_library] != [_locked_content(value) for value in previous_library]
+            ):
+                raise TemplateWorkflowLockedError("模板已被使用，不能修改内容结构或填写配置")
+            if _locked_nodes(previous_nodes, previous_library) != _locked_nodes(normalized, library):
+                raise TemplateWorkflowLockedError("模板已被使用，不能修改流程结构或填写配置")
+            previous_by_id = {node["node_id"]: node for node in _locked_nodes(previous_nodes, previous_library)}
+            for node in normalized:
+                previous_contents = {(_content_id(content), content.get("content_slot") or "fill"): content for content in previous_by_id[node["node_id"]]["content"]}
+                for content in node.get("content") or []:
+                    if _locked_content(content) != previous_contents.get((_content_id(content), content.get("content_slot") or "fill")):
+                        raise TemplateWorkflowLockedError("模板已被使用，不能修改内容结构或填写配置")
         _validate_result_view_contents(normalized, library)
         normalized = [_materialize_node_contents(node, library) for node in normalized]
         _validate_reference_contents(normalized)
@@ -614,7 +848,7 @@ class PerformanceTemplateWorkflowService:
                 node["content_region_order"] = [value for value in previous if value in expected] + [value for value in expected if value not in previous]
             _validate_content_region_order(node)
         for node in normalized:
-            library = _merge_content_library(library, [content for content in (node.get("content") or []) if not ((content.get("content_slot") or "fill") == "reference" and content.get("type") == "reference" and content.get("reference_kind") == "node")])
+            library = _fill_missing_contents(library, [content for content in (node.get("content") or []) if not ((content.get("content_slot") or "fill") == "reference" or content.get("type") == "reference")])
         question_ids = review_question_ids([normalized, library])
         if question_ids:
             existing_question_ids = set((await self.db.execute(
@@ -645,6 +879,10 @@ class PerformanceTemplateWorkflowService:
                 after_state={"nodes": normalized},
             )
         )
+        record.cycle_count = cycle_count
+        record.project_count = project_count
+        if used:
+            await self.sync_project_display(template_id, normalized, library, previous_nodes, previous_library)
         await self.db.commit()
         await self.db.refresh(record)
         return record

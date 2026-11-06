@@ -343,6 +343,7 @@ class PerformanceObjectAuthorizationService:
             PerformanceNodeTask.target_employee_no == request.employee_no,
             task_handler_condition(request.actor_ref),
             PerformanceNodeTask.phase_id == request.phase_id,
+            PerformanceNodeTask.revoked_at.is_(None),
             PerformanceProjectNodeSnapshot.node_id == request.node_id,
         ))).first()
         if row is None or not calibration_task_scope(*row):

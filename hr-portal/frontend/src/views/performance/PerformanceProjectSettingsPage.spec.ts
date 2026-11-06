@@ -16,6 +16,8 @@ vi.mock('@/api/performance', async () => {
 
 import PerformanceProjectSettingsPage from './PerformanceProjectSettingsPage.vue'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
+import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
+import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
 
 function page(realDialog = false) {
   return mount(PerformanceProjectSettingsPage, {
@@ -186,7 +188,7 @@ describe('project snapshot audience filters', () => {
     expect(editor.props('modelValue')).toEqual(rules.groups)
     expect(mocks.previewEvaluators).toHaveBeenCalledWith(1, expect.objectContaining({ evaluator_rules: rules }))
     await button(wrapper, '下一步').trigger('click')
-    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ evaluator_rules: rules }))
+    expect(mocks.update).not.toHaveBeenCalled()
     wrapper.unmount()
     const reopened = page()
     await flushPromises()
@@ -239,6 +241,91 @@ describe('project snapshot audience filters', () => {
   })
 })
 
+describe('CR-013 project partial saves', () => {
+  async function started() {
+    const project = { ...await mocks.get(), template_id: 11, status: 'STARTED', calibration_base_digest: 'base-1', flow_settings: {
+      node_settings: {
+        calibration: { calibration: { force_distribution_enabled: false, phases: [{ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }] } },
+        result: { result_view: { automatic_enabled: true, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' } },
+      },
+      node_times: {
+        calibration: { start_at: '2027-01-01T01:00:00Z', end_at: '2027-01-02T01:00:00Z' },
+        result: { start_at: '2027-01-03T01:00:00Z', end_at: '', appeal_deadline: '2027-01-04T01:00:00Z' },
+      },
+    } }
+    mocks.get.mockResolvedValue(project)
+    mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'calibration', node_type: 'calibration', name: '校准', order: 1 }, { node_id: 'result', node_type: 'result_view', name: '结果', order: 2 }] })
+    return project
+  }
+  it('does not PATCH historical started projects across every unchanged step', async () => {
+    await started()
+    const wrapper = page(); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('项目设置已保存')
+    wrapper.unmount()
+  })
+  it('preserves server canonical historical IDs in both baselines and explicit rule deletion', async () => {
+    const project = await started()
+    const canonical = JSON.parse(JSON.stringify(project))
+    canonical.flow_settings.node_settings.calibration.calibration.phases = [{ phase_id: 'phase-1', rules: [
+      { ...project.flow_settings.node_settings.calibration.calibration.phases[0].rules[0], rule_id: 'rule-canonical-first' },
+      { ...project.flow_settings.node_settings.calibration.calibration.phases[0].rules[0], rule_id: 'rule-canonical-second' },
+    ] }]
+    mocks.get.mockResolvedValue(canonical)
+    const wrapper = page(); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    const flow = wrapper.getComponent(PerformanceProjectFlowSettings)
+    expect(flow.props('savedFlowSettings')?.node_settings.calibration.calibration?.phases[0].rules[0].rule_id).toBe('rule-canonical-first')
+    expect(flow.props('baselineFlowSettings')?.node_settings.calibration.calibration?.phases[0].rules[0].rule_id).toBe('rule-canonical-first')
+    expect(mocks.update).not.toHaveBeenCalled()
+    const changed = JSON.parse(JSON.stringify(flow.props('modelValue')))
+    changed.node_settings.calibration.calibration.phases[0].rules.splice(0, 1)
+    flow.vm.$emit('update:modelValue', changed)
+    await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({
+      calibration_base_digest: 'base-1',
+      calibration_operations: [{ operation: 'delete_rule', node_id: 'calibration', phase_id: 'phase-1', rule_id: 'rule-canonical-first' }],
+    }))
+    expect(mocks.update.mock.calls[0][1].flow_settings.node_settings.calibration.calibration.phases[0].rules[0].rule_id).toBe('rule-canonical-second')
+    wrapper.unmount()
+  })
+  it('omits flow settings for unrelated edits', async () => {
+    await started()
+    const wrapper = page(); await flushPromises()
+    wrapper.getComponent(PerformanceAudienceRuleEditor).vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, { evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }] } })
+    wrapper.unmount()
+  })
+  it('updates the parent baseline after immediate drawer saves', async () => {
+    const project = await started()
+    const wrapper = page(); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    const flow = wrapper.getComponent(PerformanceProjectFlowSettings)
+    flow.vm.$emit('saved', { ...project, calibration_base_digest: 'base-2' }, project.flow_settings)
+    await flushPromises()
+    expect(flow.props('calibrationBaseDigest')).toBe('base-2')
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(PerformanceProjectTimeSettings).exists()).toBe(true)
+    wrapper.unmount()
+  })
+  it('blocks next step while a new calibration phase is still a local draft', async () => {
+    await started()
+    const wrapper = page(); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    wrapper.getComponent(PerformanceProjectFlowSettings).vm.$emit('pending-change', true)
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请先补齐时间并保存新增校准阶段')
+    wrapper.unmount()
+  })
+})
+
 describe('project administrator person picker', () => {
   it('loads cycle snapshot people and submits the chosen names', async () => {
     mocks.get.mockResolvedValue({ ...await mocks.get(), administrators: [] })
@@ -268,7 +355,8 @@ describe('project administrator person picker', () => {
     expect(wrapper.get('.performance-select-shell__content').text()).toContain('王五')
     await button(wrapper, '确定').trigger('click')
     await flushPromises()
-    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ administrators: ['王五'] }))
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.find('.administrator-tags').exists()).toBe(true)
     wrapper.unmount()
   })
 })
@@ -308,9 +396,7 @@ describe('project data manager display and editor', () => {
     expect(wrapper.get('.administrator-tags').text()).toBe('项目管理员')
     await button(wrapper, '确定').trigger('click')
     await flushPromises()
-    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({
-      administrators: ['张三'], data_managers: ['HRBP'], scope_limited: true, scope_rules: project.scope_rules,
-    }))
+    expect(mocks.update).toHaveBeenCalledWith(2, { data_managers: ['HRBP'] })
     expect(wrapper.get('.administrator-tags').text()).toBe('HRBP')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')

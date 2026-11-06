@@ -13,7 +13,7 @@ def task_handler_condition(actor_ref):
     )
     transfer = exists(select(PerformanceNodeTaskAuthorization.id).where(*active, PerformanceNodeTaskAuthorization.authorization_type == "TRANSFER"))
     delegated = exists(select(PerformanceNodeTaskAuthorization.id).where(*active, PerformanceNodeTaskAuthorization.recipient_employee_no == actor_ref))
-    return or_(and_(PerformanceNodeTask.handler_ref == actor_ref, ~transfer), delegated)
+    return or_(and_(PerformanceNodeTask.handler_ref == actor_ref, PerformanceNodeTask.revoked_at.is_(None), ~transfer), and_(PerformanceNodeTask.revoked_at.is_(None), delegated))
 
 
 def effective_handlers(original_handler, authorizations):

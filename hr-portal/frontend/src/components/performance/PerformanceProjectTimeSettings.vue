@@ -50,6 +50,8 @@ const props = withDefaults(defineProps<{
 }>(), { modelValue: () => ({}), nodeSettings: () => ({}), loading: false, error: '' })
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, PerformanceProjectNodeTime>] }>()
 const draft = ref<Record<string, PerformanceProjectNodeTime>>(cloneTimes(props.modelValue))
+props.nodes.forEach(ensureNode)
+syncCalibrationPhaseTimes(props.nodeSettings, draft.value)
 const lastEmitted = ref(JSON.stringify(draft.value))
 
 function cloneTimes(value?: Record<string, PerformanceProjectNodeTime>) { return JSON.parse(JSON.stringify(value || {})) as Record<string, PerformanceProjectNodeTime> }

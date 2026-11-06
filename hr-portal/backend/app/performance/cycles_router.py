@@ -364,6 +364,9 @@ class CycleSummary(BaseModel):
     period_subtype: str | None
     template_id: int | None
     template_ids: list[int]
+    used_template_ids: list[int]
+    leaver_range_editable: bool
+    leaver_range_editable_reason: str | None = None
     start_at: datetime
     end_at: datetime
     lock_rule: str
@@ -464,8 +467,12 @@ async def _assert_people_permission(context: PerformanceAccessContext) -> None:
 
 
 def _summary(cycle: PerformanceCycle, people_count: int, department_count: int, projects: list[dict[str, Any]]) -> CycleSummary:
+    leaver_range_editable = datetime.now(timezone.utc) < normalize_cycle_datetime(cycle.start_at)
     return CycleSummary(
         **PerformanceCycleService.serialize(cycle),
+        used_template_ids=sorted({int(project["template_id"]) for project in projects if str(project.get("template_id") or "").isdigit()}),
+        leaver_range_editable=leaver_range_editable,
+        leaver_range_editable_reason=None if leaver_range_editable else "绩效环节已开始，不能修改离职人员参评范围",
         people_count=people_count,
         department_count=department_count,
         project_count=len(projects),

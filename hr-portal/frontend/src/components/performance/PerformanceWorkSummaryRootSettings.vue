@@ -8,10 +8,11 @@ export interface WorkSummaryRootSettings {
   allowView?: boolean
 }
 
-const props = withDefaults(defineProps<{ modelValue: WorkSummaryRootSettings; allowMultipleEnabled?: boolean; allowUnknownEnabled?: boolean; allowViewEnabled?: boolean }>(), { allowMultipleEnabled: true, allowUnknownEnabled: false, allowViewEnabled: false })
+const props = withDefaults(defineProps<{ modelValue: WorkSummaryRootSettings; disabled?: boolean; writeDisabled?: boolean; allowMultipleEnabled?: boolean; allowUnknownEnabled?: boolean; allowViewEnabled?: boolean }>(), { allowMultipleEnabled: true, allowUnknownEnabled: false, allowViewEnabled: false })
 const emit = defineEmits<{ 'update:modelValue': [value: WorkSummaryRootSettings] }>()
 
 function update(patch: Partial<WorkSummaryRootSettings>) {
+  if (props.disabled || (props.writeDisabled && Object.keys(patch).some(key => !['hideDescription', 'allowView'].includes(key)))) return
   emit('update:modelValue', { ...props.modelValue, ...patch })
 }
 </script>
@@ -19,22 +20,22 @@ function update(patch: Partial<WorkSummaryRootSettings>) {
 <template>
   <div class="work-summary-root-settings" aria-label="工作总结整体设置">
     <fieldset v-if="allowViewEnabled" class="work-summary-setting-group work-summary-view-setting">
-      <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" checked-color="#336df4" @update:model-value="update({ allowView: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.allowView !== false" label="允许查看" checked-color="#336df4" :disabled="disabled" @update:model-value="update({ allowView: $event })" />
       <div v-if="modelValue.allowView !== false" class="work-summary-view-options">
-        <PerformanceCheckbox :model-value="modelValue.hideDescription" label="隐藏描述" checked-color="#336df4" @update:model-value="update({ hideDescription: $event })" />
+        <PerformanceCheckbox :model-value="modelValue.hideDescription" label="隐藏描述" checked-color="#336df4" :disabled="disabled" @update:model-value="update({ hideDescription: $event })" />
       </div>
     </fieldset>
     <fieldset v-else class="work-summary-setting-group">
       <legend>显示设置</legend>
-      <PerformanceCheckbox :model-value="modelValue.hideDescription" label="隐藏描述" checked-color="#336df4" @update:model-value="update({ hideDescription: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.hideDescription" label="隐藏描述" checked-color="#336df4" :disabled="disabled" @update:model-value="update({ hideDescription: $event })" />
     </fieldset>
     <fieldset v-if="allowMultipleEnabled" class="work-summary-setting-group">
       <legend>填写设置</legend>
-      <PerformanceCheckbox :model-value="modelValue.allowMultiple" label="允许添加多个" checked-color="#336df4" @update:model-value="update({ allowMultiple: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.allowMultiple" label="允许添加多个" checked-color="#336df4" :disabled="disabled || writeDisabled" @update:model-value="update({ allowMultiple: $event })" />
     </fieldset>
     <fieldset v-if="allowUnknownEnabled" class="work-summary-setting-group">
       <legend>评估设置</legend>
-      <PerformanceCheckbox :model-value="modelValue.allowUnknown === true" label="评估时允许选择「不了解」" @update:model-value="update({ allowUnknown: $event })" />
+      <PerformanceCheckbox :model-value="modelValue.allowUnknown === true" label="评估时允许选择「不了解」" :disabled="disabled || writeDisabled" @update:model-value="update({ allowUnknown: $event })" />
       <span class="rating-unknown-description">开启后，若评估人选择「不了解」，则会跳过该评估内容中的所有问题。</span>
     </fieldset>
   </div>

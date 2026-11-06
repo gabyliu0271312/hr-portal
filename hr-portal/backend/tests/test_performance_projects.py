@@ -197,7 +197,7 @@ def test_result_opening_requires_complete_tasks_and_configured_rating_answers():
     assert not _result_ready([], schema)
     assert not _result_ready([first], [{"fields": [{"id": "score", "type": "rich_text"}]}])
     previous = SimpleNamespace(id=12, node_type="calibration")
-    assert _previous_finished("E001", previous, [])
+    assert not _previous_finished("E001", previous, [])
     assert not _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="pending", submitted_at=None)])
     assert _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="completed", submitted_at=submitted)])
 
@@ -1012,7 +1012,8 @@ def test_project_calibration_rule_groups_round_trip_without_mutating_input():
     assert settings["flow_settings"] == normalized
     target = project()
     target.settings = settings
-    assert PerformanceProjectService.serialize(target)["flow_settings"] == normalized
+    from app.performance.calibration_service import canonical_flow
+    assert PerformanceProjectService.serialize(target)["flow_settings"] == canonical_flow(normalized, target.id)
 
 
 def test_project_calibration_legacy_rule_keeps_four_fields():
@@ -3482,7 +3483,8 @@ async def test_project_hire_date_http_validation_precedes_count_and_denies_permi
     monkeypatch.setattr(projects_router, "_get_cycle", get_cycle)
     monkeypatch.setattr(projects_router, "_get_project", get_project)
     monkeypatch.setattr(PerformanceProjectService, "evaluator_count", must_not_count)
-    db = SimpleNamespace(scalar=get_cycle)
+    from unittest.mock import AsyncMock
+    db = SimpleNamespace(scalar=get_cycle, rollback=AsyncMock())
     app = FastAPI()
     app.include_router(projects_router.router, prefix="/api/v1")
     app.dependency_overrides[projects_router.get_session] = lambda: db
@@ -4322,7 +4324,8 @@ def test_calibration_phase_times_round_trip_through_payload_and_response():
     _, _, _, saved = PerformanceProjectService._validate_payload({"name": "校准项目", "flow_settings": normalized})
     target = project()
     target.settings = saved
-    assert PerformanceProjectService.serialize(target)["flow_settings"] == normalized
+    from app.performance.calibration_service import canonical_flow
+    assert PerformanceProjectService.serialize(target)["flow_settings"] == canonical_flow(normalized, target.id)
 
 
 @pytest.mark.parametrize("change,message", [
@@ -4593,7 +4596,7 @@ async def test_preview_and_actual_start_share_six_field_snapshot_filters(monkeyp
             pass
         async def commit(self):
             pass
-        async def refresh(self, _obj):
+        async def refresh(self, _obj, **kwargs):
             pass
 
     async def forbidden_roster(*_args):
@@ -4653,7 +4656,7 @@ async def test_six_field_rules_post_patch_get_and_live_status_reopen(monkeypatch
             pass
         async def commit(self):
             pass
-        async def refresh(self, _obj):
+        async def refresh(self, _obj, **kwargs):
             pass
     db = Db()
     async def get_cycle(*_args):
@@ -4701,6 +4704,8 @@ async def test_snapshot_filter_http_rejections_permissions_and_missing_snapshot(
             return cycle if statement.column_descriptions[0]["entity"] is PerformanceCycle else None
         async def execute(self, _statement):
             raise AssertionError("缺失快照或非法条件不能查询人员")
+        async def rollback(self):
+            pass
     async def get_cycle(*_args):
         return cycle
     async def get_project(*_args):
@@ -4870,8 +4875,10 @@ async def test_started_calibration_rules_cannot_be_changed(monkeypatch):
         return None
     service = PerformanceProjectService(object())
     monkeypatch.setattr(service, "_validate_manual_opening_policy", allow)
-    with pytest.raises(ProjectValidationError, match="不能修改校准规则"):
+    from app.performance.calibration_service import CalibrationConflict
+    with pytest.raises(CalibrationConflict) as error:
         await service.update_project(target, {"flow_settings": {"node_settings": {}}}, actor_type="PORTAL_USER", actor_id=1)
+    assert error.value.code == "CALIBRATION_PHASE_CLOSED"
 
 
 @pytest.mark.asyncio
@@ -4896,6 +4903,125 @@ def test_calibration_window_never_uses_other_phase_envelope():
     assert _task_window(task, node, target) == (task.available_at, task.due_at)
     task.submitted_at = None
     assert _self_summary_state(task, task.available_at, task.due_at, False) == (False, False)
+
+
+def test_cr013_calibration_canonical_read_and_explicit_delete_contract():
+    from copy import deepcopy
+    from datetime import UTC, datetime, timedelta
+    from app.performance.calibration_service import canonical_flow, calibration_digest, validate_calibration_change, CalibrationConflict
+    target = project("STARTED")
+    now = datetime.now(UTC)
+    old = _calibration_rules("PROJECT_ALL")
+    old["node_settings"]["calibration-1"]["calibration"]["phases"][0].pop("phase_id")
+    old["node_times"] = {"calibration-1": {"phase_times": {"phase-1": {"start_at": (now-timedelta(hours=1)).isoformat(), "end_at": (now+timedelta(hours=1)).isoformat()}}}}
+    target.settings = {"flow_settings": old}
+    response = PerformanceProjectService.serialize(target)
+    canonical = response["flow_settings"]
+    assert old["node_settings"]["calibration-1"]["calibration"]["phases"][0].get("phase_id") is None
+    assert calibration_digest(old, target.id) == response["calibration_base_digest"] == calibration_digest(canonical, target.id)
+    assert validate_calibration_change(target, old, canonical, [], None, now)[2] is False
+    rule = canonical["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"][0]
+    deleted = deepcopy(canonical)
+    deleted["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"] = []
+    operation = {"operation": "delete_rule", "node_id": "calibration-1", "phase_id": "phase-1", "rule_id": rule["rule_id"]}
+    assert validate_calibration_change(target, canonical, deleted, [operation], response["calibration_base_digest"], now)[2]
+    with pytest.raises(CalibrationConflict) as error:
+        validate_calibration_change(target, canonical, deleted, [], None, now)
+    assert error.value.code == "CALIBRATION_OPERATIONS_MISMATCH"
+    with pytest.raises(CalibrationConflict) as error:
+        validate_calibration_change(target, canonical, deleted, [operation], "stale", now)
+    assert error.value.code == "CALIBRATION_BASE_CONFLICT"
+
+
+def test_cr013_calibration_old_window_and_cross_node_distribution_guard():
+    from copy import deepcopy
+    from datetime import UTC, datetime, timedelta
+    from app.performance.calibration_service import canonical_flow, validate_calibration_change, editing_policy, CalibrationConflict
+    target = project("STARTED")
+    now = datetime.now(UTC)
+    old = canonical_flow(_calibration_rules("PROJECT_ALL"), target.id)
+    old["node_settings"]["other"] = deepcopy(old["node_settings"]["calibration-1"])
+    old["node_times"] = {"calibration-1": {"phase_times": {"first": {"start_at": (now-timedelta(hours=2)).isoformat(), "end_at": (now-timedelta(hours=1)).isoformat()}}}, "other": {"phase_times": {"first": {"start_at": (now+timedelta(hours=1)).isoformat(), "end_at": (now+timedelta(hours=2)).isoformat()}}}}
+    assert not editing_policy(target, old, now)["calibration_nodes"]["other"]["can_edit_distribution"]
+    new = deepcopy(old)
+    new["node_times"]["calibration-1"]["phase_times"]["first"]["end_at"] = (now+timedelta(days=1)).isoformat()
+    rule = new["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"].pop()
+    operation = {"operation": "delete_rule", "node_id": "calibration-1", "phase_id": "first", "rule_id": rule["rule_id"]}
+    with pytest.raises(CalibrationConflict) as error:
+        validate_calibration_change(target, old, new, [operation], None, now)
+    assert error.value.code == "CALIBRATION_PHASE_CLOSED"
+    new = deepcopy(old)
+    new["node_settings"]["other"]["calibration"]["force_distribution_enabled"] = True
+    with pytest.raises(CalibrationConflict) as error:
+        validate_calibration_change(target, old, new, [], None, now)
+    assert error.value.code == "CALIBRATION_DISTRIBUTION_STARTED"
+
+
+@pytest.mark.asyncio
+async def test_cr013_calibration_delta_overlap_revoke_and_readd_preserves_history():
+    from copy import deepcopy
+    from datetime import UTC, datetime, timedelta
+    from app.performance.calibration_service import canonical_flow, resolve_calibration, apply_calibration_delta, calibration_task_scope
+    from app.performance.models import PerformanceNodeTask, PerformanceNodeTaskAuthorization
+    now = datetime.now(UTC)
+    target = project("STARTED")
+    target.evaluated_count = 1
+    old = canonical_flow(_calibration_rules("PROJECT_ALL"), target.id)
+    phase = old["node_settings"]["calibration-1"]["calibration"]["phases"][0]
+    phase["rules"][0]["allow_authorize"] = True
+    phase["rules"].append({**deepcopy(phase["rules"][0]), "rule_id": "second-rule", "allow_authorize": False})
+    old["node_times"] = {"calibration-1": {"phase_times": {"first": {"start_at": (now-timedelta(hours=1)).isoformat(), "end_at": (now+timedelta(hours=1)).isoformat()}}}}
+    people = _calibration_people()
+    member = people["E1"]
+    node = SimpleNamespace(id=4, project_id=target.id, node_id="calibration-1", node_type="calibration", config={"calibration": resolve_calibration({"node_id": "calibration-1"}, old, people, ["E1"])})
+    task = PerformanceNodeTask(id=9, project_id=target.id, cycle_ref=target.cycle_ref, member_snapshot_id=3, node_snapshot_id=4, target_employee_no="E1", handler_ref="C1", task_kind="calibration", phase_id="first", status="completed", answers={"value": "A"}, draft_answers={"value": "B"}, answer_version=7, submitted_at=now, completed_at=now)
+    delegation = PerformanceNodeTaskAuthorization(id=8, task_id=9, project_id=target.id, cycle_ref=target.cycle_ref, authorization_type="AUTHORIZE", grantor_employee_no="C1", recipient_employee_no="M1", status="ACTIVE")
+    class Db:
+        def __init__(self):
+            self.added = []
+        async def scalar(self, query):
+            return SimpleNamespace(id=3, source_snapshot_id=2, source_filter={"task_generation_employee_nos": ["E1"]})
+        async def execute(self, query):
+            text = str(query)
+            if "FROM performance_project_node_snapshots" in text:
+                rows = [node]
+            elif "FROM performance_project_members" in text:
+                rows = [member]
+            elif "FROM performance_authorization_snapshot_people" in text:
+                rows = list(people.values())
+            elif "FROM performance_node_task_authorizations" in text:
+                rows = [delegation] if delegation.status == "ACTIVE" else []
+            else:
+                rows = [task] if task.revoked_at is None else []
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+        def add(self, row):
+            self.added.append(row)
+        async def flush(self):
+            pass
+    legacy_frozen = node.config["calibration"]["phases"][0]
+    legacy_frozen.pop("rule_sources")
+    for item in legacy_frozen["assignments"]:
+        item.pop("source_rule_ids")
+    db = Db()
+    new = deepcopy(old)
+    new["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"].pop(0)
+    outcome, recipients = await apply_calibration_delta(db, target, old, new, actor_type="PORTAL_USER", actor_id=1)
+    assert outcome["added_tasks"] == outcome["revoked_tasks"] == 0 and not recipients
+    assert node.config["calibration"]["phases"][0]["rule_sources"][0]["rule_id"] == "second-rule"
+    assert task.revoked_at is None and delegation.status == "REVOKED"
+    assert calibration_task_scope(task, node)
+    removed = deepcopy(new)
+    removed["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"] = []
+    outcome, recipients = await apply_calibration_delta(db, target, new, removed, actor_type="PORTAL_USER", actor_id=1)
+    assert outcome["revoked_tasks"] == 1 and recipients == {"C1"}
+    assert task.answers == {"value": "A"} and task.draft_answers == {"value": "B"}
+    assert task.status == "completed" and task.answer_version == 7 and task.submitted_at == now
+    assert not calibration_task_scope(task, node)
+    outcome, _ = await apply_calibration_delta(db, target, removed, new, actor_type="PORTAL_USER", actor_id=1)
+    fresh = [row for row in db.added if isinstance(row, PerformanceNodeTask)]
+    assert outcome["added_tasks"] == 1 and len(fresh) == 1
+    assert fresh[0] is not task and fresh[0].status == "pending" and not fresh[0].answers
+    assert task.revoked_at is not None and delegation.status == "REVOKED"
 
 
 def test_calibration_template_inherits_final_content_and_respects_readonly_fields():
@@ -5051,9 +5177,13 @@ async def test_project_calibration_authorization_never_falls_back_to_cycle_scope
 
 @pytest.mark.asyncio
 async def test_project_template_requires_cycle_membership_and_active_status():
+    from app.performance.models import PerformanceCycle
     class Db:
-        async def scalar(self, _statement):
-            return SimpleNamespace(template_ids=[11, 12])
+        async def scalar(self, statement):
+            if statement.column_descriptions[0]["entity"] is PerformanceCycle:
+                return SimpleNamespace(template_ids=[11, 12])
+            key = next(iter(statement.compile().params.values()))
+            return SimpleNamespace(template_kind="performance", status="active" if key == 11 else "inactive")
 
         async def get(self, _model, key):
             return SimpleNamespace(template_kind="performance", status="active" if key == 11 else "inactive")
@@ -6428,8 +6558,8 @@ def test_task_authorization_migration_and_effective_handler_sql_round_trip():
     engine = create_engine("sqlite://")
     with engine.begin() as connection:
         connection.execute(text("CREATE TABLE performance_projects (id BIGINT PRIMARY KEY)"))
-        connection.execute(text("CREATE TABLE performance_node_tasks (id BIGINT PRIMARY KEY, project_id BIGINT, cycle_ref TEXT, handler_ref TEXT)"))
-        connection.execute(text("INSERT INTO performance_node_tasks VALUES (1, 3, 'C1', 'ORIGINAL')"))
+        connection.execute(text("CREATE TABLE performance_node_tasks (id BIGINT PRIMARY KEY, project_id BIGINT, cycle_ref TEXT, handler_ref TEXT, revoked_at TIMESTAMP)"))
+        connection.execute(text("INSERT INTO performance_node_tasks VALUES (1, 3, 'C1', 'ORIGINAL', NULL)"))
         with Operations.context(MigrationContext.configure(connection)):
             migration.upgrade()
             assert migration.down_revision == "0289_pm_task_drafts"
@@ -6476,7 +6606,10 @@ async def test_task_authorization_persists_without_rewriting_handler_or_answers(
         async def refresh(self, *args, **kwargs): pass
         async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
         async def scalar(self, statement):
-            return recipient if statement.column_descriptions[0]["entity"] is not None and statement.column_descriptions[0]["entity"].__name__ == "PerformanceAuthorizationSnapshotPerson" else 10
+            entity = statement.column_descriptions[0]["entity"]
+            if entity is not None and entity.__name__ == "PerformanceProject":
+                return project
+            return recipient if entity is not None and entity.__name__ == "PerformanceAuthorizationSnapshotPerson" else 10
         def add(self, item):
             if isinstance(item, PerformanceNodeTaskAuthorization): records.append(item)
         async def flush(self):
@@ -6510,7 +6643,7 @@ async def test_task_delegation_grantor_and_reauthorize_boundaries(monkeypatch):
 @pytest.mark.asyncio
 async def test_task_delegation_parent_revoke_replaces_descendants(monkeypatch):
     from app.performance import projects_router as router
-    task = SimpleNamespace(id=7, cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
+    task = SimpleNamespace(id=7, project_id=3, task_kind="evaluation", cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
     parent = SimpleNamespace(id=11, status="ACTIVE", grantor_employee_no="ORIGINAL", recipient_employee_no="RECIPIENT", authorization_settings={}, revoked_by_employee_no=None, revoked_at=None)
     child = SimpleNamespace(id=12, status="ACTIVE", grantor_employee_no="RECIPIENT", recipient_employee_no="CHILD", authorization_settings={"parent_authorization_id": 11})
     project = SimpleNamespace(id=3, cycle_ref="C1")
@@ -6520,6 +6653,7 @@ async def test_task_delegation_parent_revoke_replaces_descendants(monkeypatch):
         async def execute(self, statement):
             return SimpleNamespace(first=lambda: (task, SimpleNamespace(), project, parent), scalars=lambda: SimpleNamespace(all=lambda: [parent, child]))
         async def refresh(self, *args, **kwargs): pass
+        async def scalar(self, statement): return project
         def add(self, item): pass
         async def commit(self): pass
     await router.revoke_task_delegation(3, 7, 11, context(), Db())
@@ -6531,7 +6665,7 @@ async def test_task_delegation_parent_revoke_replaces_descendants(monkeypatch):
 @pytest.mark.asyncio
 async def test_revoke_task_authorization_preserves_submitted_and_draft_answers(monkeypatch):
     from app.performance import projects_router as router
-    task = SimpleNamespace(id=7, cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
+    task = SimpleNamespace(id=7, project_id=3, task_kind="evaluation", cycle_ref="C1", target_employee_no="E1", answer_version=9, answers={"grade": "A"}, draft_answers={"grade": "B"})
     record = SimpleNamespace(id=11, status="ACTIVE", grantor_employee_no="ORIGINAL", recipient_employee_no="RECIPIENT")
     project = SimpleNamespace(id=3, cycle_ref="C1")
     async def actor(*args, **kwargs): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ORIGINAL")
@@ -6539,6 +6673,7 @@ async def test_revoke_task_authorization_preserves_submitted_and_draft_answers(m
     class Db:
         async def execute(self, statement): return SimpleNamespace(first=lambda: (task, SimpleNamespace(), project, record), scalars=lambda: SimpleNamespace(all=lambda: []))
         async def refresh(self, *args, **kwargs): pass
+        async def scalar(self, statement): return project
         def add(self, item): pass
         async def commit(self): pass
     result = await router.revoke_task_delegation(3, 7, 11, context(), Db())

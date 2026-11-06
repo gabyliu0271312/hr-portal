@@ -977,7 +977,7 @@ class PerformanceProjectNodeSnapshot(Base):
 class PerformanceNodeTask(Base):
     __tablename__ = "performance_node_tasks"
     __table_args__ = (
-        UniqueConstraint("project_id", "member_snapshot_id", "node_snapshot_id", "target_employee_no", "handler_ref", "task_kind", "phase_id", name="uq_performance_node_task_generation"),
+        Index("uq_performance_node_task_generation", "project_id", "member_snapshot_id", "node_snapshot_id", "target_employee_no", "handler_ref", "task_kind", "phase_id", unique=True, postgresql_where=text("revoked_at IS NULL")),
         Index("ix_performance_node_tasks_handler_state", "handler_ref", "status"),
         Index("ix_performance_node_tasks_project_node", "project_id", "node_snapshot_id"),
     )
@@ -995,6 +995,7 @@ class PerformanceNodeTask(Base):
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     draft_answers: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     answer_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

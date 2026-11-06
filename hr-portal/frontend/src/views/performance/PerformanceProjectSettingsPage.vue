@@ -64,6 +64,13 @@
           :nodes="workflowNodes"
           :project-id="projectId"
           :project-payload="payload()"
+          :saved-flow-settings="rawBaseline?.flow_settings"
+          :baseline-flow-settings="displayBaseline?.flow_settings"
+          :project-status="projectStatus"
+          :editing-policy="editingPolicy"
+          :calibration-base-digest="calibrationBaseDigest"
+          @saved="flowSaved"
+          @pending-change="flowPending = $event"
           :distribution-assessment-options="distributionAssessmentOptions"
           :people-options="evaluatorOptions.people"
           :organization-tree="evaluatorOptions.organization_tree"
@@ -135,7 +142,7 @@ import type { ReminderProvider } from '@/components/performance/performanceRemin
 import { performanceOtherSettingsApi, performanceProjectApi, type PerformanceCycleProjectShell, type PerformanceDistributionAssessmentOption, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceProjectTemplate, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions, type PerformanceEvaluatorPreviewPayload, type PerformanceEvaluatorPreviewSummary } from '@/api/performance'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
-import { initializeCalibrationNodes, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError } from '@/components/performance/performanceProjectCalibration'
+import { initializeProjectFlow, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError, changedProjectSettings, projectSettingsEqual, projectFlowWithLocalTimes, calibrationOperations, calibrationHasNewPhases, type ProjectSettingsResponse, type ProjectSettingsPatch } from '@/components/performance/performanceProjectCalibration'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import { shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
 
@@ -154,6 +161,11 @@ const audiencePreviewTotal = ref(0)
 const savedView = ref(false); const currentStep = ref(0); const saving = ref(false); const notice = ref(''); const validationError = ref(''); const templateLoading = ref(false); const templates = ref<PerformanceProjectTemplate[]>([]); const basicDialogOpen = ref(false); const basicDialogSaving = ref(false); const basicDialogProject = ref<PerformanceCycleProjectShell | null>(null)
 const templateError = ref('')
 const workflowNodes = ref<PerformanceWorkflowNode[]>([]); const distributionAssessmentOptions = ref<PerformanceDistributionAssessmentOption[]>([]); const flowLoading = ref(false); const flowError = ref(''); const openingError = ref(false); const evaluatedCount = ref(0); const projectStatus = ref('DRAFT'); const savedNodeTimeKeys = ref(new Set<string>()); const manualResultOpeningEnabled = ref(true); const manualOpeningSettingLoaded = ref(false); const manualOpeningError = ref('')
+const rawBaseline = ref<PerformanceProjectPayload | null>(null)
+const displayBaseline = ref<PerformanceProjectPayload | null>(null)
+const editingPolicy = ref<ProjectSettingsResponse['editing_policy']>()
+const calibrationBaseDigest = ref<string>()
+const flowPending = ref(false)
 const steps = [{ key: 'info', label: '项目信息' }, { key: 'flow', label: '流程设置' }, { key: 'time', label: '起止时间' }]
 const form = reactive<{ name: string; description: string; administrators: string[]; template_id: number | null; start_at: string; end_at: string; evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>; flow_settings: ProjectFlowSettings }>({ name: '', description: '', administrators: [], template_id: null, start_at: '', end_at: '', evaluator_rules: { groups: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] }, flow_settings: { node_settings: {}, node_times: {} } })
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
@@ -169,7 +181,21 @@ let previewTimer: ReturnType<typeof setTimeout> | undefined
 watch(() => form.evaluator_rules, () => { if (previewTimer) clearTimeout(previewTimer); previewTimer = setTimeout(() => { void loadAudiencePreview() }, 200) }, { deep: true })
 const nodeTimeError = computed(() => projectNodeTimeError(workflowNodes.value, form.flow_settings))
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { ...basicDialogProject.value, id: projectId.value, project_ref: basicDialogProject.value?.project_ref || '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: projectStatus.value, evaluated_count: evaluatedCount.value }; basicDialogOpen.value = true }
-async function saveBasicInfo(payload: PerformanceProjectPayload) { if (!projectId.value) return; basicDialogSaving.value = true; try { await performanceProjectApi.update(projectId.value, payload); basicDialogOpen.value = false; await loadProject() } catch (error: any) { notice.value = error?.response?.data?.detail || '基本信息保存失败' } finally { basicDialogSaving.value = false } }
+async function saveBasicInfo(value: PerformanceProjectPayload) {
+  if (!projectId.value || !basicDialogProject.value) return
+  const oldBasic = { scope_limited: false, scope_rules: { groups: [] }, ...basicDialogProject.value }
+  const patch = Object.fromEntries(Object.entries(value).filter(([key, next]) => !projectSettingsEqual((oldBasic as any)[key], next))) as ProjectSettingsPatch
+  if (!Object.keys(patch).length) { basicDialogOpen.value = false; return }
+  basicDialogSaving.value = true
+  try {
+    await performanceProjectApi.update(projectId.value, patch)
+    basicDialogOpen.value = false
+    await loadProject()
+    if (workflowNodes.value.length) initializeProjectFlow(workflowNodes.value, form.flow_settings)
+    displayBaseline.value = JSON.parse(JSON.stringify(payload()))
+  } catch (error: any) { notice.value = error?.response?.data?.detail?.message || error?.response?.data?.detail || '基本信息保存失败' }
+  finally { basicDialogSaving.value = false }
+}
 function toInputTime(value: string | null) { return value ? (utcToShanghaiLocal(value) || '') : '' }
 function toLocalNodeTimes(times: Record<string, any>) {
   const result: Record<string, any> = {}
@@ -280,7 +306,7 @@ async function loadTemplateWorkflow() {
     if (requestedTemplateId !== form.template_id) return
     workflowNodes.value = workflow.nodes
     distributionAssessmentOptions.value = workflow.distribution_assessment_options || []
-    initializeCalibrationNodes(workflowNodes.value, form.flow_settings)
+    initializeProjectFlow(workflowNodes.value, form.flow_settings)
   } catch (error: any) {
     if (requestedTemplateId !== form.template_id) return
     workflowNodes.value = []
@@ -289,10 +315,65 @@ async function loadTemplateWorkflow() {
   } finally { if (requestedTemplateId === form.template_id) flowLoading.value = false }
 }
 async function loadEvaluatorOptions() { if (!cycleId.value || evaluatorOptionsLoaded.value || evaluatorOptionsLoading.value) return; evaluatorOptionsLoading.value = true; try { evaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(cycleId.value); evaluatorOptionsLoaded.value = true; notice.value = '' } catch (error: any) { notice.value = error?.response?.data?.detail || '被评估人名单加载失败，请稍后重试' } finally { evaluatorOptionsLoading.value = false } }
-async function loadProject() { if (!projectId.value) return; try { const project = await performanceProjectApi.get(projectId.value); basicDialogProject.value = { ...project, data_managers: project.data_managers ?? ['HRBP'] }; form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]; form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at); evaluatedCount.value = project.evaluated_count; const savedFlowSettings = project.flow_settings || { node_settings: {}, node_times: {} }; form.flow_settings = { node_settings: savedFlowSettings.node_settings || {}, node_times: toLocalNodeTimes(savedFlowSettings.node_times || {}) }; savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times)); projectStatus.value = project.status; if (Object.values(form.flow_settings.node_settings).some(setting => Boolean((setting as any).result_reconsideration?.handler_employee_nos?.length || (setting as any).result_reconsideration?.handler))) await loadEvaluatorOptions(); if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules)); savedView.value = true; await loadAudiencePreview() } catch (error: any) { notice.value = error?.response?.data?.detail || '项目加载失败' } }
-async function saveDraft() { if (!projectId.value) return true; saving.value = true; try { await performanceProjectApi.update(projectId.value, payload()); return true } catch (error: any) { notice.value = error?.response?.data?.detail || '当前步骤保存失败'; return false } finally { saving.value = false } }
+async function loadProject() {
+  if (!projectId.value) return
+  try {
+    const project: ProjectSettingsResponse = await performanceProjectApi.get(projectId.value)
+    basicDialogProject.value = { ...project, data_managers: project.data_managers ?? ['HRBP'] }
+    form.name = project.name; form.description = project.description || ''; form.administrators = [...project.administrators]
+    form.template_id = project.template_id; form.start_at = toInputTime(project.start_at); form.end_at = toInputTime(project.end_at)
+    evaluatedCount.value = project.evaluated_count; projectStatus.value = project.status
+    const savedFlow = JSON.parse(JSON.stringify(project.flow_settings || { node_settings: {}, node_times: {} }))
+    savedFlow.node_settings ||= {}; savedFlow.node_times ||= {}
+    form.flow_settings = { ...savedFlow, node_times: toLocalNodeTimes(savedFlow.node_times) }
+    savedNodeTimeKeys.value = new Set(Object.keys(form.flow_settings.node_times))
+    if (project.evaluator_rules?.groups?.length) form.evaluator_rules = JSON.parse(JSON.stringify(project.evaluator_rules))
+    rawBaseline.value = { ...payload(), flow_settings: savedFlow }
+    displayBaseline.value = JSON.parse(JSON.stringify(payload()))
+    editingPolicy.value = project.editing_policy; calibrationBaseDigest.value = project.calibration_base_digest
+    if (Object.values(form.flow_settings.node_settings).some(setting => Boolean((setting as any).result_reconsideration?.handler_employee_nos?.length || (setting as any).result_reconsideration?.handler))) await loadEvaluatorOptions()
+    savedView.value = true
+    await loadAudiencePreview()
+  } catch (error: any) { notice.value = error?.response?.data?.detail?.message || error?.response?.data?.detail || '项目加载失败' }
+}
+function flowSaved(project: ProjectSettingsResponse, submitted?: ProjectFlowSettings) {
+  const saved = project.flow_settings || submitted
+  if (!saved) return
+  form.flow_settings = projectFlowWithLocalTimes(saved)
+  initializeProjectFlow(workflowNodes.value, form.flow_settings)
+  if (rawBaseline.value) rawBaseline.value.flow_settings = JSON.parse(JSON.stringify(saved))
+  if (displayBaseline.value) displayBaseline.value.flow_settings = JSON.parse(JSON.stringify(payload().flow_settings))
+  if (project.calibration_base_digest !== undefined) calibrationBaseDigest.value = project.calibration_base_digest
+  if (project.editing_policy) editingPolicy.value = project.editing_policy
+}
+async function saveDraft() {
+  if (!projectId.value || !rawBaseline.value || !displayBaseline.value) return true
+  if (flowPending.value) { validationError.value = '请先保存或取消当前校准配置'; return false }
+  const current = payload()
+  const patch = changedProjectSettings(rawBaseline.value, displayBaseline.value, current)
+  if (!Object.keys(patch).length) return true
+  if (patch.flow_settings) {
+    if (calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings) && projectNodeTimeError(workflowNodes.value.filter(node => node.node_type === 'calibration'), form.flow_settings)) {
+      validationError.value = '请先填写新增校准阶段的完整起止时间并保存'; return false
+    }
+    const operations = calibrationOperations(displayBaseline.value.flow_settings!, form.flow_settings)
+    if (operations.length) patch.calibration_operations = operations
+    if (calibrationBaseDigest.value) patch.calibration_base_digest = calibrationBaseDigest.value
+  }
+  saving.value = true
+  try {
+    const project: ProjectSettingsResponse | undefined = await performanceProjectApi.update(projectId.value, patch)
+    rawBaseline.value = { ...rawBaseline.value, ...patch }
+    displayBaseline.value = JSON.parse(JSON.stringify(current))
+    if (patch.flow_settings) flowSaved(project || {} as ProjectSettingsResponse, patch.flow_settings)
+    else { if (project?.editing_policy) editingPolicy.value = project.editing_policy; if (project?.calibration_base_digest !== undefined) calibrationBaseDigest.value = project.calibration_base_digest }
+    return true
+  } catch (error: any) { notice.value = error?.response?.data?.detail?.message || error?.response?.data?.detail || '当前步骤保存失败'; return false }
+  finally { saving.value = false }
+}
 async function nextStep() {
   if (currentStep.value === 0 && !validate()) return
+  if (currentStep.value === 1 && flowPending.value) { validationError.value = '请先补齐时间并保存新增校准阶段，或取消当前校准配置'; return }
   if (currentStep.value === 1) {
     validationError.value = ''
     openingError.value = workflowNodes.value.some(node => node.node_type === 'result_view'
@@ -313,7 +394,7 @@ async function nextStep() {
   if (await saveDraft()) { savedView.value = true; notice.value = '项目设置已保存' }
 }
 function goBack() { void router.push({ name: 'PerformanceCycles' }) }
-onMounted(async () => { document.body.style.overflow = 'hidden'; await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow() })
+onMounted(async () => { document.body.style.overflow = 'hidden'; await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow(); displayBaseline.value = JSON.parse(JSON.stringify(payload())) })
 onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); document.body.style.overflow = '' })
 </script>
 

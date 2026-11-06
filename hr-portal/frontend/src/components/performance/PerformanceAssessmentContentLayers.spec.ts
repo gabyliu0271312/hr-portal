@@ -83,6 +83,24 @@ function placeCaretInEmptyLeaf(editor: HTMLElement) {
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceAssessmentContentLayers', () => {
+  it('edits only name and item copy in a used content definition and retains catalog/options/order', async () => {
+    const content = { id: 'shared', content_id: 'shared', type: 'rating' as const, name: '原内容', description: '原描述', ratingOptionId: 'annual', options: [{ id: 'a', label: '原等级' }], items: [{ id: 'rating', kind: 'rating' as const, ratingOptionId: 'annual', label: '原题', hint: '原提示', settings: { required: true } }] }
+    const wrapper = mount(PerformanceAssessmentContentLayers, { props: { open: true, displayOnly: true, initialContents: [content], ratingOptions }, global: { stubs: { Teleport: true, Transition: false } } })
+    wrapper.vm.openEditor(content)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.create-button').exists()).toBe(false)
+    expect(wrapper.find('.performance-assessment-select').exists()).toBe(false)
+    expect(wrapper.find('.performance-drag-handle, .add-button, .type-field').exists()).toBe(false)
+    const inputs = wrapper.findAll('.config-pane input')
+    await inputs[0].setValue('新内容')
+    await wrapper.get('.config-pane .performance-form-field--inside input').setValue('新题')
+    await wrapper.get('.config-pane textarea').setValue('新提示')
+    await wrapper.get('.modal-footer .button--primary').trigger('click')
+    const saved = (wrapper.emitted('confirm')!.at(-1) as any)[0][0]
+    expect(saved).toEqual({ ...content, name: '新内容', items: [{ ...content.items[0], label: '新题', hint: '新提示' }] })
+    wrapper.unmount()
+  })
+
   it('shares prompt fields, isolates radio groups and discards modal edits on cancel', async () => {
     const value = { title: '原标题', content: '原内容', color: '#3B82F6', scope: 'all' as const }
     const inline = mount(PerformancePromptForm, { props: { modelValue: value, variant: 'inline' } })

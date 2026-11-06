@@ -6,7 +6,7 @@
     @close="close"
     @update:model-value="emit('update:open', $event)"
   >
-    <PerformancePromptForm v-model="draft" class="prompt-modal__body" :invalid="submitted" />
+    <PerformancePromptForm v-model="draft" :scope-disabled="scopeDisabled" class="prompt-modal__body" :invalid="submitted" />
 
     <template #footer>
       <div class="prompt-modal__footer">
@@ -27,6 +27,7 @@ const DEFAULT_PROMPT: PerformancePromptValue = { title: '', content: '', color: 
 const props = withDefaults(defineProps<{
   open: boolean
   initialValue?: PerformancePromptValue
+  scopeDisabled?: boolean
 }>(), { initialValue: undefined })
 const emit = defineEmits<{
   'update:open': [value: boolean]

@@ -1,10 +1,10 @@
 <template>
   <div v-if="visible" class="configured-card-action-toolbar" role="toolbar" aria-label="卡片操作" @pointerdown.stop>
     <div class="configured-card-action-toolbar__surface captured-actions">
-      <PerformanceIconButton icon="SpaceUpOutlined" label="Move up" :disabled="index === 0" @click.stop="$emit('move-up')" />
-      <PerformanceIconButton icon="SpaceDownOutlined" label="Move down" :disabled="index === count - 1" @click.stop="$emit('move-down')" />
-      <PerformanceIconButton icon="EditOutlined" label="Edit content" @click.stop="$emit('edit')" />
-      <PerformanceIconButton icon="DeleteTrashOutlined" label="Delete content" @click.stop="$emit('delete')" />
+      <PerformanceIconButton v-if="structureEditable" icon="SpaceUpOutlined" label="Move up" :disabled="index === 0" @click.stop="$emit('move-up')" />
+      <PerformanceIconButton v-if="structureEditable" icon="SpaceDownOutlined" label="Move down" :disabled="index === count - 1" @click.stop="$emit('move-down')" />
+      <PerformanceIconButton v-if="definitionEditable" icon="EditOutlined" label="Edit content" @click.stop="$emit('edit')" />
+      <PerformanceIconButton v-if="structureEditable" icon="DeleteTrashOutlined" label="Delete content" @click.stop="$emit('delete')" />
     </div>
   </div>
 </template>
@@ -12,7 +12,7 @@
 <script setup lang="ts">
 import PerformanceIconButton from './PerformanceIconButton.vue'
 
-defineProps<{ visible: boolean; index: number; count: number }>()
+withDefaults(defineProps<{ visible: boolean; index: number; count: number; structureEditable?: boolean; definitionEditable?: boolean }>(), { structureEditable: true, definitionEditable: true })
 defineEmits<{ 'move-up': []; 'move-down': []; edit: []; delete: [] }>()
 </script>
 

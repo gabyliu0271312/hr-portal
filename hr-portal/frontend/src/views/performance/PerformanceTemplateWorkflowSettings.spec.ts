@@ -13,6 +13,32 @@ import textFieldSource from '@/components/performance/PerformanceTextField.vue?r
 config.global.stubs = { Teleport: true }
 
 describe('PerformanceTemplateWorkflowSettings', () => {
+  it.each([{ cycle_count: 1, project_count: 0 }, { cycle_count: 0, project_count: 0 }])('locks used node structure while saving both appeal text leaves %o', async usage_summary => {
+    const nodes = [
+      { node_id: 'final', node_type: 'evaluation', name: '终评', description: '', order: 1, executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', include_final_result: true, system: false },
+      { node_id: 'appeal', node_type: 'result_reconsideration', name: '复议处理', description: '', order: 2, executor_types: ['HRBP'], executor_label: 'HRBP', include_final_result: false, system: false, appeal_prompt_content: '原提示', appeal_reason_instruction: '原说明' },
+    ] as PerformanceWorkflowNode[]
+    const get = vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({ template_id: 1, nodes, usage_summary, editable_scope: { workflow: false, data_write_settings: false, reference_and_prompt_content: true } })
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ ...payload, template_id: 1, usage_summary }))
+    const wrapper = mount(PerformanceTemplateWorkflowSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    expect(wrapper.find('.delete-node').exists()).toBe(false)
+    await wrapper.get('.flow-connector').trigger('focus')
+    expect(wrapper.find('.stage-popover').exists()).toBe(false)
+    await wrapper.findAll('.stage-node')[1].trigger('click')
+    expect((wrapper.get('.panel-scroll input').element as HTMLInputElement).disabled).toBe(true)
+    await wrapper.get('.appeal-prompt-edit').trigger('click')
+    await wrapper.get('#appeal-prompt-input').setValue('新提示')
+    await wrapper.get('#appeal-reason-instruction-input').setValue('新说明')
+    await wrapper.get('.appeal-button--primary').trigger('click')
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls.at(-1)![1].nodes[0]).toEqual(nodes[0])
+    expect(update.mock.calls.at(-1)![1].nodes[1]).toEqual({ ...nodes[1], appeal_prompt_content: '新提示', appeal_reason_instruction: '新说明' })
+    wrapper.unmount()
+    get.mockRestore()
+    update.mockRestore()
+  })
+
   it('keeps the right-panel title at the standard node label after a custom name edit', async () => {
     const wrapper = mount(PerformanceTemplateWorkflowSettings)
     const evaluationNode = wrapper.findAll('.stage-node').find(node => node.text().includes('评估型环节'))

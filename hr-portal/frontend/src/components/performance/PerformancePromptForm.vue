@@ -32,6 +32,7 @@
           <input
             type="radio"
             :name="instanceId"
+            :disabled="scopeDisabled"
             value="all"
             :checked="modelValue.scope === 'all'"
             @change="updateField('scope', 'all')"
@@ -43,6 +44,7 @@
           <input
             type="radio"
             :name="instanceId"
+            :disabled="scopeDisabled"
             value="cycle"
             :checked="modelValue.scope === 'cycle'"
             @change="updateField('scope', 'cycle')"
@@ -69,6 +71,7 @@ const props = withDefaults(defineProps<{
   modelValue: PerformancePromptValue
   invalid?: boolean
   variant?: 'default' | 'inline'
+  scopeDisabled?: boolean
 }>(), {
   invalid: false,
   variant: 'default',
@@ -80,6 +83,7 @@ const emit = defineEmits<{
 }>()
 
 function updateField<Key extends keyof PerformancePromptValue>(key: Key, value: PerformancePromptValue[Key]) {
+  if (key === 'scope' && props.scopeDisabled) return
   emit('update:modelValue', { ...props.modelValue, [key]: value })
 }
 </script>

@@ -39,6 +39,13 @@ describe('calibration phase time linkage', () => {
     wrapper.unmount()
   })
 
+  it('does not mark legacy display initialization as a user edit', async () => {
+    const wrapper = timeComponent({ node_settings: settings().node_settings, node_times: { calibration: { ...first } } })
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('renders one date pair per phase, not per rule', () => {
     const value = settings()
     value.node_settings.calibration.calibration!.phases[0].rules = [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }]
@@ -117,6 +124,8 @@ describe('calibration phase time linkage', () => {
     const addedId = state.value.node_settings.calibration.calibration!.phases[2].phase_id!
     expect(state.value.node_times.calibration.phase_times![addedId]).toEqual({ start_at: '', end_at: '' })
     await wrapper.findAll('.phase-heading .performance-icon-button')[0].trigger('click')
+    await flushPromises()
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
     await flushPromises()
     expect(wrapper.findAll('.calibration-time-phase')).toHaveLength(2)
     expect(state.value.node_times.calibration.phase_times!.second).toEqual(second)

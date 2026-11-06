@@ -1,10 +1,13 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceProjectApi } from '@/api/performance'
 import type { PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceProjectFlowSettings from './PerformanceProjectFlowSettings.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
+import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
+import PerformanceCheckbox from './PerformanceCheckbox.vue'
 
 const node = (node_type: string, order: number, executor_role_code: string | null = 'assessment.reviewee'): PerformanceWorkflowNode => ({
   node_id: `${node_type}-${order}`,
@@ -149,6 +152,9 @@ describe('PerformanceProjectFlowSettings', () => {
     await wrapper.get('.add-phase').trigger('click')
     expect(wrapper.findAll('.phase-heading')).toHaveLength(2)
     await wrapper.findAll('.phase-heading .performance-icon-button')[0].trigger('click')
+    expect(wrapper.findAll('.phase-heading')).toHaveLength(2)
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
     expect(wrapper.findAll('.phase-heading')).toHaveLength(1)
   })
 
@@ -203,7 +209,7 @@ describe('PerformanceProjectFlowSettings', () => {
     await wrapper.vm.$nextTick()
     ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
     await vi.waitFor(() => expect(get).toHaveBeenCalledWith(12))
-    expect(update).toHaveBeenCalledWith(12, { ...projectPayload, flow_settings: expect.any(Object) })
+    expect(update).toHaveBeenCalledWith(12, { flow_settings: expect.any(Object), calibration_operations: [expect.objectContaining({ operation: 'add_rule', node_id: 'calibration-1', phase_id: 'phase-1', rule_id: expect.any(String) })] })
     const rules = update.mock.calls[0][1].flow_settings!.node_settings['calibration-1'].calibration!.phases[0].rules
     expect(rules).toHaveLength(2)
     expect(rules[1].scope_groups?.[0].conditions[0].values).toEqual(['INDIRECT_SUBORDINATES'])
@@ -533,6 +539,87 @@ describe('PerformanceProjectFlowSettings', () => {
     expect(latest.node_settings['evaluation-1'].invite).toMatchObject({ minimum_invited_count: 7, maximum_invited_count: null, second_prompt_enabled: false, second_prompt_count: null })
     expect(latest.node_settings['result_view-2'].result_view).toMatchObject({ automatic_enabled: true, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' })
     expect(wrapper.findAll('.flow-node-card h2').map(item => item.text())).toEqual(['评估型环节', '绩效结果查看环节'])
+  })
+})
+
+describe('CR-013 calibration editing policy', () => {
+  const rule = (id: string) => ({ rule_id: id, subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false })
+  const initial = () => ({ node_settings: { 'calibration-1': { calibration: { force_distribution_enabled: true, distribution: { mode: 'UNIFIED' as const, rules: [], scope_configured: false }, phases: [{ phase_id: 'p1', rules: [rule('r1'), rule('r2')] }, { phase_id: 'p2', rules: [rule('r3')] }] } } }, node_times: { 'calibration-1': { start_at: '2027-01-01T00:00:00Z', end_at: '2027-01-09T00:00:00Z', phase_times: { p1: { start_at: '2027-01-01T00:00:00Z', end_at: '2027-01-02T00:00:00Z' }, p2: { start_at: '2027-01-08T00:00:00Z', end_at: '2027-01-09T00:00:00Z' } } } } })
+  const policy = (canDelete = true) => ({ server_now: '2026-11-06T00:00:00Z', can_edit_result_opening: true, calibration_nodes: { 'calibration-1': { can_edit_distribution: false, distribution_disabled_reason: '校准阶段已经开始', can_edit_rule_content: false, can_edit_phase_content: false, phases: { p1: { can_delete: canDelete, delete_disabled_reason: canDelete ? null : '阶段已截止，请先延期保存' }, p2: { can_delete: true, delete_disabled_reason: null } } } } })
+  function started(canDelete = true) {
+    return mount(PerformanceProjectFlowSettings, { props: { nodes: [node('calibration', 1)], modelValue: initial(), savedFlowSettings: initial(), baselineFlowSettings: initial(), projectStatus: 'STARTED', editingPolicy: policy(canDelete), calibrationBaseDigest: 'digest-1', projectId: 12, projectPayload: { name: '项目一', description: null, administrators: [] } } })
+  }
+  beforeEach(() => { vi.spyOn(performanceProjectApi, 'calibrationPreview').mockResolvedValue({}) })
+  afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
+  it('locks every distribution control and existing rule content while allowing additions', async () => {
+    const wrapper = started(false)
+    expect(wrapper.get('[aria-label="绩效结果强制建议分布"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('input[type="radio"]').every(input => (input.element as HTMLInputElement).disabled)).toBe(true)
+    expect(wrapper.get('.distribution-add-rule').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('.rule-actions button').filter(button => button.text() === '编辑').every(button => button.attributes('disabled') !== undefined)).toBe(true)
+    expect(wrapper.findAll('.rule-row input[type="checkbox"]').every(input => (input.element as HTMLInputElement).disabled)).toBe(true)
+    const authorization = wrapper.findAllComponents(PerformanceCheckbox)[0]
+    authorization.vm.$emit('update:modelValue', true); await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.findAll('.phase-heading button')[0].attributes('disabled')).toBeDefined()
+    await wrapper.findAll('.add-rule')[0].trigger('click')
+    expect(wrapper.findComponent(PerformanceCalibrationRuleDrawer).exists()).toBe(true)
+    wrapper.unmount()
+  })
+  it('keeps deletion cancelled/failed unchanged and sends notification only in the saved operation', async () => {
+    const update = vi.spyOn(performanceProjectApi, 'update').mockRejectedValueOnce(new Error('failed')).mockImplementation(async (_id, patch) => ({ flow_settings: patch.flow_settings, calibration_base_digest: 'digest-2', editing_policy: policy() } as any))
+    const wrapper = started()
+    await wrapper.findAll('.rule-actions button')[1].trigger('click')
+    ;(document.body.querySelector('.performance-confirm-dialog__button--cancel') as HTMLButtonElement).click(); await flushPromises()
+    expect(update).not.toHaveBeenCalled(); expect(wrapper.findAll('.rule-row')).toHaveLength(3)
+    await wrapper.findAll('.rule-actions button')[1].trigger('click')
+    const checkbox = document.body.querySelector('.performance-confirm-dialog__check-field input') as HTMLInputElement
+    checkbox.click(); await flushPromises()
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click(); await flushPromises()
+    expect(wrapper.findAll('.rule-row')).toHaveLength(3)
+    expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('删除保存失败')
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click(); await flushPromises()
+    expect(update).toHaveBeenLastCalledWith(12, { flow_settings: expect.any(Object), calibration_operations: [{ operation: 'delete_rule', node_id: 'calibration-1', phase_id: 'p1', rule_id: 'r1' }], calibration_base_digest: 'digest-1', notify_calibrators: true })
+    expect(wrapper.findAll('.rule-row')).toHaveLength(2)
+    expect(wrapper.emitted('saved')?.at(-1)?.[0]).toMatchObject({ calibration_base_digest: 'digest-2' })
+    wrapper.unmount()
+  })
+  it('keeps a new phase local until dates are complete, then submits one atomic add_phase', async () => {
+    const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(async (_id, patch) => ({ flow_settings: patch.flow_settings, editing_policy: policy() } as any))
+    const wrapper = started()
+    await wrapper.get('.add-phase').trigger('click'); await flushPromises()
+    expect(update).not.toHaveBeenCalled()
+    const save = () => wrapper.findAll('button').find(button => button.text() === '保存新增校准阶段')!
+    await save().trigger('click'); await flushPromises(); expect(update).not.toHaveBeenCalled()
+    const fields = wrapper.findAllComponents(PerformanceDateTimeField)
+    fields[0].vm.$emit('update:modelValue', '2027-01-10T09:00')
+    fields[1].vm.$emit('update:modelValue', '2027-01-11T18:00')
+    await flushPromises(); await save().trigger('click'); await flushPromises()
+    expect(update).toHaveBeenCalledOnce()
+    const patch = update.mock.calls[0][1]
+    expect(patch.calibration_operations).toEqual([{ operation: 'add_phase', node_id: 'calibration-1', phase_id: expect.any(String) }])
+    const phaseId = patch.calibration_operations![0].phase_id
+    expect(patch.flow_settings?.node_times['calibration-1'].phase_times?.[phaseId]).toEqual({ start_at: '2027-01-10T01:00:00.000Z', end_at: '2027-01-11T10:00:00.000Z' })
+    expect(patch.flow_settings?.node_settings['calibration-1'].calibration?.phases[2].rules[0].rule_id).toMatch(/^[a-f0-9-]{36}$/)
+    wrapper.unmount()
+  })
+  it('deletes an allowed existing phase with an explicit operation and unchanged surviving dates', async () => {
+    const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(async (_id, patch) => ({ flow_settings: patch.flow_settings, editing_policy: policy() } as any))
+    const wrapper = started()
+    await wrapper.findAll('.phase-heading button')[0].trigger('click')
+    expect(update).not.toHaveBeenCalled()
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click(); await flushPromises()
+    expect(update.mock.calls[0][1]).toMatchObject({ calibration_operations: [{ operation: 'delete_phase', node_id: 'calibration-1', phase_id: 'p1' }], notify_calibrators: false })
+    expect(update.mock.calls[0][1].flow_settings?.node_times['calibration-1'].phase_times).toEqual({ p2: initial().node_times['calibration-1'].phase_times.p2 })
+    wrapper.unmount()
+  })
+  it('uses saved phase windows even when current draft dates were extended', async () => {
+    const wrapper = started(false)
+    const extended = initial(); extended.node_times['calibration-1'].phase_times.p1.end_at = '2030-01-02T00:00:00Z'
+    await wrapper.setProps({ modelValue: extended })
+    expect(wrapper.findAll('.phase-heading button')[0].attributes('disabled')).toBeDefined()
+    wrapper.unmount()
   })
 })
 

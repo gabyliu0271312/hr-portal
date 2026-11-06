@@ -34,7 +34,7 @@
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <PerformanceContentWorkspace v-if="selectedStageData" class="content-pane">
         <template v-if="isResultView || (isReferenceTab && referenceRelations.length)">
-          <PerformanceContentRegionList :regions="contentRegions" :disabled="pageNameLocked" :selected-region-id="selectedRegionId" @reorder="reorderContentRegions" @activate="selectContentRegion">
+          <PerformanceContentRegionList :regions="contentRegions" :disabled="structureLocked" :selected-region-id="selectedRegionId" @reorder="reorderContentRegions" @activate="selectContentRegion">
             <template #result>
             <div class="result-view-section__overlay" :class="{ 'is-hovered': resultViewTitleHovered, 'is-selected': selectedRegionId === 'result' }" aria-hidden="true"></div>
             <div class="result-view-section__content result-view-section__title" role="button" tabindex="0" :aria-pressed="selectedRegionId === 'result'" aria-label="选择页面标题" @mouseenter="resultViewTitleHovered = true" @mouseleave="resultViewTitleHovered = false" @focusin="resultViewTitleHovered = true" @focusout="resultViewTitleHovered = false" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
@@ -42,7 +42,7 @@
               <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
             </div>
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel result-view-section__configured-content" aria-label="配置填写内容">
-          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || structureLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -54,11 +54,12 @@
                 :index="index"
                 :count="configuredContents.length"
                 :toolbar-visible="!isCalibration && configuredHoverKey === configuredCardKey(content)"
+                :structure-editable="!structureLocked"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
-                :settings-disabled="pageNameLocked"
+                :settings-disabled="displaySettingsLocked" :display-settings-disabled="displaySettingsLocked" :write-settings-disabled="writeSettingsLocked" :definition-editable="canEditDefinition(content)"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
@@ -111,7 +112,7 @@
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
-                :settings-disabled="pageNameLocked"
+                :settings-disabled="displaySettingsLocked" :display-settings-disabled="displaySettingsLocked" :write-settings-disabled="writeSettingsLocked" :definition-editable="canEditDefinition(content)"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
@@ -125,7 +126,7 @@
 
             </template>
           </PerformanceContentRegionList>
-          <PerformanceReferenceEntryBar :class="{ 'result-view-reference-entry': isResultView }" :label="isResultView ? '添加其他参考内容' : undefined" @select="handleContentAction('add-reference')" />
+          <PerformanceReferenceEntryBar v-if="!structureLocked" :class="{ 'result-view-reference-entry': isResultView }" :label="isResultView ? '添加其他参考内容' : undefined" @select="handleContentAction('add-reference')" />
         </template>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="stagePageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <template v-else-if="isResultReconsiderationFill">
@@ -160,11 +161,12 @@
                     :index="configuredContents.indexOf(content)"
                     :count="configuredContents.length"
                     :toolbar-visible="false"
+                    :structure-editable="false"
                     :root-settings="rootSettingFor(content.id)"
                     :item-settings="itemSettingsForContent(content.id)"
                     :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                     :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
-                    :settings-disabled="pageNameLocked"
+                    :settings-disabled="displaySettingsLocked" :display-settings-disabled="displaySettingsLocked" :write-settings-disabled="writeSettingsLocked" :definition-editable="canEditDefinition(content)"
                     :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                     :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                     @activate="selectConfiguredContent"
@@ -185,7 +187,7 @@
           <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         </template>
         <section v-if="configuredContents.length && !isResultView && !isReferenceTab && !isResultReconsiderationFill" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
-          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || pageNameLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || structureLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -197,11 +199,12 @@
                 :index="index"
                 :count="configuredContents.length"
                 :toolbar-visible="!isCalibration && configuredHoverKey === configuredCardKey(content)"
+                :structure-editable="!structureLocked"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
                 :item-settings-enabled="activeStageContentRule.itemSettingsEnabled"
-                :settings-disabled="pageNameLocked"
+                :settings-disabled="displaySettingsLocked" :display-settings-disabled="displaySettingsLocked" :write-settings-disabled="writeSettingsLocked" :definition-editable="canEditDefinition(content)"
                 :root-settings-variant="activeStageContentRule.rootSettingsVariant"
                 :item-settings-variant="activeStageContentRule.itemSettingsVariant"
                 @activate="selectConfiguredContent"
@@ -222,7 +225,7 @@
         </section>
       </PerformanceContentWorkspace>
       <PerformanceContentWorkspace v-if="referenceTabEmpty" class="reference-entry-pane">
-        <PerformanceReferenceEntryBar @select="handleContentAction('add-reference')" />
+        <PerformanceReferenceEntryBar v-if="!structureLocked" @select="handleContentAction('add-reference')" />
       </PerformanceContentWorkspace>
     </ContentSettingsStageRenderer>
     <aside v-if="false" class="configured-content-panel" aria-label="閰嶇疆濉啓鍐呭唴">
@@ -232,9 +235,9 @@
         <ul><li v-for="item in content.items" :key="item.id">{{ item.label }}</li></ul>
       </article>
     </aside>
-    <PerformancePromptModal v-model:open="promptModalOpen" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
+    <PerformancePromptModal v-model:open="promptModalOpen" :scope-disabled="structureLocked" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
-    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
+    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :display-only="structureLocked" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
   </div>
 </template>
 
@@ -271,7 +274,10 @@ const activeTab = ref('fill')
 const loading = ref(false)
 const stages = ref<Array<{ id: string; nodeType: string; icon: string; title: string; executor: string; executorRoleCode: string | null }>>([])
 const workflowNodes = ref<PerformanceWorkflowNode[]>([])
-const pageNameLocked = ref(false)
+const structureLocked = ref(false)
+const writeSettingsLocked = ref(false)
+const displaySettingsLocked = ref(false)
+const pageNameLocked = computed(() => selectedReferenceRelation.value ? displaySettingsLocked.value : structureLocked.value)
 const pageNameError = ref('')
 const contentLibrary = ref<PerformanceTemplateContent[]>([])
 const ratingOptions = ref<AssessmentOption[]>([])
@@ -406,6 +412,7 @@ const reconsiderationContents = computed(() => resolveCalibrationContents(finalF
 const finalModuleTitle = computed(() => finalNode.value?.name || selectedStageData.value?.title || '上级评估')
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const summaryActions = computed(() => {
+  if (structureLocked.value) return []
   const type = selectedStageData.value?.nodeType
   if (isReferenceTab.value) return [{ key: 'add-reference', label: '选择参考内容' }]
   if (isCalibration.value) return []
@@ -476,7 +483,7 @@ const referenceContentMeta = ref<Record<string, { relationId: string; sourceCont
 const contentIdentity = (content: PerformanceTemplateContent) => content.content_id || content.id || `${content.type}-${content.name}`
 const cloneContent = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 function normalizeRatingContent<T extends PerformanceTemplateContent>(content: T): T {
-  if (content.type !== 'rating') return content
+  if (content.type !== 'rating' || structureLocked.value) return content
   const ratingItems = content.items.filter(item => item.kind === 'rating' || !item.kind)
   const ratingOptionId = content.ratingOptionId || ratingItems.at(-1)?.id || ''
   const current = ratingOptions.value.find(option => option.id === ratingOptionId)
@@ -589,7 +596,7 @@ const contentRegions = computed(() => {
 })
 function reorderContentRegions(from: number, to: number) {
   const node = selectedWorkflowNode.value
-  if (!node || pageNameLocked.value || from === to) return
+  if (!node || structureLocked.value || from === to) return
   syncSelectedStageContents()
   const regions = contentRegions.value.slice()
   const [moved] = regions.splice(from, 1)
@@ -627,7 +634,7 @@ function normalizeRootSettings(value: unknown, allowView = false): WorkSummaryRo
 }
 function normalizeItemSettings(value: unknown, allowView = false): WorkSummaryItemSettings {
   const settings = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  const mode = settings.mode === 'hidden' ? 'hidden' : allowView && settings.mode === 'view' ? 'view' : 'fill'
+  const mode = settings.mode === 'hidden' ? 'hidden' : (allowView || writeSettingsLocked.value) && settings.mode === 'view' ? 'view' : 'fill'
   return { ...settings, mode, required: settings.required !== false, hideName: settings.hideName === true }
 }
 function isReferenceContent(contentId: string) {
@@ -646,9 +653,11 @@ function itemSettingsForContent(contentId: string): Record<string, WorkSummaryIt
   return Object.fromEntries((content?.items || []).map((item) => [item.id, itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()]))
 }
 function setRootSettingsForContent(contentId: string, settings: WorkSummaryRootSettings) {
+  if (displaySettingsLocked.value) return
+  if (writeSettingsLocked.value) settings = { ...rootSettingFor(contentId), ...referenceDisplaySettings(settings) }
   rootSettings.value[contentId] = settings
   // 参考内容页签的查看设置随 reference_settings 持久化，不走校准环节的 calibration_settings 覆盖。
-  if (!isCalibration.value || isReferenceTab.value || !selectedWorkflowNode.value || pageNameLocked.value) return
+  if (!isCalibration.value || isReferenceTab.value || !selectedWorkflowNode.value) return
   const overrides = selectedWorkflowNode.value.calibration_settings || {}
   selectedWorkflowNode.value.calibration_settings = {
     ...overrides,
@@ -659,22 +668,27 @@ function setRootSettingsForContent(contentId: string, settings: WorkSummaryRootS
   }
 }
 function setItemSettingsForContent(contentId: string, settings: Record<string, WorkSummaryItemSettings>) {
+  if (displaySettingsLocked.value) return
+  if (writeSettingsLocked.value) {
+    const current = itemSettingsForContent(contentId)
+    settings = Object.fromEntries(Object.entries(current).map(([id, value]) => [id, { ...value, ...referenceDisplaySettings(settings[id]) }]))
+  }
   // 参考内容页签的条目设置为查看设置（allowView/hideName/hideDescription），不写入 calibration_settings。
   if (isCalibration.value && !isReferenceTab.value) {
     const node = selectedWorkflowNode.value
     const content = configuredContents.value.find(content => content.id === contentId)
-    if (!node || !content || pageNameLocked.value) return
+    if (!node || !content) return
     const overrides = node.calibration_settings || {}
     const items = { ...overrides[contentId]?.items }
     content.items.filter(item => supportsCalibrationItemSettings(content, item)).forEach(item => {
       const current = itemSettings.value[`${contentId}:${item.id}`] || defaultItemSettings()
       const next = { ...current, ...(settings[item.id] || {}) }
       const allowModify = next.allowModify !== false
-      const override = { ...items[item.id], allowModify }
+      const override = { ...items[item.id], ...(!writeSettingsLocked.value ? { allowModify } : {}) }
       const variant = getItemSettingsVariant(content, item)
       if (variant === 'custom-text' || variant === 'custom-tag') override.hideName = next.hideName === true
       if (variant === 'custom-tag') override.hideDescription = next.hideDescription === true
-      if (variant === 'rating') override.levelRulesEnabled = next.levelRulesEnabled === true
+      if (variant === 'rating' && !writeSettingsLocked.value) override.levelRulesEnabled = next.levelRulesEnabled === true
       items[item.id] = override
       itemSettings.value[`${contentId}:${item.id}`] = next
     })
@@ -683,7 +697,22 @@ function setItemSettingsForContent(contentId: string, settings: Record<string, W
   }
   Object.entries(settings).forEach(([itemId, value]) => { itemSettings.value[`${contentId}:${itemId}`] = value })
 }
+function canEditDefinition(content: AssessmentContentDraft & { id: string }) {
+  return !displaySettingsLocked.value && !isReferenceContent(content.id) && !isCalibration.value && !isResultReconsiderationFill.value
+}
+function displayContentUpdate(current: AssessmentContentDraft & { id: string }, updated: AssessmentContentDraft & { id: string }) {
+  const prompt = (original: PerformancePromptValue, next?: PerformancePromptValue) => next ? { ...original, title: next.title, content: next.content, color: next.color, showIcon: next.showIcon, allowView: next.allowView, onlyWhenFilling: next.onlyWhenFilling } : original
+  return { ...current, ...(current.type !== 'prompt' ? { name: updated.name } : {}), ...(current.prompt ? { prompt: prompt(current.prompt, updated.prompt) } : {}), items: current.items.map(item => {
+    const next = updated.items.find(candidate => candidate.id === item.id)
+    if (!next) return item
+    return item.kind === 'prompt' && item.prompt ? { ...item, prompt: prompt(item.prompt, next.prompt) } : { ...item, label: next.label, hint: next.hint }
+  }) }
+}
 function updateConfiguredContent(index: number, content: AssessmentContentDraft & { id: string }) {
+  if (displaySettingsLocked.value) return
+  const current = configuredContents.value[index]
+  if (!current) return
+  if (structureLocked.value) content = displayContentUpdate(current, content)
   configuredContents.value = configuredContents.value.map((item, itemIndex) => itemIndex === index ? content : item)
 }
 function updateReferenceContent(contentId: string, content: AssessmentContentDraft & { id: string }) {
@@ -709,6 +738,7 @@ function openAllContentDrawer() {
   contentDrawerOpen.value = true
 }
 function handleContentAction(key: string) {
+  if (structureLocked.value) return
   syncSelectedStageContents()
   if (key === 'add-prompt') {
     editingPrompt.value = null
@@ -728,9 +758,11 @@ function handleTabChange(tab: string) {
   loadSelectedStageContents()
 }
 function handlePromptSave(value: PerformancePromptValue) {
+  if (displaySettingsLocked.value || (structureLocked.value && !editingPrompt.value)) return
+  if (structureLocked.value && editingPrompt.value?.prompt) value = { ...value, scope: editingPrompt.value.prompt.scope }
   if (!selectedStage.value || !value.content.trim()) return
   const id = editingPrompt.value?.id || `prompt-${Date.now()}-${++promptCounter}`
-  const prompt: AssessmentContentDraft & { id: string } = { ...editingPrompt.value, id, type: 'prompt', name: value.title.trim() || '提示', description: '', items: [], prompt: cloneContent(value), content_id: id, content_slot: activeTab.value as PerformanceTemplateContent['content_slot'] }
+  const prompt: AssessmentContentDraft & { id: string } = { ...editingPrompt.value, id, type: 'prompt', name: structureLocked.value ? editingPrompt.value!.name : value.title.trim() || '提示', description: '', items: [], prompt: cloneContent(value), content_id: id, content_slot: activeTab.value as PerformanceTemplateContent['content_slot'] }
   const contents = serializeConfiguredContents()
   const next = editingPrompt.value ? contents.map(content => contentIdentity(content) === id ? prompt : content) : [...contents, prompt]
   setConfiguredContents(next, isResultView.value)
@@ -894,6 +926,19 @@ function selectStage(id: string) {
   configuredHoverKey.value = null
 }
 function handleContentConfirm(contents: AssessmentContentDraft[]) {
+  if (structureLocked.value) {
+    if (displaySettingsLocked.value) return
+    syncSelectedStageContents()
+    const definitions = contentLibrary.value.map(current => {
+      const updated = contents.find(content => contentIdentity(content as PerformanceTemplateContent) === contentIdentity(current))
+      return updated ? displayContentUpdate({ ...current, id: contentIdentity(current) } as AssessmentContentDraft & { id: string }, { ...updated, id: contentIdentity(current) }) : current
+    })
+    contentLibrary.value = definitions
+    projectContentDefinitions()
+    loadSelectedStageContents()
+    contentDrawerOpen.value = false
+    return
+  }
   if (isReferenceTab.value) return
   if (isResultView.value && contents.some(content => !finalContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
   const localContents = serializeConfiguredContents()
@@ -923,6 +968,7 @@ function handleContentConfirm(contents: AssessmentContentDraft[]) {
   contentDrawerOpen.value = false
 }
 function handleReferenceConfirm(selected: string[]) {
+  if (structureLocked.value) return
   syncSelectedStageContents()
   const pool = new Map<string, ReferenceOption & { kind: 'node' | 'more' }>()
   referenceNodeCandidates.value.forEach((option) => pool.set(option.value, { ...option, kind: 'node' }))
@@ -951,7 +997,7 @@ function handleReferenceConfirm(selected: string[]) {
   referenceDrawerOpen.value = false
 }
 function reorderConfigured(from: number, to: number) {
-  if (from === to) return
+  if (structureLocked.value || from === to) return
   const next = configuredContents.value.slice()
   const [moved] = next.splice(from, 1)
   if (!moved) return
@@ -962,6 +1008,7 @@ function moveConfigured(index: number, delta: -1 | 1) {
   reorderConfigured(index, index + delta)
 }
 function removeConfigured(index: number) {
+  if (structureLocked.value) return
   const removed = configuredContents.value[index]
   if (!removed) return
   configuredContents.value = configuredContents.value.filter((_, itemIndex) => itemIndex !== index)
@@ -974,6 +1021,7 @@ function removeConfigured(index: number) {
   configuredHoverKey.value = null
 }
 function editConfigured(content: AssessmentContentDraft & { id: string }) {
+  if (!canEditDefinition(content)) return
   syncSelectedStageContents()
   if (content.type === 'prompt') {
     editingPrompt.value = cloneContent(content)
@@ -1063,7 +1111,13 @@ async function save() {
   const response = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes, content_library: cloneContent(contentLibrary.value) })
   applyWorkflowNodes(response.nodes || [], response.content_library || [])
   loadSelectedStageContents()
-  pageNameLocked.value = (response.usage_summary?.cycle_count || 0) > 0 || response.editable_scope?.workflow === false
+  updateEditableScope(response)
+}
+function updateEditableScope(data: { usage_summary?: { cycle_count?: number; project_count?: number }; editable_scope?: { workflow?: boolean; data_write_settings?: boolean; reference_and_prompt_content?: boolean } }) {
+  const used = (data.usage_summary?.cycle_count || 0) > 0 || (data.usage_summary?.project_count || 0) > 0
+  structureLocked.value = used || data.editable_scope?.workflow === false
+  writeSettingsLocked.value = structureLocked.value || data.editable_scope?.data_write_settings === false
+  displaySettingsLocked.value = data.editable_scope?.reference_and_prompt_content === false
 }
 defineExpose({ save })
 onMounted(async () => {
@@ -1071,7 +1125,7 @@ onMounted(async () => {
   void loadRatingOptions()
   void loadTagOptions()
   loading.value = true
-  try { const data = await performanceTemplateApi.getWorkflow(props.templateId); applyWorkflowNodes(data.nodes || [], data.content_library || []); pageNameLocked.value = (data.usage_summary?.cycle_count || 0) > 0 || data.editable_scope?.workflow === false } finally { loading.value = false }
+  try { const data = await performanceTemplateApi.getWorkflow(props.templateId); updateEditableScope(data); applyWorkflowNodes(data.nodes || [], data.content_library || []) } finally { loading.value = false }
 })
 </script>
 

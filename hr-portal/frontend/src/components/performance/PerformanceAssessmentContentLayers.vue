@@ -7,7 +7,7 @@
           <button class="icon-button" type="button" :aria-label="`关闭${title}`" @click="closeDrawer"><Close /></button>
         </header>
         <main class="drawer-body">
-          <section class="visibility-row">
+          <section v-if="!displayOnly" class="visibility-row">
             <div>
               <div class="visibility-title"><strong>评估内容分人群可见</strong><UiSwitch v-model="groupVisible" aria-label="评估内容分人群可见" /></div>
               <p>分组后，可根据不同人群评估要求，设置对应的评估内容</p>
@@ -18,7 +18,7 @@
 
           <template v-if="drawerContents.length">
             <div class="drawer-actions">
-              <CreateMenu ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+              <CreateMenu v-if="!displayOnly" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
               <button class="plain-button expand-all-button" type="button" :aria-expanded="allExpanded" @click="toggleAllExpanded"><ArrowDown v-if="!allExpanded" /><ArrowUp v-else /> {{ allExpanded ? '全部收起' : '全部展开' }}</button>
             </div>
             <section class="created-list" aria-label="评估内容">
@@ -28,7 +28,7 @@
                   <PerformanceInfoPopover v-if="!canSelectContent(content)" :content="selectionRestriction" variant="disabled-action" width="auto">
                     <PerformanceCheckbox :model-value="isContentSelected(content.id)" :label="content.name" disabled><template #label /></PerformanceCheckbox>
                   </PerformanceInfoPopover>
-                  <PerformanceCheckbox v-else :model-value="isContentSelected(content.id)" :label="content.name" :disabled="isContentSelected(content.id)" @update:model-value="toggleAvailableContent(content)"><template #label /></PerformanceCheckbox>
+                  <PerformanceCheckbox v-else :model-value="isContentSelected(content.id)" :label="content.name" :disabled="displayOnly || isContentSelected(content.id)" @update:model-value="toggleAvailableContent(content)"><template #label /></PerformanceCheckbox>
                 </template>
                 <strong>{{ content.name }}</strong>
                 <template #actions>
@@ -44,7 +44,7 @@
           </template>
           <section v-else class="empty-state" aria-label="评估内容列表">
             <el-empty :image-size="112" description="暂无内容" />
-            <CreateMenu ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+            <CreateMenu v-if="!displayOnly" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
           </section>
         </main>
         <footer v-if="drawerContents.length" class="drawer-footer">
@@ -69,9 +69,18 @@
         <div class="modal-body">
           <div class="config-pane">
             <PerformanceFormField v-model="draft.name" label="名称" required placeholder="请输入名称" :invalid="submitted && !draft.name.trim()" />
-            <PerformanceFormField v-model="draft.description" label="描述" textarea placeholder="请输入描述" />
+            <PerformanceFormField v-if="!displayOnly" v-model="draft.description" label="描述" textarea placeholder="请输入描述" />
             <h3 class="section-title">配置详情</h3>
-            <template v-if="activeType === 'work_summary'">
+            <template v-if="displayOnly">
+              <div v-for="item in activeType === 'work_summary' ? workSummaryItems : items" :key="item.id" class="config-box item-card saved-item">
+                <PerformancePromptForm v-if="'prompt' in item && item.prompt" v-model="item.prompt" variant="inline" :scope-disabled="true" :invalid="submitted" />
+                <template v-else>
+                  <PerformanceFormField v-model="item.label" inside label="填写题名称" required :invalid="submitted && !item.label.trim()" />
+                  <PerformanceFormField v-model="item.hint" inside label="提示" textarea />
+                </template>
+              </div>
+            </template>
+            <template v-else-if="activeType === 'work_summary'">
               <PerformanceRepeatableFillItemList :horizontal-handle="horizontalHandle" :items="workSummaryItems" :invalid="submitted" @add="addWorkSummaryItem" @remove="removeWorkSummaryItem" @reorder="reorderWorkSummary" @drag-start="startSummarySort" @drag-end="finishSummarySort" @drag-cancel="cancelSummarySort" />
             </template>
 
@@ -116,6 +125,7 @@ import PerformanceExpandButton from './PerformanceExpandButton.vue'
 import PerformanceRepeatableFillItemList from './PerformanceRepeatableFillItemList.vue'
 import PerformanceFormField from './PerformanceFormField.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
+import PerformancePromptForm from './PerformancePromptForm.vue'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import { resolveRatingOptions } from './performanceRatingOptions'
 import UiSwitch from '../ui/UiSwitch.vue'
@@ -131,7 +141,7 @@ export interface AssessmentContentDraft { type:AssessmentContentType|'prompt'; n
 interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
 interface FillItem { id:string; label:string; hint:string; richText?:string; kind?:'rating'|'fill'|'prompt'; prompt?:PerformancePromptValue; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'|'single'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;code?:string;label:string;name?:string;description?:string;placeholder?:string;color?:string}> }
 
-const props=withDefaults(defineProps<{open:boolean;horizontalHandle?:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
+const props=withDefaults(defineProps<{open:boolean;displayOnly?:boolean;horizontalHandle?:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
 const drawerRef=ref<HTMLElement|null>(null), modalRef=ref<HTMLElement|null>(null), modalCloseRef=ref<HTMLButtonElement|null>(null), createMenuRef=ref<{focus:()=>void}|null>(null)
 const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), submitted=ref(false), itemSubmitted=ref(false), success=ref(false), draggedIndex=ref<number|null>(null), dragAnnouncement=ref(''), editingCreatedId=ref<string|null>(null), expandedIds=ref<Set<string>>(new Set())
@@ -202,11 +212,12 @@ function isContentSelected(id:string){return created.value.some(content=>content
 function canSelectContent(content:AssessmentContentDraft&{id:string}){return props.selectableContentIds === undefined || props.selectableContentIds.includes(contentKey(content))}
 function toggleAvailableContent(content:AssessmentContentDraft&{id:string}){
   const id=contentKey(content)
-  if(isContentSelected(id)||!canSelectContent(content))return
+  if(props.displayOnly || isContentSelected(id)||!canSelectContent(content))return
   created.value.push(JSON.parse(JSON.stringify({ ...content, id, content_id:id })))
 }
 function finishDrawer(){if(created.value.some(content=>!canSelectContent(content)))return;emit('confirm',created.value.map(content=>({ ...content, content_id:content.content_id||content.id })));emit('update:open',false)}
 function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{id:string}){
+  if(props.displayOnly && !content)return
   resetDraft(); editingCreatedId.value=content?(content.content_id||content.id):null; activeType.value=type
   if(content){
     Object.assign(draft,{name:content.name,description:content.description,ratingOptionId:content.ratingOptionId||(type==='rating'?content.items[0]?.id||'':''),questionType:content.questionType||'text',tagOptionId:content.tagOptionId||'',defaultAll:!!content.defaultAll})
@@ -259,7 +270,24 @@ function validItem(){
   return items.value.length>0&&items.value.every(item=>item.kind==='prompt'?!!item.prompt?.content?.trim()&&item.prompt.content.length<=2000:item.kind==='rating'?!!item.ratingOptionId:item.questionType==='tag'?!!item.tagOptionId:!!item.label.trim())
 }
 function confirmContent(){
-  submitted.value=true;if(!activeType.value||!draft.name.trim()||!validItem())return
+  submitted.value=true;if(!activeType.value||!draft.name.trim()||(!props.displayOnly && !validItem()))return
+  if(props.displayOnly){
+    const existing=drawerContents.value.find(content=>contentKey(content)===editingCreatedId.value)
+    if(!existing)return
+    const edited=activeType.value==='work_summary'?workSummaryItems.value:items.value
+    if(edited.some(item=>!('prompt' in item && item.prompt)&&!item.label.trim()))return
+    const next={...existing,name:draft.name.trim(),items:existing.items.map(item=>{
+      const changed=edited.find(candidate=>candidate.id===item.id)
+      if(!changed)return item
+      if(item.kind==='prompt' && item.prompt && 'prompt' in changed && changed.prompt)return {...item,prompt:{...item.prompt,title:changed.prompt.title,content:changed.prompt.content,color:changed.prompt.color,showIcon:changed.prompt.showIcon}}
+      return {...item,label:changed.label.trim(),hint:changed.hint.trim()}
+    })}
+    const index=created.value.findIndex(content=>contentKey(content)===contentKey(existing))
+    if(index>=0)created.value[index]=next;else created.value.push(next)
+    emit('confirm',created.value)
+    closeModal()
+    return
+  }
   const finalItems:AssessmentContentDraft['items']=activeType.value==='work_summary'
     ? workSummaryItems.value.map(({id,label,hint,richText})=>({id,label:label.trim(),hint:hint.trim(),richText,kind:'fill' as const}))
     : items.value.map(item=>{const normalized=item.questionType==='tag'?normalizeTagItem(item):item;return{...normalized,label:normalized.label.trim(),hint:(normalized.hint??'').trim()}})

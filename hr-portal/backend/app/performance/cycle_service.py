@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta, timezone
+import json
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data.employee_roster_contract import (
@@ -268,10 +269,10 @@ class PerformanceCycleService:
         if ids is None:
             return
         if cycle is not None:
-            await self.db.execute(select(PerformanceCycle.id).where(PerformanceCycle.id == cycle.id).with_for_update())
+            cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update().execution_options(populate_existing=True))).scalar_one()
         previous = self.template_ids(cycle) if cycle is not None else []
-        for template_id in ids:
-            template = await self.db.get(PerformanceTemplate, template_id)
+        for template_id in sorted(set(ids)):
+            template = (await self.db.execute(select(PerformanceTemplate).where(PerformanceTemplate.id == template_id).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
             if template is None or template.template_kind != "performance" or (template.status != "active" and template_id not in previous):
                 raise CycleValidationError("只能选择已启用的绩效模板")
         removed = set(previous) - set(ids)
@@ -325,6 +326,7 @@ class PerformanceCycleService:
         forbidden = {"lock_rule", "lock_at", "pre_lock_sync_mode"}.intersection(payload)
         if forbidden:
             raise CycleValidationError("周期创建后不支持修改锁定规则")
+        cycle = (await self.db.execute(select(PerformanceCycle).where(PerformanceCycle.id == cycle.id).with_for_update().execution_options(populate_existing=True))).scalar_one()
         overdue_changed = any(field in payload and payload[field] != getattr(cycle, field) for field in ("overdue_submission_enabled", "overdue_submission_scope"))
         if overdue_changed:
             setting = await self.db.get(PerformanceOtherSetting, 1)
@@ -332,16 +334,15 @@ class PerformanceCycleService:
                 raise CycleValidationError("未开启按周期关闭逾期任务提交机会")
         await self.validate_templates(payload, cycle)
         before = self.serialize(cycle)
-        leaver_fields_changed = any(field in payload and payload[field] != getattr(cycle, field) for field in ("leaver_enabled", "leaver_start_date", "leaver_end_date"))
+        changed_leaver_fields = any(field in payload and payload[field] != getattr(cycle, field) for field in ("leaver_enabled", "leaver_start_date", "leaver_end_date"))
+        if changed_leaver_fields and datetime.now(UTC) >= normalize_cycle_datetime(cycle.start_at):
+            raise CycleValidationError("绩效环节已开始，不能修改离职人员参评范围")
         for field in ("name", "language", "period_year", "period_type", "period_subtype", "template_id", "template_ids", "start_at", "end_at", "leaver_enabled", "leaver_start_date", "leaver_end_date", "leaver_participation_mode", "overdue_submission_enabled", "overdue_submission_scope"):
             if field in payload:
                 setattr(cycle, field, payload[field].strip() if field == "name" else payload[field])
         self._validate_cycle(cycle)
-        if leaver_fields_changed and datetime.now(UTC) >= cycle.start_at.astimezone(UTC):
-            raise CycleValidationError("绩效环节已开始，不能修改离职人员参评范围")
-        if leaver_fields_changed:
+        if changed_leaver_fields:
             await self._sync_snapshot(cycle, actor_type=actor_type, actor_id=actor_id, allow_locked_update=True)
-        if leaver_fields_changed:
             await self._prune_excluded_leavers(cycle)
         self.audit.append_event(AuditEventInput(event_type="PERFORMANCE_CYCLE_UPDATED", cycle_ref=cycle.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), before_state=before, after_state=self.serialize(cycle)))
         await self.db.commit()
@@ -553,8 +554,6 @@ class PerformanceCycleService:
         actor_id: int,
     ) -> list[dict[str, Any]]:
         """从最新花名册把选中维度同步进本周期人员快照，返回变更明细。"""
-        if datetime.now(UTC) >= cycle.start_at.astimezone(UTC):
-            raise CycleValidationError("绩效环节已开始，不能更新锁定人员和部门信息")
         unknown = sorted({field for field in update_fields if field not in PERSON_INFO_UPDATE_DIMENSIONS})
         if unknown:
             raise CycleValidationError(f"不支持更新的信息维度：{'、'.join(unknown)}")
@@ -581,12 +580,14 @@ class PerformanceCycleService:
         person = next((row for row in people if row.employee_no == employee_no), None)
         if person is None:
             raise CycleValidationError(f"周期快照中不存在员工：{employee_no}")
-        roster_inputs = await self._load_roster_inputs(cycle)
+        await self.db.refresh(person, with_for_update=True)
+        roster_inputs = await self._load_roster_inputs(cycle, include_excluded_leavers=True)
         roster = next((row for row in roster_inputs if row.employee_no == employee_no), None)
         if roster is None:
             raise CycleValidationError("最新花名册中未找到该员工，无法同步")
 
         changes: list[dict[str, Any]] = []
+        updates: dict[str, Any] = {}
 
         def record_change(field: str, before: Any, after: Any) -> None:
             changes.append({
@@ -599,10 +600,10 @@ class PerformanceCycleService:
 
         if "job_family" in update_fields and roster.job_family != person.job_family:
             record_change("job_family", person.job_family, roster.job_family)
-            person.job_family = roster.job_family
+            updates["job_family"] = roster.job_family
         if "position_level" in update_fields and roster.position_level != person.position_level:
             record_change("position_level", person.position_level, roster.position_level)
-            person.position_level = roster.position_level
+            updates["position_level"] = roster.position_level
         if "direct_supervisor" in update_fields:
             source = roster.direct_supervisor_source_value
             resolved: str | None = None
@@ -617,32 +618,42 @@ class PerformanceCycleService:
                     raise CycleValidationError(f"直属上级「{source}」无法解析为周期内唯一员工")
             if resolved != person.direct_supervisor_employee_no:
                 record_change("direct_supervisor_employee_no", person.direct_supervisor_employee_no, resolved)
-                person.direct_supervisor_employee_no = resolved
-                person.direct_supervisor_source_value = source
+                updates["direct_supervisor_employee_no"] = resolved
+                updates["direct_supervisor_source_value"] = source
         if "department" in update_fields:
             org_changed = False
             for field in ORGANIZATION_FIELDS:
                 value = getattr(roster, field)
                 if value != getattr(person, field):
                     record_change(field, getattr(person, field), value)
-                    setattr(person, field, value)
+                    updates[field] = value
                     org_changed = True
             if org_changed:
-                new_ref = organization_path(person)
+                new_ref = organization_path({field: getattr(roster, field) for field in ORGANIZATION_FIELDS})
                 if new_ref != person.organization_ref:
                     record_change("organization_ref", person.organization_ref, new_ref)
-                person.organization_ref = new_ref
+                updates["organization_ref"] = new_ref
         if not changes:
             return []
-        person.is_manually_maintained = True
-        self.audit.append_event(AuditEventInput(
-            event_type="PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED",
-            cycle_ref=cycle.cycle_ref,
-            actor_type=actor_type,
-            actor_ref=_actor_ref(actor_id),
-            after_state={"reason": "更新人员信息（同步自最新花名册）", "changes": changes},
-        ))
-        await self.db.commit()
+        updates["is_manually_maintained"] = True
+        guard_sql = text("SELECT set_config('performance.person_info_update', :guard, true)")
+        try:
+            await self.db.execute(guard_sql, {"guard": json.dumps({"snapshot_id": snapshot.id, "person_id": person.id, "fields": list(updates)})})
+            for field, value in updates.items():
+                setattr(person, field, value)
+            self.audit.append_event(AuditEventInput(
+                event_type="PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED",
+                cycle_ref=cycle.cycle_ref,
+                actor_type=actor_type,
+                actor_ref=_actor_ref(actor_id),
+                after_state={"reason": "更新人员信息（同步自最新花名册）", "changes": changes},
+            ))
+            await self.db.flush()
+            await self.db.execute(guard_sql, {"guard": ""})
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
         return changes
 
     async def delete_cycle(self, cycle: PerformanceCycle, *, actor_type: str, actor_id: int) -> None:
@@ -688,7 +699,7 @@ class PerformanceCycleService:
         people = await self._load_roster_inputs(cycle)
         await self.snapshots.sync_roster(cycle.cycle_ref, people, actor_type=actor_type, actor_ref=_actor_ref(actor_id), allow_locked_update=allow_locked_update, commit=False)
 
-    async def _load_roster_inputs(self, cycle: PerformanceCycle) -> list[RosterAuthorizationInput]:
+    async def _load_roster_inputs(self, cycle: PerformanceCycle, *, include_excluded_leavers: bool = False) -> list[RosterAuthorizationInput]:
         try:
             table = employee_roster_table()
             columns = require_employee_roster_columns(table)
@@ -719,7 +730,7 @@ class PerformanceCycleService:
             if not employee_no or not display_name:
                 continue
             departure_date = normalize_roster_date(row.get("departure_date"))
-            if normalize_roster_text(row.get("employment_status")) == "离职":
+            if not include_excluded_leavers and normalize_roster_text(row.get("employment_status")) == "离职":
                 if not cycle.leaver_enabled or departure_date is None or cycle.leaver_start_date is None or cycle.leaver_end_date is None or not (cycle.leaver_start_date <= departure_date <= cycle.leaver_end_date):
                     continue
             people.append(RosterAuthorizationInput(

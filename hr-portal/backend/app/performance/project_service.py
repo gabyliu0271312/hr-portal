@@ -22,7 +22,7 @@ from app.data.employee_roster_contract import (
     require_employee_roster_columns,
 )
 from app.performance.assessment_roles import ROLE_CALIBRATOR, ROLE_DOTTED_MANAGER, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code, normalize_executor_identity, validate_executor_roles
-from app.performance.calibration_service import calibration_template, resolve_calibration
+from app.performance.calibration_service import calibration_template, resolve_calibration, canonical_flow, calibration_digest, editing_policy, validate_calibration_change, apply_calibration_delta, CalibrationConflict
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.self_summary_service import hydrate_self_summary_template, resolve_self_summary_content
 from app.performance.scope_options import build_organization_tree
@@ -366,7 +366,10 @@ class PerformanceProjectService:
             "start_at": settings.get("start_at"),
             "end_at": settings.get("end_at"),
             "evaluator_rules": settings.get("evaluator_rules", {"groups": []}),
-            "flow_settings": settings.get("flow_settings", DEFAULT_FLOW_SETTINGS),
+            "flow_settings": canonical_flow(settings.get("flow_settings", DEFAULT_FLOW_SETTINGS), project.id),
+            "calibration_base_digest": calibration_digest(settings.get("flow_settings", DEFAULT_FLOW_SETTINGS), project.id),
+            "editing_policy": editing_policy(project, canonical_flow(settings.get("flow_settings", DEFAULT_FLOW_SETTINGS), project.id)),
+            "calibration_change_result": getattr(project, "calibration_change_result", None),
         }
 
     @classmethod
@@ -614,14 +617,15 @@ class PerformanceProjectService:
                 }
             calibration = raw.get("calibration")
             if calibration is not None:
-                if not isinstance(calibration, dict) or not isinstance(calibration.get("phases", []), list):
+                if not isinstance(calibration, dict) or set(calibration) - {"phases", "force_distribution_enabled", "distribution"} or not isinstance(calibration.get("phases", []), list):
                     raise ProjectValidationError("校准设置格式不正确")
                 if len(calibration.get("phases", [])) > MAX_PROJECT_FLOW_NODES:
                     raise ProjectValidationError("校准阶段不能超过 100 个")
                 phases = []
                 phase_ids = set()
+                rule_ids = set()
                 for index, phase in enumerate(calibration.get("phases", [])):
-                    if not isinstance(phase, dict) or not isinstance(phase.get("rules", []), list):
+                    if not isinstance(phase, dict) or set(phase) - {"phase_id", "rules"} or not isinstance(phase.get("rules", []), list):
                         raise ProjectValidationError("校准阶段设置格式不正确")
                     phase_id = phase.get("phase_id", f"phase-{index + 1}")
                     if not isinstance(phase_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", phase_id) or phase_id in {"constructor", "prototype"} or phase_id in phase_ids:
@@ -630,7 +634,7 @@ class PerformanceProjectService:
                     rules = []
                     for rule in phase.get("rules", []):
                         if (not isinstance(rule, dict) or not rule
-                                or set(rule) - {"subject_type", "operator", "scope", "allow_authorize", "subject_source", "subject_groups", "scope_groups", "description", "distribution_rules"}):
+                                or set(rule) - {"rule_id", "subject_type", "operator", "scope", "allow_authorize", "subject_source", "subject_groups", "scope_groups", "description", "distribution_rules"}):
                             raise ProjectValidationError("校准规则设置格式不正确")
                         subject_type = rule.get("subject_type", "PERSON")
                         operator = rule.get("operator", "INCLUDE")
@@ -638,11 +642,20 @@ class PerformanceProjectService:
                         if subject_type != "PERSON" or operator not in {"INCLUDE", "EXCLUDE"} or scope not in {"PROJECT_ALL", "RULE"}:
                             raise ProjectValidationError("校准规则设置不合法")
                         normalized_rule = {
+                            "rule_id": rule.get("rule_id"),
                             "subject_type": subject_type,
                             "operator": operator,
                             "scope": scope,
                             "allow_authorize": bool(rule.get("allow_authorize", False)),
                         }
+                        if "rule_id" in rule:
+                            rule_id = rule["rule_id"]
+                            if not isinstance(rule_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", rule_id) or rule_id in rule_ids:
+                                raise ProjectValidationError("校准规则标识不合法或重复")
+                            rule_ids.add(rule_id)
+                            normalized_rule["rule_id"] = rule_id
+                        else:
+                            normalized_rule.pop("rule_id", None)
                         if "subject_source" in rule:
                             if rule["subject_source"] != "RULE":
                                 raise ProjectValidationError("校准人来源不合法")
@@ -889,7 +902,7 @@ class PerformanceProjectService:
         cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref).with_for_update().execution_options(populate_existing=True))
         if cycle is None or template_id not in PerformanceCycleService.template_ids(cycle):
             raise ProjectValidationError("只能选择当前绩效周期已配置的模板")
-        template = await self.db.get(PerformanceTemplate, template_id)
+        template = await self.db.scalar(select(PerformanceTemplate).where(PerformanceTemplate.id == template_id).with_for_update().execution_options(populate_existing=True))
         if template is None or template.template_kind != "performance" or template.status != "active":
             raise ProjectValidationError("只能选择已启用的绩效模板")
 
@@ -924,6 +937,15 @@ class PerformanceProjectService:
         return project
 
     async def update_project(self, project: PerformanceProject, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceProject:
+        if isinstance(project, PerformanceProject):
+            from app.performance.models import PerformanceTemplate
+            original_template = (project.settings or {}).get("template_id")
+            await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
+            if original_template:
+                await self.db.scalar(select(PerformanceTemplate).where(PerformanceTemplate.id == original_template).with_for_update())
+            await self.db.refresh(project, with_for_update=True)
+            if (project.settings or {}).get("template_id") != original_template:
+                raise CalibrationConflict("PROJECT_TEMPLATE_CONFLICT", "项目模板已变更，请刷新后重试")
         before = self.serialize(project)
         values = {**before, **payload}
         name, description, administrators, settings = self._validate_payload(values, project.settings or {})
@@ -933,22 +955,23 @@ class PerformanceProjectService:
             await self.validate_template(project.cycle_ref, settings.get("template_id"))
         await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"], project.settings or {})
-        if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
-            previous_flow = (project.settings or {}).get("flow_settings") or {}
-            previous_opening = previous_flow.get("node_settings") or {}
-            new_opening = (settings.get("flow_settings") or {}).get("node_settings") or {}
-            for node_id in previous_opening.keys() | new_opening.keys():
-                if (previous_opening.get(node_id) or {}).get("calibration") != (new_opening.get(node_id) or {}).get("calibration"):
-                    raise ProjectValidationError("已启动项目不能修改校准规则或阶段，请保留历史任务范围")
-            for node_id, node_settings in previous_opening.items():
-                if "result_view" in node_settings and node_settings.get("result_view") != new_opening.get(node_id, {}).get("result_view"):
-                    raise ProjectValidationError("已启动项目不能修改结果开通方式")
+        if "flow_settings" in payload or payload.get("calibration_operations"):
+            old_flow, new_flow, structural = validate_calibration_change(project, (project.settings or {}).get("flow_settings") or {}, settings["flow_settings"], payload.get("calibration_operations") or [], payload.get("calibration_base_digest"))
+            settings["flow_settings"] = new_flow
+            if project.status == PROJECT_STATUS_STARTED and structural:
+                project.calibration_change_result, notify = await apply_calibration_delta(self.db, project, old_flow, new_flow, actor_type=actor_type, actor_id=actor_id)
+            else:
+                notify = set()
+        else:
+            notify = set()
         project.name = name
         project.description = description
         project.administrators = administrators
         project.settings = settings
         if "evaluated_count" in payload:
             project.evaluated_count = int(payload.get("evaluated_count") or 0)
+        if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload and not payload.get("calibration_operations"):
+            await self.backfill_workflow_nodes(project, settings["flow_settings"].get("node_times") or {}, actor_type=actor_type, actor_id=actor_id, commit=False)
         self.audit.append_event(AuditEventInput(
             event_type="PERFORMANCE_PROJECT_UPDATED",
             cycle_ref=project.cycle_ref,
@@ -961,13 +984,9 @@ class PerformanceProjectService:
         ))
         await self.db.commit()
         await self.db.refresh(project)
-        if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
-            await self.backfill_workflow_nodes(
-                project,
-                ((project.settings or {}).get("flow_settings") or {}).get("node_times") or {},
-                actor_type=actor_type,
-                actor_id=actor_id,
-            )
+        if payload.get("notify_calibrators") and notify:
+            from app.performance.calibration_service import notify_revoked_calibrators
+            project.calibration_change_result["notification_results"] = await notify_revoked_calibrators(self.db, project, notify)
         return project
 
     @staticmethod
@@ -1080,6 +1099,18 @@ class PerformanceProjectService:
         cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
         if cycle is None:
             raise ProjectValidationError("绩效周期不存在")
+        if isinstance(project, PerformanceProject):
+            from app.performance.models import PerformanceTemplate
+            template_id = (project.settings or {}).get("template_id")
+            if template_id:
+                await self.db.scalar(select(PerformanceTemplate).where(PerformanceTemplate.id == template_id).with_for_update())
+            await self.db.refresh(project, with_for_update=True)
+            if (project.settings or {}).get("template_id") != template_id:
+                raise CalibrationConflict("PROJECT_TEMPLATE_CONFLICT", "项目模板已变更，请刷新后重试")
+            if project.status == PROJECT_STATUS_STARTED:
+                return project
+            if project.status != PROJECT_STATUS_DRAFT:
+                raise ProjectValidationError("当前项目状态不允许启动")
         authorization_snapshot, people = await self._cycle_snapshot_people(cycle)
         if authorization_snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
             raise ProjectValidationError("周期人员快照尚未锁定")
@@ -1131,7 +1162,8 @@ class PerformanceProjectService:
             raise ProjectValidationError("请至少选择一种方式")
         if sum(bool(node.get("include_final_result")) for node in nodes) != 1:
             raise ProjectValidationError("请且仅请选择一个环节作为最终结果")
-        flow = (project.settings or {}).get("flow_settings") or {}
+        flow = canonical_flow((project.settings or {}).get("flow_settings") or {}, project.id)
+        project.settings = {**(project.settings or {}), "flow_settings": flow}
         self._validate_distribution_start_readiness(flow, nodes)
         try:
             await validate_executor_roles(self.db, nodes)
@@ -1145,7 +1177,7 @@ class PerformanceProjectService:
             cycle_ref=project.cycle_ref,
             snapshot_version=1,
             source_snapshot_id=authorization_snapshot.id,
-            source_filter=rules,
+            source_filter={**rules, "task_generation_employee_nos": [person.employee_no for person in task_people]},
         )
         self.db.add(member_snapshot)
         await self.db.flush()
@@ -1284,6 +1316,7 @@ class PerformanceProjectService:
         *,
         actor_type: str,
         actor_id: int,
+        commit: bool = True,
     ) -> list[str]:
         if project.status != PROJECT_STATUS_STARTED:
             raise ProjectValidationError("仅已启动项目可补建流程节点")
@@ -1337,8 +1370,9 @@ class PerformanceProjectService:
         settings["flow_settings"] = flow_settings
         project.settings = settings
         self.audit.append_event(AuditEventInput(event_type="PERFORMANCE_PROJECT_WORKFLOW_NODES_BACKFILLED", cycle_ref=project.cycle_ref, actor_type=actor_type, actor_ref=_actor_ref(actor_id), subject_type="PERFORMANCE_PROJECT", subject_ref=project.project_ref, after_state={"node_ids": created_ids}))
-        await self.db.commit()
-        await self.db.refresh(project)
+        if commit:
+            await self.db.commit()
+            await self.db.refresh(project)
         return created_ids
 
     async def copy_project(self, project: PerformanceProject, payload: dict[str, Any] | None = None, *, target_cycle_ref: str | None = None, actor_type: str, actor_id: int) -> PerformanceProject:

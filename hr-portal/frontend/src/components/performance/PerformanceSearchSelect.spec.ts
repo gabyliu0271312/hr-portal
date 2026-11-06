@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceMultiSelect from './PerformanceMultiSelect.vue'
 import PerformanceRoleMultiSelect from './PerformanceRoleMultiSelect.vue'
+import PerformanceSelectShell from './PerformanceSelectShell.vue'
 
 const options = ['1', '2', '3', '4', '5', '6', '7'].map(value => ({ value, label: `周${value}` }))
 const stubs = { Teleport: true, ElPopover: { template: '<div><slot name="reference" /><slot /></div>' } }
@@ -44,6 +45,24 @@ describe('shared performance selectors', () => {
     expect(wrapper.get('[role="combobox"]').attributes('aria-expanded')).toBe('false')
     wrapper.unmount()
   })
+  it('locks referenced tags and clear while allowing other tags to be removed and the menu to open', async () => {
+    const wrapper = mount(PerformanceSelectShell, {
+      props: { modelValue: ['1', '2'], selectedItems: options.slice(0, 2), lockedValues: ['1'] },
+      global: { stubs },
+    })
+    await flushPromises()
+    expect(wrapper.get('button[aria-label="移除周1"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('button[aria-label="清空已选"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('button[aria-label="移除周1"]').trigger('click')
+    await wrapper.get('button[aria-label="清空已选"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.get('button[aria-label="移除周2"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['1']])
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    expect(wrapper.get('[role="combobox"]').attributes('aria-expanded')).toBe('true')
+    wrapper.unmount()
+  })
+
   it('preserves selected order, reserves the count width and shows only overflow items in the popover', async () => {
     const { wrapper } = create(['5', '1', '3', '7'])
     await flushPromises()

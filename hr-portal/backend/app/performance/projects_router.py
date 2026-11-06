@@ -15,7 +15,7 @@ from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
-from app.performance.calibration_service import calibration_task_scope
+from app.performance.calibration_service import calibration_task_scope, CalibrationConflict
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
@@ -138,6 +138,8 @@ async def _task_delegations(db: AsyncSession, task_id: int) -> list[PerformanceN
 
 
 async def _task_handlers(db: AsyncSession, task: PerformanceNodeTask) -> set[str]:
+    if getattr(task, "revoked_at", None) is not None:
+        return set()
     return effective_handlers(task.handler_ref, await _task_delegations(db, task.id))
 
 
@@ -146,6 +148,8 @@ async def _task_handler_allowed(db: AsyncSession, task: PerformanceNodeTask, act
 
 
 async def _task_edit_allowed(db: AsyncSession, task: PerformanceNodeTask, actor_ref: str) -> bool:
+    if getattr(task, "revoked_at", None) is not None:
+        return False
     active = await _task_delegations(db, task.id)
     transfers = [item for item in active if item.authorization_type == "TRANSFER"]
     if not transfers and str(task.handler_ref) == str(actor_ref):
@@ -561,6 +565,15 @@ async def get_template_task(task_id: int, context: PerformanceAccessContext = De
     return await _template_task_detail(task, node, context, db)
 
 
+async def _lock_task_context(db, task, node):
+    project = await db.scalar(select(PerformanceProject).where(PerformanceProject.id == task.project_id).with_for_update().execution_options(populate_existing=True))
+    await db.refresh(node)
+    await db.refresh(task, with_for_update=True)
+    if getattr(task, "revoked_at", None) is not None or task.task_kind == "calibration" and not calibration_task_scope(task, node):
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    return project
+
+
 async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, submit: bool, context: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
     shared_tasks = []
@@ -572,7 +585,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     if isinstance(task, PerformanceNodeTask):
         trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref, require_employee_identity=True)
         actor = trusted
-        await db.refresh(task, with_for_update=True)
+        await _lock_task_context(db, task, node)
         if not await _task_edit_allowed(db, task, trusted.actor_ref):
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
     project = await db.get(PerformanceProject, task.project_id)
@@ -676,7 +689,7 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
     if isinstance(task, PerformanceNodeTask):
         trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref, require_employee_identity=True)
         actor = trusted
-        await db.refresh(task, with_for_update=True)
+        await _lock_task_context(db, task, node)
         if not await _task_edit_allowed(db, task, trusted.actor_ref):
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
     project = await db.get(PerformanceProject, task.project_id)
@@ -739,6 +752,14 @@ class EvaluatorPreviewPeoplePage(BaseModel):
     page_size: int
 
 
+class CalibrationOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["add_rule", "delete_rule", "add_phase", "delete_phase"]
+    node_id: str = Field(min_length=1, max_length=128)
+    phase_id: str = Field(min_length=1, max_length=96)
+    rule_id: str | None = Field(default=None, max_length=96)
+
+
 class ProjectPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(..., min_length=1, max_length=128)
@@ -753,6 +774,25 @@ class ProjectPayload(BaseModel):
     end_at: datetime | None = None
     evaluator_rules: dict | None = None
     flow_settings: dict | None = None
+
+
+class ProjectPatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=500)
+    administrators: list[str] | None = Field(default=None, max_length=50)
+    data_managers: list[Literal["PROJECT_ADMIN", "HRBP"]] | None = Field(default=None, min_length=1)
+    scope_limited: bool | None = None
+    scope_employee_nos: list[str] | None = Field(default=None, max_length=5000)
+    scope_rules: dict | None = None
+    template_id: int | None = Field(default=None, ge=1)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    evaluator_rules: dict | None = None
+    flow_settings: dict | None = None
+    calibration_operations: list[CalibrationOperation] = Field(default_factory=list, max_length=500)
+    calibration_base_digest: str | None = Field(default=None, max_length=128)
+    notify_calibrators: bool = False
 
 
 class ProjectCopyPayload(BaseModel):
@@ -789,6 +829,9 @@ class ProjectResponse(BaseModel):
     end_at: str | None = None
     evaluator_rules: dict = Field(default_factory=lambda: {"groups": []})
     flow_settings: dict = Field(default_factory=lambda: {"node_settings": {}})
+    calibration_base_digest: str | None = None
+    editing_policy: dict = Field(default_factory=dict)
+    calibration_change_result: dict | None = None
 
 
 class ProjectPage(BaseModel):
@@ -1026,6 +1069,7 @@ async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_i
     task_statement = select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == project_id,
         PerformanceNodeTask.node_snapshot_id.in_([node.id for node in final_nodes]) if final_nodes else False,
+        PerformanceNodeTask.revoked_at.is_(None),
     )
     if member_snapshot_id is not None:
         task_statement = task_statement.where(PerformanceNodeTask.member_snapshot_id == member_snapshot_id)
@@ -1145,7 +1189,7 @@ def _result_ready(tasks: list[PerformanceNodeTask], schema: list[dict]) -> bool:
     return True
 
 
-async def _opening_state(project: PerformanceProject, db: AsyncSession):
+async def _opening_state(project: PerformanceProject, db: AsyncSession, *, include_history=False):
     nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
         PerformanceProjectNodeSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
@@ -1164,6 +1208,8 @@ async def _opening_state(project: PerformanceProject, db: AsyncSession):
         PerformanceNodeTask.member_snapshot_id == snapshot_id,
         PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]),
     ))).scalars().all())
+    if not include_history:
+        tasks = [task for task in tasks if getattr(task, "revoked_at", None) is None]
     previous_index = nodes.index(view) - 1
     previous = nodes[previous_index] if previous_index >= 0 else None
     schema = await _matrix_node_schema(final, project, db)
@@ -1177,7 +1223,9 @@ def _member_result_ready(employee_no: str, final: PerformanceProjectNodeSnapshot
 def _previous_finished(employee_no: str, previous: PerformanceProjectNodeSnapshot | None, tasks: list[PerformanceNodeTask]) -> bool:
     if previous is None or previous.node_type in {"project_start", "project_end"}:
         return True
-    related = [task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == previous.id]
+    related = [task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == previous.id and getattr(task, "revoked_at", None) is None]
+    if previous.node_type == "calibration":
+        return bool(related) and all(task.status == "completed" and task.submitted_at is not None for task in related)
     return not related or any(task.status == "completed" and task.submitted_at is not None for task in related)
 
 
@@ -1385,7 +1433,7 @@ async def read_my_project_results(
     ))
     if opening is None:
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
-    state = await _opening_state(project, db)
+    state = await _opening_state(project, db, include_history=True)
     if state is None:
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
     view, final, _previous, members, tasks, schema = state
@@ -1395,6 +1443,7 @@ async def read_my_project_results(
     final_tasks = [
         task for task in tasks
         if task.target_employee_no == actor.actor_ref and task.node_snapshot_id == final.id
+        and (not getattr(opening, "result_version", None) or str(task.id) in opening.result_version)
     ]
     results = []
     for task in final_tasks:
@@ -1466,7 +1515,7 @@ async def _member_task_options(
             can_authorize=await _authorize_task_delegation(task, stage["node"], project, context, actor_ref, db, active_by_task, progress_scope),
         )
         for task in tasks
-        if task.node_snapshot_id in stages
+        if task.node_snapshot_id in stages and getattr(task, "revoked_at", None) is None
         for stage in [stages[task.node_snapshot_id]]
     ]
     return [option for option in options if option.role_key is not None]
@@ -1490,6 +1539,7 @@ async def _task_authorization_members(project, scope, context, db, keyword, page
         PerformanceNodeTask.project_id == project.id,
         PerformanceNodeTask.member_snapshot_id == snapshot_id,
         PerformanceNodeTask.target_employee_no.in_([member.employee_no for member in members]),
+        PerformanceNodeTask.revoked_at.is_(None),
     ))).scalars().all())
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
     items = []
@@ -1587,6 +1637,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         tasks = list((await db.execute(select(PerformanceNodeTask).where(
             PerformanceNodeTask.project_id == project.id,
             PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            PerformanceNodeTask.revoked_at.is_(None),
         ))).scalars().all())
         task_ids = [task.id for task in tasks]
         active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] = {}
@@ -1978,7 +2029,7 @@ async def get_project(
 @router.patch("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(
     project_id: int,
-    payload: ProjectPayload,
+    payload: ProjectPatchPayload,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
@@ -1997,7 +2048,11 @@ async def update_project(
         project = await PerformanceProjectService(db).update_project(
             project, data, actor_type=context.subject_type, actor_id=context.subject_id
         )
+    except CalibrationConflict as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)}) from exc
     except ProjectValidationError as exc:
+        await db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return ProjectResponse(**PerformanceProjectService.serialize(project))
 
@@ -2144,10 +2199,11 @@ def _completion_node_status(starts: list[datetime], deadlines: list[datetime], c
 
 
 def _completion_task_counts(node, tasks):
+    tasks = [task for task in tasks if getattr(task, "revoked_at", None) is None]
     if node.node_type == "calibration":
         groups = {}
         for task in tasks:
-            if calibration_task_scope(task, node):
+            if getattr(task, "revoked_at", None) is None and calibration_task_scope(task, node):
                 groups.setdefault((task.phase_id, task.handler_ref), []).append(task)
         return sum(all(_task_completed(task) for task in group) for group in groups.values()), len(groups)
     return sum(_task_completed(task) for task in tasks), len(tasks)
@@ -2175,6 +2231,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         tasks = list((await db.execute(select(PerformanceNodeTask).where(
             PerformanceNodeTask.project_id == project.id,
             PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            PerformanceNodeTask.revoked_at.is_(None),
         ))).scalars().all())
         opened_people = set((await db.execute(select(PerformanceResultOpening.employee_no).where(
             PerformanceResultOpening.project_id == project.id,
@@ -2475,6 +2532,7 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
                 PerformanceNodeTask.member_snapshot_id == snapshot_id,
                 PerformanceNodeTask.node_snapshot_id == node.id,
                 PerformanceNodeTask.status == "pending",
+                PerformanceNodeTask.revoked_at.is_(None),
             ).order_by(PerformanceNodeTask.id))).scalars().all())
             for task in tasks:
                 if (task.target_employee_no not in member_by_employee or _task_completed(task)
@@ -2539,6 +2597,8 @@ async def _task_management_scope(context: PerformanceAccessContext, project: Per
 
 
 async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession, active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None = None, progress_scope: set[str] | None | object = _SCOPE_NOT_PROVIDED) -> bool:
+    if getattr(task, "revoked_at", None) is not None:
+        return False
     if node.node_type == "calibration":
         if not calibration_task_scope(task, node):
             return False
@@ -2611,7 +2671,7 @@ async def create_task_delegation(
     if not row:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     task, node, project = row
-    await db.refresh(task, with_for_update=True)
+    project = await _lock_task_context(db, task, node)
     current_snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
     if task.member_snapshot_id != current_snapshot_id or node.project_id != project.id:
         raise HTTPException(status_code=409, detail="TASK_SNAPSHOT_NOT_CURRENT")
@@ -2712,7 +2772,7 @@ async def list_task_delegations(
     if not row:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     task, node, project = row
-    await db.refresh(task, with_for_update=True)
+    project = await _lock_task_context(db, task, node)
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
     if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
         raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
@@ -2739,7 +2799,7 @@ async def revoke_task_delegation(
     if not row:
         raise HTTPException(status_code=404, detail="TASK_AUTHORIZATION_NOT_FOUND")
     task, node, project, record = row
-    await db.refresh(task, with_for_update=True)
+    project = await _lock_task_context(db, task, node)
     await db.refresh(record, with_for_update=True)
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
     if record.status != "ACTIVE":
@@ -2859,7 +2919,7 @@ async def project_management_remind(
         select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject)
         .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
         .join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id)
-        .where(PerformanceNodeTask.id.in_(task_ids), PerformanceNodeTask.project_id.in_(project_ids))
+        .where(PerformanceNodeTask.revoked_at.is_(None), PerformanceNodeTask.id.in_(task_ids), PerformanceNodeTask.project_id.in_(project_ids))
     )).all()
     by_id = {task.id: (task, node, project) for task, node, project in rows}
     accepted: list[int] = []
@@ -3133,6 +3193,7 @@ async def project_management_calibration_authorization(
                 PerformanceNodeTask.member_snapshot_id == snapshot_id,
                 PerformanceNodeTask.node_snapshot_id == node.id,
                 PerformanceNodeTask.task_kind == "calibration",
+                PerformanceNodeTask.revoked_at.is_(None),
             ))).scalars().all())
             grouped = {}
             for task in tasks:
@@ -3613,7 +3674,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         statement = statement.where(or_(PerformanceProjectMember.display_name.ilike(value), PerformanceProjectMember.employee_no.ilike(value), PerformanceNodeTask.target_employee_no.ilike(value)))
     rows = (await db.execute(statement.order_by(PerformanceNodeTask.id))).all()
     project = await db.get(PerformanceProject, project_id)
-    rows = [row for row in rows if row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1])]
+    rows = [row for row in rows if getattr(row[0], "revoked_at", None) is None and (row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1]))]
     communication_people = {task.target_employee_no for task, node, _member in rows if node.node_type == "result_communication"}
     progress = await _communication_progress(db, project, {task.target_employee_no for task, _node, _member in rows}) if project and rows else {}
     supervisor_names = await _snapshot_supervisor_names(db, [member for _task, _node, member in rows if member])
@@ -3688,6 +3749,7 @@ async def remind_project_tasks(
         .where(
             PerformanceNodeTask.project_id == project_id,
             PerformanceNodeTask.id.in_(task_ids),
+            PerformanceNodeTask.revoked_at.is_(None),
             PerformanceProjectNodeSnapshot.node_id == payload.node_id,
         )
     )

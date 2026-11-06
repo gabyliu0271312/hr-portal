@@ -74,6 +74,9 @@ async def test_cycle_overdue_patch_is_audited_and_applies_to_locked_cycle_with_s
         def __init__(self):
             self.committed = False
 
+        async def execute(self, _statement):
+            return SimpleNamespace(scalar_one=lambda: cycle)
+
         async def get(self, model, _key):
             if model is PerformanceOtherSetting:
                 return SimpleNamespace(overdue_single_submission_enabled=True, cycle_overdue_submission_override_enabled=True)
@@ -99,9 +102,12 @@ async def test_cycle_overdue_patch_is_audited_and_applies_to_locked_cycle_with_s
 async def test_cycle_overdue_patch_requires_global_switches():
     from app.performance.models import PerformanceOtherSetting
 
-    cycle = SimpleNamespace(overdue_submission_enabled=True, overdue_submission_scope="EVALUATION")
+    cycle = SimpleNamespace(id=1, overdue_submission_enabled=True, overdue_submission_scope="EVALUATION")
 
     class Db:
+        async def execute(self, _statement):
+            return SimpleNamespace(scalar_one=lambda: cycle)
+
         async def get(self, model, _key):
             if model is PerformanceOtherSetting:
                 return SimpleNamespace(overdue_single_submission_enabled=True, cycle_overdue_submission_override_enabled=False)
@@ -217,7 +223,7 @@ async def test_update_historical_scheduled_cycle_preserves_lock_and_audits(cycle
         leaver_start_date=None, leaver_end_date=None,
     )
     original_lock_at = cycle.lock_at
-    db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: cycle)), commit=AsyncMock(), refresh=AsyncMock())
     service = PerformanceCycleService(db)
     audit = Mock()
     monkeypatch.setattr(service.audit, "append_event", audit)
@@ -773,6 +779,7 @@ async def test_cycle_snapshot_reads_canonical_employee_roster_fields():
         Column("employment_status", String),
         Column("job_family", String),
         Column("job_category", String),
+        Column("standard_position", String),
         Column("position_level", String),
         Column("hire_date", Date),
         Column("expected_departure_date", Date),
@@ -862,7 +869,7 @@ async def test_cycle_manual_organization_edit_recomputes_path(monkeypatch):
         department_2="平台", department_3=None, department_4=None, department_5=None,
         organization_ref="集团/研发/平台", direct_supervisor_employee_no=None,
         hrbp_employee_no=None, employee_type="正式", job_family=None, job_category=None,
-        position_level=None, hire_date=None, is_manually_maintained=False,
+        standard_position=None, position_level=None, hire_date=None, is_manually_maintained=False,
     )
 
     class Db:
@@ -907,10 +914,14 @@ def test_cycle_template_array_normalizes_legacy_deduplicates_and_rejects_conflic
 @pytest.mark.asyncio
 async def test_cycle_template_validation_preserves_inactive_existing_but_rejects_new_or_used_removal():
     class Db:
-        async def get(self, _model, key):
-            return SimpleNamespace(id=key, template_kind="performance", status="active" if key == 2 else "inactive")
-
-        async def execute(self, _statement):
+        async def execute(self, statement):
+            from app.performance.models import PerformanceCycle, PerformanceTemplate
+            entity = statement.column_descriptions[0]["entity"]
+            if entity is PerformanceCycle:
+                return SimpleNamespace(scalar_one=lambda: cycle)
+            if entity is PerformanceTemplate:
+                key = statement.compile().params["id_1"]
+                return SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=key, template_kind="performance", status="active" if key == 2 else "inactive"))
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [SimpleNamespace(settings={"template_id": 1})]))
 
     service = PerformanceCycleService(Db())
@@ -940,7 +951,7 @@ class _SeqDb:
         self.results = list(results)
         self.committed = False
 
-    async def execute(self, _statement):
+    async def execute(self, _statement, params=None):
         return self.results.pop(0)
 
     async def commit(self):
@@ -998,11 +1009,12 @@ async def test_changed_employee_nos_and_change_records_flatten_both_audit_shapes
     assert records[1]["changes"][0]["after"] == "P6"
 
 
-async def test_update_person_info_from_roster_applies_selected_dimensions_and_audits(monkeypatch):
+@pytest.mark.parametrize("started", [False, True])
+async def test_update_person_info_from_roster_applies_selected_dimensions_and_audits(monkeypatch, started):
     from app.performance.cycle_service import organization_path  # noqa: F401  确认可导入
 
     person = SimpleNamespace(
-        employee_no="E001", display_name="张三", company_org=None, department="旧一级部门", department_2=None,
+        id=21, employee_no="E001", display_name="张三", company_org=None, department="旧一级部门", department_2=None,
         department_3=None, department_4=None, department_5=None, organization_ref="旧一级部门",
         direct_supervisor_employee_no="E009", direct_supervisor_source_value=None, hrbp_employee_no=None,
         employee_type=None, employment_status=None, job_family="技术", job_category=None,
@@ -1036,7 +1048,7 @@ async def test_update_person_info_from_roster_applies_selected_dimensions_and_au
         hire_date = None
         departure_date = None
 
-    cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) + timedelta(days=1))
+    cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) + timedelta(days=-1 if started else 1))
 
     class _SnapshotResult:
         def scalar_one_or_none(self):
@@ -1046,13 +1058,17 @@ async def test_update_person_info_from_roster_applies_selected_dimensions_and_au
         def scalars(self):
             return others
 
-    db = _SeqDb([_SnapshotResult(), _PeopleResult()])
+    from unittest.mock import AsyncMock
+    db = _SeqDb([_SnapshotResult(), _PeopleResult(), None, None])
+    db.flush = AsyncMock()
+    db.refresh = AsyncMock()
+    db.rollback = AsyncMock()
     service = PerformanceCycleService.__new__(PerformanceCycleService)
     service.db = db
     recorded: list = []
     service.audit = SimpleNamespace(append_event=lambda event: recorded.append(event))
 
-    async def _fake_roster_inputs(_cycle):
+    async def _fake_roster_inputs(_cycle, **_kwargs):
         return [RosterRow(), SimpleNamespace(employee_no="E002"), SimpleNamespace(employee_no="E009")]
 
     monkeypatch.setattr(service, "_load_roster_inputs", _fake_roster_inputs)
@@ -1071,14 +1087,192 @@ async def test_update_person_info_from_roster_applies_selected_dimensions_and_au
     assert person.is_manually_maintained is True
     assert db.committed is True
     assert recorded and recorded[0].event_type == "PERFORMANCE_CYCLE_PEOPLE_INFO_UPDATED"
+    db.refresh.assert_awaited_once_with(person, with_for_update=True)
+    db.flush.assert_awaited_once()
+    db.rollback.assert_not_awaited()
 
 
-async def test_update_person_info_rejects_started_cycle_and_unknown_dimensions():
+async def test_update_person_info_rejects_unknown_dimensions_and_bulk_paths_remain_closed():
     cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) - timedelta(days=1))
     service = PerformanceCycleService.__new__(PerformanceCycleService)
-    with pytest.raises(CycleValidationError, match="已开始"):
-        await service.update_person_info_from_roster(cycle, "E001", ["job_family"], actor_type="PORTAL_USER", actor_id=7)
-
-    future_cycle = SimpleNamespace(cycle_ref="cycle:test", start_at=datetime.now(timezone.utc) + timedelta(days=1))
     with pytest.raises(CycleValidationError, match="不支持更新的信息维度"):
-        await service.update_person_info_from_roster(future_cycle, "E001", ["salary"], actor_type="PORTAL_USER", actor_id=7)
+        await service.update_person_info_from_roster(cycle, "E001", ["salary"], actor_type="PORTAL_USER", actor_id=7)
+    with pytest.raises(CycleValidationError, match="已开始"):
+        await service.refresh_people(cycle, actor_type="PORTAL_USER", actor_id=7, reason="refresh")
+    with pytest.raises(CycleValidationError, match="已开始"):
+        await service.update_people_manually(cycle, [], actor_type="PORTAL_USER", actor_id=7, reason="manual")
+
+
+@pytest.mark.parametrize("offset", [-1, 0])
+async def test_leaver_edit_uses_locked_original_start_and_rejects_same_request_delay(offset, monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+    from app.performance import cycle_service
+
+    now = datetime(2026, 11, 6, tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+    monkeypatch.setattr(cycle_service, "datetime", Clock)
+    cycle = SimpleNamespace(
+        **PerformanceCycleService._normalize_payload(_payload(start_at=now + timedelta(seconds=offset), end_at=now + timedelta(days=30))),
+        id=1, cycle_ref="cycle:locked", language="zh-CN", status="LOCKED", lock_at=None, leaver_start_date=None, leaver_end_date=None,
+    )
+    stale = SimpleNamespace(id=1, start_at=now + timedelta(days=5))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: cycle)), commit=AsyncMock())
+    service = PerformanceCycleService(db)
+    service.audit.append_event = Mock()
+    with pytest.raises(CycleValidationError, match="不能修改离职人员参评范围"):
+        await service.update_cycle(stale, {"start_at": now + timedelta(days=1), "leaver_enabled": True, "leaver_start_date": now.date(), "leaver_end_date": now.date()}, actor_type="PORTAL_USER", actor_id=7)
+    assert cycle.start_at == now + timedelta(seconds=offset)
+    assert cycle.leaver_enabled is False
+    statement = db.execute.call_args.args[0]
+    assert statement._for_update_arg is not None
+    assert statement.get_execution_options()["populate_existing"] is True
+    db.commit.assert_not_awaited()
+    service.audit.append_event.assert_not_called()
+
+
+def test_cycle_summary_reports_real_template_references_and_start_boundary():
+    from app.performance.cycles_router import _summary
+    cycle = SimpleNamespace(**PerformanceCycleService._normalize_payload(_payload()), id=1, cycle_ref="cycle:test", language="zh-CN", status="LOCKED", lock_at=None, leaver_start_date=None, leaver_end_date=None)
+    summary = _summary(cycle, 1, 1, [{"template_id": 9, "status": "DRAFT"}, {"template_id": 7, "status": "STARTED"}, {"template_id": 9, "status": "ENDED"}])
+    assert summary.used_template_ids == [7, 9]
+    assert summary.leaver_range_editable is False
+    assert "已开始" in summary.leaver_range_editable_reason
+
+
+@pytest.mark.parametrize("fail_flush", [False, True])
+async def test_person_info_guard_is_scoped_cleared_and_rolled_back_on_failure(monkeypatch, fail_flush):
+    import json
+    from unittest.mock import AsyncMock
+
+    person = SimpleNamespace(id=21, employee_no="E001", job_family="旧", is_manually_maintained=False)
+    snapshot = SimpleNamespace(id=11)
+    calls = []
+    class Db:
+        committed = False
+        async def execute(self, statement, params=None):
+            if params is not None:
+                calls.append(params["guard"])
+                return None
+            entity = statement.column_descriptions[0]["entity"]
+            from app.performance.models import PerformanceAuthorizationSnapshot
+            return SimpleNamespace(scalar_one_or_none=lambda: snapshot) if entity is PerformanceAuthorizationSnapshot else SimpleNamespace(scalars=lambda: [person])
+        refresh = AsyncMock()
+        flush = AsyncMock(side_effect=RuntimeError("flush failed") if fail_flush else None)
+        rollback = AsyncMock()
+        async def commit(self):
+            self.committed = True
+    db = Db()
+    service = PerformanceCycleService(db)
+    events = []
+    service.audit = SimpleNamespace(append_event=events.append)
+    monkeypatch.setattr(service, "_load_roster_inputs", AsyncMock(return_value=[SimpleNamespace(employee_no="E001", job_family="新")]))
+    call = service.update_person_info_from_roster(SimpleNamespace(cycle_ref="cycle:test"), "E001", ["job_family"], actor_type="PORTAL_USER", actor_id=7)
+    if fail_flush:
+        with pytest.raises(RuntimeError, match="flush failed"):
+            await call
+        db.rollback.assert_awaited_once()
+        assert not db.committed
+    else:
+        await call
+        assert db.committed
+        assert calls[-1] == ""
+    assert json.loads(calls[0]) == {"snapshot_id": 11, "person_id": 21, "fields": ["job_family", "is_manually_maintained"]}
+    assert service._load_roster_inputs.call_args.kwargs["include_excluded_leavers"] is True
+
+
+def test_person_info_migration_restores_strict_guard_on_downgrade():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).parents[1] / "alembic/versions/0294_performance_person_info_update_guard.py"
+    spec = importlib.util.spec_from_file_location("person_info_guard", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    statements = []
+    migration.op = SimpleNamespace(execute=statements.append)
+    migration.upgrade()
+    assert migration.revision == "0294_pm_person_info_guard"
+    assert migration.down_revision == "0293_performance_calibration_revocation"
+    assert "guard->>'snapshot_id' = OLD.snapshot_id::text" in statements[0]
+    assert "guard->>'person_id' = OLD.id::text" in statements[0]
+    assert "allowed_fields <@ dimension_fields" in statements[0]
+    assert "TG_OP IN ('INSERT', 'DELETE')" in statements[0]
+    migration.downgrade()
+    assert "person_info_update" not in statements[1]
+    assert "live_employment_status', 'updated_at'" in statements[1]
+
+
+@pytest.mark.postgres_acceptance
+async def test_person_info_guard_postgres_roundtrip_and_transaction_isolation():
+    import importlib.util
+    import json
+    from pathlib import Path
+    from uuid import uuid4
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+    from app.core.config import get_settings
+
+    async def rejected_local(connection, sql):
+        with pytest.raises(Exception):
+            async with connection.begin_nested():
+                await connection.execute(text(sql))
+    schema = "test_person_guard_" + uuid4().hex
+    engine = create_async_engine(get_settings().db_url_async, poolclass=NullPool)
+    spec = importlib.util.spec_from_file_location("person_guard_pg", Path(__file__).parents[1] / "alembic/versions/0294_performance_person_info_update_guard.py")
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    async with engine.begin() as conn:
+        await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+    scoped = create_async_engine(get_settings().db_url_async, poolclass=NullPool, connect_args={"server_settings": {"search_path": schema}})
+    try:
+        async with scoped.begin() as conn:
+            await conn.execute(text("CREATE TABLE performance_authorization_snapshots(id bigint PRIMARY KEY,status text)"))
+            await conn.execute(text("CREATE TABLE performance_authorization_snapshot_people(id bigint PRIMARY KEY,snapshot_id bigint,employee_no text,job_family text,department text,live_employment_status text,is_manually_maintained boolean,updated_at timestamptz)"))
+            await conn.execute(text("INSERT INTO performance_authorization_snapshots VALUES (1,'LOCKED'),(2,'DRAFT')"))
+            await conn.execute(text("INSERT INTO performance_authorization_snapshot_people VALUES (21,1,'E001','old','old','active',false,now()),(22,1,'E002','old','old','active',false,now())"))
+            def apply(connection, action):
+                migration.op = Operations(MigrationContext.configure(connection))
+                getattr(migration, action)()
+            await conn.run_sync(apply, "upgrade")
+            await conn.execute(text("CREATE TRIGGER guard BEFORE INSERT OR UPDATE OR DELETE ON performance_authorization_snapshot_people FOR EACH ROW EXECUTE FUNCTION performance_guard_snapshot_person_mutation()"))
+            async def rejected(sql, params=None):
+                with pytest.raises(Exception):
+                    async with conn.begin_nested():
+                        await conn.execute(text(sql), params or {})
+            await rejected("UPDATE performance_authorization_snapshot_people SET job_family='blocked' WHERE id=21")
+            await conn.execute(text("SELECT set_config('performance.person_info_update',:guard,true)"), {"guard": json.dumps({"snapshot_id": 1, "person_id": 21, "fields": ["job_family", "is_manually_maintained"]})})
+            await conn.execute(text("UPDATE performance_authorization_snapshot_people SET job_family='new',is_manually_maintained=true WHERE id=21"))
+            await rejected("UPDATE performance_authorization_snapshot_people SET job_family='blocked' WHERE id=22")
+            await rejected("UPDATE performance_authorization_snapshot_people SET department='blocked' WHERE id=21")
+            await rejected("UPDATE performance_authorization_snapshot_people SET employee_no='blocked' WHERE id=21")
+            await rejected("UPDATE performance_authorization_snapshot_people SET snapshot_id=2 WHERE id=21")
+            await rejected("DELETE FROM performance_authorization_snapshot_people WHERE id=21")
+            await rejected("INSERT INTO performance_authorization_snapshot_people(id,snapshot_id) VALUES(23,1)")
+        async with scoped.begin() as conn:
+            assert not (await conn.execute(text("SELECT current_setting('performance.person_info_update',true)"))).scalar()
+            await rejected_local(conn, "UPDATE performance_authorization_snapshot_people SET job_family='blocked' WHERE id=21")
+            assert (await conn.execute(text("SELECT job_family FROM performance_authorization_snapshot_people WHERE id=21"))).scalar() == "new"
+            await conn.run_sync(apply, "downgrade")
+            await conn.execute(text("SELECT set_config('performance.person_info_update',:guard,true)"), {"guard": json.dumps({"snapshot_id": 1, "person_id": 21, "fields": ["job_family"]})})
+            await rejected_local(conn, "UPDATE performance_authorization_snapshot_people SET job_family='blocked' WHERE id=21")
+            await conn.run_sync(apply, "upgrade")
+            await conn.execute(text("SELECT set_config('performance.person_info_update','',true)"))
+            with pytest.raises(RuntimeError, match="rollback guard"):
+                async with conn.begin_nested():
+                    await conn.execute(text("SELECT set_config('performance.person_info_update',:guard,true)"), {"guard": json.dumps({"snapshot_id": 1, "person_id": 21, "fields": ["job_family"]})})
+                    await conn.execute(text("UPDATE performance_authorization_snapshot_people SET job_family='rolled_back' WHERE id=21"))
+                    raise RuntimeError("rollback guard")
+            assert not (await conn.execute(text("SELECT current_setting('performance.person_info_update',true)"))).scalar()
+            assert (await conn.execute(text("SELECT job_family FROM performance_authorization_snapshot_people WHERE id=21"))).scalar() == "new"
+            await rejected_local(conn, "UPDATE performance_authorization_snapshot_people SET job_family='blocked' WHERE id=21")
+            await conn.execute(text("UPDATE performance_authorization_snapshot_people SET live_employment_status='left' WHERE id=21"))
+    finally:
+        await scoped.dispose()
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        await engine.dispose()

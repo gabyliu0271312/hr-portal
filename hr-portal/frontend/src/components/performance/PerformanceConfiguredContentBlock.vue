@@ -32,9 +32,12 @@ const props = withDefaults(defineProps<{
   rootSettingsEnabled?: boolean
   itemSettingsEnabled?: boolean
   settingsDisabled?: boolean
+  definitionEditable?: boolean
+  displaySettingsDisabled?: boolean
+  writeSettingsDisabled?: boolean
   rootSettingsVariant: string
   itemSettingsVariant: string
-}>(), { structureEditable: true })
+}>(), { structureEditable: true, definitionEditable: undefined, displaySettingsDisabled: undefined, writeSettingsDisabled: undefined })
 
 const emit = defineEmits<{
   activate: [contentId: string]
@@ -110,6 +113,9 @@ const itemSettingsAvailable = (item?: { kind?: 'rating' | 'fill' | 'prompt'; que
   && (props.itemSettingsVariant !== 'evaluation-item' || supportsEvaluationItemSettings(props.content, item))
   && (props.itemSettingsVariant !== 'result-view-item' || supportsResultViewSettings(props.content, item))
 const selectedItemSettingsEnabled = computed(() => itemSettingsAvailable(props.content.items.find(item => item.id === selectedItemId.value)))
+const writeSettingsDisabled = computed(() => props.writeSettingsDisabled ?? props.settingsDisabled ?? false)
+const displaySettingsDisabled = computed(() => props.displaySettingsDisabled ?? props.settingsDisabled ?? false)
+const definitionEditable = computed(() => props.definitionEditable ?? props.structureEditable)
 const rendererItemSettings = computed<Record<string, WorkSummaryItemSettings & { readonlySurface?: boolean }>>(() => Object.fromEntries(props.content.items.filter(item => item.kind !== 'prompt' && (isCalibration.value || itemSettingsAvailable(item))).map((item) => {
   const settings: WorkSummaryItemSettings = props.itemSettings[item.id] || { mode: 'fill', required: true, hideName: false }
   if (isCalibration.value) return [item.id, { ...settings, readonlySurface: supportsCalibrationItemSettings(props.content, item) && settings.allowModify === false }]
@@ -135,7 +141,7 @@ function selectItem(itemId: string) {
 }
 
 function updatePromptSettings(settings: WorkSummaryItemSettings) {
-  if (promptAllowViewLocked.value) return
+  if (displaySettingsDisabled.value || promptAllowViewLocked.value) return
   const patch: Partial<PerformancePromptValue> = props.content.content_slot === 'reference'
     ? { allowView: settings.allowView !== false }
     : { allowView: settings.allowView !== false, onlyWhenFilling: settings.onlyWhenFilling === true }
@@ -167,7 +173,9 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     <PerformanceHorizontalDragHandle v-if="!isCalibration && structureEditable && horizontalHandle" :label="`拖拽${content.name}`" :dragging="dragging" :disabled="settingsDisabled" :visible="horizontalHandleVisible" />
     <UiDragHandle v-else-if="!isCalibration && structureEditable" variant="strip" :label="`Drag ${content.name}`" :dragging="dragging" />
     <PerformanceConfiguredCardActionToolbar
-      v-if="structureEditable"
+      v-if="structureEditable || definitionEditable"
+      :structure-editable="structureEditable"
+      :definition-editable="definitionEditable"
       :visible="toolbarVisible || dragging || (horizontalHandle === true && rootSelected)"
       :index="index"
       :count="count"
@@ -202,13 +210,13 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
 
   <div v-if="active && settingsAvailable" class="configured-content-settings">
     <div v-if="selectedPrompt" class="content-settings-detail content-settings-detail--prompt" aria-label="提示内容设置">
-      <PerformanceWorkSummaryItemSettings :model-value="promptSettings" :allow-view-locked="promptAllowViewLocked" :reference-prompt="props.content.content_slot === 'reference'" variant="prompt" @update:model-value="updatePromptSettings" />
+      <PerformanceWorkSummaryItemSettings :model-value="promptSettings" :allow-view-locked="promptAllowViewLocked" :reference-prompt="props.content.content_slot === 'reference'" variant="prompt" :disabled="displaySettingsDisabled" @update:model-value="updatePromptSettings" />
     </div>
     <div v-else-if="owner === 'root'" class="content-settings-detail content-settings-detail--root" aria-label="Selected content settings">
-      <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" :allow-view-enabled="rootCapabilities.allowView === true" @update:model-value="emit('update:root-settings', $event)" />
+      <PerformanceWorkSummaryRootSettings :model-value="rootSettings" :disabled="displaySettingsDisabled" :write-disabled="writeSettingsDisabled" :allow-multiple-enabled="rootCapabilities.allowMultiple" :allow-unknown-enabled="rootCapabilities.allowUnknown" :allow-view-enabled="rootCapabilities.allowView === true" @update:model-value="emit('update:root-settings', $event)" />
     </div>
     <div v-else class="content-settings-detail content-settings-detail--item" aria-label="Selected content item settings">
-      <PerformanceWorkSummaryItemSettings :model-value="selectedItemSettings" :variant="itemSettingsVariant" :disabled="settingsDisabled" @update:model-value="updateItemSettings" />
+      <PerformanceWorkSummaryItemSettings :model-value="selectedItemSettings" :variant="itemSettingsVariant" :disabled="displaySettingsDisabled" :write-disabled="writeSettingsDisabled" @update:model-value="updateItemSettings" />
     </div>
   </div>
 </template>

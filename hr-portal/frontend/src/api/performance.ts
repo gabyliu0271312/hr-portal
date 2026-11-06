@@ -1694,6 +1694,7 @@ export interface PerformanceCalibrationConditionGroup {
 }
 
 export interface PerformanceProjectFlowRule {
+  rule_id?: string
   subject_type: 'PERSON'
   operator: 'INCLUDE' | 'EXCLUDE'
   scope: 'PROJECT_ALL' | 'RULE'
@@ -1813,7 +1814,34 @@ export type PerformanceProjectCopyPayload = Partial<Pick<PerformanceProjectPaylo
   target_cycle_id?: number
 }
 
+export interface PerformanceCalibrationOperation {
+  operation: 'add_rule' | 'delete_rule' | 'add_phase' | 'delete_phase'
+  node_id: string
+  phase_id: string
+  rule_id?: string
+}
+
+export interface PerformanceProjectEditingPolicy {
+  server_now: string
+  can_edit_result_opening: boolean
+  calibration_nodes: Record<string, {
+    can_edit_distribution: boolean
+    distribution_disabled_reason: string | null
+    can_edit_rule_content: boolean
+    can_edit_phase_content: boolean
+    phases: Record<string, { can_delete: boolean; delete_disabled_reason: string | null }>
+  }>
+}
+
+export type PerformanceProjectPatch = Partial<PerformanceProjectPayload> & {
+  calibration_operations?: PerformanceCalibrationOperation[]
+  calibration_base_digest?: string
+  notify_calibrators?: boolean
+}
+
 export interface PerformanceProject extends PerformanceCycleProjectShell {
+  calibration_base_digest?: string
+  editing_policy?: PerformanceProjectEditingPolicy
   cycle_ref: string
   template_id: number | null
   start_at: string | null
@@ -1945,6 +1973,9 @@ export interface PerformanceCycle {
   period_subtype: PerformanceCyclePeriodSubtype | null
   template_id: number | null
   template_ids?: number[]
+  used_template_ids?: number[]
+  leaver_range_editable?: boolean
+  leaver_range_editable_reason?: string | null
   start_at: string
   end_at: string
   lock_rule: PerformanceCycleLockRule
@@ -2136,7 +2167,7 @@ export const performanceProjectApi = {
     const { data } = await api.get<PerformanceProject>(`/performance/projects/${id}`)
     return data
   },
-  async update(id: number, payload: PerformanceProjectPayload): Promise<PerformanceProject> {
+  async update(id: number, payload: PerformanceProjectPatch): Promise<PerformanceProject> {
     const { data } = await api.patch<PerformanceProject>(`/performance/projects/${id}`, payload)
     return data
   },

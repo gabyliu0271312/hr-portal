@@ -39,6 +39,85 @@ function pointerEvent(type: string, values: Record<string, number>) {
 }
 
 describe('PerformanceTemplateContentSettings', () => {
+  it.each([{ cycle_count: 1 }, { cycle_count: 0, project_count: 1 }])('allows used-template text/display leaves while rejecting structure and write changes: %o', async usage_summary => {
+    const summary = { content_id: 'summary', type: 'work_summary', name: '总结', description: '原描述', content_slot: 'fill', settings: { allowMultiple: true }, items: [{ id: 'item', kind: 'fill', label: '原题', hint: '原提示', settings: { mode: 'fill', required: true } }] }
+    const nodes = [{ ...mockNodes[0], content: [summary], content_bindings: { fill: ['summary'] } }]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes, usage_summary } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ ...payload, usage_summary } as any))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 }, global: { stubs: { Teleport: true } } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    expect(block.props('structureEditable')).toBe(false)
+    expect(block.props('writeSettingsDisabled')).toBe(true)
+    expect(block.props('displaySettingsDisabled')).toBe(false)
+    await block.get('.configured-content-card__row').trigger('click')
+    const root = wrapper.get('.content-settings-detail--root')
+    expect((root.findAll('input')[0].element as HTMLInputElement).disabled).toBe(false)
+    expect((root.findAll('input')[1].element as HTMLInputElement).disabled).toBe(true)
+    await root.findAll('input')[0].setValue(true)
+    block.vm.$emit('update:item-settings', { item: { mode: 'hidden', required: false, hideName: true } })
+    block.vm.$emit('delete')
+    block.vm.$emit('move-down')
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ ...summary, name: '新总结', description: '篡改描述', items: [{ ...summary.items[0], label: '新题', hint: '新提示', questionType: 'tag' }, { id: 'new', label: '新增题' }] }])
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls.at(-1)![1]
+    expect(payload.nodes[0].content).toHaveLength(1)
+    expect(payload.nodes[0].content_bindings).toEqual({ fill: ['summary'] })
+    expect(payload.nodes[0].content![0]).toMatchObject({ name: '新总结', description: '原描述', settings: { hideDescription: true, allowMultiple: true } })
+    expect(payload.nodes[0].content![0].items).toHaveLength(1)
+    expect(payload.nodes[0].content![0].items[0]).toMatchObject({ label: '新题', hint: '新提示', settings: { mode: 'fill', required: true, hideName: true } })
+    expect(payload.nodes[0].content![0].items[0].questionType).toBeUndefined()
+    expect(payload.content_library![0].name).toBe('新总结')
+    wrapper.unmount()
+  })
+
+  it('does not hydrate rating structure into a used-template text save after async catalog loading', async () => {
+    let resolveRatings!: (questions: any[]) => void
+    vi.mocked(performanceReviewQuestionApi.list).mockImplementation(() => new Promise(resolve => { resolveRatings = resolve }))
+    const rating = { content_id: 'rating', type: 'rating', name: '原评级', description: '', content_slot: 'fill', items: [{ id: 'annual', label: '原题', hint: '' }] }
+    const usage_summary = { cycle_count: 1, project_count: 0 }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[0], content: [rating] }], content_library: [rating], usage_summary } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ ...payload, usage_summary } as any))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    resolveRatings([{ id: 'annual', name: '题库名称', display_mode: '下拉样式', rule: { name: '新规则', status: 'active', review_type: '评级', config: { levels: ['A', 'B'] } } }])
+    await flushPromises()
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ ...rating, name: '新评级', items: [{ ...rating.items[0], label: '新题' }] }])
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+    const payload = update.mock.calls.at(-1)![1]
+    for (const content of [payload.nodes[0].content![0], payload.content_library![0]]) {
+      expect(content.name).toBe('新评级')
+      expect(content.items[0].label).toBe('新题')
+      expect(content).not.toHaveProperty('ratingOptionId')
+      expect(content).not.toHaveProperty('ratingDisplayMode')
+      expect(content).not.toHaveProperty('options')
+      expect(content.items[0]).not.toHaveProperty('ratingOptionId')
+      expect(content.items[0]).not.toHaveProperty('options')
+    }
+    wrapper.unmount()
+  })
+
+  it('keeps usage workflow=false locked when cached counts are zero and retains permitted edits after save failure', async () => {
+    const summary = { content_id: 'summary', type: 'custom', name: '文本', items: [{ id: 'item', kind: 'fill', label: '原题', hint: '' }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[0], content: [summary] }], usage_summary: { cycle_count: 0 }, editable_scope: { workflow: false, data_write_settings: false, reference_and_prompt_content: true } } as any)
+    vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockRejectedValue(new Error('locked-save-failed'))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.get('.stage-card').trigger('click')
+    expect(wrapper.getComponent({ name: 'UiSortableList' }).props('disabled')).toBe(true)
+    await wrapper.get('.template-section__heading').trigger('click')
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).disabled).toBe(true)
+    wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ ...summary, name: '待保存名称' }])
+    await wrapper.vm.$nextTick()
+    await expect((wrapper.vm as any).save()).rejects.toThrow('locked-save-failed')
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('content').name).toBe('待保存名称')
+    wrapper.unmount()
+  })
+
   it('saves, reorders, edits and reopens page prompts alongside mixed content', async () => {
     const mixed = { id: 'mixed', content_id: 'mixed', type: 'rating', name: '混合评级', description: '', ratingOptionId: 'rating', items: [
       { id: 'rating', kind: 'rating', label: '评级', hint: '' },

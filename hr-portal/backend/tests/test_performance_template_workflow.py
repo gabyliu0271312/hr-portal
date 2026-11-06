@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -316,6 +317,12 @@ async def test_service_save_writes_workflow_and_audit_in_one_commit(monkeypatch)
         async def commit(self):
             self.commits += 1
 
+        async def execute(self, _statement):
+            return SimpleNamespace()
+
+        async def scalar(self, _statement):
+            return 0
+
         async def refresh(self, _value):
             return None
 
@@ -508,6 +515,7 @@ async def test_reference_relation_roundtrips_only_display_settings_and_keeps_sou
 @pytest.mark.asyncio
 async def test_reference_patch_rejects_used_template_before_mutation(workflow_save_setup, monkeypatch):
     service, db = workflow_save_setup
+    db.cycle_usage = 1
     db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[], content_library=[], cycle_count=1, project_count=0)
     monkeypatch.setattr(templates_router, 'PerformanceTemplateWorkflowService', lambda _db: service)
     payload = WorkflowUpdate.model_validate({'nodes': [
@@ -529,7 +537,9 @@ async def test_template_save_locks_question_references_and_rejects_deleted_quest
 
     async def execute(statement):
         statements.append(statement)
-        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: existing_ids))
+        if "performance_review_questions" in str(statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: existing_ids))
+        return SimpleNamespace()
 
     db.execute = execute
     final = {
@@ -546,7 +556,7 @@ async def test_template_save_locks_question_references_and_rejects_deleted_quest
         assert db.commits == 0
         assert db.added == []
     from sqlalchemy.dialects import postgresql
-    assert "FOR SHARE" in str(statements[0].compile(dialect=postgresql.dialect()))
+    assert any("FOR SHARE" in str(statement.compile(dialect=postgresql.dialect())) for statement in statements)
 
 
 @pytest.fixture
@@ -1011,6 +1021,9 @@ class _EmptyWorkflowResult:
 
 
 class _EmptyWorkflowDb:
+    async def scalar(self, _statement):
+        return 0
+
     async def execute(self, _statement):
         return _EmptyWorkflowResult()
 
@@ -1080,6 +1093,14 @@ class _TemplateMetadataDb:
         self.added = []
         self.deleted = []
         self.commits = 0
+        self.cycle_usage = 0
+        self.project_usage = 0
+        self.snapshots = []
+        self.statements = []
+
+    async def scalar(self, statement):
+        self.statements.append(statement)
+        return self.cycle_usage if "performance_cycles" in str(statement) else self.project_usage
 
     async def get(self, model, template_id):
         if model is PerformanceTemplate:
@@ -1089,6 +1110,9 @@ class _TemplateMetadataDb:
         return None
 
     async def execute(self, _statement):
+        self.statements.append(_statement)
+        if "performance_project_node_snapshots" in str(_statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: self.snapshots))
         if "performance_review_questions" in str(_statement):
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [101]))
         return _NoDuplicateResult()
@@ -1745,6 +1769,7 @@ async def test_content_page_name_patch_rejects_blank_with_canonical_422(workflow
 async def test_content_page_name_patch_keeps_cycle_used_workflow_locked(workflow_save_setup, monkeypatch):
     service, db = workflow_save_setup
     old = {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True, "content_page_name": "原页面"}
+    db.cycle_usage = 1
     db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[old], content_library=[], cycle_count=1, project_count=0)
     monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
     payload = WorkflowUpdate.model_validate({"nodes": [{**old, "content_page_name": "新页面"}]})
@@ -1817,6 +1842,7 @@ async def test_calibration_settings_patch_keeps_cycle_used_workflow_locked(workf
     service, db = workflow_save_setup
     final = {**_evaluation("final", "实线上级"), "include_final_result": True}
     calibration = {**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration"}
+    db.cycle_usage = 1
     db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[final, calibration], content_library=[], cycle_count=1, project_count=0)
     monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
     payload = WorkflowUpdate.model_validate({"nodes": [final, {**calibration, "calibration_settings": {"summary": {"items": {"item": {"allowModify": False}}}}}]})
@@ -1864,6 +1890,184 @@ def test_workflow_rejects_unknown_role_code_and_uses_stable_identity_over_label(
     normalized = normalize_workflow_nodes([node])[0]
     assert normalized["executor_label"] == "360°评估人"
     assert normalized["executor_types"] == ["REVIEWER_360"]
+
+
+def _used_display_workflow(db):
+    content = _view_source_content(content_type="custom", name="原内容", items=[
+        {"id": "question", "kind": "fill", "questionType": "tag", "label": "原题目", "hint": "原提示", "options": [{"id": "a", "label": "A"}], "settings": {"mode": "fill", "required": True}},
+        {"id": "notice-item", "kind": "prompt", "prompt": _prompt_content()["prompt"]},
+    ])
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [deepcopy(content), _prompt_content()]}
+    other = {**_evaluation("other", "被评估人"), "content": [{**deepcopy(content), "settings": {"hideDescription": True}, "items": [{**deepcopy(content["items"][0]), "settings": {"mode": "hidden", "required": False}}, deepcopy(content["items"][1])]}]}
+    view = {**default_workflow_nodes()[1], "content": [{"content_id": "ref", "type": "reference", "items": [], "name": "final", "description": "", "content_slot": "reference", "reference_kind": "node", "reference_value": "final"}]}
+    reconsider = {**_evaluation("appeal", "HRBP"), "node_type": "result_reconsideration"}
+    calibration = {**_evaluation("cal", "在项目配置时指定"), "node_type": "calibration", "calibration_settings": {content["content_id"]: {"items": {"question": {"allowModify": False}}}}}
+    nodes = [final, other, view, reconsider, calibration]
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=deepcopy(nodes), content_library=[deepcopy(content), _prompt_content()], cycle_count=0, project_count=0)
+    db.project_usage = 1
+    return nodes, deepcopy(db.workflow.content_library)
+
+
+@pytest.mark.asyncio
+async def test_used_template_display_leaves_save_get_and_sync_only_matching_snapshot(workflow_save_setup, monkeypatch):
+    from app.performance.calibration_service import calibration_template
+    from app.performance.self_summary_service import build_self_summary_schema
+    from app.performance.template_workflow_service import normalize_workflow_nodes
+
+    service, db = workflow_save_setup
+    nodes, library = _used_display_workflow(db)
+    snapshot_node = normalize_workflow_nodes(nodes)[0]
+    snapshot_node["content"][0]["items"][0]["hydrated_question"] = {"schema": ["keep"]}
+    snapshot_node["content"][0]["items"][0]["settings"]["hideName"] = True
+    snapshot_node["content"].append(_view_source_content("unrelated"))
+    schema = build_self_summary_schema(snapshot_node)
+    answers = {"question": ["a"]}
+    snapshot = SimpleNamespace(node_id="final", config={"template": deepcopy(snapshot_node), "time": {"end_at": "old"}, "answers": deepcopy(answers), "schema": deepcopy(schema), "future": {"keep": True}})
+    calibration_snapshot = SimpleNamespace(node_id="cal", config={"template": calibration_template(nodes[-1], nodes[0], library), "calibration": {"assignments": ["keep"]}})
+    db.snapshots = [snapshot, calibration_snapshot]
+    before = deepcopy(snapshot.config)
+    cal_before = deepcopy(calibration_snapshot.config)
+    library[0]["name"] = "新内容"
+    library[0]["items"][0].update(label="新题目", hint="新提示")
+    library[0]["items"][1]["prompt"].update(content="新题间提示", color="#fff")
+    library[1]["prompt"].update(content="新页面提示", title="标题", showIcon=False)
+    nodes[0]["content"][0]["settings"] = {"hideDescription": True}
+    nodes[0]["content"][0]["items"][0]["settings"]["allowView"] = False
+    nodes[0]["content"][1]["prompt"]["onlyWhenFilling"] = True
+    nodes[2]["content"][0]["reference_settings"] = {"page_name": "参考页", "content_settings": {library[0]["content_id"]: {"root": {"hideDescription": True}, "items": {"question": {"allowView": False, "onlyWhenFilling": True}}}}}
+    nodes[3].update(appeal_prompt_content="新复议提示", appeal_reason_instruction="新填写说明")
+    nodes[-1]["calibration_settings"][library[0]["content_id"]]["items"]["question"]["hideName"] = True
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    patched = await templates_router.update_template_workflow(77, WorkflowUpdate.model_validate({"nodes": nodes, "content_library": library}), _template_admin_context(), db)
+    fetched = await templates_router.get_template_workflow(77, _template_admin_context(), db)
+    assert patched.model_dump() == fetched.model_dump()
+    assert fetched.usage_summary.project_count == 1
+    assert fetched.editable_scope.workflow is False
+    assert fetched.editable_scope.reference_and_prompt_content is True
+    assert fetched.nodes[0].content[0]["name"] == "新内容"
+    assert fetched.nodes[1].content[0]["name"] == "新内容"
+    assert fetched.nodes[1].content[0]["items"][0]["settings"] == {"mode": "hidden", "required": False}
+    assert fetched.nodes[1].content[0]["settings"] == {"hideDescription": True}
+    synced = snapshot.config["template"]["content"][0]
+    assert synced["items"][0]["label"] == "新题目"
+    assert synced["items"][0]["hint"] == "新提示"
+    assert synced["items"][0]["settings"] == {"mode": "fill", "required": True, "hideName": True, "allowView": False}
+    assert synced["items"][0]["hydrated_question"] == {"schema": ["keep"]}
+    assert snapshot.config["template"]["content"][-1] == before["template"]["content"][-1]
+    assert {key: value for key, value in snapshot.config.items() if key != "template"} == {key: value for key, value in before.items() if key != "template"}
+    cal_item = calibration_snapshot.config["template"]["content"][0]["items"][0]
+    assert cal_item["label"] == "新题目"
+    assert cal_item["settings"]["allowModify"] is False
+    assert cal_item["settings"]["mode"] == "view"
+    assert cal_item["settings"]["hideName"] is True
+    assert calibration_snapshot.config["calibration"] == cal_before["calibration"]
+    assert db.commits == 1
+    sql = [str(statement) for statement in db.statements]
+    assert sql[0].startswith("SELECT performance_templates.id") and "FOR UPDATE" in sql[0]
+    assert "performance_template_workflows" in sql[1] and "FOR UPDATE" in sql[1]
+    project_lock = next(i for i, statement in enumerate(sql) if statement.startswith("SELECT performance_projects.id") and "FOR UPDATE" in statement)
+    snapshot_lock = next(i for i, statement in enumerate(sql) if statement.startswith("SELECT performance_project_node_snapshots") and "FOR UPDATE" in statement)
+    assert project_lock < snapshot_lock
+    assert not any("LOCK TABLE" in statement for statement in sql)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["name", "executor", "write", "node-order", "node-add", "item-order", "item-add", "type", "options", "mode", "required", "allowModify", "scope", "binding", "reference", "unknown", "library-remove"])
+async def test_used_template_locked_changes_fail_whole_patch(workflow_save_setup, monkeypatch, target):
+    service, db = workflow_save_setup
+    nodes, library = _used_display_workflow(db)
+    before_nodes, before_library = deepcopy(db.workflow.nodes), deepcopy(db.workflow.content_library)
+    library[0]["name"] = "合法展示修改也不得部分保存"
+    item = nodes[0]["content"][0]["items"][0]
+    if target == "name":
+        nodes[0]["name"] = "非法节点名"
+    elif target == "executor":
+        nodes[0]["executor_types"] = ["LEVEL_2_MANAGER"]
+    elif target == "write":
+        nodes[0]["include_final_result"], nodes[1]["include_final_result"] = False, True
+    elif target == "node-order":
+        nodes[0], nodes[1] = nodes[1], nodes[0]
+    elif target == "node-add":
+        nodes.append(_evaluation("added", "实线上级"))
+    elif target == "item-order":
+        nodes[0]["content"][0]["items"].reverse()
+    elif target == "item-add":
+        nodes[0]["content"][0]["items"].append({"id": "new"})
+    elif target == "type":
+        item["questionType"] = "text"
+    elif target == "options":
+        item["options"][0]["label"] = "变更选项"
+    elif target in {"mode", "required"}:
+        item["settings"][target] = "view" if target == "mode" else False
+    elif target == "allowModify":
+        nodes[-1]["calibration_settings"][library[0]["content_id"]]["items"]["question"]["allowModify"] = True
+    elif target == "scope":
+        nodes[0]["content"][1]["prompt"]["scope"] = "cycle"
+    elif target == "binding":
+        nodes[0]["content_bindings"] = {"fill": ["notice"]}
+    elif target == "reference":
+        nodes[2]["content"][0]["reference_value"] = "other"
+    elif target == "unknown":
+        item["settings"]["futureWriteSetting"] = True
+    else:
+        library.pop()
+    monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.update_template_workflow(77, WorkflowUpdate.model_validate({"nodes": nodes, "content_library": library}), _template_admin_context(), db)
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "TEMPLATE_WORKFLOW_LOCKED"
+    assert exc.value.detail["message"]
+    assert db.workflow.nodes == before_nodes
+    assert db.workflow.content_library == before_library
+    assert db.added == [] and db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_used_template_legacy_default_expansion_is_noop(workflow_save_setup):
+    service, db = workflow_save_setup
+    content = _view_source_content(content_type="custom", items=[{"id": "question", "label": "题目"}])
+    node = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [deepcopy(content)]}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[node], content_library=[content])
+    db.project_usage = 1
+    db.snapshots = [SimpleNamespace(node_id="final", config={"template": deepcopy(node), "answers": {"question": "keep"}})]
+    before_snapshot = deepcopy(db.snapshots[0].config)
+    incoming = deepcopy(node)
+    incoming["content"][0]["settings"] = {"allowMultiple": False, "hideDescription": False}
+    incoming["content"][0]["items"][0]["settings"] = {"mode": "fill", "required": True, "hideName": False}
+    record = await service.save_nodes(77, [incoming], content_library=[content], actor_type="SYSTEM_ACCOUNT", actor_ref="7")
+    assert record.nodes[0]["content"][0]["items"][0]["settings"]["required"] is True
+    assert db.snapshots[0].config == before_snapshot
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_usage_uses_cycle_json_legacy_fk_and_project_reference_not_cached_counts(workflow_save_setup):
+    from sqlalchemy.dialects import postgresql
+
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=default_workflow_nodes(), content_library=[], cycle_count=99, project_count=99)
+    assert (await service.get_nodes(77))[1:] == (0, 0)
+    db.cycle_usage, db.project_usage = 2, 3
+    assert (await service.get_nodes(77))[1:] == (2, 3)
+    sql = [str(statement.compile(dialect=postgresql.dialect())) for statement in db.statements]
+    assert any("performance_cycles.template_id =" in value and "performance_cycles.template_ids @>" in value for value in sql)
+    assert any("performance_projects.settings ->>" in value and "count(*)" in value for value in sql)
+    assert templates_router._response(77, default_workflow_nodes(), 0, 1).editable_scope.workflow is False
+
+
+@pytest.mark.asyncio
+async def test_display_sync_failure_does_not_commit_template_or_audit(workflow_save_setup, monkeypatch):
+    service, db = workflow_save_setup
+    nodes, library = _used_display_workflow(db)
+    library[0]["name"] = "新名称"
+
+    async def fail_sync(*_args):
+        raise RuntimeError("snapshot write failed")
+
+    monkeypatch.setattr(service, "sync_project_display", fail_sync)
+    with pytest.raises(RuntimeError, match="snapshot write failed"):
+        await service.save_nodes(77, nodes, content_library=library, actor_type="SYSTEM_ACCOUNT", actor_ref="7")
+    assert db.commits == 0
 
 
 @pytest.mark.asyncio

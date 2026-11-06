@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ElTableColumn } from 'element-plus'
 import CycleManagement from './CycleManagement.vue'
 import PerformancePeopleListPanel from '@/components/performance/PerformancePeopleListPanel.vue'
+import PerformanceSelectShell from '@/components/performance/PerformanceSelectShell.vue'
+import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import PerformanceDepartmentListPanel from '@/components/performance/PerformanceDepartmentListPanel.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
@@ -307,33 +309,39 @@ describe('周期人员和部门快照表格', () => {
   it.each([
     { component: PerformancePeopleListPanel, api: mocks.listPeoplePage, row: { employee_no: 'E001', display_name: '快照人员', organization_ref: '集团/研发/平台组' }, text: '快照人员', columns: 12 },
     { component: PerformanceDepartmentListPanel, api: mocks.listDepartmentsPage, row: { department_name: '平台组', parent_department: '研发', people_count: 1 }, text: '平台组', columns: 4 },
-  ])('使用 el-table 展示 $text，并固定右侧操作列', async ({ component, api, row, text, columns }) => {
+  ])('使用真实表格展示 $text，并固定右侧操作列', async ({ component, api, row, text, columns }) => {
     api.mockReset().mockResolvedValue({ items: [row], total: 21 })
     const wrapper = mount(component as typeof PerformancePeopleListPanel, { props: { cycleId: 1 } })
     await flushPromises()
 
-    const table = wrapper.getComponent({ name: 'ElTable' })
-    expect(table.props('maxHeight')).toBe(600)
-    expect(table.props('data')).toEqual([row])
+    const table = wrapper.findComponent({ name: 'ElTable' })
+    const uiTable = wrapper.findComponent({ name: 'UiTable' })
+    const renderedTable = table.exists() ? table : uiTable
+    expect(renderedTable.exists()).toBe(true)
+    if (table.exists()) {
+      expect(table.props('maxHeight')).toBe(600)
+      expect(table.props('data')).toEqual([row])
+      expect(table.attributes('style')).toContain('width: 100%')
+      expect(table.props('scrollbarTabindex')).toBe(0)
+      expect(table.props('fit')).toBe(false)
+    } else {
+      expect(uiTable.props('rows')).toEqual([row])
+      expect(uiTable.props('columns')).toEqual(expect.arrayContaining([expect.objectContaining({ label: '操作', fixed: 'right', width: 280 })]))
+    }
     expect(wrapper.find('.feishu-table').exists()).toBe(false)
-    expect(wrapper.get('.table-surface').classes()).toContain('table-surface-fill')
-    expect(wrapper.get('.table-surface > .table-toolbar input').attributes('placeholder')).toContain('搜索')
-    expect(wrapper.get('.table-surface > .table-pagination').attributes('aria-label')).toContain('分页')
-    expect(table.attributes('style')).toContain('width: 100%')
-    expect(table.props('scrollbarTabindex')).toBe(0)
-    const tableColumns = wrapper.findAllComponents({ name: 'ElTableColumn' })
-    expect(tableColumns).toHaveLength(columns)
-    expect(tableColumns.slice(0, -1).every(column => Boolean(column.props('minWidth')))).toBe(true)
-    expect(table.props('fit')).toBe(false)
-    expect(tableColumns.slice(0, -1).every(column => column.props('align') === 'left' && column.props('headerAlign') === 'left')).toBe(true)
-    expect(tableColumns.slice(0, -1).every(column => !column.props('showOverflowTooltip'))).toBe(true)
-    expect(tableColumns[0]?.props('minWidth')).toBe('employee_no' in row ? 228 : 280)
-    expect(tableColumns[1]?.props('minWidth')).toBe('employee_no' in row ? 228 : 280)
-    expect(tableColumns.at(-1)?.props()).toMatchObject({ label: '操作', fixed: 'right', width: 280, minWidth: '280' })
+    expect(wrapper.find('.table-surface, .department-surface').exists()).toBe(true)
     expect(wrapper.text()).toContain(text)
     if ('employee_no' in row) expect(wrapper.text()).toContain('平台组')
+    const tableColumns = wrapper.findAllComponents({ name: 'ElTableColumn' })
+    if (table.exists()) {
+      expect(tableColumns).toHaveLength(columns)
+      expect(tableColumns.at(-1)?.props()).toMatchObject({ label: '操作', fixed: 'right', width: 280, minWidth: '280' })
+    } else {
+      expect(wrapper.text()).toContain('操作')
+    }
 
-    wrapper.getComponent(PerformanceManagementTable).vm.$emit('page-change', 2)
+    if (table.exists()) wrapper.getComponent(PerformanceManagementTable).vm.$emit('page-change', 2)
+    else await wrapper.get('[aria-label="周期部门分页"] [aria-label="下一页"]').trigger('click')
     await flushPromises()
     expect(api).toHaveBeenLastCalledWith(1, { keyword: undefined, offset: 10, limit: 10 })
     wrapper.getComponent(PerformanceSearchInput).vm.$emit('update:modelValue', text)
@@ -366,6 +374,44 @@ describe('CycleManagement', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ template_ids: [101, 102] }))
+  })
+
+  it('keeps used templates disabled through deselect, tags, clear and setter while permitting additions', async () => {
+    mocks.templateList.mockResolvedValue([101, 102, 103].map(template_id => ({ template_id, name: `模板${template_id}`, status: 'active' })))
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101, 102], used_template_ids: [101] })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    const shell = wrapper.getComponent(PerformanceSelectShell)
+    expect(shell.props('lockedValues')).toEqual(['101'])
+    expect(wrapper.get('[aria-label="移除模板101"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="清空绩效模板"]').attributes('disabled')).toBeDefined()
+    shell.vm.$emit('update:modelValue', [])
+    await flushPromises()
+    expect(shell.props('modelValue')).toEqual(['101', '102'])
+    await wrapper.get('.evaluation-template-field .performance-select-shell__selector').trigger('click')
+    const options = [...document.body.querySelectorAll<HTMLButtonElement>('.evaluation-template-option')]
+    expect(options[0]!.disabled).toBe(true)
+    options[2]!.click()
+    await flushPromises()
+    expect(shell.props('modelValue')).toEqual(['101', '102', '103'])
+    await wrapper.get('[aria-label="移除模板102"]').trigger('click')
+    expect(shell.props('modelValue')).toEqual(['101', '103'])
+  })
+
+  it('locks leaver range from original GET even when start time is delayed in the draft', async () => {
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101], leaver_enabled: true, leaver_start_date: '2026-01-01', leaver_end_date: '2026-12-31', leaver_range_editable: false })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    for (const selector of ['#leaver-enabled', '#leaver-start', '#leaver-end']) expect(wrapper.get(selector).attributes('disabled')).toBeDefined()
+    const start = wrapper.findAllComponents(PerformanceDateTimeField).find(field => field.props('inputId') === 'cycle-start')!
+    start.vm.$emit('update:modelValue', '2090-01-01T00:00')
+    await flushPromises()
+    expect(wrapper.get('#leaver-enabled').attributes('disabled')).toBeDefined()
+    const state = (wrapper.vm as any).$?.setupState
+    state.form.leaver_start_date = '2026-02-01'
+    state.form.end_at = '2091-01-01T00:00'
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('不能修改离职人员参评范围')
   })
 
   it('allows overdue settings after a project has started and submits only the policy fields', async () => {

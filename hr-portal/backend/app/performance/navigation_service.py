@@ -110,7 +110,7 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
         conditions = [and_(PerformanceNodeTask.cycle_ref == cycle_ref, task_handler_condition(actor_ref)) for cycle_ref, actor_ref in result.actor_refs_by_cycle.items()]
         if not conditions and result.actor_ref:
             conditions = [task_handler_condition(result.actor_ref)]
-        tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id.in_(project_ids), or_(*conditions)))).scalars().all()) if conditions else []
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id.in_(project_ids), PerformanceNodeTask.revoked_at.is_(None), or_(*conditions)))).scalars().all()) if conditions else []
     else:
         member_rows, nodes, tasks = [], [], []
     latest_snapshots = {}
@@ -159,6 +159,8 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
         if project.status == PROJECT_STATUS_STARTED:
             for task in tasks_by_project.get(project.id, []):
                 node = nodes_by_id.get(task.node_snapshot_id)
+                if getattr(task, "revoked_at", None) is not None:
+                    continue
                 if node is None or node.project_id != project.id or task.cycle_ref != project.cycle_ref:
                     continue
                 if node.node_type == "result_reconsideration":

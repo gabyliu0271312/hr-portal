@@ -11,7 +11,7 @@
         <button class="template-entry" type="button">▣&nbsp;评估流程模板</button>
         <div class="flow-stack">
           <div class="system-node">项目启动</div>
-          <button class="flow-connector" :class="{ open: popoverIndex === 0 }" type="button" @mouseenter="showPopover(0, $event)" @mouseleave="schedulePopoverClose" @focus="showPopover(0, $event)" @blur="schedulePopoverClose" @click="showPopover(0, $event)"><span class="flow-line"></span><span class="add-circle">+</span><span class="flow-line"></span><span class="triangle"></span></button>
+          <button class="flow-connector" :disabled="workflowLocked" :class="{ open: popoverIndex === 0 }" type="button" @mouseenter="showPopover(0, $event)" @mouseleave="schedulePopoverClose" @focus="showPopover(0, $event)" @blur="schedulePopoverClose" @click="showPopover(0, $event)"><span class="flow-line"></span><span class="add-circle">+</span><span class="flow-line"></span><span class="triangle"></span></button>
           <template v-for="(node, index) in businessNodes" :key="node.node_id">
             <div class="stage-node" :class="{ selected: selectedId === node.node_id }" role="button" tabindex="0" @click="selectNode(node.node_id)" @keydown.enter="selectNode(node.node_id)" @keydown.space.prevent="selectNode(node.node_id)">
               <span class="node-title-row">
@@ -262,6 +262,9 @@ let activeConnector: HTMLElement | null = null
 let popoverResizeObserver: ResizeObserver | null = null
 let popoverCloseTimer: ReturnType<typeof setTimeout> | null = null
 const selectedId = ref<string | null>(null)
+const workflowLocked = ref(false)
+const promptLocked = ref(false)
+const originalNodes = ref<PerformanceWorkflowNode[]>([])
 const usageSummary = ref({ cycle_count: 0, project_count: 0 })
 const inviteValidationNodeId = ref<string | null>(null)
 const finalResultError = ref('')
@@ -304,21 +307,21 @@ async function loadSpecifiedPeople() {
   try { specifiedPeopleOptions.value = await performanceTemplateApi.peopleOptions() } catch { resultExecutorError.value = '指定人员列表加载失败，请稍后重试' }
 }
 function updateResultExecutorConfig(value: PerformanceExecutorConfig) {
-  if (!selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
+  if (locked('executor_config') || !selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
   selectedNode.value.executor_config = value
   selectedNode.value.executor_types = value.roles.flatMap((role) => role.type === 'REAL_LINE_MANAGER' || role.type === 'DEPARTMENT_HEAD' ? role.levels : role.type === 'HRBP' ? ['HRBP'] : ['SPECIFIED_PERSON'])
   selectedNode.value.executor_label = value.roles.map((role) => ({ REAL_LINE_MANAGER: '实线上级', HRBP: 'HRBP', DEPARTMENT_HEAD: '部门负责人', SPECIFIED_PERSON: '指定人员' }[role.type])).join('、')
   resultExecutorError.value = ''
 }
 function openAppealPromptEditor() {
-  if (!selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
+  if (promptLocked.value || !selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
   appealPromptDraft.value = selectedNode.value.appeal_prompt_content || DEFAULT_APPEAL_PROMPT
   appealReasonInstructionDraft.value = selectedNode.value.appeal_reason_instruction || DEFAULT_APPEAL_REASON_INSTRUCTION
   appealPromptEditorOpen.value = true
 }
 function closeAppealPromptEditor() { appealPromptEditorOpen.value = false }
 function saveAppealPrompt() {
-  if (!selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
+  if (promptLocked.value || !selectedNode.value || selectedNode.value.node_type !== 'result_reconsideration') return
   const value = appealPromptDraft.value.trim()
   const instruction = appealReasonInstructionDraft.value.trim()
   selectedNode.value.appeal_prompt_content = value || DEFAULT_APPEAL_PROMPT
@@ -398,7 +401,7 @@ const selectedExecutorOption = computed(() => {
 const selectedExecutorMode = computed({
   get: () => selectedNode.value && selectableExecutorNodeTypes.includes(selectedNode.value.node_type) ? (selectedExecutorOption.value?.label || selectedNode.value.executor_label || '实线上级') : '',
   set: (value: string) => {
-    if (!selectedNode.value || !selectableExecutorNodeTypes.includes(selectedNode.value.node_type)) return
+    if (locked('executor_label') || !selectedNode.value || !selectableExecutorNodeTypes.includes(selectedNode.value.node_type)) return
     const option = executorModeOptions.find(item => item.label === value)
     if (!option) return
     selectedNode.value.executor_label = option.label
@@ -549,7 +552,7 @@ function applyExecutorSelectionDefaults(node: PerformanceWorkflowNode) {
 function nodeBeforeConnector(index: number) { return index > 0 ? businessNodes.value[index - 1] : undefined }
 function standardNodeLabel(type: string) { return standardNodeLabels[type] ?? '流程环节' }
 function hasNodeType(type: string) { return businessNodes.value.some((node) => node.node_type === type) }
-function canAddAtConnector(index: number) { const previousType = nodeBeforeConnector(index)?.node_type; if (previousType === 'result_view') return !hasNodeType('result_reconsideration'); if (previousType === 'result_reconsideration') return false; return true }
+function canAddAtConnector(index: number) { if (workflowLocked.value) return false; const previousType = nodeBeforeConnector(index)?.node_type; if (previousType === 'result_view') return !hasNodeType('result_reconsideration'); if (previousType === 'result_reconsideration') return false; return true }
 const availableAddableOptions = computed(() => { const index = popoverIndex.value; if (index === null) return []; const previousType = nodeBeforeConnector(index)?.node_type; if (previousType === 'result_view') return hasNodeType('result_reconsideration') ? [] : [resultReconsiderationOption]; if (previousType === 'result_reconsideration') return []; return standardAddableOptions.filter((option) => option.type === 'evaluation' || !hasNodeType(option.type)) })
 function cancelPopoverClose() { if (popoverCloseTimer !== null) { clearTimeout(popoverCloseTimer); popoverCloseTimer = null } }
 function updatePopoverPosition() {
@@ -598,19 +601,19 @@ function showPopover(index: number, event?: Event) {
 function closePopover() { popoverIndex.value = null; activeConnector = null; popoverResizeObserver?.disconnect() }
 function schedulePopoverClose() { cancelPopoverClose(); popoverCloseTimer = setTimeout(() => { closePopover(); popoverCloseTimer = null }, 120) }
 function selectNode(id: string | null) { if (!id) return; selectedId.value = id; closePopover() }
- function addNode(type: string) { const insertionIndex = popoverIndex.value; const option = addableOptions.find((item) => item.type === type); if (insertionIndex === null || !option) return; const previousType = nodeBeforeConnector(insertionIndex)?.node_type; if (type === 'result_reconsideration') { if (previousType !== 'result_view' || hasNodeType(type)) return } else if (previousType === 'result_view' || previousType === 'result_reconsideration' || (type !== 'evaluation' && hasNodeType(type))) return; const id = `${type}-${Date.now()}`; const fixedSubject = ['work_summary', 'reviewer_360_invite'].includes(type); const fixedCalibration = type === 'calibration'; const sharedManagerExecutor = ['evaluation', 'result_communication', 'reviewer_360_confirm'].includes(type); businessNodes.value.splice(insertionIndex, 0, { node_id: id, node_type: type, name: option.label, description: '', order: 0, executor_types: type === 'result_reconsideration' ? ['HRBP'] : fixedSubject ? [SUBJECT_EXECUTOR_OPTION.type] : fixedCalibration ? [CALIBRATION_EXECUTOR_OPTION.type] : ['DIRECT_MANAGER'], executor_role_code: type === 'result_reconsideration' ? null : fixedSubject ? ASSESSMENT_ROLE_CODES.REVIEWEE : fixedCalibration ? ASSESSMENT_ROLE_CODES.CALIBRATOR : ASSESSMENT_ROLE_CODES.LINE_MANAGER, executor_label: type === 'result_reconsideration' ? 'HRBP' : fixedSubject ? SUBJECT_EXECUTOR_OPTION.label : fixedCalibration ? CALIBRATION_EXECUTOR_OPTION.label : sharedManagerExecutor ? '实线上级' : '直属上级', executor_config: type === 'result_reconsideration' ? { mode: 'MULTI_ROLE', roles: [{ type: 'HRBP' }] } : undefined, appeal_prompt_content: type === 'result_reconsideration' ? DEFAULT_APPEAL_PROMPT : undefined, appeal_reason_instruction: type === 'result_reconsideration' ? DEFAULT_APPEAL_REASON_INSTRUCTION : undefined, evaluation_type: type === 'evaluation' ? 'SINGLE' : null, include_final_result: false, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false, calibration_reason_enabled: fixedCalibration, calibration_reason_required: false }); selectedId.value = id; closePopover(); renumber() }
-function canDeleteNode(node: PerformanceWorkflowNode) { return !node.system && (node.node_type !== 'evaluation' || evaluationNodeCount.value > 1) }
+ function addNode(type: string) { if (workflowLocked.value) return; const insertionIndex = popoverIndex.value; const option = addableOptions.find((item) => item.type === type); if (insertionIndex === null || !option) return; const previousType = nodeBeforeConnector(insertionIndex)?.node_type; if (type === 'result_reconsideration') { if (previousType !== 'result_view' || hasNodeType(type)) return } else if (previousType === 'result_view' || previousType === 'result_reconsideration' || (type !== 'evaluation' && hasNodeType(type))) return; const id = `${type}-${Date.now()}`; const fixedSubject = ['work_summary', 'reviewer_360_invite'].includes(type); const fixedCalibration = type === 'calibration'; const sharedManagerExecutor = ['evaluation', 'result_communication', 'reviewer_360_confirm'].includes(type); businessNodes.value.splice(insertionIndex, 0, { node_id: id, node_type: type, name: option.label, description: '', order: 0, executor_types: type === 'result_reconsideration' ? ['HRBP'] : fixedSubject ? [SUBJECT_EXECUTOR_OPTION.type] : fixedCalibration ? [CALIBRATION_EXECUTOR_OPTION.type] : ['DIRECT_MANAGER'], executor_role_code: type === 'result_reconsideration' ? null : fixedSubject ? ASSESSMENT_ROLE_CODES.REVIEWEE : fixedCalibration ? ASSESSMENT_ROLE_CODES.CALIBRATOR : ASSESSMENT_ROLE_CODES.LINE_MANAGER, executor_label: type === 'result_reconsideration' ? 'HRBP' : fixedSubject ? SUBJECT_EXECUTOR_OPTION.label : fixedCalibration ? CALIBRATION_EXECUTOR_OPTION.label : sharedManagerExecutor ? '实线上级' : '直属上级', executor_config: type === 'result_reconsideration' ? { mode: 'MULTI_ROLE', roles: [{ type: 'HRBP' }] } : undefined, appeal_prompt_content: type === 'result_reconsideration' ? DEFAULT_APPEAL_PROMPT : undefined, appeal_reason_instruction: type === 'result_reconsideration' ? DEFAULT_APPEAL_REASON_INSTRUCTION : undefined, evaluation_type: type === 'evaluation' ? 'SINGLE' : null, include_final_result: false, system: false, allow_invite_other_executors: false, invite_executor_scope: 'ALL', invite_executor_types: [], require_previous_node_completion: false, calibration_reason_enabled: fixedCalibration, calibration_reason_required: false }); selectedId.value = id; closePopover(); renumber() }
+function canDeleteNode(node: PerformanceWorkflowNode) { return !workflowLocked.value && !node.system && (node.node_type !== 'evaluation' || evaluationNodeCount.value > 1) }
 function removeNode(id: string | null) { if (!id) return; const node = businessNodes.value.find((item) => item.node_id === id); if (!node || !canDeleteNode(node)) return; businessNodes.value = businessNodes.value.filter((item) => item.node_id !== id); selectedId.value = null; renumber() }
 function renumber() { businessNodes.value.forEach((node, index) => { node.order = index + 1 }) }
-function locked(field: string) { return usageSummary.value.cycle_count > 0 && !['description', 'appeal_prompt_content'].includes(field) }
+function locked(field: string) { return ['appeal_prompt_content', 'appeal_reason_instruction'].includes(field) ? promptLocked.value : workflowLocked.value }
 watch(businessNodes, () => {
   pruneInviteSelections()
   if (inviteValidationNodeId.value && invalidInviteNodeId() !== inviteValidationNodeId.value) inviteValidationNodeId.value = null
 }, { deep: true })
-onMounted(async () => { window.addEventListener('resize', updatePopoverPosition); window.addEventListener('scroll', updatePopoverPosition, true); window.addEventListener('resize', updateAppealPreviewPosition); window.addEventListener('scroll', updateAppealPreviewPosition, true); if (!props.templateId) return; try { const data = await performanceTemplateApi.getWorkflow(props.templateId); usageSummary.value = data.usage_summary; if (data.nodes?.length) { data.nodes.forEach(normalizeNode); businessNodes.value = data.nodes; pruneInviteSelections() } } catch { /* API error is surfaced by the shared client interceptor. */ } })
+onMounted(async () => { window.addEventListener('resize', updatePopoverPosition); window.addEventListener('scroll', updatePopoverPosition, true); window.addEventListener('resize', updateAppealPreviewPosition); window.addEventListener('scroll', updateAppealPreviewPosition, true); if (!props.templateId) return; try { const data = await performanceTemplateApi.getWorkflow(props.templateId); usageSummary.value = data.usage_summary; workflowLocked.value = (data.usage_summary?.cycle_count || 0) > 0 || data.editable_scope?.workflow === false; promptLocked.value = data.editable_scope?.reference_and_prompt_content === false; if (data.nodes?.length) { originalNodes.value = JSON.parse(JSON.stringify(data.nodes)); data.nodes.forEach(normalizeNode); businessNodes.value = data.nodes; pruneInviteSelections() } } catch { /* API error is surfaced by the shared client interceptor. */ } })
 onBeforeUnmount(() => { cancelPopoverClose(); hideAppealPreview(); popoverResizeObserver?.disconnect(); window.removeEventListener('resize', updatePopoverPosition); window.removeEventListener('scroll', updatePopoverPosition, true); window.removeEventListener('resize', updateAppealPreviewPosition); window.removeEventListener('scroll', updateAppealPreviewPosition, true) })
 async function save() {
-  businessNodes.value.forEach(normalizeNode)
+  if (!workflowLocked.value) businessNodes.value.forEach(normalizeNode)
   pruneInviteSelections()
   inviteValidationNodeId.value = invalidInviteNodeId()
   if (inviteValidationNodeId.value) {
@@ -624,8 +627,13 @@ async function save() {
   if (!props.templateId) { finalResultError.value = '请先保存绩效模板基本信息'; return }
   saving.value = true
   try {
-    renumber()
-    const data = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes: businessNodes.value })
+    if (!workflowLocked.value) renumber()
+    const nodes = workflowLocked.value ? originalNodes.value.map(original => {
+      const edited = businessNodes.value.find(node => node.node_id === original.node_id)
+      return edited && !promptLocked.value ? { ...original, appeal_prompt_content: edited.appeal_prompt_content, appeal_reason_instruction: edited.appeal_reason_instruction } : original
+    }) : businessNodes.value
+    const data = await performanceTemplateApi.updateWorkflow(props.templateId, { nodes })
+    originalNodes.value = JSON.parse(JSON.stringify(data.nodes))
     data.nodes.forEach(normalizeNode)
     businessNodes.value = data.nodes
     finalResultError.value = ''

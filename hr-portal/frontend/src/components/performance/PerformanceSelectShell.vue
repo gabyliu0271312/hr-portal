@@ -3,16 +3,16 @@
     <div class="performance-select-shell__selector" :class="[$attrs.class, { 'has-value': selectedItems.length, disabled, 'disabled-white': disabledSurface === 'white', 'is-plain': selectionStyle === 'plain' }]" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" @click="openMenu">
       <div ref="content" class="performance-select-shell__content">
         <span v-if="!selectedItems.length && !query" class="performance-select-shell__placeholder">{{ placeholder }}</span>
-        <PerformanceSelectTag v-for="item in visibleItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :closable="selectionStyle !== 'plain'" :disabled="disabled" @remove="removeValue(item.value)" />
+        <PerformanceSelectTag v-for="item in visibleItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :closable="selectionStyle !== 'plain'" :disabled="disabled || lockedValues.includes(item.value)" @remove="removeValue(item.value)" />
         <ElPopover v-if="overflowItems.length" placement="top" trigger="hover" :width="'auto'" :show-after="0" :hide-after="100" :teleported="true" :popper-style="{ zIndex: 'calc(var(--performance-popover-z-index) + 1)' }" popper-class="performance-select-overflow-popper">
           <template #reference><button class="performance-select-shell__overflow-count" type="button" :aria-label="`${ariaLabel}还有${overflowItems.length}项`" @click.stop>+{{ overflowItems.length }}</button></template>
           <div class="performance-select-shell__overflow-items" :aria-label="`${ariaLabel}已选隐藏项`" @pointerdown.stop>
-            <PerformanceSelectTag v-for="item in overflowItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :disabled="disabled" @remove="removeValue(item.value, false)" />
+            <PerformanceSelectTag v-for="item in overflowItems" :key="item.value" :label="item.label" :avatar-url="item.avatarUrl" :avatar-fallback="item.avatarFallback" :disabled="disabled || lockedValues.includes(item.value)" @remove="removeValue(item.value, false)" />
           </div>
         </ElPopover>
         <input ref="searchInput" v-model="query" class="performance-select-shell__input" type="search" role="combobox" autocomplete="off" :disabled="disabled" :readonly="selectionStyle === 'plain'" :aria-label="ariaLabel" :aria-invalid="$attrs['aria-invalid'] === true || $attrs['aria-invalid'] === 'true' ? 'true' : undefined" :aria-expanded="open" :placeholder="selectedItems.length ? undefined : placeholder" :style="{ width: query ? `${Math.max(6, query.length * 14)}px` : '6px' }" @focus="openOnFocus && openMenu()" @keydown.esc.stop="close" />
       </div>
-      <button v-if="selectedItems.length && selectionStyle !== 'plain'" class="performance-select-shell__clear" type="button" :disabled="disabled" :aria-label="clearLabel" @click.stop="clearAll">
+      <button v-if="selectedItems.length && selectionStyle !== 'plain'" class="performance-select-shell__clear" type="button" :disabled="disabled || lockedValues.length > 0" :aria-label="clearLabel" @click.stop="clearAll">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" /><path d="m8 8 8 8M16 8l-8 8" stroke="white" stroke-width="2" /></svg>
       </button>
       <DownBoldOutlinedIcon v-if="!hideArrow" :size="12" class="performance-select-shell__arrow" />
@@ -54,9 +54,10 @@ const props = withDefaults(defineProps<{
   hideArrow?: boolean
   disabledSurface?: 'muted' | 'white'
   disabled?: boolean
+  lockedValues?: string[]
 }>(), {
   selectedItems: () => [], placeholder: '请选择', ariaLabel: '选择器', popupLabel: '选项', clearLabel: '清空已选',
-  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false,
+  popupHeight: 'auto', popupWidth: undefined, popupMaxHeight: 320, selectionStyle: 'tags', openOnFocus: true, openOnSearch: false, hideArrow: false, disabledSurface: 'muted', disabled: false, lockedValues: () => [],
 })
 const emit = defineEmits<{ 'update:modelValue': [value: string[]]; 'update:query': [value: string]; open: []; close: [] }>()
 const root = ref<HTMLElement | null>(null)
@@ -123,11 +124,11 @@ function close() {
 }
 function focusSearch() { void nextTick(() => searchInput.value?.focus()) }
 function removeValue(value: string, focus = true) {
-  if (props.disabled) return
+  if (props.disabled || props.lockedValues.includes(value)) return
   emit('update:modelValue', props.modelValue.filter(item => item !== value))
   if (focus) focusSearch()
 }
-function clearAll() { if (!props.disabled) { emit('update:modelValue', []); focusSearch() } }
+function clearAll() { if (!props.disabled && !props.lockedValues.length) { emit('update:modelValue', []); focusSearch() } }
 function onOutside(event: PointerEvent) {
   const target = event.target
   if (!(target instanceof Node) || root.value?.contains(target) || popup.value?.contains(target)) return

@@ -16,6 +16,7 @@ from app.performance.models import PerformanceAuditEvent, PerformanceMetricType,
 from app.performance.template_workflow_service import (
     PerformanceTemplateWorkflowService,
     TemplateWorkflowValidationError,
+    TemplateWorkflowLockedError,
     normalize_content_library,
 )
 
@@ -452,7 +453,7 @@ async def create_template(
 
 
 def _response(template_id: int, nodes: list[dict], cycle_count: int, project_count: int, content_library: list[dict] | None = None) -> WorkflowResponse:
-    unlocked = cycle_count == 0
+    unlocked = cycle_count == 0 and project_count == 0
     return WorkflowResponse(
         template_id=template_id,
         usage_summary=UsageSummary(cycle_count=cycle_count, project_count=project_count),
@@ -489,21 +490,22 @@ async def update_template_workflow(
     db: AsyncSession = Depends(get_session),
 ):
     service = PerformanceTemplateWorkflowService(db)
-    existing = await service.get_record(template_id)
-    if existing is not None and existing.cycle_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": "TEMPLATE_WORKFLOW_LOCKED", "message": "模板流程已被周期使用，无法修改"},
-        )
     try:
         record = await service.save_nodes(
             template_id,
             [node.model_dump(exclude_unset=True) for node in payload.nodes],
-            content_library=payload.content_library,
+            content_library=payload.content_library if "content_library" in payload.model_fields_set else None,
             actor_type=context.subject_type,
             actor_ref=str(context.subject_id),
         )
+    except TemplateWorkflowLockedError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "TEMPLATE_WORKFLOW_LOCKED", "message": str(exc)},
+        ) from exc
     except TemplateWorkflowValidationError as exc:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
