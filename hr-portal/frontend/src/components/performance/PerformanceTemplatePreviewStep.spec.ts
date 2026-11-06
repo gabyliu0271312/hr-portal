@@ -143,39 +143,64 @@ describe('PerformanceTemplatePreviewStep', () => {
   })
 
   it('reconsideration preview shows result chain by default and hides it when show_result_and_modify is off (REA 联动)', async () => {
+    // 复议环节内容链为投影（同校准）：不落节点 content，由 final 环节 fill 内容回退提供
     const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
-    const recon = node({ node_id: 'r1', node_type: 'result_reconsideration', name: '结果复议处理', content: [reconContent] })
-    const wrapper = mountStep([recon])
+    const recon = node({ node_id: 'r1', node_type: 'result_reconsideration', name: '结果复议处理' })
+    const final = node({ node_id: 'f1', name: '上级评估', include_final_result: true, content: [reconContent] })
+    const wrapper = mountStep([final, recon])
     await flushPromises()
-    // 默认（未配置/缺省 true）：复议理由 + 绩效结果标题 + 内容链均渲染
+    await wrapper.findAll('.ptp-stage-card').find(card => card.text().includes('结果复议处理'))!.trigger('click')
+    await flushPromises()
+    // 默认（未配置/缺省 true）：复议理由 + 绩效结果标题 + 内容链均渲染（内容链来自 final 环节投影）
     expect(wrapper.get('.ptp-recon__head').text()).toBe('复议理由')
     expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
     expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
     wrapper.unmount()
   })
 
-  it('reconsideration preview with show_result_and_modify=false keeps recon reason but hides result chain (REA 联动)', async () => {
+  it('reconsideration preview with show_result_and_modify=false keeps recon reason but hides keep-radio and result chain (REA 联动)', async () => {
     const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
-    const recon = node({ node_id: 'r2', node_type: 'result_reconsideration', name: '结果复议处理', content: [reconContent], show_result_and_modify: false })
-    const wrapper = mountStep([recon])
+    const recon = node({ node_id: 'r2', node_type: 'result_reconsideration', name: '结果复议处理', show_result_and_modify: false })
+    const final = node({ node_id: 'f2', name: '上级评估', include_final_result: true, content: [reconContent] })
+    const wrapper = mountStep([final, recon])
     await flushPromises()
+    await wrapper.findAll('.ptp-stage-card').find(card => card.text().includes('结果复议处理'))!.trigger('click')
+    await flushPromises()
+    // 复议理由保留
     expect(wrapper.get('.ptp-recon__head').text()).toBe('复议理由')
+    // 取消勾选：单选项不显示、绩效结果标题不显示、内容链不显示、空态也不显示（下方空白）
+    expect(wrapper.find('.ptp-recon__label').exists()).toBe(false)
+    expect(wrapper.find('.ptp-recon__radios').exists()).toBe(false)
     expect(wrapper.find('.ptp-result-group__title').exists()).toBe(false)
     expect(wrapper.find('.ptp-block').exists()).toBe(false)
+    expect(wrapper.find('.ptp-empty').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('reconsideration preview radio is static (preview only), default change shows result chain (REA)', async () => {
+  it('reconsideration preview keep-radio is interactive: keep hides result chain, change shows it (REA 联动)', async () => {
     const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
-    const recon = node({ node_id: 'r3', node_type: 'result_reconsideration', name: '结果复议处理', content: [reconContent], show_result_and_modify: true })
-    const wrapper = mountStep([recon])
+    const recon = node({ node_id: 'r3', node_type: 'result_reconsideration', name: '结果复议处理', show_result_and_modify: true })
+    const final = node({ node_id: 'f3', name: '上级评估', include_final_result: true, content: [reconContent] })
+    const wrapper = mountStep([final, recon])
+    await flushPromises()
+    await wrapper.findAll('.ptp-stage-card').find(card => card.text().includes('结果复议处理'))!.trigger('click')
     await flushPromises()
     // 默认「变更结果」→ 绩效结果区展示
     expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
     expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
-    // 单选项为只读静态展示（模板预览不交互，运行时由 SelfSummaryTask 提供真实选择）
+    // 单选项可操作（非 disabled）
     const radioInputs = wrapper.findAll('.ptp-recon__radios input')
-    expect(radioInputs.every(input => (input.element as HTMLInputElement).disabled)).toBe(true)
+    expect(radioInputs).toHaveLength(2)
+    expect(radioInputs.every(input => !(input.element as HTMLInputElement).disabled)).toBe(true)
+    // 选择「保持原结果」→ 内容链与标题隐藏、下方空白
+    await radioInputs[0].setValue(true)
+    expect(wrapper.find('.ptp-result-group__title').exists()).toBe(false)
+    expect(wrapper.find('.ptp-block').exists()).toBe(false)
+    expect(wrapper.find('.ptp-empty').exists()).toBe(false)
+    // 切回「变更结果」→ 内容链恢复
+    await wrapper.findAll('.ptp-recon__radios input')[1].setValue(true)
+    expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
+    expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
     wrapper.unmount()
   })
 

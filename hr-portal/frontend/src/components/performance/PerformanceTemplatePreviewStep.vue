@@ -63,7 +63,7 @@ const keepResultOptions = [
   { id: 'keep', label: '保持原结果' },
   { id: 'change', label: '变更结果' },
 ]
-/** 模板预览为静态预览：复议处理人选择不在此交互（运行时由 SelfSummaryTask 提供真实单选项联动） */
+/** 复议环节右栏预览选择：默认「变更结果」，预览内可交互（与运行时 SelfSummaryTask 同一单选联动） */
 const keepResultValue = ref<'keep' | 'change'>('change')
 /** 复议环节右栏是否展示绩效结果内容链 = 节点配置开关 && 预览默认选择「变更结果」 */
 const showReconResultChain = computed(() => showResultAndModify.value && keepResultValue.value === 'change')
@@ -140,7 +140,9 @@ const finalNode = computed(() => {
 const rightContents = computed<PerformanceTemplateContent[]>(() => {
   const node = selectedNode.value
   if (!node) return []
-  if (isCalibration.value) {
+  /* 校准与复议同构（内容设置侧均为 final 内容 + calibration settings 投影，不落 node.content）：
+     优先读 adjustment（供调整内容），否则回退 final 环节的 fill 内容。 */
+  if (isCalibration.value || isResultReconsideration.value) {
     const adjustment = slotContents(node, 'adjustment')
     if (adjustment.length) return adjustment
     return visibleFillContents(finalNode.value)
@@ -154,6 +156,7 @@ const rightContents = computed<PerformanceTemplateContent[]>(() => {
 const rightTabLabel = computed(() => {
   if (isResultView.value) return '配置查看内容'
   if (isCalibration.value) return '配置供调整内容'
+  if (isResultReconsideration.value) return '配置填写内容'
   return '配置填写内容'
 })
 const rightTitle = computed(() => selectedNode.value?.content_page_name || selectedNode.value?.name || '')
@@ -377,17 +380,21 @@ function contentDescription(content: PerformanceTemplateContent) {
                   <!-- REA：内容为空时只渲染空态，不渲染页标题 -->
                   <div v-if="rightContents.length || isResultView" class="ptp-page-title">{{ isResultView ? '绩效结果' : rightTitle }}</div>
 
-                  <!-- 结果复议处理：复议理由（分节标题 + 灰底只读引用）+ 是否保持复议前结果（单选组） -->
+                  <!-- 结果复议处理：复议理由（分节标题 + 灰底只读引用）+ 是否保持复议前结果（单选组，可操作） -->
                   <div v-if="isResultReconsideration" class="ptp-recon">
                     <div class="ptp-recon__head">复议理由</div>
                     <div class="ptp-recon__value">这里展示被评估人发起复议时填写的内容</div>
-                    <div class="ptp-recon__label">是否保持复议前结果</div>
-                    <PerformanceSingleSelectControl class="ptp-recon__radios" :model-value="keepResultValue" :options="keepResultOptions" aria-label="是否保持复议前结果" />
+                    <!-- REA：取消「显示绩效结果并允许修改」后，是否保持复议前结果单选项与绩效结果区均不显示 -->
+                    <template v-if="showResultAndModify">
+                      <div class="ptp-recon__label">是否保持复议前结果</div>
+                      <PerformanceSingleSelectControl class="ptp-recon__radios" :model-value="keepResultValue" :options="keepResultOptions" interactive aria-label="是否保持复议前结果" @update:model-value="(value: string) => keepResultValue = value as 'keep' | 'change'" />
+                    </template>
                   </div>
-                  <!-- 复议 final：仅当「显示绩效结果并允许修改」且预览默认「变更结果」时展示绩效结果区（REA 静态预览） -->
+                  <!-- 复议 final：仅当「显示绩效结果并允许修改」且预览选择「变更结果」时展示绩效结果区 -->
                   <div v-if="isResultReconsideration && showReconResultChain" class="ptp-result-group__title">绩效结果</div>
 
-                  <div v-if="!rightContents.length || (isResultReconsideration && !showReconResultChain)" class="ptp-empty">
+                  <!-- 空态仅用于内容真正为空（与其他环节一致）；复议取消勾选 / 保持原结果为主动隐藏，下方不渲染 -->
+                  <div v-if="!rightContents.length" class="ptp-empty">
                     <span class="ptp-empty__image" aria-hidden="true">
                       <svg width="120" height="120" viewBox="0 0 120 120" fill="none"><rect x="18" y="26" width="84" height="68" rx="8" fill="#f2f3f5"/><rect x="30" y="42" width="46" height="6" rx="3" fill="#e0e2e6"/><rect x="30" y="56" width="60" height="6" rx="3" fill="#e9ebee"/><rect x="30" y="70" width="36" height="6" rx="3" fill="#e9ebee"/><circle cx="94" cy="94" r="16" fill="#eff0f1"/><path d="M88 94l4 4 8-8" stroke="#c9cdd4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </span>
