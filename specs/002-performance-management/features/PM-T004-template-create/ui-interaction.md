@@ -506,4 +506,7 @@
 - 展开区按来源`contents`顺序展示真实root名称和描述，并复用普通参考内容相同的`contentToSections(..., { readonly:true })`与`PerformanceTemplateRenderer(mode='readonly')`。root名称不再被员工关系替代，员工关系固定作为人员卡片维度单独传入。
 - root描述遵循`content.settings.hideDescription`；item名称遵循`items[].settings.hideName`；`mode=hidden`不渲染；其余题型沿公共只读组件展示占位答案、评级或标签，不出现可编辑输入。删除固定两个匿名占位条目的`entryCount`实现。
 - REA几何继续使用591.3px详情区、24px水平内缩、16/12px条目内边距、0.666667px虚线分隔、#F5F6F7背景；内容高度由真实root/item自然决定，不写死244.7px。
-- 验证：组件与模板预览22/22、投影层/公共renderer/预览回归70/70、vue-tsc+Vite生产构建通过；本地登录页无page error，但认证未跳转，真实登录态业务页截图和目标模板本地验收待补。
+- 追加交互修复：顶部收起/展开按钮、头像旁三角按钮、头像右侧非灰色信息主体共用同一`expanded`状态；默认展示REA完整“收起详情”SVG，收起后使用REA完整“展开详情”SVG。人员行取消额外“直属上级”标题，头像第一行与描述下一行同左缘。
+- 三个筛选器默认灰底黑字，打开/hover为浅蓝底蓝字；每个触发器有`aria-expanded`，下拉只展示带勾选的“全部”，同一时刻只保留一个打开。
+- 统计行固定为`已评估 N/M：关系 R`；`N/M` hover浮层展示“已评估: N”及已评估人员头像，关系数 hover浮层展示关系人员头像。两者复用Popover基础设施但分别挂载独立实例；N/M和关系人员列表作为独立props，后续接真实接口数据不混淆。
+- 验证：本轮组件与模板预览25/25、投影层/公共renderer/预览回归73/73、vue-tsc+Vite生产构建通过；REA补抓已确认两个浮层结构与完整展开SVG。实际组件浏览器证据`ev_31dc62b41f8ee6890888c2b6eaf6600f740ac827b043dec69d6dfc76b215677a`验证三角按钮收起、信息主体展开和筛选打开/关闭，0 page error、0 console error。真实登录态业务页截图和目标模板本地验收仍待补，不将组件DOM或旧截图作为完整页面验收。
