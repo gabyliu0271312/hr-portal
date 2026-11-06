@@ -297,7 +297,9 @@ function contentDescription(content: PerformanceTemplateContent) {
                     <!-- 360°反馈：引用源执行人为「360°评估人」的评估环节 → 360°评估详情视图（REA 实测） -->
                     <PerformanceReviewer360Preview
                       v-if="activeReferenceGroup.isReviewer360"
-                      :relation-label="activeReferenceGroup.label"
+                      relation-label="直属上级"
+                      :contents="activeReferenceGroup.contents"
+                      :readonly-sections="readonlySections"
                     />
                     <!-- OKR：内置引用，模板预览阶段渲染骨架；数据字段结构与填写页一致 -->
                     <PerformanceOkrPanel

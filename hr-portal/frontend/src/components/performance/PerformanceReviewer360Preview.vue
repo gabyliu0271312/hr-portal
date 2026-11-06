@@ -105,11 +105,20 @@
         </table>
       </div>
 
-      <!-- 表单区：灰底，内嵌空评估条目（REA：默认展开，收起点击「展开详情」后显示） -->
+      <!-- 表单区：保留 REA 的灰底条目外壳，内部复用普通参考内容的 root 标题与 readonly renderer -->
       <div v-show="expanded && viewMode === 'card'" class="r360-form">
-        <div v-for="index in entryCount" :key="index" class="r360-form__item">
+        <div v-for="content in contents" :key="contentKey(content)" class="r360-form__item">
           <div class="r360-form__review">
-            <div class="r360-form__empty">这里展示用户填写的内容</div>
+            <div class="r360-form__root">
+              <div class="r360-form__root-title">{{ content.name }}</div>
+              <div v-if="contentDescription(content)" class="r360-form__root-description">{{ contentDescription(content) }}</div>
+            </div>
+            <PerformanceTemplateRenderer
+              mode="readonly"
+              :show-header="false"
+              :sections="sectionsFor(content)"
+              :answers="{}"
+            />
           </div>
         </div>
       </div>
@@ -120,8 +129,13 @@
 <script setup lang="ts">
 /**
  * 参考区「360°反馈」页签预览（REA 实测：360°评估详情视图 + 表格视图切换 + 收起/展开交互）。
+ *
+ * 360°只拥有自己的统计、筛选和人员卡片外壳；展开后的内容仍然消费来源
+ * root/content 与统一 readonly sections，不能在这里伪造固定数量的占位条目。
  */
 import { ref } from 'vue'
+import type { PerformanceTemplateContent, PerformanceTemplateSection } from '@/api/performance'
+import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 
 const props = withDefaults(defineProps<{
   relationLabel?: string
@@ -130,7 +144,8 @@ const props = withDefaults(defineProps<{
   departmentLabel?: string
   avatarUrl?: string
   tableRows?: Array<{ name: string; sub: string; avatarUrl?: string }>
-  entryCount?: number
+  contents?: PerformanceTemplateContent[]
+  readonlySections?: Record<string, PerformanceTemplateSection[]>
 }>(), {
   relationLabel: '直属上级',
   evaluatedCount: 1,
@@ -138,7 +153,8 @@ const props = withDefaults(defineProps<{
   departmentLabel: '直属上级',
   avatarUrl: '',
   tableRows: () => [{ name: '评估人', sub: '直属上级  |  所属部门  |  系统默认邀请' }],
-  entryCount: 2,
+  contents: () => [],
+  readonlySections: () => ({}),
 })
 
 /** REA 默认展开态（按钮「收起详情」） */
@@ -150,7 +166,15 @@ function switchView(mode: 'card' | 'table') {
   viewMode.value = mode
   viewMenuOpen.value = false
 }
-void props
+function contentKey(content: PerformanceTemplateContent) {
+  return String(content.content_id || content.id || content.name || '')
+}
+function contentDescription(content: PerformanceTemplateContent) {
+  return content.settings?.hideDescription ? '' : content.description || ''
+}
+function sectionsFor(content: PerformanceTemplateContent) {
+  return props.readonlySections[contentKey(content)] || []
+}
 </script>
 
 <style scoped>
@@ -263,10 +287,20 @@ void props
 .r360-table__name { font-size: 12px; line-height: 20px; font-weight: 500; color: #1f2329; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .r360-table__sub { font-size: 12px; line-height: 20px; color: #646a73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ---------- 表单区：591.3×244.7 bg #f5f6f7 r6 px-6 ---------- */
+/* ---------- 表单区：REA 591.3px 灰底，root/item 仍走统一 readonly 内容链 ---------- */
 .r360-form { margin-top: 16px; padding: 0 24px; box-sizing: border-box; border-radius: 6px; background: #f5f6f7; }
-.r360-form__item { padding: 8px 0 12px; }
-.r360-form__item + .r360-form__item { border-top: 1px solid #dee0e3; }
-.r360-form__review { padding: 16px 20px; box-sizing: border-box; border-radius: 4px; background: #f5f6f7; }
-.r360-form__empty { font-size: 14px; line-height: 22px; color: #1f2329; white-space: pre-wrap; overflow-wrap: anywhere; }
+.r360-form__item { padding: 16px 12px; border-bottom: .666667px dashed rgba(31, 35, 41, .15); box-sizing: border-box; border-radius: 4px 4px 0 0; background: #f5f6f7; }
+.r360-form__item:last-child { padding-bottom: 12px; border-bottom: 0; border-radius: 4px; }
+.r360-form__review { box-sizing: border-box; border-radius: 4px; background: #f5f6f7; }
+.r360-form__root { margin-bottom: 16px; }
+.r360-form__root-title { color: #1f2329; font-size: 14px; font-weight: 600; line-height: 24px; overflow-wrap: anywhere; }
+.r360-form__root-description { margin-top: 2px; color: #646a73; font-size: 14px; line-height: 22px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.r360-form :deep(.performance-template-renderer--readonly) { padding: 0; background: transparent; }
+.r360-form :deep(.performance-template-section) { margin-bottom: 0; }
+.r360-form :deep(.performance-template-field) { margin-bottom: 16px; }
+.r360-form :deep(.performance-template-field:last-child) { margin-bottom: 0; }
+.r360-form :deep(.performance-item-title) { font-family: inherit; }
+.r360-form :deep(.template-field-label em) { display: none; }
+.r360-form :deep(.rich-answer),
+.r360-form :deep(.readonly-tag-panel) { background: #f5f6f7; }
 </style>

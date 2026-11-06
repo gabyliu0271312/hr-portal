@@ -282,10 +282,21 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(panel.findAll('.okr-objective__tag, .okr-kr__tag').map(tag => tag.text())).toEqual(['O\u00a01', 'KR\u00a01', 'KR\u00a02'])
   })
 
-  it('renders 360° evaluation detail for references whose source executor is 360°评估人', async () => {
-    // 360°反馈环节 = 流程设置里执行人为「360°评估人」的评估环节；
-    // 参考区对其渲染 360°评估详情视图（信息条 + 表头 + 详情视图 + 空评估条目）
-    const reviewer360 = node({ node_id: 'n360', node_type: 'evaluation', name: '360°反馈（自愿评估）', executor_label: '360°评估人' })
+  it('renders 360° evaluation detail with source roots, item titles and readonly fields', async () => {
+    const feedbackContent = {
+      content_id: 'c-360-feedback', type: 'custom', name: '360°反馈', description: '请结合实际协作情况进行反馈',
+      settings: { hideDescription: false },
+      items: [{ id: 'i-360-feedback', kind: 'fill', label: '360°反馈内容', questionType: 'text', settings: { mode: 'fill', required: true } }],
+    } as any
+    const commentContent = {
+      content_id: 'c-360-comment', type: 'custom', name: '留言', description: '留言说明',
+      settings: { hideDescription: true },
+      items: [{ id: 'i-360-comment', kind: 'fill', label: '留言内容', questionType: 'text', settings: { mode: 'fill', required: false, hideName: true } }],
+    } as any
+    const reviewer360 = node({
+      node_id: 'n360', node_type: 'evaluation', name: '360°反馈（自愿评估）', executor_label: '360°评估人',
+      content: [feedbackContent, commentContent],
+    })
     const reference = {
       content_id: 'ref-360', type: 'reference', content_slot: 'reference', name: '360°反馈（自愿评估）',
       reference_kind: 'node', reference_value: 'n360', items: [],
@@ -298,7 +309,6 @@ describe('PerformanceTemplatePreviewStep', () => {
     await flushPromises()
     await wrapper.findAll('.ptp-stage-card')[1].trigger('click')
     const panel = wrapper.findAll('.ptp-panel')[0]
-    // 360°评估详情视图：信息条 + 表头 + 详情视图 + 卡片 + 空评估条目
     expect(panel.text()).toContain('已评估')
     expect(panel.text()).toContain('评估维度')
     expect(panel.text()).toContain('员工关系')
@@ -306,6 +316,13 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(panel.text()).toContain('详情视图')
     expect(panel.text()).toContain('所属部门')
     expect(panel.findAll('.r360-form__item')).toHaveLength(2)
+    expect(panel.findAll('.r360-form__root-title').map(item => item.text())).toEqual(['360°反馈', '留言'])
+    expect(panel.text()).toContain('请结合实际协作情况进行反馈')
+    expect(panel.text()).not.toContain('留言说明')
+    expect(panel.findAll('.template-field-label').map(item => item.text())).toEqual(['360°反馈内容'])
+    expect(panel.findAll('.readonly-answer')).toHaveLength(2)
+    expect(panel.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(panel.text()).toContain('这里展示用户填写的内容')
   })
 
   it('renders built-in OKR skeleton for more-reference relations', async () => {

@@ -646,7 +646,15 @@
   - Tests: `npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceRatingControl.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/performanceRatingOptions.spec.ts src/components/performance/PerformanceAssessmentContentLayers.spec.ts`；`npm.cmd --prefix hr-portal/frontend run build`；`python -m pytest hr-portal/backend/tests/test_performance_projects.py -q`。
   - Evidence: 前端 `npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceRatingControl.spec.ts src/components/performance/PerformanceInfoPopover.spec.ts src/components/performance/PerformanceContentRenderer.spec.ts src/components/performance/performanceRatingOptions.spec.ts`：4文件55/55通过；`src/views/performance/PerformanceTemplateContentSettings.spec.ts` 79/79通过；`src/components/performance/PerformanceConfiguredContentBlock.spec.ts` 53/53通过。`PerformanceAssessmentContentLayers.spec.ts` 59/60通过，唯一失败为并行改动中的提示图标颜色断言（`rgb(249,115,22)` 对 `rgb(255,129,26)`），本轮未改该提示组件，未擅自修正。`npm.cmd --prefix hr-portal/frontend run build`（vue-tsc+vite）通过；后端 `pytest hr-portal/backend/tests/test_performance_projects.py -q` 289 passed / 4 skipped。未执行登录态浏览器几何实测、独立PNG 或真实数据库重开，不冒充像素或生产验收。
 
+- [ ] PM-T004-T05-F39 模板预览360°反馈复用真实root与只读渲染（2026-11-06）
+  - Goal/UI: 绩效模板预览的上级评估环节中，配置参考内容 > 360°反馈保留REA统计、筛选、详情/表格切换和人员卡片外壳；展开区按来源内容顺序显示真实root名称/描述、item名称和值，并与普通参考内容共用`contentToSections(..., { readonly:true }) -> PerformanceTemplateRenderer(mode='readonly')`链路。
+  - Scope: 仅修改`PerformanceTemplatePreviewStep.vue`、`PerformanceReviewer360Preview.vue`及既有同名测试；不改API、数据库、权限、流程节点、内容保存、员工端、周期快照、UCP或其他参考类型。员工关系与参考root名称分离；移除固定`entryCount=2`内容结构。
+  - REA contract: 360°专用差异仅限外层详情格式；内部仍按`templateItemContainer -> ReviewContent`展示真实模板内容。root名称始终保留；root描述遵循`hideDescription`；item名称遵循`hideName`；hidden item不渲染；其余字段保持只读且不出现可编辑输入。
+  - Evidence: 360组件与模板预览定向22/22通过；投影层、公共renderer及预览回归70/70通过；`npm.cmd --prefix hr-portal/frontend run build`通过（vue-tsc + Vite，只有既有VueUse PURE注释提示）；`git diff --check`无格式错误，仅既有LF/CRLF提示。REA本地浏览器登录页无page error，但本地认证未跳转，未取得登录态业务页截图或真实模板7702002962205314062的本地运行验收，不以组件DOM冒充完整页面验收。
+  - DoD: 实现与自动化回归完成；待本地认证恢复后补登录态模板预览截图和实际root/item/readonly计算样式核验，再勾选本任务。无部署、commit或push。
+
 - [ ] PM-T004-T05-F38 OKR 参考内容真实读取与填写页渲染（2026-11-04）
+
   - 目标/入口：模板内容设置保存 `reference_kind=more, reference_value=okr`；有权限的任务处理人打开对应填写页，参考页签按当前 `task_id` 调 `/api/v1/performance/okr/tasks/{task_id}/okr`，展示被评估人的 O/KR/进度；未配置 OKR 的任务不调用接口。模板预览只显示骨架，不读取员工数据。
   - 权限/边界：复用任务对象授权 `_self_summary_task` 与模板引用检查，禁止按客户端自填工号查询；飞书凭证只在后端使用；身份切换拒绝外部读取；默认 `PERFORMANCE_OKR_PROVIDER=none`，无绑定/无数据/飞书失败为空态或可重试失败，不影响填写、草稿和提交。不开新表、不迁移周期快照、不触碰生产。
   - 代码与证据：`okr_provider.py`、`okr_router.py`、`projects_router.py`、`FeishuClient.get_json`、`core/config.py`、`main.py`、`PerformanceReferenceContent.vue`、`PerformanceOkrPanel.vue`、`api/performance.ts`；后端 `test_performance_okr_provider.py` 13通过，OKR+任务+授权联合 409通过/5跳过；前端 OKR/预览 13通过；vue-tsc+Vite 构建通过。后端 `app.main` import 与任务路由存在已核对；真实飞书授权、PC填写/重开及生产部署未验收，暂不勾选。

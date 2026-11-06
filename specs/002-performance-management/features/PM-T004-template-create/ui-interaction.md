@@ -499,3 +499,11 @@
 - 评级等级：`content.options` 变为题库快照兜底，`resolveRatingOptions` 以评级题库等级为准（顺序/数量/代号/名称/描述/颜色），题库改名或增删等级后所有引用环节同步；渲染层“条目自身等级优先、块级兜底”的展示语义保留（`mergeRatingOptions`）。
 - 后端兼容：节点 `content` 仍持久化为投影（运行期消费方直接读取），历史数据中节点副本比库新时读取以节点为准回填库（自愈）后再投影；写入优先级为 显式 `content_library` > 已存库/节点填写内容（仅补缺口）。不新增字段、迁移、API 或权限变更，不改已使用模板锁定与历史周期快照。
 - 验证：前端 `PerformanceTemplateContentSettings` 83/83、`performanceRatingOptions` 7/7、渲染器与抽屉 105/105；后端 `test_performance_template_workflow` 235/235、`test_performance_projects` 386/386；vue-tsc 仅剩既有 spec 类型断言告警。真实登录态浏览器与真实数据库保存重开未执行，不作为完成证据。
+
+## 模板预览360°反馈真实root与只读展示（PM-T004-T05-F39，2026-11-06）
+
+- 上级评估环节的360°反馈参考页签保留REA专用的统计信息、筛选、详情/表格切换、人员卡片和展开/收起外壳；特殊格式不能替代来源内容。
+- 展开区按来源`contents`顺序展示真实root名称和描述，并复用普通参考内容相同的`contentToSections(..., { readonly:true })`与`PerformanceTemplateRenderer(mode='readonly')`。root名称不再被员工关系替代，员工关系固定作为人员卡片维度单独传入。
+- root描述遵循`content.settings.hideDescription`；item名称遵循`items[].settings.hideName`；`mode=hidden`不渲染；其余题型沿公共只读组件展示占位答案、评级或标签，不出现可编辑输入。删除固定两个匿名占位条目的`entryCount`实现。
+- REA几何继续使用591.3px详情区、24px水平内缩、16/12px条目内边距、0.666667px虚线分隔、#F5F6F7背景；内容高度由真实root/item自然决定，不写死244.7px。
+- 验证：组件与模板预览22/22、投影层/公共renderer/预览回归70/70、vue-tsc+Vite生产构建通过；本地登录页无page error，但认证未跳转，真实登录态业务页截图和目标模板本地验收待补。
