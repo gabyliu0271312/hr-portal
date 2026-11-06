@@ -1807,6 +1807,12 @@ export interface PerformanceProjectPayload {
   flow_settings?: PerformanceProjectFlowSettings
 }
 
+export type PerformanceProjectCopyPayload = Partial<Pick<PerformanceProjectPayload,
+  'name' | 'description' | 'administrators' | 'data_managers' | 'scope_limited' | 'scope_rules'
+>> & {
+  target_cycle_id?: number
+}
+
 export interface PerformanceProject extends PerformanceCycleProjectShell {
   cycle_ref: string
   template_id: number | null
@@ -2142,8 +2148,8 @@ export const performanceProjectApi = {
     const { data } = await api.post<PerformanceProject>(`/performance/projects/${id}/start`)
     return data
   },
-  async copy(id: number): Promise<PerformanceProject> {
-    const { data } = await api.post<PerformanceProject>(`/performance/projects/${id}/copy`)
+  async copy(id: number, payload?: PerformanceProjectCopyPayload): Promise<PerformanceProject> {
+    const { data } = await api.post<PerformanceProject>(`/performance/projects/${id}/copy`, payload)
     return data
   },
   async remove(id: number): Promise<void> {

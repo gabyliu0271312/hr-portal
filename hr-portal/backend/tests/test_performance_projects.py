@@ -624,6 +624,141 @@ def test_project_scope_permissions_are_limited_to_granted_project():
     assert not _can_manage_project(context(), target)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_payload", [False, True])
+async def test_copy_project_preserves_configuration_and_resets_history_in_one_commit(with_payload):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock, Mock
+    from app.performance.models import PerformanceProject
+
+    source = project(status="STARTED")
+    source.evaluated_count = 123
+    source.settings.update({
+        "template_id": 7,
+        "data_managers": ["HRBP"],
+        "scope_limited": True,
+        "scope_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]},
+        "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]},
+        "flow_settings": {"node_settings": {"summary": {"work_summary": {"review_enabled": True}}}, "node_times": {"summary": {"start_at": "2026-01-01T00:00:00Z", "end_at": "2026-01-02T00:00:00Z"}}},
+        "extra_configuration": {"values": ["keep"]},
+    })
+    before = deepcopy(source.settings)
+    db = SimpleNamespace(add=Mock(side_effect=lambda row: setattr(row, "id", 2)), flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock(), get=AsyncMock(return_value=None))
+    service = PerformanceProjectService(db)
+    service.audit.append_event = Mock()
+    service.validate_template = AsyncMock()
+    service._validate_distribution_template_options = AsyncMock()
+    payload = {"name": "复制名称", "description": None, "administrators": ["E2", "E2"], "data_managers": ["PROJECT_ADMIN"], "scope_limited": False, "scope_rules": {"groups": []}} if with_payload else None
+    copied = await service.copy_project(source, payload, target_cycle_ref="cycle:target" if with_payload else None, actor_type="PORTAL_USER", actor_id=1)
+
+    assert copied.cycle_ref == ("cycle:target" if with_payload else source.cycle_ref)
+    assert copied.name == ("复制名称" if with_payload else "项目一（副本）")
+    assert copied.description == (None if with_payload else source.description)
+    assert copied.administrators == (["E2"] if with_payload else source.administrators)
+    assert copied.settings["data_managers"] == (["PROJECT_ADMIN"] if with_payload else ["HRBP"])
+    assert copied.settings["scope_limited"] is (not with_payload)
+    assert copied.settings["scope_rules"] == ({"groups": []} if with_payload else before["scope_rules"])
+    assert copied.project_ref != source.project_ref
+    assert copied.status == "DRAFT" and copied.evaluated_count == 0
+    assert copied.settings["template_id"] == 7
+    assert copied.settings["evaluator_rules"] == before["evaluator_rules"]
+    assert copied.settings["flow_settings"]["node_times"]["summary"]["end_at"] == "2026-01-02T00:00:00Z"
+    service.validate_template.assert_awaited_once_with(copied.cycle_ref, 7)
+    service._validate_distribution_template_options.assert_awaited_once_with(7, copied.settings["flow_settings"])
+    assert [type(call.args[0]) for call in db.add.call_args_list] == [PerformanceProject]
+    db.commit.assert_awaited_once()
+    event = service.audit.append_event.call_args.args[0]
+    assert event.event_type == "PERFORMANCE_PROJECT_COPIED" and event.cycle_ref == copied.cycle_ref
+    assert event.before_state["project_ref"] == source.project_ref
+    assert event.after_state["name"] == copied.name
+    copied.settings["extra_configuration"]["values"].append("copy-only")
+    assert source.settings == before and source.status == "STARTED" and source.evaluated_count == 123
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changes", [
+    {"name": "   "},
+    {"data_managers": []},
+    {"data_managers": ["UNKNOWN"]},
+    {"scope_limited": True, "scope_rules": {"groups": []}},
+    {"scope_rules": {"groups": [{"conditions": [{"field": "job_family", "operator": "include", "values": ["研发"]}]}]}},
+])
+async def test_copy_project_reuses_create_field_and_scope_validation(changes):
+    from unittest.mock import AsyncMock, Mock
+
+    db = SimpleNamespace(add=Mock(), commit=AsyncMock())
+    with pytest.raises(ProjectValidationError):
+        await PerformanceProjectService(db).copy_project(project(), changes, actor_type="PORTAL_USER", actor_id=1)
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_copy_project_rejects_target_template_and_disabled_manual_opening():
+    from unittest.mock import AsyncMock, Mock
+
+    source = project()
+    source.settings["template_id"] = 7
+    db = SimpleNamespace(add=Mock(), commit=AsyncMock(), scalar=AsyncMock(return_value=SimpleNamespace(template_ids=[8], template_id=8)))
+    with pytest.raises(ProjectValidationError, match="当前绩效周期"):
+        await PerformanceProjectService(db).copy_project(source, target_cycle_ref="cycle:target", actor_type="PORTAL_USER", actor_id=1)
+    source.settings = {"flow_settings": {"node_settings": {"view": {"result_view": {"manual_enabled": True, "manual_role_codes": ["PROJECT_ADMIN"]}}}}}
+    db.get = AsyncMock(return_value=SimpleNamespace(manual_result_opening_enabled=False))
+    with pytest.raises(ProjectValidationError, match="不允许手动开通"):
+        await PerformanceProjectService(db).copy_project(source, actor_type="PORTAL_USER", actor_id=1)
+    db.add.assert_not_called()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_copy_project_http_optional_payload_permissions_and_rollback(monkeypatch):
+    from fastapi import FastAPI, HTTPException
+    from httpx import ASGITransport, AsyncClient
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    source = project()
+    copied = project(project_ref="project:copy")
+    copied.id = 2
+    db = SimpleNamespace(rollback=AsyncMock())
+    active_context = context("performance.cycles.manage")
+    app = FastAPI()
+    app.include_router(routes.router)
+    app.dependency_overrides[routes.get_session] = lambda: db
+    app.dependency_overrides[routes.get_performance_access_context] = lambda: active_context
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=source))
+    get_cycle = AsyncMock(return_value=SimpleNamespace(cycle_ref="cycle:target"))
+    monkeypatch.setattr(routes, "_get_cycle", get_cycle)
+    copy = AsyncMock(return_value=copied)
+    monkeypatch.setattr(PerformanceProjectService, "copy_project", copy)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        url = "/performance/projects/1/copy"
+        result = await client.post(url)
+        assert result.status_code == 201 and result.json()["project_ref"] == "project:copy"
+        assert copy.await_args.args == (source, {})
+        assert copy.await_args.kwargs["target_cycle_ref"] == source.cycle_ref
+        payload = {"target_cycle_id": 12, "name": "新名称", "description": None, "administrators": ["E2"], "data_managers": ["HRBP"], "scope_limited": False, "scope_rules": {"groups": []}}
+        assert (await client.post(url, json=payload)).status_code == 201
+        get_cycle.assert_awaited_once_with(db, 12)
+        assert copy.await_args.kwargs["target_cycle_ref"] == "cycle:target"
+        assert copy.await_args.args[1] == {key: value for key, value in payload.items() if key != "target_cycle_id"}
+        for invalid in [{"target_cycle_id": 0}, {"target_cycle_id": "cycle:ref"}, {"settings": {}}, {"status": "STARTED"}, {"data_managers": []}]:
+            assert (await client.post(url, json=invalid)).status_code == 422
+        assert copy.await_count == 2
+        for denied in [context(), context("performance.projects.manage", refs=(source.project_ref,)), context("performance.projects.manage", refs=("project:other",))]:
+            active_context = denied
+            assert (await client.post(url, json=payload)).status_code == 403
+        assert copy.await_count == 2
+        active_context = context("performance.cycles.manage")
+        get_cycle.side_effect = HTTPException(status_code=404, detail="绩效周期不存在")
+        assert (await client.post(url, json=payload)).status_code == 404
+        assert copy.await_count == 2
+        copy.side_effect = ProjectValidationError("开启限定考核范围后至少需要配置一条条件")
+        result = await client.post(url)
+        assert result.status_code == 422
+        db.rollback.assert_awaited_once()
+
+
 def _distribution_rule(assessment_item_id="grade", grade_codes=None):
     return {
         "assessment_item_id": assessment_item_id,

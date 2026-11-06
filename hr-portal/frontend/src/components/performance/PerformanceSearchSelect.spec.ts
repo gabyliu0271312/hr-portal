@@ -29,6 +29,21 @@ function create(values: string[], width = 160) {
 const visibleLabels = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('.performance-select-shell__content > .performance-select-shell__tag > .performance-select-shell__tag-content').map(tag => tag.text())
 
 describe('shared performance selectors', () => {
+  it('supports detailed single options and a shared footer without changing ordinary selectors', async () => {
+    const wrapper = mount(PerformanceSearchSelect, {
+      props: { modelValue: '1', selectionStyle: 'plain', optionLayout: 'detailed', ariaLabel: '目标周期', options: [{ value: '1', label: '全年', subLabel: '2026-01-01 - 2026-12-31' }] },
+      slots: { footer: '<button>新建</button>' },
+      global: { stubs },
+    })
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    expect(wrapper.get('[role="listbox"]').classes()).toContain('performance-flat-option-list--detailed')
+    expect(wrapper.get('.performance-flat-option-list__sub').text()).toBe('2026-01-01 - 2026-12-31')
+    expect(wrapper.get('.performance-flat-option-list__footer').text()).toBe('新建')
+    await wrapper.get('[role="option"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['1'])
+    expect(wrapper.get('[role="combobox"]').attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
   it('preserves selected order, reserves the count width and shows only overflow items in the popover', async () => {
     const { wrapper } = create(['5', '1', '3', '7'])
     await flushPromises()

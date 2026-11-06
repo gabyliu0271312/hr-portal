@@ -16,7 +16,7 @@
     @update:model-value="updateValues"
   >
     <template #default="{ query, close, focus }">
-      <div class="performance-flat-option-list" :class="{ 'performance-flat-option-list--checkmark': optionStyle === 'checkmark' }">
+      <div class="performance-flat-option-list" :class="{ 'performance-flat-option-list--checkmark': optionStyle === 'checkmark', 'performance-flat-option-list--detailed': optionLayout === 'detailed' }" role="listbox" :aria-label="`${ariaLabel}选项`">
         <button
           v-for="option in filteredOptions(query)"
           :key="option.value"
@@ -41,6 +41,7 @@
         </button>
         <div v-if="!filteredOptions(query).length" class="performance-flat-option-list__empty">{{ emptyText }}</div>
       </div>
+      <div v-if="$slots.footer" class="performance-flat-option-list__footer"><slot name="footer" :close="close" /></div>
     </template>
   </PerformanceSelectShell>
 </template>
@@ -69,6 +70,7 @@ const props = withDefaults(defineProps<{
   emptyText?: string
   multiple?: boolean
   optionStyle?: 'checkmark' | 'none'
+  optionLayout?: 'default' | 'detailed'
   /** 有搜索关键词后才显示结果（REA 员工选择器机制：输入→请求→列表） */
   remoteSearch?: boolean
   disabled?: boolean
@@ -82,6 +84,7 @@ const props = withDefaults(defineProps<{
   emptyText: '暂无可选项',
   multiple: false,
   optionStyle: 'checkmark',
+  optionLayout: 'default',
   remoteSearch: false,
   disabled: false,
   selectionStyle: 'tags',
@@ -140,4 +143,10 @@ function select(value: string, close: () => void, focus: () => void) {
 .performance-flat-option-list__sub { overflow: hidden; color: var(--performance-scope-search-dept-color, #8f959e); font-size: var(--font-size-xs); line-height: var(--performance-scope-search-dept-line-height, 22px); text-overflow: ellipsis; white-space: nowrap; }
 .performance-flat-option-list__checkmark { flex: 0 0 var(--performance-select-check-size); width: var(--performance-select-check-size); height: var(--performance-select-check-size); margin-left: auto; color: var(--performance-select-check-color); }
 .performance-flat-option-list__empty { padding: var(--spacing-2) var(--performance-select-option-padding-x); color: var(--color-text-placeholder); line-height: 22px; }
+.performance-flat-option-list--detailed { flex: 0 1 auto; padding-block: var(--performance-select-option-margin-block); }
+.performance-flat-option-list--detailed .performance-flat-option-list__option { box-sizing: border-box; width: calc(100% - var(--performance-select-option-margin-inline) * 2); min-height: var(--performance-select-option-detailed-height); margin: var(--performance-select-option-margin-block) var(--performance-select-option-margin-inline); padding: var(--performance-select-option-padding-block) var(--performance-select-option-detailed-padding-inline); border-radius: var(--radius-sm); }
+.performance-flat-option-list--detailed .performance-flat-option-list__option:hover, .performance-flat-option-list--detailed .performance-flat-option-list__option.is-selected { background: var(--performance-select-option-active-background); }
+.performance-flat-option-list--detailed .performance-flat-option-list__sub { color: var(--performance-select-option-description-color); line-height: var(--performance-select-option-description-line-height); }
+.performance-flat-option-list__footer { flex-shrink: 0; padding: var(--performance-select-footer-padding); border-top: var(--performance-popover-border-width) solid var(--performance-popover-border); }
+.performance-flat-option-list__footer :deep(button) { display: flex; justify-content: flex-start; width: 100%; height: var(--performance-select-footer-height); }
 </style>

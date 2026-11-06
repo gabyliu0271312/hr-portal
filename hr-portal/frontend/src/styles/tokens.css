@@ -242,12 +242,12 @@
   --performance-workbench-editor-compact-switch-width: 28px;
   --performance-workbench-editor-compact-switch-height: 16px;
   --performance-dialog-radius: var(--radius-lg);
-  --performance-dialog-header-min-height: 96px;
+  --performance-dialog-header-min-height: var(--performance-dialog-header-height);
   --performance-dialog-padding: var(--spacing-6);
   --performance-dialog-header-padding-right: 56px;
   --performance-dialog-footer-height: 56px;
   --performance-dialog-button-width: 80px;
-  --performance-dialog-shadow: 0 8px 24px 8px rgba(31, 35, 41, 0.08), 0 6px 12px rgba(31, 35, 41, 0.08), 0 4px 8px -8px rgba(31, 35, 41, 0.12);
+  --performance-dialog-shadow: none;
   --performance-dialog-danger-bg: #fee3e2;
   --performance-dialog-cancel-hover: #f2f3f5;
   --performance-dialog-warning-icon: #ff811a;
@@ -296,7 +296,7 @@
   --performance-button-height: 32px;
   --performance-button-height-small: 28px;
   --performance-button-min-width: 80px;
-  --performance-button-padding-x: 16px;
+  --performance-button-padding-x: 11px;
   --performance-button-icon-size: 24px;
   --performance-button-radius: var(--radius-md);
   --performance-button-gap: var(--spacing-3);
@@ -306,7 +306,7 @@
   --performance-button-focus-ring: var(--shadow-focus);
   --performance-icon-button-color: #646a73;
   --performance-icon-button-hover-background: rgba(31, 35, 41, 0.2);
-  --performance-button-primary-background: var(--color-primary);
+  --performance-button-primary-background: var(--color-primary-hover);
   --performance-button-primary-hover-background: var(--color-primary-hover);
   --performance-button-primary-active-background: var(--color-primary-active);
   --performance-button-primary-disabled-background: var(--color-surface-disabled);
@@ -381,6 +381,19 @@
   --performance-select-check-size: var(--spacing-4);
   --performance-select-check-color: var(--color-primary-hover);
   --performance-select-popup-max-height: 240px;
+  --performance-select-popup-gap: var(--spacing-1);
+  --performance-select-popup-viewport-margin: var(--spacing-2);
+  --performance-select-popup-radius: var(--radius-md);
+  --performance-select-option-detailed-height: 48px;
+  --performance-select-option-margin-block: 1px;
+  --performance-select-option-margin-inline: 3px;
+  --performance-select-option-padding-block: var(--spacing-1);
+  --performance-select-option-detailed-padding-inline: var(--spacing-2);
+  --performance-select-option-description-line-height: 18px;
+  --performance-select-option-description-color: #8f959e;
+  --performance-select-option-active-background: rgba(31, 35, 41, 0.08);
+  --performance-select-footer-padding: var(--spacing-1);
+  --performance-select-footer-height: 28px;
   --performance-select-overflow-popup-max-width: 320px;
   --performance-select-overflow-popup-padding: var(--spacing-3);
 
@@ -399,11 +412,13 @@
   --performance-field-disabled-text: var(--color-text-placeholder);
 
   /* Shared container behavior: used by shells, not as a substitute for a shell. */
-  --performance-dialog-overlay: var(--performance-overlay);
+  --performance-dialog-overlay: var(--performance-overlay-dark);
   --performance-dialog-content-gap: var(--spacing-6);
   --performance-dialog-content-bottom-space: var(--performance-dialog-footer-height);
   --performance-dialog-close-size: 28px;
-  --performance-dialog-header-height: 96px;
+  --performance-dialog-header-height: 72px;
+  --performance-dialog-body-min-height: 0px;
+  --performance-dialog-viewport-inset: 32px;
   --performance-dialog-footer-gap: var(--performance-button-gap);
 
   /* ===== 弹窗容器三段式（REA ud__dialog 实测基线）=====
@@ -464,7 +479,7 @@
   --performance-fullscreen-content-bottom-space: var(--performance-fullscreen-footer-height);
 
   /* Font */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Tahoma, 'PingFang SC', 'Microsoft Yahei', Arial, 'Hiragino Sans GB', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 
   --font-size-xs: 12px;

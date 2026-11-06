@@ -2,11 +2,12 @@
 import { ElDropdown, ElDropdownMenu, ElDropdownItem } from 'element-plus'
 import PerformancePermissionButton from './PerformancePermissionButton.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   canManage: boolean
+  canCopy?: boolean
   started: boolean
   projectName: string
-}>()
+}>(), { canCopy: true })
 
 const emit = defineEmits<{
   (event: 'edit'): void
@@ -37,7 +38,7 @@ function run(action: 'edit' | 'start' | 'copy' | 'remove') {
       </PerformancePermissionButton>
       <template #dropdown>
         <el-dropdown-menu>
-          <el-dropdown-item command="copy">复制</el-dropdown-item>
+          <el-dropdown-item v-if="props.canCopy" command="copy">复制</el-dropdown-item>
           <el-dropdown-item command="remove">删除</el-dropdown-item>
         </el-dropdown-menu>
       </template>

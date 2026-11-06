@@ -46,7 +46,7 @@ const props = withDefaults(defineProps<{
   titleId?: string
   teleport?: boolean
 }>(), {
-  width: '600px',
+  width: 'var(--performance-dialog-wide-width)',
   loading: false,
   fullscreen: false,
   overlayClass: '',
@@ -71,7 +71,7 @@ function close() {
 
 <style scoped>
 .performance-dialog-overlay { position: fixed; inset: 0; z-index: var(--performance-confirm-z-index); display: grid; place-items: center; padding: var(--spacing-4); box-sizing: border-box; background: var(--performance-dialog-overlay); }
-.performance-dialog { position: relative; display: flex; max-width: calc(100vw - 32px); max-height: calc(100vh - 28px); flex-direction: column; overflow: hidden; box-sizing: border-box; border-radius: var(--performance-dialog-radius); background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); box-shadow: var(--performance-dialog-shadow); }
+.performance-dialog { position: relative; display: flex; max-width: calc(100vw - var(--performance-dialog-viewport-inset)); max-height: calc(100dvh - var(--performance-dialog-viewport-inset) * 2); flex-direction: column; overflow: hidden; box-sizing: border-box; border-radius: var(--performance-dialog-radius); background: var(--color-bg-card); color: var(--color-text-primary); font: 400 var(--font-size-md)/22px var(--font-sans); box-shadow: var(--performance-dialog-shadow); }
 .performance-dialog__header { position: relative; flex: 0 0 auto; min-height: var(--performance-dialog-header-height); padding: var(--performance-dialog-header-padding-y) var(--performance-dialog-header-padding-right) var(--performance-dialog-header-padding-y) var(--performance-dialog-header-padding-x); box-sizing: border-box; }
 .performance-dialog--auto-header .performance-dialog__header { flex: 0 0 auto; min-height: 0; }
 .performance-dialog__header h2 { margin: 0; color: var(--color-text-primary); font-size: var(--performance-dialog-header-title-size); font-weight: var(--performance-dialog-header-title-weight); line-height: var(--performance-dialog-header-title-line-height); }
@@ -80,7 +80,7 @@ function close() {
 .performance-dialog__close:hover:not(:disabled), .performance-dialog__close:focus-visible { background: var(--performance-icon-button-hover-background); }
 .performance-dialog__close:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
 .performance-dialog__close:disabled { cursor: not-allowed; opacity: .6; }
-.performance-dialog__body { min-height: 62px; overflow: auto; margin-bottom: var(--performance-dialog-content-gap); padding: 0 var(--performance-dialog-padding); box-sizing: border-box; }
+.performance-dialog__body { min-height: var(--performance-dialog-body-min-height); overflow: auto; margin-bottom: var(--performance-dialog-content-gap); padding: 0 var(--performance-dialog-padding); box-sizing: border-box; }
 .performance-dialog__footer { flex: 0 0 auto; padding: 0 var(--performance-dialog-padding) var(--performance-dialog-padding); box-sizing: border-box; }
 
 /* ---------- 全屏页形态：整页 100vh，页头 56，内容区 flex:1 且自身不滚动 ----------

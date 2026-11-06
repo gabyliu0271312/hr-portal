@@ -14,7 +14,8 @@ import PerformanceAudienceRuleEditor from './PerformanceAudienceRuleEditor.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
-  mode: 'create' | 'edit'
+  mode: 'create' | 'edit' | 'copy'
+  saveError?: string
   project?: PerformanceCycleProjectShell | null
   canSubmit: boolean
   saving?: boolean
@@ -52,7 +53,7 @@ const administratorOptions = computed<PerformanceSearchSelectOption[]>(() => {
 })
 
 function syncForm(project = props.project) {
-  form.name = project?.name || ''
+  form.name = project ? `${project.name}${props.mode === 'copy' ? ' 副本' : ''}` : ''
   form.description = project?.description || ''
   form.administrators = project?.administrators ? [...project.administrators] : []
   form.dataManagers = project?.data_managers ? [...project.data_managers] : ['HRBP']
@@ -88,13 +89,13 @@ watch(() => [props.modelValue, props.project], () => {
 <template>
   <PerformanceDialogShell
     :model-value="modelValue"
-    :title="mode === 'create' ? '新建项目' : '编辑项目'"
-    width="600px"
+    :title="mode === 'edit' ? '编辑项目' : '新建项目'"
     :loading="saving"
     @close="close"
     @update:model-value="emit('update:modelValue', $event)"
   >
     <form class="project-dialog-form" @submit.prevent="submit">
+      <p v-if="saveError" class="project-dialog-error" role="alert">{{ saveError }}</p>
       <PerformanceFormItem
         label="项目名称"
         required
@@ -162,12 +163,13 @@ watch(() => [props.modelValue, props.project], () => {
 
 <style scoped>
 .project-dialog-form { display: grid; gap: 0; }
-.project-data-managers { display: grid; gap: 12px; }
+.project-data-managers { display: grid; gap: var(--spacing-3); }
+.project-dialog-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
 .project-dialog-form :deep(.performance-form-item) { margin-bottom: var(--spacing-5); }
 .project-dialog-form :deep(.performance-form-item:last-child .performance-form-item__label) { margin-bottom: 0; }
 .project-dialog-form :deep(.performance-form-item:last-child .performance-required-label) { display: inline-flex; align-items: center; gap: var(--spacing-2); }
 .project-dialog-form :deep(.performance-form-item:last-child .performance-required-label::after) { content: ''; display: inline-block; width: var(--performance-switch-width); height: var(--performance-switch-height); }
-.project-data-manager-option p { margin: 2px 0 0 24px; color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
+.project-data-manager-option p { margin: var(--performance-required-mark-gap) 0 0 var(--spacing-6); color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
 .project-scope-limit__field { margin-bottom: var(--spacing-5); }
 .project-scope-limit__label-row { display: flex; align-items: center; gap: var(--spacing-2); min-height: 22px; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: var(--performance-input-line-height); }
 .project-scope-limit__label { display: inline-block; }

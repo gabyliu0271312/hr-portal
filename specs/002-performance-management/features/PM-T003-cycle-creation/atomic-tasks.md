@@ -6,6 +6,18 @@
 
 ## 任务清单
 
+- [ ] PM-T003-I15 项目复制两步流程与共享组件/token校准
+  - 授权/入口：2026-11-06 用户明确要求根据本轮 REA 采集完成开发，采用全局组件与设计 token 并修正差异；周期与项目 → 项目设置 → 更多 → 复制。交互依据为本功能 `ui-interaction.md` 的“项目复制两步流程”及本轮 REA 评估，取代早期项目复制仅展示入口的限制。
+  - 范围：新增业务组合 `PerformanceProjectCopyDialog.vue`；复用/扩展共享 DialogShell、SearchSelect/SelectShell、ProjectDialog、UiButton 及全局 tokens；CycleManagement 两步草稿组装、API copy 可选 payload、后端复制事务与既有测试。不修改模型/迁移、权限配置、历史任务、生产数据或其他并行工作。
+  - 契约：第一步分页读周期列表且默认源周期，确定只 GET 源项目；第二步名称原名加空格副本，目标周期懒加载范围选项，最终 POST `/performance/projects/{id}/copy`，携带数字 `target_cycle_id` 和表单六字段。深拷贝源配置，草稿/人数0，不复制历史；源可管理且目标创建权限校验，一次commit；失败403/404/422及rollback。
+  - Given/When/Then：选择跨周期再修改名称，最终确认前不得写库；任一步取消不创建；目标选项来源正确；失败保留草稿可重试；重复提交禁用；无创建权限隐藏入口且服务端403；配置深复制不污染源项目。停止方式为撤销本轮局部差异，不整包回滚。
+  - 共享视觉：600×184复制框，header72/body32/footer56，标题16/600/24，按钮80×32/14/400/22、#1456f0，正文左右24及底间隔24；detailed选项48高、日期12/18，全局字体栈。公共token调整影响现有消费方，因此另跑共享弹窗回归。
+  - 前端测试：共享弹窗/确认框/授权框/创建框/选择器5文件30 passed；复制、取消、目标周期选项、删除确认等页面聚焦6 passed、35 deselected（Vitest显示skipped）；页面扩大回归40 passed、1 failed，失败为部门面板已改共享UiTable而既有断言仍查ElTable，本轮未改该业务组件。完整 `npm --prefix hr-portal/frontend run build` 的vue-tsc和Vite通过，既有VueUse PURE注释警告。
+  - 后端测试：`tests/test_performance_projects.py -k 'copy_project or project_scope_permissions'` 10 passed；完整项目测试392 passed、9 failed、5 skipped，失败涉及既有并行校准/授权测试替身与SQLite字段/过期校准冲突，未扩修。未把跳过项计为通过。
+  - 浏览器证据：独立生产包5175+隔离模拟API，1280×800实测复制框600×184、三段72/32/56、按钮80×32、标题16/600/24、主色#1456f0/白字；默认源周期、跨周期进入表单、预填空格副本、最终请求target_cycle_id=2及修改名称、422保留草稿、取消、pageerror0。375×667已打开弹窗后收缩宽约343.33/左16、页面scrollWidth375；原页面窄屏操作列入口被外层遮挡，未宣称窄屏全链路通过。
+  - 独立PNG（均已查看）：`../../ui-blueprints/PM-T003-I15-copy-cycle-implemented-20261106.png`、`../../ui-blueprints/PM-T003-I15-copy-cycle-options-implemented-20261106.png`、`../../ui-blueprints/PM-T003-I15-copy-project-form-implemented-20261106.png`。未创建脚本、报告或测试文档；补丁按Windows cr-at-eol规则检查通过。
+  - 未完成：真实鉴权API→数据库→GET回读、生产部署/验收未执行；故保留 `[ ]`，不随本地代码/模拟测试通过自动勾选。下拉用原生滚动保留240px上限，未恢复源站虚拟列表内部实现或周期条目编辑入口。
+
 - [x] PM-T003-I01-F01 周期列表分割线布局修复
   - 范围：208px 周期内容区与分割线保持 20px 间距；详情内容起点不变；1px 半透明线贯穿白色容器。
   - 验证：2026-10-15 周期页面及相关共享组件 4 个测试文件、42 项通过；`npm run build` 通过。

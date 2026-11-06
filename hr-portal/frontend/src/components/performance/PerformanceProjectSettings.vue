@@ -84,6 +84,7 @@ function statusLabel(status: string) {
           <template #default="{ row }">
             <PerformanceProjectActions
               :can-manage="canManage(projectRow(row))"
+              :can-copy="canCreate"
               :started="projectRow(row).status === 'STARTED'"
               :project-name="projectRow(row).name"
               @edit="emit('edit', projectRow(row))"

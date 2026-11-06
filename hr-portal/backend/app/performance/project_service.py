@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
@@ -1340,15 +1341,27 @@ class PerformanceProjectService:
         await self.db.refresh(project)
         return created_ids
 
-    async def copy_project(self, project: PerformanceProject, *, actor_type: str, actor_id: int) -> PerformanceProject:
-        copy_name = f"{project.name}（副本）"[:128]
+    async def copy_project(self, project: PerformanceProject, payload: dict[str, Any] | None = None, *, target_cycle_ref: str | None = None, actor_type: str, actor_id: int) -> PerformanceProject:
+        cycle_ref = target_cycle_ref if target_cycle_ref is not None else project.cycle_ref
+        source_settings = deepcopy(project.settings or {})
+        values = {
+            **source_settings,
+            "name": f"{project.name}（副本）"[:128],
+            "description": project.description,
+            "administrators": list(project.administrators or []),
+            **(payload or {}),
+        }
+        name, description, administrators, settings = self._validate_payload(values, source_settings)
+        await self.validate_template(cycle_ref, settings.get("template_id"))
+        await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
+        await self._validate_manual_opening_policy(settings["flow_settings"])
         copied = PerformanceProject(
             project_ref=f"project:{uuid4().hex}",
-            cycle_ref=project.cycle_ref,
-            name=copy_name,
-            description=project.description,
-            administrators=list(project.administrators or []),
-            settings=dict(project.settings or {}),
+            cycle_ref=cycle_ref,
+            name=name,
+            description=description,
+            administrators=administrators,
+            settings=settings,
             status=PROJECT_STATUS_DRAFT,
             evaluated_count=0,
         )
@@ -1356,7 +1369,7 @@ class PerformanceProjectService:
         await self.db.flush()
         self.audit.append_event(AuditEventInput(
             event_type="PERFORMANCE_PROJECT_COPIED",
-            cycle_ref=project.cycle_ref,
+            cycle_ref=cycle_ref,
             actor_type=actor_type,
             actor_ref=_actor_ref(actor_id),
             subject_type="PERFORMANCE_PROJECT",

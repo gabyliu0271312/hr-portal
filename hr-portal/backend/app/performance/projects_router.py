@@ -755,6 +755,17 @@ class ProjectPayload(BaseModel):
     flow_settings: dict | None = None
 
 
+class ProjectCopyPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target_cycle_id: int | None = Field(default=None, ge=1)
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=500)
+    administrators: list[str] | None = Field(default=None, max_length=50)
+    data_managers: list[Literal["PROJECT_ADMIN", "HRBP"]] | None = Field(default=None, min_length=1)
+    scope_limited: bool | None = None
+    scope_rules: dict | None = None
+
+
 class ProjectWorkflowNodesBackfillPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     node_times: dict[str, dict] = Field(default_factory=dict, max_length=100)
@@ -3715,17 +3726,33 @@ async def remind_project_tasks(
     return {"accepted_task_ids": accepted_task_ids, "skipped_task_ids": skipped_task_ids, "delivery_status": "recorded"}
 
 
+@router.post("/projects/{project_id}/copy", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def copy_project(
     project_id: int,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    payload: ProjectCopyPayload | None = Body(default=None),
 ):
     project = await _get_project(db, project_id)
     if not _can_manage_project(context, project):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
-    copied = await PerformanceProjectService(db).copy_project(
-        project, actor_type=context.subject_type, actor_id=context.subject_id
-    )
+    if not _is_cycle_manager(context):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅周期管理员可创建项目")
+    data = payload.model_dump(exclude_unset=True) if payload is not None else {}
+    target_cycle_id = data.pop("target_cycle_id", None)
+    target_cycle_ref = project.cycle_ref
+    if target_cycle_id is not None:
+        cycle = await _get_cycle(db, target_cycle_id)
+        await _assert_cycle_project_view(db, cycle, context)
+        target_cycle_ref = cycle.cycle_ref
+    try:
+        copied = await PerformanceProjectService(db).copy_project(
+            project, data, target_cycle_ref=target_cycle_ref,
+            actor_type=context.subject_type, actor_id=context.subject_id,
+        )
+    except ProjectValidationError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return ProjectResponse(**PerformanceProjectService.serialize(copied))
 
 

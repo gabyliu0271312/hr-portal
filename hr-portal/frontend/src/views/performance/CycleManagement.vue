@@ -104,12 +104,21 @@
             @copy="copyProject"
             @remove="removeProject"
           />
+          <PerformanceProjectCopyDialog
+            v-model="projectCopyOpen"
+            :source-cycle="selected"
+            :loading="projectCopyLoading"
+            :load-error="projectSaveError"
+            @confirm="prepareProjectCopy"
+            @create-cycle="createCycleForCopy"
+          />
           <PerformanceProjectDialog
             v-model="projectDialogOpen"
             :mode="projectDialogMode"
             :project="projectDialogProject"
             :can-submit="canManageProjectDialog"
             :saving="projectSaving"
+            :save-error="projectSaveError"
             :evaluator-options="projectEvaluatorOptions"
             @open-options="loadProjectEvaluatorOptions"
             @submit="saveProject"
@@ -278,6 +287,7 @@ import { formatDateTime, shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/uti
 import PerformanceProjectSettings from '@/components/performance/PerformanceProjectSettings.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
+import PerformanceProjectCopyDialog from '@/components/performance/PerformanceProjectCopyDialog.vue'
 import PerformanceComparisonRuleDrawer, { type PerformanceComparisonConfig } from '@/components/performance/PerformanceComparisonRuleDrawer.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
@@ -294,7 +304,13 @@ import { performanceApi, performanceCycleApi, performanceOtherSettingsApi, perfo
 
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const
 const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
-const projectDialogOpen = ref(false); const projectDialogMode = ref<'create' | 'edit'>('create'); const projectDialogProject = ref<PerformanceCycleProjectShell | null>(null); const projectSaving = ref(false); const projectActionSuccess = ref(''); const projectRemoveTarget = ref<PerformanceCycleProjectShell | null>(null); const projectRemoveOpen = ref(false); const projectRemoving = ref(false)
+const projectDialogOpen = ref(false); const projectDialogMode = ref<'create' | 'edit' | 'copy'>('create'); const projectDialogProject = ref<PerformanceCycleProjectShell | null>(null); const projectSaving = ref(false); const projectActionSuccess = ref(''); const projectRemoveTarget = ref<PerformanceCycleProjectShell | null>(null); const projectRemoveOpen = ref(false); const projectRemoving = ref(false)
+const projectCopyOpen = ref(false)
+const projectCopyLoading = ref(false)
+const projectCopySource = ref<PerformanceCycleProjectShell | null>(null)
+const projectTargetCycle = ref<PerformanceCycle | null>(null)
+const projectSaveError = ref('')
+const projectDialogCycleId = computed(() => projectDialogMode.value === 'copy' ? projectTargetCycle.value?.id : selected.value?.id)
 const overdueSubmissionDialogOpen = ref(false); const overdueSubmissionSaving = ref(false); const overdueSubmissionError = ref(''); const overdueSubmissionAllowed = ref(false)
 const projectEvaluatorOptions = ref<import('@/api/performance').PerformanceEvaluatorOptions>({ organization_tree: [], people: [], employee_types: [] })
 const projectOptionsLoaded = ref(false)
@@ -313,7 +329,7 @@ const leaveConfirmOpen = ref(false)
 const comparisonRuleDrawerOpen = ref(false)
 const comparisonRuleDraft = ref<PerformanceComparisonConfig | null>(null)
 const activeCycleMenuId = ref<number | null>(null); const cycleMenuStyle = ref<CSSProperties>({}); const cycleMenuRef = ref<HTMLElement | null>(null); const cycleMoreButtons = new Map<number, HTMLButtonElement>(); let cycleMenuCloseTimer: number | undefined
-const canManageCycles = computed(() => accessContext.value?.permission_codes.includes('performance.cycles.manage') ?? false); const canManagePeople = canManageCycles; const canManageProjects = computed(() => canManageCycles.value || accessContext.value?.permission_codes.includes('performance.projects.manage') || false); const managedProjectRefs = computed(() => accessContext.value?.role_grants?.filter(grant => grant.scope_type === 'PROJECT').map(grant => grant.scope_ref) || []); const canManageProjectDialog = computed(() => Boolean(selected.value && (canManageCycles.value || (projectDialogProject.value && managedProjectRefs.value.includes(projectDialogProject.value.project_ref))))); const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value))); const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at)); const leaverDateError = computed(() => Boolean(form.leaver_enabled && form.leaver_start_date && form.leaver_end_date && form.leaver_end_date < form.leaver_start_date)); const lockError = computed(() => formMode.value === 'create' && form.lock_rule === 'SCHEDULED' && form.lock_at && (shanghaiLocalToUtcIso(form.lock_at) || '') < new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()); const hasStartedProject = computed(() => selected.value?.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status)) ?? false)
+const canManageCycles = computed(() => accessContext.value?.permission_codes.includes('performance.cycles.manage') ?? false); const canManagePeople = canManageCycles; const canManageProjects = computed(() => canManageCycles.value || accessContext.value?.permission_codes.includes('performance.projects.manage') || false); const managedProjectRefs = computed(() => accessContext.value?.role_grants?.filter(grant => grant.scope_type === 'PROJECT').map(grant => grant.scope_ref) || []); const canManageProjectDialog = computed(() => Boolean(projectDialogCycleId.value && (projectDialogMode.value === 'copy' ? canManageCycles.value : (canManageCycles.value || (projectDialogProject.value && managedProjectRefs.value.includes(projectDialogProject.value.project_ref)))))); const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value))); const dateError = computed(() => Boolean(form.start_at && form.end_at && form.end_at <= form.start_at)); const leaverDateError = computed(() => Boolean(form.leaver_enabled && form.leaver_start_date && form.leaver_end_date && form.leaver_end_date < form.leaver_start_date)); const lockError = computed(() => formMode.value === 'create' && form.lock_rule === 'SCHEDULED' && form.lock_at && (shanghaiLocalToUtcIso(form.lock_at) || '') < new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()); const hasStartedProject = computed(() => selected.value?.projects.some(project => ['STARTED', '进行中', '已启动'].includes(project.status)) ?? false)
 const yearPickerOpen = ref(false); const periodTypePickerOpen = ref(false); const yearPanelStyle = ref<CSSProperties>({}); const periodPanelStyle = ref<CSSProperties>({}); const periodTypes: { value: PerformanceCyclePeriodType; label: string }[] = [{ value: 'YEAR', label: '全年' }, { value: 'HALF_YEAR', label: '半年度' }, { value: 'QUARTER', label: '季度' }, { value: 'BIMONTH', label: '双月' }, { value: 'MONTH', label: '月度' }, { value: 'CUSTOM', label: '自定义' }];
 type PeriodTypeOption = { value: string; type: PerformanceCyclePeriodType; subtype: string | null; label: string }; const periodTypeGroups: { label: string; options: PeriodTypeOption[] }[] = [{ label: '年/半年度', options: [{ value: 'YEAR', type: 'YEAR', subtype: null, label: '全年' }, { value: 'H1', type: 'HALF_YEAR', subtype: 'H1', label: '上半年' }, { value: 'H2', type: 'HALF_YEAR', subtype: 'H2', label: '下半年' }] }, { label: '季度', options: [1, 2, 3, 4].map(index => ({ value: `Q${index}`, type: 'QUARTER', subtype: `Q${index}`, label: `第 ${index} 季度` })) }, { label: '双月', options: [1, 2, 3, 4, 5, 6].map(index => ({ value: `B${index}`, type: 'BIMONTH', subtype: `B${index}`, label: `${index * 2 - 1}-${index * 2} 双月` })) }, { label: '月度', options: Array.from({ length: 12 }, (_, index) => ({ value: `M${index + 1}`, type: 'MONTH', subtype: `M${index + 1}`, label: `${index + 1} 月份` })) }, { label: '非标准周期', options: [{ value: 'CUSTOM', type: 'CUSTOM', subtype: 'CUSTOM', label: '自定义' }] }];
 const selectedPeriodOption = computed(() => periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type && option.subtype === (form.period_subtype || null)) || periodTypeGroups.flatMap(group => group.options).find(option => option.type === form.period_type));
@@ -479,13 +495,78 @@ async function submitForm() { formError.value = ''; saveSuccess.value = false; f
 async function loadPeople() { if (!selected.value) return; peopleLoading.value = true; try { people.value = await performanceCycleApi.listPeople(selected.value.id) } catch (error: any) { formError.value = error?.response?.data?.detail || '人员快照加载失败' } finally { peopleLoading.value = false } }; async function togglePeople() { showPeople.value = !showPeople.value; if (showPeople.value) await loadPeople() }; async function refreshPeople() { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.refreshPeople(selected.value.id, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '名单刷新失败' } }; async function savePerson(person: PerformanceCyclePerson) { if (!selected.value || !peopleReason.value) return; try { await performanceCycleApi.updatePerson(selected.value.id, { employee_no: person.employee_no, display_name: person.display_name, ...Object.fromEntries(organizationFields.map(field => [field.key, person[field.key]])), direct_supervisor_employee_no: person.direct_supervisor_employee_no, hrbp_employee_no: person.hrbp_employee_no }, peopleReason.value); await loadPeople() } catch (error: any) { formError.value = error?.response?.data?.detail || '人员维护失败' } }
 function removeSelected() { if (!selected.value || hasStartedProject.value) return; deleteConfirm.value = true }; async function confirmDelete() { if (!selected.value) return; deleting.value = true; try { await performanceCycleApi.remove(selected.value.id); deleteConfirm.value = false; selected.value = null; await loadCycles() } catch (error: any) { formError.value = error?.response?.data?.detail || '删除失败' } finally { deleting.value = false } }
 async function reloadSelectedCycle() { if (!selected.value) return; selected.value = await performanceCycleApi.get(selected.value.id); cycles.value = cycles.value.map(cycle => cycle.id === selected.value?.id ? selected.value! : cycle) }
-async function openProjectCreate() { if (!selected.value || !canManageCycles.value) return; projectEvaluatorOptions.value = { organization_tree: [], people: [], employee_types: [] }; projectOptionsLoaded.value = false; projectOptionsLoading.value = false; projectDialogProject.value = null; projectDialogMode.value = 'create'; projectActionSuccess.value = ''; projectDialogOpen.value = true }
-async function loadProjectEvaluatorOptions() { if (!selected.value || projectOptionsLoaded.value || projectOptionsLoading.value) return; projectOptionsLoading.value = true; try { projectEvaluatorOptions.value = await performanceProjectApi.listEvaluatorOptions(selected.value.id); projectOptionsLoaded.value = true; formError.value = '' } catch { formError.value = '周期人员范围加载失败' } finally { projectOptionsLoading.value = false } }
+async function openProjectCreate() { if (!selected.value || !canManageCycles.value) return; projectEvaluatorOptions.value = { organization_tree: [], people: [], employee_types: [] }; projectOptionsLoaded.value = false; projectOptionsLoading.value = false; projectDialogProject.value = null; projectCopySource.value = null; projectTargetCycle.value = null; projectSaveError.value = ''; projectDialogMode.value = 'create'; projectActionSuccess.value = ''; projectDialogOpen.value = true }
+async function loadProjectEvaluatorOptions() {
+  const cycleId = projectDialogCycleId.value
+  if (!cycleId || projectOptionsLoaded.value || projectOptionsLoading.value) return
+  projectOptionsLoading.value = true
+  try {
+    const options = await performanceProjectApi.listEvaluatorOptions(cycleId)
+    if (cycleId !== projectDialogCycleId.value) return
+    projectEvaluatorOptions.value = options
+    projectOptionsLoaded.value = true
+    projectSaveError.value = ''
+  } catch {
+    if (cycleId === projectDialogCycleId.value) projectSaveError.value = '周期人员范围加载失败，请重试'
+  } finally {
+    if (cycleId === projectDialogCycleId.value) projectOptionsLoading.value = false
+  }
+}
 function openProjectEdit(project: PerformanceCycleProjectShell) { if (!selected.value) return; void router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } }) }
 
-async function saveProject(payload: PerformanceProjectPayload) { if (!selected.value || !canManageProjectDialog.value) return; projectSaving.value = true; formError.value = ''; try { const project = projectDialogMode.value === 'create' ? await performanceProjectApi.create(selected.value.id, payload) : await performanceProjectApi.update(projectDialogProject.value!.id, payload); projectDialogOpen.value = false; projectActionSuccess.value = projectDialogMode.value === 'create' ? '项目已创建' : '项目已保存'; await router.push({ name: 'PerformanceProjectEdit', params: { cycleId: selected.value.id, id: project.id } }) } catch (error: any) { formError.value = error?.response?.data?.detail || '项目保存失败' } finally { projectSaving.value = false } }
+async function saveProject(payload: PerformanceProjectPayload) {
+  const cycleId = projectDialogCycleId.value
+  if (!cycleId || !canManageProjectDialog.value || projectSaving.value) return
+  projectSaving.value = true
+  projectSaveError.value = ''
+  try {
+    const project = projectDialogMode.value === 'copy'
+      ? await performanceProjectApi.copy(projectCopySource.value!.id, { ...payload, target_cycle_id: cycleId })
+      : projectDialogMode.value === 'create'
+        ? await performanceProjectApi.create(cycleId, payload)
+        : await performanceProjectApi.update(projectDialogProject.value!.id, payload)
+    projectDialogOpen.value = false
+    projectActionSuccess.value = projectDialogMode.value === 'copy' ? '项目已复制' : projectDialogMode.value === 'create' ? '项目已创建' : '项目已保存'
+    await router.push({ name: 'PerformanceProjectEdit', params: { cycleId, id: project.id } })
+  } catch (error: any) {
+    projectSaveError.value = error?.response?.data?.detail || '项目保存失败，请重试'
+  } finally {
+    projectSaving.value = false
+  }
+}
 async function startProject(project: PerformanceCycleProjectShell) { if (project.status === 'STARTED') return; formError.value = ''; try { await performanceProjectApi.start(project.id); projectActionSuccess.value = '项目已启动'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目启动失败' } }
-async function copyProject(project: PerformanceCycleProjectShell) { formError.value = ''; try { await performanceProjectApi.copy(project.id); projectActionSuccess.value = '项目已复制'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目复制失败' } }
+function copyProject(project: PerformanceCycleProjectShell) {
+  if (!selected.value || !canManageCycles.value) return
+  projectCopySource.value = project
+  projectSaveError.value = ''
+  formError.value = ''
+  projectCopyOpen.value = true
+}
+async function prepareProjectCopy(cycle: PerformanceCycle) {
+  const source = projectCopySource.value
+  if (!source || projectCopyLoading.value) return
+  projectCopyLoading.value = true
+  try {
+    const project = await performanceProjectApi.get(source.id)
+    projectTargetCycle.value = cycle
+    projectDialogProject.value = project
+    projectDialogMode.value = 'copy'
+    projectEvaluatorOptions.value = { organization_tree: [], people: [], employee_types: [] }
+    projectOptionsLoaded.value = false
+    projectOptionsLoading.value = false
+    projectSaveError.value = ''
+    projectCopyOpen.value = false
+    projectDialogOpen.value = true
+  } catch (error: any) {
+    projectSaveError.value = error?.response?.data?.detail || '项目配置加载失败，请重试'
+  } finally {
+    projectCopyLoading.value = false
+  }
+}
+function createCycleForCopy() {
+  projectCopyOpen.value = false
+  startCreate()
+}
 async function removeProject(project: PerformanceCycleProjectShell) { projectRemoveTarget.value = project; projectRemoveOpen.value = true; formError.value = '' }
 async function confirmRemoveProject() { const project = projectRemoveTarget.value; if (!project) return; projectRemoving.value = true; try { await performanceProjectApi.remove(project.id); projectRemoveOpen.value = false; projectRemoveTarget.value = null; projectActionSuccess.value = '项目已删除'; await reloadSelectedCycle() } catch (error: any) { formError.value = error?.response?.data?.detail || '项目删除失败' } finally { projectRemoving.value = false } }
 async function syncRoute() { if (route.name === 'PerformanceCycleCreate') { if (!editing.value) startCreate(); return }; if (route.name === 'PerformanceCycleEdit' && route.params.id) { if (selected.value?.id !== Number(route.params.id) || !editing.value) await enterEdit(Number(route.params.id)); return }; if (!editing.value && !cycles.value.length) await loadCycles() }

@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   updatePerson: vi.fn(),
   remove: vi.fn(),
   projectRemove: vi.fn(),
+  projectGet: vi.fn(),
+  projectCopy: vi.fn(),
   listEvaluatorOptions: vi.fn(),
   templateList: vi.fn(),
   otherSettingsGet: vi.fn(),
@@ -46,6 +48,8 @@ vi.mock('@/api/performance', () => ({
     remove: mocks.remove,
   },
   performanceProjectApi: {
+    get: mocks.projectGet,
+    copy: mocks.projectCopy,
     remove: mocks.projectRemove,
     listEvaluatorOptions: mocks.listEvaluatorOptions,
   },
@@ -96,6 +100,7 @@ async function mountView(path = '/performance/settings/cycles') {
       { path: '/performance/settings/cycles', name: 'PerformanceCycles', component: CycleManagement },
       { path: '/performance/settings/cycles/new', name: 'PerformanceCycleCreate', component: CycleManagement },
       { path: '/performance/settings/cycles/:id/edit', name: 'PerformanceCycleEdit', component: CycleManagement },
+      { path: '/performance/settings/cycles/:cycleId/projects/:id/edit', name: 'PerformanceProjectEdit', component: { template: '<div>项目配置</div>' } },
     ],
   })
   await router.push(path)
@@ -112,7 +117,9 @@ async function mountView(path = '/performance/settings/cycles') {
     },
   })
   await flushPromises()
-  return wrapper.getComponent(CycleManagement)
+  const view = wrapper.getComponent(CycleManagement)
+  view.unmount = () => wrapper.unmount()
+  return view
 }
 
 async function selectEnabledTemplate(wrapper: ReturnType<typeof mountView> extends Promise<infer T> ? T : never) {
@@ -381,6 +388,66 @@ describe('CycleManagement', () => {
     document.body.querySelector<HTMLButtonElement>('.cycle-overdue-submission-actions button.performance-button--primary')!.click()
     await flushPromises()
     expect(mocks.update).toHaveBeenCalledWith(1, { overdue_submission_enabled: false, overdue_submission_scope: 'ALL' })
+  })
+
+  it('selects the source cycle, stages a copy and writes only the edited final form to the target cycle', async () => {
+    const target = { ...cycle, id: 2, cycle_ref: 'cycle:2', name: '目标周期' }
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [project] }, target], total: 2, page: 1, page_size: 100 })
+    mocks.projectGet.mockResolvedValue({ ...project, data_managers: ['HRBP'], scope_limited: false })
+    mocks.projectCopy.mockRejectedValueOnce({ response: { data: { detail: '目标周期不允许此模板' } } }).mockResolvedValueOnce({ ...project, id: 22 })
+    const wrapper = await mountView()
+    wrapper.getComponent({ name: 'PerformanceProjectSettings' }).vm.$emit('copy', project)
+    await flushPromises()
+    expect(mocks.list).toHaveBeenCalledWith('', 1, 100)
+    expect(document.body.querySelector('.project-copy-dialog')?.textContent).toContain(cycle.name)
+    expect(mocks.projectCopy).not.toHaveBeenCalled()
+    ;(document.body.querySelector('.project-copy-dialog .performance-select-shell__selector') as HTMLElement).click()
+    await flushPromises()
+    const option = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(node => node.textContent?.includes('目标周期'))!
+    option.click()
+    await flushPromises()
+    ;(document.body.querySelector('.project-copy-dialog .performance-button--primary') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(mocks.projectGet).toHaveBeenCalledWith(project.id)
+    expect(mocks.projectCopy).not.toHaveBeenCalled()
+    const name = document.body.querySelector<HTMLInputElement>('#project-name')!
+    expect(name.value).toBe('dee 副本')
+    name.value = '修改后的副本'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    ;(document.body.querySelector('input[aria-label="项目管理员"]') as HTMLElement).click()
+    await flushPromises()
+    expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(2)
+    const submit = document.body.querySelector<HTMLButtonElement>('.project-dialog-footer .performance-button--primary')!
+    submit.click()
+    await flushPromises()
+    expect(mocks.projectCopy).toHaveBeenCalledWith(11, expect.objectContaining({ target_cycle_id: 2, name: '修改后的副本', description: '111' }))
+    expect(document.body.querySelector('.project-dialog-error')?.textContent).toContain('目标周期不允许此模板')
+    expect(name.value).toBe('修改后的副本')
+    submit.click()
+    await flushPromises()
+    expect(mocks.projectCopy).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('cancels either copy step without creating a project', async () => {
+    mocks.projectGet.mockResolvedValue(project)
+    const wrapper = await mountView()
+    const open = async () => {
+      wrapper.getComponent({ name: 'PerformanceProjectSettings' }).vm.$emit('copy', project)
+      await flushPromises()
+    }
+    await open()
+    ;(document.body.querySelector('.project-copy-dialog .performance-button--secondary') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(mocks.projectGet).not.toHaveBeenCalled()
+    await open()
+    ;(document.body.querySelector('.project-copy-dialog .performance-button--primary') as HTMLButtonElement).click()
+    await flushPromises()
+    ;(document.body.querySelector('.project-dialog-footer .performance-button--secondary') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('#project-name')).toBeNull()
+    expect(mocks.projectCopy).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('loads project department choices only when the value selector opens', async () => {

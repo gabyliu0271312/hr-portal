@@ -52,7 +52,7 @@ defineEmits<{ click: [event: MouseEvent] }>()
 .performance-button__content { display: inline-flex; align-items: center; min-width: 0; }
 .performance-button:focus-visible { outline: 0; box-shadow: var(--performance-button-focus-ring); }
 .performance-button:disabled { cursor: not-allowed; opacity: .6; }
-.performance-button--primary { border-color: var(--performance-button-primary-background); background: var(--performance-button-primary-background); color: var(--performance-button-primary-text); font-weight: 600; }
+.performance-button--primary { border-color: var(--performance-button-primary-background); background: var(--performance-button-primary-background); color: var(--performance-button-primary-text); }
 .performance-button--primary:hover:not(:disabled) { border-color: var(--performance-button-primary-hover-background); background: var(--performance-button-primary-hover-background); }
 .performance-button--primary:active:not(:disabled) { border-color: var(--performance-button-primary-active-background); background: var(--performance-button-primary-active-background); }
 .performance-button--primary:disabled { border-color: var(--performance-button-primary-disabled-background); background: var(--performance-button-primary-disabled-background); color: var(--color-text-disabled); }

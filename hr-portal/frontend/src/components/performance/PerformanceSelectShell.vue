@@ -95,8 +95,9 @@ function measureVisibleItems() {
 function updatePosition() {
   if (!open.value || !root.value) return
   const box = root.value.getBoundingClientRect()
-  const gap = 4
-  const margin = 8
+  const style = getComputedStyle(root.value)
+  const gap = Number.parseFloat(style.getPropertyValue('--performance-select-popup-gap')) || 4
+  const margin = Number.parseFloat(style.getPropertyValue('--performance-select-popup-viewport-margin')) || 8
   const popupContentHeight = props.popupHeight === 'auto' ? Math.min(props.popupMaxHeight, popup.value?.getBoundingClientRect().height || props.popupMaxHeight) : props.popupHeight
   const top = box.bottom + gap + popupContentHeight <= window.innerHeight - margin ? box.bottom + gap : Math.max(margin, box.top - popupContentHeight - gap)
   const width = props.popupWidth ?? box.width
@@ -180,7 +181,7 @@ onBeforeUnmount(() => {
 .performance-select-shell__selector.has-value:not(.is-plain):hover .performance-select-shell__arrow { visibility: hidden; }
 .performance-select-shell__arrow { flex: 0 0 12px; margin-left: var(--spacing-2); color: var(--performance-select-icon-color); }
 .performance-select-shell__popup { z-index: var(--performance-popover-z-index); display: flex; flex-direction: column; box-sizing: border-box; }
-.performance-select-shell__dialog { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; border-radius: var(--performance-popover-radius); outline: 0; background: var(--performance-popover-background); box-shadow: var(--performance-popover-shadow); }
+.performance-select-shell__dialog { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; border: var(--performance-popover-border-width) solid var(--performance-popover-border); border-radius: var(--performance-select-popup-radius); outline: 0; background: var(--performance-popover-background); box-shadow: var(--performance-popover-shadow); }
 .performance-select-shell__overflow-items { display: flex; flex-wrap: wrap; max-width: min(var(--performance-select-overflow-popup-max-width), calc(100vw - 48px)); }
 .performance-select-shell__measure { position: absolute; top: 0; left: 0; display: flex; width: max-content; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; font: 400 var(--font-size-md)/22px var(--font-sans); }
 .performance-select-shell__measure-tag { display: inline-flex; }
