@@ -225,13 +225,15 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; right: 26px; z-index: 0; border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group > * { position: relative; z-index: 1; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-heading { color: var(--color-text-primary); }
-/* 组级删除按钮：REA delete-btn 在灰底外右上方，与灰底顶对齐（x=灰底右缘+2px） */
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete { position: absolute; top: 0; right: 2px; }
+/* 组级删除按钮：REA delete-btn 灰底外右上方——right:0 使按钮右缘与外层容器右缘对齐，
+   按钮左缘 = 灰底右缘(766) + 2px = REA x1212 位置，top:0 与灰底顶对齐 */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete { position: absolute; top: 0; right: 0; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete :deep(.performance-icon-button) { --performance-icon-button-size: 24px; color: var(--color-text-secondary); }
 /* REA「或」分隔：792 宽整行容器、左对齐（text-align:start），透明底 */
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__or { display: block; height: var(--performance-scope-or-height); margin: 0; padding: 0; border: 0; color: var(--color-text-primary); line-height: var(--performance-scope-or-height); text-align: start; }
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition { grid-template-columns: 128px 88px minmax(0, 1fr); }
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition.has-delete { grid-template-columns: 128px 88px minmax(0, 1fr) 24px; }
+/* REA 条件行三列固定宽：128 字段 / 88 操作符 / 476 值（值列不撑满，保证灰底内不超出） */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition { grid-template-columns: 128px 88px var(--performance-scope-value-width, 476px); }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition.has-delete { grid-template-columns: 128px 88px var(--performance-scope-value-width, 476px) 24px; }
 /* REA 条件行删除按钮：正常色（与被评估人一致，非浅灰 disabled 感） */
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { --performance-icon-button-size: 24px; }
 /* REA 组内「添加条件」距上方条件行 8px（TextButton 自带 -2px，补足到 8px） */
