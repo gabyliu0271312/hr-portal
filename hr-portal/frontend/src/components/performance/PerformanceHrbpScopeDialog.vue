@@ -11,6 +11,9 @@
     <PerformanceAudienceRuleEditor
       v-model="groups"
       scope-mode
+      :show-scope-heading="false"
+      :min-groups="0"
+      default-field="directLeader"
       group-title-pattern="条件组 {index}"
       :allowed-fields="[...HRBP_BLACKLIST_FIELDS]"
       :organization-tree="organizationTree"
@@ -40,7 +43,6 @@ import UiButton from '../ui/UiButton.vue'
 
 export type PerformanceHrbpScopeFormValue = {
   groups: PerformanceAudienceGroup[]
-  employeeNos: string[]
 }
 
 const props = withDefaults(defineProps<{
@@ -71,29 +73,15 @@ const open = computed({
 })
 const groups = ref<PerformanceAudienceGroup[]>([])
 
-/** 有效校验：至少一个组、组内至少一条条件、条件有字段且有值 */
-const valid = computed(() => {
-  if (!groups.value.length) return false
-  return groups.value.every(group =>
-    group.conditions.length > 0
-    && group.conditions.every(condition => condition.field && condition.values.length > 0),
-  )
-})
-
-/** 展开全部条件为 employee_no 并集（真实接入：写入全局 hrbp_invisible_people） */
-function expandEmployeeNos(groups: PerformanceAudienceGroup[]): string[] {
-  const set = new Set<string>()
-  for (const group of groups) {
-    for (const condition of group.conditions) {
-      if (condition.field === 'employee') {
-        for (const value of condition.values) {
-          if (value) set.add(value)
-        }
-      }
-    }
-  }
-  return [...set]
-}
+const valid = computed(() => groups.value.every(group =>
+  group.conditions.length > 0
+  && group.conditions.every(condition =>
+    HRBP_BLACKLIST_FIELDS.includes(condition.field as typeof HRBP_BLACKLIST_FIELDS[number])
+    && ['include', 'exclude'].includes(condition.operator)
+    && condition.values.length > 0
+    && condition.values.every(value => value.trim()),
+  ),
+))
 
 function resetForm() {
   groups.value = props.initialValue
@@ -110,7 +98,6 @@ function submit() {
   if (props.saving || !valid.value) return
   emit('submit', {
     groups: JSON.parse(JSON.stringify(groups.value)),
-    employeeNos: expandEmployeeNos(groups.value),
   })
 }
 

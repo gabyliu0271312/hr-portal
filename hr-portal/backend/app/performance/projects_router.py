@@ -1757,7 +1757,9 @@ async def _project_data_scope(context: PerformanceAccessContext, project: Perfor
                 members = (await db.execute(select(PerformanceProjectMember).where(
                     PerformanceProjectMember.snapshot_id == snapshot_id,
                 ))).scalars().all()
-                global_invisible = await _global_hrbp_invisible_people(db)
+                global_invisible = await _global_hrbp_invisible_people(
+                    db, scopes=[scope for permission in permissions for scope in (permission.scope or [])],
+                )
                 visible = {member.employee_no for member in members if any(
                     _organization_in_scope(member.organization_ref, permission.scope or [])
                     and member.employee_no not in (permission.invisible_people or [])
@@ -2341,27 +2343,13 @@ async def _person_hrbp_invisible_people(db: AsyncSession, actor_ref: str, cycle_
         for employee_no in (permission.invisible_people or [])
         if employee_no
     }
-    return per_hrbp | await _global_hrbp_invisible_people(db)
+    scopes = [scope for permission in permissions for scope in (getattr(permission, "scope", None) or [])]
+    return per_hrbp | await _global_hrbp_invisible_people(db, scopes=scopes)
 
 
-async def _global_hrbp_invisible_people(db: AsyncSession) -> set[str]:
-    """全局 HRBP 不可见人员（租户级，对所有 HRBP 生效）。
-
-    REA「其他权限设置 → 特定范围（HRBP不可见）」保存的员工并集，
-    存在 PerformanceOtherPermissionSetting(id=1).hrbp_invisible_people。
-    """
-    try:
-        setting = await db.get(PerformanceOtherPermissionSetting, 1)
-    except AttributeError:
-        # 测试替身未实现 get 时按未配置处理（生产会话均实现 get）
-        return set()
-    if setting is None:
-        return set()
-    return {
-        str(ref).strip()
-        for ref in (setting.hrbp_invisible_people or [])
-        if str(ref).strip()
-    }
+async def _global_hrbp_invisible_people(db: AsyncSession, *, scopes=()) -> set[str]:
+    from app.performance.hrbp_scope_service import global_hrbp_invisible_people
+    return await global_hrbp_invisible_people(db, scopes=scopes)
 
 
 async def _person_hrbp_project_refs(db: AsyncSession, actor_ref: str) -> set[str]:
@@ -2383,14 +2371,24 @@ async def _person_hrbp_project_refs(db: AsyncSession, actor_ref: str) -> set[str
     permissions_by_cycle = {}
     for permission in permissions:
         permissions_by_cycle.setdefault(permission.cycle_ref, []).append(permission)
-    global_invisible = await _global_hrbp_invisible_people(db)
+    invisible_by_cycle = {
+        cycle_ref: await _global_hrbp_invisible_people(
+            db, scopes=[scope for permission in cycle_permissions for scope in (permission.scope or [])],
+        )
+        for cycle_ref, cycle_permissions in permissions_by_cycle.items()
+    }
+    latest_snapshots = {}
+    for _member, snapshot in member_rows:
+        latest_snapshots[snapshot.project_id] = max(snapshot.id, latest_snapshots.get(snapshot.project_id, 0))
     refs = set()
     for project in project_rows:
         for permission in permissions_by_cycle.get(project.cycle_ref, []):
             if any(
                 _organization_in_scope(member.organization_ref, permission.scope or [])
-                and member.employee_no not in global_invisible
-                for member, snapshot in member_rows if snapshot.project_id == project.id
+                and member.employee_no not in invisible_by_cycle[project.cycle_ref]
+                and member.employee_no not in (permission.invisible_people or [])
+                for member, snapshot in member_rows
+                if snapshot.project_id == project.id and snapshot.id == latest_snapshots[project.id]
             ):
                 refs.add(project.project_ref)
                 break

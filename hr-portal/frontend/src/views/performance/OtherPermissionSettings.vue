@@ -27,6 +27,7 @@
         <div class="permission-settings-card__specific-header">
           <h3>特定范围</h3>
           <PerformancePermissionButton
+            v-if="invisibleRules.length"
             :allowed="true"
             op="U"
             aria-label="编辑特定范围"
@@ -41,16 +42,12 @@
           </PerformancePermissionButton>
         </div>
 
-        <div class="permission-range-preview">
-          <template v-if="selectedPeople.length">
-            <span class="permission-range-preview__field">员工</span>
-            <span>包含</span>
-            <span v-for="person in selectedPeople" :key="person.employee_no" class="permission-range-preview__person">
-              <span class="permission-range-preview__avatar" aria-hidden="true">{{ person.display_name.slice(0, 1) }}</span>
-              <span>{{ person.display_name }}</span>
-            </span>
-          </template>
-          <span v-else class="permission-range-preview__empty">暂未设置特定范围</span>
+        <PerformanceHrbpInvisibleScopeSummary v-if="invisibleRules.length" :groups="invisibleRules" :people="summaryPeople" :organization-tree="organizationTree" />
+        <div v-else-if="loading" class="permission-range-state" role="status">正在加载...</div>
+        <div v-else class="permission-range-empty" role="status">
+          <MetricTemplateEmptyIllustration />
+          <span>暂无内容</span>
+          <PerformancePermissionButton :allowed="true" op="U" variant="primary" :disabled="savingTarget !== null" aria-label="设置范围" @click="openEditor">设置范围</PerformancePermissionButton>
         </div>
       </div>
     </section>
@@ -135,10 +132,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   performanceOtherPermissionSettingsApi,
+  type PerformanceAudienceGroup,
   type PerformanceHrbpOrganizationNode,
   type PerformanceOtherPermissionHrbpPermission,
   type PerformanceOtherPermissionHrbpPermissionPayload,
@@ -153,10 +151,13 @@ import PerformanceHrbpPermissionDialog, { type PerformanceHrbpPermissionFormValu
 import PerformanceHrbpScopeDialog, { type PerformanceHrbpScopeFormValue } from '@/components/performance/PerformanceHrbpScopeDialog.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
+import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
+import PerformanceHrbpInvisibleScopeSummary from '@/components/performance/PerformanceHrbpInvisibleScopeSummary.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 
 const enabled = ref(false)
-const selectedPeople = ref<PerformanceOtherPermissionPerson[]>([])
+const invisibleRules = ref<PerformanceAudienceGroup[]>([])
+const summaryPeople = ref<PerformanceOtherPermissionPerson[]>([])
 const hrbpPermissions = ref<PerformanceOtherPermissionHrbpPermission[]>([])
 const organizationTree = ref<PerformanceHrbpOrganizationNode[]>([])
 const hrbpOptions = ref<PerformanceSearchSelectOption[]>([])
@@ -185,13 +186,15 @@ type SavingTarget = 'hrbp-switch' | 'manager-switch' | 'people-editor' | 'scope-
 const savingTarget = ref<SavingTarget | null>(null)
 const loadError = ref('')
 let peopleSearchTimer: ReturnType<typeof setTimeout> | undefined
-let lastPeopleKeyword = ''
 
 function applySettings(settings: PerformanceOtherPermissionSettings) {
   enabled.value = settings.hrbp_invisible_scope_enabled ?? false
   hrbpPermissions.value = Array.isArray(settings.hrbp_permissions) ? settings.hrbp_permissions : []
-  selectedPeople.value = hrbpPermissions.value[0]?.invisible_people
-    || (Array.isArray(settings.hrbp_invisible_people) ? settings.hrbp_invisible_people : [])
+  const legacyPeople = Array.isArray(settings.hrbp_invisible_people) ? settings.hrbp_invisible_people : []
+  invisibleRules.value = Array.isArray(settings.hrbp_invisible_rules)
+    ? settings.hrbp_invisible_rules
+    : legacyPeople.length ? [{ conditions: [{ field: 'employee', operator: 'include', values: legacyPeople.map(person => person.employee_no) }] }] : []
+  summaryPeople.value = [...legacyPeople, ...(settings.people_options || [])]
   managerReminderEnabled.value = settings.manager_reminder_enabled ?? true
   managerReminderNodeTypes.value = Array.isArray(settings.manager_reminder_node_types)
     ? settings.manager_reminder_node_types
@@ -203,7 +206,8 @@ function applySettings(settings: PerformanceOtherPermissionSettings) {
     subLabel: person.department ?? '',
   }))
   hrbpOptions.value = options
-  invisiblePeopleOptions.value = options
+  const current = [...new Map([...invisiblePeopleOptions.value, ...options].map(option => [option.value, option])).values()]
+  invisiblePeopleOptions.value = current
   organizationTree.value = Array.isArray(settings.organization_tree) ? settings.organization_tree : []
 }
 
@@ -219,46 +223,37 @@ async function loadSettings() {
   }
 }
 
-/** REA 员工选择器：输入关键词 → 远程搜索 → 更新选项（搜索后才显示结果） */
+let peopleSearchVersion = 0
+
 function searchScopePeople(keyword: string) {
   const trimmed = keyword.trim()
-  if (trimmed === lastPeopleKeyword) return
-  lastPeopleKeyword = trimmed
+  const version = ++peopleSearchVersion
   clearTimeout(peopleSearchTimer)
-  peopleSearchTimer = setTimeout(() => {
-    void identitySwitchApi
-      .people(trimmed, 1)
-      .then(result => {
-        invisiblePeopleOptions.value = result.items.map(person => ({
-          value: person.employee_no,
-          label: person.display_name,
-          avatarFallback: person.display_name.slice(-1),
-          subLabel: person.organization_label ?? '',
-        }))
-      })
-      .catch(() => { invisiblePeopleOptions.value = [] })
+  if (!trimmed) return
+  peopleSearchTimer = setTimeout(async () => {
+    try {
+      const result = await identitySwitchApi.people(trimmed, 1)
+      if (version !== peopleSearchVersion || !scopeEditorVisible.value) return
+      const options = result.items.map(person => ({
+        value: person.employee_no,
+        label: person.display_name,
+        avatarFallback: person.display_name.slice(-1),
+        subLabel: person.organization_label ?? '',
+      }))
+      invisiblePeopleOptions.value = [...new Map([...invisiblePeopleOptions.value, ...options].map(option => [option.value, option])).values()]
+    } catch {
+      if (version === peopleSearchVersion) ElMessage.error('人员搜索失败，请重试')
+    }
   }, 300)
 }
 
 async function updateSettings(
-  changes: Partial<{
-    hrbp_invisible_scope_enabled: boolean
-    hrbp_invisible_people: string[]
-    hrbp_permissions: PerformanceOtherPermissionHrbpPermissionPayload[]
-    manager_reminder_enabled: boolean
-    manager_reminder_node_types: string[]
-  }>,
+  changes: import('@/api/performance').PerformanceOtherPermissionSettingsPayload,
   target: SavingTarget,
 ) {
   savingTarget.value = target
   try {
-    const settings = await performanceOtherPermissionSettingsApi.update({
-      hrbp_invisible_scope_enabled: changes.hrbp_invisible_scope_enabled ?? enabled.value,
-      hrbp_invisible_people: changes.hrbp_invisible_people ?? selectedPeople.value.map(person => person.employee_no),
-      ...(changes.hrbp_permissions ? { hrbp_permissions: changes.hrbp_permissions } : {}),
-      manager_reminder_enabled: changes.manager_reminder_enabled ?? managerReminderEnabled.value,
-      manager_reminder_node_types: changes.manager_reminder_node_types ?? managerReminderNodeTypes.value,
-    })
+    const settings = await performanceOtherPermissionSettingsApi.update(changes)
     applySettings(settings)
     return true
   } catch (error: any) {
@@ -284,11 +279,8 @@ async function toggleManagerReminder(value: boolean) {
 }
 
 function openEditor() {
-  // 特定范围（全局 HRBP 不可见）：打开条件组编辑弹窗
-  const current = hrbpPermissions.value[0]
-  scopeEditorInitialValue.value = current
-    ? [{ conditions: current.invisible_people.map(person => ({ field: 'employee', operator: 'include', values: [person.employee_no] })) }]
-    : undefined
+  if (loading.value || savingTarget.value) return
+  scopeEditorInitialValue.value = invisibleRules.value.length ? invisibleRules.value : undefined
   scopeEditorVisible.value = true
 }
 
@@ -314,7 +306,7 @@ async function saveHrbpPermission(value: PerformanceHrbpPermissionFormValue) {
 }
 
 async function saveHrbpScope(value: PerformanceHrbpScopeFormValue) {
-  const saved = await updateSettings({ hrbp_invisible_people: value.employeeNos }, 'scope-editor')
+  const saved = await updateSettings({ hrbp_invisible_rules: value.groups }, 'scope-editor')
   if (!saved) return
   scopeEditorVisible.value = false
   ElMessage.success('保存成功')
@@ -332,6 +324,10 @@ async function saveReminderNodeTypes() {
   ElMessage.success('保存成功')
 }
 
+onBeforeUnmount(() => {
+  clearTimeout(peopleSearchTimer)
+  peopleSearchVersion += 1
+})
 onMounted(loadSettings)
 </script>
 
@@ -349,10 +345,8 @@ onMounted(loadSettings)
 .permission-settings-card__specific-header { display: flex; height: 32px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .permission-range-preview { display: flex; min-height: 48px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 12px 0; box-sizing: border-box; border-radius: 8px; background: #f5f6f7; font-size: 14px; line-height: 24px; }
 .manager-permission-card__preview { min-height: 45px; line-height: 21px; }
-.permission-range-preview__field { padding: 0 6px; border-radius: 4px; background: rgba(31, 35, 41, .1); }
-.permission-range-preview__person { display: inline-flex; max-width: 220px; align-items: center; gap: 4px; overflow: hidden; padding: 1px 8px 1px 2px; border-radius: 999999px; background: rgba(31, 35, 41, .1); white-space: nowrap; }
-.permission-range-preview__avatar { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; border-radius: 50%; background: #3370ff; color: #fff; font-size: 12px; }
-.permission-range-preview__empty { color: #8f959e; }
+.permission-range-empty { display: flex; min-height: 240px; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); font-size: var(--font-size-md); line-height: 22px; }
+.permission-range-state { padding: var(--spacing-6); color: var(--color-text-secondary); text-align: center; }
 .permission-settings-card__error { display: flex; min-height: 80px; align-items: center; justify-content: center; gap: 12px; color: #646a73; }
 .permission-settings-card__error button { padding: 0; border: 0; background: transparent; color: #3370ff; cursor: pointer; }
 .permission-settings-editor__actions { display: flex; justify-content: flex-end; gap: var(--performance-button-gap); }

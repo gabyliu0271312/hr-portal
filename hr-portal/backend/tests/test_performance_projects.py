@@ -5429,6 +5429,36 @@ async def test_project_data_manager_hrbp_uses_cycle_scope_and_hidden_people(stat
 
 
 @pytest.mark.asyncio
+async def test_project_hrbp_global_rules_apply_to_data_scope_without_overriding_admin_union(statistics_db, monkeypatch):
+    from app.performance import projects_router, hrbp_scope_service
+    from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+
+    db = statistics_db
+    _configure_data_manager_hrbp(db)
+    original_get = db.get
+    setting = SimpleNamespace(hrbp_invisible_rules=[{"conditions": [{"field": "employee", "operator": "include", "values": ["CHILD"]}]}], hrbp_invisible_people=[], hrbp_invisible_scope_enabled=False)
+
+    async def get(model, identity):
+        if model is PerformanceOtherPermissionSetting:
+            return setting
+        return await original_get(model, identity)
+
+    async def roster(_db):
+        return build_snapshot_people([RosterAuthorizationInput(no, no) for no in ["VISIBLE", "CHILD", "HIDDEN"]])
+
+    monkeypatch.setattr(db, "get", get)
+    monkeypatch.setattr(hrbp_scope_service, "load_hrbp_roster_people", roster)
+    target = db.projects[0]
+    assert await projects_router._project_data_scope(context(), target, db, "performance.frontend.data-view") == {"VISIBLE"}
+    setting.hrbp_invisible_rules = []
+    assert await projects_router._project_data_scope(context(), target, db, "performance.frontend.data-view") == {"VISIBLE", "CHILD"}
+    setting.hrbp_invisible_rules = [{"conditions": [{"field": "employee", "operator": "include", "values": ["VISIBLE", "CHILD"]}]}]
+    target.settings["data_managers"] = ["PROJECT_ADMIN", "HRBP"]
+    target.administrators = ["管理员"]
+    assert await projects_router._project_data_scope(context(), target, db, "performance.frontend.data-view") is None
+
+
+@pytest.mark.asyncio
 async def test_project_data_manager_hrbp_does_not_accept_unmapped_portal_id(statistics_db, monkeypatch):
     from fastapi import HTTPException
     from app.performance import projects_router
@@ -6734,3 +6764,170 @@ async def test_authorization_postgres_migration_and_reopen():
         async with engine.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await engine.dispose()
+
+
+def _reporting_filter_people():
+    from app.performance.snapshot_service import RosterAuthorizationInput, build_snapshot_people
+
+    return [SimpleNamespace(**vars(person)) for person in build_snapshot_people([
+        RosterAuthorizationInput(employee_no=employee_no, display_name=employee_no, direct_supervisor_source_value=manager,
+                                 company_org="集团", department=department, employment_status="在职")
+        for employee_no, manager, department in [
+            ("E1", "M1", "研发"), ("E2", "E1", "研发"), ("E3", "M2", "销售"),
+            ("M1", "M2", "管理"), ("M2", "M3", "管理"), ("M3", "M4", "管理"),
+            ("M4", None, "管理"), ("EMPTY", None, "研发"),
+        ]
+    ])]
+
+
+@pytest.mark.parametrize("field,operator,expected", [
+    ("directLeader", "include", {"M1", "E3"}),
+    ("directLeader", "exclude", {"E1", "E2", "M2", "M3", "M4", "EMPTY"}),
+    ("superior", "include", {"E1", "E2", "E3", "M1"}),
+    ("superior", "exclude", {"M2", "M3", "M4", "EMPTY"}),
+])
+def test_reporting_filter_direct_indirect_and_exclusion(field, operator, expected):
+    condition = {"field": field, "operator": operator, "values": [" M2 ", "M2", "UNKNOWN"]}
+    rules = PerformanceProjectService._validate_rules({"groups": [{"conditions": [condition]}]})
+    assert rules["groups"][0]["conditions"][0]["values"] == ["M2", "UNKNOWN"]
+    target = project()
+    _, _, _, target.settings = PerformanceProjectService._validate_payload({"name": target.name, "evaluator_rules": rules})
+    assert PerformanceProjectService.serialize(target)["evaluator_rules"] == rules
+    selected = PerformanceProjectService._select_people(_reporting_filter_people(), target.settings)
+    assert {person.employee_no for person in selected} == expected
+
+
+@pytest.mark.parametrize("field", ["directLeader", "superior"])
+@pytest.mark.parametrize("operator", ["before", "not_before", "after", "not_after"])
+def test_reporting_filter_rejects_date_operators(field, operator):
+    with pytest.raises(ProjectValidationError, match="筛选条件不合法"):
+        PerformanceProjectService._validate_rules({"groups": [{"conditions": [{
+            "field": field, "operator": operator, "values": ["M1"],
+        }]}]})
+
+
+@pytest.mark.parametrize("field", ["directLeader", "superior"])
+@pytest.mark.parametrize("values", [[], [" "], [1], "M1", None])
+def test_reporting_filter_rejects_empty_or_non_string_values(field, values):
+    with pytest.raises(ProjectValidationError):
+        PerformanceProjectService._validate_rules({"groups": [{"conditions": [{
+            "field": field, "operator": "include", "values": values,
+        }]}]})
+
+
+def test_reporting_filter_preserves_and_or_scope_and_group_preview():
+    rules = {"groups": [
+        {"conditions": [{"field": "superior", "operator": "include", "values": ["M4"]},
+                        {"field": "directLeader", "operator": "include", "values": ["M1"]}]},
+        {"conditions": [{"field": "superior", "operator": "include", "values": ["M4"]},
+                        {"field": "department", "operator": "include", "values": ["销售"]}]},
+    ]}
+    scope = {"groups": [{"conditions": [{"field": "department", "operator": "include", "values": ["集团/研发", "集团/销售"]}]}]}
+    settings = {"evaluator_rules": PerformanceProjectService._validate_rules(rules), "scope_rules": scope}
+    people = _reporting_filter_people()
+    assert {person.employee_no for person in PerformanceProjectService._select_people(people, settings)} == {"E1", "E3"}
+    assert [person.employee_no for person in PerformanceProjectService._matching_people(people, settings, group_index=0)] == ["E1"]
+    assert [person.employee_no for person in PerformanceProjectService._matching_people(people, settings, group_index=1)] == ["E3"]
+
+
+def test_reporting_filter_cycle_self_missing_parent_and_dict_protection():
+    people = [
+        {"employee_no": "E", "direct_supervisor_employee_no": "M1"},
+        {"employee_no": "M1", "direct_supervisor_employee_no": "M2"},
+        {"employee_no": "M2", "direct_supervisor_employee_no": "E"},
+        {"employee_no": "SELF", "direct_supervisor_employee_no": "SELF"},
+        {"employee_no": "BROKEN", "direct_supervisor_employee_no": "MISSING"},
+    ]
+    by_employee = {person["employee_no"]: person for person in people}
+    assert PerformanceProjectService._person_values(people[0], by_employee)["superior"] == {"M1", "M2"}
+    assert PerformanceProjectService._person_values(people[1], by_employee)["superior"] == {"M2", "E"}
+    assert PerformanceProjectService._person_values(people[3], by_employee)["superior"] == set()
+    assert PerformanceProjectService._person_values(people[3], by_employee)["directLeader"] == "SELF"
+    assert PerformanceProjectService._person_values(people[4], by_employee)["superior"] == {"MISSING"}
+    rules = {"groups": [{"conditions": [{"field": "superior", "operator": "include", "values": ["SELF"]}]}]}
+    assert PerformanceProjectService._select_people(people, {"evaluator_rules": rules}) == []
+    rules["groups"][0]["conditions"][0]["operator"] = "exclude"
+    assert PerformanceProjectService._select_people(people, {"evaluator_rules": rules}) == people
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,selected_manager,expected", [
+    ("directLeader", "M1", {"E1"}),
+    ("superior", "M4", {"E1", "E2", "E3"}),
+])
+async def test_reporting_filter_preview_start_share_unchanged_cycle_snapshot(monkeypatch, field, selected_manager, expected):
+    from copy import deepcopy
+    from app.performance import project_service, models
+
+    people = _reporting_filter_people()
+    next(person for person in people if person.employee_no == "M1").employment_status = "离职"
+    cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=False)
+    snapshot = SimpleNamespace(id=7, status="LOCKED")
+    target = project()
+    target.settings = {
+        "template_id": 11,
+        "evaluator_rules": PerformanceProjectService._validate_rules({"groups": [{"conditions": [
+            {"field": field, "operator": "include", "values": [selected_manager]},
+            {"field": "department", "operator": "include", "values": ["研发", "销售"]},
+        ]}]}),
+        "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}},
+    }
+    workflow = SimpleNamespace(content_library=[], nodes=[
+        {"node_id": "summary", "node_type": "work_summary", "name": "总结", "include_final_result": True, "executor_types": ["SUBJECT"]},
+        {"node_id": "view", "node_type": "result_view", "name": "结果"},
+    ])
+    live_people = deepcopy(people)
+
+    async def forbidden_roster(*_args):
+        raise AssertionError("汇报链筛选禁止读取实时花名册")
+    monkeypatch.setattr(project_service, "_canonical_roster_rows", forbidden_roster)
+
+    class Db:
+        def __init__(self):
+            self.added = []
+        async def scalar(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            return cycle if entity is models.PerformanceCycle else snapshot if entity is models.PerformanceAuthorizationSnapshot else None
+        async def execute(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            assert entity in {models.PerformanceAuthorizationSnapshotPerson, models.PerformanceProjectMember,
+                              models.PerformanceCycleProjectManager, models.PerformanceRole}
+            values = people if entity is models.PerformanceAuthorizationSnapshotPerson else []
+            if entity is models.PerformanceRole:
+                values = [SimpleNamespace(code="assessment.reviewee", role_type="ASSESSMENT", is_system=True, is_active=True)]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+        async def get(self, entity, key):
+            assert entity is models.PerformanceTemplateWorkflow and key == 11
+            return workflow
+        def add(self, obj):
+            self.added.append(obj)
+            if hasattr(obj, "id") and obj.id is None:
+                obj.id = len(self.added)
+        async def flush(self):
+            pass
+        async def commit(self):
+            pass
+        async def refresh(self, _obj, **kwargs):
+            pass
+
+    db = Db()
+    service = PerformanceProjectService(db)
+    before = deepcopy([vars(person) for person in people])
+    matched, tasks, reports = await service.preview_people(cycle, target.settings)
+    assert {person.employee_no for person in matched} == expected
+    assert tasks == matched and reports == []
+    assert await service.evaluator_count(cycle, target.settings["evaluator_rules"]) == len(expected)
+    for person in live_people:
+        person.direct_supervisor_employee_no = "NEW_MANAGER"
+        person.display_name = "实时已改名"
+    assert {person.employee_no for person in (await service.preview_people(cycle, target.settings))[0]} == expected
+    await service.start_project(target, actor_type="PORTAL_USER", actor_id=1)
+    members = [obj for obj in db.added if isinstance(obj, models.PerformanceProjectMember)]
+    generated = [obj for obj in db.added if isinstance(obj, models.PerformanceNodeTask)]
+    assert {person.employee_no for person in members} == expected
+    assert {task.target_employee_no for task in generated} == expected
+    assert {person.employee_no: person.direct_supervisor_employee_no for person in members} == {
+        person.employee_no: person.direct_supervisor_employee_no for person in people if person.employee_no in expected
+    }
+    assert [vars(person) for person in people] == before
+    assert target.status == "STARTED"

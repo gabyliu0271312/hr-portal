@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import PerformanceAudienceRuleEditor, { type PerformanceAudienceGroup } from './PerformanceAudienceRuleEditor.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceEmploymentStatusSelect from './PerformanceEmploymentStatusSelect.vue'
@@ -267,7 +268,7 @@ describe('PerformanceAudienceRuleEditor', () => {
 
   it('renders scope card in REA shape with group title, OR separator and add-scope button', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {
-      props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: [] }] }], allowedFields: ['department', 'employee'], organizationTree, scopeMode: true },
+      props: { modelValue: [{ conditions: [{ field: 'department', operator: 'include', values: [] }] }], allowedFields: ['department', 'employee'], organizationTree, scopeMode: true, minGroups: 0 },
       attachTo: document.body,
     })
     expect(wrapper.get('.performance-audience-rule-editor__scope-heading').text()).toBe('人员范围满足以下任一条件')
@@ -277,8 +278,7 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.get('.performance-audience-rule-editor__scope-add').attributes('aria-label')).toBe('添加人员范围')
     // 组删除按钮 REA 常驻（单组也显示，灰底外右上方）
     expect(wrapper.find('[aria-label="删除范围 1"]').exists()).toBe(true)
-    // 组内条件行删除按钮：2 条件才出现（与被评估人一致），单条件没有
-    expect(wrapper.find('[aria-label="删除范围 1 条件 1"]').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="删除范围 1 条件 1"]').attributes('disabled')).toBeDefined()
 
     await wrapper.get('.performance-audience-rule-editor__scope-add').trigger('click')
     const added = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
@@ -319,6 +319,32 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(twoConditions)
   })
 
+
+  it.each(['employee', 'directLeader', 'superior'] as const)('uses a searchable people picker for %s', async field => {
+    const wrapper = mount(PerformanceAudienceRuleEditor, { props: {
+      modelValue: [{ conditions: [{ field, operator: 'include', values: ['M1'] }] }], allowedFields: [field],
+      personOptions: [{ value: 'M1', label: '经理' }],
+    } })
+    const picker = wrapper.getComponent(PerformancePersonSelect)
+    expect(picker.props('multiple')).toBe(true)
+    expect(picker.props('remoteSearch')).toBe(true)
+    picker.vm.$emit('search', '经理')
+    expect(wrapper.emitted('search-people')).toEqual([['经理']])
+    wrapper.unmount()
+  })
+
+  it('allows clearing all HRBP groups but preserves a required project group', async () => {
+    const groups: PerformanceAudienceGroup[] = [{ conditions: [{ field: 'directLeader', operator: 'include', values: ['M1'] }] }]
+    const wrapper = mount(PerformanceAudienceRuleEditor, { props: { modelValue: groups, allowedFields: ['directLeader'], scopeMode: true, minGroups: 0, defaultField: 'directLeader' } })
+    await wrapper.get('[aria-label="删除范围 1"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([])
+    await wrapper.setProps({ modelValue: [] })
+    await wrapper.get('[aria-label="添加人员范围"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([{ conditions: [{ field: 'directLeader', operator: 'include', values: [] }] }])
+    await wrapper.setProps({ modelValue: groups, minGroups: 1 })
+    expect(wrapper.find('[aria-label="删除范围 1"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
 
   it('exposes group-heading-extra slot for external count/preview', async () => {
     const wrapper = mount(PerformanceAudienceRuleEditor, {

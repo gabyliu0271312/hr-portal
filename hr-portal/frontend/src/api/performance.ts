@@ -415,6 +415,7 @@ export interface PerformanceOtherPermissionHrbpPermission {
 export interface PerformanceOtherPermissionSettings {
   hrbp_invisible_scope_enabled: boolean
   hrbp_invisible_people: PerformanceOtherPermissionPerson[]
+  hrbp_invisible_rules: PerformanceAudienceGroup[]
   hrbp_permissions: PerformanceOtherPermissionHrbpPermission[]
   people_options: PerformanceOtherPermissionPerson[]
   organization_tree: PerformanceHrbpOrganizationNode[]
@@ -431,9 +432,10 @@ export interface PerformanceOtherPermissionHrbpPermissionPayload {
 export interface PerformanceOtherPermissionSettingsPayload {
   hrbp_invisible_scope_enabled?: boolean
   hrbp_invisible_people?: string[]
+  hrbp_invisible_rules?: PerformanceAudienceGroup[]
   hrbp_permissions?: PerformanceOtherPermissionHrbpPermissionPayload[]
-  manager_reminder_enabled: boolean
-  manager_reminder_node_types: string[]
+  manager_reminder_enabled?: boolean
+  manager_reminder_node_types?: string[]
 }
 
 export const performanceOtherPermissionSettingsApi = {
@@ -1657,7 +1659,7 @@ export type PerformanceCycleLockRule = 'IMMEDIATE' | 'SCHEDULED'
 export type PerformanceCycleSyncMode = 'MANUAL' | 'AUTO_DAILY'
 export type PerformanceCycleLeaverMode = 'CREATE_TASK' | 'REPORT_ONLY'
 
-export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position' | 'directLeader'
+export type PerformanceAudienceField = '' | 'department' | 'employee_type' | 'hire_date' | 'employee' | 'employment_status' | 'departure_date' | 'job_family' | 'job_category' | 'position_level' | 'standard_position' | 'directLeader' | 'superior'
 export type PerformanceAudienceOperator = 'include' | 'exclude' | 'before' | 'not_before' | 'after' | 'not_after'
 export interface PerformanceAudienceCondition {
   field: PerformanceAudienceField

@@ -58,12 +58,7 @@
       </div>
 
       <div class="metric-library-empty" role="status">
-        <div class="metric-library-empty-illustration" aria-hidden="true">
-          <span class="metric-library-empty-sheet"></span>
-          <span class="metric-library-empty-line metric-library-empty-line--one"></span>
-          <span class="metric-library-empty-line metric-library-empty-line--two"></span>
-          <span class="metric-library-empty-mark"></span>
-        </div>
+        <MetricTemplateEmptyIllustration class="metric-library-empty-illustration" />
         <strong>暂无内容</strong>
         <p>指标库中的指标可以由管理员和被评估人在添加指标时选用</p>
       </div>
@@ -95,6 +90,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { EditPen } from '@element-plus/icons-vue'
+import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceCreateButton from '@/components/performance/PerformanceCreateButton.vue'
 import PerformanceColumnVisibilityIcon from '@/components/performance/PerformanceColumnVisibilityIcon.vue'
@@ -251,71 +247,7 @@ function notifyUnavailable(action: string) {
   text-align: center;
 }
 
-.metric-library-empty-illustration {
-  position: relative;
-  width: 128px;
-  height: 96px;
-  margin-bottom: var(--spacing-4);
-  color: var(--color-border-strong);
-}
-
-.metric-library-empty-sheet {
-  position: absolute;
-  top: 15px;
-  left: 35px;
-  width: 58px;
-  height: 62px;
-  transform: rotate(-8deg);
-  border-radius: var(--radius-sm);
-  background: var(--color-border-light);
-  box-shadow: inset 0 0 0 2px var(--color-border-strong);
-}
-
-.metric-library-empty-sheet::before {
-  position: absolute;
-  top: 15px;
-  left: 12px;
-  width: 32px;
-  height: 5px;
-  border-radius: var(--radius-xs);
-  background: var(--color-border-strong);
-  content: '';
-}
-
-.metric-library-empty-line {
-  position: absolute;
-  left: 48px;
-  width: 34px;
-  height: 4px;
-  border-radius: var(--radius-xs);
-  background: var(--color-border-strong);
-}
-
-.metric-library-empty-line--one { top: 45px; }
-.metric-library-empty-line--two { top: 57px; width: 24px; }
-
-.metric-library-empty-mark {
-  position: absolute;
-  right: 18px;
-  bottom: 13px;
-  width: 22px;
-  height: 22px;
-  border: 5px solid var(--color-primary-light);
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--color-primary);
-}
-
-.metric-library-empty-mark::after {
-  position: absolute;
-  right: -11px;
-  bottom: -7px;
-  width: 12px;
-  height: 5px;
-  transform: rotate(45deg);
-  border-radius: var(--radius-xs);
-  background: var(--color-primary);
-  content: '';
-}
+.metric-library-empty-illustration { margin-bottom: var(--spacing-4); }
 
 .metric-library-empty strong {
   font-weight: 700;

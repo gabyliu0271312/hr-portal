@@ -91,6 +91,8 @@ def _matches_scope_condition(values: dict[str, Any], condition: dict[str, Any]) 
     if field == "department":
         leaf = actual.rsplit("/", 1)[-1] if actual else ""
         matched = bool(actual and any(actual == value or actual.startswith(f"{value}/") or leaf == value for value in selected))
+    elif field == "superior":
+        matched = bool(selected.intersection(actual or []))
     else:
         matched = actual in selected
     return matched if condition.get("operator") == "include" else not matched
@@ -398,7 +400,7 @@ class PerformanceProjectService:
             return {"groups": []}
         if not isinstance(rules, dict) or not isinstance(rules.get("groups"), list):
             raise ProjectValidationError("被评估人筛选规则格式不正确")
-        allowed_fields = {"department", "employee_type", "employee", "hire_date", "employment_status", "departure_date", "job_family", "job_category", "position_level", "standard_position"}
+        allowed_fields = {"department", "employee_type", "employee", "hire_date", "employment_status", "departure_date", "job_family", "job_category", "position_level", "standard_position", "directLeader", "superior"}
         allowed_operators = {"include", "exclude", "before", "not_before", "after", "not_after"}
         groups = []
         for group in rules["groups"]:
@@ -1008,11 +1010,21 @@ class PerformanceProjectService:
         return person.get(key) if isinstance(person, dict) else getattr(person, key, None)
 
     @classmethod
-    def _person_values(cls, person: Any) -> dict[str, Any]:
+    def _person_values(cls, person: Any, people_by_employee: dict[str, Any] | None = None) -> dict[str, Any]:
+        superior = set()
+        visited = {cls._person_value(person, "employee_no")}
+        manager_ref = cls._person_value(person, "direct_supervisor_employee_no")
+        while manager_ref and manager_ref not in visited:
+            visited.add(manager_ref)
+            superior.add(manager_ref)
+            manager = (people_by_employee or {}).get(manager_ref)
+            manager_ref = cls._person_value(manager, "direct_supervisor_employee_no")
         return {
             "department": organization_path(person) or "",
             "employee_type": cls._person_value(person, "employee_type") or "",
             "employee": cls._person_value(person, "employee_no") or "",
+            "directLeader": cls._person_value(person, "direct_supervisor_employee_no") or "",
+            "superior": superior,
             "hire_date": cls._person_value(person, "hire_date"),
             **{field: cls._person_value(person, field) for field in (
                 "employment_status", "departure_date", "job_family", "job_category", "position_level", "standard_position"
@@ -1026,8 +1038,9 @@ class PerformanceProjectService:
         if group_index is not None:
             groups = [groups[group_index]] if 0 <= group_index < len(groups) else []
         selected = []
+        people_by_employee = {cls._person_value(person, "employee_no"): person for person in people}
         for person in people:
-            values = cls._person_values(person)
+            values = cls._person_values(person, people_by_employee)
             if scope_groups and not any(all(_matches_scope_condition(values, condition) for condition in group.get("conditions", [])) for group in scope_groups):
                 continue
             if any(all(_matches_start_project_condition(values, condition) for condition in group.get("conditions", [])) for group in groups):
@@ -1057,7 +1070,7 @@ class PerformanceProjectService:
 
     @classmethod
     def _classify_people(cls, people, settings, cycle: PerformanceCycle, *, group_index: int | None = None) -> tuple[list[Any], list[Any]]:
-        matched = cls._matching_people(cls._cycle_eligible_people(people, cycle), settings, group_index=group_index)
+        matched = cls._cycle_eligible_people(cls._matching_people(people, settings, group_index=group_index), cycle)
         report_only = [person for person in matched if cls._is_report_only_leaver(person, cycle)]
         report_only_numbers = {person.employee_no for person in report_only}
         task_people = [person for person in matched if person.employee_no not in report_only_numbers]

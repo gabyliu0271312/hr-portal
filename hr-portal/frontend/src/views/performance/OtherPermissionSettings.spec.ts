@@ -35,7 +35,8 @@ const stubs = {
     template: '<div v-if="modelValue" class="hrbp-dialog"><button class="hrbp-dialog-save" @click="$emit(\'submit\', { hrbp: initialValue?.hrbp || \'E001\', scope: initialValue?.scope || [], invisiblePeopleEnabled: true, invisiblePeople: [\'E001\'] })">确定</button></div>',
   },
   PerformanceHrbpScopeDialog: {
-    props: ['modelValue'],
+    name: 'PerformanceHrbpScopeDialog',
+    props: ['modelValue', 'initialValue'],
     emits: ['submit', 'update:modelValue'],
     template: '<div v-if="modelValue" class="hrbp-scope-dialog"><button class="hrbp-scope-dialog-save" @click="$emit(\'submit\', { groups: [{ conditions: [{ field: \'employee\', operator: \'include\', values: [\'E001\'] }] }], employeeNos: [\'E001\'] })">确定</button></div>',
   },
@@ -79,7 +80,9 @@ describe('OtherPermissionSettings', () => {
     expect(wrapper.text()).toContain('特定范围')
     expect(wrapper.find('[role="switch"]').exists()).toBe(true)
     expect(wrapper.find('.permission-button').exists()).toBe(true)
-    expect(wrapper.findAll('.permission-button').filter(button => button.text() === '编辑')).toHaveLength(2)
+    expect(wrapper.findAll('.permission-button').filter(button => button.text() === '编辑')).toHaveLength(1)
+    expect(wrapper.find('[aria-label="设置范围"]').exists()).toBe(true)
+    expect(wrapper.find('.permission-range-empty svg').attributes('width')).toBe('250')
   })
 
   it('keeps rendering when an older backend omits manager reminder fields', async () => {
@@ -108,12 +111,7 @@ describe('OtherPermissionSettings', () => {
 
     await wrapper.findAll('[role="switch"]')[1].trigger('click')
     await flushPromises()
-    expect(api.update).toHaveBeenCalledWith({
-      hrbp_invisible_scope_enabled: false,
-      hrbp_invisible_people: [],
-      manager_reminder_enabled: false,
-      manager_reminder_node_types: ['work_summary', 'evaluation', 'result_communication', 'result_view'],
-    })
+    expect(api.update).toHaveBeenCalledWith({ manager_reminder_enabled: false })
   })
 
   it('persists the HRBP switch and rolls back on failure', async () => {
@@ -122,12 +120,7 @@ describe('OtherPermissionSettings', () => {
     await wrapper.findAll('[role="switch"]')[0].trigger('click')
     await flushPromises()
 
-    expect(api.update).toHaveBeenCalledWith({
-      hrbp_invisible_scope_enabled: true,
-      hrbp_invisible_people: [],
-      manager_reminder_enabled: true,
-      manager_reminder_node_types: ['work_summary', 'evaluation', 'result_communication', 'result_view'],
-    })
+    expect(api.update).toHaveBeenCalledWith({ hrbp_invisible_scope_enabled: true })
 
     api.update.mockRejectedValueOnce(new Error('failed'))
     await wrapper.findAll('[role="switch"]')[0].trigger('click')
@@ -144,14 +137,47 @@ describe('OtherPermissionSettings', () => {
     await flushPromises()
 
     expect(api.update).toHaveBeenCalledWith({
-      hrbp_invisible_scope_enabled: false,
-      hrbp_invisible_people: [],
-      manager_reminder_enabled: true,
       manager_reminder_node_types: ['work_summary', 'evaluation', 'result_communication', 'result_view'],
     })
   })
 
-  it('opens the global HRBP scope editor and saves invisible people', async () => {
+  it('preserves AND/OR and exclude rules on save and reopen independently of HRBP permissions', async () => {
+    const rules = [
+      { conditions: [{ field: 'department', operator: 'include', values: ['集团/研发'] }, { field: 'employee', operator: 'exclude', values: ['E001'] }] },
+      { conditions: [{ field: 'directLeader', operator: 'include', values: ['M001'] }] },
+    ]
+    api.get.mockResolvedValue(response({ hrbp_invisible_rules: rules, hrbp_permissions: [{ hrbp: { employee_no: 'H1' }, scope: [], invisible_people: [{ employee_no: 'OTHER', display_name: '独立配置' }] }] }))
+    api.update.mockResolvedValue(response({ hrbp_invisible_rules: rules }))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('不包含')
+    expect(wrapper.text()).not.toContain('独立配置')
+    await wrapper.get('[aria-label="编辑特定范围"]').trigger('click')
+    const dialog = wrapper.findComponent({ name: 'PerformanceHrbpScopeDialog' })
+    expect(dialog.props('initialValue')).toEqual(rules)
+    dialog.vm.$emit('submit', { groups: rules })
+    await flushPromises()
+    expect(api.update).toHaveBeenCalledWith({ hrbp_invisible_rules: rules })
+    await wrapper.get('[aria-label="编辑特定范围"]').trigger('click')
+    expect(dialog.props('initialValue')).toEqual(rules)
+    api.update.mockResolvedValue(response({ hrbp_invisible_rules: [] }))
+    dialog.vm.$emit('submit', { groups: [] })
+    await flushPromises()
+    expect(api.update).toHaveBeenLastCalledWith({ hrbp_invisible_rules: [] })
+    expect(wrapper.find('.permission-range-empty').exists()).toBe(true)
+  })
+
+  it('keeps the scope draft open when saving fails', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('[aria-label="设置范围"]').trigger('click')
+    api.update.mockRejectedValueOnce(new Error('保存失败'))
+    await wrapper.get('.hrbp-scope-dialog-save').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.hrbp-scope-dialog').exists()).toBe(true)
+  })
+
+  it('opens the global HRBP scope editor and saves complete rules', async () => {
     api.get.mockResolvedValue(response({
       hrbp_invisible_scope_enabled: true,
       hrbp_invisible_people: [{ employee_no: 'E001', display_name: '张娜' }],
@@ -169,7 +195,7 @@ describe('OtherPermissionSettings', () => {
     await flushPromises()
 
     expect(api.update).toHaveBeenCalledWith(expect.objectContaining({
-      hrbp_invisible_people: ['E001'],
+      hrbp_invisible_rules: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E001'] }] }],
     }))
   })
 })

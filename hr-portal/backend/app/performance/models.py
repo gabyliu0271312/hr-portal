@@ -110,6 +110,7 @@ class PerformanceOtherPermissionSetting(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     hrbp_invisible_scope_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     hrbp_invisible_people: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    hrbp_invisible_rules: Mapped[list | None] = mapped_column(JSONB(none_as_null=True), nullable=True, default=None)
     hrbp_permissions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     manager_reminder_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     manager_reminder_node_types: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

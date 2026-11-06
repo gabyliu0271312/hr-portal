@@ -108,3 +108,17 @@ PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
   - UI：既有页面及两字段弹窗增量，无新增页面/信息架构；指定用户真实列表/搜索/分页/添加/编辑/确认撤销/错误重试；规则Tab保持未接入。选人/角色多选复用SearchSelect；提交失败不关闭、不伪成功；关闭清理旧异步结果。用户本轮要求DOM/API为主证据，不以截图替代接口与授权验证。
   - 测试：Given自定义角色含一种权限，When授予有效用户/保存读回/撤销，Then另一权限不放行、撤销后403且快照/答案不变；无权/停用/伪造/重复/失效身份拒绝；前端保存payload/失败保留/重开回显/撤销刷新。真实PG/API、DOM、定向测试和build分别记，不运行不得勾选。
   - 不做：规则授权、系统角色改权、人员来源接管、生产、提交推送；不改数据库模型/旧迁移，不批量授权存量角色。停止方式仅撤销本卡局部差异，不整包回滚。
+
+## PM-001-T10 HRBP 不可见范围规则闭环（2026-11-06）
+
+- [ ] PM-001-T10（代码及本地定向回归完成，真实数据库和负责人来源验收受阻）
+  - 执行依据：用户批准整体修复本轮 REA 对照发现的问题；既有页面局部修复，不新增页面或重做信息架构。复用现有 840px 弹窗、条件组、人员/组织选择器、SVG 和设计 token。
+  - 修改范围：后端 other_permission_settings_router/models/hrbp_scope_service/navigation_service/projects_router、project_service 的快照上级匹配及相应代码测试；前端 api/performance、AudienceRuleEditor、HrbpScopeDialog、HrbpInvisibleScopeSummary、OtherPermissionSettings、MetricLibrary、performanceConditionFields 及相应代码测试。新增单一 0295 迁移，不修改旧迁移。共享文件局部合并，保留其他会话改动。
+  - 契约：原 GET/PATCH /performance/permission-settings/other 增加 hrbp_invisible_rules 条件组数组；组内 AND、组间 OR，employee/department/directLeader 仅 include/exclude，[] 显式清空。NULL 存量转换全局旧员工名单为等价规则；全局规则与独立 HRBP permission 不互相覆盖；PATCH 仅发送改变字段，审计包含完整规则。全局不可见按实时花名册计算，不改周期快照；项目新增 directLeader/superior 仅按周期快照完整汇报链匹配。
+  - UI：HRBP 与指标库共用 MetricTemplateEmptyIllustration；HRBP 默认直属上级、允许零组、最后一条条件不可删除；项目至少一组。摘要展示原始 AND/OR 与操作符，保存失败保留草稿、再次打开读取完整规则。独立截图：../../ui-blueprints/PM-001-T10-hrbp-empty-implemented-20261106.png、PM-001-T10-hrbp-rules-reopen-implemented-20261106.png、PM-001-T10-metric-empty-shared-svg-20261106.png。已查看真实前端截图；浏览器请求由隔离 API fixture 接管，不代表真实数据库持久化验收。
+  - 验收：Given 部门/直属上级/员工排除的多组规则，When 保存并重开，Then 字段/值/操作符/分组不丢；Given 全部删除，When 保存，Then [] 且回到空态；Given HRBP 及管理员叠加，Then 不可见只收紧 HRBP 路径、不撤销独立合法管理员或任务身份；Given 项目上级链含离职中间节点或环，Then 预览/启动使用快照且终止环路。
+  - 主线程最终回归：backend 下 `.venv/Scripts/python.exe -m pytest tests/test_performance_other_permission_settings.py tests/test_performance_projects.py tests/test_performance_cycles.py -q --tb=short`：522 passed、6 skipped；frontend 下 `npm run test -- src/components/performance/PerformanceAudienceRuleEditor.spec.ts src/components/performance/PerformanceHrbpScopeDialog.spec.ts src/views/performance/OtherPermissionSettings.spec.ts src/views/performance/PerformanceMetricLibrary.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts src/components/performance/PerformanceSearchSelect.spec.ts`：77 passed。前端 vue-tsc 与生产构建通过；保留第三方 Rollup 注释警告、既有 python_multipart 弃用提示。
+  - 浏览器：真实本地路由选择测试经理→PATCH 完整 directLeader 条件→刷新重开回显→删除最后组→PATCH []→空态；指标库同 SVG 宽 250px；page errors=[]。仅隔离测试数据，未写真实配置。
+  - 迁移：0295_pm_hrbp_invisible_rules 接 0294_pm_person_info_guard，upgrade/downgrade SQL 与链头检查通过；未执行真实 DDL。真实本地 PostgreSQL 连接拒绝，额外 identity-switch 数据库闭环测试因此失败（同次运行其余 536 passed、6 skipped），不算通过。
+  - 阻塞：org_tree.path 有同步，但组织同步链未填充 OrgNode.manager；通用开关仅对已有有效 manager 数据生效，空值/重名不猜测。负责人权威源字段需明确，禁止以直属上级冒充部门负责人。真实数据库迁移、真实 API/SQL 读回、负责人源数据及生产验收未完成，因此不勾选。
+  - 非范围：无确认映射的飞书序列/序列职级/角色/人员名单等不伪造接入，不改现有职位族/职位类含义；不扩建组织同步链，不改历史快照、不操作生产、不提交推送。停止方式仅撤销本卡差异，不整包回滚。

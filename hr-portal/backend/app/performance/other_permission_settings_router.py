@@ -16,6 +16,7 @@ from app.performance.auth_context import (
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
 from app.performance.cycles_router import HrbpOrganizationNode, _load_hrbp_options
 from app.performance.models import PerformanceOtherPermissionSetting
+from app.performance.hrbp_scope_service import HrbpInvisibleRule, legacy_invisible_rules, load_hrbp_roster_people, setting_invisible_rules
 
 router = APIRouter(prefix="/performance/permission-settings/other", tags=["performance-other-permission-settings"])
 
@@ -66,6 +67,7 @@ class OtherPermissionSettingsOut(BaseModel):
 
     hrbp_invisible_scope_enabled: bool
     hrbp_invisible_people: list[OtherPermissionPersonOut]
+    hrbp_invisible_rules: list[HrbpInvisibleRule]
     hrbp_permissions: list[OtherPermissionHrbpPermissionOut]
     people_options: list[OtherPermissionPersonOut]
     organization_tree: list[HrbpOrganizationNode]
@@ -78,6 +80,7 @@ class OtherPermissionSettingsPatch(BaseModel):
 
     hrbp_invisible_scope_enabled: bool | None = None
     hrbp_invisible_people: list[str] | None = Field(default=None, max_length=500)
+    hrbp_invisible_rules: list[HrbpInvisibleRule] = Field(default_factory=list, max_length=100)
     hrbp_permissions: list[OtherPermissionHrbpPermissionPayload] | None = Field(default=None, max_length=500)
     manager_reminder_enabled: bool | None = None
     manager_reminder_node_types: list[str] | None = Field(default=None, max_length=len(MANAGER_REMINDER_NODE_TYPES))
@@ -112,10 +115,7 @@ async def _context(
 
 
 async def _load_options(db: AsyncSession) -> tuple[list[OtherPermissionPersonOut], list[HrbpOrganizationNode]]:
-    try:
-        options = await _load_hrbp_options(db)
-    except Exception:
-        return [], []
+    options = await _load_hrbp_options(db)
     people = [
         OtherPermissionPersonOut(
             employee_no=item.value,
@@ -149,21 +149,21 @@ async def _get_or_create_setting(
     return setting
 
 
-def _person(ref: str, labels: dict[str, str]) -> OtherPermissionPersonOut:
-    return OtherPermissionPersonOut(employee_no=ref, display_name=labels.get(ref, ref))
+def _person(ref: str, labels: dict[str, OtherPermissionPersonOut]) -> OtherPermissionPersonOut:
+    return labels.get(ref, OtherPermissionPersonOut(employee_no=ref, display_name=ref))
 
 
 def _selected_people(
     refs: list[str],
     options: list[OtherPermissionPersonOut],
 ) -> list[OtherPermissionPersonOut]:
-    labels = {option.employee_no: option.display_name for option in options}
+    labels = {option.employee_no: option for option in options}
     return [_person(ref, labels) for ref in refs]
 
 
 def _serialize_hrbp_permissions(
     raw_permissions: list[Any],
-    labels: dict[str, str],
+    labels: dict[str, OtherPermissionPersonOut],
 ) -> list[OtherPermissionHrbpPermissionOut]:
     result: list[OtherPermissionHrbpPermissionOut] = []
     for raw in raw_permissions:
@@ -189,13 +189,35 @@ async def _response(
     db: AsyncSession,
 ) -> OtherPermissionSettingsOut:
     people_options, organization_tree = await _load_options(db)
-    labels = {person.employee_no: person.display_name for person in people_options}
+    rules = setting_invisible_rules(setting)
+    selected_refs = {
+        value for rule in rules for condition in rule["conditions"]
+        if condition["field"] in {"employee", "directLeader"} for value in condition["values"]
+    }
+    selected_refs.update(str(ref).strip() for ref in (setting.hrbp_invisible_people or []) if str(ref).strip())
+    for permission in setting.hrbp_permissions or []:
+        selected_refs.add(str(permission.get("hrbp") or "").strip())
+        selected_refs.update(permission.get("invisible_people") or [])
+    labels = {person.employee_no: person for person in people_options}
+    missing_refs = selected_refs - labels.keys() - {""}
+    if missing_refs:
+        roster_people = await load_hrbp_roster_people(db)
+        roster_by_no = {person.employee_no: person for person in roster_people}
+        for ref in sorted(missing_refs):
+            person = roster_by_no.get(ref)
+            option = OtherPermissionPersonOut(
+                employee_no=ref,
+                display_name=person.display_name if person else ref,
+                department=person.department if person else None,
+            )
+            people_options.append(option)
+            labels[ref] = option
     permissions = _serialize_hrbp_permissions(list(setting.hrbp_permissions or []), labels)
     legacy_refs = [str(value).strip() for value in (setting.hrbp_invisible_people or []) if str(value).strip()]
-    visible_people = permissions[0].invisible_people if permissions else [_person(ref, labels) for ref in legacy_refs]
     return OtherPermissionSettingsOut(
         hrbp_invisible_scope_enabled=setting.hrbp_invisible_scope_enabled,
-        hrbp_invisible_people=visible_people,
+        hrbp_invisible_people=[_person(ref, labels) for ref in legacy_refs],
+        hrbp_invisible_rules=rules,
         hrbp_permissions=permissions,
         people_options=people_options,
         organization_tree=organization_tree,
@@ -232,6 +254,7 @@ async def update_other_permission_settings(
     before = {
         "hrbp_invisible_scope_enabled": setting.hrbp_invisible_scope_enabled,
         "hrbp_invisible_people": list(setting.hrbp_invisible_people or []),
+        "hrbp_invisible_rules": setting_invisible_rules(setting),
         "hrbp_permissions": list(setting.hrbp_permissions or []),
         "manager_reminder_enabled": setting.manager_reminder_enabled,
         "manager_reminder_node_types": list(setting.manager_reminder_node_types or DEFAULT_MANAGER_REMINDER_NODE_TYPES),
@@ -239,11 +262,13 @@ async def update_other_permission_settings(
     if payload.hrbp_invisible_scope_enabled is not None:
         setting.hrbp_invisible_scope_enabled = payload.hrbp_invisible_scope_enabled
     if payload.hrbp_permissions is not None:
-        serialized = [item.model_dump() for item in payload.hrbp_permissions]
-        setting.hrbp_permissions = serialized
-        setting.hrbp_invisible_people = list(serialized[0]["invisible_people"]) if serialized else []
+        setting.hrbp_permissions = [item.model_dump() for item in payload.hrbp_permissions]
+    if "hrbp_invisible_rules" in payload.model_fields_set:
+        setting.hrbp_invisible_rules = [item.model_dump() for item in payload.hrbp_invisible_rules]
+        setting.hrbp_invisible_people = []
     elif payload.hrbp_invisible_people is not None:
         setting.hrbp_invisible_people = list(payload.hrbp_invisible_people)
+        setting.hrbp_invisible_rules = legacy_invisible_rules(payload.hrbp_invisible_people)
     if payload.manager_reminder_enabled is not None:
         setting.manager_reminder_enabled = payload.manager_reminder_enabled
     if payload.manager_reminder_node_types is not None:
@@ -262,6 +287,7 @@ async def update_other_permission_settings(
             after_state={
                 "hrbp_invisible_scope_enabled": setting.hrbp_invisible_scope_enabled,
                 "hrbp_invisible_people": list(setting.hrbp_invisible_people),
+                "hrbp_invisible_rules": setting_invisible_rules(setting),
                 "hrbp_permissions": list(setting.hrbp_permissions),
                 "manager_reminder_enabled": setting.manager_reminder_enabled,
                 "manager_reminder_node_types": list(setting.manager_reminder_node_types),
