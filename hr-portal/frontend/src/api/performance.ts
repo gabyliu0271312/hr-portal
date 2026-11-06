@@ -354,20 +354,20 @@ export interface PerformanceReview360VoluntaryResult {
 }
 
 export const performanceReview360FeedbackApi = {
-  async list(projectId: number | string, keyword?: string): Promise<PerformanceReview360FeedbackList> {
+  async list(projectId: number | string, keyword?: string, nodeId?: string): Promise<PerformanceReview360FeedbackList> {
     const { data } = await api.get<PerformanceReview360FeedbackList>(`/performance/review-360/feedback/projects/${projectId}`, {
-      params: keyword ? { keyword } : undefined,
+      params: { ...(keyword ? { keyword } : {}), ...(nodeId ? { node_id: nodeId } : {}) },
     })
     return data
   },
-  async candidates(projectId: number | string, keyword?: string): Promise<PerformanceReview360VoluntaryCandidates> {
+  async candidates(projectId: number | string, keyword?: string, nodeId?: string): Promise<PerformanceReview360VoluntaryCandidates> {
     const { data } = await api.get<PerformanceReview360VoluntaryCandidates>(`/performance/review-360/feedback/projects/${projectId}/candidates`, {
-      params: keyword ? { keyword } : undefined,
+      params: { ...(keyword ? { keyword } : {}), ...(nodeId ? { node_id: nodeId } : {}) },
     })
     return data
   },
-  async start(projectId: number | string, targetEmployeeNo: string): Promise<PerformanceReview360VoluntaryResult> {
-    const { data } = await api.post<PerformanceReview360VoluntaryResult>(`/performance/review-360/feedback/projects/${projectId}/voluntary`, { target_employee_no: targetEmployeeNo })
+  async start(projectId: number | string, targetEmployeeNo: string, nodeId?: string): Promise<PerformanceReview360VoluntaryResult> {
+    const { data } = await api.post<PerformanceReview360VoluntaryResult>(`/performance/review-360/feedback/projects/${projectId}/voluntary`, { target_employee_no: targetEmployeeNo, ...(nodeId ? { node_id: nodeId } : {}) })
     return data
   },
 }
@@ -1821,6 +1821,7 @@ export interface PerformanceProjectFlowSettings {
       exclude_default_invite_from_limit: boolean
       recommended_invite: string[]
       allow_voluntary_evaluation: boolean
+      allow_voluntary_okr_access?: boolean
     }
     calibration?: {
       force_distribution_enabled: boolean

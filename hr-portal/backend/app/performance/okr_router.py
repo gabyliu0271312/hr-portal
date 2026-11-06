@@ -9,6 +9,7 @@ from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context
 from app.performance.models import PerformanceNodeTask
 from app.performance.okr_provider import OkrView, fetch_employee_okr, get_okr_provider
+from app.performance.okr_policy import task_okr_access_allowed
 
 
 router = APIRouter(prefix="/performance/okr", tags=["performance-okr"])
@@ -42,13 +43,15 @@ async def get_task_okr(
     except PerformanceIdentityMappingNotFound:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from None
     template = await _self_summary_template(task, node, db)
-    if not any(
+    if getattr(node, "node_type", None) != "work_summary" and not any(
         (content.get("content_slot") or "fill") == "reference"
         and content.get("reference_kind") == "more"
         and content.get("reference_value") == "okr"
         for content in template.get("content") or []
     ):
         raise HTTPException(status_code=404, detail="OKR_REFERENCE_NOT_CONFIGURED")
+    if not await task_okr_access_allowed(db, task, node):
+        raise HTTPException(status_code=403, detail="OKR_REFERENCE_FORBIDDEN")
     provider = get_okr_provider()
     if provider is None:
         return EmployeeOkrResponse(enabled=False, employee_no=task.target_employee_no)

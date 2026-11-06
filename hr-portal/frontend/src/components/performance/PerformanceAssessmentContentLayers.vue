@@ -18,7 +18,7 @@
 
           <template v-if="drawerContents.length">
             <div class="drawer-actions">
-              <CreateMenu v-if="!displayOnly" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+              <CreateMenu ref="createMenuRef" :disabled="displayOnly || !definitionEditable" :allowed-types="props.allowedTypes" @select="openModal" />
               <button class="plain-button expand-all-button" type="button" :aria-expanded="allExpanded" @click="toggleAllExpanded"><ArrowDown v-if="!allExpanded" /><ArrowUp v-else /> {{ allExpanded ? '全部收起' : '全部展开' }}</button>
             </div>
             <section class="created-list" aria-label="评估内容">
@@ -33,7 +33,8 @@
                 <strong>{{ content.name }}</strong>
                 <template #actions>
                   <div class="created-item__actions"><PerformanceExpandButton :expanded="expandedIds.has(content.id)" :label="`${expandedIds.has(content.id) ? '收起' : '展开'}${content.name}`" @toggle="toggleExpanded(content.id)" />
-                    <button class="created-item__edit" type="button" :aria-label="`缂栬緫${content.name}`" @click="editCreated(content)"><Edit /></button>
+                    <button class="created-item__edit" type="button" :aria-label="`编辑${content.name}`" :disabled="!definitionEditable" @click="editCreated(content)"><Edit /></button>
+                    <PerformanceIconButton v-if="displayOnly" icon="DeleteTrashOutlined" :label="`删除${content.name}`" disabled />
                   </div>
                 </template>
                 <template #details>
@@ -44,7 +45,7 @@
           </template>
           <section v-else class="empty-state" aria-label="评估内容列表">
             <el-empty :image-size="112" description="暂无内容" />
-            <CreateMenu v-if="!displayOnly" ref="createMenuRef" :allowed-types="props.allowedTypes" @select="openModal" />
+            <CreateMenu ref="createMenuRef" :disabled="displayOnly || !definitionEditable" :allowed-types="props.allowedTypes" @select="openModal" />
           </section>
         </main>
         <footer v-if="drawerContents.length" class="drawer-footer">
@@ -67,18 +68,21 @@
     >
         <header class="modal-header"><h2 :id="`${activeType}-title`">新建{{ activeLabel }}</h2><button ref="modalCloseRef" class="icon-button" type="button" :aria-label="`关闭新建${activeLabel}`" @click="closeModal"><Close /></button></header>
         <div class="modal-body">
-          <div class="config-pane">
+          <div class="config-pane" :class="{ 'is-display-only': displayOnly }">
             <PerformanceFormField v-model="draft.name" label="名称" required placeholder="请输入名称" :invalid="submitted && !draft.name.trim()" />
-            <PerformanceFormField v-if="!displayOnly" v-model="draft.description" label="描述" textarea placeholder="请输入描述" />
+            <PerformanceFormField v-model="draft.description" label="描述" textarea placeholder="请输入描述" />
             <h3 class="section-title">配置详情</h3>
             <template v-if="displayOnly">
               <div v-for="item in activeType === 'work_summary' ? workSummaryItems : items" :key="item.id" class="config-box item-card saved-item">
-                <PerformancePromptForm v-if="'prompt' in item && item.prompt" v-model="item.prompt" variant="inline" :scope-disabled="true" :invalid="submitted" />
+                <div class="config-box__heading"><span class="item-card__title">{{ item.kind === 'prompt' ? '提示项' : '填写项' }}</span><span class="item-card__actions"><PerformanceIconButton icon="DeleteTrashOutlined" :label="`删除${item.label || '提示项'}`" :disabled="item.kind !== 'prompt'" @click="removeCustomItem(item.id)" /></span></div>
+                <PerformancePromptForm v-if="'prompt' in item && item.prompt" v-model="item.prompt" variant="inline" :invalid="submitted" />
                 <template v-else>
+                  <PerformanceAssessmentSelect v-if="item.kind === 'rating'" class="inside-select" label="评估项" :options="ratingOptions" :model-value="item.ratingOptionId || item.id" disabled />
                   <PerformanceFormField v-model="item.label" inside label="填写题名称" required :invalid="submitted && !item.label.trim()" />
                   <PerformanceFormField v-model="item.hint" inside label="提示" textarea />
                 </template>
               </div>
+              <PerformanceTemplateOperateBar v-if="activeType === 'custom' || activeType === 'rating'" :actions="[{ key: 'fill', label: '添加填写项', disabled: true }, { key: 'prompt', label: '添加提示' }]" @action="key => { if (key === 'prompt') addMixedItem('prompt') }" />
             </template>
             <template v-else-if="activeType === 'work_summary'">
               <PerformanceRepeatableFillItemList :horizontal-handle="horizontalHandle" :items="workSummaryItems" :invalid="submitted" @add="addWorkSummaryItem" @remove="removeWorkSummaryItem" @reorder="reorderWorkSummary" @drag-start="startSummarySort" @drag-end="finishSummarySort" @drag-cancel="cancelSummarySort" />
@@ -132,16 +136,19 @@ import UiSwitch from '../ui/UiSwitch.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceContentOptionCard from './PerformanceContentOptionCard.vue'
+import PerformanceIconButton from './PerformanceIconButton.vue'
+import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
+import PerformanceTemplateOperateBar from './PerformanceTemplateOperateBar.vue'
 
 export type AssessmentContentType = 'work_summary' | 'rating' | 'custom'
 export interface AssessmentOption { id:string; label:string; description?:string; disabled?:boolean; disabledReason?:string; levels?:string[]; levelOptions?:Array<{id:string;code?:string;label:string;name?:string;description?:string;color?:string}>; displayMode?:'标签样式'|'下拉样式' }
 export interface AssessmentTagField { label:string; content:string }
 export interface AssessmentTagOption extends AssessmentOption { defaultFields?:AssessmentTagField[] }
 export interface AssessmentContentDraft { type:AssessmentContentType|'prompt'; name:string; description:string; items:Array<PerformanceTemplateContentItem>; prompt?:PerformancePromptValue; id?:string; content_id?:string; content_slot?:'fill'|'reference'|'adjustment'|'view'; settings?:{hideDescription?:boolean;allowMultiple?:boolean;allowUnknown?:boolean;mode?:string;required?:boolean}; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;code?:string;label:string;name?:string;description?:string;placeholder?:string;color?:string}> }
-interface WorkSummaryItem { id:string; label:string; hint:string; richText:string }
+interface WorkSummaryItem extends FillItem { richText:string }
 interface FillItem { id:string; label:string; hint:string; richText?:string; kind?:'rating'|'fill'|'prompt'; prompt?:PerformancePromptValue; ratingOptionId?:string; ratingDisplayMode?:'标签样式'|'下拉样式'; questionType?:'text'|'tag'|'single'; tagOptionId?:string; defaultAll?:boolean; options?:Array<{id:string;code?:string;label:string;name?:string;description?:string;placeholder?:string;color?:string}> }
 
-const props=withDefaults(defineProps<{open:boolean;displayOnly?:boolean;horizontalHandle?:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
+const props=withDefaults(defineProps<{open:boolean;displayOnly?:boolean;definitionEditable?:boolean;horizontalHandle?:boolean;title?:string;ratingOptions?:AssessmentOption[];tagOptions?:AssessmentTagOption[];initialContents?:Array<AssessmentContentDraft&{id:string}>;availableContents?:Array<AssessmentContentDraft&{id:string}>;allowedTypes?:AssessmentContentType[];selectableContentIds?:string[];selectionRestriction?:string}>(),{title:'选择评估内容',definitionEditable:true,ratingOptions:()=>[],tagOptions:()=>[],initialContents:()=>[],availableContents:()=>[],allowedTypes:()=>['work_summary','rating','custom'],selectionRestriction:''})
 const emit=defineEmits<{'update:open':[boolean];confirm:[AssessmentContentDraft[]]}>()
 const drawerRef=ref<HTMLElement|null>(null), modalRef=ref<HTMLElement|null>(null), modalCloseRef=ref<HTMLButtonElement|null>(null), createMenuRef=ref<{focus:()=>void}|null>(null)
 const groupVisible=ref(true), activeType=ref<AssessmentContentType|null>(null), submitted=ref(false), itemSubmitted=ref(false), success=ref(false), draggedIndex=ref<number|null>(null), dragAnnouncement=ref(''), editingCreatedId=ref<string|null>(null), expandedIds=ref<Set<string>>(new Set())
@@ -217,7 +224,7 @@ function toggleAvailableContent(content:AssessmentContentDraft&{id:string}){
 }
 function finishDrawer(){if(created.value.some(content=>!canSelectContent(content)))return;emit('confirm',created.value.map(content=>({ ...content, content_id:content.content_id||content.id })));emit('update:open',false)}
 function openModal(type:AssessmentContentType, content?:AssessmentContentDraft&{id:string}){
-  if(props.displayOnly && !content)return
+  if(!props.definitionEditable || (props.displayOnly && !content))return
   resetDraft(); editingCreatedId.value=content?(content.content_id||content.id):null; activeType.value=type
   if(content){
     Object.assign(draft,{name:content.name,description:content.description,ratingOptionId:content.ratingOptionId||(type==='rating'?content.items[0]?.id||'':''),questionType:content.questionType||'text',tagOptionId:content.tagOptionId||'',defaultAll:!!content.defaultAll})
@@ -241,16 +248,16 @@ function toggleExpanded(id:string){const next=new Set(expandedIds.value);next.ha
 function toggleAllExpanded(){expandedIds.value=allExpanded.value?new Set():new Set(created.value.map(item=>item.id))}
 function editCreated(content:AssessmentContentDraft&{id:string}){if(content.type==='prompt')return;openModal(content.type,content)}
 defineExpose({ openEditor: (content: AssessmentContentDraft & { id: string }) => { if(content.type!=='prompt')openModal(content.type, content) } })
-function addWorkSummaryItem(){workSummaryItems.value.push(createWorkSummaryItem())}
+function addWorkSummaryItem(){if(props.displayOnly)return;workSummaryItems.value.push(createWorkSummaryItem())}
 function createCustomFillItem():FillItem{return{id:nextId(),label:'',hint:'',richText:'',kind:'fill',questionType:'text',tagOptionId:'',defaultAll:false}}
 function createPromptItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'prompt',prompt:{title:'',content:'',color:'#3B82F6',scope:'all',showIcon:false}}}
 function createRatingItem():FillItem{return{id:nextId(),label:'',hint:'',kind:'rating',ratingOptionId:''}}
-function addMixedItem(kind:'fill'|'prompt'='fill'){items.value.push(kind==='prompt'?createPromptItem():createCustomFillItem())}
+function addMixedItem(kind:'fill'|'prompt'='fill'){if(props.displayOnly && kind!=='prompt')return;items.value.push(kind==='prompt'?createPromptItem():createCustomFillItem())}
 function createWorkSummaryItem():WorkSummaryItem{return{id:nextId(),label:'',hint:'',richText:''}}
-function removeCustomItem(indexOrId:number|string){items.value=typeof indexOrId==='number'?items.value.filter((_,itemIndex)=>itemIndex!==indexOrId):items.value.filter(item=>item.id!==indexOrId);itemSubmitted.value=false}
-function removeWorkSummaryItem(index:number){if(activeType.value!=='work_summary'||workSummaryItems.value.length<2)return;workSummaryItems.value.splice(index,1)}
+function removeCustomItem(indexOrId:number|string){const item=typeof indexOrId==='number'?items.value[indexOrId]:items.value.find(item=>item.id===indexOrId);if(props.displayOnly && item?.kind!=='prompt')return;items.value=items.value.filter(candidate=>candidate.id!==item?.id);itemSubmitted.value=false}
+function removeWorkSummaryItem(index:number){if(props.displayOnly||activeType.value!=='work_summary'||workSummaryItems.value.length<2)return;workSummaryItems.value.splice(index,1)}
 function reorderItems(target:Ref<FillItem[]>,from:number,to:number){
-  if(from===to)return
+  if(props.displayOnly||from===to)return
   const next=target.value.slice()
   const [item]=next.splice(from,1)
   if(!item)return
@@ -270,18 +277,18 @@ function validItem(){
   return items.value.length>0&&items.value.every(item=>item.kind==='prompt'?!!item.prompt?.content?.trim()&&item.prompt.content.length<=2000:item.kind==='rating'?!!item.ratingOptionId:item.questionType==='tag'?!!item.tagOptionId:!!item.label.trim())
 }
 function confirmContent(){
-  submitted.value=true;if(!activeType.value||!draft.name.trim()||(!props.displayOnly && !validItem()))return
+  submitted.value=true;if(!props.definitionEditable||!activeType.value||!draft.name.trim()||(!props.displayOnly && !validItem()))return
   if(props.displayOnly){
     const existing=drawerContents.value.find(content=>contentKey(content)===editingCreatedId.value)
     if(!existing)return
     const edited=activeType.value==='work_summary'?workSummaryItems.value:items.value
-    if(edited.some(item=>!('prompt' in item && item.prompt)&&!item.label.trim()))return
-    const next={...existing,name:draft.name.trim(),items:existing.items.map(item=>{
-      const changed=edited.find(candidate=>candidate.id===item.id)
-      if(!changed)return item
-      if(item.kind==='prompt' && item.prompt && 'prompt' in changed && changed.prompt)return {...item,prompt:{...item.prompt,title:changed.prompt.title,content:changed.prompt.content,color:changed.prompt.color,showIcon:changed.prompt.showIcon}}
-      return {...item,label:changed.label.trim(),hint:changed.hint.trim()}
-    })}
+    if(edited.some(item=>item.kind==='prompt'?!item.prompt?.content.trim()||item.prompt.content.length>2000:!item.label.trim()))return
+    const next={...existing,name:draft.name.trim(),description:draft.description.trim(),items:[...edited.flatMap(changed=>{
+      const item=existing.items.find(item=>item.id===changed.id)
+      if(item && item.kind!=='prompt')return[{...item,label:changed.label.trim(),hint:changed.hint.trim()}]
+      if(changed.kind!=='prompt'||!changed.prompt)return[]
+      return[{...item,id:changed.id,kind:'prompt' as const,label:'',hint:'',prompt:JSON.parse(JSON.stringify(changed.prompt))}]
+    }),...existing.items.filter(item=>item.kind!=='prompt'&&!edited.some(changed=>changed.id===item.id))]}
     const index=created.value.findIndex(content=>contentKey(content)===contentKey(existing))
     if(index>=0)created.value[index]=next;else created.value.push(next)
     emit('confirm',created.value)
@@ -309,7 +316,7 @@ function onDrawerKeydown(event:KeyboardEvent){if(activeType.value)return;if(even
 function onModalKeydown(event:KeyboardEvent){if(event.key==='Escape'){event.preventDefault();closeModal()}else if(event.key==='Tab'){const active=document.activeElement;const root=event.currentTarget as HTMLElement|null;if(!event.shiftKey&&active?.classList.contains('button--primary')){event.preventDefault();(root?.querySelector<HTMLButtonElement>('.performance-editor-modal__close')||modalCloseRef.value)?.focus();return}trapTab(event,root)}}
 onBeforeUnmount(()=>{if(successTimer)clearTimeout(successTimer)})
 
-const CreateMenu=defineComponent({props:{allowedTypes:{type:Array as ()=>AssessmentContentType[],default:()=>['work_summary','rating','custom']}},emits:['select'],setup(p,{emit:e,expose}){const open=ref(false),button=ref<HTMLButtonElement|null>(null);expose({focus:()=>button.value?.focus()});return()=>h('div',{class:'create-anchor'},[h('button',{ref:button,class:'button button--secondary create-button',type:'button','aria-expanded':String(open.value),'aria-haspopup':'menu',onClick:()=>open.value=!open.value},[h(Plus),h('span','新建')]),open.value?h('div',{class:'create-menu',role:'menu'},p.allowedTypes.map(type=>h('button',{type:'button',role:'menuitem',onClick:()=>{open.value=false;e('select',type)}},type==='work_summary'?'工作总结':type==='rating'?'评分评级':'自定义'))):null])}})
+const CreateMenu=defineComponent({props:{disabled:Boolean,allowedTypes:{type:Array as ()=>AssessmentContentType[],default:()=>['work_summary','rating','custom']}},emits:['select'],setup(p,{emit:e,expose}){const open=ref(false),button=ref<HTMLButtonElement|null>(null);expose({focus:()=>button.value?.focus()});return()=>h('div',{class:'create-anchor'},[h('button',{ref:button,class:'button button--secondary create-button',type:'button',disabled:p.disabled,'aria-expanded':String(open.value),'aria-haspopup':'menu',onClick:()=>{if(!p.disabled)open.value=!open.value}},[h(Plus),h('span','新建')]),open.value&&!p.disabled?h('div',{class:'create-menu',role:'menu'},p.allowedTypes.map(type=>h('button',{type:'button',role:'menuitem',onClick:()=>{open.value=false;e('select',type)}},type==='work_summary'?'工作总结':type==='rating'?'评分评级':'自定义'))):null])}})
 </script>
 
 <style scoped>
@@ -337,6 +344,9 @@ const CreateMenu=defineComponent({props:{allowedTypes:{type:Array as ()=>Assessm
 </style>
 
 <style>
+.config-pane.is-display-only .saved-item{display:block}
+.config-pane.is-display-only .config-box__heading{display:flex;justify-content:space-between}
+.assessment-layer button:disabled{opacity:.5;cursor:not-allowed}
 .assessment-layer .create-anchor{position:relative;display:inline-flex}
 .assessment-layer .create-button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:80px;height:32px;margin-top:16px;padding:4px 16px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#245bdb;font:inherit;cursor:pointer}
 .assessment-layer .create-button svg{width:14px}

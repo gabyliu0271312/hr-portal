@@ -9,6 +9,7 @@ import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceProject360InviteSettingsDrawer from './PerformanceProject360InviteSettingsDrawer.vue'
+import { initializeProjectFlow } from './performanceProjectCalibration'
 
 const node = (node_type: string, order: number, executor_role_code: string | null = 'assessment.reviewee'): PerformanceWorkflowNode => ({
   node_id: `${node_type}-${order}`,
@@ -304,6 +305,112 @@ describe('PerformanceProjectFlowSettings', () => {
     ;(drawer.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  it('initializes new and legacy 360° settings with OKR access denied', () => {
+    const nodes = [reviewer360Node(1), reviewer360Node(2)]
+    for (const saved of [undefined, false, true]) {
+      const settings: Parameters<typeof initializeProjectFlow>[1] = { node_settings: saved === undefined ? {} : { 'evaluation-1': { invite: {
+        default_invite: 'DIRECT_SUBORDINATES', minimum_invited_count: 5,
+        exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: true,
+        allow_voluntary_okr_access: saved,
+      } } }, node_times: {} }
+      initializeProjectFlow(nodes, settings)
+      expect(settings.node_settings['evaluation-1'].invite?.allow_voluntary_okr_access).toBe(saved ?? false)
+      expect(settings.node_settings['evaluation-2'].invite).toBeUndefined()
+    }
+    const legacy: Parameters<typeof initializeProjectFlow>[1] = { node_settings: { 'evaluation-1': { invite: {
+      default_invite: 'DIRECT_SUBORDINATES', minimum_invited_count: 5,
+      exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: true,
+    } } }, node_times: {} }
+    initializeProjectFlow(nodes, legacy)
+    expect(legacy.node_settings['evaluation-1'].invite?.allow_voluntary_okr_access).toBe(false)
+  })
+
+  it('hides voluntary OKR access by default and retains the checkbox draft across switch toggles', async () => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [reviewer360Node(1), reviewer360Node(2)] } })
+    await wrapper.get('.outline-button').trigger('click')
+    const drawer = wrapper.getComponent(PerformanceProject360InviteSettingsDrawer)
+    expect(drawer.props('settings').allow_voluntary_okr_access).toBe(false)
+    const checkbox = () => document.body.querySelector<HTMLInputElement>('input[aria-label="自愿评估时可查看被评估人的OKR"]')
+    const voluntary = document.body.querySelector<HTMLButtonElement>('[aria-label="允许自愿评估"]')!
+    expect(checkbox()).toBeNull()
+    voluntary.click()
+    await wrapper.vm.$nextTick()
+    expect(checkbox()?.checked).toBe(false)
+    checkbox()!.click()
+    await wrapper.vm.$nextTick()
+    expect(checkbox()?.checked).toBe(true)
+    voluntary.click()
+    await wrapper.vm.$nextTick()
+    expect(checkbox()).toBeNull()
+    voluntary.click()
+    await wrapper.vm.$nextTick()
+    expect(checkbox()?.checked).toBe(true)
+    ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(drawer.emitted('confirm')?.at(-1)?.[0]).toMatchObject({ allow_voluntary_evaluation: true, allow_voluntary_okr_access: true })
+    const updated = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as any
+    expect(updated.node_settings['evaluation-1'].invite.allow_voluntary_okr_access).toBe(true)
+    expect(updated.node_settings['evaluation-2'].invite).toBeUndefined()
+    expect(wrapper.get('.invite-summary').findAll('strong').at(-1)?.text()).toBe('允许')
+    expect(wrapper.get('.invite-settings').text()).toContain('该配置对所有 360° 相关环节生效')
+    wrapper.unmount()
+  })
+
+  it.each([undefined, false, true])('hydrates and confirms voluntary OKR access %s without dropping the value', async access => {
+    const settings = {
+      default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5,
+      exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: true,
+      ...(access === undefined ? {} : { allow_voluntary_okr_access: access }),
+    }
+    const wrapper = mount(PerformanceProject360InviteSettingsDrawer, { props: { modelValue: true, settings } })
+    expect(document.body.querySelector<HTMLInputElement>('input[aria-label="自愿评估时可查看被评估人的OKR"]')?.checked).toBe(access ?? false)
+    ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('confirm')?.at(-1)?.[0]).toMatchObject({ allow_voluntary_okr_access: access ?? false })
+    wrapper.unmount()
+  })
+
+  it.each([[true, true, '允许'], [true, false, '不允许'], [false, true, '不允许'], [false, false, '不允许']] as const)('summarizes voluntary %s and OKR access %s as %s', (voluntary, access, expected) => {
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: {
+      nodes: [reviewer360Node(1)], modelValue: { node_settings: { 'evaluation-1': { invite: {
+        default_invite: 'DIRECT_SUBORDINATES', minimum_invited_count: 5,
+        exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: voluntary,
+        allow_voluntary_okr_access: access,
+      } } }, node_times: {} },
+    } })
+    const summary = wrapper.get('.invite-summary').findAll('div').at(-1)!
+    expect(summary.get('span').text()).toBe('自愿评估时可查看被评估人的OKR')
+    expect(summary.get('strong').text()).toBe(expected)
+    wrapper.unmount()
+  })
+
+  it.each([undefined, false, true])('preserves OKR access %s in the project API payload and reopened drawer', async access => {
+    const initial = { node_settings: { 'evaluation-1': { invite: {
+      default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5,
+      exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: true,
+      ...(access === undefined ? {} : { allow_voluntary_okr_access: access }),
+    } } }, node_times: {} }
+    const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(async (_id, payload) => ({ flow_settings: payload.flow_settings }) as Awaited<ReturnType<typeof performanceProjectApi.update>>)
+    const wrapper = mount(PerformanceProjectFlowSettings, { props: { nodes: [reviewer360Node(1)], modelValue: initial, projectId: 12,
+      projectPayload: { name: '项目一', description: null, administrators: [], flow_settings: initial },
+    } })
+    await wrapper.get('.outline-button').trigger('click')
+    ;(document.body.querySelector('[aria-label="允许自愿评估"]') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('input[aria-label="自愿评估时可查看被评估人的OKR"]')).toBeNull()
+    ;(document.body.querySelector('.performance-drawer-footer__confirm') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(update.mock.calls[0][1].flow_settings?.node_settings['evaluation-1'].invite).toMatchObject({
+      allow_voluntary_evaluation: false, allow_voluntary_okr_access: access ?? false,
+    })
+    expect(wrapper.get('.invite-summary').findAll('strong').at(-1)?.text()).toBe('不允许')
+    await wrapper.get('.outline-button').trigger('click')
+    ;(document.body.querySelector('[aria-label="允许自愿评估"]') as HTMLButtonElement).click()
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector<HTMLInputElement>('input[aria-label="自愿评估时可查看被评估人的OKR"]')?.checked).toBe(access ?? false)
+    wrapper.unmount()
   })
 
   it('opens max-invite options only from its selector', async () => {

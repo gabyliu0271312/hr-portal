@@ -174,21 +174,30 @@ async def _snapshot_people(
     return list(rows)
 
 
-async def _evaluation_node(db: AsyncSession, project_id: int) -> PerformanceProjectNodeSnapshot | None:
-    nodes = (
-        await db.execute(
-            select(PerformanceProjectNodeSnapshot)
-            .where(
-                PerformanceProjectNodeSnapshot.project_id == project_id,
-                PerformanceProjectNodeSnapshot.node_type == "evaluation",
-            )
-            .order_by(PerformanceProjectNodeSnapshot.node_order)
-        )
-    ).scalars().all()
-    return next(
-        (node for node in nodes if node_role_code((node.config or {}).get("template") or {}) == ROLE_REVIEWER_360),
-        None,
-    )
+def _is_360_evaluation_node(node) -> bool:
+    return node.node_type == "evaluation" and node_role_code((node.config or {}).get("template") or {}) == ROLE_REVIEWER_360
+
+
+async def _project_nodes(db: AsyncSession, project_id: int) -> list[PerformanceProjectNodeSnapshot]:
+    return list((await db.execute(
+        select(PerformanceProjectNodeSnapshot)
+        .where(PerformanceProjectNodeSnapshot.project_id == project_id)
+        .order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceProjectNodeSnapshot.id)
+    )).scalars().all())
+
+
+async def _evaluation_node(
+    db: AsyncSession, project_id: int, node_id: str | None = None, nodes=None,
+) -> PerformanceProjectNodeSnapshot | None:
+    nodes = await _project_nodes(db, project_id) if nodes is None else nodes
+    if node_id is not None:
+        node = next((node for node in nodes if node.node_id == node_id), None)
+        if node is None:
+            raise HTTPException(status_code=404, detail="REVIEWER_360_NODE_NOT_FOUND")
+        if not _is_360_evaluation_node(node):
+            raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_REQUIRED")
+        return node
+    return next((node for node in nodes if _is_360_evaluation_node(node)), None)
 
 
 async def _invite_tasks(
@@ -264,16 +273,18 @@ def _invite_count_for_limit(
     )
 
 
-def _invite_settings(project: PerformanceProject, node_id: str | None = None) -> dict:
+def _invite_settings(project: PerformanceProject, node_id: str | None = None, nodes=None) -> dict:
     settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {})
-    if node_id:
-        invite = ((settings.get(node_id) or {}).get("invite") or {})
-        if invite:
-            return invite
-    for value in settings.values():
-        if (value or {}).get("invite"):
-            return (value or {})["invite"]
-    return {}
+    if nodes is not None:
+        ordered = sorted(nodes, key=lambda node: getattr(node, "node_order", 0))
+        relevant = [node for node in ordered if _is_360_evaluation_node(node)]
+        relevant += [node for node in ordered if node.node_type == "reviewer_360_invite"]
+        for node in relevant:
+            invite = (settings.get(node.node_id) or {}).get("invite")
+            if isinstance(invite, dict) and invite:
+                return invite
+        return {}
+    return next(((value or {})["invite"] for value in settings.values() if (value or {}).get("invite")), {})
 
 
 def _people_by_no(
@@ -328,7 +339,7 @@ async def list_invites(
         if task.member_snapshot_id == member_snapshot_id:
             tasks_by_handler.setdefault(str(task.handler_ref), []).append(task)
     people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
-    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None)
+    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None, nodes=await _project_nodes(db, project.id))
     minimum_count = int(invite_settings.get("minimum_invited_count") or 0)
     maximum_count = invite_settings.get("maximum_invited_count")
     maximum_mode = invite_settings.get("maximum_invite_mode") or "SUGGESTED"
@@ -443,7 +454,7 @@ async def submit_invites(
             continue
         accepted.append(employee_no)
 
-    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None)
+    invite_settings = _invite_settings(project, evaluation_node.node_id if evaluation_node else None, nodes=await _project_nodes(db, project.id))
     maximum_count = invite_settings.get("maximum_invited_count")
     maximum_mode = invite_settings.get("maximum_invite_mode") or "SUGGESTED"
     exclude_default = bool(invite_settings.get("exclude_default_invite_from_limit", False))

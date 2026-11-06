@@ -21,6 +21,7 @@
           <div><span>默认邀请</span><strong>{{ inviteLabel(inviteSettings(node).default_invite) }}</strong></div>
           <div><span>最少邀请人数</span><strong>{{ inviteSettings(node).minimum_invited_count }} 人</strong></div>
           <div><span>允许自愿评估</span><strong>{{ inviteSettings(node).allow_voluntary_evaluation ? '允许' : '不允许' }}</strong></div>
+          <div><span>自愿评估时可查看被评估人的OKR</span><strong>{{ inviteSettings(node).allow_voluntary_evaluation && inviteSettings(node).allow_voluntary_okr_access ? '允许' : '不允许' }}</strong></div>
         </div>
       </section>
 
@@ -324,7 +325,10 @@ function setDistributionEnabled(node: PerformanceWorkflowNode, value: boolean) {
 function setRuleAuthorization(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number, value: boolean) { if (!ruleLocked(node, phaseIndex, ruleIndex)) calibrationSettings(node).phases[phaseIndex].rules[ruleIndex].allow_authorize = value }
 const hasPendingPhases = computed(() => calibrationHasNewPhases(baselineFlow.value, draft.value))
 function settingsForSave(settings: PerformanceProjectFlowSettings) {
-  return cloneSettings(mergeProjectDisplayChanges(savedFlow.value, projectFlowWithUtcTimes(baselineFlow.value), projectFlowWithUtcTimes(settings)))
+  const submitted = cloneSettings(mergeProjectDisplayChanges(savedFlow.value, projectFlowWithUtcTimes(baselineFlow.value), projectFlowWithUtcTimes(settings)))
+  const invite = first360NodeKey.value ? submitted.node_settings[first360NodeKey.value]?.invite : undefined
+  if (invite) invite.allow_voluntary_okr_access ??= false
+  return submitted
 }
 function acceptSaved(project: ProjectSettingsResponse, submitted: PerformanceProjectFlowSettings) {
   savedFlow.value = cloneSettings(project.flow_settings || submitted)
@@ -349,7 +353,7 @@ async function persistFlow(settings: PerformanceProjectFlowSettings, notify = fa
   acceptSaved(project, submitted)
 }
 function defaultFor(node: PerformanceWorkflowNode) {
-  if (is360SettingsNode(node)) return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false } }
+  if (is360SettingsNode(node)) return { invite: { default_invite: 'DIRECT_SUBORDINATES' as const, minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false, allow_voluntary_okr_access: false } }
   if (node.node_type === 'calibration') return { calibration: { force_distribution_enabled: false, distribution: { mode: 'UNIFIED' as const, rules: [], scope_configured: false }, phases: [{ rules: [{ subject_type: 'PERSON' as const, operator: 'INCLUDE' as const, scope: 'PROJECT_ALL' as const, allow_authorize: false }] }] } }
   if (node.node_type === 'result_view') return { result_view: { automatic_enabled: false, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' as const } }
   if (node.node_type === 'result_reconsideration') return { result_reconsideration: { handler_employee_nos: [] } }
@@ -360,7 +364,10 @@ function ensureNode(node: PerformanceWorkflowNode) {
   const defaults = defaultFor(node) as typeof draft.value.node_settings[string]
   if (!draft.value.node_settings[key]) draft.value.node_settings[key] = defaults
   const settings = draft.value.node_settings[key]
-  if (is360SettingsNode(node) && !settings.invite) settings.invite = defaults.invite
+  if (is360SettingsNode(node)) {
+    settings.invite ||= defaults.invite
+    settings.invite!.allow_voluntary_okr_access ??= false
+  }
   if (node.node_type === 'result_view' && !settings.result_view) settings.result_view = defaults.result_view
   if (node.node_type === 'result_reconsideration') {
     if (!settings.result_reconsideration) settings.result_reconsideration = defaults.result_reconsideration

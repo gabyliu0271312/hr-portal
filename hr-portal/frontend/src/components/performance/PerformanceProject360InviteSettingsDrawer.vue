@@ -201,6 +201,9 @@
           <UiSwitch v-model="draft.allow_voluntary_evaluation" aria-label="允许自愿评估" />
         </div>
         <p class="invite-settings-muted">开启后，所有人可主动选择本项目中未邀请自己的被评估人进行评估</p>
+        <div v-if="draft.allow_voluntary_evaluation" class="invite-settings-check-group">
+          <PerformanceCheckbox :model-value="Boolean(draft.allow_voluntary_okr_access)" label="自愿评估时可查看被评估人的OKR" @update:model-value="draft.allow_voluntary_okr_access = $event" />
+        </div>
       </section>
     </div>
 
@@ -281,6 +284,7 @@ function createDraft(value: InviteSettings): InviteSettings {
     exclude_default_invite_from_limit: Boolean(value.exclude_default_invite_from_limit),
     recommended_invite: [...(value.recommended_invite || [])],
     allow_voluntary_evaluation: Boolean(value.allow_voluntary_evaluation),
+    allow_voluntary_okr_access: Boolean(value.allow_voluntary_okr_access),
   }
 }
 function hydrate(value: InviteSettings) {

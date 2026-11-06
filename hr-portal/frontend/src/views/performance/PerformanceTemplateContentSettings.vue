@@ -30,8 +30,8 @@
         <!-- REA 复议处理模块2（上级评估/final）：绩效结果设置——显示绩效结果并允许修改（默认勾选，取消后 final 内容链隐藏） -->
         <div v-if="reconFinalHeadingSelected && isResultReconsiderationFill" class="recon-result-settings">
           <div class="recon-result-settings__title">绩效结果设置</div>
-          <label class="recon-result-settings__option" :class="{ 'is-disabled': pageNameLocked }">
-            <input class="recon-result-settings__checkbox" type="checkbox" :checked="showResultAndModify" :disabled="pageNameLocked" @change="toggleShowResultAndModify($event.target as HTMLInputElement)" />
+          <label class="recon-result-settings__option" :class="{ 'is-disabled': pageNameLocked || writeSettingsLocked }">
+            <input class="recon-result-settings__checkbox" type="checkbox" :checked="showResultAndModify" :disabled="pageNameLocked || writeSettingsLocked" @change="toggleShowResultAndModify($event.target as HTMLInputElement)" />
             <span>显示绩效结果并允许修改</span>
           </label>
         </div>
@@ -42,7 +42,7 @@
     <ContentSettingsStageRenderer class="content-stage-renderer" :tabs="availableTabs" :active-tab="activeTab" :aria-label="activeTabLabel" @update:active-tab="handleTabChange">
       <PerformanceContentWorkspace v-if="selectedStageData" class="content-pane">
         <template v-if="isResultView || (isReferenceTab && referenceRelations.length)">
-          <PerformanceContentRegionList :regions="contentRegions" :disabled="structureLocked" :selected-region-id="selectedRegionId" @reorder="reorderContentRegions" @activate="selectContentRegion">
+          <PerformanceContentRegionList :regions="contentRegions" :disabled="displaySettingsLocked" :selected-region-id="selectedRegionId" @reorder="reorderContentRegions" @activate="selectContentRegion">
             <template #result>
             <div class="result-view-section__overlay" :class="{ 'is-hovered': resultViewTitleHovered, 'is-selected': selectedRegionId === 'result' }" aria-hidden="true"></div>
             <div class="result-view-section__content result-view-section__title" role="button" tabindex="0" :aria-pressed="selectedRegionId === 'result'" aria-label="选择页面标题" @mouseenter="resultViewTitleHovered = true" @mouseleave="resultViewTitleHovered = false" @focusin="resultViewTitleHovered = true" @focusout="resultViewTitleHovered = false" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
@@ -50,7 +50,7 @@
               <div v-if="!configuredContents.length" class="result-view-section__empty">此区域应添加终评环节执行人「{{ finalExecutorLabel }}」填写的内容</div>
             </div>
         <section v-if="configuredContents.length" class="configured-content-section configured-content-panel result-view-section__configured-content" aria-label="配置填写内容">
-          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || structureLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || displaySettingsLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -62,7 +62,8 @@
                 :index="index"
                 :count="configuredContents.length"
                 :toolbar-visible="!isCalibration && configuredHoverKey === configuredCardKey(content)"
-                :structure-editable="!structureLocked"
+                :structure-editable="!displaySettingsLocked"
+                :delete-editable="!displaySettingsLocked && (!structureLocked || content.type === 'prompt')"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
@@ -134,7 +135,7 @@
 
             </template>
           </PerformanceContentRegionList>
-          <PerformanceReferenceEntryBar v-if="!structureLocked" :class="{ 'result-view-reference-entry': isResultView }" :label="isResultView ? '添加其他参考内容' : undefined" @select="handleContentAction('add-reference')" />
+          <PerformanceReferenceEntryBar v-if="!displaySettingsLocked" :class="{ 'result-view-reference-entry': isResultView }" :label="isResultView ? '添加其他参考内容' : undefined" @select="handleContentAction('add-reference')" />
         </template>
         <PerformanceReviewer360Content v-else-if="isReviewer360Fill" :page-title="stagePageName" :heading-selected="pageHeadingSelected" :root-selected="reviewer360PreviewSelected" :show-actions="!configuredContents.length" :actions="summaryActions" @select-heading="selectPageHeading" @select-root="selectReviewer360Preview" @action="handleContentAction" />
         <template v-else-if="isResultReconsiderationFill">
@@ -195,7 +196,7 @@
           <PerformanceTemplateSectionCard :title="isCalibration || activeTab === 'fill' ? stagePageName : selectedStageTitle" :actions="configuredContents.length ? [] : summaryActions" :selectable="activeTab === 'fill' || isCalibration" :selected="pageHeadingSelected" @select="selectPageHeading" @action="handleContentAction" />
         </template>
         <section v-if="configuredContents.length && !isResultView && !isReferenceTab && !isResultReconsiderationFill" class="configured-content-section configured-content-panel" aria-label="配置填写内容">
-          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || structureLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
+          <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="isCalibration || displaySettingsLocked" class="configured-content-sortable-list" @reorder="reorderConfigured">
             <template #default="{ item: content, index, dragging, itemStyle }">
               <PerformanceConfiguredContentBlock
                 :horizontal-handle="true"
@@ -207,7 +208,8 @@
                 :index="index"
                 :count="configuredContents.length"
                 :toolbar-visible="!isCalibration && configuredHoverKey === configuredCardKey(content)"
-                :structure-editable="!structureLocked"
+                :structure-editable="!displaySettingsLocked"
+                :delete-editable="!displaySettingsLocked && (!structureLocked || content.type === 'prompt')"
                 :root-settings="rootSettingFor(content.id)"
                 :item-settings="itemSettingsForContent(content.id)"
                 :root-settings-enabled="activeStageContentRule.rootSettingsEnabled"
@@ -233,7 +235,7 @@
         </section>
       </PerformanceContentWorkspace>
       <PerformanceContentWorkspace v-if="referenceTabEmpty" class="reference-entry-pane">
-        <PerformanceReferenceEntryBar v-if="!structureLocked" @select="handleContentAction('add-reference')" />
+        <PerformanceReferenceEntryBar v-if="!displaySettingsLocked" @select="handleContentAction('add-reference')" />
       </PerformanceContentWorkspace>
     </ContentSettingsStageRenderer>
     <aside v-if="false" class="configured-content-panel" aria-label="閰嶇疆濉啓鍐呭唴">
@@ -243,9 +245,9 @@
         <ul><li v-for="item in content.items" :key="item.id">{{ item.label }}</li></ul>
       </article>
     </aside>
-    <PerformancePromptModal v-model:open="promptModalOpen" :scope-disabled="structureLocked" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
+    <PerformancePromptModal v-model:open="promptModalOpen" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
-    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :display-only="structureLocked" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
+    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :definition-editable="!displaySettingsLocked" :display-only="structureLocked" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
   </div>
 </template>
 
@@ -423,27 +425,28 @@ const finalModuleTitle = computed(() => finalNode.value?.name || selectedStageDa
 /** 结果复议处理：显示绩效结果并允许修改（REA 复议 final 面板勾选，默认 true；取消后 final 内容链隐藏只剩表头） */
 const showResultAndModify = computed(() => selectedWorkflowNode.value?.show_result_and_modify !== false)
 function toggleShowResultAndModify(input: HTMLInputElement) {
-  if (pageNameLocked.value || !selectedWorkflowNode.value) return
+  if (pageNameLocked.value || writeSettingsLocked.value || !selectedWorkflowNode.value) return
   selectedWorkflowNode.value.show_result_and_modify = input.checked
 }
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const summaryActions = computed(() => {
-  if (structureLocked.value) return []
   const type = selectedStageData.value?.nodeType
-  if (isReferenceTab.value) return [{ key: 'add-reference', label: '选择参考内容' }]
+  const displayDisabled = displaySettingsLocked.value
+  const contentDisabled = structureLocked.value || displayDisabled
+  if (isReferenceTab.value) return [{ key: 'add-reference', label: '选择参考内容', disabled: displayDisabled }]
   if (isCalibration.value) return []
   if (isReviewer360Fill.value) {
-    return [{ key: 'add-prompt', label: '添加提示' }]
+    return [{ key: 'add-prompt', label: '添加提示', disabled: displayDisabled }]
   }
   if (type === 'result_view') {
     return [
-      { key: 'add-final-content', label: '添加终评内容' },
-      { key: 'add-prompt', label: '添加提示' },
+      { key: 'add-final-content', label: '添加终评内容', disabled: contentDisabled },
+      { key: 'add-prompt', label: '添加提示', disabled: displayDisabled },
     ]
   }
   return [
-    { key: 'add-content', label: '添加内容' },
-    { key: 'add-prompt', label: '添加提示' },
+    { key: 'add-content', label: '添加内容', disabled: contentDisabled },
+    { key: 'add-prompt', label: '添加提示', disabled: displayDisabled },
   ]
 })
 const promptModalOpen = ref(false)
@@ -630,7 +633,7 @@ const contentRegions = computed(() => {
 })
 function reorderContentRegions(from: number, to: number) {
   const node = selectedWorkflowNode.value
-  if (!node || structureLocked.value || from === to) return
+  if (!node || displaySettingsLocked.value || from === to || from < 0 || to < 0 || from >= contentRegions.value.length || to >= contentRegions.value.length) return
   syncSelectedStageContents()
   const regions = contentRegions.value.slice()
   const [moved] = regions.splice(from, 1)
@@ -735,12 +738,16 @@ function canEditDefinition(content: AssessmentContentDraft & { id: string }) {
   return !displaySettingsLocked.value && !isReferenceContent(content.id) && !isCalibration.value && !isResultReconsiderationFill.value
 }
 function displayContentUpdate(current: AssessmentContentDraft & { id: string }, updated: AssessmentContentDraft & { id: string }) {
-  const prompt = (original: PerformancePromptValue, next?: PerformancePromptValue) => next ? { ...original, title: next.title, content: next.content, color: next.color, showIcon: next.showIcon, allowView: next.allowView, onlyWhenFilling: next.onlyWhenFilling } : original
-  return { ...current, ...(current.type !== 'prompt' ? { name: updated.name } : {}), ...(current.prompt ? { prompt: prompt(current.prompt, updated.prompt) } : {}), items: current.items.map(item => {
-    const next = updated.items.find(candidate => candidate.id === item.id)
-    if (!next) return item
-    return item.kind === 'prompt' && item.prompt ? { ...item, prompt: prompt(item.prompt, next.prompt) } : { ...item, label: next.label, hint: next.hint }
-  }) }
+  const businessItems = new Map(current.items.filter(item => item.kind !== 'prompt').map(item => [item.id, item]))
+  const updatedIds = new Set(updated.items.map(item => item.id))
+  const items = updated.items.flatMap(next => {
+    const item = businessItems.get(next.id)
+    if (item) return [{ ...item, label: next.label, hint: next.hint }]
+    if (next.kind !== 'prompt' || !next.prompt || current.items.some(item => item.id === next.id && item.kind !== 'prompt')) return []
+    const original = current.items.find(item => item.id === next.id)
+    return [{ ...original, id: next.id, kind: 'prompt' as const, label: next.label || '', hint: next.hint || '', prompt: cloneContent(next.prompt) }]
+  })
+  return { ...current, name: updated.name, description: updated.description, ...(current.prompt && updated.prompt ? { prompt: cloneContent(updated.prompt) } : {}), items: [...items, ...current.items.filter(item => item.kind !== 'prompt' && !updatedIds.has(item.id))] }
 }
 function updateConfiguredContent(index: number, content: AssessmentContentDraft & { id: string }) {
   if (displaySettingsLocked.value) return
@@ -761,7 +768,7 @@ function setConfiguredExpanded(contentId: string, expanded: boolean) {
   expanded ? next.add(contentId) : next.delete(contentId)
   configuredExpandedIds.value = next
 }
-watch(selectedStageData, () => { activeTab.value = availableTabs.value[0].key })
+watch(() => selectedStageData.value?.id, () => { activeTab.value = availableTabs.value[0].key })
 function handleContentDrawerVisibility(open: boolean) {
   contentDrawerOpen.value = open
   if (!open) allContentDrawerOpen.value = false
@@ -772,7 +779,7 @@ function openAllContentDrawer() {
   contentDrawerOpen.value = true
 }
 function handleContentAction(key: string) {
-  if (structureLocked.value) return
+  if (displaySettingsLocked.value || (structureLocked.value && !['add-prompt', 'add-reference'].includes(key))) return
   syncSelectedStageContents()
   if (key === 'add-prompt') {
     editingPrompt.value = null
@@ -792,11 +799,10 @@ function handleTabChange(tab: string) {
   loadSelectedStageContents()
 }
 function handlePromptSave(value: PerformancePromptValue) {
-  if (displaySettingsLocked.value || (structureLocked.value && !editingPrompt.value)) return
-  if (structureLocked.value && editingPrompt.value?.prompt) value = { ...value, scope: editingPrompt.value.prompt.scope }
+  if (displaySettingsLocked.value || !summaryActions.value.some(action => action.key === 'add-prompt' && !action.disabled)) return
   if (!selectedStage.value || !value.content.trim()) return
   const id = editingPrompt.value?.id || `prompt-${Date.now()}-${++promptCounter}`
-  const prompt: AssessmentContentDraft & { id: string } = { ...editingPrompt.value, id, type: 'prompt', name: structureLocked.value ? editingPrompt.value!.name : value.title.trim() || '提示', description: '', items: [], prompt: cloneContent(value), content_id: id, content_slot: activeTab.value as PerformanceTemplateContent['content_slot'] }
+  const prompt: AssessmentContentDraft & { id: string } = { ...editingPrompt.value, id, type: 'prompt', name: value.title.trim() || '提示', description: '', items: [], prompt: cloneContent(value), content_id: id, content_slot: activeTab.value as PerformanceTemplateContent['content_slot'] }
   const contents = serializeConfiguredContents()
   const next = editingPrompt.value ? contents.map(content => contentIdentity(content) === id ? prompt : content) : [...contents, prompt]
   setConfiguredContents(next, isResultView.value)
@@ -866,7 +872,7 @@ function projectContentDefinition<T extends PerformanceTemplateContent>(target: 
         ...(item.prompt ? { prompt: mergePromptDefinition(item.prompt, local?.prompt)! } : {}),
       }
     }),
-    ...(target.items || []).filter(item => !definitionIds.has(item.id)).map(item => cloneContent(item)),
+    ...(target.items || []).filter(item => !definitionIds.has(item.id) && item.kind !== 'prompt').map(item => cloneContent(item)),
   ]
   return {
     ...cloneContent(definition),
@@ -960,8 +966,8 @@ function selectStage(id: string) {
   configuredHoverKey.value = null
 }
 function handleContentConfirm(contents: AssessmentContentDraft[]) {
+  if (displaySettingsLocked.value) return
   if (structureLocked.value) {
-    if (displaySettingsLocked.value) return
     syncSelectedStageContents()
     const definitions = contentLibrary.value.map(current => {
       const updated = contents.find(content => contentIdentity(content as PerformanceTemplateContent) === contentIdentity(current))
@@ -1002,7 +1008,7 @@ function handleContentConfirm(contents: AssessmentContentDraft[]) {
   contentDrawerOpen.value = false
 }
 function handleReferenceConfirm(selected: string[]) {
-  if (structureLocked.value) return
+  if (displaySettingsLocked.value) return
   syncSelectedStageContents()
   const pool = new Map<string, ReferenceOption & { kind: 'node' | 'more' }>()
   referenceNodeCandidates.value.forEach((option) => pool.set(option.value, { ...option, kind: 'node' }))
@@ -1031,7 +1037,7 @@ function handleReferenceConfirm(selected: string[]) {
   referenceDrawerOpen.value = false
 }
 function reorderConfigured(from: number, to: number) {
-  if (structureLocked.value || from === to) return
+  if (displaySettingsLocked.value || isCalibration.value || isReferenceTab.value || isResultReconsiderationFill.value || from === to || from < 0 || to < 0 || from >= configuredContents.value.length || to >= configuredContents.value.length) return
   const next = configuredContents.value.slice()
   const [moved] = next.splice(from, 1)
   if (!moved) return
@@ -1042,9 +1048,8 @@ function moveConfigured(index: number, delta: -1 | 1) {
   reorderConfigured(index, index + delta)
 }
 function removeConfigured(index: number) {
-  if (structureLocked.value) return
   const removed = configuredContents.value[index]
-  if (!removed) return
+  if (!removed || displaySettingsLocked.value || isCalibration.value || isReferenceTab.value || isResultReconsiderationFill.value || (structureLocked.value && removed.type !== 'prompt')) return
   configuredContents.value = configuredContents.value.filter((_, itemIndex) => itemIndex !== index)
   const next = new Set(configuredExpandedIds.value)
   next.delete(removed.id)

@@ -261,7 +261,7 @@ async def _self_summary_template(task: PerformanceNodeTask, node: PerformancePro
     template = (node.config or {}).get("template") or {}
     if getattr(node, "node_type", None) == "result_reconsideration":
         return await hydrate_self_summary_template({**template, "content": template.get("content") or [{"content_id": "reconsideration-feedback", "type": "work_summary", "name": "复议处理结果", "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}]}]}, db)
-    if not template.get("content") and getattr(node, "node_type", None) != "calibration":
+    if "template" not in (node.config or {}) and getattr(node, "node_type", None) != "calibration":
         project = await db.get(PerformanceProject, task.project_id)
         template_id = (project.settings or {}).get("template_id") if project else None
         workflow = await db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
@@ -316,6 +316,7 @@ async def _reference_tabs(
 ) -> list[dict]:
     template = await _self_summary_template(task, node, db)
     references = []
+    order = []
     seen_node_ids: set[str] = set()
     has_okr_reference = False
     okr_reference_name = "OKR"
@@ -323,8 +324,10 @@ async def _reference_tabs(
         if (content.get("content_slot") or "fill") != "reference":
             continue
         if content.get("reference_kind") == "more" and str(content.get("reference_value") or "").strip() == "okr":
+            if not has_okr_reference:
+                order.append("reference-okr")
+                okr_reference_name = str((content.get("reference_settings") or {}).get("page_name") or content.get("name") or "OKR").strip() or "OKR"
             has_okr_reference = True
-            okr_reference_name = str((content.get("reference_settings") or {}).get("page_name") or content.get("name") or "OKR").strip() or "OKR"
             continue
         if content.get("reference_kind") != "node":
             continue
@@ -333,8 +336,15 @@ async def _reference_tabs(
             continue
         seen_node_ids.add(reference_node_id)
         references.append(reference_node_id)
+        order.append(f"reference-{reference_node_id}")
+    if not has_okr_reference and getattr(node, "node_type", None) == "work_summary":
+        has_okr_reference = True
+        order.append("reference-okr")
 
     result = await _node_reference_tabs(task, node, project, actor_ref, db, template, references) if references else []
+    if has_okr_reference:
+        from app.performance.okr_policy import task_okr_access_allowed
+        has_okr_reference = await task_okr_access_allowed(db, task, node, project)
     if has_okr_reference:
         result.append({
             "key": "reference-okr",
@@ -350,7 +360,8 @@ async def _reference_tabs(
             "can_remind": False,
             "okr": None,
         })
-    return result
+    by_key = {tab["key"]: tab for tab in result}
+    return [by_key[key] for key in order if key in by_key]
 
 
 async def _node_reference_tabs(

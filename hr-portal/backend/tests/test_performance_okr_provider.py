@@ -220,3 +220,74 @@ async def test_task_okr_api_requires_authorized_task_and_configured_reference(mo
     with pytest.raises(HTTPException) as exc:
         await okr_router.get_task_okr(17, context=object(), db=Db())
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allowed,legacy,ids", [(True, False, [17]), (False, False, [17]), (True, True, [17]), (True, True, [17, 18])])
+async def test_voluntary_okr_uses_current_setting_and_exact_task(allowed, legacy, ids):
+    from types import SimpleNamespace
+    from app.performance.okr_policy import task_okr_access_allowed
+    from app.performance.models import PerformanceAuditEvent, PerformanceNodeTask
+    task = SimpleNamespace(id=17, project_id=8, cycle_ref="C", node_snapshot_id=2, target_employee_no="E", handler_ref="R")
+    node = SimpleNamespace(id=2, node_id="later", node_type="evaluation", node_order=2, config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    first = SimpleNamespace(id=1, node_id="first", node_type="evaluation", node_order=1, config=node.config)
+    project = SimpleNamespace(id=8, settings={"flow_settings": {"node_settings": {"first": {"invite": {"allow_voluntary_okr_access": allowed}}}}})
+    event = SimpleNamespace(after_state={"project_id": 8, "node_id": "later", **({} if legacy else {"task_id": 17})})
+    class Db:
+        async def execute(self, query):
+            entity = query.column_descriptions[0].get("entity")
+            values = [event] if entity is PerformanceAuditEvent else ids if entity is PerformanceNodeTask else [first, node]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+    assert await task_okr_access_allowed(Db(), task, node, project) is (allowed and (not legacy or ids == [17]))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("audit_task,audit_project,audit_node", [(18, 8, "later"), (17, 9, "later"), (17, 8, "other")])
+async def test_unrelated_voluntary_audit_does_not_restrict_invited_task(audit_task, audit_project, audit_node):
+    from types import SimpleNamespace
+    from app.performance.okr_policy import task_okr_access_allowed
+    task = SimpleNamespace(id=17, project_id=8, cycle_ref="C", target_employee_no="E", handler_ref="R")
+    node = SimpleNamespace(node_id="later", config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    event = SimpleNamespace(after_state={"project_id": audit_project, "node_id": audit_node, "task_id": audit_task})
+    class Db:
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [event]))
+    assert await task_okr_access_allowed(Db(), task, node, SimpleNamespace(id=8)) is True
+
+
+@pytest.mark.asyncio
+async def test_summary_default_okr_and_policy_denial_precedes_provider(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import okr_router, projects_router
+    task = SimpleNamespace(id=17, task_kind="work_summary", target_employee_no="E")
+    class Db:
+        async def get(self, model, key): return task
+    monkeypatch.setattr(projects_router, "_self_summary_task", AsyncMock(return_value=(task, SimpleNamespace(node_type="work_summary"))))
+    monkeypatch.setattr(projects_router, "_self_summary_template", AsyncMock(return_value={"content": []}))
+    policy = AsyncMock(return_value=True)
+    fetched = AsyncMock(return_value=None)
+    monkeypatch.setattr(okr_router, "task_okr_access_allowed", policy)
+    monkeypatch.setattr(okr_router, "get_okr_provider", lambda: SimpleNamespace(name="feishu"))
+    monkeypatch.setattr(okr_router, "fetch_employee_okr", fetched)
+    assert (await okr_router.get_task_okr(17, context=object(), db=Db())).enabled is True
+    fetched.assert_awaited_once()
+    fetched.reset_mock()
+    policy.return_value = False
+    with pytest.raises(HTTPException) as exc:
+        await okr_router.get_task_okr(17, context=object(), db=Db())
+    assert (exc.value.status_code, exc.value.detail) == (403, "OKR_REFERENCE_FORBIDDEN")
+    fetched.assert_not_awaited()
+
+
+def test_project_voluntary_okr_setting_roundtrip_default_and_validation():
+    from app.performance.project_service import PerformanceProjectService, ProjectValidationError
+    validate = PerformanceProjectService._validate_flow_settings
+    def flow(invite): return {"node_settings": {"feedback": {"invite": invite}}, "node_times": {}}
+    assert validate(flow({}))["node_settings"]["feedback"]["invite"]["allow_voluntary_okr_access"] is False
+    saved = validate(flow({"allow_voluntary_evaluation": True, "allow_voluntary_okr_access": True}))
+    assert validate(saved) == saved
+    assert validate(flow({"allow_voluntary_evaluation": False}), saved)["node_settings"]["feedback"]["invite"]["allow_voluntary_okr_access"] is True
+    for value in ["false", 1, None]:
+        with pytest.raises(ProjectValidationError): validate(flow({"allow_voluntary_okr_access": value}))

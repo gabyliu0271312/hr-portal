@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
@@ -39,10 +40,12 @@ from app.performance.review_360_invites_router import (
     _employment_status,
     _evaluation_node,
     _get_project,
+    _invite_settings,
     _latest_member_snapshot_id,
     _locked_snapshot,
     _parse_node_time,
     _people_by_no,
+    _project_nodes,
     _snapshot_people,
 )
 
@@ -85,6 +88,7 @@ class FeedbackCandidatesOut(BaseModel):
 class VoluntaryPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_employee_no: str = Field(min_length=1, max_length=64)
+    node_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class VoluntaryResultOut(BaseModel):
@@ -92,9 +96,29 @@ class VoluntaryResultOut(BaseModel):
     target_employee_no: str
 
 
-def _node_invite_settings(project: PerformanceProject, node_id: str) -> dict:
-    settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {})
-    return ((settings.get(node_id) or {}).get("invite") or {})
+async def _overdue_voluntary_allowed(db: AsyncSession) -> bool:
+    setting = await db.get(PerformanceOtherSetting, 1)
+    return setting is not None and setting.overdue_voluntary_360_submission_enabled
+
+
+async def _voluntary_permission_error(db, project, node, nodes):
+    if node is None:
+        return 409, "REVIEWER_360_NODE_NOT_CONFIGURED"
+    if not _invite_settings(project, node.node_id, nodes=nodes).get("allow_voluntary_evaluation"):
+        return 403, "VOLUNTARY_NOT_ALLOWED"
+    start_at, end_at = _node_window(project, node)
+    now = datetime.now(UTC)
+    if start_at is not None and now < start_at:
+        return 409, "VOLUNTARY_WINDOW_NOT_OPEN"
+    if end_at is not None and now > end_at and not await _overdue_voluntary_allowed(db):
+        return 409, "VOLUNTARY_WINDOW_CLOSED"
+    return None
+
+
+async def _require_voluntary_permission(db, project, node, nodes):
+    error = await _voluntary_permission_error(db, project, node, nodes)
+    if error:
+        raise HTTPException(status_code=error[0], detail=error[1])
 
 
 def _node_window(
@@ -160,6 +184,7 @@ async def _feedback_source_labels(
     db: AsyncSession,
     project: PerformanceProject,
     handler_ref: str,
+    node_id: str | None = None,
 ) -> dict[str, str]:
     rows = (
         await db.execute(
@@ -176,6 +201,8 @@ async def _feedback_source_labels(
     for event in rows:
         after = event.after_state or {}
         if str(after.get("project_id")) != str(project.id):
+            continue
+        if node_id is not None and after.get("node_id") != node_id:
             continue
         target = str(event.employee_no or "")
         if not target:
@@ -213,6 +240,7 @@ async def _evaluated_employee_nos(db: AsyncSession, project_id: int) -> list[str
 @router.get("/projects/{project_id}", response_model=FeedbackListOut)
 async def list_feedback(
     project_id: int,
+    node_id: str | None = None,
     keyword: str | None = Query(default=None, max_length=128),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
@@ -220,13 +248,14 @@ async def list_feedback(
     project = await _get_project(db, project_id)
     snapshot = await _locked_snapshot(db, project)
     actor_ref = await _resolve_cycle_member_employee(db, context, project)
-    node = await _evaluation_node(db, project.id)
-    invite_settings = _node_invite_settings(project, node.node_id) if node else {}
+    nodes = await _project_nodes(db, project.id)
+    node = await _evaluation_node(db, project.id, node_id, nodes=nodes)
+    allow_voluntary = await _voluntary_permission_error(db, project, node, nodes) is None
     tasks = await _reviewer_tasks(db, project.id, node.id if node else None, actor_ref)
     member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
     tasks = [task for task in tasks if task.member_snapshot_id == member_snapshot_id]
     people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
-    labels = await _feedback_source_labels(db, project, actor_ref)
+    labels = await _feedback_source_labels(db, project, actor_ref, node.node_id if node else None)
     items: list[FeedbackItemOut] = []
     for task in tasks:
         person = people_by_no.get(task.target_employee_no)
@@ -254,13 +283,14 @@ async def list_feedback(
         items=items,
         total=len(items),
         node_id=node.node_id if node else None,
-        allow_voluntary_evaluation=bool(invite_settings.get("allow_voluntary_evaluation")),
+        allow_voluntary_evaluation=allow_voluntary,
     )
 
 
 @router.get("/projects/{project_id}/candidates", response_model=FeedbackCandidatesOut)
 async def list_voluntary_candidates(
     project_id: int,
+    node_id: str | None = None,
     keyword: str | None = Query(default=None, max_length=128),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
@@ -268,6 +298,9 @@ async def list_voluntary_candidates(
     project = await _get_project(db, project_id)
     snapshot = await _locked_snapshot(db, project)
     actor_ref = await _resolve_cycle_member_employee(db, context, project)
+    nodes = await _project_nodes(db, project.id)
+    node = await _evaluation_node(db, project.id, node_id, nodes=nodes)
+    await _require_voluntary_permission(db, project, node, nodes)
     evaluated = set(await _evaluated_employee_nos(db, project.id))
     people = [
         person for person in await _snapshot_people(db, snapshot.id)
@@ -299,17 +332,19 @@ async def list_voluntary_candidates(
 async def start_voluntary_evaluation(
     project_id: int,
     payload: VoluntaryPayload,
+    node_id: str | None = None,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
+    if payload.node_id is not None and node_id is not None and payload.node_id != node_id:
+        raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_MISMATCH")
+    node_id = payload.node_id if payload.node_id is not None else node_id
     project = await _get_project(db, project_id)
     snapshot = await _locked_snapshot(db, project)
     actor_ref = await _resolve_cycle_member_employee(db, context, project)
-    node = await _evaluation_node(db, project.id)
-    if node is None:
-        raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_NOT_CONFIGURED")
-    if not _node_invite_settings(project, node.node_id).get("allow_voluntary_evaluation"):
-        raise HTTPException(status_code=403, detail="VOLUNTARY_NOT_ALLOWED")
+    nodes = await _project_nodes(db, project.id)
+    node = await _evaluation_node(db, project.id, node_id, nodes=nodes)
+    await _require_voluntary_permission(db, project, node, nodes)
     member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
     if member_snapshot_id is None:
         raise HTTPException(status_code=409, detail="PROJECT_MEMBER_SNAPSHOT_NOT_FOUND")
@@ -323,23 +358,17 @@ async def start_voluntary_evaluation(
     if target_no not in set(await _evaluated_employee_nos(db, project.id)):
         raise HTTPException(status_code=422, detail="TARGET_NOT_EVALUATED")
     start_at, end_at = _node_window(project, node)
-    now = datetime.now(UTC)
-    if start_at is not None and now < start_at:
-        raise HTTPException(status_code=409, detail="VOLUNTARY_WINDOW_NOT_OPEN")
-    if end_at is not None and now > end_at:
-        setting = await db.get(PerformanceOtherSetting, 1)
-        if setting is None or not setting.overdue_voluntary_360_submission_enabled:
-            raise HTTPException(status_code=409, detail="VOLUNTARY_WINDOW_CLOSED")
-    existing = await db.scalar(
-        select(PerformanceNodeTask.id).where(
-            PerformanceNodeTask.project_id == project.id,
-            PerformanceNodeTask.member_snapshot_id == member_snapshot_id,
-            PerformanceNodeTask.node_snapshot_id == node.id,
-            PerformanceNodeTask.target_employee_no == target_no,
-            PerformanceNodeTask.handler_ref == actor_ref,
-            PerformanceNodeTask.task_kind == "evaluation",
-        )
+    existing_query = select(PerformanceNodeTask.id).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.member_snapshot_id == member_snapshot_id,
+        PerformanceNodeTask.node_snapshot_id == node.id,
+        PerformanceNodeTask.target_employee_no == target_no,
+        PerformanceNodeTask.handler_ref == actor_ref,
+        PerformanceNodeTask.task_kind == "evaluation",
+        PerformanceNodeTask.phase_id == "",
+        PerformanceNodeTask.revoked_at.is_(None),
     )
+    existing = await db.scalar(existing_query)
     if existing is not None:
         return VoluntaryResultOut(task_id=existing, target_employee_no=target_no)
     task = PerformanceNodeTask(
@@ -356,7 +385,14 @@ async def start_voluntary_evaluation(
         status="pending",
     )
     db.add(task)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        existing = await db.scalar(existing_query)
+        if existing is None:
+            raise
+        return VoluntaryResultOut(task_id=existing, target_employee_no=target_no)
     PerformanceAuditService(db).append_event(
         AuditEventInput(
             event_type=VOLUNTARY_AUDIT_EVENT,
@@ -369,6 +405,7 @@ async def start_voluntary_evaluation(
             after_state={
                 "project_id": project.id,
                 "node_id": node.node_id,
+                "task_id": task.id,
                 "source_type": "VOLUNTARY",
                 "assigned_by_type": DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
                 "assigned_by_ref": actor_ref,

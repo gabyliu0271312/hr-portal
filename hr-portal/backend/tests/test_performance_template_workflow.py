@@ -1971,16 +1971,14 @@ async def test_used_template_display_leaves_save_get_and_sync_only_matching_snap
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", ["name", "executor", "write", "node-order", "node-add", "item-order", "item-add", "type", "options", "mode", "required", "allowModify", "scope", "binding", "reference", "unknown", "library-remove"])
+@pytest.mark.parametrize("target", ["executor", "write", "node-order", "node-add", "item-add", "item-remove", "content-add", "content-remove", "rating-reference", "type", "options", "mode", "required", "allowModify", "binding", "unknown", "library-remove"])
 async def test_used_template_locked_changes_fail_whole_patch(workflow_save_setup, monkeypatch, target):
     service, db = workflow_save_setup
     nodes, library = _used_display_workflow(db)
     before_nodes, before_library = deepcopy(db.workflow.nodes), deepcopy(db.workflow.content_library)
     library[0]["name"] = "合法展示修改也不得部分保存"
     item = nodes[0]["content"][0]["items"][0]
-    if target == "name":
-        nodes[0]["name"] = "非法节点名"
-    elif target == "executor":
+    if target == "executor":
         nodes[0]["executor_types"] = ["LEVEL_2_MANAGER"]
     elif target == "write":
         nodes[0]["include_final_result"], nodes[1]["include_final_result"] = False, True
@@ -1988,10 +1986,16 @@ async def test_used_template_locked_changes_fail_whole_patch(workflow_save_setup
         nodes[0], nodes[1] = nodes[1], nodes[0]
     elif target == "node-add":
         nodes.append(_evaluation("added", "实线上级"))
-    elif target == "item-order":
-        nodes[0]["content"][0]["items"].reverse()
     elif target == "item-add":
         nodes[0]["content"][0]["items"].append({"id": "new"})
+    elif target == "item-remove":
+        nodes[0]["content"][0]["items"].pop(0)
+    elif target == "content-add":
+        nodes[0]["content"].append(_view_source_content("added"))
+    elif target == "content-remove":
+        nodes[0]["content"].pop(0)
+    elif target == "rating-reference":
+        nodes[0]["content"][0]["ratingOptionId"] = "999"
     elif target == "type":
         item["questionType"] = "text"
     elif target == "options":
@@ -2000,16 +2004,12 @@ async def test_used_template_locked_changes_fail_whole_patch(workflow_save_setup
         item["settings"][target] = "view" if target == "mode" else False
     elif target == "allowModify":
         nodes[-1]["calibration_settings"][library[0]["content_id"]]["items"]["question"]["allowModify"] = True
-    elif target == "scope":
-        nodes[0]["content"][1]["prompt"]["scope"] = "cycle"
     elif target == "binding":
         nodes[0]["content_bindings"] = {"fill": ["notice"]}
-    elif target == "reference":
-        nodes[2]["content"][0]["reference_value"] = "other"
     elif target == "unknown":
         item["settings"]["futureWriteSetting"] = True
     else:
-        library.pop()
+        library.pop(0)
     monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
     with pytest.raises(HTTPException) as exc:
         await templates_router.update_template_workflow(77, WorkflowUpdate.model_validate({"nodes": nodes, "content_library": library}), _template_admin_context(), db)
@@ -2083,3 +2083,120 @@ async def test_executor_directory_must_contain_active_system_assessment_roles():
     for changes in ({"is_active": False}, {"is_system": False}, {"role_type": "MANAGEMENT"}):
         with pytest.raises(ValueError, match="角色目录"):
             await validate_executor_roles(Db(SimpleNamespace(**{**vars(role), **changes})), nodes)
+
+
+@pytest.mark.asyncio
+async def test_used_template_reference_prompt_membership_order_syncs_finished_and_legacy_snapshots(workflow_save_setup):
+    from app.performance.self_summary_service import build_self_summary_schema
+
+    service, db = workflow_save_setup
+    nodes, library = _used_display_workflow(db)
+    snapshot_template = normalize_workflow_nodes(nodes)[0]
+    snapshot_template["content"][0]["items"][0]["hydrated"] = {"keep": True}
+    snapshot_template["content_bindings"] = {"fill": [library[0]["content_id"], "notice"]}
+    snapshot = SimpleNamespace(node_id="final", name="final", status="completed", config={"template": snapshot_template, "time": "keep", "answers": {"question": ["a"]}})
+    view_snapshot = SimpleNamespace(node_id=nodes[2]["node_id"], config={"template": deepcopy(nodes[2])})
+    legacy = SimpleNamespace(node_id="final", config={"template": {"content": [], "future": "keep"}, "answers": {"question": "keep"}})
+    db.snapshots = [snapshot, view_snapshot, legacy]
+    frozen_answers = deepcopy(snapshot.config["answers"])
+    nodes[0].update(name="新环节名", description="新描述", content_page_name="新页面")
+    library[0].update(name="新内容名", description="新内容描述")
+    library[0]["items"].insert(0, {"id": "intro", "kind": "prompt", "prompt": {**_prompt_content()["prompt"], "scope": "cycle"}})
+    library[0]["items"] = [item for item in library[0]["items"] if item.get("kind") != "prompt" or item["id"] == "intro"]
+    prompt = _prompt_content("new-notice", prompt={**_prompt_content()["prompt"], "scope": "cycle", "showIcon": False})
+    okr = {"content_id": "okr", "type": "reference", "content_slot": "reference", "reference_kind": "more", "reference_value": "okr", "items": []}
+    nodes[0]["content"] = [okr, prompt, nodes[0]["content"][0]]
+    nodes[2]["content"] = [deepcopy(okr)]
+    library = [library[0], prompt]
+    await service.save_nodes(77, nodes, content_library=library, actor_type="SYSTEM_ACCOUNT", actor_ref="7")
+    synced = snapshot.config["template"]
+    assert [content["content_id"] for content in synced["content"]] == ["okr", "new-notice", library[0]["content_id"]]
+    assert [item["id"] for item in synced["content"][2]["items"]] == ["intro", "question"]
+    assert synced["content"][2]["items"][1]["hydrated"] == {"keep": True}
+    assert synced["content"][2]["description"] == "新内容描述"
+    assert synced["content_bindings"]["reference"] == ["okr"]
+    assert "notice" not in synced["content_bindings"]["fill"]
+    assert snapshot.name == "新环节名" and snapshot.status == "completed"
+    assert synced["content_page_name"] == "新页面"
+    assert snapshot.config["answers"] == frozen_answers and snapshot.config["time"] == "keep"
+    assert [content["content_id"] for content in view_snapshot.config["template"]["content"]] == ["okr"]
+    assert [content["content_id"] for content in legacy.config["template"]["content"]] == ["okr", "new-notice"]
+    assert build_self_summary_schema(legacy.config["template"]) == []
+    assert legacy.config["template"]["future"] == "keep"
+    assert legacy.config["answers"] == {"question": "keep"}
+    sql = [str(statement) for statement in db.statements]
+    assert not any("performance_projects.status" in statement for statement in sql if "FOR UPDATE" in statement)
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_used_template_reorders_stable_business_fields_without_replacing_snapshot_rules(workflow_save_setup):
+    service, db = workflow_save_setup
+    content = _view_source_content(content_type="custom", items=[
+        {"id": "a", "questionType": "text", "settings": {"required": True}},
+        {"id": "b", "questionType": "text", "settings": {"required": False}},
+    ])
+    other_content = _view_source_content("second", "custom", items=[{"id": "c"}])
+    node = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [deepcopy(content), deepcopy(other_content)]}
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=[deepcopy(node)], content_library=[deepcopy(content), deepcopy(other_content)])
+    db.project_usage = 1
+    db.snapshots = [SimpleNamespace(node_id="final", config={"template": deepcopy(node), "answers": {"a": "A", "b": "B"}})]
+    content["items"].reverse()
+    node["content"][0]["items"].reverse()
+    node["content"].reverse()
+    await service.save_nodes(77, [node], content_library=[other_content, content], actor_type="SYSTEM_ACCOUNT", actor_ref="7")
+    synced = db.snapshots[0].config
+    assert [item["content_id"] for item in synced["template"]["content"]] == ["second", "final-content"]
+    assert [item["id"] for item in synced["template"]["content"][1]["items"]] == ["b", "a"]
+    assert synced["template"]["content"][1]["items"][1]["settings"] == {"required": True}
+    assert synced["answers"] == {"a": "A", "b": "B"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("node_type,expected", [("work_summary", ["reference-okr"]), ("evaluation", []), ("calibration", [])])
+async def test_work_summary_default_okr_is_readonly_and_does_not_apply_to_other_nodes(monkeypatch, node_type, expected):
+    from app.performance import projects_router
+
+    node = SimpleNamespace(node_id="current", node_type=node_type, config={"template": {"content": []}})
+    task = SimpleNamespace(id=5, target_employee_no="E1")
+    tabs = await projects_router._reference_tabs(task, node, SimpleNamespace(), "E1", object())
+    assert [tab["key"] for tab in tabs] == expected
+    if tabs:
+        assert tabs[0]["okr"] is None and tabs[0]["can_remind"] is False
+        assert tabs[0]["form_schema"] == [] and tabs[0]["answers"] == {}
+
+
+@pytest.mark.asyncio
+async def test_reference_tabs_preserve_configured_order_and_okr_policy(monkeypatch):
+    from app.performance import projects_router, okr_policy
+
+    contents = [
+        {"content_slot": "reference", "reference_kind": "node", "reference_value": "first"},
+        {"content_slot": "reference", "reference_kind": "more", "reference_value": "okr"},
+        {"content_slot": "reference", "reference_kind": "node", "reference_value": "last"},
+    ]
+    async def node_tabs(*args):
+        return [{"key": "reference-first"}, {"key": "reference-last"}]
+    monkeypatch.setattr(projects_router, "_node_reference_tabs", node_tabs)
+    task = SimpleNamespace(id=5, target_employee_no="E1")
+    node = SimpleNamespace(node_type="evaluation", node_id="current", config={"template": {"content": contents}})
+    project, db = object(), object()
+    tabs = await projects_router._reference_tabs(task, node, project, "E2", db)
+    assert [tab["key"] for tab in tabs] == ["reference-first", "reference-okr", "reference-last"]
+    async def deny(actual_db, actual_task, actual_node, actual_project):
+        assert (actual_db, actual_task, actual_node, actual_project) == (db, task, node, project)
+        return False
+    monkeypatch.setattr(okr_policy, "task_okr_access_allowed", deny)
+    tabs = await projects_router._reference_tabs(task, node, project, "E2", db)
+    assert [tab["key"] for tab in tabs] == ["reference-first", "reference-last"]
+
+
+@pytest.mark.asyncio
+async def test_empty_snapshot_template_never_refills_business_fields_from_current_workflow():
+    from app.performance.projects_router import _self_summary_template
+
+    class Db:
+        async def get(self, *_args):
+            raise AssertionError("snapshot must not load current workflow")
+    node = SimpleNamespace(node_type="work_summary", config={"template": {"content": [], "future": "keep"}})
+    assert await _self_summary_template(SimpleNamespace(), node, Db()) == {"content": [], "future": "keep"}

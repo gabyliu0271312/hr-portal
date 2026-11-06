@@ -31,6 +31,26 @@ describe('PerformanceConfiguredContentBlock', () => {
     document.body.innerHTML = ''
   })
 
+  it('keeps existing display toggles usable while write controls stay disabled', async () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content, active: true, expanded: true, dragging: false, index: 0, count: 1, toolbarVisible: true,
+      structureEditable: true, definitionEditable: true, deleteEditable: false, displaySettingsDisabled: false, writeSettingsDisabled: true,
+      rootSettings: { hideDescription: false, allowMultiple: true }, itemSettings: { 'item-1': { mode: 'fill', required: true, hideName: false } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'work-summary-root', itemSettingsVariant: 'work-summary-item',
+    } })
+    expect(wrapper.get('[aria-label="Delete content"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[aria-label="Edit content"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-content-item-id="item-1"]').trigger('click')
+    const settings = wrapper.get('.content-settings-detail--item')
+    expect(settings.findAll('input[type="radio"]').every(radio => (radio.element as HTMLInputElement).disabled)).toBe(true)
+    expect(settings.get('.work-summary-required-setting input').attributes('disabled')).toBeDefined()
+    const hideName = wrapper.findAllComponents(PerformanceCheckbox).find(checkbox => checkbox.props('label') === '隐藏名称')!
+    expect(hideName.get('input').attributes('disabled')).toBeUndefined()
+    await hideName.get('input').setValue(true)
+    expect(wrapper.emitted('update:item-settings')!.at(-1)).toEqual([{ 'item-1': { mode: 'fill', required: true, hideName: true } }])
+    wrapper.unmount()
+  })
+
   it('keeps prompts expanded and edits nested view settings with the shared controls', async () => {
     const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
       content: { ...content, type: 'prompt', name: '提示块', prompt: { title: '操作提示', content: '请先确认范围', color: '#3370ff', scope: 'all' }, items: [] } as any,

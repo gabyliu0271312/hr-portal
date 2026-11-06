@@ -26,6 +26,7 @@ const props = withDefaults(defineProps<{
   count: number
   toolbarVisible: boolean
   structureEditable?: boolean
+  deleteEditable?: boolean
   horizontalHandle?: boolean
   rootSettings: WorkSummaryRootSettings
   itemSettings: Record<string, WorkSummaryItemSettings>
@@ -175,6 +176,7 @@ function updateItemSettings(settings: WorkSummaryItemSettings) {
     <PerformanceConfiguredCardActionToolbar
       v-if="structureEditable || definitionEditable"
       :structure-editable="structureEditable"
+      :delete-editable="props.deleteEditable ?? structureEditable"
       :definition-editable="definitionEditable"
       :visible="toolbarVisible || dragging || (horizontalHandle === true && rootSelected)"
       :index="index"

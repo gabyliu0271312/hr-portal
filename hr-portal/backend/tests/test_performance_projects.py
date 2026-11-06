@@ -885,6 +885,7 @@ def test_project_flow_settings_validate_supported_editable_variants():
                     "exclude_default_invite_from_limit": True,
                     "recommended_invite": ["HRBP"],
                     "allow_voluntary_evaluation": False,
+                    "allow_voluntary_okr_access": False,
                 }
             },
             "calibration-1": {
@@ -930,6 +931,7 @@ def test_project_invite_counts_round_trip_and_legacy_compatibility():
         "maximum_invited_count": 8, "maximum_invite_mode": "SUGGESTED",
         "second_prompt_enabled": True, "second_prompt_count": 10, "second_prompt_mode": "SUGGESTED",
         "exclude_default_invite_from_limit": True, "recommended_invite": [], "allow_voluntary_evaluation": False,
+        "allow_voluntary_okr_access": False,
     }
     flow = {"node_settings": {"invite-1": {"invite": invite}}}
     normalized = PerformanceProjectService._validate_flow_settings(flow)
@@ -1995,9 +1997,33 @@ async def test_self_summary_legacy_empty_snapshot_falls_back_to_matching_templat
             return None
 
     template = await projects_router._self_summary_template(task, node, Db())
+    assert template == {"node_id": "summary", "content_bindings": {"fill": []}}
+
+
+@pytest.mark.asyncio
+async def test_self_summary_legacy_snapshot_without_template_falls_back_to_matching_template_node():
+    from app.performance import projects_router
+    from app.performance.models import PerformanceProject, PerformanceTemplateWorkflow
+
+    task = SimpleNamespace(project_id=3)
+    node = SimpleNamespace(node_id="summary", config={})
+    project = SimpleNamespace(settings={"template_id": 77})
+    workflow = SimpleNamespace(
+        nodes=[{"node_id": "summary", "content_bindings": {"fill": ["content-1"]}}],
+        content_library=[{"content_id": "content-1", "type": "work_summary", "name": "工作总结", "items": [{"id": "work", "label": "填写题名称"}]}],
+    )
+
+    class Db:
+        async def get(self, model, identity):
+            if model is PerformanceProject and identity == 3:
+                return project
+            if model is PerformanceTemplateWorkflow and identity == 77:
+                return workflow
+            return None
+
+    template = await projects_router._self_summary_template(task, node, Db())
     assert template["content"][0]["content_id"] == "content-1"
     assert template["content"][0]["content_slot"] == "fill"
-
 
 def test_self_summary_repeatable_section_uses_aligned_answer_arrays():
     from app.performance.self_summary_service import (
@@ -6078,22 +6104,206 @@ async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeyp
     from datetime import UTC, datetime
     from app.performance import review_360_feedback_router as feedback
     target = SimpleNamespace(id=1, settings={})
-    node = SimpleNamespace(id=10, node_id="feedback")
+    node = SimpleNamespace(id=10, node_id="feedback", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}}, node_order=1)
     task = SimpleNamespace(id=3, member_snapshot_id=7, target_employee_no="E1", status=status, submitted_at=datetime(2026, 1, 1, tzinfo=UTC) if submitted else None, due_at=datetime(2020, 1, 1, tzinfo=UTC))
     async def project(*args): return target
     async def snapshot(*args): return SimpleNamespace(id=2)
     async def actor(*args): return "REVIEWER"
-    async def evaluation_node(*args): return node
+    async def evaluation_node(*args, **kwargs): return node
+    async def project_nodes(*args): return [node]
     async def tasks(*args): return [task]
     async def member_snapshot(*args): return 7
     async def people(*args): return []
     async def labels(*args): return {}
-    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels)]:
+    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_project_nodes", project_nodes), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels)]:
         monkeypatch.setattr(feedback, name, function)
     result = await feedback.list_feedback(1, keyword=None, context=context(), db=object())
     assert result.items[0].status == expected
     assert result.items[0].due_at == "2020-01-01T00:00:00+00:00"
     assert task.status == status
+
+
+@pytest.mark.parametrize("source", ["feedback-first", "feedback-second", "invite"])
+def test_voluntary_360_settings_inherit_first_reviewer_node_and_ignore_unrelated(source):
+    from app.performance.navigation_service import _voluntary_360_node_ids
+    from app.performance.review_360_invites_router import _invite_settings
+    nodes = [
+        SimpleNamespace(id=12, node_id="feedback-second", node_type="evaluation", node_order=3, config={"template": {"executor_role_code": "assessment.reviewer_360"}}),
+        SimpleNamespace(id=10, node_id="invite", node_type="reviewer_360_invite", node_order=1, config={}),
+        SimpleNamespace(id=11, node_id="feedback-first", node_type="evaluation", node_order=2, config={"template": {"executor_role_code": "assessment.reviewer_360"}}),
+        SimpleNamespace(id=13, node_id="manager", node_type="evaluation", node_order=0, config={"template": {"executor_role_code": "assessment.line_manager"}}),
+    ]
+    target = project("STARTED")
+    stored = target.settings["flow_settings"]["node_settings"]
+    stored["manager"] = {"invite": {"allow_voluntary_evaluation": True}}
+    assert _invite_settings(target, nodes=nodes) == {}
+    assert _voluntary_360_node_ids(target, nodes) == set()
+    stored[source] = {"invite": {"allow_voluntary_evaluation": True, "source": source}}
+    assert _invite_settings(target, "feedback-second", nodes=nodes)["source"] == source
+    assert _voluntary_360_node_ids(target, nodes) == {11, 12}
+    stored["feedback-first"] = {"invite": {"allow_voluntary_evaluation": False}}
+    assert _invite_settings(target, "feedback-second", nodes=nodes) == {"allow_voluntary_evaluation": False}
+    assert _voluntary_360_node_ids(target, nodes) == set()
+    assert _invite_settings(target, "feedback-first") == stored["manager"]["invite"]
+
+
+@pytest.fixture
+def voluntary_360_context(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from app.performance import review_360_feedback_router as feedback
+    from app.performance.models import PerformanceAuditEvent, PerformanceNodeTask
+    now = datetime.now(UTC)
+    target = project("STARTED")
+    nodes = [
+        SimpleNamespace(id=11, project_id=1, node_id="feedback-first", node_type="evaluation", node_order=1, config={"template": {"executor_role_code": "assessment.reviewer_360"}}),
+        SimpleNamespace(id=12, project_id=1, node_id="feedback-second", node_type="evaluation", node_order=2, config={"template": {"executor_role_code": "assessment.reviewer_360"}}),
+        SimpleNamespace(id=13, project_id=1, node_id="manager", node_type="evaluation", node_order=3, config={"template": {"executor_role_code": "assessment.line_manager"}}),
+    ]
+    target.settings["flow_settings"] = {
+        "node_settings": {"feedback-first": {"invite": {"allow_voluntary_evaluation": True}}},
+        "node_times": {node.node_id: {"start_at": (now - timedelta(days=1)).isoformat(), "end_at": (now + timedelta(days=1)).isoformat()} for node in nodes},
+    }
+    people = [SimpleNamespace(employee_no=number, display_name=number, live_employment_status=None, employment_status="在职", organization_ref="总部/研发", job_family=None, job_category=None, position_level=None, direct_supervisor_employee_no=None) for number in ["REVIEWER", "E1", "E2"]]
+    class Db:
+        def __init__(self):
+            self.tasks = [SimpleNamespace(id=index, node_snapshot_id=node.id, member_snapshot_id=7, target_employee_no="E1", status="pending", submitted_at=None, due_at=now, handler_ref="REVIEWER") for index, node in enumerate(nodes[:2], 101)]
+            self.events = []
+            self.commits = 0
+            self.rollbacks = 0
+            self.existing = None
+            self.overdue = False
+            self.fail_flush = False
+        async def get(self, model, key):
+            return SimpleNamespace(overdue_voluntary_360_submission_enabled=self.overdue)
+        async def scalar(self, query):
+            params = query.compile().params
+            self.last_existing_params = params
+            return self.existing
+        def add(self, row):
+            if isinstance(row, PerformanceNodeTask):
+                self.pending = row
+            elif isinstance(row, PerformanceAuditEvent):
+                assert self.pending.id is not None
+                self.events.append(row)
+        async def flush(self):
+            if self.fail_flush:
+                from sqlalchemy.exc import IntegrityError
+                raise IntegrityError("insert", {}, Exception("duplicate"))
+            self.pending.id = 999
+            self.tasks.append(self.pending)
+        async def rollback(self):
+            self.rollbacks += 1
+            self.existing = 999
+        async def commit(self):
+            self.commits += 1
+    db = Db()
+    async def get_project(*args): return target
+    async def snapshot(*args): return SimpleNamespace(id=2)
+    async def actor(*args): return "REVIEWER"
+    async def project_nodes(*args): return nodes
+    async def tasks(_db, project_id, node_id, handler_ref): return [task for task in db.tasks if task.node_snapshot_id == node_id]
+    async def member_snapshot(*args): return 7
+    async def snapshot_people(*args): return people
+    async def labels(*args): return {"E1": "自己邀请", "E2": "自愿评估"}
+    async def evaluated(*args): return ["E1", "E2"]
+    for name, function in [("_get_project", get_project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_project_nodes", project_nodes), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", snapshot_people), ("_feedback_source_labels", labels), ("_evaluated_employee_nos", evaluated)]:
+        monkeypatch.setattr(feedback, name, function)
+    return SimpleNamespace(feedback=feedback, project=target, nodes=nodes, people=people, db=db, now=now)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled,window,overdue,error", [
+    (False, "open", False, (403, "VOLUNTARY_NOT_ALLOWED")),
+    (True, "early", False, (409, "VOLUNTARY_WINDOW_NOT_OPEN")),
+    (True, "early", True, (409, "VOLUNTARY_WINDOW_NOT_OPEN")),
+    (True, "closed", False, (409, "VOLUNTARY_WINDOW_CLOSED")),
+    (True, "closed", True, None),
+    (True, "open", False, None),
+])
+async def test_voluntary_360_list_candidates_and_start_share_permission(voluntary_360_context, enabled, window, overdue, error):
+    from datetime import timedelta
+    from fastapi import HTTPException
+    data = voluntary_360_context
+    data.project.settings["flow_settings"]["node_settings"]["feedback-first"]["invite"]["allow_voluntary_evaluation"] = enabled
+    timing = data.project.settings["flow_settings"]["node_times"]["feedback-second"]
+    if window == "early":
+        timing["start_at"] = (data.now + timedelta(days=1)).isoformat()
+        timing["end_at"] = (data.now + timedelta(days=2)).isoformat()
+    elif window == "closed":
+        timing["start_at"] = (data.now - timedelta(days=2)).isoformat()
+        timing["end_at"] = (data.now - timedelta(days=1)).isoformat()
+    data.db.overdue = overdue
+    listed = await data.feedback.list_feedback(1, node_id="feedback-second", keyword=None, context=context(), db=data.db)
+    assert listed.allow_voluntary_evaluation is (error is None)
+    assert [item.task_id for item in listed.items] == [102]
+    assert listed.items[0].source_label == "自己邀请"
+    calls = [
+        lambda: data.feedback.list_voluntary_candidates(1, node_id="feedback-second", keyword=None, context=context(), db=data.db),
+        lambda: data.feedback.start_voluntary_evaluation(1, data.feedback.VoluntaryPayload(target_employee_no="E2", node_id="feedback-second"), context=context(), db=data.db),
+    ]
+    for call in calls:
+        if error:
+            with pytest.raises(HTTPException) as denied:
+                await call()
+            assert (denied.value.status_code, denied.value.detail) == error
+        else:
+            result = await call()
+    if error:
+        assert data.db.commits == 0 and len(data.db.tasks) == 2
+    else:
+        assert result.task_id == 999
+        assert data.db.pending.node_snapshot_id == 12
+        assert data.db.last_existing_params["node_snapshot_id_1"] == 12
+        event = data.db.events[0]
+        assert event.after_state["task_id"] == 999
+        assert (event.cycle_ref, event.employee_no, event.actor_ref) == ("cycle:one", "E2", "REVIEWER")
+        assert {key: event.after_state[key] for key in ["project_id", "node_id", "source_type"]} == {"project_id": 1, "node_id": "feedback-second", "source_type": "VOLUNTARY"}
+    reread = await data.feedback.list_feedback(1, node_id="feedback-second", keyword=None, context=context(), db=data.db)
+    assert reread.items[0].task_id == 102
+    if not error:
+        assert reread.items[-1].source_label == "自愿评估"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("node_id,error", [("unknown", (404, "REVIEWER_360_NODE_NOT_FOUND")), ("manager", (409, "REVIEWER_360_NODE_REQUIRED"))])
+async def test_voluntary_360_explicit_node_rejects_missing_or_wrong_role(voluntary_360_context, node_id, error):
+    from fastapi import HTTPException
+    data = voluntary_360_context
+    for call in [
+        lambda: data.feedback.list_feedback(1, node_id=node_id, keyword=None, context=context(), db=data.db),
+        lambda: data.feedback.list_voluntary_candidates(1, node_id=node_id, keyword=None, context=context(), db=data.db),
+        lambda: data.feedback.start_voluntary_evaluation(1, data.feedback.VoluntaryPayload(target_employee_no="E2", node_id=node_id), context=context(), db=data.db),
+    ]:
+        with pytest.raises(HTTPException) as denied:
+            await call()
+        assert (denied.value.status_code, denied.value.detail) == error
+    assert data.db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_voluntary_360_body_node_priority_legacy_first_node_and_idempotency(voluntary_360_context):
+    from fastapi import HTTPException
+    data = voluntary_360_context
+    first = await data.feedback.list_feedback(1, keyword=None, context=context(), db=data.db)
+    assert first.node_id == "feedback-first" and [item.task_id for item in first.items] == [101]
+    data.db.existing = 102
+    result = await data.feedback.start_voluntary_evaluation(1, data.feedback.VoluntaryPayload(target_employee_no="E1", node_id="feedback-second"), context=context(), db=data.db)
+    assert result.task_id == 102 and data.db.commits == 0 and data.db.events == []
+    assert data.db.last_existing_params["node_snapshot_id_1"] == 12
+    with pytest.raises(HTTPException) as denied:
+        await data.feedback.start_voluntary_evaluation(1, data.feedback.VoluntaryPayload(target_employee_no="E1", node_id="feedback-second"), node_id="feedback-first", context=context(), db=data.db)
+    assert (denied.value.status_code, denied.value.detail) == (409, "REVIEWER_360_NODE_MISMATCH")
+    result = await data.feedback.start_voluntary_evaluation(1, data.feedback.VoluntaryPayload(target_employee_no="E1"), context=context(), db=data.db)
+    assert result.task_id == 102 and data.db.last_existing_params["node_snapshot_id_1"] == 11
+
+
+@pytest.mark.asyncio
+async def test_voluntary_360_concurrent_duplicate_returns_existing_task_without_migration(voluntary_360_context):
+    data = voluntary_360_context
+    data.db.fail_flush = True
+    result = await data.feedback.start_voluntary_evaluation(1, data.feedback.VoluntaryPayload(target_employee_no="E2", node_id="feedback-second"), context=context(), db=data.db)
+    assert result.task_id == 999
+    assert data.db.rollbacks == 1 and data.db.commits == 0 and data.db.events == []
 
 
 def test_rich_text_list_metadata_survives_sanitizing_without_allowing_css_or_events():

@@ -4,7 +4,7 @@
       <PerformanceIconButton v-if="structureEditable" icon="SpaceUpOutlined" label="Move up" :disabled="index === 0" @click.stop="$emit('move-up')" />
       <PerformanceIconButton v-if="structureEditable" icon="SpaceDownOutlined" label="Move down" :disabled="index === count - 1" @click.stop="$emit('move-down')" />
       <PerformanceIconButton v-if="definitionEditable" icon="EditOutlined" label="Edit content" @click.stop="$emit('edit')" />
-      <PerformanceIconButton v-if="structureEditable" icon="DeleteTrashOutlined" label="Delete content" @click.stop="$emit('delete')" />
+      <PerformanceIconButton icon="DeleteTrashOutlined" label="Delete content" :disabled="!deleteEditable" @click.stop="deleteEditable && $emit('delete')" />
     </div>
   </div>
 </template>
@@ -12,7 +12,7 @@
 <script setup lang="ts">
 import PerformanceIconButton from './PerformanceIconButton.vue'
 
-withDefaults(defineProps<{ visible: boolean; index: number; count: number; structureEditable?: boolean; definitionEditable?: boolean }>(), { structureEditable: true, definitionEditable: true })
+withDefaults(defineProps<{ visible: boolean; index: number; count: number; structureEditable?: boolean; definitionEditable?: boolean; deleteEditable?: boolean }>(), { structureEditable: true, definitionEditable: true, deleteEditable: true })
 defineEmits<{ 'move-up': []; 'move-down': []; edit: []; delete: [] }>()
 </script>
 

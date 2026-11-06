@@ -11,6 +11,7 @@ from app.performance.auth_context import PerformanceAccessContext
 from app.performance.hrbp_scope_service import global_hrbp_invisible_people
 from app.performance.calibration_service import calibration_task_scope
 from app.performance.task_authorization_service import task_handler_condition
+from app.performance.review_360_invites_router import _invite_settings, _is_360_evaluation_node
 from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceOtherPermissionSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceRole, PROJECT_STATUS_STARTED
 
 
@@ -62,10 +63,9 @@ def review_node_category(node_type, role_code, *, has_task):
 
 
 def _voluntary_360_node_ids(project, nodes):
-    settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {})
-    enabled_ids = {str(key) for key, value in settings.items() if (((value or {}).get("invite") or {}).get("allow_voluntary_evaluation") is True)}
-    invite_enabled = any(node.node_type == "reviewer_360_invite" and node.node_id in enabled_ids for node in nodes)
-    return {node.id for node in nodes if node.node_type == "evaluation" and node_role_code((node.config or {}).get("template") or {}) == ROLE_REVIEWER_360 and (invite_enabled or node.node_id in enabled_ids)}
+    if not _invite_settings(project, nodes=nodes).get("allow_voluntary_evaluation"):
+        return set()
+    return {node.id for node in nodes if _is_360_evaluation_node(node)}
 
 
 async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessContext) -> FrontendAccess:

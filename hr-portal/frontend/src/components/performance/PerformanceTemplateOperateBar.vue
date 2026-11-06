@@ -1,7 +1,7 @@
 <template>
   <div class="template-operate" data-ui-flow-id="TemplateOperate">
     <div v-for="action in actions" :key="action.key" class="template-operate__item">
-      <UiButton variant="text" class="template-operate__button" :aria-label="action.label" @click="$emit('action', action.key)">
+      <UiButton variant="text" class="template-operate__button" :aria-label="action.label" :disabled="action.disabled" @click="!action.disabled && $emit('action', action.key)">
         <span class="template-operate__icon" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 0 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg></span>
         <span>{{ action.label }}</span>
       </UiButton>
@@ -12,7 +12,7 @@
 <script setup lang="ts">
 import UiButton from '../ui/UiButton.vue'
 
-defineProps<{ actions: Array<{ key: string; label: string }> }>()
+defineProps<{ actions: Array<{ key: string; label: string; disabled?: boolean }> }>()
 defineEmits<{ action: [key: string] }>()
 </script>
 

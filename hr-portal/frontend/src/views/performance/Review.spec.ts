@@ -702,6 +702,26 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('scopes voluntary candidates and creation to the currently selected 360 node', async () => {
+    const list = vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [], total: 0, node_id: 'second-360', allow_voluntary_evaluation: true })
+    const candidates = vi.spyOn(performanceReview360FeedbackApi, 'candidates').mockResolvedValue({ items: [{ employee_no: 'E2', display_name: '同事', department: null, job_sequence: null }], total: 1 })
+    const start = vi.spyOn(performanceReview360FeedbackApi, 'start').mockResolvedValue({ task_id: 55, target_employee_no: 'E2' })
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'second-360' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(list).toHaveBeenCalledWith(1, undefined, 'second-360')
+    ;(wrapper.vm as unknown as { openVoluntaryDialog: () => void }).openVoluntaryDialog()
+    await flushPromises()
+    expect(candidates).toHaveBeenCalledWith(1, undefined, 'second-360')
+    wrapper.findComponent({ name: 'PerformancePersonSelect' }).vm.$emit('update:modelValue', 'E2')
+    await flushPromises()
+    const confirm = Array.from(document.body.querySelectorAll('button')).find(button => button.textContent?.trim() === '前往评估')!
+    confirm.click()
+    await flushPromises()
+    expect(start).toHaveBeenCalledWith(1, 'E2', 'second-360')
+    expect(wrapper.emitted('open-task')?.[0]?.[0]).toMatchObject({ task_id: 55, employee_no: 'E2' })
+    wrapper.unmount()
+  })
+
   it('opens a pending communication task through the shared template route', async () => {
     const node = { ...overview.categories[0].nodes[0], node_id: 'communicate', node_name: '绩效结果沟通', node_type: 'result_communication', task_kind: 'result_communication', status: 'pending' as const }
     Object.assign(routeQuery, { project_id: '1', node: 'communicate' })

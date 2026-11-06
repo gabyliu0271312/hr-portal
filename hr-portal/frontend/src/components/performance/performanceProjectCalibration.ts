@@ -60,7 +60,10 @@ export function initializeProjectFlow(nodes: PerformanceWorkflowNode[], settings
   for (const node of nodes) {
     const key = node.node_id || `${node.node_type}-${node.order}`
     const setting = settings.node_settings[key] ||= {}
-    if (node === first360) setting.invite ||= { default_invite: 'DIRECT_SUBORDINATES', minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false }
+    if (node === first360) {
+      setting.invite ||= { default_invite: 'DIRECT_SUBORDINATES', minimum_invited_count: 5, exclude_default_invite_from_limit: true, recommended_invite: [], allow_voluntary_evaluation: false, allow_voluntary_okr_access: false }
+      setting.invite.allow_voluntary_okr_access ??= false
+    }
     if (node.node_type === 'result_view') setting.result_view ||= { automatic_enabled: false, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' }
     if (node.node_type === 'result_reconsideration') {
       const saved = setting.result_reconsideration as { handler?: string; handler_employee_nos?: string[] } | undefined

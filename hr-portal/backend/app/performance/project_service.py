@@ -603,6 +603,11 @@ class PerformanceProjectService:
                 recommended = invite.get("recommended_invite", [])
                 if not isinstance(recommended, list) or not all(isinstance(item, str) and item.strip() for item in recommended):
                     raise ProjectValidationError("推荐邀请设置格式不正确")
+                previous_invite = (((existing_flow_settings or {}).get("node_settings") or {}).get(node_id) or {}).get("invite") or {}
+                voluntary = invite.get("allow_voluntary_evaluation", False)
+                voluntary_okr = invite.get("allow_voluntary_okr_access", previous_invite.get("allow_voluntary_okr_access", False))
+                if not isinstance(voluntary, bool) or not isinstance(voluntary_okr, bool):
+                    raise ProjectValidationError("自愿评估设置格式不正确")
                 normalized["invite"] = {
                     "default_invite": default_invite,
                     "minimum_invited_count": minimum,
@@ -615,7 +620,8 @@ class PerformanceProjectService:
                     } if any(key in invite for key in ("maximum_invited_count", "maximum_invite_mode", "second_prompt_enabled", "second_prompt_count", "second_prompt_mode")) else {}),
                     "exclude_default_invite_from_limit": bool(invite.get("exclude_default_invite_from_limit", False)),
                     "recommended_invite": list(dict.fromkeys(recommended)),
-                    "allow_voluntary_evaluation": bool(invite.get("allow_voluntary_evaluation", False)),
+                    "allow_voluntary_evaluation": voluntary,
+                    "allow_voluntary_okr_access": voluntary_okr,
                 }
             calibration = raw.get("calibration")
             if calibration is not None:

@@ -92,7 +92,7 @@ async function load() {
       total.value = items.value.length
       allowVoluntary.value = false
     } else {
-      const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined)
+      const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined, props.nodeId)
       items.value = result.items
       total.value = result.total
       allowVoluntary.value = result.allow_voluntary_evaluation
@@ -119,7 +119,7 @@ const candidateOptions = computed(() => candidates.value.map(candidate => ({
 async function loadCandidates() {
   candidateLoading.value = true
   try {
-    const result = await performanceReview360FeedbackApi.candidates(props.projectId)
+    const result = await performanceReview360FeedbackApi.candidates(props.projectId, undefined, props.nodeId)
     candidates.value = result.items
   } catch {
     candidates.value = []
@@ -128,6 +128,7 @@ async function loadCandidates() {
   }
 }
 function openVoluntaryDialog() {
+  if (!allowVoluntary.value) return
   selectedTarget.value = null
   dialogOpen.value = true
   void loadCandidates()
@@ -137,7 +138,7 @@ async function confirmVoluntary() {
   submitting.value = true
   try {
     const target = candidates.value.find(candidate => candidate.employee_no === selectedTarget.value)
-    const result = await performanceReview360FeedbackApi.start(props.projectId, selectedTarget.value)
+    const result = await performanceReview360FeedbackApi.start(props.projectId, selectedTarget.value, props.nodeId)
     dialogOpen.value = false
     void load()
     emit('open-task', {
