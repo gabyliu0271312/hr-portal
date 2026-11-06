@@ -275,10 +275,10 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.get('.performance-audience-rule-editor__group-heading > span').text()).toBe('范围 1')
     // 底部按钮为「添加人员范围」（scopeMode 形态）
     expect(wrapper.get('.performance-audience-rule-editor__scope-add').attributes('aria-label')).toBe('添加人员范围')
-    // 单组时组删除按钮常显（REA 实测：单组也显示，opacity 无隐藏）
+    // 组删除按钮 REA 常驻（单组也显示，灰底外右上方）
     expect(wrapper.find('[aria-label="删除范围 1"]').exists()).toBe(true)
-    // 条件行删除按钮常显（REA 实测：单条件也显示）
-    expect(wrapper.find('[aria-label="删除范围 1 条件 1"]').exists()).toBe(true)
+    // 组内条件行删除按钮：2 条件才出现（与被评估人一致），单条件没有
+    expect(wrapper.find('[aria-label="删除范围 1 条件 1"]').exists()).toBe(false)
 
     await wrapper.get('.performance-audience-rule-editor__scope-add').trigger('click')
     const added = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[]
@@ -287,7 +287,7 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(wrapper.findAll('.performance-audience-rule-editor__condition')).toHaveLength(2)
     // 组间「或」分隔符（REA 22 高左对齐）
     expect(wrapper.get('.performance-audience-rule-editor__or').text()).toBe('或')
-    // 多组时每组有组删除按钮（灰底外，常显）——只匹配「删除范围 N」（不含「条件」后缀）
+    // 多组时每组有组删除按钮（灰底外右上方）——只匹配「删除范围 N」（不含「条件」后缀）
     const groupDeleteLabels = wrapper.findAll('[aria-label^="删除范围"]').map(button => button.attributes('aria-label') ?? '').filter(label => !label.includes('条件'))
     expect(groupDeleteLabels).toEqual(['删除范围 1', '删除范围 2'])
     await wrapper.get('[aria-label="删除范围 2"]').trigger('click')

@@ -27,19 +27,19 @@
                 </div>
                 <PerformanceConditionLogicGroup :count="group.conditions.length" operator="且">
                   <template #default="{ index: conditionIndex }">
-                    <div class="performance-audience-rule-editor__condition" :class="{ 'has-delete': scopeMode || group.conditions.length > 1 }">
+                    <div class="performance-audience-rule-editor__condition" :class="{ 'has-delete': group.conditions.length > 1 }">
                       <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
                       <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].operator" :options="isDateConditionField(group.conditions[conditionIndex].field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || operatorDisabled || !group.conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
                       <PerformanceOrganizationSelect v-if="group.conditions[conditionIndex].field === 'department'" :model-value="group.conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
                       <component :is="customField(group.conditions[conditionIndex].field)?.component" v-else-if="customField(group.conditions[conditionIndex].field)" :model-value="group.conditions[conditionIndex].values" :options="customField(group.conditions[conditionIndex].field)?.options" :multiple="true" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                      <PerformancePersonSelect v-else-if="group.conditions[conditionIndex].field === 'employee'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" :remote-search="scopeMode" option-style="checkmark" @open="emit('open-options')" @search="emit('search-people', $event)" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                      <PerformancePersonSelect v-else-if="group.conditions[conditionIndex].field === 'employee'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee', { people: personOptions })" multiple aria-label="员工范围" placeholder="请选择员工" :disabled="disabled" option-style="checkmark" @open="emit('open-options')" @search="emit('search-people', $event)" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field === 'employee_type'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceDepartureDateSelect v-else-if="group.conditions[conditionIndex].field === 'departure_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" :date-range="snapshotOptions?.departure_date_range ?? { min: null, max: null }" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
                       <PerformanceDateTimeField v-else-if="group.conditions[conditionIndex].field === 'hire_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(group.conditions[conditionIndex].field)" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
                       <component :is="snapshotFieldComponents[group.conditions[conditionIndex].field]" v-else-if="snapshotFieldComponents[group.conditions[conditionIndex].field]" :model-value="group.conditions[conditionIndex].values" :options="valueOptions(group.conditions[conditionIndex].field)" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field" :model-value="group.conditions[conditionIndex].values" :options="valueOptions(group.conditions[conditionIndex].field)" multiple :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :placeholder="`请选择${fieldLabel(group.conditions[conditionIndex].field)}`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
                       <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
-                      <PerformanceIconButton v-if="scopeMode || group.conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled" @click="removeCondition(groupIndex, conditionIndex)" />
+                      <PerformanceIconButton v-if="group.conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled" @click="removeCondition(groupIndex, conditionIndex)" />
                     </div>
                   </template>
                 </PerformanceConditionLogicGroup>
@@ -220,17 +220,20 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor__scope-tools { min-width: 0; }
 
 /* ===== 范围模式（REA 形态）：组卡灰底紧凑、组间「或」分隔、底部「添加人员范围」 ===== */
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { position: relative; margin: 0; padding: var(--spacing-4); border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
+/* REA 结构：外层容器（无底）包内层灰底(766)，右侧留 26px 按钮区；删除按钮在灰底外右上方与灰底顶对齐 */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group { position: relative; margin: 0; padding: 20px 6px 20px 20px; border-radius: 0; background: transparent; }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; right: 26px; z-index: 0; border-radius: var(--radius-lg); background: var(--performance-evaluation-rule-surface); }
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group > * { position: relative; z-index: 1; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-heading { color: var(--color-text-primary); }
-/* 组级删除按钮：REA delete-btn 在灰底外右侧（condition-wrap 兄弟、group 容器右上），常显 */
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete { position: absolute; top: 0; right: calc(-1 * var(--spacing-3) - 2px); }
+/* 组级删除按钮：REA delete-btn 在灰底外右上方，与灰底顶对齐（x=灰底右缘+2px） */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete { position: absolute; top: 0; right: 2px; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__group-delete :deep(.performance-icon-button) { --performance-icon-button-size: 24px; color: var(--color-text-secondary); }
 /* REA「或」分隔：792 宽整行容器、左对齐（text-align:start），透明底 */
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__or { display: block; height: var(--performance-scope-or-height); margin: 0; padding: 0; border: 0; color: var(--color-text-primary); line-height: var(--performance-scope-or-height); text-align: start; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition { grid-template-columns: 128px 88px minmax(0, 1fr); }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition.has-delete { grid-template-columns: 128px 88px minmax(0, 1fr) 24px; }
-/* REA 条件行删除按钮：值列右侧常显（#BBBFC4 浅灰） */
-.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { --performance-icon-button-size: 24px; color: #bbbfc4; }
+/* REA 条件行删除按钮：正常色（与被评估人一致，非浅灰 disabled 感） */
+.performance-audience-rule-editor.is-scope .performance-audience-rule-editor__condition > :deep(.performance-icon-button) { --performance-icon-button-size: 24px; }
 /* REA 组内「添加条件」距上方条件行 8px（TextButton 自带 -2px，补足到 8px） */
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__add-condition { margin-top: 10px; }
 .performance-audience-rule-editor.is-scope .performance-audience-rule-editor__scope-add { margin-top: var(--spacing-2); }

@@ -121,6 +121,7 @@
           aria-label="兜底复议处理人"
           placeholder="请选择人员"
           multiple
+          :remote-search="false"
           @open="emit('open-options')"
           @update:model-value="setReconsiderationHandlers(node, $event)"
         />

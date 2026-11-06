@@ -115,12 +115,12 @@ describe('shared performance selectors', () => {
     await wrapper.get('.performance-select-shell__selector').trigger('click')
     await flushPromises()
     expect(wrapper.find('.performance-select-shell__popup').exists()).toBe(false)
-    // 输入搜索词后：弹层出现且渲染传入的 options（外部按关键词更新后传入）
+    // 输入搜索词后：弹层出现且渲染匹配的 options（remoteSearch 下也本地过滤）
     const input = wrapper.get('input.performance-select-shell__input')
     await input.setValue('周1')
     await flushPromises()
     expect(wrapper.find('.performance-select-shell__popup').exists()).toBe(true)
-    expect(wrapper.findAll('.performance-flat-option-list__option').length).toBe(options.length)
+    expect(wrapper.findAll('.performance-flat-option-list__option').map(option => option.text())).toEqual(['周1'])
     // 清空关键词：弹层关闭
     await input.setValue('')
     await flushPromises()

@@ -20,7 +20,7 @@
           <PerformanceSearchSelect :model-value="departmentLevel" :options="[...departmentLevels]" :disabled="disabled" selection-style="plain" aria-label="部门负责人层级" @update:model-value="setDepartmentLevel(String($event || ''))" />
         </div>
         <div v-if="role === 'SPECIFIED_PERSON' && hasRole(role)" class="nested-select">
-          <PerformancePersonSelect :model-value="people.map(person => person.employee_no)" :options="personOptions" :disabled="disabled" multiple aria-label="指定人员" placeholder="请选择人员" @open="emit('open-people')" @update:model-value="setPeople($event)" />
+          <PerformancePersonSelect :model-value="people.map(person => person.employee_no)" :options="personOptions" :disabled="disabled" multiple aria-label="指定人员" placeholder="请选择人员" :remote-search="false" @open="emit('open-people')" @update:model-value="setPeople($event)" />
         </div>
       </div>
     </div>

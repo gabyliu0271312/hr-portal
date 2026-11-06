@@ -105,8 +105,9 @@ function updatePosition() {
 }
 function openMenu() {
   if (props.disabled || open.value) return
-  // 远程搜索模式：无搜索词不打开弹层（REA 员工选择器 active 态无面板，输入后才弹），但聚焦输入框
-  if (props.openOnSearch && !query.value.trim()) { focusSearch(); return }
+  // 远程搜索模式：无搜索词不打开弹层（REA 员工选择器 active 态无面板，输入后才弹），
+  // 但聚焦输入框并触发 open（供外部加载选项，如项目管理员 picker 依赖 @open 加载）
+  if (props.openOnSearch && !query.value.trim()) { emit('open'); focusSearch(); return }
   open.value = true
   popupStyle.value = { visibility: 'hidden' }
   emit('open')

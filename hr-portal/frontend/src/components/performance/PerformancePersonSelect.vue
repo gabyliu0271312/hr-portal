@@ -19,7 +19,7 @@
 <script setup lang="ts">
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 
-defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string | string[] | null
   options: PerformanceSearchSelectOption[]
   ariaLabel?: string
@@ -27,9 +27,18 @@ defineProps<{
   multiple?: boolean
   disabled?: boolean
   hideArrow?: boolean
-  /** 有搜索关键词后才显示结果（REA 员工选择器机制：输入→请求→列表） */
+  /** 员工搜索组件固有行为（REA 交互）：有搜索关键词才显示结果（输入→请求→列表）。
+   *  默认开启，所有使用方一致；个别场景需点击即展开时传 false。 */
   remoteSearch?: boolean
   optionStyle?: 'checkmark' | 'none'
-}>()
+}>(), {
+  options: () => [],
+  placeholder: '请选择',
+  multiple: false,
+  disabled: false,
+  hideArrow: false,
+  remoteSearch: true,
+  optionStyle: 'checkmark',
+})
 defineEmits<{ 'update:modelValue': [value: string | string[] | null]; open: []; search: [value: string] }>()
 </script>

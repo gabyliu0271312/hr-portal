@@ -15,6 +15,7 @@
           aria-label="HRBP"
           :options="props.hrbpOptions"
           placeholder="请选择"
+          :remote-search="false"
         />
       </PerformanceFormItem>
 
@@ -42,6 +43,7 @@
         :options="props.invisiblePeopleOptions"
         placeholder="请选择"
         multiple
+        :remote-search="false"
       />
     </div>
 

@@ -122,6 +122,7 @@ watch(() => [props.modelValue, props.project], () => {
           placeholder="请选择项目管理员"
           empty-text="周期人员快照中暂无匹配人员"
           :disabled="saving"
+          :remote-search="false"
           multiple
           @open="emit('open-options')"
         />

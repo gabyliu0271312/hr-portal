@@ -46,6 +46,7 @@
             multiple
             placeholder="请输入"
             :aria-label="`${fieldLabel}条件值`"
+            :remote-search="false"
             @open="emit('open-options')"
             @update:model-value="updateValues(index, $event)"
           />
