@@ -5999,11 +5999,11 @@ async def test_member_export_returns_all_rows_and_intersects_view_export_scopes(
     from unittest.mock import AsyncMock
     from app.performance import projects_router as routes
     project = SimpleNamespace(id=1)
-    rows = [routes.ProjectMemberResponse(id=i, employee_no=f"E{i}", display_name=f"员工{i}") for i in range(151)]
+    rows = [routes.ProjectMemberResponse(id=i, root_review_id=i, project_id=1, employee_no=f"E{i}", display_name=f"员工{i}") for i in range(151)]
     monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=project))
     scopes = AsyncMock(side_effect=[{"E1", "E2"}, {"E2", "E3"}])
     monkeypatch.setattr(routes, "_project_data_scope", scopes)
-    loader = AsyncMock(return_value=rows)
+    loader = AsyncMock(return_value=(rows, []))
     monkeypatch.setattr(routes, "_project_member_rows", loader)
     actor, db = context(), object()
     result = await routes.export_project_members(1, "员工", "name", "desc", actor, db)
@@ -7095,3 +7095,251 @@ async def test_reporting_filter_preview_start_share_unchanged_cycle_snapshot(mon
     }
     assert [vars(person) for person in people] == before
     assert target.status == "STARTED"
+
+
+@pytest.fixture
+def management_member_data(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance import models
+    target = SimpleNamespace(id=1, cycle_ref="C1", settings={})
+    members = [models.PerformanceProjectMember(id=index, snapshot_id=7, employee_no=f"E{index}", display_name=f"员工{index}") for index in (1, 2)]
+    def node(index, kind, role="assessment.line_manager", final=False):
+        template = {"executor_role_code": role, "include_final_result": final, "content": [{"content_id": "content", "type": "work_summary", "name": "评价", "items": [{"id": "text", "label": "说明", "kind": "fill"}]}]}
+        return SimpleNamespace(id=index, project_id=1, node_id=f"node-{index}", name=f"环节{index}", node_type=kind, node_order=index, config={"template": template})
+    nodes = [node(10, "work_summary", "assessment.reviewee"), node(20, "evaluation", final=True), node(30, "result_communication")]
+    def task(index, node_id=20, employee_no="E1", submitted=True):
+        return SimpleNamespace(id=index, project_id=1, cycle_ref="C1", node_snapshot_id=node_id, member_snapshot_id=7, target_employee_no=employee_no, handler_ref=f"M{index}", task_kind=next(row.node_type for row in nodes if row.id == node_id), status="completed" if submitted else "pending", submitted_at=datetime(2026, 1, index, tzinfo=UTC) if submitted else None, available_at=None, due_at=None, answer_version=1, revoked_at=None, answers={"text": f"已提交{index}" if submitted else "未提交秘密", "unknown": "未知字段"}, draft_answers={"text": "草稿秘密"})
+    tasks = [task(1, 10), task(2), task(3), task(4, submitted=False), task(5, 30), task(6, 30)]
+    class Db:
+        def __init__(self): self.queries = []
+        async def scalar(self, query):
+            self.queries.append(query)
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_result_openings" in sql: return None
+            assert "performance_project_member_snapshots.project_id = 1" in sql
+            assert "performance_project_members.employee_no = 'E1'" in sql
+            if "performance_project_members.id = 999" in sql: return None
+            return members[0]
+        async def get(self, model, key):
+            return target if model is models.PerformanceProject else None
+        async def execute(self, query):
+            self.queries.append(query)
+            entity = query.column_descriptions[0]["entity"]
+            if entity is models.PerformanceAuthorizationSnapshotPerson:
+                return SimpleNamespace(all=lambda: [(task.handler_ref, f"冻结处理人{task.id}") for task in tasks])
+            values = nodes if entity is models.PerformanceProjectNodeSnapshot else tasks if entity is models.PerformanceNodeTask else members
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=target))
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN")))
+    monkeypatch.setattr(routes, "load_subject_visibility_rules", AsyncMock(return_value={"activity_manager": [], "hrbp": []}))
+    monkeypatch.setattr(routes, "_snapshot_supervisor_names", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "_communication_progress", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "_delegatable_stages", AsyncMock(return_value={}))
+    return SimpleNamespace(routes=routes, project=target, members=members, nodes=nodes, tasks=tasks, db=Db(), task=task, node=node)
+
+
+@pytest.mark.asyncio
+async def test_management_detail_defaults_latest_communication_merges_tasks_and_hides_drafts(management_member_data):
+    data = management_member_data
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    assert detail["root_review_id"] == 1
+    assert detail["default_active_tab"] == "management-node-30"
+    assert detail["task_id"] == 6
+    assert [tab["node_id"] for tab in detail["management_tabs"]] == ["node-30", "node-20", "node-10"]
+    final = detail["management_tabs"][1]
+    assert len(final["form_schema"]) == 2
+    assert len(final["answers"]) == 2
+    assert set(final["answers"].values()) == {"已提交2", "已提交3"}
+    assert "冻结处理人2" in final["form_schema"][0]["name"]
+    assert final["status"] == "pending"
+    assert detail["person"]["visibility_role"] == "activity_manager"
+    assert not detail["editable"] and not detail["submit_allowed"]
+    assert detail["draft_answers"] == {} and not detail["has_draft"]
+    assert "草稿秘密" not in str(detail) and "未提交秘密" not in str(detail) and "未知字段" not in str(detail)
+    task_sql = [str(query.compile(compile_kwargs={"literal_binds": True})) for query in data.db.queries if "performance_node_tasks" in str(query)]
+    assert all("performance_node_tasks.member_snapshot_id = 7" in sql for sql in task_sql)
+    assert "performance_project_members.id = 1" in str(data.db.queries[0].compile(compile_kwargs={"literal_binds": True}))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["forbidden", "outside_scope", "foreign_root"])
+async def test_management_detail_denies_before_content_read(management_member_data, monkeypatch, scenario):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    data = management_member_data
+    if scenario == "forbidden":
+        monkeypatch.setattr(data.routes, "_project_data_scope", AsyncMock(side_effect=HTTPException(403, "PROJECT_DATA_FORBIDDEN")))
+    if scenario == "outside_scope":
+        monkeypatch.setattr(data.routes, "_project_data_scope", AsyncMock(return_value={"E2"}))
+    with pytest.raises(HTTPException) as error:
+        await data.routes._project_member_detail(data.project, "E1", context(), data.db, 999 if scenario == "foreign_root" else 1)
+    assert error.value.status_code == (403 if scenario == "forbidden" else 404)
+    assert len(data.db.queries) == (1 if scenario == "foreign_root" else 0)
+
+
+@pytest.mark.asyncio
+async def test_management_detail_falls_back_to_final_and_respects_reference_projection(management_member_data):
+    data = management_member_data
+    data.tasks[:] = [task for task in data.tasks if task.node_snapshot_id != 30]
+    data.nodes[1].config["template"]["content"].append({"content_slot": "reference", "reference_kind": "node", "reference_value": "node-10", "reference_settings": {"page_name": "总结参考", "content_settings": {"content": {"root": {"allowView": False}}}}})
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    assert detail["default_active_tab"] == "management-node-20"
+    summary = next(tab for tab in detail["management_tabs"] if tab["node_id"] == "node-10")
+    assert summary["node_name"] == "总结参考"
+    assert summary["form_schema"] == [] and summary["answers"] == {}
+
+
+@pytest.mark.asyncio
+async def test_management_detail_okr_loaded_only_when_configured_without_handler_task(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import okr_provider
+    data = management_member_data
+    fetch = AsyncMock(return_value=okr_provider.OkrView(period_label="本期"))
+    monkeypatch.setattr(okr_provider, "fetch_employee_okr", fetch)
+    await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    fetch.assert_not_awaited()
+    data.nodes[-1].config["template"]["content"].append({"content_slot": "reference", "reference_kind": "more", "reference_value": "okr"})
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    fetch.assert_awaited_once_with(data.db, "E1")
+    okr = detail["management_tabs"][-1]
+    assert okr["kind"] == "okr" and okr["task_id"] is None and okr["okr"].period_label == "本期"
+
+
+@pytest.mark.asyncio
+async def test_management_detail_masks_360_until_anonymous_projection_is_available(management_member_data):
+    data = management_member_data
+    data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    feedback = detail["management_tabs"][1]
+    assert feedback["form_schema"] == [] and feedback["answers"] == {}
+    assert feedback["task_id"] is None and feedback["submitted_by"] is None and feedback["submitted_at"] is None
+    assert "M2" not in str(detail) and "冻结处理人2" not in str(detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("column_count", [1, 2])
+async def test_management_list_dynamic_final_ratings_empty_page_and_sort_validation(management_member_data, monkeypatch, column_count):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    data = management_member_data
+    schema = [{"id": "result", "fields": [{"id": f"grade-{i}", "label": f"指标{i}", "type": "rating", "options": [{"id": "a", "label": "优秀", "color": "#123456", "foreground": "#ffffff"}]} for i in range(column_count)]}]
+    schema_loader = AsyncMock(return_value=schema)
+    monkeypatch.setattr(data.routes, "_matrix_node_schema", schema_loader)
+    data.tasks[2].answers = {f"grade-{i}": "a" for i in range(column_count)}
+    data.tasks[-1].answers = {f"grade-{i}": "invalid" for i in range(column_count)}
+    page = await data.routes.list_project_members(1, None, 1, 1, "rating:grade-0", "asc", context(), data.db)
+    assert page.total == 2 and len(page.items) == 1
+    assert len(page.rating_columns) == column_count
+    schema_loader.assert_awaited_once()
+    assert len([query for query in data.db.queries if query.column_descriptions[0]["entity"] is data.routes.PerformanceProjectNodeSnapshot]) == 1
+    first = page.items[0]
+    assert first.root_review_id == first.id and first.project_id == 1 and first.can_view_detail
+    assert first.ratings["rating:grade-0"].model_dump() == {"label": "优秀", "color": "#123456", "foreground": "#ffffff"}
+    assert first.rating == ("优秀" if column_count == 1 else None)
+    page = await data.routes.list_project_members(1, None, 99, 1, None, None, context(), data.db)
+    assert page.items == [] and len(page.rating_columns) == column_count
+    data.tasks[2].submitted_at = None
+    items, _ = await data.routes._project_member_rows(data.project, None, None, None, None, context(), data.db)
+    assert all(value is None for item in items for value in item.ratings.values())
+    with pytest.raises(HTTPException) as error:
+        await data.routes._project_member_rows(data.project, None, None, "rating:__dict__", "asc", context(), data.db)
+    assert error.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_cycle_member_endpoints_union_projects_and_keep_view_export_intersection(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from fastapi import HTTPException
+    project_a = SimpleNamespace(id=11, name="A")
+    project_b = SimpleNamespace(id=12, name="B")
+    project_c = SimpleNamespace(id=13, name="C")
+    cycle = SimpleNamespace(id=77)
+    access = SimpleNamespace(cycles=[cycle], manage_projects=[(project_a, cycle), (project_b, cycle), (project_c, cycle)])
+    row_a = routes.ProjectMemberResponse(id=101, root_review_id=101, project_id=11, employee_no="E1", display_name="张三", rating_columns=[{"key": "rating:a", "label": "项目评级"}], ratings={"rating:a": {"label": "优秀"}})
+    row_b = routes.ProjectMemberResponse(id=102, root_review_id=102, project_id=12, employee_no="E2", display_name="李四", rating_columns=[{"key": "rating:b", "label": "阶段评级"}], ratings={"rating:b": {"label": "良好"}})
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=access))
+    calls = []
+    async def scope(_context, project, _db, function):
+        calls.append((project.id, function))
+        if project.id == 13:
+            raise HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+        if function == "performance.frontend.data-view":
+            return {"E1", "E2"}
+        return {"E2"} if project.id == 11 else None
+    monkeypatch.setattr(routes, "_project_data_scope", scope)
+    async def rows(project, scope_value, keyword, sort_by, sort_order, _context, _db):
+        assert sort_by is None and sort_order is None
+        candidates = [row_a] if project.id == 11 else [row_b]
+        return ([row for row in candidates if scope_value is None or row.employee_no in scope_value], [{"key": "rating:a", "label": "项目评级"}] if project.id == 11 else [{"key": "rating:b", "label": "阶段评级"}])
+    monkeypatch.setattr(routes, "_project_member_rows", rows)
+    result = await routes.cycle_project_members(77, None, 1, 1, "name", "asc", context(), object())
+    assert result.total == 2 and [item.employee_no for item in result.items] == ["E1"]
+    assert {column.key for column in result.rating_columns} == {"rating:a", "rating:b"}
+    assert all(item.can_view_detail is False or item.project_id in {11, 12} for item in result.items)
+    assert calls == [(11, "performance.frontend.data-view"), (12, "performance.frontend.data-view"), (13, "performance.frontend.data-view")]
+    calls.clear()
+    exported = await routes.export_cycle_project_members(77, None, "name", "asc", context(), object())
+    assert exported.total == 1 and exported.items[0].employee_no == "E2"
+    assert calls == [(11, "performance.frontend.data-view"), (11, "performance.frontend.export-members"), (12, "performance.frontend.data-view"), (12, "performance.frontend.export-members"), (13, "performance.frontend.data-view")]
+
+
+@pytest.mark.asyncio
+async def test_cycle_member_endpoints_reject_unknown_full_cycle_sort_key(monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    project = SimpleNamespace(id=11, name="A")
+    cycle = SimpleNamespace(id=77)
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=SimpleNamespace(cycles=[cycle], manage_projects=[(project, cycle)])))
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
+    monkeypatch.setattr(routes, "_project_member_rows", AsyncMock(return_value=([], [])))
+    with pytest.raises(HTTPException) as error:
+        await routes.cycle_project_members(77, None, 1, 50, "rating:missing", "asc", context(), object())
+    assert error.value.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("timing,expected", [({"start_at": "2099-01-01T00:00:00Z"}, "not_started"), ({"end_at": "2020-01-01T00:00:00Z"}, "overdue")])
+async def test_management_detail_task_status_uses_submission_and_window(management_member_data, timing, expected):
+    data = management_member_data
+    data.tasks[:] = [task for task in data.tasks if task.node_snapshot_id != 20]
+    task = data.task(7, submitted=False)
+    task.status = "completed"
+    data.tasks.append(task)
+    data.nodes[1].config["time"] = timing
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    tab = next(tab for tab in detail["management_tabs"] if tab["node_id"] == "node-20")
+    assert tab["status"] == expected
+    assert tab["answers"] == {} and tab["form_schema"] == []
+
+
+@pytest.mark.asyncio
+async def test_management_member_api_root_and_dynamic_export_contract(management_member_data, monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+    from unittest.mock import AsyncMock
+    data = management_member_data
+    app = FastAPI()
+    app.include_router(data.routes.router, prefix="/api/v1")
+    app.dependency_overrides[data.routes.get_session] = lambda: data.db
+    app.dependency_overrides[data.routes.get_performance_access_context] = lambda: context()
+    monkeypatch.setattr(data.routes, "_matrix_node_schema", AsyncMock(return_value=[{"id": "result", "fields": [{"id": "grade", "label": "最终评级", "type": "rating", "options": [{"id": "a", "label": "优秀"}]}]}]))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        detail_url = "/api/v1/performance/projects/1/members/E1/detail"
+        response = await client.get(detail_url + "?root_review_id=1")
+        assert response.status_code == 200, response.text
+        assert response.json()["root_review_id"] == 1
+        assert response.json()["default_active_tab"] == "management-node-30"
+        assert (await client.get(detail_url + "?root_review_id=999")).status_code == 404
+        assert (await client.get(detail_url + "?root_review_id=0")).status_code == 422
+        response = await client.get("/api/v1/performance/projects/1/members/export?sort_by=rating:grade&sort_order=asc")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert isinstance(body["items"], list) and body["total"] == 2
+        assert body["rating_columns"] == [{"key": "rating:grade", "label": "最终评级"}]
+        assert all(item["rating_columns"] == body["rating_columns"] for item in body["items"])
+        assert (await client.get("/api/v1/performance/projects/1/members?sort_by=rating:unknown")).status_code == 422

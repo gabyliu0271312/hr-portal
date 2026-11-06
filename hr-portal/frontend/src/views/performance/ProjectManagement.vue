@@ -28,7 +28,7 @@
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" />
+            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
@@ -44,12 +44,26 @@
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
       <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" />
     </PerformanceTaskOverlay>
+    <PerformanceReviewEvaluationDrawer
+      v-if="drawerMember"
+      v-model="drawerOpen"
+      :employee-no="drawerMember.employee_no"
+      :detail-loader="memberDetailLoader"
+      :active-tab="drawerActiveTab"
+      readonly
+      @update:active-tab="updateMemberTab"
+      @close="closeMember"
+      @closed="finishClosingMember"
+      @copy-link="copyMemberLink"
+    />
     <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   projectManagementApi,
@@ -94,7 +108,55 @@ const emit = defineEmits<{
 const overview = ref<ProjectManagementOverview | null>(null)
 const activeCycleId = computed(() => projectContext.activeCycleId)
 const selectedKey = ref('')
-const activeTab = ref('overview')
+const activeTab = ref(route.query.rootReviewId ? 'members' : 'overview')
+const drawerMember = ref<{ project_id: number; employee_no: string; root_review_id?: number } | null>(null)
+const drawerOpen = ref(false)
+const drawerActiveTab = ref(String(route.query.activeTab || ''))
+const memberDetailLoader = computed(() => {
+  const member = drawerMember.value
+  return member ? () => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id) : undefined
+})
+function memberQuery() {
+  return { ...route.query, member_project_id: String(drawerMember.value?.project_id || ''), employee_no: drawerMember.value?.employee_no, rootReviewId: String(drawerMember.value?.root_review_id || ''), activeTab: drawerActiveTab.value || undefined }
+}
+async function openMember(member: ProjectMember) {
+  if (!member.can_view_detail) return
+  drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id }
+  drawerActiveTab.value = ''
+  drawerOpen.value = true
+  await router.replace({ query: memberQuery() })
+}
+async function updateMemberTab(tab: string) {
+  drawerActiveTab.value = tab
+  if (drawerOpen.value) await router.replace({ query: memberQuery() })
+}
+async function closeMember() {
+  drawerOpen.value = false
+  const { rootReviewId: _root, activeTab: _tab, employee_no: _employee, member_project_id: _project, ...query } = route.query
+  await router.replace({ query })
+}
+function finishClosingMember() { if (!drawerOpen.value) drawerMember.value = null }
+async function copyMemberLink() {
+  try {
+    const resolved = router.resolve({ path: '/performance/project-management', query: memberQuery() })
+    await navigator.clipboard.writeText(new URL(resolved.href, window.location.origin).href)
+    ElMessage.success('链接已复制')
+  } catch { ElMessage.error('复制失败，请从浏览器地址栏复制链接') }
+}
+function restoreMember() {
+  if (!route.query.rootReviewId) { drawerOpen.value = false; return }
+  const projectId = Number(route.query.member_project_id)
+  const rootId = Number(route.query.rootReviewId)
+  const employeeNo = String(route.query.employee_no || '')
+  if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(rootId) || rootId <= 0 || !employeeNo) return
+  activeTab.value = 'members'
+  if (drawerMember.value?.project_id !== projectId || drawerMember.value?.root_review_id !== rootId || drawerMember.value?.employee_no !== employeeNo) {
+    drawerMember.value = { project_id: projectId, employee_no: employeeNo, root_review_id: rootId }
+  }
+  drawerActiveTab.value = String(route.query.activeTab || '')
+  drawerOpen.value = true
+}
+watch(() => [route.query.rootReviewId, route.query.activeTab, route.query.employee_no, route.query.member_project_id], () => { if (!loading.value) restoreMember() })
 const overviewTabs = OVERVIEW_TABS
 const loading = ref(true)
 const error = ref('')
@@ -121,7 +183,7 @@ function openDelegation(action: 'AUTHORIZE' | 'TRANSFER', members: ProjectMember
   selectedDelegationMembers.value = members
   delegationTasks.value = members.map(member => ({
     task_id: member.task_id || 0,
-    project_id: memberProjectId.value,
+    project_id: member.project_id || memberProjectId.value,
     employee_no: member.employee_no,
     display_name: member.display_name,
     task_map: member.task_map || [],
@@ -227,6 +289,8 @@ async function selectCycle(rawCycleId: number | string) {
   const cycleId = Number(rawCycleId)
   if (!Number.isFinite(cycleId) || cycleId <= 0 || cycleId === activeCycleId.value) return
   selectedKey.value = OVERVIEW_NODE_ID
+  drawerOpen.value = false
+  drawerMember.value = null
   loading.value = true
   try {
     const navigation = await projectContext.selectCycle(cycleId)
@@ -291,8 +355,9 @@ onMounted(async () => {
     if (!projectContext.navigationReady) await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
     if (projectContext.navigation && !projectContext.navigation.can_manage) { await router.replace('/performance/workbench'); return }
     const cycleId = projectContext.activeCycleId
-    if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { cycle_id: cycleId ? String(cycleId) : undefined } })
+    if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined } })
     await loadOverview(cycleId)
+    restoreMember()
   } catch { error.value = '项目管理加载失败，请稍后重试'; loading.value = false }
 })
 </script>

@@ -1,6 +1,7 @@
 """Performance project configuration API."""
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, date, timedelta
 from typing import Callable, Literal
 from types import SimpleNamespace
@@ -852,8 +853,24 @@ class ProjectPage(BaseModel):
     page_size: int
 
 
+class ProjectRatingColumn(BaseModel):
+    key: str
+    label: str
+
+
+class ProjectRatingValue(BaseModel):
+    label: str
+    color: str | None = None
+    foreground: str | None = None
+
+
 class ProjectMemberResponse(BaseModel):
     id: int
+    root_review_id: int
+    project_id: int
+    can_view_detail: bool = False
+    rating_columns: list[ProjectRatingColumn] = Field(default_factory=list)
+    ratings: dict[str, ProjectRatingValue | None] = Field(default_factory=dict)
     employee_no: str
     display_name: str
     company_org: str | None = None
@@ -896,6 +913,7 @@ class ProjectMemberPage(BaseModel):
     total: int
     page: int
     page_size: int
+    rating_columns: list[ProjectRatingColumn] = Field(default_factory=list)
 
 
 class MatrixPersonResponse(BaseModel):
@@ -1518,9 +1536,11 @@ def _latest_member_snapshot_statement(project_id: int):
     return latest_snapshot
 
 
-def _serialize_project_member(member: PerformanceProjectMember) -> ProjectMemberResponse:
+def _serialize_project_member(member: PerformanceProjectMember, project_id: int) -> ProjectMemberResponse:
     return ProjectMemberResponse(
         id=member.id,
+        root_review_id=member.id,
+        project_id=project_id,
         employee_no=member.employee_no,
         display_name=member.display_name,
         company_org=member.company_org,
@@ -1595,7 +1615,8 @@ async def _task_authorization_members(project, scope, context, db, keyword, page
     for member in members:
         options = await _member_task_options(member, [task for task in tasks if task.target_employee_no == member.employee_no], stages, {}, scope, project, context, actor.actor_ref, db)
         items.append(ProjectMemberResponse(
-            id=member.id, employee_no=member.employee_no, display_name=member.display_name,
+            id=member.id, root_review_id=member.id, project_id=project.id,
+            employee_no=member.employee_no, display_name=member.display_name,
             task_id=next((option.task_id for option in options if option.can_authorize), None),
             can_authorize=any(option.can_authorize for option in options), task_map=options,
         ))
@@ -1606,7 +1627,7 @@ async def _task_authorization_members(project, scope, context, db, keyword, page
 async def export_project_members(
     project_id: int,
     keyword: str | None = Query(default=None, max_length=128),
-    sort_by: str | None = Query(default=None, pattern="^(name|rating|completion|job_sequence|position_level|hire_date|department)$"),
+    sort_by: str | None = Query(default=None, max_length=256),
     sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
@@ -1620,8 +1641,8 @@ async def export_project_members(
             raise
         raise HTTPException(status_code=403, detail="PERFORMANCE_MEMBER_EXPORT_FORBIDDEN") from None
     scope = export_scope if view_scope is None else view_scope if export_scope is None else view_scope & export_scope
-    items = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
-    return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items))
+    items, rating_columns = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
+    return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=rating_columns)
 
 
 @router.get("/projects/{project_id}/members", response_model=ProjectMemberPage)
@@ -1630,7 +1651,7 @@ async def list_project_members(
     keyword: str | None = Query(default=None, max_length=128),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=100),
-    sort_by: str | None = Query(default=None, pattern="^(name|rating|completion|job_sequence|position_level|hire_date|department)$"),
+    sort_by: str | None = Query(default=None, max_length=256),
     sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
@@ -1644,9 +1665,90 @@ async def list_project_members(
         scope = await _task_management_scope(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
         return await _task_authorization_members(project, scope, context, db, keyword, page, page_size, sort_by, sort_order)
 
-    items = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
+    items, rating_columns = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
     start = (page - 1) * page_size
-    return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size)
+    return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size, rating_columns=rating_columns)
+
+
+def _sort_member_rows(items, sort_by, sort_order, rating_columns):
+    allowed = {"name", "rating", "completion", "job_sequence", "position_level", "hire_date", "department"} | {column["key"] for column in rating_columns}
+    if sort_by is not None and sort_by not in allowed:
+        raise HTTPException(status_code=422, detail="INVALID_MEMBER_SORT_KEY")
+    if sort_by and sort_order:
+        def sort_value(item):
+            if sort_by.startswith("rating:"):
+                rating = item.ratings.get(sort_by)
+                return rating.label if rating else None
+            return getattr(item, "display_name" if sort_by == "name" else sort_by)
+        items.sort(key=lambda item: (sort_value(item) is None, str(sort_value(item) or "")), reverse=sort_order == "desc")
+
+
+async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False):
+    access = await resolve_frontend_access(db, context)
+    if not any(cycle.id == cycle_id for cycle in access.cycles):
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    managed = {project.id: project for project, cycle in access.manage_projects if cycle.id == cycle_id}
+    if not managed:
+        raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
+    authorized = []
+    for project in managed.values():
+        try:
+            scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+            if export:
+                export_scope = await _project_data_scope(context, project, db, "performance.frontend.export-members")
+                scope = export_scope if scope is None else scope if export_scope is None else scope & export_scope
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                continue
+            raise
+        authorized.append((project, scope))
+    if not authorized:
+        raise HTTPException(status_code=403, detail="PERFORMANCE_MEMBER_EXPORT_FORBIDDEN" if export else "PROJECT_DATA_FORBIDDEN")
+    items, columns = [], {}
+    for project, scope in authorized:
+        project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db)
+        items.extend(project_items)
+        for column in project_columns:
+            columns.setdefault(column["key"], column)
+    rating_columns = list(columns.values())
+    items.sort(key=lambda item: (item.display_name, item.employee_no, item.project_id, item.id))
+    _sort_member_rows(items, sort_by, sort_order, rating_columns)
+    return items, rating_columns
+
+
+@router.get("/project-management/cycles/{cycle_id}/members", response_model=ProjectMemberPage)
+async def cycle_project_members(
+    cycle_id: int,
+    keyword: str | None = Query(default=None, max_length=128),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    sort_by: str | None = Query(default=None, max_length=256),
+    sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    items, columns = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db)
+    start = (page - 1) * page_size
+    return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size, rating_columns=columns)
+
+
+@router.get("/project-management/cycles/{cycle_id}/members/export", response_model=ProjectMemberPage)
+async def export_cycle_project_members(
+    cycle_id: int,
+    keyword: str | None = Query(default=None, max_length=128),
+    sort_by: str | None = Query(default=None, max_length=256),
+    sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    items, columns = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True)
+    return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=columns)
+
+
+async def _member_visibility_role(context, project, member, scope, actor_ref, db):
+    if _is_cycle_manager(context):
+        return await resolve_subject_visibility_role(db, context, actor_ref, member, SimpleNamespace(node_type="", config={}), project)
+    return "hrbp" if scope is not None else "activity_manager"
 
 
 async def _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db):
@@ -1673,21 +1775,25 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     visibility_rules = await load_subject_visibility_rules(db)
     visible_fields_by_member: dict[int, list[str]] = {}
     for member in members:
-        role = "hrbp" if scope is not None else "activity_manager"
-        if _is_cycle_manager(context):
-            role = await resolve_subject_visibility_role(
-                db, context, actor_ref, member,
-                SimpleNamespace(node_type="", config={}), project,
-            )
+        role = await _member_visibility_role(context, project, member, scope, actor_ref, db)
         visible_fields_by_member[member.id] = visibility_rules[role]
 
-    stages = await _delegatable_stages(db, project)
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    final_node = _final_result_snapshot(nodes)
+    metadata = _task_rating_metadata(await _matrix_node_schema(final_node, project, db)) if final_node is not None else []
+    rating_columns = [{"key": item["key"], "label": item["label"]} for item in metadata]
+    allowed_sort_keys = {"name", "rating", "completion", "job_sequence", "position_level", "hire_date", "department"} | {item["key"] for item in metadata}
+    if sort_by is not None and sort_by not in allowed_sort_keys:
+        raise HTTPException(status_code=422, detail="INVALID_MEMBER_SORT_KEY")
+    stages = await _delegatable_stages(db, project, nodes)
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.member_snapshot_id == snapshot_id,
+        PerformanceNodeTask.revoked_at.is_(None),
+    ))).scalars().all()) if members and (stages or final_node is not None) else []
     if stages:
-        tasks = list((await db.execute(select(PerformanceNodeTask).where(
-            PerformanceNodeTask.project_id == project.id,
-            PerformanceNodeTask.member_snapshot_id == snapshot_id,
-            PerformanceNodeTask.revoked_at.is_(None),
-        ))).scalars().all())
         task_ids = [task.id for task in tasks]
         active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] = {}
         if task_ids:
@@ -1704,7 +1810,6 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
             else:
                 raise
     else:
-        tasks = []
         active_by_task = {}
         progress_scope = None
     by_employee: dict[str, list[PerformanceNodeTask]] = {}
@@ -1713,7 +1818,16 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
 
     items = []
     for member in members:
-        item = _serialize_project_member(member).model_dump()
+        item = _serialize_project_member(member, project.id).model_dump()
+        item["can_view_detail"] = True
+        item["rating_columns"] = rating_columns
+        final_tasks = [task for task in by_employee.get(member.employee_no, []) if final_node is not None and task.node_snapshot_id == final_node.id and getattr(task, "submitted_at", None) is not None]
+        latest_final = max(final_tasks, key=lambda task: (task.submitted_at, task.id), default=None)
+        item["ratings"] = _task_rating_values(latest_final, metadata)
+        if len(metadata) == 1:
+            rating = item["ratings"][metadata[0]["key"]]
+            item["rating"] = rating["label"] if rating else None
+            item["rating_tone"] = rating["color"] if rating else None
         item["completion"] = progress.get(member.employee_no, "0/0")
         item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
@@ -1737,9 +1851,141 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         item["can_authorize"] = bool(options) and any(option.can_authorize for option in options)
         item["task_map"] = [option.model_dump() for option in options]
         items.append(ProjectMemberResponse(**item))
-    if sort_by and sort_order:
-        items.sort(key=lambda item: (getattr(item, "display_name" if sort_by == "name" else sort_by) is None, str(getattr(item, "display_name" if sort_by == "name" else sort_by) or "")), reverse=sort_order == "desc")
-    return items
+    _sort_member_rows(items, sort_by, sort_order, rating_columns)
+    return items, rating_columns
+
+
+async def _project_member_detail(project: PerformanceProject, employee_no: str, context: PerformanceAccessContext, db: AsyncSession, root_review_id: int | None = None):
+    scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+    if scope is not None and employee_no not in scope:
+        raise HTTPException(status_code=404, detail="PROJECT_MEMBER_NOT_FOUND")
+    member_query = select(PerformanceProjectMember).join(
+        PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
+    ).where(
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+        PerformanceProjectMember.employee_no == employee_no,
+    )
+    member_query = member_query.where(PerformanceProjectMember.id == root_review_id) if root_review_id is not None else member_query.where(PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id))
+    member = await db.scalar(member_query)
+    if member is None:
+        raise HTTPException(status_code=404, detail="PROJECT_MEMBER_NOT_FOUND")
+    snapshot_id = member.snapshot_id
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+        PerformanceProjectNodeSnapshot.node_type.in_(["work_summary", "evaluation", "result_communication"]),
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.member_snapshot_id == snapshot_id,
+        PerformanceNodeTask.target_employee_no == employee_no,
+        PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]),
+        PerformanceNodeTask.revoked_at.is_(None),
+    ).order_by(PerformanceNodeTask.id))).scalars().all())
+    by_node = {node.id: [task for task in tasks if task.node_snapshot_id == node.id] for node in nodes}
+    submitted_communications = [(task, node) for node in nodes if node.node_type == "result_communication" for task in by_node[node.id] if task.submitted_at is not None]
+    selected_node = max(submitted_communications, key=lambda pair: (pair[0].submitted_at, pair[0].id))[1] if submitted_communications else _final_result_snapshot(nodes)
+    selected_node = selected_node or next((node for node in reversed(nodes) if by_node[node.id]), None)
+    if selected_node is None:
+        raise HTTPException(status_code=404, detail="PROJECT_MEMBER_DETAIL_NOT_FOUND")
+    selected_tasks = by_node[selected_node.id]
+    selected_task = max(selected_tasks, key=lambda task: (task.submitted_at is not None, task.submitted_at.isoformat() if task.submitted_at else "", task.id), default=None)
+    templates = {node.id: await _reference_template(next(iter(by_node[node.id]), None), node, project, db) for node in nodes}
+    selected_template = templates[selected_node.id]
+    relations = {str(content.get("reference_value")): content for content in selected_template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "node"}
+    handler_refs = {str(task.handler_ref) for node in nodes if node_role_code(templates[node.id]) != ROLE_REVIEWER_360 for task in by_node[node.id] if task.submitted_at is not None}
+    handler_names = {}
+    if handler_refs:
+        rows = (await db.execute(select(PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name).join(
+            PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+        ).where(PerformanceProjectMemberSnapshot.id == snapshot_id, PerformanceAuthorizationSnapshotPerson.employee_no.in_(handler_refs)))).all()
+        handler_names = dict(rows)
+    tabs = []
+    for node in reversed(nodes):
+        related = by_node[node.id]
+        completed = [task for task in related if task.submitted_at is not None]
+        schema, answers = [], {}
+        anonymous = node_role_code(templates[node.id]) == ROLE_REVIEWER_360
+        for index, task in enumerate(completed if not anonymous else []):
+            _, visible_answers = await _task_visible_content(task, node, db)
+            projected, visible_answers = project_reference_content(templates[node.id], relations.get(node.node_id, {}), visible_answers)
+            for source_section in projected:
+                section = deepcopy(source_section)
+                if len(completed) > 1:
+                    section["id"] = f"management-{node.node_id}-{index}-{section['id']}"
+                    handler_name = handler_names.get(str(task.handler_ref))
+                    section["name"] = f"{section.get('name') or node.name} · {handler_name or '评估 ' + str(index + 1)}"
+                field_keys = {}
+                for field in section.get("fields", []):
+                    old_key = field["id"]
+                    new_key = f"{section['id']}:{old_key}" if len(completed) > 1 else old_key
+                    field_keys[old_key] = new_key
+                    field["id"], field["readonly"] = new_key, True
+                    if old_key in visible_answers:
+                        answers[new_key] = visible_answers[old_key]
+                for element in section.get("elements") or []:
+                    if element.get("id") in field_keys:
+                        element["id"] = field_keys[element["id"]]
+                schema.append(section)
+        representative = max(completed, key=lambda task: (task.submitted_at, task.id), default=next(iter(related), None))
+        statuses = []
+        for task in related:
+            available_at, due_at = _task_window(task, node, project)
+            now = datetime.now(UTC)
+            statuses.append("completed" if task.submitted_at is not None else "not_started" if available_at and now < available_at else "overdue" if due_at and now > due_at else "pending")
+        statuses = statuses or [_reference_status(None, node, project)]
+        status = "completed" if related and len(completed) == len(related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
+        deadline = _task_window(representative, node, project)[1] if representative else _parse_time((_node_timing(project, node) or {}).get("end_at"))
+        relation = relations.get(node.node_id, {})
+        tabs.append({
+            "key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
+            "node_name": (relation.get("reference_settings") or {}).get("page_name") or node.name,
+            "task_id": representative.id if representative is not None and not anonymous else None,
+            "task_kind": node.node_type, "employee_no": employee_no, "status": status,
+            "deadline_at": deadline, "submitted_at": representative.submitted_at if representative and not anonymous else None,
+            "submitted_by": handler_names.get(str(representative.handler_ref)) if representative and completed and not anonymous else None,
+            "form_schema": schema, "answers": answers, "can_remind": False,
+        })
+    okr_relation = next((content for template in templates.values() for content in template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "more" and content.get("reference_value") == "okr"), None)
+    if okr_relation is not None:
+        from app.performance.okr_provider import fetch_employee_okr
+        okr = await fetch_employee_okr(db, employee_no)
+        tabs.append({"key": "management-okr", "kind": "okr", "node_id": "", "node_name": (okr_relation.get("reference_settings") or {}).get("page_name") or okr_relation.get("name") or "OKR", "task_id": None, "task_kind": None, "employee_no": employee_no, "status": "completed" if okr is not None else "not_started", "deadline_at": None, "submitted_at": None, "submitted_by": None, "form_schema": [], "answers": {}, "can_remind": False, "okr": okr})
+    selected_tab = next(tab for tab in tabs if tab["node_id"] == selected_node.node_id)
+    visibility_role = await _member_visibility_role(context, project, member, scope, str(actor.actor_ref), db)
+    visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
+    supervisors = await _snapshot_supervisor_names(db, [member])
+    supervisor_name = supervisors.get((snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
+    opened_at = await db.scalar(select(PerformanceResultOpening.opened_at).where(PerformanceResultOpening.project_id == project.id, PerformanceResultOpening.employee_no == employee_no))
+    return {
+        "task_id": selected_tab["task_id"], "project_id": project.id, "root_review_id": member.id,
+        "management_tabs": tabs, "default_active_tab": selected_tab["key"], "opened_at": opened_at,
+        "node_id": selected_node.node_id, "return_view": "drawer", "task_kind": selected_node.node_type,
+        "entry_mode": "template_task", "node_name": selected_node.name, "content_page_name": _task_content_page_name(selected_node),
+        "executor_role_code": selected_template.get("executor_role_code"), "phase_id": None,
+        "deadline_at": selected_tab["deadline_at"], "submitted_at": selected_tab["submitted_at"],
+        "editable": False, "submit_allowed": False, "submission_count": sum(task.submitted_at is not None for task in selected_tasks),
+        "version": selected_task.answer_version if selected_task else 1,
+        "person": {"employee_no": employee_no, "display_name": member.display_name,
+            "department": organization_leaf(member) if "department" in visible_fields else None,
+            "direct_supervisor_name": supervisor_name if "direct_supervisor" in visible_fields else None,
+            "visibility_role": visibility_role, "profile_fields": subject_profile_items(member, visible_fields, direct_supervisor_name=supervisor_name)},
+        "form_schema": selected_tab["form_schema"], "answers": selected_tab["answers"],
+        "has_draft": False, "draft_answers": {}, "prompts": [], "calibration_notice": None,
+        "reference_tabs": [tab for tab in tabs if tab is not selected_tab],
+    }
+
+
+@router.get("/projects/{project_id}/members/{employee_no}/detail")
+async def project_member_detail(
+    project_id: int,
+    employee_no: str,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    root_review_id: int | None = Query(default=None, ge=1),
+):
+    project = await _get_project(db, project_id)
+    return await _project_member_detail(project, employee_no, context, db, root_review_id)
 
 
 def _project_scope_refs(context: PerformanceAccessContext) -> set[str]:
@@ -2205,7 +2451,7 @@ def _completion_node_key(node: PerformanceProjectNodeSnapshot, template: dict | 
     }.get(node.node_type)
 
 
-async def _delegatable_stages(db: AsyncSession, project: PerformanceProject) -> dict[int, dict]:
+async def _delegatable_stages(db: AsyncSession, project: PerformanceProject, nodes=None) -> dict[int, dict]:
     """Map node snapshot id to the stages a project administrator may delegate.
 
     The executor role (直属上级 / HRBP) is resolved per reviewee from the task
@@ -2213,9 +2459,10 @@ async def _delegatable_stages(db: AsyncSession, project: PerformanceProject) -> 
     blueprint; only the stages handled for a reviewee appear in their group.
     """
     result: dict[int, dict] = {}
-    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
-        PerformanceProjectNodeSnapshot.project_id == project.id,
-    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    if nodes is None:
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+        ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
     for node in nodes:
         key = _completion_node_key(node, await _completion_node_template(db, project, node))
         if key == "manager-review":

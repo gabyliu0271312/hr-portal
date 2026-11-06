@@ -24,6 +24,7 @@ type MemberRow = ProjectMember & {
 
 const props = withDefaults(defineProps<{
   projectId: number | string
+  cycleId?: number
   reviewContext?: { nodeId: string; state: 'pending' | 'completed' | 'all'; phaseId?: string | null }
   showExport?: boolean
 }>(), {
@@ -38,7 +39,8 @@ const emit = defineEmits<{
   'transfer-selected': [members: MemberRow[]]
 }>()
 const selectedKeys = ref<string[]>([])
-const selectedMembers = computed(() => members.value.filter(member => selectedKeys.value.includes(String(member.employee_no))))
+const memberSelectionKey = (member: MemberRow) => props.cycleId ? String(member.root_review_id || `${member.project_id}:${member.employee_no}`) : member.employee_no
+const selectedMembers = computed(() => members.value.filter(member => selectedKeys.value.includes(memberSelectionKey(member))))
 const keyword = ref('')
 const members = ref<MemberRow[]>([])
 const total = ref(0)
@@ -73,8 +75,14 @@ const reviewColumns: MemberColumnOption[] = [
   { key: 'department', label: '所属部门' },
 ]
 const ratingColumns = ref<MemberColumnOption[] | null>(null)
-const activeReviewColumns = computed(() => reviewColumns.flatMap(column => column.key === 'rating' && ratingColumns.value !== null ? ratingColumns.value : [column]))
-const columns = computed(() => props.reviewContext ? activeReviewColumns.value : projectColumns)
+const baseColumns = computed(() => props.reviewContext ? reviewColumns : projectColumns)
+const columns = computed(() => baseColumns.value.flatMap(column => column.key === 'rating' && ratingColumns.value !== null ? ratingColumns.value : [column]))
+function updateRatingColumns(next: MemberColumnOption[] | null) {
+  const previousKeys = columns.value.map(column => column.key)
+  const selected = new Set(selectedColumnKeys.value)
+  ratingColumns.value = next
+  selectedColumnKeys.value = columns.value.filter(column => selected.has(column.key) || !previousKeys.includes(column.key)).map(column => column.key)
+}
 const profileColumnKeys: Record<string, string> = {
   department: 'department',
   direct_supervisor: 'direct_supervisor',
@@ -137,12 +145,9 @@ const loadMembers = async () => {
       const result = props.reviewContext.phaseId
         ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId)
         : await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined)
-      const previousKeys = columns.value.map(column => column.key)
       if (result.some(item => Array.isArray(item.rating_columns))) {
-        ratingColumns.value = Array.from(new Map(result.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values())
-      } else if (result.length) ratingColumns.value = null
-      const selected = new Set(selectedColumnKeys.value)
-      selectedColumnKeys.value = activeReviewColumns.value.filter(column => selected.has(column.key) || !previousKeys.includes(column.key)).map(column => column.key)
+        updateRatingColumns(Array.from(new Map(result.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
+      } else if (result.length) updateRatingColumns(null)
       members.value = result.map((item: PerformanceWorkbenchTaskPerson) => ({
         id: item.task_id,
         employee_no: item.employee_no,
@@ -170,9 +175,15 @@ const loadMembers = async () => {
       }))
       total.value = members.value.length
     } else {
-      const result = await projectManagementApi.members(props.projectId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
+      const result = props.cycleId
+        ? await projectManagementApi.cycleMembers(props.cycleId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
+        : await projectManagementApi.members(props.projectId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
       members.value = result.items
       total.value = result.total
+      if (result.rating_columns) updateRatingColumns(result.rating_columns)
+      else if (result.items.some(item => Array.isArray(item.rating_columns))) {
+        updateRatingColumns(Array.from(new Map(result.items.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
+      } else if (result.items.length) updateRatingColumns(null)
     }
     const availableKeys = new Set(availableColumns.value.map(column => column.key))
     selectedColumnKeys.value = selectedColumnKeys.value.filter(key => availableKeys.has(key))
@@ -205,7 +216,9 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
 async function exportRows() {
   const rows = props.reviewContext
     ? sortedMembers.value
-    : (await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
+    : (props.cycleId
+      ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
+      : await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
   return [
     visibleColumns.value.map(column => column.label),
     ...rows.map(member => visibleColumns.value.map(column => String(cellValue(member, column.key)))),
@@ -232,10 +245,10 @@ function changePageSize(nextPageSize: number) {
 }
 
 function onRowClick(member: MemberRow) {
-  if (props.reviewContext) emit('select-member', member)
+  if (props.reviewContext || member.can_view_detail) emit('select-member', member)
 }
 
-watch(() => [props.projectId, props.reviewContext?.nodeId, props.reviewContext?.state, props.reviewContext?.phaseId], () => {
+watch(() => [props.projectId, props.cycleId, props.reviewContext?.nodeId, props.reviewContext?.state, props.reviewContext?.phaseId], () => {
   page.value = 1
   void loadMembers()
 })
@@ -279,10 +292,10 @@ onMounted(() => void loadMembers())
       scroll-mode="page"
       :columns="tableColumns"
       :selectable="!reviewContext"
-      selection-key="employee_no"
+      :selection-key="cycleId ? 'root_review_id' : 'employee_no'"
       :show-selection-bar="!reviewContext"
-      row-key="employee_no"
-      :clickable-rows="Boolean(reviewContext)"
+      :row-key="cycleId ? 'root_review_id' : 'employee_no'"
+      :clickable-rows="Boolean(reviewContext) || members.some(member => member.can_view_detail)"
       @page-change="changePage"
       @page-size-change="changePageSize"
       @row-click="onRowClick"

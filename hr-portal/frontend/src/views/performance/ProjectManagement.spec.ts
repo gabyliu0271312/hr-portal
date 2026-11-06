@@ -15,7 +15,7 @@ vi.mock('vue-router', () => ({
 
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
-  return { ...actual, projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn() } }
+  return { ...actual, projectManagementApi: { ...actual.projectManagementApi, overview: vi.fn(), members: vi.fn(), exportMembers: vi.fn(), matrix: vi.fn(), memberDetail: vi.fn(), cycleMembers: vi.fn(), cycleExportMembers: vi.fn() } }
 })
 
 import ProjectManagement from './ProjectManagement.vue'
@@ -95,6 +95,11 @@ describe('ProjectManagement', () => {
     vi.mocked(mockedApi.members).mockReset()
     vi.mocked(mockedApi.exportMembers).mockReset()
     vi.mocked(mockedApi.matrix).mockReset()
+    vi.mocked(mockedApi.memberDetail).mockReset()
+    vi.mocked(mockedApi.cycleMembers).mockReset()
+    vi.mocked(mockedApi.cycleExportMembers).mockReset()
+    vi.mocked(mockedApi.cycleMembers).mockImplementation(async () => ({ items: [], total: 406, page: 1, page_size: 50, rating_columns: [] }))
+    vi.mocked(mockedApi.cycleExportMembers).mockImplementation(async () => ({ items: [], total: 406, page: 1, page_size: 406, rating_columns: [] }))
     vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 406, page: 1, page_size: 50 })
     vi.mocked(mockedApi.matrix).mockResolvedValue({
       source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 406, completed_count: 403, pending_count: 3,
@@ -350,8 +355,8 @@ describe('ProjectManagement', () => {
       job_sequence: null, position_level: null, hire_date: null, department: null,
       employee_type: null, employment_status: null,
     }))
-    vi.mocked(mockedApi.members).mockImplementation(async (_id, _keyword, page = 1, size = 50) => ({ items: all.slice((page - 1) * size, page * size), total: all.length, page, page_size: size }))
-    vi.mocked(mockedApi.exportMembers).mockResolvedValue({ items: all, total: all.length, page: 1, page_size: all.length })
+    vi.mocked(mockedApi.cycleMembers).mockImplementation(async (_id, _keyword, page = 1, size = 50) => ({ items: all.slice((page - 1) * size, page * size), total: all.length, page, page_size: size }))
+    vi.mocked(mockedApi.cycleExportMembers).mockResolvedValue({ items: all, total: all.length, page: 1, page_size: all.length })
     const wrapper = mountView()
     await flushPromises()
     await wrapper.findAll('.line-tab')[1].trigger('click')
@@ -364,7 +369,7 @@ describe('ProjectManagement', () => {
     const button = panel.getComponent({ name: 'PerformanceExportButton' })
     const loadRows = button.props('loadRows') as () => Promise<string[][]>
     expect(await loadRows()).toEqual([['姓名'], ...all.map(member => [member.display_name])])
-    expect(mockedApi.exportMembers).toHaveBeenLastCalledWith(3, undefined, undefined, undefined)
+    expect(mockedApi.cycleExportMembers).toHaveBeenLastCalledWith(1, undefined, undefined, undefined)
     button.vm.$emit('error', new Error('network'))
     await flushPromises()
     expect(panel.text()).toContain('导出失败，请稍后重试')
@@ -375,9 +380,65 @@ describe('ProjectManagement', () => {
     wrapper.unmount()
   })
 
+  it('opens scoped management details through the shared drawer with dynamic final ratings', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const member = { id: 71, root_review_id: 71, project_id: 3, employee_no: 'E1', display_name: '管理可见员工', can_view_detail: true, avatar_url: null, rating: null, rating_tone: null, completion: '0/0', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null, ratings: { 'rating:grade': { label: '3星+' }, 'rating:value': { label: 'A' } } }
+    vi.mocked(mockedApi.cycleMembers).mockResolvedValue({ items: [member], total: 1, page: 1, page_size: 50, rating_columns: [{ key: 'rating:grade', label: '年度绩效' }, { key: 'rating:value', label: '价值贡献' }] })
+    vi.mocked(mockedApi.cycleExportMembers).mockResolvedValue({ items: [member], total: 1, page: 1, page_size: 50 })
+    const tabs = [
+      { key: 'management-comm', kind: 'node' as const, node_id: 'comm', node_name: '绩效沟通', status: 'completed' as const, employee_no: 'E1', can_remind: false, form_schema: [{ id: 'advice', name: '发展建议', fields: [{ id: 'text', type: 'rich_text' as const, label: '发展建议' }] }], answers: { text: '沟通已提交内容' } },
+      { key: 'management-final', kind: 'node' as const, node_id: 'final', node_name: '上级评估', status: 'completed' as const, employee_no: 'E1', can_remind: false, form_schema: [{ id: 'review', name: '绩效内容', fields: [{ id: 'text', type: 'rich_text' as const, label: '评估' }] }], answers: { text: '上级已提交内容' } },
+    ]
+    vi.mocked(mockedApi.memberDetail).mockResolvedValue({ task_id: 41, task_kind: 'result_communication', entry_mode: 'template_task', node_name: '绩效沟通', editable: false, submit_allowed: false, person: { employee_no: 'E1', display_name: '管理可见员工' }, form_schema: [], answers: {}, management_tabs: tabs, default_active_tab: 'management-comm' })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    const panel = wrapper.getComponent({ name: 'ProjectMemberListPanel' })
+    expect(panel.findAll('.ui-table__sort-label').map(item => item.text())).toEqual(expect.arrayContaining(['年度绩效', '价值贡献']))
+    expect(panel.findAll('.performance-rating-tag').map(item => item.text())).toEqual(['3星+', 'A'])
+    const exported = await panel.getComponent({ name: 'PerformanceExportButton' }).props('loadRows')()
+    expect(exported[1][exported[0].indexOf('年度绩效')]).toBe('3星+')
+    panel.getComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', member)
+    await flushPromises()
+    expect(mockedApi.memberDetail).toHaveBeenCalledWith(3, 'E1', 71)
+    expect(document.body.textContent).toContain('沟通已提交内容')
+    expect(document.body.querySelector('.performance-drawer__mask')).toBeNull()
+    expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+    const drawerTabs = Array.from(document.body.querySelectorAll('.performance-drawer .line-tab'))
+    ;(drawerTabs[1] as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.textContent).toContain('上级已提交内容')
+    expect(replace).toHaveBeenLastCalledWith({ query: expect.objectContaining({ rootReviewId: '71', member_project_id: '3', activeTab: 'management-final' }) })
+    Object.assign(routeQuery, { cycle_id: '1', rootReviewId: '71', member_project_id: '3', employee_no: 'E1', activeTab: 'management-final' })
+    ;(document.body.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(replace).toHaveBeenLastCalledWith({ query: { cycle_id: '1' } })
+    wrapper.unmount()
+    const reopened = mountView()
+    await flushPromises()
+    expect(mockedApi.memberDetail).toHaveBeenLastCalledWith(3, 'E1', 71)
+    expect(document.body.textContent).toContain('上级已提交内容')
+    expect(document.body.querySelector('.performance-drawer__panel')).not.toBeNull()
+    reopened.unmount()
+  })
+
+  it('does not open member details without the server-provided capability', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    wrapper.getComponent({ name: 'ProjectMemberListPanel' }).vm.$emit('select-member', { employee_no: 'E1', task_id: 999 })
+    await flushPromises()
+    expect(mockedApi.memberDetail).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.performance-drawer__panel')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('keeps member headers when the member list is empty', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
-    vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
+    vi.mocked(mockedApi.cycleMembers).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
     const wrapper = mountView()
     await flushPromises()
     await wrapper.findAll('.line-tab')[1].trigger('click')

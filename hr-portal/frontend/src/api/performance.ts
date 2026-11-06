@@ -885,6 +885,11 @@ export interface PerformanceTaskDelegationTarget {
 }
 
 export interface ProjectMember extends PerformanceMemberProfile {
+  root_review_id?: number
+  project_id?: number
+  can_view_detail?: boolean
+  rating_columns?: Array<{ key: string; label: string }>
+  ratings?: Record<string, PerformanceTaskRatingValue | null>
   direct_supervisor?: string | null
   id: number
   avatar_url: string | null
@@ -897,6 +902,7 @@ export interface ProjectMember extends PerformanceMemberProfile {
 }
 
 export interface ProjectMemberPage {
+  rating_columns?: Array<{ key: string; label: string }>
   items: ProjectMember[]
   total: number
   page: number
@@ -1029,6 +1035,14 @@ export const projectManagementApi = {
     const { data } = await api.get('/performance/project-management/calibration-authorization', { params: { cycle_id: cycleId } })
     return data
   },
+  async cycleMembers(cycleId: number, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members`, { params: { keyword, page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder } })
+    return data
+  },
+  async cycleExportMembers(cycleId: number, keyword?: string, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
+    const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members/export`, { params: { keyword, sort_by: sortBy, sort_order: sortOrder } })
+    return data
+  },
   async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
     const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members`, {
       params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), page, page_size: pageSize },
@@ -1039,6 +1053,10 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/export`, {
       params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}) },
     })
+    return data
+  },
+  async memberDetail(projectId: number | string, employeeNo: string, rootReviewId?: number): Promise<PerformanceManagementDetail> {
+    const { data } = await api.get<PerformanceManagementDetail>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/detail`, { params: rootReviewId ? { root_review_id: rootReviewId } : undefined })
     return data
   },
   async matrix(projectId: number | string): Promise<ProjectMatrix> {
@@ -1134,6 +1152,9 @@ export type PerformanceReferenceTab = {
   task_id?: number | null
   employee_no: string
   status: 'not_started' | 'pending' | 'overdue' | 'completed'
+  task_kind?: string
+  deadline_at?: string | null
+  submitted_by?: string | null
   submitted_at?: string | null
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
@@ -1154,6 +1175,10 @@ export type SelfSummaryPerson = {
   profile_fields?: SelfSummaryProfileField[]
 }
 export type PerformanceTemplateTask = {
+  management_tabs?: PerformanceReferenceTab[]
+  default_active_tab?: string
+  root_review_id?: number
+  opened_at?: string | null
   project_id?: number
   node_id?: string
   return_view?: 'node' | 'drawer' | 'page'
@@ -1181,6 +1206,7 @@ export type PerformanceTemplateTask = {
   keep_result?: 'keep' | 'change' | null
   reference_tabs?: PerformanceReferenceTab[]
 }
+export type PerformanceManagementDetail = Omit<PerformanceTemplateTask, 'task_id'> & { task_id: string | number | null }
 export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }
 

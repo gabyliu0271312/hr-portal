@@ -1,11 +1,18 @@
 <template>
   <PerformanceDrawerShell v-model="open" :title="title" aria-label="绩效评估详情" width="720px" :initial-width="1000" variant="evaluation" body-class="performance-drawer__body--flush" :resizable="true" :min-width="720" :mask="false" cache-key="perf-drawer" :keyboard="false" @close="emit('close')" @closed="emit('closed')">
     <template #header>
-      <PerformanceReviewPersonHeader :person="displayPerson" @translate="notifyTranslationUnavailable" @translate-menu="notifyTranslationUnavailable" @copy-link="emit('copy-link')" />
+      <div class="performance-review-evaluation-drawer__person"><PerformanceReviewPersonHeader :person="displayPerson" @translate="notifyTranslationUnavailable" @translate-menu="notifyTranslationUnavailable" @copy-link="emit('copy-link')" /><p v-if="task?.opened_at" class="performance-review-evaluation-drawer__opening">本次绩效结果已于 {{ formatDate(task.opened_at) }} 开通。</p></div>
     </template>
     <div class="performance-review-evaluation-drawer__scroll">
       <PerformanceLineTabs v-model="selectedTab" :tabs="tabs" sticky flush>
-        <section v-if="loading || error || activeTab === 'evaluation'" class="performance-review-evaluation-drawer__tab-content">
+        <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
+          <div class="performance-review-evaluation-drawer__card">
+            <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
+            <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at" :editable="false" variant="evaluation-drawer" :message="managementCompletionMessage" />
+            <PerformanceReferenceContent :reference="managementTab" />
+          </div>
+        </section>
+        <section v-else-if="loading || error || activeTab === 'evaluation'" class="performance-review-evaluation-drawer__tab-content">
           <div v-if="loading" class="performance-review-evaluation-drawer__state">正在加载评估内容…</div>
           <div v-else-if="error" class="performance-review-evaluation-drawer__state performance-review-evaluation-drawer__state--error">
             <p>{{ error }}</p>
@@ -13,7 +20,7 @@
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
-            <PerformanceReviewCompletionNotice :task-id="task?.task_id" :task-kind="task?.task_kind" :employee-no="props.employeeNo" variant="evaluation-drawer" :editable="!props.readonly && Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
+            <PerformanceReviewCompletionNotice :task-id="task?.task_id ?? undefined" :task-kind="task?.task_kind" :employee-no="props.employeeNo" variant="evaluation-drawer" :editable="!props.readonly && Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
           </div>
         </section>
@@ -32,7 +39,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { performanceReviewApi, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type PerformanceTemplateTask, type SelfSummaryPerson } from '@/api/performance'
+import { performanceReviewApi, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type SelfSummaryPerson } from '@/api/performance'
 import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
@@ -49,6 +56,7 @@ const props = withDefaults(defineProps<{
   nodeName?: string
   activeTab?: string
   person?: Partial<DrawerPerson>
+  detailLoader?: () => Promise<PerformanceManagementDetail>
 }>(), { readonly: false, taskId: null, employeeNo: '', nodeName: '', person: () => ({}) })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -60,7 +68,7 @@ const emit = defineEmits<{
   remind: [reference: PerformanceReferenceTab]
 }>()
 function notifyTranslationUnavailable() { ElMessage.info('当前尚未接入翻译服务，评估内容保留原文') }
-const task = ref<PerformanceTemplateTask | null>(null)
+const task = ref<PerformanceManagementDetail | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTab = ref(props.activeTab || 'evaluation')
@@ -70,10 +78,18 @@ const open = computed({ get: () => props.modelValue, set: value => emit('update:
 const title = computed(() => task.value?.node_name || props.nodeName || '上级评估')
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
 const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.node_id === activeTab.value) || null)
-const tabs = computed<PerformanceLineTab[]>(() => [
-  { key: 'evaluation', label: title.value },
-  ...referenceTabs.value.map(reference => ({ key: reference.node_id, label: reference.node_name })),
-])
+const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
+const tabs = computed<PerformanceLineTab[]>(() => task.value?.management_tabs
+  ? task.value.management_tabs.map(tab => ({ key: tab.key, label: tab.node_name }))
+  : [
+    { key: 'evaluation', label: title.value },
+    ...referenceTabs.value.map(reference => ({ key: reference.node_id, label: reference.node_name })),
+  ])
+const managementCompletionMessage = computed(() => {
+  const tab = managementTab.value
+  const deadline = formatDate(tab?.deadline_at)
+  return `以下内容由 ${tab?.submitted_by || '评估人'} 在 ${formatDate(tab?.submitted_at)} 提交${deadline && Date.parse(tab?.deadline_at || '') < Date.now() ? `，该环节已在 ${deadline} 截止` : ''}`
+})
 const displayPerson = computed<DrawerPerson>(() => task.value ? task.value.person : { employee_no: props.employeeNo, display_name: '' })
 const completionMessage = computed(() => {
   const submittedBy = '评估人'
@@ -94,15 +110,20 @@ function formatDate(value?: string | null) {
 }
 async function load() {
   const taskId = props.taskId
-  if (!props.modelValue || taskId === null || taskId === undefined || taskId === '') return
+  if (!props.modelValue || (!props.detailLoader && (taskId === null || taskId === undefined || taskId === ''))) return
   const sequence = ++loadSequence
   loading.value = true
   error.value = ''
   try {
-    const loaded = props.employeeNo ? await performanceReviewApi.templateTask(taskId, props.employeeNo) : await performanceReviewApi.templateTask(taskId)
+    const loaded = props.detailLoader
+      ? await props.detailLoader()
+      : props.employeeNo ? await performanceReviewApi.templateTask(taskId!, props.employeeNo) : await performanceReviewApi.templateTask(taskId!)
     if (sequence !== loadSequence) return
     task.value = loaded
-    if (activeTab.value !== 'evaluation' && !loaded.reference_tabs?.some(reference => reference.node_id === activeTab.value)) selectedTab.value = 'evaluation'
+    if (loaded.management_tabs) {
+      const selected = loaded.management_tabs.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value)
+      selectedTab.value = selected?.key || loaded.default_active_tab || loaded.management_tabs[0]?.key || 'evaluation'
+    } else if (activeTab.value !== 'evaluation' && !loaded.reference_tabs?.some(reference => reference.node_id === activeTab.value)) selectedTab.value = 'evaluation'
   } catch {
     if (sequence === loadSequence) error.value = '评估内容加载失败，请稍后重试'
   } finally {
@@ -110,10 +131,10 @@ async function load() {
   }
 }
 function edit(choice?: 'use' | 'discard') {
-  if (!task.value || props.readonly || !task.value.editable) return
+  if (!task.value || task.value.task_id == null || props.readonly || !task.value.editable) return
   emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no, draft_choice: choice })
 }
-watch(() => [props.modelValue, props.taskId, props.employeeNo], () => {
+watch(() => [props.modelValue, props.taskId, props.employeeNo, props.detailLoader], () => {
   if (props.modelValue) {
     task.value = null
     activeTab.value = props.activeTab || 'evaluation'
@@ -125,5 +146,6 @@ watch(() => props.activeTab, value => { activeTab.value = value || 'evaluation' 
 </script>
 
 <style scoped>
+.performance-review-evaluation-drawer__person{width:100%;min-width:0}.performance-review-evaluation-drawer__opening{margin:0;padding:0 0 12px;color:var(--color-text-secondary);font-size:14px;line-height:22px}
 .performance-review-evaluation-drawer__scroll{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;overflow:auto;background:#f2f3f5}.performance-review-evaluation-drawer__scroll :deep(.line-tabs){min-height:100%;flex:1 0 auto}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-holder){position:sticky;top:0;z-index:20;flex:none;padding:12px 20px 0!important;background:#fff}.performance-review-evaluation-drawer__scroll :deep(.line-tabs.sticky .line-tabs-holder){top:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-overflow){flex-wrap:nowrap;width:max-content;min-width:100%;margin-bottom:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap){overflow-x:auto;scrollbar-width:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap::-webkit-scrollbar){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tab){padding-bottom:12px}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header){margin-bottom:16px;padding-left:0}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header::before){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-ink){top:33px}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-content),.performance-review-evaluation-drawer__scroll :deep(.line-tabs-pane){display:flex;min-height:0;flex:1 0 auto;flex-direction:column}.performance-review-evaluation-drawer__tab-content{display:flex;min-height:0;flex:1 0 auto;flex-direction:column;padding:12px 4px 12px 12px;box-sizing:border-box;background:#f2f3f5}.performance-review-evaluation-drawer__card{flex:1 0 auto;padding:12px 20px;box-sizing:border-box;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px}.performance-review-evaluation-drawer__card :deep(.performance-reference-content){min-height:0}.performance-review-evaluation-drawer__card-title{margin-bottom:16px;color:#1f2329;font-size:16px;font-weight:600;line-height:24px}.performance-review-evaluation-drawer__state{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:14px}.performance-review-evaluation-drawer__state p{margin:0 0 12px}.performance-review-evaluation-drawer__state button{height:32px;padding:4px 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-review-evaluation-drawer__state--error{color:#d14343}.performance-review-evaluation-drawer__tab-placeholder{display:grid;min-height:360px;place-items:center;color:#8f959e;font-size:14px}
 </style>

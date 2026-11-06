@@ -75,6 +75,25 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
+  it('loads management tabs through the supplied loader without using handler task APIs', async () => {
+    const detailLoader = vi.fn().mockResolvedValue({ ...task, task_id: null, editable: false, submit_allowed: false, opened_at: '2026-09-22T07:29:00Z', management_tabs: [
+      { key: 'management-final', node_id: 'final', node_name: '上级评估', kind: 'node', status: 'completed', employee_no: 'E001', can_remind: false, form_schema: task.form_schema, answers: { good: '管理只读答案' } },
+      { key: 'management-okr', node_id: '', node_name: 'OKR', kind: 'okr', task_id: null, status: 'not_started', employee_no: 'E001', can_remind: false, form_schema: [], answers: {}, okr: null },
+    ], default_active_tab: 'management-final' })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', readonly: true, detailLoader } })
+    await flushPromises()
+    expect(detailLoader).toHaveBeenCalledTimes(1)
+    expect(performanceReviewApi.templateTask).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('管理只读答案')
+    expect(document.body.textContent).toContain('本次绩效结果已于')
+    expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+    ;(document.body.querySelectorAll('.performance-drawer .line-tab')[1] as HTMLButtonElement).click()
+    await flushPromises()
+    expect(wrapper.emitted('update:activeTab')).toContainEqual(['management-okr'])
+    expect(document.body.querySelector('.okr-card')).not.toBeNull()
+    wrapper.unmount()
+  })
+
   it('displays a denied task as an error without leaking list profile data', async () => {
     vi.mocked(performanceReviewApi.templateTask).mockRejectedValueOnce(new Error('TASK_NOT_FOUND'))
     const wrapper = mount(PerformanceReviewEvaluationDrawer, {
