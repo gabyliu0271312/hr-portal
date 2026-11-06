@@ -242,6 +242,10 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
     - 已查看实际截图 `../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times.png`；另有 `../../ui-blueprints/PM-T003-I10-implemented-calibration-phase-times-mobile.png`（真实日期组件 390px 宽夹具，单列且无横向溢出；不是整个桌面项目设置页的移动端适配声明）。临时 Vite 验收进程已停止。
     - `npm --prefix hr-portal/frontend run build` 曾通过 vue-tsc + Vite（既有 VueUse PURE 注释警告）；最新整体构建因同期模板流程页新增 executor_role_code 而 WorkflowNode 类型尚未补齐失败，已联系对应会话，不覆盖其修改；整体构建阻塞解除后须再次回填。`git diff --check` 本卡文件通过，仅 LF/CRLF 提示。
   - Current status: 本卡联动实现、定向/全文件后端与前端回归、真实 API/SQL、UI 截图已验证；最新整体构建暂被并行模板类型修改阻塞，因此暂不勾选。无本卡 migration、commit、push、容器替换或生产部署。
+  - Evidence（2026-11-06，开始禁用/截止标识局部补充）：用户明确仅改前端。修改 PerformanceProjectTimeSettings.vue、既有同名 spec、本功能交互/任务记录；不改后端/API/数据库/权限/共享日期组件/其他未提交文件。无新脚本、测试文档或完整蓝图。开始时间按北京时间且 <= 当前时刻禁用，校准阶段独立判断；截止标识置节点标题右上，普通/复议按 end_at、结果查看按 appeal_deadline、校准按既有聚合最晚截止；结束框可编辑，延期移除标识，每秒刷新并卸载清理。
+    - `npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectTimeSettings.spec.ts src/components/performance/PerformanceDateTimeField.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts`：3 文件 51/51 通过，含新增4项状态用例。覆盖过去/未来/空值/无效值、到点刷新、真实输入 disabled、禁用日历、截止延期草稿回写、结果查看/复议、时区及校准阶段独立禁用/节点聚合截止。初次阶段用例推进30小时逐秒计时触发测试超时，改为跳转测试时钟后推进一秒，复验全部通过。
+    - `npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectFlowSettings.spec.ts src/utils/datetime.spec.ts`：2 文件 34/34 通过。完整 `npm --prefix hr-portal/frontend run build`（vue-tsc + Vite）通过，既有 VueUse PURE 注释警告；`git -c core.whitespace=cr-at-eol diff --check` 通过。
+    - UI 合规：已读 Spec012 交互/守则及通用 N000/N00/N11，复用 PerformanceDateTimeField、shanghaiLocalToUtcIso 和全局颜色/字号 token，局部禁用灰底/文字/图标与用户 SnapSpec 对齐；无新菜单、权限或禁止项，数仓/UCP专属项不涉及。本轮浏览器视觉/独立PNG与生产验收未执行，不以组件测试代替；父任务仍保留 `[ ]`，未 commit/push/部署。
   - Definition of done: 代码、联动/拒绝/旧数据测试、真实保存回读、UI 截图及构建均验证后才勾选；缺证据保持未完成并注明原因。
 
 ## PM-T003-I11 周期多模板与项目模板选择

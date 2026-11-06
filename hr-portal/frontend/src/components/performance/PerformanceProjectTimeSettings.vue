@@ -7,9 +7,10 @@
       <header class="time-node-header">
         <span class="time-node-icon" aria-hidden="true"><PerformanceWorkflowStageIcon :type="node.node_type" /></span>
         <h2>{{ node.name }}</h2>
+        <span v-if="hasPassed(node.node_type === 'result_view' ? timeFor(node).appeal_deadline : timeFor(node).end_at)" class="time-node-deadline">已截止</span>
       </header>
       <div v-if="node.node_type === 'result_view'" class="time-fields time-fields--result-view">
-        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required @update:model-value="timeFor(node).start_at = $event" /></label>
+        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="hasPassed(timeFor(node).start_at)" @update:model-value="timeFor(node).start_at = $event" /></label>
         <p class="time-help">由管理员人员开通后，被评估人立即收到绩效结果</p>
         <label><span>发起复议截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).appeal_deadline || ''" :input-id="`${nodeKey(node)}-appeal-deadline`" time-role="end" required @update:model-value="timeFor(node).appeal_deadline = $event" /></label>
       </div>
@@ -20,14 +21,14 @@
         <section v-for="(phase, index) in phasesFor(node)" :key="calibrationPhaseKey(phase, index)" class="calibration-time-phase" :aria-label="`${node.name}第 ${index + 1} 阶段`">
           <h3>第 {{ index + 1 }} 阶段</h3>
           <div class="time-fields">
-            <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).start_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start`" :aria-label="`${node.name}第 ${index + 1} 阶段开始时间`" time-role="start" required @update:model-value="phaseTimeFor(node, phase, index).start_at = $event" /></label>
+            <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).start_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start`" :aria-label="`${node.name}第 ${index + 1} 阶段开始时间`" time-role="start" required :disabled="hasPassed(phaseTimeFor(node, phase, index).start_at)" @update:model-value="phaseTimeFor(node, phase, index).start_at = $event" /></label>
             <label><span>截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).end_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-end`" :aria-label="`${node.name}第 ${index + 1} 阶段截止时间`" time-role="end" required :invalid="invalidPhaseRange(node, phase, index)" :described-by="invalidPhaseRange(node, phase, index) ? `${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error` : ''" @update:model-value="phaseTimeFor(node, phase, index).end_at = $event" /></label>
           </div>
           <p v-if="invalidPhaseRange(node, phase, index)" :id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error`" class="phase-time-error" role="alert">截止时间必须晚于开始时间</p>
         </section>
       </div>
       <div v-else class="time-fields">
-        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required @update:model-value="timeFor(node).start_at = $event" /></label>
+        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="hasPassed(timeFor(node).start_at)" @update:model-value="timeFor(node).start_at = $event" /></label>
         <label><span>截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required @update:model-value="timeFor(node).end_at = $event" /></label>
       </div>
     </article>
@@ -35,7 +36,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { shanghaiLocalToUtcIso } from '@/utils/datetime'
 import type { PerformanceProjectFlowSettings, PerformanceProjectNodeTime, PerformanceWorkflowNode } from '@/api/performance'
 import { calibrationPhaseKey, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
@@ -53,6 +55,15 @@ const draft = ref<Record<string, PerformanceProjectNodeTime>>(cloneTimes(props.m
 props.nodes.forEach(ensureNode)
 syncCalibrationPhaseTimes(props.nodeSettings, draft.value)
 const lastEmitted = ref(JSON.stringify(draft.value))
+const clock = ref(Date.now())
+const clockTimer = setInterval(() => { clock.value = Date.now() }, 1000)
+onBeforeUnmount(() => clearInterval(clockTimer))
+
+function hasPassed(value?: string) {
+  if (!value) return false
+  const timestamp = Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : shanghaiLocalToUtcIso(value.replace(' ', 'T')) || '')
+  return timestamp <= clock.value
+}
 
 function cloneTimes(value?: Record<string, PerformanceProjectNodeTime>) { return JSON.parse(JSON.stringify(value || {})) as Record<string, PerformanceProjectNodeTime> }
 function nodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
@@ -85,5 +96,8 @@ watch(draft, value => { syncCalibrationPhaseTimes(props.nodeSettings, value); co
 <style scoped>
 .project-time-settings{display:grid;width:100%;gap:16px}.time-state{padding:32px;color:#646a73;text-align:center}.time-state--error{color:#f04438}.time-node-card{width:100%;box-sizing:border-box;padding:24px 32px;border-radius:8px;background:#fff;box-shadow:0 1px 4px rgba(31,35,41,.05)}.time-node-header{display:flex;align-items:center;gap:12px}.time-node-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:8px;background:#f5f6f7;color:#3370ff}.time-node-icon :deep(.stage-icon){width:24px;height:24px}.time-node-header h2{margin:0;color:#1f2329;font-size:16px;line-height:24px}.time-fields{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0 0 52px}.time-fields label{display:grid;gap:8px;min-width:0;color:#1f2329;font-size:14px;line-height:22px}.time-fields label span{font-weight:600}.time-fields label i{color:#f04438;font-style:normal}.time-fields--result-view{grid-template-columns:minmax(0,1fr);gap:0}.time-fields--result-view .time-help{margin:4px 0 20px;color:#646a73;font-size:14px;line-height:22px}.time-fields--single{grid-template-columns:minmax(0,1fr)}
 .calibration-time-phases{margin:16px 0 0 52px}.calibration-time-phase+.calibration-time-phase{margin-top:12px}.calibration-time-phase h3{margin:0 0 8px;color:var(--color-text-primary);font-size:14px;font-weight:600;line-height:22px}.calibration-time-phase .time-fields{margin:0}.phase-time-error{margin:8px 0 0;color:var(--color-danger);font-size:14px;line-height:22px}
+.time-node-deadline{margin-left:auto;padding:0 var(--spacing-1);border-radius:var(--radius-sm);background:var(--color-surface-disabled);color:var(--performance-count-badge-text);font-size:var(--font-size-xs);font-weight:500;line-height:19.2px;white-space:nowrap}
+.project-time-settings :deep(.performance-date-time-field__input:disabled){background:var(--color-surface-disabled)}
+.project-time-settings :deep(.performance-date-time-field__trigger:disabled){background:transparent;color:var(--performance-button-link-disabled-color);opacity:1}
 @media (max-width:800px){.time-node-card{padding:20px}.time-fields{grid-template-columns:1fr;margin-left:0}.calibration-time-phases{margin-left:0}}
 </style>
