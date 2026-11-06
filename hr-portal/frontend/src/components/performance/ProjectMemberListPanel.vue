@@ -6,6 +6,7 @@ import UiButton from '../ui/UiButton.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
@@ -18,6 +19,7 @@ type MemberRow = ProjectMember & {
   aggregate_task_id?: number | null
   status?: string
   due_at?: string | null
+  ratings?: PerformanceWorkbenchTaskPerson['ratings']
 }
 
 const props = withDefaults(defineProps<{
@@ -70,7 +72,9 @@ const reviewColumns: MemberColumnOption[] = [
   { key: 'hire_date', label: '入职日期' },
   { key: 'department', label: '所属部门' },
 ]
-const columns = computed(() => props.reviewContext ? reviewColumns : projectColumns)
+const ratingColumns = ref<MemberColumnOption[] | null>(null)
+const activeReviewColumns = computed(() => reviewColumns.flatMap(column => column.key === 'rating' && ratingColumns.value !== null ? ratingColumns.value : [column]))
+const columns = computed(() => props.reviewContext ? activeReviewColumns.value : projectColumns)
 const profileColumnKeys: Record<string, string> = {
   department: 'department',
   direct_supervisor: 'direct_supervisor',
@@ -92,8 +96,8 @@ const availableColumns = computed(() => {
 })
 const columnDrawerOpen = ref(false)
 const selectedColumnKeys = ref<string[]>([])
-watch([availableColumns, () => Boolean(props.reviewContext)], ([available, isReview]) => {
-  const base = (isReview ? reviewColumns : projectColumns).map(column => column.key)
+watch([availableColumns, () => Boolean(props.reviewContext)], ([available]) => {
+  const base = available.map(column => column.key)
   const allowed = new Set(available.map(column => column.key))
   selectedColumnKeys.value = selectedColumnKeys.value.filter(key => allowed.has(key))
   if (!selectedColumnKeys.value.length) selectedColumnKeys.value = base.filter(key => allowed.has(key))
@@ -105,6 +109,7 @@ const visibleColumns = computed(() => selectedColumnKeys.value.map(key => availa
 const hiddenColumnCount = computed(() => Math.max(0, availableColumns.value.length - selectedColumnKeys.value.length))
 
 const memberSortValue = (member: MemberRow, key: string) => {
+  if (key.startsWith('rating:')) return member.ratings?.[key]?.label ?? null
   switch (key) {
     case 'name': return member.display_name
     case 'status': return { pending: 0, completed: 1, overdue: 2, rejected: 3 }[normalizePerformanceTaskStatus(member.status, member.due_at)]
@@ -132,13 +137,20 @@ const loadMembers = async () => {
       const result = props.reviewContext.phaseId
         ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId)
         : await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined)
+      const previousKeys = columns.value.map(column => column.key)
+      if (result.some(item => Array.isArray(item.rating_columns))) {
+        ratingColumns.value = Array.from(new Map(result.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values())
+      } else if (result.length) ratingColumns.value = null
+      const selected = new Set(selectedColumnKeys.value)
+      selectedColumnKeys.value = activeReviewColumns.value.filter(column => selected.has(column.key) || !previousKeys.includes(column.key)).map(column => column.key)
       members.value = result.map((item: PerformanceWorkbenchTaskPerson) => ({
         id: item.task_id,
         employee_no: item.employee_no,
         display_name: item.display_name,
         avatar_url: null,
-        rating: null,
-        rating_tone: null,
+        rating: item.rating ?? null,
+        rating_tone: item.rating_tone ?? null,
+        ratings: item.ratings,
         completion: item.completion || '0/0',
         direct_supervisor: item.direct_supervisor,
         job_family: item.job_family,
@@ -174,6 +186,7 @@ const loadMembers = async () => {
 const displayValue = (value: string | null) => value || ''
 const ratingClass = (member: MemberRow) => member.rating_tone ? `rating-badge--${member.rating_tone}` : ''
 const cellValue = (member: MemberRow, key: string) => {
+  if (key.startsWith('rating:')) return member.ratings?.[key]?.label || ''
   if (key === 'name') return member.display_name
   if (key === 'completion') return member.completion || '0/0'
   if (key === 'status') return performanceTaskStatusLabel(normalizePerformanceTaskStatus(member.status, member.due_at))
@@ -190,10 +203,12 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
 })))
 
 async function exportRows() {
-  const result = await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
+  const rows = props.reviewContext
+    ? sortedMembers.value
+    : (await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
   return [
     visibleColumns.value.map(column => column.label),
-    ...result.items.map(member => visibleColumns.value.map(column => String(cellValue(member, column.key)))),
+    ...rows.map(member => visibleColumns.value.map(column => String(cellValue(member, column.key)))),
   ]
 }
 
@@ -276,6 +291,7 @@ onMounted(() => void loadMembers())
       <template #cell="{ row, column }">
         <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
+        <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
         <span v-else-if="column.key === 'completion'" class="table-text completion-text">{{ cellValue(row, column.key) }}</span>
         <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>

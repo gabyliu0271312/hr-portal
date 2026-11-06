@@ -88,7 +88,17 @@ export interface PerformanceMemberProfile {
   visible_profile_fields?: string[]
 }
 
+export interface PerformanceTaskRatingValue {
+  label: string
+  color?: string | null
+  foreground?: string | null
+}
+
 export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile {
+  rating_columns?: Array<{ key: string; label: string }>
+  ratings?: Record<string, PerformanceTaskRatingValue | null>
+  rating?: string | null
+  rating_tone?: string | null
   phase_id?: string | null
   previous_position_level?: string | null
   task_id: number

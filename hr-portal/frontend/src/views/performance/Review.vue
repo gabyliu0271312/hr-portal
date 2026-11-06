@@ -283,7 +283,7 @@ async function openMember(payload: { node: PerformanceReviewNode; member: Perfor
   const taskNode = isReviewer360Node(payload.node)
     ? { ...payload.node, task_id: taskId, task_kind: 'evaluation' as const, entry_mode: 'template_task' as const }
     : { ...payload.node, task_id: taskId }
-  const taskRoute = performanceTaskEntryRoute(taskNode, activeProjectId.value)
+  const taskRoute = performanceTaskEntryRoute(taskNode, activeProjectId.value, payload.member.employee_no)
   if (!taskRoute) return
   await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: payload.node.node_id, task_id: String(taskId), employee_no: payload.member.employee_no } })
   await router.push(taskRoute)
@@ -295,7 +295,7 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
   const current = drawerMember.value
   drawerMember.value = null
   if (!current) return
-  const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value)
+  const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value, payload.employee_no)
   if (!taskRoute) return
   await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
   await router.push(taskRoute)

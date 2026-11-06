@@ -1,6 +1,6 @@
 import type { PerformanceReviewNode } from '@/api/performance'
 
-export function performanceTaskEntryRoute(node: PerformanceReviewNode, projectId: number | undefined) {
+export function performanceTaskEntryRoute(node: PerformanceReviewNode, projectId: number | undefined, employeeNo?: string) {
   if (node.entry_mode !== 'template_task' || !node.task_id) return null
   const routes: Record<string, string> = {
     work_summary: '/performance/review/self-summary',
@@ -10,5 +10,5 @@ export function performanceTaskEntryRoute(node: PerformanceReviewNode, projectId
     result_reconsideration: '/performance/review/template-task',
   }
   const path = node.task_kind ? routes[node.task_kind] : undefined
-  return path ? `${path}?task_id=${encodeURIComponent(String(node.task_id))}&project_id=${encodeURIComponent(String(projectId || ''))}&node=${encodeURIComponent(node.node_id)}${node.draft_choice ? `&draft_choice=${node.draft_choice}` : ''}` : null
+  return path ? `${path}?task_id=${encodeURIComponent(String(node.task_id))}&project_id=${encodeURIComponent(String(projectId || ''))}&node=${encodeURIComponent(node.node_id)}${employeeNo ? `&employee_no=${encodeURIComponent(employeeNo)}` : ''}${node.draft_choice ? `&draft_choice=${node.draft_choice}` : ''}` : null
 }

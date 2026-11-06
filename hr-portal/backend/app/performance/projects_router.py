@@ -974,6 +974,44 @@ def _matrix_rating_value(value: object, options: list[dict]) -> dict | None:
     return next((option for option in options if text in {str(option.get("id")), str(option.get("label"))}), None)
 
 
+def _task_rating_metadata(schema: list[dict]) -> list[dict]:
+    metadata = []
+    seen_keys: set[str] = set()
+    for section in schema:
+        for field in section.get("fields", []):
+            if field.get("type") != "rating" or field.get("readonly"):
+                continue
+            answer_key = str(field.get("id") or "")
+            if not answer_key:
+                continue
+            column_key = answer_key
+            if column_key in seen_keys:
+                column_key = f"{section.get('id') or 'rating'}:{answer_key}"
+            seen_keys.add(column_key)
+            metadata.append({
+                "key": f"rating:{column_key}",
+                "answer_key": answer_key,
+                "label": field.get("label") or section.get("name") or "绩效评级",
+                "options": [dict(option) for option in field.get("options", [])],
+            })
+    return metadata
+
+
+def _task_rating_values(task: PerformanceNodeTask, metadata: list[dict]) -> dict[str, dict | None]:
+    if getattr(task, "submitted_at", None) is None:
+        return {item["key"]: None for item in metadata}
+    answers = getattr(task, "answers", None) or {}
+    values = {}
+    for item in metadata:
+        option = _matrix_rating_value(answers.get(item["answer_key"]), item["options"])
+        values[item["key"]] = None if option is None else {
+            "label": str(option.get("code") or option.get("label") or option.get("id")),
+            "color": option.get("color"),
+            "foreground": option.get("foreground"),
+        }
+    return values
+
+
 def _tenure_bucket(value: object, today: date | None = None) -> str:
     if value is None or str(value).strip() == "":
         return "入职日期缺失"
@@ -3693,12 +3731,23 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     aggregate_task_id = rows[0][0].id if rows else None
     visibility_rules = await load_subject_visibility_rules(db)
     result = []
+    rating_metadata = {}
     for task, node, member in rows:
         visibility_role = await resolve_subject_visibility_role(db, context, handler, member, node, project)
         visible_fields = visibility_rules[visibility_role]
+        if node.id not in rating_metadata:
+            schema = build_self_summary_schema(await _self_summary_template(task, node, db))
+            rating_metadata[node.id] = _task_rating_metadata(schema)
+        metadata = rating_metadata[node.id]
+        ratings = _task_rating_values(task, metadata)
+        single_rating = ratings[metadata[0]["key"]] if len(metadata) == 1 else None
         values = {
             "task_id": task.id,
             "aggregate_task_id": aggregate_task_id,
+            "rating_columns": [{"key": item["key"], "label": item["label"]} for item in metadata],
+            "ratings": ratings,
+            "rating": single_rating["label"] if single_rating else None,
+            "rating_tone": None,
             "employee_no": member.employee_no if member else task.target_employee_no,
             "display_name": member.display_name if member else task.target_employee_no,
             "status": "completed" if _task_completed(task) else _review_task_status(task, *[value.isoformat() if value else None for value in _task_window(task, node, project)]),

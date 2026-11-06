@@ -264,3 +264,18 @@
 - UI证据：`ui-blueprints/CR-010-F10-implemented-submitted-toast.png`，对应实际提交后查看页，已读取确认提示在视口顶部水平居中，并保留常驻绿色信息条。
 - 完整构建：最新`npm --prefix hr-portal/frontend run build`仍被并行催办的PerformanceReminderPanel.vue:44 cycle-remind类型及ProjectManagement.vue:45 reminderProvider缺失阻塞；无本轮文件类型错误，但不将完整构建描述为通过。未擅自修复其他任务文件。
 - 状态：接入及受控视觉/交互/回归验证完成；整树构建受并行任务阻塞，生产目标提示逐像素截图验证未执行。未调用飞书真实提交或目标消息函数，未执行commit/push/部署；前轮0289迁移验收阻塞仍独立存在。
+
+## 17. CR-010-F11 上级评估动态评级回显（2026-11-06）
+
+- 用户授权：修复上级评估提交后评级列空白，并明确要求先抓取指定飞书成员列表的 DOM、接口和业务包，核对动态列而非硬选第一道评级题。
+- 根因：`workbench_task_people` 未返回评级；`ProjectMemberListPanel` 又将 `rating/rating_tone` 无条件赋空。成员跳转与抽屉编辑目标 URL 另有 `employee_no` 丢失。
+- REA依据：目标 `/perf/review/7654423719619710195/7654113886190436355/members`。DOM Evidence `ev_00861e83d5106e91f5b1e454872940296801a67e3b645388a0d01012316040d8`；包含 CDN 业务脚本的 Evidence `ev_6b6217fb16e1f7592cf22cc6e94ad7b1238572b51d22d050b1bfe25c4ad32812`，导出 `ev_c1e31bb573d8581a6e7e5d95a2e1a4f165d3a2e90905bf4a8ef2aca3cd24569e`。6131业务包按 `allowedPickKeys` 匹配 `metas`，从 `name` 取标题、`key` 绑定行、按 `pickType=optionScoreMap` 与 `scoreOptions` 渲染。
+- 网络证据边界：REA场景工具失败，使用已有Playwright对指定页面重新加载并捕获绩效接口响应；该部分属于普通浏览器抓包，不冒称REA网络Evidence。`users/meta`返回动态 `semesterStageReviewScoreGroup$<indicatorID>`、多语言列名、`scoreOptions`、默认/可选/排序key；`users/list`同key返回`{option_id, score}`。级联组明确为“当前环节评估结果”。本实例仅一个评级列，多个列的通用能力由脚本遍历元数据证明，未修改飞书模板构造多题实例。
+- [x] F11-T01 后端/API：现有任务人员接口维持数组响应，增加每行`rating_columns: [{key,label}]`及`ratings: { [key]: {label,color,foreground} | null }`；仅当前任务模板schema中的可写评级题生成列，隐藏/只读题排除；每节点单次解析，继续受原项目、节点、阶段、员工及处理人授权查询限制。只读取已提交`answers`，草稿/缺值/无效选项不伪造等级；单评级题保留`rating`兼容字段，多题不任意归并。未引入结果计算、迁移或历史回填。
+- [x] F11-T02 前端：共享成员列表以动态列替换固定评级占位，按接口名称/稳定key分别渲染`PerformanceRatingTag`；搜索重载保留已隐藏列，空搜索结果保留已知列定义。评估导出使用同一已授权任务列表全量结果及当前排序/可见列，不再调用项目成员导出而造成动态评级为空。项目管理入口保持原导出接口。
+- [x] F11-T03 路由：共享任务入口增加可选`employeeNo`，上级/360/沟通成员入口和详情抽屉编辑传入并URL编码；填写页已有读取、草稿、提交参数逻辑继续复用。不改变后端身份和对象授权。
+- UI门禁：沿CR-010既有成员列表与CR-011详情抽屉，小范围数据映射/路由修复，无新增页面或信息架构，无新蓝图；复用公共表格、评级标签和列设置。独立截图 `ui-blueprints/CR-010-F11-dynamic-ratings-implemented-20261106.png`，已读取确认双列及等级值。
+- 验收：真实Vite应用路由＋隔离浏览器受控API夹具，点击员工进入填写页，选择两项评级，POST `{answers:{grade:'good',value:'high'}}`，GET/POST均带`employee_no=E002`；成功返回成员列表显示“年度绩效:3星+ / 价值贡献:A”，pageerror=0。非真实数据库或生产验收。
+- 回归：`python -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short` → **434 passed / 5 skipped**；只读/隐藏题边界追加后定向测试 **1 passed**。`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts` → **158 passed**；搜索空结果及导出断言追加后动态列定向测试 **1 passed**。后端既有第三方multipart弃用警告；Review沟通入口测试有jsdom请求stderr，但测试通过，未将日志当成无告警。
+- 构建：最终`npm --prefix hr-portal/frontend run build` → **vue-tsc + Vite通过，built in 41.18s**；既有VueUse PURE注释提示。最终后端全套仍为 **434 passed / 5 skipped**，前端4文件仍为 **158 passed**；本轮文件`git diff --check`通过。
+- 未执行：真实业务库保存—重开、生产验收、迁移（不涉及）、部署、commit、push；未修改飞书配置或提交飞书评估。保留其他会话的模板、人员范围和项目设置改动。

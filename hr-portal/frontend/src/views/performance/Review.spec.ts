@@ -452,6 +452,55 @@ describe('PerformanceReview', () => {
     expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'manager-review', 'all', undefined)
   })
 
+  it('renders independent rating columns from task metadata and preserves hidden columns on reload', async () => {
+    const row = {
+      task_id: 22, employee_no: 'E002', display_name: '已完成员工', status: 'completed', due_at: null,
+      job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null,
+      department: null, employee_type: null, employment_status: null,
+      rating_columns: [{ key: 'rating:grade', label: '年度绩效' }, { key: 'rating:value', label: '价值贡献' }],
+      ratings: { 'rating:grade': { label: '3星+', color: '#d9f5d6' }, 'rating:value': { label: 'A', color: '#e1eaff' } },
+    }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([row])
+    const wrapper = mount(ProjectMemberListPanel, { props: { projectId: 1, reviewContext: { nodeId: 'manager-review', state: 'all' } } })
+    await flushPromises()
+    expect(wrapper.findAll('th').map(cell => cell.text())).toEqual(expect.arrayContaining(['年度绩效', '价值贡献']))
+    expect(wrapper.findAll('.performance-rating-tag').map(tag => tag.text())).toEqual(['3星+', 'A'])
+    const exportButton = wrapper.findComponent({ name: 'PerformanceExportButton' })
+    const exported = await exportButton.props('loadRows')()
+    expect(exported[0]).toEqual(expect.arrayContaining(['年度绩效', '价值贡献']))
+    expect(exported[1][exported[0].indexOf('年度绩效')]).toBe('3星+')
+    expect(exported[1][exported[0].indexOf('价值贡献')]).toBe('A')
+    expect(wrapper.text()).not.toContain('绩效评级')
+    const drawer = wrapper.findComponent({ name: 'ProjectMemberColumnDrawer' })
+    drawer.vm.$emit('confirm', ['name', 'rating:grade'])
+    await flushPromises()
+    await wrapper.get('input').setValue('员工')
+    await wrapper.get('input').trigger('keyup.enter')
+    await flushPromises()
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenLastCalledWith(1, 'manager-review', 'all', '员工')
+    expect(wrapper.findAll('.performance-rating-tag').map(tag => tag.text())).toEqual(['3星+'])
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([])
+    await wrapper.get('input').trigger('keyup.enter')
+    await flushPromises()
+    expect(wrapper.findAll('th').map(cell => cell.text())).toContain('年度绩效')
+    expect(wrapper.findAll('.performance-rating-tag')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('passes the reviewee into the evaluation task route', async () => {
+    const evaluation = structuredClone(overview)
+    Object.assign(evaluation.categories[2].nodes[0], { node_id: 'manager-review', node_type: 'evaluation', task_kind: 'evaluation', entry_mode: 'template_task', task_id: 22, status: 'pending' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValueOnce(evaluation)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.review-node')[2].trigger('click')
+    await flushPromises()
+    wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 22, employee_no: 'E 002', status: 'pending' })
+    await flushPromises()
+    expect(push).toHaveBeenLastCalledWith(expect.stringContaining('employee_no=E%20002'))
+    wrapper.unmount()
+  })
+
   it('opens a completed evaluation member in the readonly drawer and keeps pending members on task entry', async () => {
     const evaluationOverview = structuredClone(overview)
     Object.assign(evaluationOverview.categories[1].nodes[0], {
@@ -649,7 +698,7 @@ describe('PerformanceReview', () => {
     })
     await flushPromises()
 
-    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=12975&project_id=1&node=evaluation-1')
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=12975&project_id=1&node=evaluation-1&employee_no=107187')
     wrapper.unmount()
   })
 
@@ -661,7 +710,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 23, employee_no: 'E3', display_name: '待沟通', status: 'pending' })
     await flushPromises()
-    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=23&project_id=1&node=communicate')
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=23&project_id=1&node=communicate&employee_no=E3')
     wrapper.unmount()
   })
 

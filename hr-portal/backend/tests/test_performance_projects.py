@@ -2363,6 +2363,58 @@ async def test_workbench_tasks_and_people_return_live_due_date(monkeypatch):
     assert task.due_at == datetime(2026, 10, 1, tzinfo=UTC)
 
 @pytest.mark.asyncio
+async def test_task_people_returns_dynamic_ratings_from_the_current_task(monkeypatch):
+    from datetime import UTC, datetime
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject
+
+    project = SimpleNamespace(id=1, cycle_ref="C1", settings={})
+    node = SimpleNamespace(id=10, node_id="manager", node_type="evaluation", config={"template": {"content": [{
+        "content_id": "assessment", "type": "rating", "name": "综合评估", "items": [
+            {"id": "grade", "kind": "rating", "label": "年度绩效", "options": [{"id": "good", "code": "3星+", "label": "符合预期+", "color": "#d9f5d6"}]},
+            {"id": "value", "kind": "rating", "label": "价值贡献", "options": [{"id": "high", "code": "A", "label": "优秀"}]},
+        ],
+    }]}})
+    member = SimpleNamespace(snapshot_id=7, employee_no="E1", display_name="员工")
+    task = SimpleNamespace(id=20, project_id=1, status="completed", submitted_at=datetime.now(UTC), target_employee_no="E1", available_at=None, due_at=None, answers={"grade": "good", "value": "high"})
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
+    async def rules(*args): return {"leader": []}
+    async def role(*args): return "leader"
+    async def progress(*args): return {}
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(routes, "load_subject_visibility_rules", rules)
+    monkeypatch.setattr(routes, "resolve_subject_visibility_role", role)
+    monkeypatch.setattr(routes, "_communication_progress", progress)
+    class Db:
+        async def get(self, model, key): return project if model is PerformanceProject else None
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, member)])
+    result = await routes.workbench_task_people("manager", 1, "all", context(), Db(), None)
+    row = result[0]
+    assert row["rating_columns"] == [{"key": "rating:grade", "label": "年度绩效"}, {"key": "rating:value", "label": "价值贡献"}]
+    assert row["ratings"]["rating:grade"] == {"label": "3星+", "color": "#d9f5d6", "foreground": None}
+    assert row["ratings"]["rating:value"]["label"] == "A"
+    assert row["rating"] is None
+    task.submitted_at = None
+    task.status = "pending"
+    row = (await routes.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
+    assert row["ratings"] == {"rating:grade": None, "rating:value": None}
+    task.submitted_at = datetime.now(UTC)
+    task.answers = {"grade": "unknown-option"}
+    row = (await routes.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
+    assert row["ratings"] == {"rating:grade": None, "rating:value": None}
+    task.answers = {"grade": "good", "value": "high"}
+    node.config["template"]["content"][0]["items"][1]["settings"] = {"mode": "view"}
+    row = (await routes.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
+    assert row["rating_columns"] == [{"key": "rating:grade", "label": "年度绩效"}]
+    assert row["rating"] == "3星+"
+    node.config["template"]["content"][0]["items"][0]["settings"] = {"mode": "hidden"}
+    row = (await routes.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
+    assert row["rating_columns"] == []
+    assert row["ratings"] == {}
+    assert row["rating"] is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("admin_preview", [True, False])
 async def test_task_people_preserves_project_node_and_target_scope(monkeypatch, admin_preview):
     from app.performance import projects_router
