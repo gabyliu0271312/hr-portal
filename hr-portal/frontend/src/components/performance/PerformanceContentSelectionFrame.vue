@@ -35,19 +35,24 @@ withDefaults(defineProps<{
   pointer-events: none;
   transition: opacity 120ms ease, border-color 120ms ease, border-width 120ms ease;
 }
-.performance-content-selection-frame--root:hover:not(:has(.performance-content-selection-frame--item:hover))::before,
+/* item hover：自身虚线框显示；root 悬停（且非 item hover）时显示 root 虚线框 */
 .performance-content-selection-frame--item:hover::before {
   opacity: 1;
   border-color: var(--performance-content-hover-border);
 }
+/* root 选中态独立：选中后内部 item hover 不再切换（REA：选中与 hover 互不干扰） */
+.performance-content-selection-frame--root.is-selected :deep(.performance-content-selection-frame--item:hover::before) {
+  opacity: 0;
+}
+.performance-content-selection-frame--root:hover:not(:has(.performance-content-selection-frame--item:hover))::before {
+  opacity: 1;
+  border-color: var(--performance-content-hover-border);
+}
+/* 选中态独立：root 选中为 2px solid，保持不动；即使内部 item hover 也不再切换（REA：选中与 hover 互不干扰） */
 .performance-content-selection-frame.is-selected::before {
   opacity: 1;
   border-width: var(--performance-content-item-border-width);
   border-style: solid;
-  border-color: var(--performance-content-hover-border);
-}
-.performance-content-selection-frame--root.is-selected:has(.performance-content-selection-frame--item:hover)::before {
-  border-style: dashed;
   border-color: var(--performance-content-hover-border);
 }
 .performance-content-selection-frame--root.is-selected {

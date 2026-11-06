@@ -1618,6 +1618,8 @@ export interface PerformanceWorkflowNode {
   calibration_settings?: PerformanceCalibrationSettings
   appeal_prompt_content?: string
   appeal_reason_instruction?: string
+  /** 结果复议处理：显示绩效结果并允许修改（REA 复议 final 面板勾选，默认 true） */
+  show_result_and_modify?: boolean
   executor_config?: PerformanceExecutorConfig | null
   content?: PerformanceTemplateContent[]
   content_region_order?: string[] | null

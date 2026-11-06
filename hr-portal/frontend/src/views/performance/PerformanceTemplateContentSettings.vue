@@ -27,6 +27,14 @@
         <label class="page-name-settings__label" for="content-page-name">页面名称<svg class="page-name-settings__required" viewBox="0 0 8 8" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.964 5.816L4.378 4.668l.17 1.935H3.456l.171-1.935L2.04 5.816l-.54-.984 1.757-.827L1.5 3.178l.54-.991 1.586 1.175-.17-1.962h1.093l-.171 1.962 1.586-1.175.54.99-1.75.828 1.75.827-.54.984z" /></svg></label>
         <PerformanceTextField :model-value="reconFinalHeadingSelected ? finalPageName : contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" @update:model-value="value => { if (reconFinalHeadingSelected) finalPageName = value; else contentPageName = value }" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
+        <!-- REA 复议处理模块2（上级评估/final）：绩效结果设置——显示绩效结果并允许修改（默认勾选，取消后 final 内容链隐藏） -->
+        <div v-if="reconFinalHeadingSelected && isResultReconsiderationFill" class="recon-result-settings">
+          <div class="recon-result-settings__title">绩效结果设置</div>
+          <label class="recon-result-settings__option" :class="{ 'is-disabled': pageNameLocked }">
+            <input class="recon-result-settings__checkbox" type="checkbox" :checked="showResultAndModify" :disabled="pageNameLocked" @change="toggleShowResultAndModify($event.target as HTMLInputElement)" />
+            <span>显示绩效结果并允许修改</span>
+          </label>
+        </div>
       </div>
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
     </aside>
@@ -147,8 +155,8 @@
             <div class="recon-module__head" role="button" tabindex="0" :aria-pressed="reconFinalHeadingSelected" aria-label="上级评估" @click="selectReconFinalHeading" @keydown.enter.prevent="selectReconFinalHeading" @keydown.space.prevent="selectReconFinalHeading">
               <span class="recon-module__title">{{ finalModuleTitle }}</span>
             </div>
-            <!-- final 内容链（reconsiderationContents = 上级评估环节 fill 内容投影，与校准同构） -->
-            <div v-if="configuredContents.length" class="recon-module__contents">
+            <!-- final 内容链（reconsiderationContents = 上级评估环节 fill 内容投影，与校准同构；REA 取消「显示绩效结果并允许修改」后隐藏只剩表头） -->
+            <div v-if="showResultAndModify && configuredContents.length" class="recon-module__contents">
               <UiSortableList :items="configuredContents" item-key="id" :gap="0" :disabled="true" class="configured-content-sortable-list">
                 <template #default="{ item: content }">
                   <PerformanceConfiguredContentBlock
@@ -277,7 +285,7 @@ const workflowNodes = ref<PerformanceWorkflowNode[]>([])
 const structureLocked = ref(false)
 const writeSettingsLocked = ref(false)
 const displaySettingsLocked = ref(false)
-const pageNameLocked = computed(() => selectedReferenceRelation.value ? displaySettingsLocked.value : structureLocked.value)
+const pageNameLocked = computed(() => selectedReferenceRelation.value ? displaySettingsLocked.value : false)
 const pageNameError = ref('')
 const contentLibrary = ref<PerformanceTemplateContent[]>([])
 const ratingOptions = ref<AssessmentOption[]>([])
@@ -412,6 +420,12 @@ const calibrationContents = computed(() => resolveCalibrationContents(finalFillC
 const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value, calibrationNode.value?.calibration_settings))
 /** REA 复议处理模块2 表头 = final 环节名（如「上级评估」，finalResult 指向的最终绩效结果环节） */
 const finalModuleTitle = computed(() => finalNode.value?.name || selectedStageData.value?.title || '上级评估')
+/** 结果复议处理：显示绩效结果并允许修改（REA 复议 final 面板勾选，默认 true；取消后 final 内容链隐藏只剩表头） */
+const showResultAndModify = computed(() => selectedWorkflowNode.value?.show_result_and_modify !== false)
+function toggleShowResultAndModify(input: HTMLInputElement) {
+  if (pageNameLocked.value || !selectedWorkflowNode.value) return
+  selectedWorkflowNode.value.show_result_and_modify = input.checked
+}
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
 const summaryActions = computed(() => {
   if (structureLocked.value) return []
@@ -1341,6 +1355,13 @@ onMounted(async () => {
 .page-name-settings :deep(.native-input){font:400 14px/22px var(--font-sans)}
 .page-name-settings :deep(.feishu-input-wrap:has(.error)){border-color:var(--performance-field-border-invalid)}
 .page-name-settings__error{display:block;margin-top:4px;color:var(--performance-field-error-color);font-size:14px;line-height:22px}
+/* REA 复议 final 面板「绩效结果设置」：标题 14px medium + 16×16 checkbox，垂直间距 14（text-normal px-10） */
+.recon-result-settings{margin-top:8px;color:#1f2329;font:400 14px/22px var(--font-sans)}
+.recon-result-settings__title{font-weight:500;line-height:22px}
+.recon-result-settings__option{display:flex;align-items:center;min-height:22px;margin-top:8px;gap:8px;cursor:pointer}
+.recon-result-settings__checkbox{width:16px;height:16px;margin:0;accent-color:var(--performance-content-hover-border,#3370ff);cursor:pointer}
+.recon-result-settings__option.is-disabled{cursor:not-allowed}
+.recon-result-settings__option.is-disabled .recon-result-settings__checkbox{opacity:.5}
 .text-normal__body { margin-top: 212px; color: #8f959e; font-size: 14px; line-height: 22px; text-align: center; }
 .configured-content-section { width: var(--performance-content-width); max-width: 100%; margin: 0; padding: 0; border: 0; border-radius: 4px; background: #fff; overflow: visible; }
 .configured-content-sortable-list { width: 100%; }

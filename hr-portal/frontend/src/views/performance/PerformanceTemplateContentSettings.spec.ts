@@ -110,7 +110,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.get('.stage-card').trigger('click')
     expect(wrapper.getComponent({ name: 'UiSortableList' }).props('disabled')).toBe(true)
     await wrapper.get('.template-section__heading').trigger('click')
-    expect((wrapper.get('#content-page-name').element as HTMLInputElement).disabled).toBe(true)
+    expect((wrapper.get('#content-page-name').element as HTMLInputElement).disabled).toBe(false)
     wrapper.getComponent(PerformanceAssessmentContentLayers).vm.$emit('confirm', [{ ...summary, name: '待保存名称' }])
     await wrapper.vm.$nextTick()
     await expect((wrapper.vm as any).save()).rejects.toThrow('locked-save-failed')
@@ -411,13 +411,13 @@ describe('PerformanceTemplateContentSettings', () => {
     wrapper.unmount()
   })
 
-  it('clears selection on tab changes and disables names on used templates', async () => {
+  it('clears selection on tab changes and keeps page names editable on used templates (REA)', async () => {
     vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: mockNodes, usage_summary: { cycle_count: 1, project_count: 0 } } as any)
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
     await flushPromises()
     await wrapper.findAll('.stage-card')[3].trigger('click')
     await wrapper.get('.template-section__heading').trigger('click')
-    expect(wrapper.get('#content-page-name').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#content-page-name').attributes('disabled')).toBeUndefined()
     await wrapper.findAll('.content-tab')[1].trigger('click')
     expect(wrapper.find('.page-name-settings').exists()).toBe(false)
     await wrapper.findAll('.content-tab')[0].trigger('click')
@@ -608,6 +608,37 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(contents.text()).toContain('年度综合评级')
     // 校准节点设置的 hideName 应用到了复议投影（与校准环节渲染一致）
     expect(contents.find('[data-content-item-id="f-level"] strong').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('reconsideration final panel shows the result settings checkbox that hides the content chain when unchecked (REA)', async () => {
+    const final = { ...mockNodes[6], include_final_result: true, content: [
+      { content_id: 'f-summary', type: 'work_summary', name: '工作总结', content_slot: 'fill', items: [{ id: 'f-item', kind: 'fill', label: '重点工作', settings: { required: true } }] },
+    ] }
+    const recon = { ...mockNodes[8], show_result_and_modify: true }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [final, recon],
+      content_library: [],
+      usage_summary: { cycle_count: 0, project_count: 0 },
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    const reconCard = wrapper.findAll('.stage-card').find(c => c.text().includes('结果复议处理'))
+    await reconCard!.trigger('click')
+    await flushPromises()
+    // 点击「上级评估」final 表头 → 右侧出现「绩效结果设置」区块 + 勾选框（默认勾选）
+    const finalHead = wrapper.get('.recon-module--final .recon-module__head')
+    await finalHead.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.recon-result-settings__title').text()).toBe('绩效结果设置')
+    const checkbox = wrapper.get('.recon-result-settings__checkbox')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+    // 内容链默认显示
+    expect(wrapper.get('.recon-module--final .recon-module__contents').text()).toContain('工作总结')
+    // 取消勾选 → 内容链隐藏只剩表头
+    await checkbox.setValue(false)
+    await flushPromises()
+    expect(wrapper.find('.recon-module--final .recon-module__contents').exists()).toBe(false)
+    expect(wrapper.get('.recon-module--final .recon-module__title').text()).toContain('评估')
     wrapper.unmount()
   })
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {

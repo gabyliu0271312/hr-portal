@@ -1766,7 +1766,8 @@ async def test_content_page_name_patch_rejects_blank_with_canonical_422(workflow
 
 
 @pytest.mark.asyncio
-async def test_content_page_name_patch_keeps_cycle_used_workflow_locked(workflow_save_setup, monkeypatch):
+async def test_content_page_name_patch_allows_cycle_used_workflow_edit(workflow_save_setup, monkeypatch):
+    """页面名称是展示配置，不属 workflow 结构——模板使用后仍可编辑（REA 实测可编辑）"""
     service, db = workflow_save_setup
     old = {**_evaluation("evaluation-1", "实线上级"), "include_final_result": True, "content_page_name": "原页面"}
     db.cycle_usage = 1
@@ -1774,14 +1775,11 @@ async def test_content_page_name_patch_keeps_cycle_used_workflow_locked(workflow
     monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
     payload = WorkflowUpdate.model_validate({"nodes": [{**old, "content_page_name": "新页面"}]})
 
-    with pytest.raises(HTTPException) as exc:
-        await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
+    await templates_router.update_template_workflow(77, payload, _template_admin_context(), db)
 
-    assert exc.value.status_code == 409
-    assert exc.value.detail["code"] == "TEMPLATE_WORKFLOW_LOCKED"
-    assert db.workflow.nodes == [old]
-    assert db.added == []
-    assert db.commits == 0
+    assert db.workflow.nodes[0]["content_page_name"] == "新页面"
+    assert db.added and db.added[0].after_state["nodes"][0]["content_page_name"] == "新页面"
+    assert db.commits == 1
 
 
 @pytest.mark.asyncio
@@ -1935,7 +1933,7 @@ async def test_used_template_display_leaves_save_get_and_sync_only_matching_snap
     nodes[0]["content"][0]["items"][0]["settings"]["allowView"] = False
     nodes[0]["content"][1]["prompt"]["onlyWhenFilling"] = True
     nodes[2]["content"][0]["reference_settings"] = {"page_name": "参考页", "content_settings": {library[0]["content_id"]: {"root": {"hideDescription": True}, "items": {"question": {"allowView": False, "onlyWhenFilling": True}}}}}
-    nodes[3].update(appeal_prompt_content="新复议提示", appeal_reason_instruction="新填写说明")
+    nodes[3].update(appeal_prompt_content="新复议提示", appeal_reason_instruction="新填写说明", show_result_and_modify=False)
     nodes[-1]["calibration_settings"][library[0]["content_id"]]["items"]["question"]["hideName"] = True
     monkeypatch.setattr(templates_router, "PerformanceTemplateWorkflowService", lambda _db: service)
     patched = await templates_router.update_template_workflow(77, WorkflowUpdate.model_validate({"nodes": nodes, "content_library": library}), _template_admin_context(), db)
@@ -1944,6 +1942,7 @@ async def test_used_template_display_leaves_save_get_and_sync_only_matching_snap
     assert fetched.usage_summary.project_count == 1
     assert fetched.editable_scope.workflow is False
     assert fetched.editable_scope.reference_and_prompt_content is True
+    assert fetched.nodes[3].show_result_and_modify is False
     assert fetched.nodes[0].content[0]["name"] == "新内容"
     assert fetched.nodes[1].content[0]["name"] == "新内容"
     assert fetched.nodes[1].content[0]["items"][0]["settings"] == {"mode": "hidden", "required": False}

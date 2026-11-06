@@ -113,6 +113,9 @@ def _locked_nodes(nodes: list[dict], library: list[dict]) -> list[dict]:
                 bindings.setdefault(content.get("content_slot") or "fill", []).append(_content_id(content))
         node["content_bindings"] = bindings
         node["content"] = [_locked_content(content) for content in node.get("content") or []]
+        # 节点级可编辑配置不参与 used 结构锁定比对（REA：页面名称/复议提示等模板使用后仍可调整）
+        node.pop("content_page_name", None)
+        node.pop("show_result_and_modify", None)
         for key in ("appeal_prompt_content", "appeal_reason_instruction"):
             node.pop(key, None)
         calibration = node.get("calibration_settings") or {}
@@ -484,6 +487,11 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
                     if node_type == "result_reconsideration"
                     else ""
                 ),
+                "show_result_and_modify": (
+                    bool(node.get("show_result_and_modify", True))
+                    if node_type == "result_reconsideration"
+                    else False
+                ),
                 "executor_config": None,
                 "content_bindings": deepcopy(node.get("content_bindings") or {}),
             }
@@ -740,7 +748,7 @@ class PerformanceTemplateWorkflowService:
             target = config.get("template")
             if not isinstance(target, dict):
                 continue
-            _sync_display(target, source, {"appeal_prompt_content", "appeal_reason_instruction"}, previous)
+            _sync_display(target, source, {"appeal_prompt_content", "appeal_reason_instruction", "show_result_and_modify"}, previous)
             contents = {(_content_id(content), content.get("content_slot") or "fill"): content for content in source.get("content") or []}
             old_contents = {(_content_id(content), content.get("content_slot") or "fill"): content for content in previous.get("content") or []}
             for content in target.get("content") or []:
