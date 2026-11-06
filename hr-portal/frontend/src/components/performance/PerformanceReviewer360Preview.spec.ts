@@ -102,6 +102,43 @@ describe('PerformanceReviewer360Preview', () => {
     expect(wrapper.find('.r360-head__menu').exists()).toBe(false)
   })
 
+  it('matches the REA table view icon, geometry contract and shared expansion state', async () => {
+    const reviewers = [{ name: '评估人', sub: '直属上级  |  所属部门  |  系统默认邀请' }]
+    const wrapper = mountPreview({ tableRows: reviewers })
+    const viewButton = wrapper.get('.r360-tools__btn--view')
+    await viewButton.trigger('click')
+    const menuItems = wrapper.findAll('.r360-view-menu__item')
+    expect(menuItems).toHaveLength(2)
+    expect(menuItems[0].findAll('svg')).toHaveLength(2)
+    expect(menuItems[1].findAll('svg')).toHaveLength(1)
+    expect(menuItems[1].get('path').attributes('d')).toContain('Zm-2 4v-4H4v4h3.5')
+    await menuItems[1].trigger('click')
+
+    expect(viewButton.text()).toContain('表格视图')
+    expect(viewButton.get('path').attributes('d')).toContain('Zm-2 4v-4H4v4h3.5')
+    expect(wrapper.get('.r360-tools__btn--collapse').text()).toContain('展开详情')
+    expect(wrapper.get('.r360-table__expand-btn').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.r360-table__expand-btn path').attributes('d')).toContain('M18.627 11.22')
+    expect(wrapper.get('.r360-table__expanded-row').classes()).not.toContain('is-expanded')
+    expect(wrapper.get('.r360-table__details').isVisible()).toBe(false)
+
+    await wrapper.get('.r360-table__expand-btn').trigger('click')
+    expect(wrapper.get('.r360-tools__btn--collapse').text()).toContain('收起详情')
+    expect(wrapper.get('.r360-table__expand-btn').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.r360-table__expand-btn path').attributes('d')).toContain('M11.22 18.46')
+    expect(wrapper.get('.r360-table__expanded-row').classes()).toContain('is-expanded')
+    expect(wrapper.get('.r360-table__details').isVisible()).toBe(true)
+    expect(wrapper.findAll('.r360-table__details .r360-form__root-title').map(item => item.text())).toEqual(['360°反馈', '留言'])
+    expect(wrapper.findAll('.r360-table__details .readonly-answer')).toHaveLength(2)
+
+    await wrapper.get('.r360-tools__btn--collapse').trigger('click')
+    expect(wrapper.get('.r360-table__details').isVisible()).toBe(false)
+    await wrapper.get('.r360-table__cell').trigger('click')
+    expect(wrapper.get('.r360-table__details').isVisible()).toBe(true)
+    await wrapper.get('.r360-table__row').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.get('.r360-table__details').isVisible()).toBe(false)
+  })
+
   it('renders exact statistics order and separate hover popovers', async () => {
     const reviewers = [{ name: '评估人甲', sub: '直属上级 | 所属部门 | 系统默认邀请' }]
     const wrapper = mountPreview({ evaluatedCount: 1, expectedCount: 3, relationTotal: 1, tableRows: reviewers })

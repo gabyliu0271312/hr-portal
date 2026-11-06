@@ -40,14 +40,20 @@
           <button type="button" class="r360-tools__btn r360-tools__btn--view" tabindex="-1" @click="viewMenuOpen = !viewMenuOpen">
             <span class="r360-icon">
               <svg v-if="viewMode === 'card'" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm2 0v16h16V4H4Z" fill="currentColor"/><path d="M12.5 7a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5ZM6 8a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H7a1 1 0 0 1-1-1Zm6.5 3a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5ZM6 12a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H7a1 1 0 0 1-1-1Zm6.5 3a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5ZM6 16a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H7a1 1 0 0 1-1-1Z" fill="currentColor"/></svg>
-              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm7.5 0v4H20V4H9.5Zm0 6v4H20v-4H9.5Zm-2 4V6H4v8h3.5ZM4 18h7v-4H4v4Zm9 0h7v-4h-7v4Z" fill="currentColor"/></svg>
+              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm7.5 0v4H20V4H9.5Zm0 6v4H20v-4H9.5Zm-2 4v-4H4v4h3.5ZM4 16v4h3.5v-4H4Zm5.5 0v4H20v-4H9.5Zm-2-12H4v4h3.5V4Z" fill="currentColor"/></svg>
             </span>
             <span class="r360-tools__view-text">{{ viewMode === 'card' ? '详情视图' : '表格视图' }}</span>
             <span class="r360-icon r360-icon--end"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m3.414 7.086-.707.707a1 1 0 0 0 0 1.414l7.778 7.778a2 2 0 0 0 2.829 0l7.778-7.778a1 1 0 0 0 0-1.414l-.707-.707a1 1 0 0 0-1.415 0l-7.07 7.07-7.072-7.07a1 1 0 0 0-1.414 0Z" fill="currentColor"/></svg></span>
           </button>
-          <div v-if="viewMenuOpen" class="r360-view-menu">
-            <button type="button" class="r360-view-menu__item" :class="{ 'is-active': viewMode === 'card' }" @click="switchView('card')">详情视图</button>
-            <button type="button" class="r360-view-menu__item" :class="{ 'is-active': viewMode === 'table' }" @click="switchView('table')">表格视图</button>
+          <div v-if="viewMenuOpen" class="r360-view-menu" role="menu">
+            <button type="button" class="r360-view-menu__item" :class="{ 'is-active': viewMode === 'card' }" role="menuitem" @click="switchView('card')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm2 0v16h16V4H4Z" fill="currentColor"/><path d="M12.5 7a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5ZM6 8a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H7a1 1 0 0 1-1-1Zm6.5 3a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5ZM6 12a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2Zm6.5 3a1 1 0 1 0 0 2H17a1 1 0 1 0 0-2h-4.5ZM6 16a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2Z" fill="currentColor"/></svg>
+              <span>详情视图</span><svg v-if="viewMode === 'card'" class="r360-view-menu__check" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 11.293a1 1 0 0 1 1.414 0l4.072 4.07 9.07-9.07a1 1 0 0 1 1.415 0l.706.707a1 1 0 0 1 0 1.414L10.193 18.9a1 1 0 0 1-1.415 0l-5.485-5.485a1 1 0 0 1 0-1.414L4 11.293Z" fill="currentColor"/></svg>
+            </button>
+            <button type="button" class="r360-view-menu__item" :class="{ 'is-active': viewMode === 'table' }" role="menuitem" @click="switchView('table')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4Zm7.5 0v4H20V4H9.5Zm0 6v4H20v-4H9.5Zm-2 4v-4H4v4h3.5ZM4 16v4h3.5v-4H4Zm5.5 0v4H20v-4H9.5Zm-2-12H4v4h3.5V4Z" fill="currentColor"/></svg>
+              <span>表格视图</span><svg v-if="viewMode === 'table'" class="r360-view-menu__check" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M4 11.293a1 1 0 0 1 1.414 0l4.072 4.07 9.07-9.07a1 1 0 0 1 1.415 0l.706.707a1 1 0 0 1 0 1.414L10.193 18.9a1 1 0 0 1-1.415 0l-5.485-5.485a1 1 0 0 1 0-1.414L4 11.293Z" fill="currentColor"/></svg>
+            </button>
           </div>
         </div>
         <span class="r360-tools__spacer"></span>
@@ -63,7 +69,7 @@
       </div>
 
       <!-- 卡片视图：三角按钮与信息主体共享 expanded；头像第一行，描述下一行并同左缘 -->
-      <div v-show="viewMode === 'card'" class="r360-card">
+      <div v-if="viewMode === 'card'" class="r360-card">
         <button type="button" class="r360-card__toggle" :aria-expanded="expanded" :aria-label="expanded ? '收起详情' : '展开详情'" @click="toggleExpanded">
           <svg v-if="expanded" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
           <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
@@ -76,37 +82,30 @@
         </div>
       </div>
 
-      <!-- 表格视图：ud__table（REA：姓名表头 py-6 bg-N-100 + 评估人 26×26 头像 + 展开按钮） -->
-      <div v-show="viewMode === 'table'" class="r360-table-wrap">
+      <!-- 表格视图：REA 固定591宽、46px表头、57px人员行，详情作为第二行 -->
+      <div v-if="viewMode === 'table'" class="r360-table-wrap">
         <table class="r360-table" style="table-layout: fixed;">
-          <colgroup>
-            <col class="r360-table__expand-col">
-            <col style="width: 302px; min-width: 302px;">
-          </colgroup>
-          <thead>
-            <tr>
-              <th class="r360-table__expand-cell"></th>
-              <th class="r360-table__head-cell">姓名</th>
-            </tr>
-          </thead>
+          <colgroup><col class="r360-table__expand-col"><col></colgroup>
+          <thead><tr><th class="r360-table__expand-cell"></th><th class="r360-table__head-cell">姓名</th></tr></thead>
           <tbody>
-            <tr v-for="(row, index) in visibleReviewers" :key="index" class="r360-table__row">
-              <td class="r360-table__expand-cell">
-                <button type="button" class="r360-table__expand-btn" tabindex="-1" aria-label="展开">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
-                </button>
-              </td>
-              <td class="r360-table__cell">
-                <div class="r360-table__person">
-                  <img v-if="row.avatarUrl" class="r360-table__avatar" :src="row.avatarUrl" alt="">
-                  <span v-else class="r360-table__avatar r360-table__avatar--fallback" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 13H9c-2.761 0-6 1.931-6 5.4V20c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-1.6c0-3.471-3.239-5.4-6-5.4ZM7 7a5 5 0 1 0 10 0A5 5 0 0 0 7 7Z" fill="currentColor"/></svg></span>
-                  <div class="r360-table__info">
-                    <div class="r360-table__name">{{ row.name }}</div>
-                    <div class="r360-table__sub">{{ row.sub }}</div>
+            <template v-for="(row, index) in visibleReviewers" :key="index">
+              <tr class="r360-table__row" role="button" tabindex="0" :aria-expanded="expanded" @click="toggleExpanded" @keydown.enter.prevent="toggleExpanded" @keydown.space.prevent="toggleExpanded">
+                <td class="r360-table__expand-cell">
+                  <button type="button" class="r360-table__expand-btn" :aria-expanded="expanded" :aria-label="expanded ? '收起详情' : '展开详情'" @click.stop="toggleExpanded">
+                    <svg v-if="expanded" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
+                    <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
+                  </button>
+                </td>
+                <td class="r360-table__cell">
+                  <div class="r360-table__person">
+                    <img v-if="row.avatarUrl" class="r360-table__avatar" :src="row.avatarUrl" alt="">
+                    <span v-else class="r360-table__avatar r360-table__avatar--fallback" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 13H9c-2.761 0-6 1.931-6 5.4V20c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-1.6c0-3.471-3.239-5.4-6-5.4ZM7 7a5 5 0 1 0 10 0A5 5 0 0 0 7 7Z" fill="currentColor"/></svg></span>
+                    <div class="r360-table__info"><div class="r360-table__name">{{ row.name }}</div><div class="r360-table__sub">{{ row.sub }}</div></div>
                   </div>
-                </div>
-              </td>
-            </tr>
+                </td>
+              </tr>
+              <tr class="r360-table__expanded-row" :class="{ 'is-expanded': expanded }"><td colspan="2"><div v-show="expanded" class="r360-table__details"><div v-for="content in contents" :key="contentKey(content)" class="r360-form__item"><div class="r360-form__review"><div class="r360-form__root"><div class="r360-form__root-title">{{ content.name }}</div><div v-if="contentDescription(content)" class="r360-form__root-description">{{ contentDescription(content) }}</div></div><PerformanceTemplateRenderer mode="readonly" :show-header="false" :sections="sectionsFor(content)" :answers="{}" /></div></div></div></td></tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -192,7 +191,7 @@ const relationAnchor = ref<HTMLElement | null>(null)
 const evaluatedTooltipOpen = ref(false)
 const relationTooltipOpen = ref(false)
 const evaluatedProgress = computed(() => `${props.evaluatedCount}/${props.expectedCount}`)
-const visibleReviewers = computed<ReviewerRow[]>(() => props.tableRows.length ? props.tableRows : [{ name: '', sub: `${props.relationLabel} | 所属部门 | 系统默认邀请`, avatarUrl: props.avatarUrl }])
+const visibleReviewers = computed<ReviewerRow[]>(() => props.tableRows.length ? props.tableRows : [{ name: '评估人', sub: `${props.relationLabel}  |  所属部门  |  系统默认邀请`, avatarUrl: props.avatarUrl }])
 const visibleEvaluatedReviewers = computed<ReviewerRow[]>(() => props.evaluatedReviewers.length ? props.evaluatedReviewers : visibleReviewers.value.slice(0, props.evaluatedCount))
 /** 视图模式：card（详情视图）/ table（表格视图），REA 默认详情视图 */
 const viewMode = ref<'card' | 'table'>('card')
@@ -207,6 +206,7 @@ onMounted(() => document.addEventListener('click', closeFilter))
 onBeforeUnmount(() => document.removeEventListener('click', closeFilter))
 function switchView(mode: 'card' | 'table') {
   viewMode.value = mode
+  expanded.value = mode === 'card'
   viewMenuOpen.value = false
 }
 function contentKey(content: PerformanceTemplateContent) {
@@ -287,13 +287,11 @@ function sectionsFor(content: PerformanceTemplateContent) {
   box-sizing: border-box; padding: 4px; border-radius: 6px; background: #fff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
-.r360-view-menu__item {
-  display: block; width: 100%; padding: 6px 12px; box-sizing: border-box; border: 0;
-  border-radius: 4px; background: transparent; text-align: left;
-  font-family: inherit; font-size: 14px; line-height: 22px; color: #1f2329; cursor: pointer;
-}
+.r360-view-menu__item { display: flex; align-items: center; gap: 8px; position: relative; width: 100%; padding: 4px 8px; box-sizing: border-box; border: 0; border-radius: 4px; background: transparent; text-align: left; font-family: inherit; font-size: 14px; line-height: 22px; color: #1f2329; cursor: pointer; }
 .r360-view-menu__item:hover { background: rgba(31, 35, 41, 0.06); }
 .r360-view-menu__item.is-active { color: #3370ff; background: #e8f1ff; }
+.r360-view-menu__item > svg:first-child { flex: none; color: currentColor; }
+.r360-view-menu__check { margin-left: auto; flex: none; color: #3370ff; }
 .r360-tools__btn--sort { height: 26px; }
 .r360-tools__btn--collapse { height: 28px; }
 .r360-collapse-icon { display: block; color: #1f2329; }
@@ -317,31 +315,39 @@ function sectionsFor(content: PerformanceTemplateContent) {
 .r360-card__first { display: flex; align-items: center; min-height: 22px; }
 .r360-card__desc { margin-top: 4px; font-size: 12px; line-height: 20px; color: #646a73; }
 
-/* ---------- 表格视图：ud__table（REA x=361 w=591） ---------- */
+/* ---------- 表格视图：REA x=361 w=591；表头46、人员行57、展开列0 ---------- */
 .r360-table-wrap { margin-top: 16px; }
-.r360-table { width: 100%; border-collapse: collapse; }
-.r360-table__expand-col { width: 44px; }
-.r360-table__expand-cell { width: 44px; padding: 0; border: 0; text-align: left; vertical-align: middle; }
+.r360-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.r360-table__expand-col { width: 0; }
+.r360-table__expand-cell { position: relative; width: 0; padding: 0; border: 0; text-align: left; vertical-align: middle; }
 .r360-table__head-cell {
-  padding: 6px 8px; box-sizing: border-box; background: #f5f6f7;
+  height: 46px; padding: 12px; box-sizing: border-box; background: #f5f6f7;
   border: 0; font-weight: 500; font-size: 14px; line-height: 22px; color: #646a73; text-align: left;
 }
-.r360-table__row td { border: 0; }
-.r360-table__cell { padding: 8px; box-sizing: border-box; text-align: left; vertical-align: middle; }
+.r360-table__row { height: 57px; cursor: default; outline: none; }
+.r360-table__row td { height: 57px; border: 0; background: transparent; transition: background-color .1s ease-in; }
+.r360-table__row:hover td { background: #eff0f1; }
+.r360-table__row:focus-visible td { background: #eff0f1; }
+.r360-table__cell { height: 57px; padding: 8px 12px; box-sizing: border-box; text-align: left; vertical-align: middle; }
 .r360-table__expand-btn {
-  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-  padding: 4px; box-sizing: border-box; border: 0; border-radius: 6px; background: transparent; color: #646a73; cursor: pointer;
+  position: absolute; z-index: 2; left: 2px; top: 18px; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 4px; box-sizing: border-box; border: 0; border-radius: 6px;
+  background: transparent; color: #646a73; cursor: pointer;
 }
 .r360-table__expand-btn svg { display: block; width: 12px; height: 12px; }
-.r360-table__person { display: flex; align-items: center; min-width: 0; }
+.r360-table__person { display: flex; align-items: center; min-width: 0; height: 40px; margin-left: 12px; overflow: hidden; }
 .r360-table__avatar {
   display: block; flex: none; width: 26px; height: 26px; overflow: hidden;
-  border-radius: 50%; object-fit: cover; background: #dbe4f5; color: #3370ff;
+  border-radius: 50%; object-fit: cover; background: #dee0e3; color: #646a73; cursor: pointer;
 }
 .r360-table__avatar--fallback { display: inline-flex; align-items: center; justify-content: center; }
-.r360-table__info { min-width: 0; margin-left: 12px; }
-.r360-table__name { font-size: 12px; line-height: 20px; font-weight: 500; color: #1f2329; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r360-table__info { width: calc(100% - 32px); min-width: 0; margin-left: 12px; }
+.r360-table__name { max-width: 300px; font-size: 12px; line-height: 20px; font-weight: 500; color: #1f2329; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .r360-table__sub { font-size: 12px; line-height: 20px; color: #646a73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r360-table__expanded-row { height: 0; }
+.r360-table__expanded-row > td { height: 0; padding: 0; border: 0; background: transparent; }
+.r360-table__expanded-row.is-expanded > td { height: auto; }
+.r360-table__details { padding: 0 24px; box-sizing: border-box; border-radius: 6px; background: #f5f6f7; }
 
 /* ---------- 表单区：REA 591.3px 灰底，root/item 仍走统一 readonly 内容链 ---------- */
 .r360-form { margin-top: 16px; padding: 0 24px; box-sizing: border-box; border-radius: 6px; background: #f5f6f7; }
@@ -357,6 +363,10 @@ function sectionsFor(content: PerformanceTemplateContent) {
 .r360-form :deep(.performance-template-field:last-child) { margin-bottom: 0; }
 .r360-form :deep(.performance-item-title) { font-family: inherit; }
 .r360-form :deep(.template-field-label em) { display: none; }
+.r360-table__details :deep(.rich-answer) { padding: 0; min-height: 22px; line-height: 22px; }
+.r360-table__details :deep(.performance-template-section) { margin-bottom: 0; }
+.r360-table__details :deep(.performance-item-title) { font-family: inherit; }
+.r360-table__details :deep(.rich-answer), .r360-table__details :deep(.readonly-tag-panel) { background: #f5f6f7; }
 .r360-form :deep(.rich-answer),
 .r360-form :deep(.readonly-tag-panel) { background: #f5f6f7; }
 </style>
