@@ -348,7 +348,8 @@ function flowSaved(project: ProjectSettingsResponse, submitted?: ProjectFlowSett
 }
 async function saveDraft() {
   if (!projectId.value || !rawBaseline.value || !displayBaseline.value) return true
-  if (flowPending.value) { validationError.value = '请先保存或取消当前校准配置'; return false }
+  if (flowPending.value) { validationError.value = '请先确认或取消当前流程配置'; return false }
+  if (currentStep.value < 2 && calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings)) return true
   const current = payload()
   const patch = changedProjectSettings(rawBaseline.value, displayBaseline.value, current)
   if (!Object.keys(patch).length) return true
@@ -373,9 +374,10 @@ async function saveDraft() {
 }
 async function nextStep() {
   if (currentStep.value === 0 && !validate()) return
-  if (currentStep.value === 1 && flowPending.value) { validationError.value = '请先补齐时间并保存新增校准阶段，或取消当前校准配置'; return }
+  if (saving.value) return
   if (currentStep.value === 1) {
     validationError.value = ''
+    if (flowPending.value) { validationError.value = '请先确认或取消当前流程配置'; return }
     openingError.value = workflowNodes.value.some(node => node.node_type === 'result_view'
       && !form.flow_settings.node_settings[workflowNodeKey(node)]?.result_view?.automatic_enabled
       && !form.flow_settings.node_settings[workflowNodeKey(node)]?.result_view?.manual_enabled)

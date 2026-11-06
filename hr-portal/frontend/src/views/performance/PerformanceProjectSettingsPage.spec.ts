@@ -18,8 +18,9 @@ import PerformanceProjectSettingsPage from './PerformanceProjectSettingsPage.vue
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
+import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 
-function page(realDialog = false) {
+function page(realDialog = false, realFlow = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
       teleport: { template: '<div><slot /></div>' },
@@ -31,8 +32,8 @@ function page(realDialog = false) {
       PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions'], template: '<div data-testid="audience-editor" />' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
-      PerformanceProjectFlowSettings: true,
-      PerformanceProjectTimeSettings: true,
+      PerformanceProjectFlowSettings: !realFlow,
+      PerformanceProjectTimeSettings: !realFlow,
     } },
   })
 }
@@ -314,14 +315,75 @@ describe('CR-013 project partial saves', () => {
     expect(wrapper.findComponent(PerformanceProjectTimeSettings).exists()).toBe(true)
     wrapper.unmount()
   })
-  it('blocks next step while a new calibration phase is still a local draft', async () => {
+  it('adds in flow, edits dates only in the time step and saves the complete phase once', async () => {
+    const project = await started()
+    mocks.update.mockImplementation(async (_id, patch) => ({ ...project, ...patch, calibration_base_digest: 'base-2' }))
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await wrapper.get('.add-phase').trigger('click'); await flushPromises()
+    expect(wrapper.getComponent(PerformanceProjectFlowSettings).findComponent(PerformanceDateTimeField).exists()).toBe(false)
+    expect(mocks.update).not.toHaveBeenCalled()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(PerformanceProjectTimeSettings).exists()).toBe(true)
+    expect(mocks.update).not.toHaveBeenCalled()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('第 2 阶段')
+    expect(mocks.update).not.toHaveBeenCalled()
+    const fields = wrapper.getComponent(PerformanceProjectTimeSettings).findAllComponents(PerformanceDateTimeField)
+    fields[2].vm.$emit('update:modelValue', '2027-01-05T09:00')
+    fields[3].vm.$emit('update:modelValue', '2027-01-04T18:00')
+    await flushPromises(); await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('截止时间必须晚于开始时间')
+    expect(mocks.update).not.toHaveBeenCalled()
+    fields[3].vm.$emit('update:modelValue', '2027-01-06T18:00')
+    await flushPromises()
+    await button(wrapper, '上一步').trigger('click'); await flushPromises()
+    await button(wrapper, '上一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.getComponent(PerformanceProjectTimeSettings).findAllComponents(PerformanceDateTimeField)[2].props('modelValue')).toBe('2027-01-05T09:00')
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledOnce()
+    const patch = mocks.update.mock.calls[0][1]
+    expect(patch.calibration_base_digest).toBe('base-1')
+    expect(patch.calibration_operations).toEqual([{ operation: 'add_phase', node_id: 'calibration', phase_id: expect.any(String) }])
+    expect(patch.flow_settings.node_times.calibration.phase_times[patch.calibration_operations[0].phase_id]).toEqual({ start_at: '2027-01-05T01:00:00.000Z', end_at: '2027-01-06T10:00:00.000Z' })
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('retains the new phase and dates after a failed completion and retries the same operation', async () => {
+    const project = await started()
+    mocks.update.mockRejectedValueOnce(new Error('failed')).mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await wrapper.get('.add-phase').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    const time = wrapper.getComponent(PerformanceProjectTimeSettings)
+    const fields = time.findAllComponents(PerformanceDateTimeField)
+    fields[2].vm.$emit('update:modelValue', '2027-01-05T09:00')
+    fields[3].vm.$emit('update:modelValue', '2027-01-06T18:00')
+    await flushPromises(); await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(PerformanceProjectTimeSettings).exists()).toBe(true)
+    expect(wrapper.text()).toContain('当前步骤保存失败')
+    const firstPatch = JSON.parse(JSON.stringify(mocks.update.mock.calls[0][1]))
+    expect(time.findAllComponents(PerformanceDateTimeField)[2].props('modelValue')).toBe('2027-01-05T09:00')
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledTimes(2)
+    expect(mocks.update.mock.calls[1][1]).toEqual(firstPatch)
+    wrapper.unmount()
+  })
+
+  it('blocks next step only while a flow editor is unconfirmed', async () => {
     await started()
     const wrapper = page(); await flushPromises()
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     wrapper.getComponent(PerformanceProjectFlowSettings).vm.$emit('pending-change', true)
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     expect(mocks.update).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('请先补齐时间并保存新增校准阶段')
+    expect(wrapper.text()).toContain('请先确认或取消当前流程配置')
     wrapper.unmount()
   })
 })

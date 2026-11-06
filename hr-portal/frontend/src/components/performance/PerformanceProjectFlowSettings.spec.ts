@@ -8,6 +8,7 @@ import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceCalibrationRuleDrawer from './PerformanceCalibrationRuleDrawer.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceProject360InviteSettingsDrawer from './PerformanceProject360InviteSettingsDrawer.vue'
 
 const node = (node_type: string, order: number, executor_role_code: string | null = 'assessment.reviewee'): PerformanceWorkflowNode => ({
   node_id: `${node_type}-${order}`,
@@ -585,25 +586,62 @@ describe('CR-013 calibration editing policy', () => {
     expect(wrapper.emitted('saved')?.at(-1)?.[0]).toMatchObject({ calibration_base_digest: 'digest-2' })
     wrapper.unmount()
   })
-  it('keeps a new phase local until dates are complete, then submits one atomic add_phase', async () => {
-    const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(async (_id, patch) => ({ flow_settings: patch.flow_settings, editing_policy: policy() } as any))
+  it('keeps new phase rules local and leaves all date editing to the time step', async () => {
+    const update = vi.spyOn(performanceProjectApi, 'update')
     const wrapper = started()
     await wrapper.get('.add-phase').trigger('click'); await flushPromises()
     expect(update).not.toHaveBeenCalled()
-    const save = () => wrapper.findAll('button').find(button => button.text() === '保存新增校准阶段')!
-    await save().trigger('click'); await flushPromises(); expect(update).not.toHaveBeenCalled()
-    const fields = wrapper.findAllComponents(PerformanceDateTimeField)
-    fields[0].vm.$emit('update:modelValue', '2027-01-10T09:00')
-    fields[1].vm.$emit('update:modelValue', '2027-01-11T18:00')
-    await flushPromises(); await save().trigger('click'); await flushPromises()
-    expect(update).toHaveBeenCalledOnce()
-    const patch = update.mock.calls[0][1]
-    expect(patch.calibration_operations).toEqual([{ operation: 'add_phase', node_id: 'calibration-1', phase_id: expect.any(String) }])
-    const phaseId = patch.calibration_operations![0].phase_id
-    expect(patch.flow_settings?.node_times['calibration-1'].phase_times?.[phaseId]).toEqual({ start_at: '2027-01-10T01:00:00.000Z', end_at: '2027-01-11T10:00:00.000Z' })
-    expect(patch.flow_settings?.node_settings['calibration-1'].calibration?.phases[2].rules[0].rule_id).toMatch(/^[a-f0-9-]{36}$/)
+    expect(wrapper.findComponent(PerformanceDateTimeField).exists()).toBe(false)
+    expect(wrapper.findAll('button').some(button => button.text() === '保存新增校准阶段')).toBe(false)
+    expect(wrapper.emitted('pending-change')?.at(-1)).toEqual([false])
+    const draft = wrapper.emitted('update:modelValue')!.at(-1)![0] as any
+    const added = draft.node_settings['calibration-1'].calibration.phases[2]
+    expect(added.phase_id).toBeTruthy()
+    expect(added.rules[0].rule_id).toMatch(/^[a-f0-9-]{36}$/)
+    expect(draft.node_times['calibration-1'].phase_times[added.phase_id]).toEqual({ start_at: '', end_at: '' })
+    await wrapper.findAll('.rule-actions button').filter(button => button.text() === '编辑').at(-1)!.trigger('click')
+    expect(wrapper.emitted('pending-change')?.at(-1)).toEqual([true])
+    wrapper.getComponent(PerformanceCalibrationRuleDrawer).vm.$emit('confirm', { ...rule(added.rules[0].rule_id), description: '新阶段规则' })
+    await flushPromises()
+    const updated = wrapper.emitted('update:modelValue')!.at(-1)![0] as any
+    expect(updated.node_settings['calibration-1'].calibration.phases[2].rules[0].description).toBe('新阶段规则')
+    expect(wrapper.emitted('pending-change')?.at(-1)).toEqual([false])
+    expect(update).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('下一步“起止时间”')
     wrapper.unmount()
   })
+  it('rechecks a pending phase before confirming an already open invitation drawer', async () => {
+    const update = vi.spyOn(performanceProjectApi, 'update')
+    const wrapper = started()
+    await wrapper.setProps({ nodes: [reviewer360Node(2), node('calibration', 1)] })
+    await wrapper.get('.outline-button').trigger('click'); await flushPromises()
+    expect(wrapper.emitted('pending-change')?.at(-1)).toEqual([true])
+    const drawer = wrapper.getComponent(PerformanceProject360InviteSettingsDrawer)
+    await wrapper.get('.add-phase').trigger('click'); await flushPromises()
+    drawer.vm.$emit('confirm', { ...drawer.props('settings'), minimum_invited_count: 7 })
+    await flushPromises()
+    expect(update).not.toHaveBeenCalled()
+    expect(drawer.props('saveError')).toContain('起止时间')
+    expect(wrapper.findAll('.calibration-phase')).toHaveLength(3)
+    wrapper.unmount()
+  })
+
+  it('does not add or cancel phases while an immediate flow save is in progress', async () => {
+    vi.spyOn(performanceProjectApi, 'get').mockResolvedValue({} as any)
+    let finish!: (value: any) => void
+    const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = started()
+    await wrapper.findAll('.add-rule')[0].trigger('click')
+    wrapper.getComponent(PerformanceCalibrationRuleDrawer).vm.$emit('confirm', rule('r-new'))
+    await flushPromises()
+    expect(wrapper.get('.add-phase').attributes('disabled')).toBeDefined()
+    await wrapper.get('.add-phase').trigger('click')
+    expect(wrapper.findAll('.calibration-phase')).toHaveLength(2)
+    finish({ flow_settings: update.mock.calls[0][1].flow_settings }); await flushPromises()
+    expect(wrapper.get('.add-phase').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('deletes an allowed existing phase with an explicit operation and unchanged surviving dates', async () => {
     const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(async (_id, patch) => ({ flow_settings: patch.flow_settings, editing_policy: policy() } as any))
     const wrapper = started()
