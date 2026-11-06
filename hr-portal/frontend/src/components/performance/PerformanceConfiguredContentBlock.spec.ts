@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { ElMessage } from 'element-plus'
 import PerformanceRatingControl from './PerformanceRatingControl.vue'
 import UiSwitch from '../ui/UiSwitch.vue'
@@ -783,6 +784,24 @@ describe('PerformanceConfiguredContentBlock', () => {
     const row = wrapper.get('.configured-content-card__row')
     expect(details.element).toBeTruthy()
     expect(row.element).toBeTruthy()
+    wrapper.unmount()
+  })
+
+  it('right-aligns rating levels with the field above via 24px details inset (REA right=1208)', () => {
+    const wrapper = mount(PerformanceConfiguredContentBlock, { props: {
+      content: { ...content, type: 'rating', name: '评分评级', description: '描述', items: [{ id: 'rating-item', label: '年度综合评级', hint: '', kind: 'rating' }] },
+      active: true, expanded: true, dragging: false,
+      index: 0, count: 1, toolbarVisible: false, rootSettings: { hideDescription: false, allowMultiple: false },
+      itemSettings: { 'rating-item': { mode: 'fill', required: true } },
+      rootSettingsEnabled: true, itemSettingsEnabled: true, rootSettingsVariant: 'rating-root', itemSettingsVariant: 'rating-item',
+    } })
+    const card = wrapper.get('.configured-content-card')
+    expect(card.classes()).toContain('rating-content-card')
+    // REA 实测评级行容器 right=1208 = 文本框 right-24px；details 右内缩 24px 与 row 右缘对齐
+    // （jsdom 不解析 scoped 计算样式，改用源码断言 padding 值）
+    const blockSource = readFileSync('src/components/performance/PerformanceConfiguredContentBlock.vue', 'utf8')
+    expect(blockSource).toContain('.configured-content-card.rating-content-card .configured-content-card__details{padding:0 24px 8px 24px}')
+    expect(wrapper.get('.content-renderer-rating__levels')).toBeTruthy()
     wrapper.unmount()
   })
 })

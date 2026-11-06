@@ -23,9 +23,9 @@
     <aside class="text-normal" aria-label="内容设置">
       <div class="text-normal__title">内容设置</div>
       <div class="text-normal__divider" aria-hidden="true"></div>
-      <div v-if="pageHeadingSelected" class="page-name-settings">
+      <div v-if="pageHeadingSelected || reconFinalHeadingSelected" class="page-name-settings">
         <label class="page-name-settings__label" for="content-page-name">页面名称<svg class="page-name-settings__required" viewBox="0 0 8 8" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.964 5.816L4.378 4.668l.17 1.935H3.456l.171-1.935L2.04 5.816l-.54-.984 1.757-.827L1.5 3.178l.54-.991 1.586 1.175-.17-1.962h1.093l-.171 1.962 1.586-1.175.54.99-1.75.828 1.75.827-.54.984z" /></svg></label>
-        <PerformanceTextField v-model="contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" />
+        <PerformanceTextField :model-value="reconFinalHeadingSelected ? finalPageName : contentPageName" variant="feishu-input" input-id="content-page-name" aria-label="页面名称" :maxlength="100" :disabled="pageNameLocked" :invalid="Boolean(pageNameError)" @update:model-value="value => { if (reconFinalHeadingSelected) finalPageName = value; else contentPageName = value }" />
         <span v-if="pageNameError" class="page-name-settings__error" role="alert">{{ pageNameError }}</span>
       </div>
       <div v-else-if="!hasActiveConfiguredSettings" class="text-normal__body"><span>{{ (isReviewer360Fill && reviewer360PreviewSelected) || (isResultReconsiderationFill && resultReconsiderationPreviewSelected) ? '暂无可配置内容' : '暂未选择内容' }}</span></div>
@@ -142,9 +142,9 @@
             <!-- REA sticky 工具条：添加内容/添加提示 -->
             <PerformanceTemplateOperateBar v-if="!configuredContents.length" class="recon-module__bar" :actions="summaryActions" @action="handleContentAction" />
           </div>
-          <!-- 模块2：最终评估结果(final)环节内容，独立模块含表头（REA：上级评估 58 高表头 + final 内容链） -->
+          <!-- 模块2：最终评估结果(final)环节内容，独立模块含表头（REA：上级评估 58 高表头 mb-12 + 内容分开，与校准 SectionCard 结构一致） -->
           <div v-if="configuredContents.length" class="recon-module recon-module--final">
-            <div class="recon-module__head" role="button" tabindex="0" :aria-pressed="pageHeadingSelected" aria-label="上级评估" @click="selectPageHeading" @keydown.enter.prevent="selectPageHeading" @keydown.space.prevent="selectPageHeading">
+            <div class="recon-module__head" role="button" tabindex="0" :aria-pressed="reconFinalHeadingSelected" aria-label="上级评估" @click="selectReconFinalHeading" @keydown.enter.prevent="selectReconFinalHeading" @keydown.space.prevent="selectReconFinalHeading">
               <span class="recon-module__title">{{ finalModuleTitle }}</span>
             </div>
             <!-- final 内容链（reconsiderationContents = 上级评估环节 fill 内容投影，与校准同构） -->
@@ -384,6 +384,8 @@ const finalNode = computed(() => {
   const nodes = workflowNodes.value.filter(node => node.include_final_result)
   return nodes.length === 1 ? nodes[0] : null
 })
+/** 绩效校准节点：结果复议的 final 内容设置与校准同源（REA appeal 与校准逐像素一致） */
+const calibrationNode = computed(() => workflowNodes.value.find(node => node.node_type === 'calibration') || null)
 const finalExecutorLabel = computed(() => {
   const node = finalNode.value
   if (!node) return '未配置'
@@ -406,8 +408,8 @@ const finalContents = computed(() => finalFillContents.value.filter(content => c
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
 const calibrationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
 /** 结果复议处理：与校准同构——默认添加上级评估（final 环节）内容为供调整内容
- *  （REA appeal 环节 modifyTemplates=上级评估，无额外设置覆盖，直接投影 final 内容） */
-const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value))
+ *  （REA appeal 环节 modifyTemplates=上级评估，final 内容沿用校准节点的设置覆盖，显示与校准一致） */
+const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value, calibrationNode.value?.calibration_settings))
 /** REA 复议处理模块2 表头 = final 环节名（如「上级评估」，finalResult 指向的最终绩效结果环节） */
 const finalModuleTitle = computed(() => finalNode.value?.name || selectedStageData.value?.title || '上级评估')
 const finalContentRestriction = computed(() => `仅可选择终评环节执行人「${finalExecutorLabel.value}」填写的内容`)
@@ -445,6 +447,17 @@ const reviewer360PreviewSelected = ref(false)
 const resultReconsiderationPreviewSelected = ref(false)
 const resultReconsiderationExpanded = ref(true)
 const pageHeadingSelected = ref(false)
+/** 复议处理模块2（上级评估/final）表头选中——右侧编辑 final 环节的页面名称（REA appeal 同 adjust_review） */
+const reconFinalHeadingSelected = ref(false)
+/** final 环节页面名称（模块2 表头点击后右侧可编辑） */
+const finalPageName = computed({
+  get: () => finalNode.value?.content_page_name || finalNode.value?.name || '',
+  set: (value: string) => {
+    if (pageNameLocked.value || !finalNode.value) return
+    finalNode.value.content_page_name = value
+    pageNameError.value = ''
+  },
+})
 const selectedRegionId = ref<string | null>(null)
 const resultViewTitleHovered = ref(false)
 function clearContentSelection() {
@@ -453,11 +466,18 @@ function clearContentSelection() {
   reviewer360PreviewSelected.value = false
   resultReconsiderationPreviewSelected.value = false
   pageHeadingSelected.value = false
+  reconFinalHeadingSelected.value = false
 }
 function selectPageHeading() {
   clearContentSelection()
   selectedRegionId.value = 'result'
   pageHeadingSelected.value = true
+}
+/** 复议处理模块2（上级评估/final）表头点击：选中 final 页面名称（右侧编辑 final 环节 content_page_name） */
+function selectReconFinalHeading() {
+  clearContentSelection()
+  selectedRegionId.value = 'result'
+  reconFinalHeadingSelected.value = true
 }
 function selectContentRegion(regionId: string) {
   clearContentSelection()
@@ -1251,6 +1271,10 @@ onMounted(async () => {
 .recon-module:last-child{margin-bottom:0}
 .recon-module__head{display:flex;align-items:center;min-height:58px;padding:16px 24px;box-sizing:border-box;cursor:pointer}
 .recon-module__title{font-size:18px;font-weight:600;line-height:26px;color:var(--color-text-primary)}
+/* 模块2(final)表头独立白卡（对齐校准 SectionCard heading：58 高、mb-12、与内容分开） */
+.recon-module--final{background:transparent;overflow:visible}
+.recon-module--final .recon-module__head{display:flex;align-items:center;min-height:58px;margin:0 0 12px;padding:16px 24px;box-sizing:border-box;border-radius:4px;background:var(--color-bg-card);cursor:pointer}
+.recon-module--final .recon-module__contents{box-sizing:border-box;border-radius:4px;background:var(--color-bg-card)}
 .recon-module__body{padding:0 24px 16px;box-sizing:border-box}
 .recon-module__bar{position:sticky;z-index:20;top:0;padding:10px 24px;box-sizing:border-box;background:#fff}
 .recon-module__contents{padding:0 24px 16px;box-sizing:border-box}

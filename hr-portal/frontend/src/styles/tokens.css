@@ -23,6 +23,7 @@
   --performance-content-hover-border: #3370ff;
   --performance-content-hover-outline: 1px dashed var(--performance-content-hover-border);
   --performance-content-hover-outline-offset: -1px;
+  --performance-content-frame-radius: var(--radius-sm);
   --performance-content-selected-shadow: inset 0 0 0 2px #3370ff;
 
   --performance-template-picker-width: 480px;

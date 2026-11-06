@@ -330,8 +330,9 @@ describe('PerformanceTemplateContentSettings', () => {
   it('shares dashed hover and solid selection tokens between headings and content blocks', async () => {
     const tokenSource = readFileSync('src/styles/tokens.css', 'utf8')
     expect(tokenSource).toContain('--performance-content-hover-outline: 1px dashed var(--performance-content-hover-border)')
-    expect(selectionFrameSource).toContain('outline: var(--performance-content-hover-outline)')
-    expect(selectionFrameSource).toContain('box-shadow: var(--performance-content-selected-shadow)')
+    expect(selectionFrameSource).toContain('border: 1px dashed transparent')
+    expect(selectionFrameSource).toContain('border-color: var(--performance-content-hover-border)')
+    expect(selectionFrameSource).toContain('opacity: 0')
     expect(contentSettingsSource.replace(/\r\n/g, '\n')).toContain('.text-normal__divider {\n  position: relative;\n  z-index: 31;')
     expect(configuredBlockSource).toContain('position:fixed;top:104px')
     const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
@@ -586,6 +587,27 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('.recon-module--final .recon-module__contents').text()).toContain('重点工作')
     // 空操作栏不再显示（有默认内容）
     expect(wrapper.find('.recon-module--reason [class*=operate-bar]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('reconsideration final projection mirrors the calibration node settings overrides (REA 复议与校准一致)', async () => {
+    const final = { ...mockNodes[6], include_final_result: true, content: [
+      { content_id: 'f-rating', type: 'rating', name: '年度综合评级', content_slot: 'fill', items: [{ id: 'f-level', kind: 'rating', label: '综合评级' }] },
+    ] }
+    const calibration = { ...mockNodes[4], content: [], calibration_settings: { 'f-rating': { items: { 'f-level': { hideName: true, allowModify: false } } } } }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({
+      nodes: [final, calibration, mockNodes[8]],
+      content_library: [],
+      usage_summary: { cycle_count: 1 },
+    } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    const reconCard = wrapper.findAll('.stage-card').find(c => c.text().includes('结果复议处理'))
+    await reconCard!.trigger('click')
+    await flushPromises()
+    const contents = wrapper.get('.recon-module--final .recon-module__contents')
+    expect(contents.text()).toContain('年度综合评级')
+    // 校准节点设置的 hideName 应用到了复议投影（与校准环节渲染一致）
+    expect(contents.find('[data-content-item-id="f-level"] strong').exists()).toBe(false)
     wrapper.unmount()
   })
   it('renders the three-column architecture and workflow-driven stage list in API order', async () => {
