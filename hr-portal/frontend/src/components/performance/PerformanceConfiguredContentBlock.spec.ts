@@ -560,9 +560,11 @@ describe('PerformanceConfiguredContentBlock', () => {
     expect(getEvaluationExecutorKind('assessment.reviewee')).toBe('other')
     expect(getStageContentRule('result_view')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-view-root', itemSettingsEnabled: true })
     expect(getStageContentRule('result_communication')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'result-communication-root', itemSettingsEnabled: true, itemSettingsVariant: 'result-communication-item' })
-    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'result_reconsideration', 'unknown', undefined]) {
+    for (const stage of ['reviewer_360_invite', 'reviewer_360_confirm', 'unknown', undefined]) {
       expect(getStageContentRule(stage)).toMatchObject({ rootSettingsEnabled: false, itemSettingsEnabled: false, allowedContentTypes: ['work_summary', 'rating', 'custom'] })
     }
+    // 复议处理与校准完全一致：final result 内容 root/item settings 可编辑
+    expect(getStageContentRule('result_reconsideration')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'calibration-root', itemSettingsEnabled: true, itemSettingsVariant: 'calibration-item', allowedContentTypes: ['work_summary', 'rating', 'custom'] })
     expect(getStageContentRule('calibration')).toMatchObject({ rootSettingsEnabled: true, rootSettingsVariant: 'calibration-root', itemSettingsEnabled: true, itemSettingsVariant: 'calibration-item', visibleSlots: ['adjustment', 'reference'] })
     expect(itemSettingsCapabilities).toMatchObject({
       'work-summary': { hideName: false, mode: true, required: true },
@@ -775,7 +777,7 @@ describe('PerformanceConfiguredContentBlock', () => {
     } })
     // details 内 item 字段存在且渲染正常（像素级 padding 归零由浏览器实测验证）
     expect(wrapper.get('.configured-content-card__details')).toBeTruthy()
-    expect(wrapper.get('[data-content-item-id="item-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-content-item-id="item-1"]').exists()).toBe(true)
     // item 左缘由 .configured-content-card__details 的 padding 统一提供（与 root .configured-content-card__row 一致）
     const details = wrapper.get('.configured-content-card__details')
     const row = wrapper.get('.configured-content-card__row')

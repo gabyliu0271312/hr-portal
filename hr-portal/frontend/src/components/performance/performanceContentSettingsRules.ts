@@ -150,7 +150,11 @@ export const stageContentRules: Record<string, StageContentRule> = {
   },
   result_reconsideration: {
     ...genericRule,
-    rootSettingsVariant: 'appeal-root',
+    // 与校准环节完全一致：final result 内容的 root/item settings 可编辑（REA appeal 同 adjust_review 结构）
+    rootSettingsEnabled: true,
+    itemSettingsEnabled: true,
+    rootSettingsVariant: 'calibration-root',
+    itemSettingsVariant: 'calibration-item',
   },
 }
 
