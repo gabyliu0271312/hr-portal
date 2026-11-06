@@ -607,7 +607,8 @@ describe('CR-013 calibration editing policy', () => {
     expect(updated.node_settings['calibration-1'].calibration.phases[2].rules[0].description).toBe('新阶段规则')
     expect(wrapper.emitted('pending-change')?.at(-1)).toEqual([false])
     expect(update).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('下一步“起止时间”')
+    expect(wrapper.text()).not.toContain('下一步“起止时间”')
+    expect(wrapper.findAll('button').some(button => button.text() === '取消新增阶段')).toBe(false)
     wrapper.unmount()
   })
   it('rechecks a pending phase before confirming an already open invitation drawer', async () => {

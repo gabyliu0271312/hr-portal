@@ -83,8 +83,7 @@
           </div>
         </div>
         <PerformanceTextButton class="link-button add-phase" label="＋ 添加校准阶段" :disabled="flowSaving" @click="addPhase(node)" />
-        <div v-if="hasPendingPhases" class="phase-draft-actions"><span>请在下一步“起止时间”中填写新增阶段时间，点击“完成”统一保存</span><PerformanceTextButton label="取消新增阶段" :disabled="flowSaving" @click="cancelNewPhases" /></div>
-        <p v-if="phaseSaveError || phaseNotice" class="phase-save-error" role="alert">{{ phaseSaveError || phaseNotice }}</p>
+        <p v-if="phaseSaveError" class="phase-save-error" role="alert">{{ phaseSaveError }}</p>
       </section>
 
       <section v-else-if="node.node_type === 'result_view'" class="node-settings result-view-settings" aria-label="绩效结果查看设置">
@@ -258,7 +257,6 @@ const distributionUsedAssessmentIds = computed(() => distributionEditor.value ? 
 const inviteSaving = ref(false)
 const flowSaving = computed(() => calibrationSaving.value || deleteSaving.value || inviteSaving.value)
 const phaseSaveError = ref('')
-const phaseNotice = ref('')
 const inviteSaveError = ref('')
 const inviteDrawerOpen = computed({ get: () => Boolean(inviteDrawerNode.value), set: value => { if (!value) inviteDrawerNode.value = null } })
 const REVIEWER_360_SETTINGS_HINT = '「360°评估人设置」在首个 360° 环节设置，对所有 360° 环节生效'
@@ -415,12 +413,12 @@ function reconsiderationSettings(node: PerformanceWorkflowNode) { ensureNode(nod
 function descriptionFor(node: PerformanceWorkflowNode) { return node.description || (is360SettingsNode(node) ? REVIEWER_360_SETTINGS_HINT : descriptions[node.node_type] || '') }
 function inviteLabel(value: string) { return value === 'DIRECT_SUBORDINATES' ? '直属下级' : '暂未配置' }
 function openInviteDrawer(node: PerformanceWorkflowNode) {
-  if (hasPendingPhases.value) { phaseSaveError.value = '请先在“起止时间”中填写新增阶段时间并点击“完成”，或取消新增阶段'; return }
+  if (hasPendingPhases.value) { phaseSaveError.value = '请先在“起止时间”中填写新增阶段时间并点击“完成”，或移除未保存的新增阶段'; return }
   inviteSaveError.value = ''; inviteDrawerNode.value = node
 }
 async function saveInviteSettings(value: NonNullable<PerformanceProjectFlowSettings['node_settings'][string]['invite']>) {
   if (!inviteDrawerNode.value || inviteSaving.value) return
-  if (hasPendingPhases.value) { inviteSaveError.value = '请先在“起止时间”中完成新增阶段，或取消新增阶段'; return }
+  if (hasPendingPhases.value) { inviteSaveError.value = '请先在“起止时间”中完成新增阶段，或移除未保存的新增阶段'; return }
   const key = nodeKey(inviteDrawerNode.value)
   const activeNode = inviteDrawerNode.value
   inviteSaveError.value = ''
@@ -461,7 +459,7 @@ async function saveRuleEditor(rule: PerformanceProjectFlowRule) {
   if (editor.ruleIndex === null) rules.push(next)
   else rules.splice(editor.ruleIndex, 1, next)
   calibrationSaveError.value = ''
-  if (hasPendingPhases.value) { draft.value = settings; phaseNotice.value = '新增阶段配置尚未保存，请在下一步“起止时间”中填写时间，点击“完成”统一保存'; ruleEditor.value = null; return }
+  if (hasPendingPhases.value) { draft.value = settings; ruleEditor.value = null; return }
   if (props.projectId && props.projectPayload) {
     calibrationSaving.value = true
     try {
@@ -479,12 +477,12 @@ function setInviteDefault(node: PerformanceWorkflowNode, event: Event) { inviteS
 function setMinimumInviteCount(node: PerformanceWorkflowNode, event: Event) { inviteSettings(node).minimum_invited_count = Number((event.target as HTMLInputElement).value) }
 function openDeleteRule(node: PerformanceWorkflowNode, phaseIndex: number, ruleIndex: number) {
   if (calibrationSettings(node).phases[phaseIndex].rules.length <= 1) return
-  if (props.projectId && hasPendingPhases.value && existingRule(node, phaseIndex, ruleIndex)) { phaseSaveError.value = '请先在“起止时间”中填写新增阶段时间并点击“完成”，或取消新增阶段，再删除已有规则'; return }
+  if (props.projectId && hasPendingPhases.value && existingRule(node, phaseIndex, ruleIndex)) { phaseSaveError.value = '请先在“起止时间”中填写新增阶段时间并点击“完成”，或移除未保存的新增阶段，再删除已有规则'; return }
   deleteError.value = ''; notifyCalibrators.value = false; deletion.value = { node, phaseIndex, ruleIndex }
 }
 function openDeletePhase(node: PerformanceWorkflowNode, phaseIndex: number) {
   if (phaseDeleteReason(node, phaseIndex)) return
-  if (props.projectId && hasPendingPhases.value && existingPhase(node, phaseIndex)) { phaseSaveError.value = '请先在“起止时间”中填写新增阶段时间并点击“完成”，或取消新增阶段，再删除已有阶段'; return }
+  if (props.projectId && hasPendingPhases.value && existingPhase(node, phaseIndex)) { phaseSaveError.value = '请先在“起止时间”中填写新增阶段时间并点击“完成”，或移除未保存的新增阶段，再删除已有阶段'; return }
   deleteError.value = ''; notifyCalibrators.value = false; deletion.value = { node, phaseIndex }
 }
 async function confirmDeletion() {
@@ -504,14 +502,8 @@ async function confirmDeletion() {
 }
 function addPhase(node: PerformanceWorkflowNode) {
   if (flowSaving.value) return
-  phaseSaveError.value = ''; phaseNotice.value = ''
+  phaseSaveError.value = ''
   calibrationSettings(node).phases.push({ phase_id: createCalibrationPhaseId(), rules: [{ rule_id: createCalibrationRuleId(), subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false } as PerformanceProjectFlowRule] })
-}
-function cancelNewPhases() {
-  if (flowSaving.value) return
-  for (const node of props.nodes.filter(item => item.node_type === 'calibration')) calibrationSettings(node).phases = calibrationSettings(node).phases.filter((_, index) => existingPhase(node, index))
-  syncCalibrationPhaseTimes(draft.value.node_settings, draft.value.node_times)
-  phaseSaveError.value = ''; phaseNotice.value = ''
 }
 function setReconsiderationHandlers(node: PerformanceWorkflowNode, value: string | string[] | null) {
   const values = Array.isArray(value) ? value : value ? [value] : []
@@ -573,7 +565,7 @@ watch(draft, value => { ensureCalibrationPhaseIds(value.node_settings); syncCali
 </script>
 
 <style scoped>
-.setting-disabled-reason{margin:4px 0;color:var(--color-text-secondary);font-size:14px;line-height:22px}.phase-draft-actions{display:flex;align-items:center;gap:16px;margin-top:12px;font-size:14px;color:var(--color-text-secondary)}.phase-save-error{color:var(--color-danger);font-size:14px;line-height:22px}
+.setting-disabled-reason{margin:4px 0;color:var(--color-text-secondary);font-size:14px;line-height:22px}.phase-save-error{color:var(--color-danger);font-size:14px;line-height:22px}
 .distribution-settings{display:flex;flex-direction:column;gap:var(--spacing-3);margin-top:var(--spacing-3)}.distribution-settings :deep(.performance-radio-group){gap:var(--spacing-6)!important}.distribution-rule-summary{display:flex;flex-direction:column;align-items:flex-start;gap:var(--spacing-2)}.distribution-rule-summary>strong{font-size:var(--font-size-md);line-height:22px}.distribution-rule-summary__row{display:flex;width:100%;flex-direction:column;gap:var(--spacing-1);margin:var(--spacing-1) 0 var(--spacing-2);padding:var(--spacing-4) var(--spacing-5);box-sizing:border-box;border-radius:var(--radius-sm);background:var(--performance-review-readonly-surface);color:var(--color-text-primary);font-size:var(--font-size-md);line-height:22px}.distribution-rule-card__header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--spacing-1)}.distribution-rule-card__actions{display:flex;align-items:center;gap:var(--spacing-3)}.distribution-rule-card__actions :deep(.performance-icon-button){--performance-icon-button-size:20px;padding:2px}.distribution-rule-card__meta{display:flex;align-items:center;gap:var(--spacing-5);margin-bottom:var(--spacing-2)}.distribution-rule-card__label{color:var(--color-text-secondary)}.distribution-rule-card__conditions{display:flex;flex-direction:column}.distribution-rule-card__condition{display:flex;align-items:center;gap:var(--spacing-2)}.distribution-rule-card__rounding{display:flex;flex-direction:column;gap:var(--spacing-1);margin-top:var(--spacing-3)}.distribution-add-rule{margin-top:0}.distribution-scope-placeholder{padding:var(--spacing-3);border:1px dashed var(--color-line-control);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-distribution-heading{display:flex;align-items:center;gap:var(--spacing-2)}.calibration-distribution-heading strong{font-size:var(--font-size-md);line-height:22px}.calibration-distribution-help{margin:var(--spacing-1) 0 0;color:var(--color-text-secondary);font-size:var(--font-size-md);line-height:22px}.calibration-heading h3{display:flex;align-items:center;gap:var(--spacing-1)}
 .result-view-choices--error :deep(.ud__checkbox__wallpaper){border-color:var(--performance-field-error-color)}
 .result-view-choices .performance-radio-group{display:flex;margin:8px 0 12px 24px;max-width:100%}
