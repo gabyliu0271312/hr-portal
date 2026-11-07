@@ -3,7 +3,9 @@
 契约对齐 REA 实测飞书「人员组管理」页：
 - 列表：按 cycle + tab（semester | project）拉取，一次拿全量（切换页签不发新请求）
 - priority check：进入页面时校验该周期是否仍允许维护人员组（被评估项目占用时为 false）
-- CRUD：新建 / 编辑 / 删除，权限键复用已预留的 performance.backend.people-groups.cycle
+- CRUD：新建 / 编辑 / 删除，鉴权对齐现有管理端惯例（performance.cycles.manage，
+  与周期详情设置入口 canManageCycles 门控一致；people-groups.* 为功能权限配置树键，
+  不用于 API 鉴权）
 """
 from __future__ import annotations
 
@@ -26,7 +28,9 @@ from app.performance.models import PerformanceCycle, PerformanceFocusGroup
 router = APIRouter(prefix="/performance/cycles", tags=["performance-focus-groups"])
 
 FOCUS_GROUP_TAB = Literal["semester", "project"]
-FOCUS_GROUP_PERMISSION = "performance.backend.people-groups.cycle"
+# 鉴权对齐现有管理端惯例：周期管理权限（admin 必含，入口 canManageCycles 同键）。
+# people-groups.cycle/project 留在功能权限配置树（角色编辑页勾选），不用于 API 鉴权。
+FOCUS_GROUP_PERMISSION = "performance.cycles.manage"
 
 
 class FocusGroupPayload(BaseModel):

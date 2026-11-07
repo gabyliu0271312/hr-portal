@@ -247,7 +247,7 @@ Tab 容器 `ud__tabs__tab-bar-holder ud__tabs__tab-bar-nav`：flex，高 48px，
 | 列表 | `GET /performance/cycles/{cycle_id}/focus-groups?tab=&current=&size=&keyword=`，count + 分页，keyword `name ilike` | 单元测试覆盖空态/新建/列表/冲突/编辑/搜索/删除 |
 | 新建/编辑/删除 | POST 201 / PATCH 200 / DELETE 204，同名同 tab 409，全程 `PerformanceAuditService` 审计 | 同上 |
 | 优先级 | `GET .../priority-check` → `{data:true}` | 同上 |
-| 权限 | 复用 seed 已预留 `performance.backend.people-groups.cycle` | 403 测试覆盖 |
+| 权限 | API 鉴权对齐现有管理端惯例 `performance.cycles.manage`（管理员/周期管理者必含，与周期详情设置入口 `canManageCycles` 门控一致）；`people-groups.cycle/.project` 为功能权限配置树键（角色编辑页勾选），不用于 API 鉴权 | 403 测试覆盖 |
 
 测试：`tests/test_performance_focus_groups.py` — 3 stub 单元测试通过 + 1 个 `RUN_PERFORMANCE_DB_TEST=1` 门控真实库回滚测试（本地未跑）；performance 全量 525 通过。
 

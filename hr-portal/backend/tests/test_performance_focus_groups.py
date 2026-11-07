@@ -180,7 +180,7 @@ async def test_focus_groups_list_create_update_delete():
 
     db = _StubDb(_StubCycle(1))
     base = "/api/v1/performance/cycles/1/focus-groups"
-    async with _make_app(db, ("performance.backend.people-groups.cycle",)) as client:
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
         # 空列表
         response = await client.get(base, params={"tab": "semester"})
         assert response.status_code == 200
@@ -269,7 +269,7 @@ async def test_focus_groups_requires_people_groups_permission():
 async def test_focus_groups_missing_cycle_404():
     db = _StubDb(_StubCycle(1))
     base = "/api/v1/performance/cycles/999/focus-groups"
-    async with _make_app(db, ("performance.backend.people-groups.cycle",)) as client:
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
         response = await client.get(base, params={"tab": "semester"})
         assert response.status_code == 404
         response = await client.post(base, json={"name": "X", "tab": "semester", "employee_nos": []})
@@ -309,7 +309,7 @@ async def test_focus_groups_real_database_round_trip():
                 session.add(cycle)
                 await session.flush()
                 base = f"/api/v1/performance/cycles/{cycle.id}/focus-groups"
-                async with _make_app(session, ("performance.backend.people-groups.cycle",)) as client:
+                async with _make_app(session, ("performance.cycles.manage",)) as client:
                     created = await client.post(base, json={"name": "真实库人员组", "tab": "semester", "employee_nos": ["E1", "E2"], "scope_mode": "manual"})
                     assert created.status_code == 201, created.text
                     group_id = created.json()["id"]
