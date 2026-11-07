@@ -1,12 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FocusPeopleManagement from './FocusPeopleManagement.vue'
 import { performanceFocusGroupApi, type PerformanceFocusGroup } from '@/api/performance'
 
+const routerPushMock = vi.hoisted(() => vi.fn())
 vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { cycleId: '1' }, query: {} }),
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPushMock }),
 }))
 
 const fullScreenModalStub = {
@@ -45,9 +46,21 @@ function group(overrides: Partial<PerformanceFocusGroup> = {}): PerformanceFocus
     cycle_ref: 'cycle:1',
     tab: 'semester',
     name: '核心研发团队',
+    en_name: '',
+    description: {},
+    followee_user_ids: [],
+    view_permission: 1,
+    scope_setting_mode: 0,
+    scope: null,
+    show_group_tag: false,
+    is_communicate_time: false,
+    start_time: null,
+    end_time: null,
     employee_nos: ['E001', 'E002'],
     scope_mode: 'manual',
     project_ref: null,
+    activity_ids: [],
+    roles_of_managing_scope: [],
     created_by_type: 'SYSTEM_ACCOUNT',
     created_by_ref: '1',
     updated_by_type: 'SYSTEM_ACCOUNT',
@@ -59,6 +72,10 @@ function group(overrides: Partial<PerformanceFocusGroup> = {}): PerformanceFocus
 }
 
 describe('FocusPeopleManagement', () => {
+  beforeEach(() => {
+    routerPushMock.mockClear()
+  })
+
   it('loads groups, renders toolbar and empty/search states', async () => {
     const listSpy = vi.spyOn(performanceFocusGroupApi, 'list').mockResolvedValue({ total: 1, items: [group()] })
     vi.spyOn(performanceFocusGroupApi, 'priorityCheck').mockResolvedValue(true)
@@ -93,6 +110,9 @@ describe('FocusPeopleManagement', () => {
     await flushPromises()
 
     expect(listSpy).toHaveBeenLastCalledWith(1, { tab: 'project', keyword: undefined })
+
+    await wrapper.find('.create-button').trigger('click')
+    expect(routerPushMock).toHaveBeenCalledWith({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: 1 }, query: { tab: 'project' } })
   })
 
   it('renders empty illustration state when no rows', async () => {

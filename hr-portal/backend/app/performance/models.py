@@ -1118,6 +1118,14 @@ class PerformanceFocusGroup(Base):
             name="uq_performance_focus_group_cycle_tab_name",
         ),
         Index("ix_performance_focus_groups_cycle", "cycle_ref", "tab"),
+        CheckConstraint(
+            "scope_setting_mode IN (0, 1, 2)",
+            name="ck_performance_focus_group_scope_setting_mode",
+        ),
+        CheckConstraint(
+            "is_communicate_time = false OR (start_time IS NOT NULL AND end_time IS NOT NULL AND start_time < end_time)",
+            name="ck_performance_focus_group_communication_time",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -1126,9 +1134,21 @@ class PerformanceFocusGroup(Base):
     )
     tab: Mapped[str] = mapped_column(String(16), nullable=False, default="semester")
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    en_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    description: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    followee_user_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    view_permission: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    scope_setting_mode: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scope: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    roles_of_managing_scope: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    show_group_tag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_communicate_time: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    start_time: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    end_time: Mapped[str | None] = mapped_column(String(32), nullable=True)
     employee_nos: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     scope_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
     project_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    activity_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     created_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)

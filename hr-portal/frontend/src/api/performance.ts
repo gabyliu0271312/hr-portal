@@ -2249,9 +2249,21 @@ export interface PerformanceFocusGroup {
   cycle_ref: string
   tab: 'semester' | 'project'
   name: string
+  en_name: string
+  description: Record<string, string>
+  followee_user_ids: string[]
+  view_permission: number
+  scope_setting_mode: number
+  scope: Array<Array<Record<string, unknown>>> | null
+  show_group_tag: boolean
+  is_communicate_time: boolean
+  start_time: string | null
+  end_time: string | null
   employee_nos: string[]
   scope_mode: string
   project_ref: string | null
+  activity_ids: string[]
+  roles_of_managing_scope: string[]
   created_by_type: string | null
   created_by_ref: string | null
   updated_by_type: string | null
@@ -2262,10 +2274,42 @@ export interface PerformanceFocusGroup {
 
 export interface PerformanceFocusGroupPayload {
   name: string
+  en_name?: string
   tab: 'semester' | 'project'
+  description?: Record<string, string>
+  followee_user_ids?: string[]
+  view_permission?: number
+  scope_setting_mode?: number
+  scope?: Array<Array<Record<string, unknown>>> | null
+  show_group_tag?: boolean
+  is_communicate_time?: boolean
+  start_time?: string | null
+  end_time?: string | null
   employee_nos: string[]
   scope_mode: string
   project_ref?: string | null
+  activity_ids?: string[]
+  roles_of_managing_scope?: string[]
+}
+
+export interface PerformanceFocusGroupOptions extends PerformanceEvaluatorOptions {
+  fields: Array<{ key: string; label: string; operators: string[]; option_source: string }>
+  people: Array<{ value: string; label: string; sub_label?: string; department?: string | null; email?: string | null }>
+  api_document_url: string | null
+  communication_enabled: boolean
+}
+
+export interface PerformanceResolveScopePayload {
+  scopes: Array<Array<Record<string, unknown>>>
+  user_group_id?: string
+}
+
+export interface PerformanceResolveScopeResult {
+  task_id: string | null
+  status: number | null
+  selected_count?: number | null
+  selected?: string[] | null
+  scopes?: Array<{ selected?: string[] | null }>
 }
 
 export interface PerformanceFocusGroupPage {
@@ -2278,6 +2322,22 @@ export interface PerformanceFocusGroupPriorityCheck {
 }
 
 export const performanceFocusGroupApi = {
+  async options(cycleId: number): Promise<PerformanceFocusGroupOptions> {
+    const { data } = await api.get<PerformanceFocusGroupOptions>(`/performance/cycles/${cycleId}/focus-groups/options`)
+    return data
+  },
+  async searchPeople(cycleId: number, keyword: string): Promise<PerformanceFocusGroupOptions['people']> {
+    const { data } = await api.post<PerformanceFocusGroupOptions['people']>(`/performance/cycles/${cycleId}/focus-groups/people/query`, { keyword, exclude_dismissed: false })
+    return data
+  },
+  async resolveScope(cycleId: number, payload: PerformanceResolveScopePayload, taskId = '-1'): Promise<PerformanceResolveScopeResult> {
+    const { data } = await api.post<PerformanceResolveScopeResult>(`/performance/cycles/${cycleId}/focus-groups/resolve-scope`, payload, { params: { task_id: taskId } })
+    return data
+  },
+  async evaluatorOptions(cycleId: number): Promise<PerformanceEvaluatorOptions> {
+    const { data } = await api.get<PerformanceEvaluatorOptions>(`/performance/cycles/${cycleId}/evaluator-options`)
+    return data
+  },
   async priorityCheck(cycleId: number): Promise<boolean> {
     const { data } = await api.get<PerformanceFocusGroupPriorityCheck>(`/performance/cycles/${cycleId}/focus-groups/priority-check`)
     return data.data

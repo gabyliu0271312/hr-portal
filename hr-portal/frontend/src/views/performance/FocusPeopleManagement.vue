@@ -95,7 +95,7 @@ function clearSearch() {
 function openCreate() {
   const id = cycleId()
   if (!id) { ElMessage.warning('缺少绩效周期'); return }
-  void router.push({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: id } })
+  void router.push({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: id }, query: { tab: activeTab.value } })
 }
 
 function openDelete(row: PerformanceFocusGroup) {

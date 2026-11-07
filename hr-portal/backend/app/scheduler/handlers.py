@@ -511,6 +511,46 @@ async def _handler_ucp_event_maintenance(
 
 
 
+async def _handler_performance_focus_scope(
+    job: ScheduledJob,
+    db: AsyncSession,
+    triggered_by: str,
+) -> tuple[int, str]:
+    from app.performance.models import PerformanceCycle
+    from app.performance.project_service import PerformanceProjectService
+
+    payload = job.payload or {}
+    cycle_id = payload.get("cycle_id")
+    cycle_ref = payload.get("cycle_ref")
+    owner = payload.get("owner")
+    expected_triggered_by = (
+        f"{owner.get('subject_type')}:{owner.get('subject_id')}"
+        if isinstance(owner, dict)
+        else ""
+    )
+    if (
+        not isinstance(cycle_id, int)
+        or not isinstance(cycle_ref, str)
+        or not isinstance(owner, dict)
+        or triggered_by != expected_triggered_by
+    ):
+        raise RuntimeError("范围解析任务载荷或发起者不合法")
+    cycle = await db.get(PerformanceCycle, cycle_id)
+    if cycle is None or cycle.cycle_ref != cycle_ref:
+        raise RuntimeError("范围解析任务所属周期不存在")
+    rules = payload.get("evaluator_rules")
+    if not isinstance(rules, dict) or not rules.get("groups"):
+        raise RuntimeError("范围解析规则不完整")
+    matched, _, _ = await PerformanceProjectService(db).preview_people(
+        cycle,
+        {"evaluator_rules": rules, "scope_rules": {"groups": []}},
+        exclude_occupied=False,
+    )
+    selected = [person.employee_no for person in matched]
+    job.payload = {**payload, "selected": selected}
+    return len(selected), f"performance focus scope resolved: selected={len(selected)}"
+
+
 async def _handler_performance_cycle_lifecycle(
     job: ScheduledJob,
     db: AsyncSession,
@@ -555,6 +595,7 @@ JOB_HANDLERS: dict[str, HandlerFn] = {
     "quality_queue": _handler_quality_queue,
     "cost_center_notification_queue": _handler_cost_center_notification_queue,
     "performance_cycle_lifecycle": _handler_performance_cycle_lifecycle,
+    "performance_focus_scope": _handler_performance_focus_scope,
     "performance_result_opening": _handler_performance_result_opening,
     "scd_run": _handler_scd_run,
     "ai_controlled_action_retention": _handler_ai_controlled_action_retention,

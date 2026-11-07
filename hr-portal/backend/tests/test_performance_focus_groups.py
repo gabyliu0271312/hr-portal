@@ -33,9 +33,21 @@ class _StubGroup:
         self.cycle_ref = cycle_ref
         self.tab = tab
         self.name = name
+        self.en_name = ""
+        self.description = {}
+        self.followee_user_ids = []
+        self.view_permission = 1
+        self.scope_setting_mode = 1
+        self.scope = None
+        self.show_group_tag = False
+        self.is_communicate_time = False
+        self.start_time = None
+        self.end_time = None
         self.employee_nos = employee_nos
         self.scope_mode = scope_mode
         self.project_ref = project_ref
+        self.activity_ids = []
+        self.roles_of_managing_scope = []
         self.created_by_type = "SYSTEM_ACCOUNT"
         self.created_by_ref = "1"
         self.updated_by_type = "SYSTEM_ACCOUNT"
@@ -190,14 +202,22 @@ async def test_focus_groups_list_create_update_delete():
         created = await client.post(base, json={
             "name": "核心研发团队",
             "tab": "semester",
+            "description": {"zh-CN": "核心研发团队说明", "en-US": "Core R&D team"},
+            "scope_setting_mode": 1,
             "employee_nos": ["E001", "E002", "E001"],
             "scope_mode": "manual",
+            "activity_ids": ["7654abc", "7654def"],
+            "roles_of_managing_scope": ["leader", "hrbp"],
         })
         assert created.status_code == 201, created.text
         created_body = created.json()
         assert created_body["name"] == "核心研发团队"
         assert created_body["employee_nos"] == ["E001", "E002"]
         assert created_body["tab"] == "semester"
+        assert created_body["description"] == {"zh-CN": "核心研发团队说明", "en-US": "Core R&D team"}
+        assert created_body["scope_setting_mode"] == 1
+        assert created_body["activity_ids"] == ["7654abc", "7654def"]
+        assert created_body["roles_of_managing_scope"] == ["leader", "hrbp"]
         group_id = created_body["id"]
 
         # 列表含新建
@@ -210,6 +230,7 @@ async def test_focus_groups_list_create_update_delete():
         created_project = await client.post(base, json={
             "name": "核心研发团队",
             "tab": "project",
+            "scope_setting_mode": 1,
             "employee_nos": [],
             "scope_mode": "manual",
             "project_ref": "project:one",
@@ -217,19 +238,26 @@ async def test_focus_groups_list_create_update_delete():
         assert created_project.status_code == 201, created_project.text
 
         # 同 tab 同名冲突
-        duplicate = await client.post(base, json={"name": "核心研发团队", "tab": "semester", "employee_nos": []})
+        duplicate = await client.post(base, json={"name": "核心研发团队", "tab": "semester", "scope_setting_mode": 1, "employee_nos": []})
         assert duplicate.status_code == 409
 
         # 编辑
         updated = await client.patch(f"{base}/{group_id}", json={
             "name": "核心研发团队（扩编）",
             "tab": "semester",
+            "scope_setting_mode": 1,
+            "description": {"zh-CN": "扩编说明"},
             "employee_nos": ["E003"],
             "scope_mode": "manual",
+            "activity_ids": ["7654zzz"],
+            "roles_of_managing_scope": ["activity_manager"],
         })
         assert updated.status_code == 200, updated.text
         assert updated.json()["name"] == "核心研发团队（扩编）"
         assert updated.json()["employee_nos"] == ["E003"]
+        assert updated.json()["description"] == {"zh-CN": "扩编说明"}
+        assert updated.json()["activity_ids"] == ["7654zzz"]
+        assert updated.json()["roles_of_managing_scope"] == ["activity_manager"]
 
         # 搜索
         searched = await client.get(base, params={"tab": "semester", "keyword": "扩编"})
@@ -260,7 +288,7 @@ async def test_focus_groups_requires_people_groups_permission():
     async with _make_app(db, permissions=()) as client:
         response = await client.get(base, params={"tab": "semester"})
         assert response.status_code == 403
-        response = await client.post(base, json={"name": "X", "tab": "semester", "employee_nos": []})
+        response = await client.post(base, json={"name": "X", "tab": "semester", "scope_setting_mode": 1, "employee_nos": []})
         assert response.status_code == 403
         response = await client.get(f"{base}/priority-check")
         assert response.status_code == 403
@@ -272,8 +300,120 @@ async def test_focus_groups_missing_cycle_404():
     async with _make_app(db, ("performance.cycles.manage",)) as client:
         response = await client.get(base, params={"tab": "semester"})
         assert response.status_code == 404
-        response = await client.post(base, json={"name": "X", "tab": "semester", "employee_nos": []})
+        response = await client.post(base, json={"name": "X", "tab": "semester", "scope_setting_mode": 1, "employee_nos": []})
         assert response.status_code == 404
+
+
+async def test_focus_group_payload_validates_feishu_fields_and_time():
+    from app.performance.focus_groups_router import FocusGroupPayload
+    from pydantic import ValidationError
+
+    payload = FocusGroupPayload.model_validate({
+        "name": " 研发组 ",
+        "scope_setting_mode": 1,
+        "en_name": "R&D",
+        "description": {"zh-CN": "研发人员"},
+        "followee_user_ids": ["U1", "U1", " U2 "],
+        "view_permission": 2,
+        "show_group_tag": True,
+        "is_communicate_time": True,
+        "start_time": "2026-11-01T09:00:00+08:00",
+        "end_time": "2026-11-02T18:00:00+08:00",
+    })
+    assert payload.name == "研发组"
+    assert payload.followee_user_ids == ["U1", "U2"]
+    with pytest.raises(ValidationError, match="开始时间必须早于截止时间"):
+        FocusGroupPayload.model_validate({
+            "name": "研发组",
+            "scope_setting_mode": 1,
+            "is_communicate_time": True,
+            "start_time": "2026-11-02T18:00:00+08:00",
+            "end_time": "2026-11-01T09:00:00+08:00",
+        })
+
+
+def test_focus_group_scope_rules_reject_incomplete_and_unconfirmed_dimension():
+    from fastapi import HTTPException
+    from app.performance.focus_groups_router import _normalize_resolve_rules
+
+    with pytest.raises(HTTPException, match="规则不完整"):
+        _normalize_resolve_rules([])
+    with pytest.raises(HTTPException, match="序列职级映射未确认"):
+        _normalize_resolve_rules([[{"key": "sequenceLevel", "condition": "eq", "value": ["P6"]}]])
+    assert _normalize_resolve_rules([[{
+        "key": "department", "condition": "eq", "value": ["研发部"],
+    }]]) == [{"conditions": [{"field": "department", "operator": "include", "values": ["研发部"]}]}]
+
+
+async def test_focus_group_rule_create_uses_server_resolved_people(monkeypatch):
+    from types import SimpleNamespace
+    from app.performance import focus_groups_router
+
+    async def preview_people(self, cycle, settings, *, exclude_occupied=True, **kwargs):
+        assert settings["evaluator_rules"]["groups"][0]["conditions"][0]["field"] == "department"
+        assert exclude_occupied is False
+        return [SimpleNamespace(employee_no="E100")], [], []
+
+    monkeypatch.setattr(focus_groups_router.PerformanceProjectService, "preview_people", preview_people)
+    db = _StubDb(_StubCycle(1))
+    base = "/api/v1/performance/cycles/1/focus-groups"
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.post(base, json={
+            "name": "规则组",
+            "scope_setting_mode": 0,
+            "scope_mode": "rule",
+            "scope": [[{"key": "department", "condition": "eq", "value": ["研发部"]}]],
+            "employee_nos": ["CLIENT-SPOOFED"],
+        })
+    assert response.status_code == 201, response.text
+    assert response.json()["employee_nos"] == ["E100"]
+
+
+async def test_resolve_scope_poll_isolated_and_returns_feishu_scopes(monkeypatch):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from app.performance import focus_groups_router
+
+    task_id = "v2_8129261e-309f-4239-b829-87e97dc0df7c"
+    job = SimpleNamespace(
+        id=8,
+        payload={
+            "task_id": task_id,
+            "cycle_id": 1,
+            "cycle_ref": "cycle:1",
+            "user_group_id": "",
+            "scopes": [[{"key": "department", "condition": "eq", "value": ["研发部"]}]],
+            "owner": {"subject_type": "SYSTEM_ACCOUNT", "subject_id": "1"},
+            "selected": ["E1", "E2"],
+        },
+    )
+    run = SimpleNamespace(status="success", started_at=datetime.now(UTC), message=None)
+
+    async def find_job(db, requested):
+        return job
+
+    async def find_run(db, job_id):
+        return run
+
+    monkeypatch.setattr(focus_groups_router, "_find_resolve_job", find_job)
+    monkeypatch.setattr(focus_groups_router, "_find_resolve_run", find_run)
+    db = _StubDb(_StubCycle(1))
+    body = {"scopes": [[{"key": "department", "condition": "eq", "value": ["研发部"]}]]}
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.post(
+            f"/api/v1/performance/cycles/1/focus-groups/resolve-scope",
+            params={"task_id": task_id},
+            json=body,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["scopes"][0]["selected"] == ["E1", "E2"]
+        job.payload["owner"] = {"subject_type": "SYSTEM_ACCOUNT", "subject_id": "2"}
+        forbidden = await client.post(
+            f"/api/v1/performance/cycles/1/focus-groups/resolve-scope",
+            params={"task_id": task_id},
+            json=body,
+        )
+        assert forbidden.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -310,7 +450,7 @@ async def test_focus_groups_real_database_round_trip():
                 await session.flush()
                 base = f"/api/v1/performance/cycles/{cycle.id}/focus-groups"
                 async with _make_app(session, ("performance.cycles.manage",)) as client:
-                    created = await client.post(base, json={"name": "真实库人员组", "tab": "semester", "employee_nos": ["E1", "E2"], "scope_mode": "manual"})
+                    created = await client.post(base, json={"name": "真实库人员组", "tab": "semester", "scope_setting_mode": 1, "employee_nos": ["E1", "E2"], "scope_mode": "manual"})
                     assert created.status_code == 201, created.text
                     group_id = created.json()["id"]
                     listed = await client.get(base, params={"tab": "semester"})
@@ -318,7 +458,7 @@ async def test_focus_groups_real_database_round_trip():
                     session.expunge_all()
                     persisted = await session.scalar(PerformanceFocusGroup.id.__eq__(group_id))
                     assert persisted is not None
-                    updated = await client.patch(f"{base}/{group_id}", json={"name": "真实库人员组改", "tab": "semester", "employee_nos": ["E3"], "scope_mode": "manual"})
+                    updated = await client.patch(f"{base}/{group_id}", json={"name": "真实库人员组改", "tab": "semester", "scope_setting_mode": 1, "employee_nos": ["E3"], "scope_mode": "manual"})
                     assert updated.status_code == 200, updated.text
                     deleted = await client.delete(f"{base}/{group_id}")
                     assert deleted.status_code == 204

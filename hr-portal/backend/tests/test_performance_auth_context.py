@@ -292,10 +292,8 @@ def identity_db(monkeypatch):
     from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink
     from app.users.models import Role, User, UserRole
 
-    from app.performance.models import PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceRole, PerformanceCycle, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceHrbpPermission
-
     engine = create_engine("sqlite://")
-    tables = [User.__table__, Role.__table__, UserRole.__table__, PerformanceIdentityLink.__table__, PerformanceAuthorizationSnapshot.__table__, PerformanceAuthorizationSnapshotPerson.__table__, PerformanceRole.__table__, PerformanceCycle.__table__, PerformanceProject.__table__, PerformanceProjectMember.__table__, PerformanceProjectMemberSnapshot.__table__, PerformanceProjectNodeSnapshot.__table__, PerformanceNodeTask.__table__, PerformanceHrbpPermission.__table__]
+    tables = [User.__table__, Role.__table__, UserRole.__table__, PerformanceIdentityLink.__table__, PerformanceAuthorizationSnapshot.__table__, PerformanceAuthorizationSnapshotPerson.__table__]
     for table in tables:
         table.create(engine)
     roster = Table("identity_test_roster", MetaData(), Column("id", Integer, primary_key=True), Column("employee_no", String), Column("corporate_email", String), Column("full_name", String))
@@ -405,18 +403,19 @@ async def test_navigation_reuses_real_identity_and_rejects_nonmember_cycles(iden
     from app.performance import navigation_service
     from app.performance.models import PerformanceAuthorizationSnapshotPerson
     db, session, _roster = identity_db
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(navigation_service, "resolve_performance_employee_no", lambda _db, _context: "E001")
-    monkeypatch.setattr(navigation_service, "employee_no_in_cycle", lambda _context, employee_no, people: employee_no if any(person.employee_no == employee_no for person in people) else None)
     class NavDb:
+        async def get(self, model, identity):
+            return await db.get(model, identity)
         async def execute(self, statement):
-            entity = statement.column_descriptions[0]["entity"]
-            if entity is PerformanceAuthorizationSnapshotPerson:
-                people = [SimpleNamespace(employee_no="E001", portal_user_id=None)]
-                snapshots = [SimpleNamespace(cycle_ref="cycle:own")]
-                return SimpleNamespace(all=lambda: list(zip(people, snapshots)))
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []), all=lambda: [])
+            entity = statement.column_descriptions[0].get("entity")
+            if entity is not None and entity is not PerformanceAuthorizationSnapshotPerson and entity.__name__ in {"PerformanceRole", "PerformanceCycle", "PerformanceProject"}:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []), all=lambda: [])
+            return await db.execute(statement)
     access = await navigation_service.resolve_frontend_access(NavDb(), _employee_context())
     assert access.actor_ref == "E001"
     assert access.actor_refs_by_cycle == {"cycle:own": "E001"}
-    monkeypatch.undo()
+    session.get(PerformanceAuthorizationSnapshotPerson, 1).portal_user_id = 99
+    access = await navigation_service.resolve_frontend_access(NavDb(), _employee_context())
+    assert access.actor_refs_by_cycle == {}
+    assert access.review_projects == []
+    assert access.manage_projects == []
