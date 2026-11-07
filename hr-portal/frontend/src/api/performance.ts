@@ -909,6 +909,30 @@ export interface ProjectMemberPage {
   page_size: number
 }
 
+export interface RevieweeSearchOption {
+  value: string
+  label: string
+  sub_label?: string | null
+  department?: string | null
+  is_permitted: boolean
+  reason?: string | null
+}
+
+export interface RevieweeSearchResult {
+  items: RevieweeSearchOption[]
+}
+
+export interface RevieweeConflictStage {
+  stage_key: string
+  stage_label: string
+}
+
+export interface RevieweeConflictResult {
+  employee_no: string
+  conflicts: RevieweeConflictStage[]
+  okr_requires_notice: boolean
+}
+
 export interface ProjectMatrixPerson {
   employee_no: string
   display_name: string
@@ -1089,6 +1113,18 @@ export const projectManagementApi = {
   },
   async levelStatistics(cycleId: number, dimension: 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
     const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension } })
+    return data
+  },
+  async revieweeSearch(projectId: number | string, keyword: string): Promise<RevieweeSearchResult> {
+    const { data } = await api.get<RevieweeSearchResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/reviewees/search`, { params: { keyword: keyword.trim() || undefined } })
+    return data
+  },
+  async revieweeConflictCheck(projectId: number | string, employeeNo: string): Promise<RevieweeConflictResult> {
+    const { data } = await api.post<RevieweeConflictResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/reviewees/conflict-check`, { employee_no: employeeNo })
+    return data
+  },
+  async addReviewee(projectId: number | string, employeeNo: string, visibleAddOkrNotice = false): Promise<RevieweeSearchOption> {
+    const { data } = await api.post<RevieweeSearchOption>(`/performance/projects/${encodeURIComponent(String(projectId))}/reviewees`, { employee_no: employeeNo, visible_add_okr_notice: visibleAddOkrNotice })
     return data
   },
 }

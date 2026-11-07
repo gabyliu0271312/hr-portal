@@ -24,13 +24,17 @@
       </div>
       <template v-else>
         <div v-if="!selectedProject" class="cycle-overview">
-          <PerformancePageTitle title="周期概览" />
+          <PerformancePageTitle title="周期概览">
+            <template #actions>
+              <UiButton variant="secondary" class="reviewee-add-trigger" @click="revieweeAddOpen = true">添加被评估人</UiButton>
+            </template>
+          </PerformancePageTitle>
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" />
-            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :project-id="memberProjectId" />
-            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
+            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" />
+            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" />
+            <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
         </div>
@@ -57,6 +61,12 @@
       @copy-link="copyMemberLink"
     />
     <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
+    <RevieweeAddDialog
+      v-model="revieweeAddOpen"
+      :project-id="revieweeAddProjectId"
+      :projects="revieweeAddProjects"
+      @added="onRevieweeAdded"
+    />
   </div>
 </template>
 
@@ -83,6 +93,8 @@ import AuthorizationManagementPanel from '@/components/performance/Authorization
 import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
 import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
+import RevieweeAddDialog from '@/components/performance/RevieweeAddDialog.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import type { ProjectMember } from '@/api/performance'
 import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
@@ -264,6 +276,23 @@ const selectedProject = computed(() => {
 
 const memberProjectId = computed(() => selectedProject.value?.project_id ?? overview.value?.projects[0]?.project_id ?? 0)
 
+const revieweeAddOpen = ref(false)
+const viewRefreshKey = ref(0)
+const revieweeAddProjects = computed(() => overview.value?.projects?.filter(project => project.status === 'started') ?? [])
+const revieweeAddProjectId = computed(() => {
+  const projects = revieweeAddProjects.value
+  if (!projects.length) return null
+  return selectedProject.value?.project_id ?? projects[0].project_id ?? null
+})
+
+function onRevieweeAdded() {
+  // 快照一致性模型：添加被评估人 = 一次写入最新成员快照 + 建任务树，
+  // 成员列表/总览完成率/矩阵/统计均查同一快照。这里只重绘当前所在视图一次。
+  const currentCycleId = activeCycleId.value
+  viewRefreshKey.value += 1
+  void loadOverview(currentCycleId)
+}
+
 function applyOverview(loaded: ProjectManagementOverview) {
   overview.value = loaded
   if (loaded.active_cycle) projectContext.setActiveCycleId(loaded.active_cycle.cycle_id)
@@ -373,5 +402,6 @@ onMounted(async () => {
 .state-message.error-state { color: #d14343; }
 .state-message button { justify-self: center; padding: 6px 18px; border: 0; border-radius: 6px; background: var(--color-primary, #3370ff); color: #fff; cursor: pointer; }
 .panel-hint { margin: 4px 0 0; color: #8f959e; font-size: 13px; }
+.reviewee-add-trigger { margin-left: var(--spacing-3); min-width: 125px; }
 @media (max-width: 720px) { .project-management-page { display: block; overflow: visible; } }
 </style>

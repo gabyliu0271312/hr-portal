@@ -38,6 +38,7 @@
             <span v-if="option.subLabel" class="performance-flat-option-list__sub">{{ option.subLabel }}</span>
           </span>
           <svg v-if="optionStyle === 'checkmark' && selectedValues.includes(option.value)" class="performance-flat-option-list__checkmark" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <span v-if="option.disabled && option.disabledText" class="performance-flat-option-list__disabled-reason">{{ option.disabledText }}</span>
         </button>
         <div v-if="!filteredOptions(query).length" class="performance-flat-option-list__empty">{{ emptyText }}</div>
       </div>
@@ -60,6 +61,8 @@ export type PerformanceSearchSelectOption = PerformanceSelectItem & {
   subLabel?: string
   /** 附加选项 class（如高亮关键词） */
   optionClass?: string
+  /** 禁用条目右侧展示原因（REA 员工搜索项「已在项目中」） */
+  disabledText?: string
 }
 type SelectValue = string | string[] | null
 
@@ -142,6 +145,7 @@ function select(value: string, close: () => void, focus: () => void) {
 .performance-flat-option-list__name.has-sub { line-height: var(--performance-scope-search-name-line-height, 22px); }
 .performance-flat-option-list__sub { overflow: hidden; color: var(--performance-scope-search-dept-color, #8f959e); font-size: var(--font-size-xs); line-height: var(--performance-scope-search-dept-line-height, 22px); text-overflow: ellipsis; white-space: nowrap; }
 .performance-flat-option-list__checkmark { flex: 0 0 var(--performance-select-check-size); width: var(--performance-select-check-size); height: var(--performance-select-check-size); margin-left: auto; color: var(--performance-select-check-color); }
+.performance-flat-option-list__disabled-reason { flex: none; margin-left: auto; color: var(--performance-scope-search-dept-color, #8f959e); font-size: var(--font-size-md); line-height: 22px; white-space: nowrap; }
 .performance-flat-option-list__empty { padding: var(--spacing-2) var(--performance-select-option-padding-x); color: var(--color-text-placeholder); line-height: 22px; }
 .performance-flat-option-list--detailed { flex: 0 1 auto; padding-block: var(--performance-select-option-margin-block); }
 .performance-flat-option-list--detailed .performance-flat-option-list__option { box-sizing: border-box; width: calc(100% - var(--performance-select-option-margin-inline) * 2); min-height: var(--performance-select-option-detailed-height); margin: var(--performance-select-option-margin-block) var(--performance-select-option-margin-inline); padding: var(--performance-select-option-padding-block) var(--performance-select-option-detailed-padding-inline); border-radius: var(--radius-sm); }

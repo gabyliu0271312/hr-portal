@@ -15,18 +15,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
-from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
+from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope, CalibrationConflict
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
 from app.integrations.feishu.notification_service import send_notification
 from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
 from app.users.models import User
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
-from app.data.employee_roster_contract import format_job_sequence, organization_leaf
-from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
+from app.data.employee_roster_contract import ORGANIZATION_FIELDS, format_job_sequence, organization_leaf, organization_path
+from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time, _resolve_node_handlers
 from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
 from app.performance.task_authorization_service import effective_handlers, task_handler_condition
 
@@ -4148,4 +4148,302 @@ async def delete_project(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     await PerformanceProjectService(db).delete_project(
         project, actor_type=context.subject_type, actor_id=context.subject_id
+    )
+
+
+class RevieweeSearchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keyword: str = Field(default="", max_length=128)
+
+
+class RevieweeSearchOption(BaseModel):
+    value: str
+    label: str
+    sub_label: str | None = None
+    department: str | None = None
+    is_permitted: bool = True
+    reason: str | None = None
+
+
+class RevieweeSearchResult(BaseModel):
+    items: list[RevieweeSearchOption]
+
+
+class RevieweeAddPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    employee_no: str = Field(min_length=1, max_length=64)
+    visible_add_okr_notice: bool = False
+
+
+class RevieweeConflictStage(BaseModel):
+    stage_key: str
+    stage_label: str
+
+
+class RevieweeConflictResult(BaseModel):
+    employee_no: str
+    conflicts: list[RevieweeConflictStage]
+    okr_requires_notice: bool = False
+
+
+async def _project_started(db: AsyncSession, project_id: int) -> PerformanceProject:
+    project = await _get_project(db, project_id)
+    if project.status != PROJECT_STATUS_STARTED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PROJECT_NOT_STARTED")
+    return project
+
+
+@router.get("/projects/{project_id}/reviewees/search", response_model=RevieweeSearchResult)
+async def search_project_reviewees(
+    project_id: int,
+    keyword: str = Query(default="", max_length=128),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    project = await _project_started(db, project_id)
+    if not _can_manage_project(context, project):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    try:
+        snapshot, people = await PerformanceProjectService(db)._cycle_snapshot_people(cycle)
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_SNAPSHOT_NOT_LOCKED")
+    member_snapshot_id = _latest_member_snapshot_statement(project_id)
+    current_members = set((await db.execute(select(PerformanceProjectMember.employee_no).where(
+        PerformanceProjectMember.snapshot_id == member_snapshot_id,
+    ))).scalars().all())
+    occupied = set((await db.execute(
+        select(PerformanceProjectMember.employee_no)
+        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+        .where(
+            PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+            PerformanceProjectMemberSnapshot.project_id != project_id,
+            PerformanceProjectMember.employee_no.not_in(current_members) if current_members else True,
+        )
+    )).scalars().all())
+    items = []
+    keyword_cf = keyword.strip().casefold()
+    for person in people:
+        searchable = " ".join(value for value in (person.display_name, person.employee_no, person.department, person.organization_ref) if value).casefold()
+        if keyword_cf and keyword_cf not in searchable:
+            continue
+        if person.employee_no in current_members:
+            items.append(RevieweeSearchOption(
+                value=person.employee_no, label=person.display_name,
+                sub_label=" · ".join(value for value in (person.employee_no, person.organization_ref or person.department) if value),
+                department=person.organization_ref or person.department,
+                is_permitted=False, reason="已在项目中",
+            ))
+            continue
+        items.append(RevieweeSearchOption(
+            value=person.employee_no, label=person.display_name,
+            sub_label=" · ".join(value for value in (person.employee_no, person.organization_ref or person.department) if value),
+            department=person.organization_ref or person.department,
+            is_permitted=person.employee_no not in occupied,
+            reason="已在其他项目中" if person.employee_no in occupied else None,
+        ))
+    items.sort(key=lambda item: (item.label, item.value))
+    return RevieweeSearchResult(items=items[:50])
+
+
+@router.post("/projects/{project_id}/reviewees/conflict-check", response_model=RevieweeConflictResult)
+async def check_project_reviewee_conflict(
+    project_id: int,
+    payload: RevieweeAddPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    project = await _project_started(db, project_id)
+    if not _can_manage_project(context, project):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    member_snapshot_id = _latest_member_snapshot_statement(project_id)
+    already = await db.scalar(select(PerformanceProjectMember.id).where(
+        PerformanceProjectMember.snapshot_id == member_snapshot_id,
+        PerformanceProjectMember.employee_no == payload.employee_no,
+    ))
+    conflicts: list[RevieweeConflictStage] = []
+    if already is not None:
+        conflicts.append(RevieweeConflictStage(stage_key="member", stage_label="已在当前项目中"))
+    owned_elsewhere = await db.scalar(
+        select(PerformanceProjectMember.employee_no)
+        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+        .where(
+            PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+            PerformanceProjectMemberSnapshot.project_id != project_id,
+            PerformanceProjectMember.employee_no == payload.employee_no,
+        ).limit(1)
+    )
+    if owned_elsewhere is not None:
+        conflicts.append(RevieweeConflictStage(stage_key="other_project", stage_label="已参加本周期其他项目"))
+    return RevieweeConflictResult(employee_no=payload.employee_no, conflicts=conflicts)
+
+
+@router.post("/projects/{project_id}/reviewees", response_model=RevieweeSearchOption, status_code=status.HTTP_201_CREATED)
+async def add_project_reviewee(
+    project_id: int,
+    payload: RevieweeAddPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    """等价飞书 root/add_v2：添加被评估人 = 一次写入最新成员快照 + 为新成员构建全部已配置节点任务。
+
+    快照模型：本接口不新建快照版本，向最新成员快照追加成员、为新成员按节点快照建任务树。
+    成员列表 / 总览完成率 / 矩阵 / 统计报表均查同一快照，落库即全链路一致，无需分别刷新。
+    """
+    project = await _project_started(db, project_id)
+    if not _can_manage_project(context, project):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    try:
+        snapshot, people = await PerformanceProjectService(db)._cycle_snapshot_people(cycle)
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_SNAPSHOT_NOT_LOCKED")
+    person = next((item for item in people if item.employee_no == payload.employee_no), None)
+    if person is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="被评估人不在当前周期人员快照中")
+    member_snapshot = await db.scalar(select(PerformanceProjectMemberSnapshot).where(
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1).with_for_update())
+    if member_snapshot is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="项目成员快照不存在")
+    existing = await db.scalar(select(PerformanceProjectMember.id).where(
+        PerformanceProjectMember.snapshot_id == member_snapshot.id,
+        PerformanceProjectMember.employee_no == payload.employee_no,
+    ))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="被评估人已在项目中")
+    owned_elsewhere = await db.scalar(
+        select(PerformanceProjectMember.employee_no)
+        .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+        .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
+        .where(
+            PerformanceProject.cycle_ref == project.cycle_ref,
+            PerformanceProject.id != project.id,
+            PerformanceProject.status == PROJECT_STATUS_STARTED,
+            PerformanceProjectMember.employee_no == payload.employee_no,
+        ).limit(1)
+    )
+    if owned_elsewhere is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"被评估人 {owned_elsewhere} 已参加本周期其他项目")
+    project_manager_rows = (await db.execute(select(PerformanceCycleProjectManager).where(
+        PerformanceCycleProjectManager.cycle_ref == project.cycle_ref,
+    ))).scalars().all()
+    project_managers = {row.target_employee_no: row.manager_employee_no for row in project_manager_rows}
+    member = PerformanceProjectMember(
+        snapshot_id=member_snapshot.id,
+        employee_no=person.employee_no,
+        portal_user_id=person.portal_user_id,
+        display_name=person.display_name,
+        **{field: getattr(person, field) for field in ORGANIZATION_FIELDS},
+        organization_ref=organization_path(person),
+        direct_supervisor_employee_no=person.direct_supervisor_employee_no,
+        project_manager_employee_no=project_managers.get(person.employee_no),
+        hrbp_employee_no=person.hrbp_employee_no,
+        employee_type=person.employee_type,
+        employment_status=person.employment_status,
+        job_family=person.job_family,
+        job_category=person.job_category,
+        standard_position=person.standard_position,
+        position_level=person.position_level,
+        hire_date=person.hire_date,
+    )
+    db.add(member)
+    people_by_employee = {item.employee_no: item for item in people}
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceProjectNodeSnapshot.id))).scalars().all())
+    flow_settings = (project.settings or {}).get("flow_settings") or {}
+    node_times = flow_settings.get("node_times") or {}
+    for node in nodes:
+        if node.node_type == "result_view" or node.node_type == "result_reconsideration":
+            continue
+        timing = node_times.get(node.node_id) or {}
+        if node.node_type == "calibration":
+            calibration = (node.config or {}).get("calibration") or {}
+            for phase in calibration.get("phases") or []:
+                window = (timing.get("phase_times") or {}).get(phase["phase_id"]) or {}
+                assignments = phase.get("assignments") or []
+                matched = [assignment for assignment in assignments if assignment.get("employee_no") == payload.employee_no]
+                if matched:
+                    db.add(PerformanceNodeTask(
+                        project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id,
+                        node_snapshot_id=node.id, target_employee_no=payload.employee_no,
+                        handler_ref=matched[0]["handler_ref"], task_kind="calibration",
+                        phase_id=phase["phase_id"],
+                        available_at=_parse_time(window.get("start_at")), due_at=_parse_time(window.get("end_at")),
+                        status="pending",
+                    ))
+            continue
+        raw_node = (node.config or {}).get("template") or {}
+        handlers = _resolve_node_handlers(raw_node, person, people_by_employee)
+        if node_role_code(raw_node) == ROLE_PROJECT_MANAGER and project_managers.get(person.employee_no):
+            handlers.add(project_managers[person.employee_no])
+        for handler in sorted(handlers):
+            db.add(PerformanceNodeTask(
+                project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id,
+                node_snapshot_id=node.id, target_employee_no=payload.employee_no,
+                handler_ref=str(handler), task_kind=node.node_type,
+                available_at=_parse_time(timing.get("start_at")),
+                due_at=_parse_time(timing.get("end_at") or timing.get("appeal_deadline")),
+                status="pending",
+            ))
+        # 360° 评估 invite_review：与 start_project 的 DIRECT_SUBORDINATES 默认邀请分支一致，
+        # 新加入成员同样为其直属下属生成邀请任务
+        if node.node_type == "evaluation" and node_role_code(raw_node) == ROLE_REVIEWER_360:
+            invite = (((flow_settings.get("node_settings") or {}).get(node.node_id) or {}).get("invite") or {})
+            if invite.get("default_invite", "DIRECT_SUBORDINATES") == "DIRECT_SUBORDINATES":
+                available_at = _parse_time(timing.get("start_at"))
+                due_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
+                for reviewer in people:
+                    reviewer_status = getattr(reviewer, "live_employment_status", None) or reviewer.employment_status
+                    if reviewer.direct_supervisor_employee_no != payload.employee_no or reviewer_status == "离职":
+                        continue
+                    db.add(PerformanceNodeTask(
+                        project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id,
+                        node_snapshot_id=node.id, target_employee_no=payload.employee_no,
+                        handler_ref=reviewer.employee_no, task_kind="evaluation",
+                        phase_id="",
+                        available_at=available_at, due_at=due_at,
+                        status="pending",
+                    ))
+                    PerformanceAuditService(db).append_event(AuditEventInput(
+                        event_type="REVIEWER_360_INVITED",
+                        cycle_ref=project.cycle_ref,
+                        employee_no=payload.employee_no,
+                        actor_type="SYSTEM",
+                        actor_ref="0",
+                        subject_type="REVIEWER_360",
+                        subject_ref=reviewer.employee_no,
+                        after_state={
+                            "project_id": project.id,
+                            "node_id": node.node_id,
+                            "source_type": "DEFAULT",
+                            "assigned_by_type": None,
+                            "assigned_by_ref": None,
+                        },
+                    ))
+    project.evaluated_count += 1
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PROJECT_REVIEWEE_ADDED", cycle_ref=project.cycle_ref, employee_no=payload.employee_no,
+        actor_type=context.subject_type, actor_ref=str(context.subject_id),
+        subject_type="PERFORMANCE_PROJECT", subject_ref=project.project_ref,
+        after_state={"project_id": project.id, "member_snapshot_id": member_snapshot.id, "visible_add_okr_notice": payload.visible_add_okr_notice},
+    ))
+    await db.commit()
+    return RevieweeSearchOption(
+        value=person.employee_no, label=person.display_name,
+        sub_label=" · ".join(value for value in (person.employee_no, person.organization_ref or person.department) if value),
+        department=person.organization_ref or person.department,
+        is_permitted=True, reason=None,
     )
