@@ -17,6 +17,9 @@ import PerformanceSwitchSettingRow from '@/components/performance/PerformanceSwi
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import PerformanceTimeField from '@/components/performance/PerformanceTimeField.vue'
 import PerformanceCheckbox from '@/components/performance/PerformanceCheckbox.vue'
+import UiTagColorField from '@/components/ui/UiTagColorField.vue'
+import UiOptionDetail from '@/components/ui/UiOptionDetail.vue'
+import { PERFORMANCE_GROUP_TAG_COLORS } from '@/components/performance/performanceColorOptions'
 import FocusPeopleGroupProjectCreate from './FocusPeopleGroupProjectCreate.vue'
 
 const route = useRoute()
@@ -25,6 +28,18 @@ const isProjectTab = computed(() => route.query.tab === 'project')
 const cycleId = computed(() => {
   const value = Number(route.params.cycleId)
   return Number.isInteger(value) && value > 0 ? value : null
+})
+const groupId = computed(() => Number(route.params.groupId) || null)
+const isEditing = computed(() => groupId.value !== null)
+const detailLoaded = ref(false)
+const detailError = ref('')
+const employeeNos = ref<string[]>([])
+const tagColor = ref(PERFORMANCE_GROUP_TAG_COLORS[0].value)
+const textColor = ref(PERFORMANCE_GROUP_TAG_COLORS[0].foreground!)
+const bgColor = ref(PERFORMANCE_GROUP_TAG_COLORS[0].background!)
+watch(tagColor, value => {
+  const color = PERFORMANCE_GROUP_TAG_COLORS.find(option => option.value === value)
+  if (color) { textColor.value = color.foreground!; bgColor.value = color.background! }
 })
 const nameZh = ref('')
 const nameEn = ref('')
@@ -141,6 +156,39 @@ async function loadOptions() {
   }
 }
 
+async function loadDetail() {
+  if (!cycleId.value || !groupId.value || isProjectTab.value) return
+  try {
+    const group = await performanceFocusGroupApi.get(cycleId.value, groupId.value)
+    nameZh.value = group.name
+    nameEn.value = group.en_name
+    nameHasEnglish.value = Boolean(group.en_name)
+    descriptionZh.value = group.description['zh-CN'] || ''
+    descriptionEn.value = group.description['en-US'] || ''
+    descriptionHasEnglish.value = Boolean(descriptionEn.value)
+    followeeIds.value = group.followee_user_ids
+    followeeOptions.value = group.followee_user_ids.map(value => ({ value, label: value }))
+    viewPermission.value = String(group.view_permission)
+    scopeSettingMode.value = String(group.scope_setting_mode)
+    showGroupTag.value = group.show_group_tag
+    tagColor.value = group.tag_color || PERFORMANCE_GROUP_TAG_COLORS[0].value
+    await Promise.resolve()
+    textColor.value = group.text_color || PERFORMANCE_GROUP_TAG_COLORS[0].foreground!
+    bgColor.value = group.bg_color || PERFORMANCE_GROUP_TAG_COLORS[0].background!
+    communicateTime.value = group.is_communicate_time
+    ;[startDate.value, startClock.value] = (group.start_time || '').split('T')
+    ;[endDate.value, endClock.value] = (group.end_time || '').split('T')
+    employeeNos.value = group.employee_nos
+    for (const role of Object.keys(roles.value) as Array<keyof typeof roles.value>) roles.value[role] = group.roles_of_managing_scope.includes(role)
+    const fields: Record<string, string> = { employeeType: 'employee_type', category: 'job_family', level: 'position_level', sequenceLevel: 'job_category', joinDate: 'hire_date', dimissionTime: 'departure_date', dimissionStatus: 'employment_status' }
+    const operators: Record<string, string> = { eq: 'include', neq: 'exclude', lt: 'before', ge: 'not_before', gt: 'after', le: 'not_after' }
+    if (group.scope?.length) scopeGroups.value = group.scope.map(conditions => ({ conditions: conditions.map(condition => ({ field: fields[String(condition.key)] || String(condition.key), operator: operators[String(condition.condition)] || String(condition.condition), values: (condition.value || []) as string[] })) })) as PerformanceAudienceGroup[]
+    detailLoaded.value = true
+  } catch (error: any) {
+    detailError.value = error?.response?.data?.detail || '人员组加载失败，请返回重试'
+  }
+}
+
 async function refreshScopeCount() {
   const version = ++requestVersion
   if (!cycleId.value || scopeMode.value !== 0 || !hasCompleteScopeRule()) {
@@ -161,8 +209,9 @@ async function refreshScopeCount() {
       try {
         const result = await performanceFocusGroupApi.resolveScope(cycleId.value!, payload, created.task_id!)
         if (version !== requestVersion) return
-        if (result.selected_count !== undefined || result.selected !== undefined || result.scopes !== undefined) {
-          const selected = result.selected ?? result.scopes?.[0]?.selected ?? null
+        if (result.status === 3 || result.status === 4) throw new Error('人员范围统计失败，请重试')
+        const selected = result.selected ?? result.scopes?.[0]?.selected
+        if (result.selected_count != null || selected != null) {
           scopeCount.value = result.selected_count ?? selected?.length ?? 0
           scopeLoading.value = false
           return
@@ -196,7 +245,7 @@ watch(scopeSettingMode, () => {
 })
 
 async function submit() {
-  if (!cycleId.value || saving.value) return
+  if (!cycleId.value || saving.value || (isEditing.value && !detailLoaded.value)) return
   if (!nameZh.value.trim()) {
     ElMessage.warning('请填写人员组名称')
     return
@@ -207,7 +256,10 @@ async function submit() {
   }
   saving.value = true
   try {
-    await performanceFocusGroupApi.create(cycleId.value, {
+    const save = isEditing.value
+      ? (payload: Parameters<typeof performanceFocusGroupApi.create>[1]) => performanceFocusGroupApi.update(cycleId.value!, groupId.value!, payload)
+      : (payload: Parameters<typeof performanceFocusGroupApi.create>[1]) => performanceFocusGroupApi.create(cycleId.value!, payload)
+    await save({
       name: nameZh.value.trim(),
       en_name: nameEn.value.trim(),
       tab: 'semester',
@@ -217,14 +269,17 @@ async function submit() {
       scope_setting_mode: scopeMode.value,
       scope: scopeMode.value === 0 ? toFeishuScopes() : null,
       show_group_tag: showGroupTag.value,
+      tag_color: tagColor.value,
+      text_color: textColor.value,
+      bg_color: bgColor.value,
       is_communicate_time: communicateTime.value,
       start_time: communicateTime.value ? startTime.value : null,
       end_time: communicateTime.value ? endTime.value : null,
-      employee_nos: [],
+      employee_nos: employeeNos.value,
       scope_mode: scopeMode.value === 0 ? 'rule' : scopeMode.value === 1 ? 'manual' : 'api',
       roles_of_managing_scope: scopeMode.value === 1 ? Object.entries(roles.value).filter(([, checked]) => checked).map(([role]) => role) : [],
     })
-    ElMessage.success('人员组已创建')
+    ElMessage.success(isEditing.value ? '人员组已保存' : '人员组已创建')
     void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.detail || '创建失败，请稍后重试')
@@ -237,7 +292,7 @@ function goBack() {
   void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
 }
 
-onMounted(() => { void loadOptions() })
+onMounted(() => { if (!isProjectTab.value) { void loadOptions(); void loadDetail() } })
 onBeforeUnmount(() => {
   requestVersion += 1
   peopleSearchVersion += 1
@@ -249,8 +304,9 @@ onBeforeUnmount(() => {
 
 <template>
   <FocusPeopleGroupProjectCreate v-if="isProjectTab" />
-  <UiFullScreenModal v-else title="新建人员组" :submitting="saving" @submit="submit" @cancel="goBack" @back="goBack">
+  <UiFullScreenModal v-else :title="isEditing ? '编辑人员组' : '新建人员组'" :submitting="saving" @submit="submit" @cancel="goBack" @back="goBack">
     <div class="focus-group-create-page">
+      <p v-if="detailError" role="alert">{{ detailError }}</p>
       <PerformanceSurfaceCard title="基本信息" class="focus-group-create-card">
         <PerformanceLocalizedInput v-model="nameZh" label="人员组名称" input-id="focus-group-name-zh" placeholder="请输入中文名称" required @add-language="nameHasEnglish = true" />
         <PerformanceLocalizedInput v-if="nameHasEnglish" v-model="nameEn" label="英文名称" input-id="focus-group-name-en" placeholder="请输入英文名称" />
@@ -265,15 +321,25 @@ onBeforeUnmount(() => {
         <div class="focus-group-create-tag-setting">
           <PerformanceSwitchSettingRow v-model="showGroupTag" label="展示该人员组标签" />
           <p class="focus-group-create-desc">开启后，可见人员组的用户可在人员组成员的「绩效详情页」和「成员列表」查看人员组标签。</p>
+          <UiTagColorField v-if="showGroupTag" v-model="tagColor" :text-color="textColor" :bg-color="bgColor" />
         </div>
       </PerformanceSurfaceCard>
 
       <PerformanceSurfaceCard title="人员范围" class="focus-group-create-card">
         <PerformanceFormItem label="设置方式" required>
-          <PerformanceRadioGroup v-model="scopeSettingMode" class="focus-group-create-mode-options" :options="scopeModeOptions" name="focus-group-scope-mode" direction="vertical" :gap="8" :style="{ gap: 'var(--spacing-2)' }" aria-label="人员范围设置方式">
+          <PerformanceRadioGroup v-model="scopeSettingMode" class="focus-group-create-mode-options" :options="scopeModeOptions" name="focus-group-scope-mode" :disabled="isEditing" direction="vertical" :gap="8" :style="{ gap: 'var(--spacing-2)' }" aria-label="人员范围设置方式">
             <template #label="{ option }">
               <span class="focus-group-create-mode-label">{{ option.label }}</span>
               <span class="focus-group-create-mode-description">{{ option.description }}</span>
+            </template>
+            <template #after-option="{ option }">
+              <UiOptionDetail v-if="option.value === '1' && scopeMode === 1">
+                <PerformanceFormItem label="前台可管理人员范围的角色">
+                  <PerformanceCheckbox v-model="roles.leader" label="实线上级" @update:model-value="setRole('leader', $event)" />
+                  <PerformanceCheckbox v-model="roles.hrbp" label="HRBP" @update:model-value="setRole('hrbp', $event)" />
+                  <PerformanceCheckbox v-model="roles.activity_manager" label="项目管理员" @update:model-value="setRole('activity_manager', $event)" />
+                </PerformanceFormItem>
+              </UiOptionDetail>
             </template>
           </PerformanceRadioGroup>
         </PerformanceFormItem>
@@ -294,17 +360,6 @@ onBeforeUnmount(() => {
               @search-people="searchPeople"
             />
             <p v-if="scopeError" class="focus-group-create-error" role="alert">{{ scopeError }}</p>
-          </PerformanceFormItem>
-        </template>
-        <template v-else-if="scopeMode === 1">
-          <p class="focus-group-create-desc">人员组创建后，可在后续页面手动维护人员范围，人员范围不支持动态更新。</p>
-          <PerformanceFormItem label="前台可管理人员范围的角色">
-            <template #description>若勾选下述角色，则授权该角色可在前台管理该人员组人员范围。</template>
-            <div class="focus-group-create-roles">
-              <PerformanceCheckbox v-model="roles.leader" label="关联评估项目的被评估人的实线上级" @update:model-value="setRole('leader', $event)" />
-              <PerformanceCheckbox v-model="roles.hrbp" label="关联评估项目的被评估人的 HRBP" @update:model-value="setRole('hrbp', $event)" />
-              <PerformanceCheckbox v-model="roles.activity_manager" label="关联评估项目的项目管理员" @update:model-value="setRole('activity_manager', $event)" />
-            </div>
           </PerformanceFormItem>
         </template>
         <template v-else>

@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FocusPeopleGroupCreate from './FocusPeopleGroupCreate.vue'
 import { performanceFocusGroupApi } from '@/api/performance'
 
+const routeState = vi.hoisted(() => ({ params: { cycleId: '1', groupId: '' }, query: {} }))
 vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn() } }))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { cycleId: '1' }, query: {} }),
+  useRoute: () => routeState,
   useRouter: () => ({ push: vi.fn() }),
 }))
 vi.mock('@/api/performance', () => ({
-  performanceFocusGroupApi: { create: vi.fn(), options: vi.fn(), searchPeople: vi.fn(), resolveScope: vi.fn() },
+  performanceFocusGroupApi: { get: vi.fn(), update: vi.fn(), create: vi.fn(), options: vi.fn(), searchPeople: vi.fn(), resolveScope: vi.fn() },
 }))
 
 const uiButtonStub = {
@@ -46,7 +47,7 @@ const radioGroupStub = {
   name: 'PerformanceRadioGroup',
   props: ['modelValue', 'options', 'name'],
   emits: ['update:modelValue'],
-  template: '<div class="radio-group" :data-name="name"><button v-for="option in options" :key="option.value" :data-value="option.value" @click="$emit(\'update:modelValue\', option.value)">{{ option.label }}</button></div>',
+  template: '<div class="radio-group" :data-name="name"><template v-for="option in options" :key="option.value"><button :data-value="option.value" @click="$emit(\'update:modelValue\', option.value)">{{ option.label }}</button><slot name="after-option" :option="option" /></template></div>',
 }
 const audienceRuleStub = {
   name: 'PerformanceAudienceRuleEditor',
@@ -93,6 +94,8 @@ function mountPage() {
         PerformanceSwitchSettingRow: switchStub,
         PerformanceCheckbox: checkboxStub,
         PerformanceDateTimeField: dateFieldStub,
+        UiOptionDetail: { template: '<div class="option-detail"><slot /></div>' },
+        UiTagColorField: { props: ['modelValue', 'textColor', 'bgColor'], emits: ['update:modelValue'], template: '<div class="tag-color-field" />' },
         PerformanceTimeField: timeFieldStub,
       },
     },
@@ -111,6 +114,7 @@ const evaluatorOptions = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.useRealTimers()
+  routeState.params.groupId = ''
   vi.mocked(performanceFocusGroupApi.options).mockResolvedValue(evaluatorOptions as any)
   vi.mocked(performanceFocusGroupApi.searchPeople).mockResolvedValue([])
   vi.mocked(performanceFocusGroupApi.create).mockResolvedValue({ id: 1 } as any)
@@ -163,9 +167,9 @@ describe('FocusPeopleGroupCreate', () => {
     wrapper.findAllComponents({ name: 'PerformanceRadioGroup' })[1].vm.$emit('update:modelValue', '1')
     await flushPromises()
     expect(wrapper.findAll('.checkbox-stub').map(item => item.text())).toEqual([
-      '关联评估项目的被评估人的实线上级',
-      '关联评估项目的被评估人的 HRBP',
-      '关联评估项目的项目管理员',
+      '实线上级',
+      'HRBP',
+      '项目管理员',
     ])
     expect(wrapper.text()).not.toContain('仅组内成员的实线上级')
   })
@@ -195,6 +199,9 @@ describe('FocusPeopleGroupCreate', () => {
         key: 'department', condition: 'eq', value: ['D1'], id: '1', fe_extra: '', __id__: 'condition_1',
       }]],
       show_group_tag: true,
+      tag_color: 'purple-option',
+      text_color: '#2f0080',
+      bg_color: 'rgba(141,85,237,0.2)',
       is_communicate_time: true,
       start_time: '2026-11-01T09:00',
       end_time: '2026-11-30T18:00',

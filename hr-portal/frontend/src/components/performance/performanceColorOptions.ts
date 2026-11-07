@@ -2,6 +2,8 @@ export interface PerformanceColorOption {
   value: string
   trigger: string
   foreground?: string
+  swatch?: string
+  background?: string
 }
 
 /* 档位色板：value = 配置里存的档位色，trigger = 结果态/选中态胶囊底色，foreground = 胶囊文字色。
@@ -19,6 +21,14 @@ export const PERFORMANCE_LEVEL_COLORS: PerformanceColorOption[] = [
   { value: 'rgb(239, 185, 239)', trigger: 'rgb(248, 221, 248)' },
   { value: 'rgb(249, 174, 217)', trigger: 'rgb(252, 217, 237)' },
   { value: 'rgb(210, 211, 212)', trigger: 'rgb(235, 236, 237)' },
+]
+
+export const PERFORMANCE_GROUP_TAG_COLORS: PerformanceColorOption[] = [
+  { value: 'purple-option', foreground: '#2f0080', background: 'rgba(141,85,237,0.2)', trigger: '#dcc9fd', swatch: '#dcc9fd' },
+  { value: 'indigo-option', foreground: '#151b70', background: 'rgba(91,101,245,0.2)', trigger: '#cccff9', swatch: '#cccff9' },
+  { value: 'lime-option', foreground: '#262e00', background: 'rgba(145,173,0,0.2)', trigger: '#e3f0a3', swatch: '#e3f0a3' },
+  { value: 'wathet-option', foreground: '#072b3d', background: 'rgba(62,195,247,0.2)', trigger: '#caeffc', swatch: '#caeffc' },
+  { value: 'turquoise-option', foreground: '#02312A', background: 'rgba(51,214,192,0.2)', trigger: '#c4f2ec', swatch: '#c4f2ec' },
 ]
 
 export function performanceLevelBackground(value: unknown): string {

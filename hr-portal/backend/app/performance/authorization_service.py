@@ -268,6 +268,109 @@ class PerformanceObjectAuthorizationService:
         self.db = db
         self.snapshot_service = PerformanceAuthorizationSnapshotService(db)
 
+    async def resolve_focus_group_member_scope(self, context, *, cycle_ref, group):
+        from app.performance.assessment_roles import ROLE_LINE_MANAGER
+        from app.performance.auth_context import PerformanceIdentityMappingNotFound
+        from app.performance.hrbp_scope_service import global_hrbp_invisible_people
+        from app.performance.models import (
+            PerformanceRole, PerformanceHrbpPermission, PerformanceProjectMember,
+            PerformanceProjectMemberSnapshot, DYNAMIC_ASSIGNMENT_TARGET_TYPE_PROJECT,
+        )
+        from app.performance.seed import PERFORMANCE_HRBP_ROLE_CODE, PERFORMANCE_PROJECT_ADMIN_ROLE_CODE
+
+        if group.cycle_ref != cycle_ref or group.scope_setting_mode != 1:
+            raise PerformanceObjectAuthorizationDenied("该人员组不允许手动维护成员")
+        try:
+            actor = await resolve_trusted_performance_actor(
+                self.db, context, cycle_ref=cycle_ref, require_employee_identity=True,
+            )
+        except PerformanceIdentityMappingNotFound as exc:
+            raise PerformanceObjectAuthorizationDenied(str(exc)) from exc
+        if actor.actor_type != "EMPLOYEE":
+            raise PerformanceObjectAuthorizationDenied("必须使用可信员工身份")
+        snapshot = await self.db.scalar(select(PerformanceAuthorizationSnapshot).where(
+            PerformanceAuthorizationSnapshot.cycle_ref == cycle_ref,
+        ))
+        if snapshot is None or snapshot.status != AUTHORIZATION_SNAPSHOT_STATUS_LOCKED:
+            raise PerformanceObjectAuthorizationDenied("周期授权快照尚未锁定")
+        people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id,
+        ))).scalars().all())
+        if not any(person.employee_no == actor.actor_ref for person in people):
+            raise PerformanceObjectAuthorizationDenied("当前员工不在周期快照中")
+        roles = list((await self.db.execute(select(PerformanceRole).where(
+            PerformanceRole.is_active.is_(True), PerformanceRole.is_system.is_(True),
+        ))).scalars().all())
+        enabled = {role.code for role in roles if role.is_active and role.is_system and (
+            role.role_type == "ASSESSMENT" if role.code == ROLE_LINE_MANAGER else role.role_type == "MANAGEMENT"
+        )}
+        selected = set(group.roles_of_managing_scope or [])
+        scope = set()
+        if "leader" in selected and ROLE_LINE_MANAGER in enabled:
+            resolved = await self.snapshot_service.resolve_scopes(
+                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+                identity_type=DYNAMIC_IDENTITY_TYPE_DIRECT_MANAGER,
+            )
+            # A manually assigned DIRECT_MANAGER cannot replace the frozen reporting relationship.
+            direct = {person.employee_no for person in people if person.direct_supervisor_employee_no == actor.actor_ref}
+            scope |= {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE} & direct
+        if "hrbp" in selected and PERFORMANCE_HRBP_ROLE_CODE in enabled:
+            resolved = await self.snapshot_service.resolve_scopes(
+                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+                identity_type=DYNAMIC_IDENTITY_TYPE_HRBP,
+            )
+            hrbp_scope = {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE}
+            permission = await self.db.scalar(select(PerformanceHrbpPermission).where(
+                PerformanceHrbpPermission.cycle_ref == cycle_ref,
+                PerformanceHrbpPermission.hrbp_employee_no == actor.actor_ref,
+            ))
+            organizations = list(permission.scope or []) if permission else []
+            hrbp_scope |= {person.employee_no for person in people if any(
+                person.organization_ref == org or str(person.organization_ref or "").startswith(f"{org}/")
+                for org in organizations
+            )}
+            hidden = set(permission.invisible_people or []) if permission else set()
+            hidden |= await global_hrbp_invisible_people(self.db, scopes=organizations)
+            scope |= hrbp_scope - hidden
+        projects = []
+        if group.tab == "project" or ("activity_manager" in selected and PERFORMANCE_PROJECT_ADMIN_ROLE_CODE in enabled):
+            projects = list((await self.db.execute(select(PerformanceProject).where(
+                PerformanceProject.cycle_ref == cycle_ref,
+            ))).scalars().all())
+        bound = set(str(value) for value in (group.activity_ids or []))
+        if group.project_ref:
+            bound.add(str(group.project_ref))
+        if group.tab == "project":
+            projects = [project for project in projects if str(project.id) in bound or project.project_ref in bound]
+        project_members = {}
+        for project in projects:
+            member_snapshot = await self.db.scalar(select(PerformanceProjectMemberSnapshot).where(
+                PerformanceProjectMemberSnapshot.project_id == project.id,
+                PerformanceProjectMemberSnapshot.cycle_ref == cycle_ref,
+            ).order_by(PerformanceProjectMemberSnapshot.snapshot_version.desc()).limit(1))
+            project_members[project.id] = set((await self.db.execute(select(PerformanceProjectMember.employee_no).where(
+                PerformanceProjectMember.snapshot_id == member_snapshot.id,
+            ))).scalars().all()) if member_snapshot else set()
+        if "activity_manager" in selected and PERFORMANCE_PROJECT_ADMIN_ROLE_CODE in enabled:
+            resolved = await self.snapshot_service.resolve_scopes(
+                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+                identity_type=DYNAMIC_IDENTITY_TYPE_PROJECT_ADMIN,
+            )
+            assigned = {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_PROJECT}
+            own = next(person for person in people if person.employee_no == actor.actor_ref)
+            unique_name = sum(person.display_name == own.display_name for person in people) == 1
+            for project in projects:
+                if str(project.id) in assigned or project.project_ref in assigned or (
+                    unique_name and own.display_name in (project.administrators or [])
+                ):
+                    scope |= project_members[project.id]
+        if group.tab == "project":
+            scope &= set().union(*project_members.values()) if project_members else set()
+        scope &= {person.employee_no for person in people}
+        if not scope:
+            raise PerformanceObjectAuthorizationDenied("无权维护该人员组成员")
+        return actor, [person for person in people if person.employee_no in scope]
+
     async def authorize(self, request: ObjectAuthorizationRequest) -> None:
         snapshot = (
             await self.db.execute(

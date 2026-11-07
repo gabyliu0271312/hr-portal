@@ -509,6 +509,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '新建人员组' },
       },
       {
+        path: 'cycles/:cycleId/focus-people/:groupId/edit',
+        name: 'PerformanceCycleFocusPeopleEdit',
+        component: () => import('@/views/performance/FocusPeopleGroupCreate.vue'),
+        meta: { label: '编辑人员组' },
+      },
+      {
         path: 'templates',
         name: 'PerformanceTemplates',
         component: () => import('@/views/performance/PerformanceTemplateManagement.vue'),

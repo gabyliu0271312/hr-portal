@@ -18,6 +18,10 @@ const cycleId = computed(() => {
   const value = Number(route.params.cycleId)
   return Number.isInteger(value) && value > 0 ? value : null
 })
+const groupId = computed(() => Number(route.params.groupId) || null)
+const detailLoaded = ref(false)
+const employeeNos = ref<string[]>([])
+const detailError = ref('')
 const nameZh = ref('')
 const nameEn = ref('')
 const descriptionZh = ref('')
@@ -52,8 +56,27 @@ async function loadProjects() {
   }
 }
 
+async function loadDetail() {
+  if (!cycleId.value || !groupId.value) return
+  try {
+    const group = await performanceFocusGroupApi.get(cycleId.value, groupId.value)
+    nameZh.value = group.name
+    nameEn.value = group.en_name
+    nameHasEnglish.value = Boolean(group.en_name)
+    descriptionZh.value = group.description['zh-CN'] || ''
+    descriptionEn.value = group.description['en-US'] || ''
+    descriptionHasEnglish.value = Boolean(descriptionEn.value)
+    projectIds.value = group.activity_ids
+    employeeNos.value = group.employee_nos
+    for (const role of Object.keys(roles.value) as Array<keyof typeof roles.value>) roles.value[role] = group.roles_of_managing_scope.includes(role)
+    detailLoaded.value = true
+  } catch (error: any) {
+    detailError.value = error?.response?.data?.detail || '人员组加载失败，请返回重试'
+  }
+}
+
 async function submit() {
-  if (!cycleId.value || saving.value) return
+  if (!cycleId.value || saving.value || (groupId.value && !detailLoaded.value)) return
   if (!nameZh.value.trim()) {
     ElMessage.warning('请填写人员组名称')
     return
@@ -64,12 +87,15 @@ async function submit() {
   }
   saving.value = true
   try {
-    await performanceFocusGroupApi.create(cycleId.value, {
+    const save = groupId.value
+      ? (payload: Parameters<typeof performanceFocusGroupApi.create>[1]) => performanceFocusGroupApi.update(cycleId.value!, groupId.value!, payload)
+      : (payload: Parameters<typeof performanceFocusGroupApi.create>[1]) => performanceFocusGroupApi.create(cycleId.value!, payload)
+    await save({
       name: nameZh.value.trim(),
       en_name: nameEn.value.trim(),
       tab: 'project',
       description: { 'zh-CN': descriptionZh.value.trim(), 'en-US': descriptionEn.value.trim() },
-      employee_nos: [],
+      employee_nos: employeeNos.value,
       scope_mode: 'manual',
       activity_ids: projectIds.value,
       roles_of_managing_scope: Object.entries(roles.value).filter(([, checked]) => checked).map(([role]) => role),
@@ -87,12 +113,13 @@ function goBack() {
   void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
 }
 
-onMounted(() => { void loadProjects() })
+onMounted(() => { void loadProjects(); void loadDetail() })
 </script>
 
 <template>
-  <UiFullScreenModal title="新建人员组" :submitting="saving" @submit="submit" @cancel="goBack" @back="goBack">
+  <UiFullScreenModal :title="groupId ? '编辑人员组' : '新建人员组'" :submitting="saving" @submit="submit" @cancel="goBack" @back="goBack">
     <div class="focus-group-project-page">
+      <p v-if="detailError" role="alert">{{ detailError }}</p>
       <PerformanceSurfaceCard title="基本信息" class="focus-group-project-card">
         <PerformanceLocalizedInput v-model="nameZh" label="人员组名称" input-id="focus-group-project-name-zh" placeholder="请输入中文名称" required @add-language="nameHasEnglish = true" />
         <PerformanceLocalizedInput v-if="nameHasEnglish" v-model="nameEn" label="英文名称" input-id="focus-group-project-name-en" placeholder="请输入英文名称" />

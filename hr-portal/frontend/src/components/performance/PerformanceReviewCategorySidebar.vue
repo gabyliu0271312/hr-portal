@@ -33,6 +33,7 @@
           </template>
         </el-dropdown>
       </div>
+      <slot name="cycle-actions" />
       <div v-if="!sidebarCollapsed" class="sidebar-divider" aria-hidden="true"></div>
 
       <div v-if="!props.categories.length && !loading" class="sidebar-empty" role="status">当前周期暂无可处理的绩效评估任务</div>

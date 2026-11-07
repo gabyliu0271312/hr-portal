@@ -75,6 +75,9 @@ class FocusGroupPayload(BaseModel):
     scope_setting_mode: int = Field(default=0, ge=0, le=2)
     scope: list[list[dict[str, object]]] | None = None
     show_group_tag: bool = False
+    tag_color: str = Field(default="purple-option", max_length=32)
+    text_color: str = Field(default="#2f0080", max_length=32)
+    bg_color: str = Field(default="rgba(141,85,237,0.2)", max_length=64)
     is_communicate_time: bool = False
     start_time: str | None = Field(default=None, max_length=32)
     end_time: str | None = Field(default=None, max_length=32)
@@ -138,6 +141,9 @@ class FocusGroupOut(BaseModel):
     scope_setting_mode: int
     scope: list[list[dict[str, object]]] | None
     show_group_tag: bool
+    tag_color: str
+    text_color: str
+    bg_color: str
     is_communicate_time: bool
     start_time: str | None
     end_time: str | None
@@ -527,6 +533,20 @@ async def list_focus_groups(
     return FocusGroupPage(total=total, items=[FocusGroupOut.model_validate(item) for item in items])
 
 
+@router.get("/{cycle_id}/focus-groups/{group_id}", response_model=FocusGroupOut)
+async def get_focus_group(
+    cycle_id: int,
+    group_id: int,
+    _: PerformanceAccessContext = Depends(require_performance_permission(FOCUS_GROUP_PERMISSION)),
+    db: AsyncSession = Depends(get_session),
+) -> FocusGroupOut:
+    cycle = await _require_cycle(db, cycle_id)
+    group = await db.get(PerformanceFocusGroup, group_id)
+    if group is None or group.cycle_ref != cycle.cycle_ref:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="人员组不存在")
+    return FocusGroupOut.model_validate(group)
+
+
 @router.post("/{cycle_id}/focus-groups", response_model=FocusGroupOut, status_code=status.HTTP_201_CREATED)
 async def create_focus_group(
     cycle_id: int,
@@ -558,6 +578,9 @@ async def create_focus_group(
         scope_setting_mode=payload.scope_setting_mode,
         scope=payload.scope,
         show_group_tag=payload.show_group_tag,
+        tag_color=payload.tag_color,
+        text_color=payload.text_color,
+        bg_color=payload.bg_color,
         is_communicate_time=payload.is_communicate_time,
         start_time=payload.start_time,
         end_time=payload.end_time,
@@ -596,10 +619,16 @@ async def update_focus_group(
     db: AsyncSession = Depends(get_session),
 ) -> FocusGroupOut:
     cycle = await _require_cycle(db, cycle_id)
-    employee_nos = await _resolved_employee_nos(db, cycle, payload)
     group = await db.get(PerformanceFocusGroup, group_id)
     if group is None or group.cycle_ref != cycle.cycle_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="人员组不存在")
+    if "scope_setting_mode" not in payload.model_fields_set:
+        payload.scope_setting_mode = group.scope_setting_mode
+    if payload.scope_setting_mode != group.scope_setting_mode or (
+        "scope_mode" in payload.model_fields_set and payload.scope_mode != group.scope_mode
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="人员组创建后不可修改人员范围设置方式")
+    employee_nos = await _resolved_employee_nos(db, cycle, payload)
     duplicate = await db.scalar(
         select(PerformanceFocusGroup).where(
             PerformanceFocusGroup.cycle_ref == cycle.cycle_ref,
@@ -620,11 +649,13 @@ async def update_focus_group(
     group.scope_setting_mode = payload.scope_setting_mode
     group.scope = payload.scope
     group.show_group_tag = payload.show_group_tag
+    for field in ("tag_color", "text_color", "bg_color"):
+        if field in payload.model_fields_set:
+            setattr(group, field, getattr(payload, field))
     group.is_communicate_time = payload.is_communicate_time
     group.start_time = payload.start_time
     group.end_time = payload.end_time
     group.employee_nos = employee_nos
-    group.scope_mode = payload.scope_mode
     group.project_ref = payload.project_ref
     group.activity_ids = payload.activity_ids
     group.roles_of_managing_scope = payload.roles_of_managing_scope

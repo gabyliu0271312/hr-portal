@@ -117,7 +117,7 @@ onBeforeUnmount(() => {
           role="option"
           :aria-label="`颜色 ${index + 1}`"
           :aria-selected="modelValue === option.value"
-          :style="{ backgroundColor: option.value }"
+          :style="{ backgroundColor: option.swatch || option.value }"
           @click="selectColor(option.value)"
         >
           <svg v-if="modelValue === option.value" width="12" height="12" viewBox="0 0 24 24" fill="none" data-icon="DoneOutlined" aria-hidden="true">
@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.performance-color-picker-trigger { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-top: 4px; padding: 0; border: 0; border-radius: 9999px; color: #2b2f36; cursor: pointer; }
+.performance-color-picker-trigger { display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-top: var(--color-picker-trigger-margin-top, 4px); padding: 0; border: 0; border-radius: 9999px; color: #2b2f36; cursor: pointer; }
 .performance-color-picker-trigger:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
 .performance-color-picker-popover { position: fixed; z-index: 1030; width: 189.333px; height: 77.333px; padding: 12px 16px; box-sizing: border-box; border: .666667px solid #dee0e3; border-radius: 8px; background: #fff; box-shadow: rgba(31, 35, 41, .04) 0 8px 24px 8px, rgba(31, 35, 41, .04) 0 6px 12px, rgba(31, 35, 41, .06) 0 4px 8px -8px; }
 .performance-color-picker-palette { display: grid; grid-template-columns: repeat(6, 18px); grid-template-rows: repeat(2, 18px); gap: 8px; width: 156px; height: 52px; padding: 4px; box-sizing: border-box; }

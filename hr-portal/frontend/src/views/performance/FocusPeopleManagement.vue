@@ -179,7 +179,10 @@ onMounted(async () => {
             class="focus-people-table"
           >
             <template #cell="{ row, column }">
-              <button v-if="column.key === 'action'" class="row-action" type="button" :disabled="loading" @click="openDelete(row as PerformanceFocusGroup)">删除</button>
+              <template v-if="column.key === 'action'">
+                <button class="row-action" type="button" :disabled="loading || !canCreate" @click="router.push({ name: 'PerformanceCycleFocusPeopleEdit', params: { cycleId: cycleId(), groupId: row.id }, query: { tab: activeTab } })">编辑</button>
+                <button class="row-action" type="button" :disabled="loading || !canCreate" @click="openDelete(row as PerformanceFocusGroup)">删除</button>
+              </template>
               <span v-else-if="column.key === 'people_count'">{{ (row as PerformanceFocusGroup).employee_nos.length }}</span>
               <span v-else-if="column.key === 'project'">{{ (row as PerformanceFocusGroup).project_ref || '--' }}</span>
               <span v-else-if="column.key === 'scope_mode'">{{ scopeModeLabels[(row as PerformanceFocusGroup).scope_mode] || (row as PerformanceFocusGroup).scope_mode || '--' }}</span>

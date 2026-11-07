@@ -2256,6 +2256,9 @@ export interface PerformanceFocusGroup {
   scope_setting_mode: number
   scope: Array<Array<Record<string, unknown>>> | null
   show_group_tag: boolean
+  tag_color: string | null
+  text_color: string | null
+  bg_color: string | null
   is_communicate_time: boolean
   start_time: string | null
   end_time: string | null
@@ -2282,6 +2285,9 @@ export interface PerformanceFocusGroupPayload {
   scope_setting_mode?: number
   scope?: Array<Array<Record<string, unknown>>> | null
   show_group_tag?: boolean
+  tag_color?: string | null
+  text_color?: string | null
+  bg_color?: string | null
   is_communicate_time?: boolean
   start_time?: string | null
   end_time?: string | null
@@ -2321,7 +2327,29 @@ export interface PerformanceFocusGroupPriorityCheck {
   data: boolean
 }
 
+export interface PerformanceFocusGroupMembers {
+  group_id: number
+  employee_nos: string[]
+  people: PerformanceFocusGroupOptions['people']
+}
+
 export const performanceFocusGroupApi = {
+  async manageable(cycleId: number, tab: 'semester' | 'project'): Promise<{ total: number; items: Array<Pick<PerformanceFocusGroup, 'id' | 'name' | 'tab' | 'scope_setting_mode'>> }> {
+    const { data } = await api.get(`/performance/cycles/${cycleId}/manageable-focus-groups`, { params: { tab } })
+    return data
+  },
+  async members(cycleId: number, groupId: number): Promise<PerformanceFocusGroupMembers> {
+    const { data } = await api.get<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`)
+    return data
+  },
+  async updateMembers(cycleId: number, groupId: number, employeeNos: string[]): Promise<PerformanceFocusGroupMembers> {
+    const { data } = await api.patch<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`, { employee_nos: employeeNos })
+    return data
+  },
+  async get(cycleId: number, groupId: number): Promise<PerformanceFocusGroup> {
+    const { data } = await api.get<PerformanceFocusGroup>(`/performance/cycles/${cycleId}/focus-groups/${groupId}`)
+    return data
+  },
   async options(cycleId: number): Promise<PerformanceFocusGroupOptions> {
     const { data } = await api.get<PerformanceFocusGroupOptions>(`/performance/cycles/${cycleId}/focus-groups/options`)
     return data

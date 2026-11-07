@@ -19,6 +19,13 @@
   --color-action-primary: var(--color-primary);
   --color-action-primary-hover: var(--color-primary-hover);
 
+  --ui-tag-color-control-height: 24px;
+  --ui-tag-color-preview-width: 40px;
+  --ui-option-detail-background: var(--performance-page-surface);
+  --ui-option-detail-inset: var(--spacing-6);
+  --ui-option-detail-padding: var(--spacing-4);
+  --ui-option-detail-radius: var(--radius-md);
+
   /* Shared performance content surfaces */
   --performance-content-width: 800px;
   --performance-content-item-border-width: 2px;

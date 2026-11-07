@@ -40,6 +40,9 @@ class _StubGroup:
         self.scope_setting_mode = 1
         self.scope = None
         self.show_group_tag = False
+        self.tag_color = "purple-option"
+        self.text_color = "#2f0080"
+        self.bg_color = "rgba(141,85,237,0.2)"
         self.is_communicate_time = False
         self.start_time = None
         self.end_time = None
@@ -282,6 +285,112 @@ async def test_focus_groups_list_create_update_delete():
         assert after.json()["total"] == 0
 
 
+@pytest.mark.parametrize("mode", [0, 1, 2])
+@pytest.mark.parametrize("change", ["numeric", "compatibility"])
+async def test_focus_group_update_rejects_scope_mode_change(mode, change, monkeypatch):
+    from app.performance import focus_groups_router
+
+    async def unexpected_resolve(*args):
+        pytest.fail("模式冲突应在解析成员之前拒绝")
+
+    monkeypatch.setattr(focus_groups_router, "_resolved_employee_nos", unexpected_resolve)
+    group = _StubGroup(1, "cycle:1", "semester", "原名称", ["E1"], "manual")
+    group.scope_setting_mode = mode
+    db = _StubDb(_StubCycle(1), [group])
+    payload = {"name": "不应保存", "scope_setting_mode": mode, "scope_mode": "manual"}
+    payload["scope_setting_mode" if change == "numeric" else "scope_mode"] = (
+        (mode + 1) % 3 if change == "numeric" else "rule"
+    )
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.patch("/api/v1/performance/cycles/1/focus-groups/1", json=payload)
+    assert response.status_code == 409, response.text
+    assert group.name == "原名称"
+    assert group.scope_setting_mode == mode
+    assert group.scope_mode == "manual"
+    assert db.audit_events == []
+
+
+async def test_focus_group_update_roles_preserves_omitted_modes():
+    group = _StubGroup(1, "cycle:1", "semester", "手动组", [], "manual")
+    db = _StubDb(_StubCycle(1), [group])
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.patch("/api/v1/performance/cycles/1/focus-groups/1", json={
+            "name": "手动组", "roles_of_managing_scope": ["hrbp", "activity_manager"],
+        })
+    assert response.status_code == 200, response.text
+    assert response.json()["scope_setting_mode"] == 1
+    assert response.json()["scope_mode"] == "manual"
+    assert response.json()["roles_of_managing_scope"] == ["hrbp", "activity_manager"]
+
+
+async def test_focus_group_tag_colors_create_update_and_list():
+    db = _StubDb(_StubCycle(1))
+    base = "/api/v1/performance/cycles/1/focus-groups"
+    purple = {"tag_color": "purple-option", "text_color": "#2f0080", "bg_color": "rgba(141,85,237,0.2)"}
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        created = await client.post(base, json={"name": "标签组", "scope_setting_mode": 1, "show_group_tag": 1, **purple})
+        assert created.status_code == 201, created.text
+        group_id = created.json()["id"]
+        for field, value in purple.items():
+            assert created.json()[field] == value
+            assert getattr(db.groups[0], field) == value
+        custom = {"tag_color": "turquoise-option", "text_color": "#02312A", "bg_color": "rgba(51,214,192,0.2)"}
+        updated = await client.patch(f"{base}/{group_id}", json={"name": "标签组", "scope_setting_mode": 1, **custom})
+        assert updated.status_code == 200, updated.text
+        for field, value in custom.items():
+            assert updated.json()[field] == value
+            assert getattr(db.groups[0], field) == value
+        unchanged = await client.patch(f"{base}/{group_id}", json={"name": "标签组", "scope_setting_mode": 1})
+        assert unchanged.status_code == 200, unchanged.text
+        listed = await client.get(base)
+        for field, value in custom.items():
+            assert listed.json()["items"][0][field] == value
+        default = await client.post(base, json={"name": "默认标签", "scope_setting_mode": 1})
+        assert default.status_code == 201, default.text
+        for field, value in purple.items():
+            assert default.json()[field] == value
+
+
+@pytest.mark.parametrize("tag_color,text_color,bg_color", [
+    ("purple-option", "#2f0080", "rgba(141,85,237,0.2)"),
+    ("indigo-option", "#151b70", "rgba(91,101,245,0.2)"),
+    ("lime-option", "#262e00", "rgba(145,173,0,0.2)"),
+    ("wathet-option", "#072b3d", "rgba(62,195,247,0.2)"),
+    ("turquoise-option", "#02312A", "rgba(51,214,192,0.2)"),
+])
+async def test_focus_group_all_observed_colors_detail_round_trip(tag_color, text_color, bg_color):
+    db = _StubDb(_StubCycle(1))
+    base = "/api/v1/performance/cycles/1/focus-groups"
+    colors = {"tag_color": tag_color, "text_color": text_color, "bg_color": bg_color}
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        created = await client.post(base, json={"name": "颜色回读", "scope_setting_mode": 1, **colors})
+        assert created.status_code == 201, created.text
+        group_id = created.json()["id"]
+        detailed = await client.get(f"{base}/{group_id}")
+        assert detailed.status_code == 200, detailed.text
+        assert {field: detailed.json()[field] for field in colors} == colors
+        updated = await client.patch(f"{base}/{group_id}", json={"name": "颜色回读", "scope_setting_mode": 1, **colors})
+        assert updated.status_code == 200, updated.text
+        assert {field: updated.json()[field] for field in colors} == colors
+
+
+async def test_focus_group_detail_scoped_and_authorized():
+    group = _StubGroup(1, "cycle:1", "semester", "详情组", ["E1"], "manual")
+    other = _StubGroup(2, "cycle:2", "semester", "他周期组", [], "manual")
+    db = _StubDb(_StubCycle(1), [group, other])
+    base = "/api/v1/performance/cycles/1/focus-groups"
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.get(f"{base}/1")
+        assert response.status_code == 200, response.text
+        assert response.json()["name"] == "详情组"
+        assert response.json()["tag_color"] == "purple-option"
+        assert (await client.get(f"{base}/2")).status_code == 404
+        assert (await client.get(f"{base}/999")).status_code == 404
+        assert (await client.get("/api/v1/performance/cycles/999/focus-groups/1")).status_code == 404
+    async with _make_app(db, ()) as client:
+        assert (await client.get(f"{base}/1")).status_code == 403
+
+
 async def test_focus_groups_requires_people_groups_permission():
     db = _StubDb(_StubCycle(1))
     base = "/api/v1/performance/cycles/1/focus-groups"
@@ -426,6 +535,7 @@ async def test_focus_groups_real_database_round_trip():
     from uuid import uuid4
 
     import httpx
+    from sqlalchemy import select
     from sqlalchemy.engine import make_url
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
     from sqlalchemy.pool import NullPool
@@ -456,10 +566,14 @@ async def test_focus_groups_real_database_round_trip():
                     listed = await client.get(base, params={"tab": "semester"})
                     assert listed.json()["total"] == 1
                     session.expunge_all()
-                    persisted = await session.scalar(PerformanceFocusGroup.id.__eq__(group_id))
+                    persisted = await session.scalar(select(PerformanceFocusGroup).where(PerformanceFocusGroup.id == group_id))
                     assert persisted is not None
-                    updated = await client.patch(f"{base}/{group_id}", json={"name": "真实库人员组改", "tab": "semester", "scope_setting_mode": 1, "employee_nos": ["E3"], "scope_mode": "manual"})
+                    assert (persisted.tag_color, persisted.text_color, persisted.bg_color) == ("purple-option", "#2f0080", "rgba(141,85,237,0.2)")
+                    updated = await client.patch(f"{base}/{group_id}", json={"name": "真实库人员组改", "tab": "semester", "scope_setting_mode": 1, "employee_nos": ["E3"], "scope_mode": "manual", "tag_color": "turquoise-option", "text_color": "#02312A", "bg_color": "rgba(51,214,192,0.2)"})
                     assert updated.status_code == 200, updated.text
+                    session.expunge_all()
+                    persisted = await session.get(PerformanceFocusGroup, group_id)
+                    assert (persisted.tag_color, persisted.text_color, persisted.bg_color) == ("turquoise-option", "#02312A", "rgba(51,214,192,0.2)")
                     deleted = await client.delete(f"{base}/{group_id}")
                     assert deleted.status_code == 204
                     assert (await client.get(base, params={"tab": "semester"})).json()["total"] == 0
@@ -467,6 +581,6 @@ async def test_focus_groups_real_database_round_trip():
                 await session.close()
                 await transaction.rollback()
         async with engine.connect() as connection:
-            assert await connection.scalar(PerformanceFocusGroup.id.__eq__(group_id)) is None
+            assert await connection.scalar(select(PerformanceFocusGroup.id).where(PerformanceFocusGroup.id == group_id)) is None
     finally:
         await engine.dispose()

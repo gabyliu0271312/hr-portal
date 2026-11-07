@@ -47,6 +47,11 @@ class PerformanceFeatureAuthorizationService:
         self.object_authorization = object_authorization or PerformanceObjectAuthorizationService(db)
         self.audit = audit or PerformanceAuditService(db)
 
+    async def resolve_focus_group_member_scope(self, context, *, cycle_ref, group):
+        return await self.object_authorization.resolve_focus_group_member_scope(
+            context, cycle_ref=cycle_ref, group=group,
+        )
+
     async def authorize_self_submission(self, request: ObjectAuthorizationRequest) -> None:
         await self.object_authorization.authorize(
             _with_action(request, OBJECT_ACTION_SELF_SUBMIT)
