@@ -336,7 +336,9 @@ function onSort(key: string) {
 }
 .ui-table__cell--head {
   height: var(--ui-table-header-height);
-  border-bottom: 0;
+  /* 表头底部保留与表格内线一致的横线（对齐 REA：飞书 th border-bottom 0.67px rgba(31,35,41,.15)），
+     使表头行高与其他数据行（51px 含底边）视觉一致；空态时表头下也有整行横线 */
+  border-bottom: 1px solid var(--ui-table-border-color);
   background: var(--ui-table-header-background);
   color: var(--ui-table-header-color);
 }

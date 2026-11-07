@@ -93,8 +93,9 @@ function clearSearch() {
 }
 
 function openCreate() {
-  // 新建表单（人员组名称/人员范围设置方式等字段）待 REA 补采飞书真实表单后实现
-  ElMessage.info('新建人员组表单待补采后实现')
+  const id = cycleId()
+  if (!id) { ElMessage.warning('缺少绩效周期'); return }
+  void router.push({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: id } })
 }
 
 function openDelete(row: PerformanceFocusGroup) {
@@ -254,6 +255,8 @@ onMounted(async () => {
 .focus-people-table {
   --ui-table-header-background: #ffffff;
   --ui-table-header-height: 47px;
+  /* 空态撑满全屏页剩余空间（head 56 + page padding 16 + surface 上边距 + tab 区 + toolbar + 表头），下限 220 */
+  --ui-table-empty-height: max(220px, calc(100vh - 320px));
 }
 .focus-people-table :deep(.ui-table__cell--head) {
   color: #646a73;
