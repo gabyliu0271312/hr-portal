@@ -2334,10 +2334,6 @@ export const performanceFocusGroupApi = {
     const { data } = await api.post<PerformanceResolveScopeResult>(`/performance/cycles/${cycleId}/focus-groups/resolve-scope`, payload, { params: { task_id: taskId } })
     return data
   },
-  async evaluatorOptions(cycleId: number): Promise<PerformanceEvaluatorOptions> {
-    const { data } = await api.get<PerformanceEvaluatorOptions>(`/performance/cycles/${cycleId}/evaluator-options`)
-    return data
-  },
   async priorityCheck(cycleId: number): Promise<boolean> {
     const { data } = await api.get<PerformanceFocusGroupPriorityCheck>(`/performance/cycles/${cycleId}/focus-groups/priority-check`)
     return data.data
