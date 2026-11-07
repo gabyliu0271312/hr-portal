@@ -62,7 +62,10 @@ watch(() => props.group.followee_user_ids, async ids => {
 <template>
   <div class="focus-group-detail-info">
     <section class="focus-group-detail-info__card">
-      <h3 class="focus-group-detail-info__title">基本信息</h3>
+      <div class="focus-group-detail-info__header">
+        <h3 class="focus-group-detail-info__title">基本信息</h3>
+        <slot name="header-action" />
+      </div>
       <dl class="focus-group-detail-info__grid">
         <PerformanceFormItem label="人员组名称">
           <dd class="focus-group-detail-info__value">{{ nameZh }}</dd>
@@ -123,29 +126,56 @@ watch(() => props.group.followee_user_ids, async ids => {
 .focus-group-detail-info__card {
   flex: 1 1 auto;
   min-width: 0;
-  padding: var(--performance-content-surface-padding);
+  padding: 20px 20px 0;
   box-sizing: border-box;
   border-radius: var(--radius-lg);
   background: var(--color-surface-card);
   box-shadow: var(--shadow-dialog);
 }
+.focus-group-detail-info__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-4);
+}
 .focus-group-detail-info__title {
-  margin: 0 0 var(--spacing-4);
+  margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-lg);
   font-weight: 600;
   line-height: 24px;
 }
-.focus-group-detail-info__grid { margin: 0; }
-.focus-group-detail-info__grid :deep(.performance-form-item) { margin-bottom: var(--performance-input-field-gap); }
-.focus-group-detail-info__grid :deep(.performance-form-item__label) { margin-bottom: 0; font-weight: 400; color: var(--performance-text-secondary); }
-.focus-group-detail-info__grid :deep(.performance-form-item__control) { margin-top: var(--performance-field-label-gap); }
+.focus-group-detail-info__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 0;
+  margin: 0;
+}
+.focus-group-detail-info__grid :deep(.performance-form-item) {
+  min-width: 0;
+  padding-right: 24px;
+  box-sizing: border-box;
+  margin-bottom: var(--performance-input-field-gap);
+}
+.focus-group-detail-info__grid :deep(.performance-form-item__label) {
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #646a73;
+  font-size: 14px;
+  line-height: 22px;
+}
+.focus-group-detail-info__grid :deep(.performance-form-item__control) {
+  margin-top: 0;
+}
 .focus-group-detail-info__value {
   margin: 0;
   color: var(--color-text-primary);
   font-size: var(--font-size-md);
+  font-weight: 400;
   line-height: var(--performance-input-line-height);
   overflow-wrap: anywhere;
+  white-space: normal;
+  overflow: visible;
 }
 .focus-group-detail-info__roles { display: flex; flex-wrap: wrap; gap: var(--spacing-2); }
 .focus-group-detail-info__role-tag {

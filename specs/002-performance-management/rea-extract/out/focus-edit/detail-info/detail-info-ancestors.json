@@ -1,0 +1,106 @@
+[
+ [
+  {
+   "i": 0,
+   "tag": "SPAN",
+   "cls": "text-16 font-semibold",
+   "rect": [
+    40,
+    99,
+    64,
+    25
+   ],
+   "display": "block",
+   "radius": "0px",
+   "pad": "0px",
+   "bg": "rgba(0, 0, 0, 0)",
+   "childCount": 0,
+   "text": "基本信息"
+  },
+  {
+   "i": 1,
+   "tag": "DIV",
+   "cls": "h-16 flex items-center justify-between mb-4",
+   "rect": [
+    40,
+    96,
+    1200,
+    32
+   ],
+   "display": "flex",
+   "radius": "0px",
+   "pad": "0px",
+   "bg": "rgba(0, 0, 0, 0)",
+   "childCount": 2,
+   "text": "基本信息|编辑"
+  },
+  {
+   "i": 2,
+   "tag": "DIV",
+   "cls": "",
+   "rect": [
+    40,
+    96,
+    1200,
+    246
+   ],
+   "display": "block",
+   "radius": "0px",
+   "pad": "0px",
+   "bg": "rgba(0, 0, 0, 0)",
+   "childCount": 2,
+   "text": "基本信息|编辑|人员组名称|核心管理干部|人员组说明|--|关注人|alice."
+  },
+  {
+   "i": 3,
+   "tag": "DIV",
+   "cls": "px-10 pt-10 rounded-8 bg-white",
+   "rect": [
+    20,
+    76,
+    1240,
+    266
+   ],
+   "display": "block",
+   "radius": "8px",
+   "pad": "20px 20px 0px",
+   "bg": "rgb(255, 255, 255)",
+   "childCount": 1,
+   "text": "基本信息|编辑|人员组名称|核心管理干部|人员组说明|--|关注人|alice."
+  },
+  {
+   "i": 4,
+   "tag": "SECTION",
+   "cls": "",
+   "rect": [
+    20,
+    76,
+    1240,
+    266
+   ],
+   "display": "block",
+   "radius": "0px",
+   "pad": "0px",
+   "bg": "rgba(0, 0, 0, 0)",
+   "childCount": 1,
+   "text": "基本信息|编辑|人员组名称|核心管理干部|人员组说明|--|关注人|alice."
+  },
+  {
+   "i": 5,
+   "tag": "SECTION",
+   "cls": "p-10 flex flex-col h-full",
+   "rect": [
+    0,
+    56,
+    1280,
+    617
+   ],
+   "display": "flex",
+   "radius": "0px",
+   "pad": "20px",
+   "bg": "rgb(242, 243, 245)",
+   "childCount": 2,
+   "text": "基本信息|编辑|人员组名称|核心管理干部|人员组说明|--|关注人|alice."
+  }
+ ]
+]

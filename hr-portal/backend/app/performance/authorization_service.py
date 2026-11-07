@@ -22,6 +22,7 @@ from app.performance.models import (
     DYNAMIC_IDENTITY_TYPE_SELF,
     DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE,
     PUBLICATION_TRANSFER_ACTOR_TYPES,
+    SUBJECT_TYPE_PORTAL_USER,
     PerformanceAuditEvent,
     PerformanceAuthorizationSnapshot,
     PerformanceAuthorizationSnapshotPerson,
@@ -32,7 +33,7 @@ from app.performance.models import (
     PerformancePublicationTransfer,
 )
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService
-from app.performance.auth_context import PerformanceAccessContext, resolve_trusted_performance_actor
+from app.performance.auth_context import PerformanceAccessContext, TrustedPerformanceActor, resolve_trusted_performance_actor
 from app.performance.task_authorization_service import task_handler_condition
 
 
@@ -280,14 +281,6 @@ class PerformanceObjectAuthorizationService:
 
         if group.cycle_ref != cycle_ref or group.scope_setting_mode != 1:
             raise PerformanceObjectAuthorizationDenied("该人员组不允许手动维护成员")
-        try:
-            actor = await resolve_trusted_performance_actor(
-                self.db, context, cycle_ref=cycle_ref, require_employee_identity=True,
-            )
-        except PerformanceIdentityMappingNotFound as exc:
-            raise PerformanceObjectAuthorizationDenied(str(exc)) from exc
-        if actor.actor_type != "EMPLOYEE":
-            raise PerformanceObjectAuthorizationDenied("必须使用可信员工身份")
         snapshot = await self.db.scalar(select(PerformanceAuthorizationSnapshot).where(
             PerformanceAuthorizationSnapshot.cycle_ref == cycle_ref,
         ))
@@ -296,6 +289,24 @@ class PerformanceObjectAuthorizationService:
         people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
             PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.id,
         ))).scalars().all())
+        # 后台管理员（持有 performance.cycles.manage 的 Portal 用户）可维护该周期全部手动维护组，
+        # 不受组内角色（实线上级/HRBP/项目管理员）限制；非管理员仍需可信员工身份按角色圈定范围。
+        if (
+            context.subject_type == SUBJECT_TYPE_PORTAL_USER
+            and "performance.cycles.manage" in context.permission_codes
+        ):
+            return TrustedPerformanceActor(
+                actor_type=SUBJECT_TYPE_PORTAL_USER,
+                actor_ref=str(context.subject_id),
+            ), list(people)
+        try:
+            actor = await resolve_trusted_performance_actor(
+                self.db, context, cycle_ref=cycle_ref, require_employee_identity=True,
+            )
+        except PerformanceIdentityMappingNotFound as exc:
+            raise PerformanceObjectAuthorizationDenied(str(exc)) from exc
+        if actor.actor_type != "EMPLOYEE":
+            raise PerformanceObjectAuthorizationDenied("必须使用可信员工身份")
         if not any(person.employee_no == actor.actor_ref for person in people):
             raise PerformanceObjectAuthorizationDenied("当前员工不在周期快照中")
         roles = list((await self.db.execute(select(PerformanceRole).where(

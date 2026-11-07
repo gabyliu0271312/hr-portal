@@ -211,20 +211,43 @@ cursor:not-allowed  opacity:1
 2. **项目版编辑表单**：`FocusPeopleGroupProjectCreate.vue` 复用新建组件套 edit 语义已基本正确（字段/布局与 REA 一致）。**「关联评估项目」编辑态可改**（当前无禁用，正确 ✅）。角色 checkbox 文案「关联评估项目的被评估人的…」与 REA 一致 ✅。
 3. **周期版编辑表单**：`FocusPeopleGroupCreate.vue` 编辑态设置方式 `:disabled="isEditing"` 与飞书一致 ✅。其余字段（关注人/对谁可见/标签/颜色/沟通时间）需按 REA 字段集核对是否已实现。
 4. **保存 payload 对齐**：两版本 edit payload 字段集不同（§5），后端 `PATCH` 需接受完整字段。周期版 `scope:[]` + `roles_of_managing_scope` 手动模式字段组合已确认。
-5. **详情管理页**：**已实现**（2026-11-07）：
-   - 页面：`FocusGroupManagementDetail.vue`（全屏页 head「人员组管理」+ 返回 + 头部「编辑」outlined 80×32）
-   - 基本信息只读卡片：`FocusGroupDetailInfo.vue`（周期版/项目版字段分流，关注人经 `options()` 解析姓名，角色用 `PerformanceReadOnlySettingRow` 只读展示，沟通时间 `YYYY-MM-DD HH:mm` 格式化）
-   - 成员列表 tab：`FocusGroupMembersPanel.vue`（工具栏「添加」outlined-primary 80×32 + 搜索成员 292×32 + 筛选 outlined 80×32；表格列 姓名195/直属上级195/一级部门240/末级部门240/序列240/添加人195/添加时间195/操作102 fix-right；空态「暂无人员」；移除确认弹窗复用 `PerformanceConfirmDialog`）
-   - 变更记录 tab：`FocusGroupChangeLogPanel.vue`（见 §6.6）
+5. **详情管理页**：**已实现**（2026-11-07，2026-11-07 详情页 DOM 还原补采后按 DOM 微调布局）：
+   - 页面：`FocusGroupManagementDetail.vue`（全屏页 head「人员组管理」+ 返回；编辑按钮**不在头部**，在基本信息卡片头内右侧，`outlined-default` 80×32 灰边深灰字）
+   - 基本信息只读卡片：`FocusGroupDetailInfo.vue`（周期版/项目版字段分流，关注人经 `options()` 解析姓名，角色用 `PerformanceReadOnlySettingRow` 只读展示，沟通时间 `YYYY-MM-DD HH:mm` 格式化）。**DOM 还原布局**：卡片头 `flex justify-between`（标题 16/600 + 编辑按钮 slot）；字段区 `grid` **每行 3 列**（`w-1/3` 宽 400、pr 24），字段名 14/500 #646A73 mb-8，值 14/400 #1F2329 lh-22 **自然换行不截断**（whiteSpace normal + overflow visible）；末行不足 3 列右侧留空（见 §6.7 DOM 证据）
+   - 成员列表 tab：`FocusGroupMembersPanel.vue`（工具栏「添加」outlined-primary 80×32 + 搜索成员 292×32 + 筛选 outlined 80×32；表格列 姓名195/直属上级195/一级部门240/末级部门240/序列240/添加人195/添加时间195/操作102 fix-right；**空态统一图标** `MetricTemplateEmptyIllustration` + 文本；移除确认弹窗复用 `PerformanceConfirmDialog`）
+   - 变更记录 tab：`FocusGroupChangeLogPanel.vue`（见 §6.6；**空态统一图标**同成员 tab）
    - 成员数据源：后端 `focus_group_members_router.py` GET `members`（直系上级姓名解析 + 添加人/添加时间经审计事件倒序取最后新增）；添加弹窗 `FocusGroupMemberAddDialog.vue`（复用 `PerformanceDialogShell` + `PerformancePersonSelect`，`searchPeople` 搜索，`updateMembers` 提交，成功后 `ElMessage.success('添加成功')`）。
 6. **变更记录 tab（本轮补采，§2.1）**：**已实现**（2026-11-07）。后端 `focus_group_members_router.py`：GET `change-log`（`performance_audit_events` 的 `PERFORMANCE_FOCUS_GROUP_MEMBERS_UPDATED`，一次 updateMembers 事件 diff before/after employee_nos → 「新增」/「移除」各一条；操作人解析 `PORTAL_USER`→User.display_name / `EMPLOYEE`→快照 display_name；操作条件仅移除时显示被移除成员姓名；分页 `?current=1&size=10`）+ GET `change-log/{event_id}/people`（变更人员快照）。前端 `FocusGroupChangeLogPanel.vue`：5 列表格（操作人264/操作类型200/操作条件450/变更人员数223/操作时间223），变更人员数为数字按钮 → `PerformanceDialogShell`「人员列表（共 N 人）」+ UiTable 员工画像，分页对齐飞书。
 7. **添加人/添加时间**：**已实现**（2026-11-07）。`_member_added_by` 倒序遍历审计事件取最后新增事件，解析 actor 姓名与 event_at；代码上线前老成员无审计记录 → 显示 `--`（用户确认）。
+
+### 6.7 基本信息卡片字段级 DOM 证据（2026-11-07 补采）
+
+实采周期版详情页 `management/7669998387978046396` 卡片 `px-10 pt-10 rounded-8 bg-white`（y=76, 1240×266）字段级 DOM：
+
+| 元素 | 实测 DOM | 像素/样式 |
+| --- | --- | --- |
+| 卡片容器 | `px-10 pt-10 rounded-8 bg-white` | radius 8px、padding `20px 20px 0`、白底 |
+| 卡片头 | `h-16 flex items-center justify-between mb-4` | 32px 高，mb 16px |
+| 卡片标题 | `text-16 font-semibold` | 16px/600 #1F2329 |
+| 编辑按钮 | `ud__button--outlined-default` | 80×32，白底 + 灰边 rgb(208,211,214) + 深灰字 rgb(31,35,41)，**在卡片头内右侧**（y=96, x=1160） |
+| 字段列 | `w-1/3 pr-12` | **每行 3 列**，宽 400，pr 24px |
+| 字段名 | `text-14 font-medium leading-22 text-N-600 mb-2` | 14px/500 #646A73，mb 8px，行高 22px |
+| 字段值 | 值 div（无 class） | 14px/400 #1F2329，行高 22px，`whiteSpace normal + overflow visible` → **超长自然换行不截断** |
+| 行距 | 字段区块 y136→206→274 | 每行 68px |
+| 关注人值 | `ud__tag` + `ee-user-card` 头像 | tag 内姓名 `truncate max-w-100` **单行 ellipsis**（唯一特殊值控件） |
+| 末行 | 行3 仅 2 字段 | 第 3 列不渲染，右侧留空 |
+
+周期版 9 字段按行分布：**行1** 人员组名称/人员组说明/关注人；**行2** 该人员组对谁可见/展示该人员组标签/人员范围设置方式；**行3** 人员范围规则/独立结果沟通时间（2 项）。项目版同理（4 字段：名称/说明/关联评估项目/角色，2 行）。
+
+补采产物：`out/focus-edit/detail-info/` — `detail-info-card.json`（49 节点字段行 DOM）、`detail-info-ancestors.json`（卡片祖先链）、`detail-body-text.txt`（详情页全文）；脚本 `capture-focus-detail-info{2,3}.js`。
 
 ## 7. 素材索引
 
 - 项目版：`out/focus-edit/` — `edit-struct.json`（117 节点结构）、`edit-styles.json`（像素样式）、`edit-text.txt`、`edit-interactions.json`（字段禁用态）、`edit-api-get.json`（group/info + activities_v2）、`edit-api-post.json`（edit payload）、`edit-top.png`、`edit-project-dropdown.png`（关联项目下拉）、`management-*`（详情管理页）
 - 周期版：`out/focus-edit/semester/` — `semester-edit-form-struct.json`（结构）、`semester-edit-form-text.txt`（全字段文本）、`semester-edit-fields.json`（字段级禁用态）、`semester-edit-post.json`（edit payload）、`semester-edit-form-api.json`（group/info）、`semester-edit-form-top.png`、`semester-edit-top.png`（详情页）
 - 变更记录 tab（本轮补采）：`out/focus-edit/changelog/` — `changelog-struct.json`、`changelog-text.txt`、`changelog-rows.json`（表格行 + 列宽）、`changelog-diff.json`（接口差分：change_log/show + snapshot/simple_emp + snapshot/simple）、`changelog-count-detail.json`（变更人员数弹窗）、`changelog-api.json`/`changelog-all-api.json`（详情页全量接口）
+- 基本信息卡片字段级 DOM（2026-11-07 补采）：`out/focus-edit/detail-info/` — `detail-info-card.json`（49 节点）、`detail-info-ancestors.json`、`detail-body-text.txt`、`detail-info-top.png`
+- 采集脚本：`capture-focus-edit-{probe,mgmt,form,api,interact,checkbox,styles,semester-nav,semester-form,semester-form2,semester-fields,changelog,changelog2,changelog3}.js` + `capture-focus-detail-info{2,3}.js`
 - 采集脚本：`capture-focus-edit-{probe,mgmt,form,api,interact,checkbox,styles,semester-nav,semester-form,semester-form2,semester-fields,changelog,changelog2,changelog3}.js`
 
 ## 8. 验收对照（交接文档 §6）

@@ -67,12 +67,13 @@ watch(groupId, () => {
 
 <template>
   <UiFullScreenModal :title="`人员组管理`" :show-footer="false" @back="goBack">
-    <template #actions>
-      <UiButton v-if="group && !loading" variant="outline-primary" class="focus-group-detail-edit" :disabled="error !== ''" @click="goEdit">编辑</UiButton>
-    </template>
     <div class="focus-group-detail-page">
       <p v-if="error" class="focus-group-detail-error" role="alert">{{ error }}</p>
-      <FocusGroupDetailInfo v-if="group" :group="group" :is-project="isProject" />
+      <FocusGroupDetailInfo v-if="group" :group="group" :is-project="isProject">
+        <template #header-action>
+          <UiButton v-if="!loading" variant="secondary" class="focus-group-detail-edit" :disabled="error !== ''" @click="goEdit">编辑</UiButton>
+        </template>
+      </FocusGroupDetailInfo>
       <PerformanceLineTabs v-if="group" v-model="activeTab" :tabs="tabs" fill class="focus-group-detail-tabs">
         <FocusGroupMembersPanel v-if="activeTab === 'members'" :cycle-id="cycleId" :group-id="groupId" :group-name="group.name" />
         <FocusGroupChangeLogPanel v-else :cycle-id="cycleId" :group-id="groupId" />

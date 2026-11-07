@@ -269,6 +269,28 @@ async def test_focus_direct_scope_and_disabled_directory(focus_auth):
 
 
 @pytest.mark.asyncio
+async def test_focus_admin_with_cycles_manage_gets_full_scope_without_employee_identity(focus_auth):
+    db, _, actor, facade = focus_auth
+    # 系统管理员：PORTAL_USER + performance.cycles.manage，无员工身份（resolve 不要求 employee）
+    admin_context = PerformanceAccessContext(
+        "PORTAL_USER", 9, "管理员", None, ("performance.app", "performance.admin"),
+        (), ("performance.cycles.manage",),
+    )
+    _, people = await facade.resolve_focus_group_member_scope(admin_context, cycle_ref="C", group=db.group)
+    assert {person.employee_no for person in people} == {"actor", "A", "B"}
+    actor.assert_not_awaited()
+    # 项目版同样全量放行
+    db.group.tab = "project"
+    _, people = await facade.resolve_focus_group_member_scope(admin_context, cycle_ref="C", group=db.group)
+    assert {person.employee_no for person in people} == {"actor", "A", "B"}
+    # 无 cycles.manage 的 PORTAL_USER 仍走原员工门禁（不进入管理员分支）
+    db.group.tab = "semester"
+    actor.return_value = TrustedPerformanceActor("EMPLOYEE", "actor")
+    _, people = await facade.resolve_focus_group_member_scope(focus_auth[1], cycle_ref="C", group=db.group)
+    assert [person.employee_no for person in people] == ["A"]
+
+
+@pytest.mark.asyncio
 async def test_focus_rejects_forged_actor_and_cross_cycle(focus_auth):
     db, context, actor, facade = focus_auth
     actor.return_value = TrustedPerformanceActor("EMPLOYEE", "not-in-snapshot")

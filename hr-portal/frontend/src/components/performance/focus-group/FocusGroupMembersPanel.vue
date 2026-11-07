@@ -5,6 +5,7 @@ import { performanceFocusGroupApi, type PerformanceFocusGroupMember } from '@/ap
 import PerformanceManagementTable from '../PerformanceManagementTable.vue'
 import PerformanceSearchInput from '../PerformanceSearchInput.vue'
 import PerformanceConfirmDialog from '../PerformanceConfirmDialog.vue'
+import MetricTemplateEmptyIllustration from '../MetricTemplateEmptyIllustration.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import type { PerformanceTableColumn } from '../performanceTableColumns'
 import FocusGroupMemberAddDialog from './FocusGroupMemberAddDialog.vue'
@@ -141,6 +142,12 @@ watch(() => [props.cycleId, props.groupId], () => {
         <span v-else-if="column.key === 'added_by'">{{ (row as PerformanceFocusGroupMember).added_by || '--' }}</span>
         <span v-else>{{ (row as any)[column.key] || '--' }}</span>
       </template>
+      <template #empty="{ loading: isLoading, text }">
+        <div v-if="!isLoading" class="focus-group-empty">
+          <MetricTemplateEmptyIllustration />
+          <span class="focus-group-empty__text">{{ text }}</span>
+        </div>
+      </template>
     </PerformanceManagementTable>
 
     <FocusGroupMemberAddDialog
@@ -214,5 +221,17 @@ watch(() => [props.cycleId, props.groupId], () => {
 }
 .focus-group-members-row-action:hover {
   background: #eff0f1;
+}
+.focus-group-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+}
+.focus-group-empty__text {
+  color: #646a73;
+  font-size: 14px;
+  line-height: 22px;
 }
 </style>

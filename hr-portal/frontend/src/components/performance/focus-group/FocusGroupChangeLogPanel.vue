@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { performanceFocusGroupApi, type PerformanceFocusGroupChangeLogItem, type PerformanceFocusGroupChangePerson } from '@/api/performance'
 import PerformanceManagementTable from '../PerformanceManagementTable.vue'
 import PerformanceDialogShell from '../PerformanceDialogShell.vue'
+import MetricTemplateEmptyIllustration from '../MetricTemplateEmptyIllustration.vue'
 import UiTable from '@/components/ui/UiTable.vue'
 import type { UiTableColumn } from '@/components/ui/UiTable.vue'
 import type { PerformanceTableColumn } from '../performanceTableColumns'
@@ -141,6 +142,12 @@ watch(() => [props.cycleId, props.groupId], () => {
         <span v-else-if="column.key === 'changed_at'">{{ formatDateTime((row as PerformanceFocusGroupChangeLogItem).changed_at) }}</span>
         <span v-else>{{ (row as any)[column.key] || '--' }}</span>
       </template>
+      <template #empty="{ loading: isLoading, text }">
+        <div v-if="!isLoading" class="focus-group-empty">
+          <MetricTemplateEmptyIllustration />
+          <span class="focus-group-empty__text">{{ text }}</span>
+        </div>
+      </template>
     </PerformanceManagementTable>
 
     <PerformanceDialogShell v-model="detailOpen" :title="detailTitle" width="var(--performance-dialog-wide-width)" @close="closeCountDetail">
@@ -196,6 +203,18 @@ watch(() => [props.cycleId, props.groupId], () => {
 }
 .focus-group-changelog-count:hover {
   background: #eff0f1;
+}
+.focus-group-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0;
+}
+.focus-group-empty__text {
+  color: #646a73;
+  font-size: 14px;
+  line-height: 22px;
 }
 .focus-group-changelog-detail-error {
   margin: 0 0 var(--spacing-3);
