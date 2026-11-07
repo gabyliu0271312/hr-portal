@@ -278,7 +278,7 @@ const memberProjectId = computed(() => selectedProject.value?.project_id ?? over
 
 const revieweeAddOpen = ref(false)
 const viewRefreshKey = ref(0)
-const revieweeAddProjects = computed(() => overview.value?.projects?.filter(project => project.status === 'started') ?? [])
+const revieweeAddProjects = computed(() => overview.value?.projects?.filter(project => project.status === 'STARTED') ?? [])
 const revieweeAddProjectId = computed(() => {
   const projects = revieweeAddProjects.value
   if (!projects.length) return null
