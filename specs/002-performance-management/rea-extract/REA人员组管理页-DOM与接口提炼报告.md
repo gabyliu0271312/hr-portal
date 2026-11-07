@@ -261,5 +261,6 @@ Tab 容器 `ud__tabs__tab-bar-holder ud__tabs__tab-bar-nav`：flex，高 48px，
 | 搜索/空态/删除 | 搜索 292×32 回车重拉 + keyword；空态 `MetricTemplateEmptyIllustration` 插画 250×125 + 「暂无内容」；删除走 `PerformanceConfirmDialog` | 同上 |
 | 入口 | 路由 `cycles/:cycleId/focus-people` + 周期设置菜单「人员组管理」已接通 | — |
 | 新建 | 表单字段未采，按钮暂提示待补采 | 下一轮 |
+| 新建-项目版「关联评估项目」下拉 | **补采还原（2026-11-07）**：真实飞书点击即弹、页面加载时一次性拉取选项（`GET /perf/api/review/activities_v2?offset=0&limit=9999&semesterId=`，点击下拉不发请求）；本项目复用 `performanceProjectApi.list`（`GET /performance/cycles/{cycleId}/projects?page_size=100`，后端按周期过滤、非周期管理员自动收敛到有权限项目 = 飞书「仅可关联你有管理权限的评估项目」），onMounted 拉一次，移除 `remote-search`/`@search` 按需搜索，选项映射 `{value: id, label: name}` | vitest 6 通过（含「挂载时一次性拉取 + 未传 remoteSearch」断言）；采集脚本 `capture-project-dropdown*.js` |
 
 类型检查：`vue-tsc --noEmit` 通过；全量相关视图测试（ProjectManagement 24 / Review 63 / 其余 61）通过。

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { performanceFocusGroupApi, performanceProjectApi } from '@/api/performance'
@@ -28,7 +28,6 @@ const projectIds = ref<string[]>([])
 const projectOptions = ref<PerformanceSearchSelectOption[]>([])
 const roles = ref({ leader: true, inner_leader: false, hrbp: false, activity_manager: false })
 const saving = ref(false)
-let projectSearchTimer: ReturnType<typeof setTimeout> | undefined
 
 const roleLabels = {
   leader: '关联评估项目的被评估人的实线上级',
@@ -42,18 +41,15 @@ function setRole(key: keyof typeof roles.value, value: boolean) {
   roles.value[key] = value
 }
 
-function searchProjects(keyword: string) {
-  const query = keyword.trim()
-  if (!query || !cycleId.value) return
-  if (projectSearchTimer) clearTimeout(projectSearchTimer)
-  projectSearchTimer = setTimeout(async () => {
-    try {
-      const result = await performanceProjectApi.list(cycleId.value!, query)
-      projectOptions.value = result.items.map(project => ({ value: String(project.id), label: project.name }))
-    } catch {
-      projectOptions.value = []
-    }
-  }, 250)
+// 「关联评估项目」下拉：与飞书一致，页面加载时一次性拉取有权限的评估项目（点击下拉不再发请求）
+async function loadProjects() {
+  if (!cycleId.value) return
+  try {
+    const result = await performanceProjectApi.list(cycleId.value, '', 1, 100)
+    projectOptions.value = result.items.map(project => ({ value: String(project.id), label: project.name }))
+  } catch {
+    projectOptions.value = []
+  }
 }
 
 async function submit() {
@@ -90,6 +86,8 @@ async function submit() {
 function goBack() {
   void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
 }
+
+onMounted(() => { void loadProjects() })
 </script>
 
 <template>
@@ -108,9 +106,7 @@ function goBack() {
             placeholder="请选择"
             empty-text="暂无可选项"
             multiple
-            remote-search
             aria-label="关联评估项目"
-            @search="searchProjects"
           />
         </PerformanceFormItem>
       </PerformanceSurfaceCard>

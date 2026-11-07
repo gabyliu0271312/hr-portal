@@ -40,8 +40,8 @@ const localizedInputStub = {
 const searchSelectStub = {
   name: 'PerformanceSearchSelect',
   props: ['modelValue', 'options', 'placeholder', 'multiple', 'remoteSearch'],
-  emits: ['update:modelValue', 'search'],
-  template: '<button class="search-select" @click="$emit(\'update:modelValue\', [\'project:one\'])">{{ options.map(option => option.label).join(\',\') }}</button>',
+  emits: ['update:modelValue'],
+  template: '<button class="search-select" @click="$emit(\'update:modelValue\', [\'1\'])">{{ options.map(option => option.label).join(\',\') }}</button>',
 }
 const checkboxStub = {
   props: ['modelValue', 'label'],
@@ -72,11 +72,23 @@ beforeEach(() => {
     items: [{ id: 1, project_ref: 'project:one', name: '核心研发团队', description: null, administrators: [], status: 'DRAFT' }],
     total: 1,
     page: 1,
-    page_size: 20,
+    page_size: 100,
   } as any)
 })
 
 describe('FocusPeopleGroupProjectCreate', () => {
+  it('挂载时一次性拉取有权限的评估项目作为下拉选项（点击即弹，不按需搜索）', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(performanceProjectApi.list).toHaveBeenCalledTimes(1)
+    expect(performanceProjectApi.list).toHaveBeenCalledWith(1, '', 1, 100)
+    // 已移除 remote-search：组件不再向下拉传递该 prop（点击即弹，非按需搜索）
+    expect(wrapper.getComponent({ name: 'PerformanceSearchSelect' }).props('remoteSearch')).toBeUndefined()
+    expect(wrapper.getComponent({ name: 'PerformanceSearchSelect' }).props('options')).toEqual([
+      { value: '1', label: '核心研发团队' },
+    ])
+  })
+
   it('默认勾选实线上级并级联显示仅组内成员的实线上级子项', async () => {
     const wrapper = mountPage()
     await flushPromises()
@@ -107,7 +119,7 @@ describe('FocusPeopleGroupProjectCreate', () => {
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.findAll('.localized-input')[0].setValue('核心研发团队')
-    await wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', ['project:one'])
+    await wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', ['1'])
     await wrapper.find('.ui-button.primary').trigger('click')
     expect(performanceFocusGroupApi.create).toHaveBeenCalledWith(1, {
       name: '核心研发团队',
@@ -116,7 +128,7 @@ describe('FocusPeopleGroupProjectCreate', () => {
       description: { 'zh-CN': '', 'en-US': '' },
       employee_nos: [],
       scope_mode: 'manual',
-      activity_ids: ['project:one'],
+      activity_ids: ['1'],
       roles_of_managing_scope: ['leader'],
     })
   })
@@ -125,7 +137,7 @@ describe('FocusPeopleGroupProjectCreate', () => {
     const wrapper = mountPage()
     await flushPromises()
     await wrapper.findAll('.localized-input')[0].setValue('核心研发团队')
-    await wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', ['project:one'])
+    await wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', ['1'])
     const hrbp = wrapper.findAll('.checkbox-stub')[2].find('input')
     await hrbp.setValue(true)
     await flushPromises()
