@@ -26,7 +26,7 @@
         <div v-if="!selectedProject" class="cycle-overview">
           <PerformancePageTitle title="周期概览">
             <template #actions>
-              <UiButton variant="secondary" class="reviewee-add-trigger" @click="revieweeAddOpen = true">添加被评估人</UiButton>
+              <UiButton variant="secondary" class="reviewee-add-trigger" @click="revieweeAddOpen = true"><MemberAddIcon class="reviewee-add-trigger__icon" />添加被评估人</UiButton>
             </template>
           </PerformancePageTitle>
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
@@ -94,6 +94,7 @@ import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOver
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
 import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
 import RevieweeAddDialog from '@/components/performance/RevieweeAddDialog.vue'
+import MemberAddIcon from '@/components/performance/MemberAddIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import type { ProjectMember } from '@/api/performance'
 import type { ReminderContext } from '@/components/performance/performanceReminder'
@@ -403,5 +404,6 @@ onMounted(async () => {
 .state-message button { justify-self: center; padding: 6px 18px; border: 0; border-radius: 6px; background: var(--color-primary, #3370ff); color: #fff; cursor: pointer; }
 .panel-hint { margin: 4px 0 0; color: #8f959e; font-size: 13px; }
 .reviewee-add-trigger { margin-left: var(--spacing-3); min-width: 125px; }
+.reviewee-add-trigger__icon { flex: none; font-size: var(--font-size-md); margin-right: var(--spacing-1); color: var(--performance-button-secondary-text); }
 @media (max-width: 720px) { .project-management-page { display: block; overflow: visible; } }
 </style>
