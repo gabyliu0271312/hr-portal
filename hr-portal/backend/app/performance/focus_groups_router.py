@@ -28,6 +28,7 @@ from app.performance.models import (
     PerformanceAuthorizationSnapshotPerson,
     PerformanceCycle,
     PerformanceFocusGroup,
+    PerformanceProject,
     PerformanceProjectNodeSnapshot,
     PerformanceTemplateWorkflow,
 )
@@ -151,6 +152,7 @@ class FocusGroupOut(BaseModel):
     scope_mode: str
     project_ref: str | None
     activity_ids: list[str]
+    activity_names: list[str] = Field(default_factory=list)
     roles_of_managing_scope: list[str]
     created_by_type: str | None
     created_by_ref: str | None
@@ -504,6 +506,13 @@ async def check_focus_group_priority(
     return FocusGroupPriorityCheck(data=True)
 
 
+async def _project_names(db: AsyncSession, ids: list[str]) -> dict[str, str]:
+    if not ids:
+        return {}
+    projects = (await db.execute(select(PerformanceProject).where(PerformanceProject.id.in_(ids)))).scalars().all()
+    return {str(project.id): project.name for project in projects}
+
+
 @router.get("/{cycle_id}/focus-groups", response_model=FocusGroupPage)
 async def list_focus_groups(
     cycle_id: int,
@@ -530,7 +539,19 @@ async def list_focus_groups(
         .limit(size)
     )
     items = (await db.execute(statement)).scalars().all()
-    return FocusGroupPage(total=total, items=[FocusGroupOut.model_validate(item) for item in items])
+    payloads = []
+    if tab == "project":
+        names_by_id = await _project_names(db, [value for group in items for value in (group.activity_ids or [])])
+        for group in items:
+            payload = FocusGroupOut.model_validate(group).model_dump()
+            payload["activity_names"] = [names_by_id.get(value, value) for value in (group.activity_ids or [])]
+            payloads.append(payload)
+    else:
+        for group in items:
+            payload = FocusGroupOut.model_validate(group).model_dump()
+            payload["activity_names"] = []
+            payloads.append(payload)
+    return FocusGroupPage(total=total, items=payloads)
 
 
 @router.get("/{cycle_id}/focus-groups/{group_id}", response_model=FocusGroupOut)
@@ -544,7 +565,9 @@ async def get_focus_group(
     group = await db.get(PerformanceFocusGroup, group_id)
     if group is None or group.cycle_ref != cycle.cycle_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="人员组不存在")
-    return FocusGroupOut.model_validate(group)
+    payload = FocusGroupOut.model_validate(group).model_dump()
+    payload["activity_names"] = list(_project_names(db, group.activity_ids or []).values()) if group.tab == "project" else []
+    return FocusGroupOut.model_validate(payload)
 
 
 @router.post("/{cycle_id}/focus-groups", response_model=FocusGroupOut, status_code=status.HTTP_201_CREATED)

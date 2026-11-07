@@ -63,6 +63,7 @@ function group(overrides: Partial<PerformanceFocusGroup> = {}): PerformanceFocus
     scope_mode: 'manual',
     project_ref: null,
     activity_ids: [],
+    activity_names: [],
     roles_of_managing_scope: [],
     created_by_type: 'SYSTEM_ACCOUNT',
     created_by_ref: '1',
@@ -113,6 +114,12 @@ describe('FocusPeopleManagement', () => {
     await flushPromises()
 
     expect(listSpy).toHaveBeenLastCalledWith(1, { tab: 'project', keyword: undefined })
+
+    // Tab2 列：关联评估项目 + 人数（REA 实测列宽 180/120）
+    const table = wrapper.findComponent(managementTableStub)
+    const columns = (table.props('columns') as Array<{ key: string; label: string }>).map(item => item.key)
+    expect(columns).toContain('project')
+    expect(columns).toContain('people_count')
 
     await wrapper.find('.create-button').trigger('click')
     expect(routerPushMock).toHaveBeenCalledWith({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: 1 }, query: { tab: 'project' } })

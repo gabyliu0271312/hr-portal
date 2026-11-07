@@ -2266,6 +2266,7 @@ export interface PerformanceFocusGroup {
   scope_mode: string
   project_ref: string | null
   activity_ids: string[]
+  activity_names: string[]
   roles_of_managing_scope: string[]
   created_by_type: string | null
   created_by_ref: string | null

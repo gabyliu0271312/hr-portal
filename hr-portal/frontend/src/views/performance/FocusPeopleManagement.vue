@@ -41,7 +41,10 @@ const columns = computed<PerformanceTableColumn[]>(() => [
   { key: 'name', label: '人员组名称', width: 240, fixed: 'left' },
   ...(activeTab.value === 'semester'
     ? [{ key: 'people_count', label: '人数', width: 120 }]
-    : [{ key: 'project', label: '关联评估项目', width: 180 }]),
+    : [
+        { key: 'project', label: '关联评估项目', width: 180 },
+        { key: 'people_count', label: '人数', width: 120 },
+      ]),
   { key: 'scope_mode', label: '人员范围设置方式', width: 240 },
   { key: 'created_by', label: '创建人', width: 200 },
   { key: 'created_at', label: '创建时间', width: 200 },
@@ -184,7 +187,7 @@ onMounted(async () => {
                 <button class="row-action" type="button" :disabled="loading || !canCreate" @click="openDelete(row as PerformanceFocusGroup)">删除</button>
               </template>
               <span v-else-if="column.key === 'people_count'">{{ (row as PerformanceFocusGroup).employee_nos.length }}</span>
-              <span v-else-if="column.key === 'project'">{{ (row as PerformanceFocusGroup).project_ref || '--' }}</span>
+              <span v-else-if="column.key === 'project'">{{ (row as PerformanceFocusGroup).activity_names?.length ? (row as PerformanceFocusGroup).activity_names.join('、') : ((row as PerformanceFocusGroup).project_ref || '--') }}</span>
               <span v-else-if="column.key === 'scope_mode'">{{ scopeModeLabels[(row as PerformanceFocusGroup).scope_mode] || (row as PerformanceFocusGroup).scope_mode || '--' }}</span>
               <span v-else-if="column.key === 'created_at' || column.key === 'updated_at'">{{ formatDateTime((row as PerformanceFocusGroup)[column.key]) }}</span>
               <span v-else>{{ (row as any)[column.key] || '--' }}</span>
