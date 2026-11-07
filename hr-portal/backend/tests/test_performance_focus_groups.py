@@ -69,9 +69,10 @@ class _StubCycle:
 class _StubDb:
     """内存 stub DB：支持路由用到的 get/scalar/execute/add/flush/commit/refresh/delete。"""
 
-    def __init__(self, cycle, groups=None):
+    def __init__(self, cycle, groups=None, projects=None):
         self.cycle = cycle
         self.groups = list(groups or [])
+        self.projects = list(projects or [])
         self._next_id = 100
         self.deleted = []
         self.audit_events = []
@@ -98,7 +99,7 @@ class _StubDb:
         return None
 
     async def execute(self, statement):
-        from app.performance.models import PerformanceFocusGroup
+        from app.performance.models import PerformanceFocusGroup, PerformanceProject
         from sqlalchemy.sql.selectable import Select
         class Result:
             def __init__(self, rows): self.rows = rows
@@ -109,6 +110,8 @@ class _StubDb:
         column = statement.column_descriptions[0]["entity"]
         if column is PerformanceFocusGroup:
             return Result(self._filtered(statement))
+        if column is PerformanceProject:
+            return Result(self._filtered_projects(statement))
         return Result([])
 
     def _filtered(self, statement):
@@ -146,6 +149,24 @@ class _StubDb:
                         rows[:] = [g for g in rows if keyword in g.name]
                     else:
                         rows[:] = [g for g in rows if g.name == value]
+
+    def _filtered_projects(self, statement):
+        rows = list(self.projects)
+        for criteria in statement.whereclause.get_children() if statement.whereclause is not None else ():
+            self._apply_project_criteria(rows, criteria)
+        return rows
+
+    def _apply_project_criteria(self, rows, criteria):
+        from sqlalchemy.sql.elements import BinaryExpression, ColumnElement
+        if isinstance(criteria, ColumnElement):
+            if isinstance(criteria, BinaryExpression):
+                value = criteria.right.value if hasattr(criteria.right, "value") else criteria.right
+                col = criteria.left.name
+                if col == "id":
+                    if isinstance(value, (list, tuple, set)):
+                        rows[:] = [p for p in rows if p.id in value]
+                    else:
+                        rows[:] = [p for p in rows if p.id == value]
 
     def add(self, obj):
         from datetime import UTC, datetime
@@ -389,6 +410,36 @@ async def test_focus_group_detail_scoped_and_authorized():
         assert (await client.get("/api/v1/performance/cycles/999/focus-groups/1")).status_code == 404
     async with _make_app(db, ()) as client:
         assert (await client.get(f"{base}/1")).status_code == 403
+
+
+async def test_focus_group_project_tab_resolves_string_activity_ids():
+    """回归：activity_ids 存字符串（如 '20'），列表/详情查项目名必须先转 int，
+    否则真实 PG 报 operator does not exist: bigint = character varying (500)。"""
+    db = _StubDb(
+        _StubCycle(1),
+        projects=[
+            type("P", (), {"id": 20, "name": "Q1 研发评估"}),
+            type("P", (), {"id": 21, "name": "Q1 销售评估"}),
+        ],
+    )
+    base = "/api/v1/performance/cycles/1/focus-groups"
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        created = await client.post(base, json={
+            "name": "项目版组", "tab": "project", "scope_setting_mode": 1,
+            "employee_nos": [], "scope_mode": "manual",
+            "activity_ids": ["20", "21", "not-a-number"],
+        })
+        assert created.status_code == 201, created.text
+        group_id = created.json()["id"]
+
+        listed = await client.get(base, params={"tab": "project"})
+        assert listed.status_code == 200, listed.text
+        item = listed.json()["items"][0]
+        assert item["activity_names"] == ["Q1 研发评估", "Q1 销售评估", "not-a-number"]
+
+        detailed = await client.get(f"{base}/{group_id}")
+        assert detailed.status_code == 200, detailed.text
+        assert detailed.json()["activity_names"] == ["Q1 研发评估", "Q1 销售评估", "not-a-number"]
 
 
 async def test_focus_groups_requires_people_groups_permission():

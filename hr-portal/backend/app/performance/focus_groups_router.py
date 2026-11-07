@@ -509,7 +509,10 @@ async def check_focus_group_priority(
 async def _project_names(db: AsyncSession, ids: list[str]) -> dict[str, str]:
     if not ids:
         return {}
-    projects = (await db.execute(select(PerformanceProject).where(PerformanceProject.id.in_(ids)))).scalars().all()
+    int_ids = [int(value) for value in ids if str(value).isdigit()]
+    if not int_ids:
+        return {}
+    projects = (await db.execute(select(PerformanceProject).where(PerformanceProject.id.in_(int_ids)))).scalars().all()
     return {str(project.id): project.name for project in projects}
 
 
@@ -566,7 +569,11 @@ async def get_focus_group(
     if group is None or group.cycle_ref != cycle.cycle_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="人员组不存在")
     payload = FocusGroupOut.model_validate(group).model_dump()
-    payload["activity_names"] = list(_project_names(db, group.activity_ids or []).values()) if group.tab == "project" else []
+    if group.tab == "project":
+        names_by_id = await _project_names(db, group.activity_ids or [])
+        payload["activity_names"] = [names_by_id.get(value, value) for value in (group.activity_ids or [])]
+    else:
+        payload["activity_names"] = []
     return FocusGroupOut.model_validate(payload)
 
 
