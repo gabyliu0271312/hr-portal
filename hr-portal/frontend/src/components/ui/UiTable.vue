@@ -416,7 +416,8 @@ function onSort(key: string) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ui-table__row:hover > .ui-table__cell { background: var(--ui-table-row-hover-background); }
+/* 行 hover 仅作用于数据行；空态/加载态行（--state）不响应 hover */
+.ui-table__row:not(.ui-table__row--state):hover > .ui-table__cell { background: var(--ui-table-row-hover-background); }
 .ui-table__row.is-clickable { cursor: pointer; }
 .ui-table__row.is-selected > .ui-table__cell { background: var(--ui-pagination-hover-background); }
 .ui-table__state {

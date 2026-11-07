@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import FocusPeopleManagement from './FocusPeopleManagement.vue'
-import { performanceFocusGroupApi } from '@/api/performance'
+import { performanceFocusGroupApi, type PerformanceFocusGroup } from '@/api/performance'
 
 vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 vi.mock('vue-router', () => ({
@@ -39,7 +39,7 @@ function stubGlobals() {
   }
 }
 
-function group(overrides: Partial<Record<string, unknown>> = {}) {
+function group(overrides: Partial<PerformanceFocusGroup> = {}): PerformanceFocusGroup {
   return {
     id: 1,
     cycle_ref: 'cycle:1',
