@@ -570,7 +570,7 @@ describe('PerformanceReview', () => {
     ;(document.body.querySelector('[aria-label="复制链接"]') as HTMLButtonElement).click()
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('rootReviewId=22'))
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('activeTab=summary'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('activeTab=reference-summary'))
     ;(document.body.querySelector('[aria-label="关闭"]') as HTMLButtonElement).click()
     await flushPromises()
     await new Promise(resolve => setTimeout(resolve, 250))

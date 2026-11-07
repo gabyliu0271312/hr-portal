@@ -72,18 +72,18 @@ const task = ref<PerformanceManagementDetail | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTab = ref(props.activeTab || 'evaluation')
-const selectedTab = computed({ get: () => activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
+const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
 let loadSequence = 0
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const title = computed(() => task.value?.node_name || props.nodeName || '上级评估')
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
-const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.node_id === activeTab.value) || null)
+const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.key === activeTab.value) || referenceTabs.value.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value) || null)
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
 const tabs = computed<PerformanceLineTab[]>(() => task.value?.management_tabs
   ? task.value.management_tabs.map(tab => ({ key: tab.key, label: tab.node_name }))
   : [
     { key: 'evaluation', label: title.value },
-    ...referenceTabs.value.map(reference => ({ key: reference.node_id, label: reference.node_name })),
+    ...referenceTabs.value.map(reference => ({ key: reference.key, label: reference.node_name })),
   ])
 const managementCompletionMessage = computed(() => {
   const tab = managementTab.value
@@ -123,7 +123,11 @@ async function load() {
     if (loaded.management_tabs) {
       const selected = loaded.management_tabs.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value)
       selectedTab.value = selected?.key || loaded.default_active_tab || loaded.management_tabs[0]?.key || 'evaluation'
-    } else if (activeTab.value !== 'evaluation' && !loaded.reference_tabs?.some(reference => reference.node_id === activeTab.value)) selectedTab.value = 'evaluation'
+    } else if (activeTab.value !== 'evaluation') {
+      const selected = loaded.reference_tabs?.find(reference => reference.key === activeTab.value)
+        || loaded.reference_tabs?.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value)
+      selectedTab.value = selected?.key || 'evaluation'
+    }
   } catch {
     if (sequence === loadSequence) error.value = '评估内容加载失败，请稍后重试'
   } finally {

@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { performanceReviewApi } from '@/api/performance'
+import { performanceOkrApi, performanceReviewApi } from '@/api/performance'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 
@@ -72,6 +72,44 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(document.body.querySelector('.performance-reminder-button')).not.toBeNull()
     await (document.body.querySelector('.performance-reminder-button') as HTMLButtonElement).click()
     expect(wrapper.emitted('remind')).toEqual([[expect.objectContaining({ node_id: 'work-summary-1', task_id: 201 })]])
+    wrapper.unmount()
+  })
+
+  it('switches readonly OKR and node references using stable keys through controlled tab updates', async () => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
+      ...structuredClone(task),
+      reference_tabs: [
+        { key: 'reference-summary', node_id: 'summary', node_name: '工作总结', kind: 'node', task_id: 201, employee_no: 'E001', status: 'pending', submitted_at: null, form_schema: [], answers: {}, can_remind: false },
+        { key: 'reference-okr', node_id: '', node_name: 'OKR', kind: 'okr', task_id: 145, employee_no: 'E001', status: 'not_started', submitted_at: null, form_schema: [], answers: {}, can_remind: false },
+      ],
+    })
+    const fetchOkr = vi.spyOn(performanceOkrApi, 'taskOkr').mockResolvedValue({ enabled: true, employee_no: 'E001', okr: null })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, taskId: 145, employeeNo: 'E001' } })
+    await flushPromises()
+    const clickTab = async (label: string) => {
+      const tab = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.performance-drawer .line-tab')).find(button => button.textContent === label)!
+      tab.click()
+      await flushPromises()
+      const value = wrapper.emitted('update:activeTab')!.at(-1)![0] as string
+      await wrapper.setProps({ activeTab: value || 'evaluation' })
+      await flushPromises()
+      expect(tab.getAttribute('aria-selected')).toBe('true')
+      return value
+    }
+    expect(await clickTab('OKR')).toBe('reference-okr')
+    expect(document.body.querySelector('.okr-card')).not.toBeNull()
+    expect(fetchOkr).toHaveBeenCalledWith(145)
+    expect(await clickTab('工作总结')).toBe('reference-summary')
+    expect(document.body.textContent).toContain('暂未提交')
+    expect(await clickTab('上级评估')).toBe('evaluation')
+    expect(await clickTab('OKR')).toBe('reference-okr')
+    await wrapper.setProps({ modelValue: false })
+    await wrapper.setProps({ modelValue: true })
+    await flushPromises()
+    expect(document.body.querySelector('.okr-card')).not.toBeNull()
+    await wrapper.setProps({ activeTab: 'summary' })
+    await flushPromises()
+    expect(document.body.textContent).toContain('暂未提交')
     wrapper.unmount()
   })
 
