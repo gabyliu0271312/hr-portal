@@ -513,6 +513,26 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         actor_ref = str(getattr(task, "handler_ref", context.subject_id))
     if isinstance(task, PerformanceNodeTask) and not await _task_edit_allowed(db, task, actor_ref):
         editable, submit_allowed = False, False
+    can_giveup = False
+    if (
+        isinstance(task, PerformanceNodeTask)
+        and task.task_kind == "evaluation"
+        and node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWER_360
+        and not (task.submitted_at is not None or task.status == "completed")
+        and getattr(task, "revoked_at", None) is None
+    ):
+        voluntary_states = (
+            await db.execute(
+                select(PerformanceAuditEvent.after_state).where(
+                    PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+                    PerformanceAuditEvent.subject_ref == actor_ref,
+                    PerformanceAuditEvent.event_type == "REVIEWER_360_VOLUNTEERED",
+                )
+            )
+        ).scalars().all()
+        can_giveup = any(
+            str((state or {}).get("task_id")) == str(task.id) for state in voluntary_states
+        )
     visibility_role = await resolve_subject_visibility_role(db, context, actor_ref, member, node, project)
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     reconsideration_reason = None
@@ -545,6 +565,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "submit_allowed": submit_allowed,
         "submission_count": 1 if task.submitted_at else 0,
         "version": task.answer_version,
+        "can_giveup": can_giveup,
         "person": {
             "employee_no": task.target_employee_no,
             "display_name": member.display_name if member else task.target_employee_no,

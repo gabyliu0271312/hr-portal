@@ -4,7 +4,8 @@ The reviewer sees the evaluation tasks they hold on the project's 360° node
 (created by invitation, system default, or their own voluntary evaluation).
 Voluntary evaluation creates a normal evaluation task for the reviewer; it does
 not touch the locked authorization snapshot and does not consume the reviewee's
-invitation quota.
+invitation quota. A pending voluntary evaluation can be abandoned by its own
+reviewer (``giveup``), which revokes the task so it disappears from the list.
 """
 from __future__ import annotations
 
@@ -51,6 +52,7 @@ from app.performance.review_360_invites_router import (
 
 router = APIRouter(prefix="/performance/review-360/feedback", tags=["performance-review-360"])
 VOLUNTARY_AUDIT_EVENT = "REVIEWER_360_VOLUNTEERED"
+GIVEUP_AUDIT_EVENT = "REVIEWER_360_VOLUNTARY_GIVEUP"
 
 
 class FeedbackItemOut(BaseModel):
@@ -64,6 +66,7 @@ class FeedbackItemOut(BaseModel):
     source_label: str
     relationship: str
     due_at: str | None = None
+    can_giveup: bool = False
 
 
 class FeedbackListOut(BaseModel):
@@ -94,6 +97,12 @@ class VoluntaryPayload(BaseModel):
 class VoluntaryResultOut(BaseModel):
     task_id: int
     target_employee_no: str
+
+
+class GiveUpPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: int = Field(ge=1)
+    node_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 async def _overdue_voluntary_allowed(db: AsyncSession) -> bool:
@@ -180,6 +189,40 @@ async def _reviewer_tasks(
     return list(rows)
 
 
+async def _voluntary_task_ids(
+    db: AsyncSession,
+    project: PerformanceProject,
+    handler_ref: str,
+) -> list[int]:
+    """The ids of the handler's voluntary (self-started) 360° evaluation tasks.
+
+    A task is voluntary when a REVIEWER_360_VOLUNTEERED audit event references
+    it (``after_state.task_id``). Only voluntary tasks may be given up.
+    """
+    rows = (
+        await db.execute(
+            select(PerformanceAuditEvent.after_state)
+            .where(
+                PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+                PerformanceAuditEvent.subject_ref == handler_ref,
+                PerformanceAuditEvent.event_type == VOLUNTARY_AUDIT_EVENT,
+            )
+            .order_by(PerformanceAuditEvent.event_at, PerformanceAuditEvent.id)
+        )
+    ).scalars().all()
+    ids: list[int] = []
+    for state in rows:
+        state = state or {}
+        if str(state.get("project_id")) != str(project.id):
+            continue
+        raw = state.get("task_id")
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
 async def _feedback_source_labels(
     db: AsyncSession,
     project: PerformanceProject,
@@ -256,9 +299,11 @@ async def list_feedback(
     tasks = [task for task in tasks if task.member_snapshot_id == member_snapshot_id]
     people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
     labels = await _feedback_source_labels(db, project, actor_ref, node.node_id if node else None)
+    voluntary_task_ids = set(await _voluntary_task_ids(db, project, actor_ref))
     items: list[FeedbackItemOut] = []
     for task in tasks:
         person = people_by_no.get(task.target_employee_no)
+        is_completed = task.status == "rejected" or task.submitted_at is not None or task.status == "completed"
         items.append(
             FeedbackItemOut(
                 task_id=task.id,
@@ -267,10 +312,11 @@ async def list_feedback(
                 department=organization_leaf(person) if person else None,
                 job_sequence=format_job_sequence(person.job_family, person.job_category) if person else None,
                 position_level=person.position_level if person else None,
-                status="rejected" if task.status == "rejected" else ("completed" if task.submitted_at is not None or task.status == "completed" else "pending"),
+                status="rejected" if task.status == "rejected" else ("completed" if is_completed else "pending"),
                 source_label=labels.get(task.target_employee_no, INVITE_SOURCE_LABELS["SELF"]),
                 relationship=_relationship(people_by_no.get(actor_ref), person),
                 due_at=task.due_at.isoformat() if task.due_at else None,
+                can_giveup=task.id in voluntary_task_ids and not is_completed,
             )
         )
     if keyword:
@@ -414,3 +460,81 @@ async def start_voluntary_evaluation(
     )
     await db.commit()
     return VoluntaryResultOut(task_id=task.id, target_employee_no=target_no)
+
+
+@router.post("/projects/{project_id}/giveup", response_model=VoluntaryResultOut)
+async def giveup_voluntary_evaluation(
+    project_id: int,
+    payload: GiveUpPayload,
+    node_id: str | None = None,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    """放弃一条尚未提交的自愿 360° 评估：撤销该评估任务并从评估人列表移除。
+
+    仅限评估人本人操作；仅限 ``REVIEWER_360_VOLUNTEERED``（自愿评估）来源；
+    已提交/已撤销/非最新快照/非 360 评估节点的任务不可放弃。
+    """
+    if payload.node_id is not None and node_id is not None and payload.node_id != node_id:
+        raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_MISMATCH")
+    node_id = payload.node_id if payload.node_id is not None else node_id
+    project = await _get_project(db, project_id)
+    await _locked_snapshot(db, project)
+    actor_ref = await _resolve_cycle_member_employee(db, context, project)
+    nodes = await _project_nodes(db, project.id)
+    node = await _evaluation_node(db, project.id, node_id, nodes=nodes)
+    if node is None:
+        raise HTTPException(status_code=409, detail="REVIEWER_360_NODE_NOT_CONFIGURED")
+    task = await db.scalar(
+        select(PerformanceNodeTask).where(
+            PerformanceNodeTask.id == payload.task_id,
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.node_snapshot_id == node.id,
+            PerformanceNodeTask.task_kind == "evaluation",
+            PerformanceNodeTask.handler_ref == actor_ref,
+            PerformanceNodeTask.revoked_at.is_(None),
+        )
+    )
+    if task is None:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    if task.submitted_at is not None or task.status == "completed":
+        raise HTTPException(status_code=409, detail="TASK_ALREADY_SUBMITTED")
+    member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
+    if task.member_snapshot_id != member_snapshot_id:
+        raise HTTPException(status_code=409, detail="TASK_SNAPSHOT_CHANGED")
+    voluntary_states = (
+        await db.execute(
+            select(PerformanceAuditEvent.after_state).where(
+                PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+                PerformanceAuditEvent.subject_ref == actor_ref,
+                PerformanceAuditEvent.event_type == VOLUNTARY_AUDIT_EVENT,
+            )
+        )
+    ).scalars().all()
+    voluntary = any(
+        str((state or {}).get("task_id")) == str(task.id) for state in voluntary_states
+    )
+    if not voluntary:
+        raise HTTPException(status_code=409, detail="TASK_NOT_VOLUNTARY")
+    now = datetime.now(UTC)
+    task.revoked_at = now
+    PerformanceAuditService(db).append_event(
+        AuditEventInput(
+            event_type=GIVEUP_AUDIT_EVENT,
+            cycle_ref=project.cycle_ref,
+            employee_no=task.target_employee_no,
+            actor_type=DYNAMIC_ASSIGNMENT_ACTOR_TYPE_EMPLOYEE,
+            actor_ref=actor_ref,
+            subject_type=DYNAMIC_IDENTITY_TYPE_REVIEWER_360,
+            subject_ref=actor_ref,
+            after_state={
+                "project_id": project.id,
+                "node_id": node.node_id,
+                "task_id": task.id,
+                "source_type": "VOLUNTARY",
+                "revoked_at": now.isoformat(),
+            },
+        )
+    )
+    await db.commit()
+    return VoluntaryResultOut(task_id=task.id, target_employee_no=task.target_employee_no)

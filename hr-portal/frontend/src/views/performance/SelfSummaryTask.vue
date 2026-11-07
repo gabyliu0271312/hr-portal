@@ -46,11 +46,12 @@
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :message="saveMessage" @submit="submit()" @cancel="router.back()" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
   <PerformanceConfirmDialog v-model="overdueConfirmOpen" appearance="submit" confirm-variant="primary" message="确定提交吗？" description="当前环节已过截止时间，提交后将无法修改内容。" cancel-text="取消" confirm-text="确定" :loading="submitting" :error-message="overdueConfirmError" @confirm="submit(true)" />
+  <PerformanceConfirmDialog v-model="giveupConfirmOpen" appearance="submit" confirm-variant="primary" message="确定放弃评估？" description="放弃后将从你的 360° 评估列表中移除，重新评估需再次发起自愿评估。" cancel-text="取消" confirm-text="确定" :loading="givingUp" :error-message="giveupError" @confirm="giveup()" />
 </template>
 
 <script setup lang="ts">
@@ -62,7 +63,7 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
-import { performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import { performanceReview360FeedbackApi, performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
 import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
 import PerformanceSplitWorkspace from '@/components/performance/PerformanceSplitWorkspace.vue'
@@ -82,8 +83,11 @@ const loading = ref(true)
 const loadError = ref('')
 const saving = ref(false)
 const submitting = ref(false)
+const givingUp = ref(false)
 const overdueConfirmOpen = ref(false)
 const overdueConfirmError = ref('')
+const giveupConfirmOpen = ref(false)
+const giveupError = ref('')
 const viewing = ref(route.query.view === '1')
 const draftOpen = ref(false)
 const draftPending = ref(false)
@@ -112,6 +116,7 @@ const keepResultOptions = [
 const keepResultChoice = ref<'keep' | 'change'>('change')
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
 const canEdit = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
+const canGiveup = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && Boolean(task.value.can_giveup) && !task.value.submitted_at)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
 let pendingSave = false
@@ -230,6 +235,28 @@ function validate() {
   if (first) formRef.value?.focusField(first)
   return !first
 }
+async function giveup() {
+  if (givingUp.value) return
+  givingUp.value = true
+  giveupError.value = ''
+  try {
+    const projectId = task.value.project_id || Number(route.query.project_id) || 0
+    const nodeId = task.value.node_id || String(route.query.node || '')
+    if (!projectId || !nodeId) throw new Error('missing context')
+    await performanceReview360FeedbackApi.giveup(projectId, task.value.task_id, nodeId)
+    giveupConfirmOpen.value = false
+    ElMessage.success('已放弃评估')
+    if (getActivePinia()) usePerformanceProjectContextStore().invalidateReviewOverview(Number(projectId))
+    const query: Record<string, string> = { project_id: String(projectId), node: nodeId }
+    if (route.query.cycle_id) query.cycle_id = String(route.query.cycle_id)
+    await router.push({ path: '/performance/review', query })
+  } catch (error) {
+    giveupError.value = errorMessage(error, '放弃评估失败，请稍后重试')
+  } finally {
+    givingUp.value = false
+  }
+}
+
 async function submit(overdueConfirmed = false) {
   if (submitting.value || !canEdit.value || !validate()) return
   const due = task.value.deadline_at ? new Date(task.value.deadline_at).getTime() : NaN

@@ -327,6 +327,7 @@ export interface PerformanceReview360FeedbackItem {
   source_label: string
   relationship: string
   due_at: string | null
+  can_giveup?: boolean
 }
 
 export interface PerformanceReview360FeedbackList {
@@ -368,6 +369,10 @@ export const performanceReview360FeedbackApi = {
   },
   async start(projectId: number | string, targetEmployeeNo: string, nodeId?: string): Promise<PerformanceReview360VoluntaryResult> {
     const { data } = await api.post<PerformanceReview360VoluntaryResult>(`/performance/review-360/feedback/projects/${projectId}/voluntary`, { target_employee_no: targetEmployeeNo, ...(nodeId ? { node_id: nodeId } : {}) })
+    return data
+  },
+  async giveup(projectId: number | string, taskId: number | string, nodeId?: string): Promise<PerformanceReview360VoluntaryResult> {
+    const { data } = await api.post<PerformanceReview360VoluntaryResult>(`/performance/review-360/feedback/projects/${projectId}/giveup`, { task_id: Number(taskId), ...(nodeId ? { node_id: nodeId } : {}) })
     return data
   },
 }
@@ -1232,6 +1237,7 @@ export type PerformanceTemplateTask = {
   submit_allowed: boolean
   submitted_at?: string | null
   version?: number
+  can_giveup?: boolean
   person: SelfSummaryPerson
   form_schema: SelfSummarySection[]
   answers: Record<string, unknown>

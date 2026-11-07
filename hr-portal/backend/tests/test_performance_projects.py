@@ -6115,7 +6115,8 @@ async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeyp
     async def member_snapshot(*args): return 7
     async def people(*args): return []
     async def labels(*args): return {}
-    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_project_nodes", project_nodes), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels)]:
+    async def no_voluntary(*args): return []
+    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_project_nodes", project_nodes), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels), ("_voluntary_task_ids", no_voluntary)]:
         monkeypatch.setattr(feedback, name, function)
     result = await feedback.list_feedback(1, keyword=None, context=context(), db=object())
     assert result.items[0].status == expected
@@ -6179,6 +6180,11 @@ def voluntary_360_context(monkeypatch):
             params = query.compile().params
             self.last_existing_params = params
             return self.existing
+        async def execute(self, query):
+            class ExecuteResult:
+                def scalars(self):
+                    return SimpleNamespace(all=lambda: [])
+            return ExecuteResult()
         def add(self, row):
             if isinstance(row, PerformanceNodeTask):
                 self.pending = row
@@ -7555,3 +7561,79 @@ async def test_management_member_api_root_and_dynamic_export_contract(management
         assert body["rating_columns"] == [{"key": "rating:grade", "label": "最终评级"}]
         assert all(item["rating_columns"] == body["rating_columns"] for item in body["items"])
         assert (await client.get("/api/v1/performance/projects/1/members?sort_by=rating:unknown")).status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("voluntary,submitted,expected", [
+    (True, False, "ok"),
+    (True, True, ("TASK_ALREADY_SUBMITTED", 409)),
+    (False, False, ("TASK_NOT_VOLUNTARY", 409)),
+])
+async def test_360_giveup_route_branches(monkeypatch, voluntary, submitted, expected):
+    """放弃评估路由：自愿+未提交成功撤销；已提交/非自愿拒绝。"""
+    from datetime import UTC, datetime
+    from fastapi import HTTPException
+    from app.performance import review_360_feedback_router as feedback
+
+    now = datetime.now(UTC)
+    proj = project("STARTED")
+    proj.id = 1
+    proj.cycle_ref = "C1"
+    node = SimpleNamespace(id=10, node_id="feedback", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}}, node_order=1)
+
+    class FakeTask:
+        def __init__(self):
+            self.id = 101
+            self.project_id = 1
+            self.node_snapshot_id = 10
+            self.task_kind = "evaluation"
+            self.target_employee_no = "E1"
+            self.handler_ref = "REVIEWER"
+            self.submitted_at = now if submitted else None
+            self.status = "completed" if submitted else "pending"
+            self.revoked_at = None
+            self.member_snapshot_id = 7
+
+    task = FakeTask()
+    db = SimpleNamespace(commit_count=0)
+    # scalar：task 查询；execute：voluntary 事件 after_state 列表
+    scalars = [task]
+    voluntary_states = [{"task_id": 101}] if voluntary else []
+    class ExecuteResult:
+        def scalars(self): return SimpleNamespace(all=lambda: voluntary_states)
+    async def fake_scalar(query):
+        return scalars.pop(0) if scalars else None
+    async def fake_execute(query):
+        return ExecuteResult()
+    async def fake_commit():
+        db.commit_count += 1
+    added_events = []
+    db.add = lambda record: added_events.append(record)
+
+    async def fake_get_project(*a): return proj
+    async def fake_locked_snapshot(*a): return SimpleNamespace(id=2)
+    async def fake_actor(*a): return "REVIEWER"
+    async def fake_nodes(*a): return [node]
+    async def fake_eval_node(*a, **k): return node
+    async def fake_latest(*a): return 7
+    monkeypatch.setattr(feedback, "_get_project", fake_get_project)
+    monkeypatch.setattr(feedback, "_locked_snapshot", fake_locked_snapshot)
+    monkeypatch.setattr(feedback, "_resolve_cycle_member_employee", fake_actor)
+    monkeypatch.setattr(feedback, "_project_nodes", fake_nodes)
+    monkeypatch.setattr(feedback, "_evaluation_node", fake_eval_node)
+    monkeypatch.setattr(feedback, "_latest_member_snapshot_id", fake_latest)
+    db.scalar = fake_scalar
+    db.execute = fake_execute
+    db.commit = fake_commit
+
+    if expected == "ok":
+        result = await feedback.giveup_voluntary_evaluation(1, feedback.GiveUpPayload(task_id=101, node_id="feedback"), context=context(), db=db)
+        assert result.task_id == 101
+        assert task.revoked_at is not None
+        assert db.commit_count == 1
+    else:
+        detail, status = expected
+        with pytest.raises(HTTPException) as raised:
+            await feedback.giveup_voluntary_evaluation(1, feedback.GiveUpPayload(task_id=101, node_id="feedback"), context=context(), db=db)
+        assert (raised.value.status_code, raised.value.detail) == (status, detail)
+        assert task.revoked_at is None

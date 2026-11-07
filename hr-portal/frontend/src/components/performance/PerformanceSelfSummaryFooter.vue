@@ -1,6 +1,7 @@
 <template>
   <footer class="self-summary-footer">
     <UiButton variant="primary" :disabled="submitting || !submitAllowed || !editable" :loading="submitting" @click="$emit('submit')">{{ submitting ? '提交中…' : '提交' }}</UiButton>
+    <UiButton v-if="canGiveup" variant="outline-primary" :disabled="submitting" @click="$emit('giveup')">放弃评估</UiButton>
     <UiButton variant="secondary" :disabled="submitting" @click="$emit('cancel')">取消</UiButton>
     <span role="status">{{ message }}</span>
   </footer>
@@ -9,8 +10,8 @@
 <script setup lang="ts">
 import UiButton from '../ui/UiButton.vue'
 
-defineProps<{ submitting: boolean; submitAllowed: boolean; editable: boolean; message: string }>()
-defineEmits<{ submit: []; cancel: [] }>()
+defineProps<{ submitting: boolean; submitAllowed: boolean; editable: boolean; message: string; canGiveup?: boolean }>()
+defineEmits<{ submit: []; cancel: []; giveup: [] }>()
 </script>
 
 <style scoped>
