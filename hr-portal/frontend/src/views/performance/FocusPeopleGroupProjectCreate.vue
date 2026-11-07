@@ -143,12 +143,16 @@ onMounted(() => { void loadProjects() })
   padding: var(--spacing-5);
   box-sizing: border-box;
   gap: var(--spacing-4);
+  --performance-input-field-gap: var(--spacing-4);
 }
 .focus-group-project-card {
   padding: var(--spacing-5);
 }
+.focus-group-project-card :deep(.performance-form-item:last-child) {
+  margin-bottom: 0;
+}
 .focus-group-project-desc {
-  margin: 0 0 var(--spacing-6);
+  margin: 0 0 var(--spacing-4);
   color: var(--performance-text-secondary);
   font-size: var(--font-size-md);
   line-height: var(--performance-input-line-height);
@@ -156,10 +160,10 @@ onMounted(() => { void loadProjects() })
 .focus-group-project-roles {
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: var(--spacing-2);
 }
 .focus-group-project-roles__sub {
-  padding-left: 24px;
+  padding-left: var(--spacing-6);
 }
 .focus-group-project-ok,
 .focus-group-project-cancel {
