@@ -22,7 +22,7 @@ export interface PerformanceTableColumn {
   key: string
   label: string
   width?: number
-  fixed?: boolean
+  fixed?: boolean | 'left' | 'right'
   sortable?: boolean
   align?: 'left' | 'right'
 }

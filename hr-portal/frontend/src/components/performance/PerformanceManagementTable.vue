@@ -88,7 +88,7 @@ const uiColumns = computed<UiTableColumn[]>(() => nativeColumns.value.map(column
   key: column.key,
   label: column.label,
   width: columnWidth(column),
-  fixed: column.fixed ? 'left' : undefined,
+  fixed: column.fixed === true || column.fixed === 'left' ? 'left' : column.fixed === 'right' ? 'right' : undefined,
   sortable: column.sortable,
   align: column.align,
 })))

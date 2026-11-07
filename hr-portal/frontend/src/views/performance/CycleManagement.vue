@@ -416,6 +416,11 @@ function openCycleSettings(key: string) {
     overdueSubmissionDialogOpen.value = true
     return
   }
+  if (key === 'people-group') {
+    if (!selected.value) return
+    void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: selected.value.id } })
+    return
+  }
   if (key !== 'hrbp-permission' || !selected.value) return
   void router.push({ name: 'PerformanceCycleHrbpPermissions', params: { cycleId: selected.value.id }, query: { activeKey: 'auth-list' } })
 }

@@ -1100,3 +1100,42 @@ class PerformanceReviewQuestion(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class PerformanceFocusGroup(Base):
+    """人员组（飞书「人员组管理」页 followGroups 语义）。
+
+    - 归属周期（cycle_ref），按页签区分周期级 / 关联评估项目级
+    - 成员以员工编号数组保存（employee_nos），显示名等由前端快照解析
+    - 字段对齐飞书列表列：名称 / 人数 / 关联评估项目 / 人员范围设置方式 / 创建人 / 创建时间 / 更新人 / 更新时间
+    """
+    __tablename__ = "performance_focus_groups"
+    __table_args__ = (
+        UniqueConstraint(
+            "cycle_ref",
+            "tab",
+            "name",
+            name="uq_performance_focus_group_cycle_tab_name",
+        ),
+        Index("ix_performance_focus_groups_cycle", "cycle_ref", "tab"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    cycle_ref: Mapped[str] = mapped_column(
+        String(64), ForeignKey("performance_cycles.cycle_ref", ondelete="CASCADE"), nullable=False
+    )
+    tab: Mapped[str] = mapped_column(String(16), nullable=False, default="semester")
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    employee_nos: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    scope_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    project_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

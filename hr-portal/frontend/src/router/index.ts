@@ -497,6 +497,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '人员与部门列表' },
       },
       {
+        path: 'cycles/:cycleId/focus-people',
+        name: 'PerformanceCycleFocusPeople',
+        component: () => import('@/views/performance/FocusPeopleManagement.vue'),
+        meta: { label: '人员组管理' },
+      },
+      {
         path: 'templates',
         name: 'PerformanceTemplates',
         component: () => import('@/views/performance/PerformanceTemplateManagement.vue'),

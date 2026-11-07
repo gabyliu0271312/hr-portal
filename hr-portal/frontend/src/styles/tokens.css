@@ -12,6 +12,8 @@
   --color-surface-disabled: #eff0f1;
   --color-line-control: #d0d3d4;
   --color-line-divider: rgba(31, 35, 41, 0.15);
+  /* 全屏页 head 下边框（REA 实测飞书绩效人员组管理页；全局 16 处 UiPageHeader 共用） */
+  --color-line-header: rgba(187, 191, 196, 0.5);
   --color-text-danger-strong: #f54a45;
   --color-text-warning-strong: #ff8800;
   --color-action-primary: var(--color-primary);

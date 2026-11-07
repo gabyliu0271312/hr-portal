@@ -2241,3 +2241,60 @@ export const performanceOkrApi = {
     return data
   },
 }
+
+/* ===== 人员组管理（focus-people，REA 实测对齐） ===== */
+
+export interface PerformanceFocusGroup {
+  id: number
+  cycle_ref: string
+  tab: 'semester' | 'project'
+  name: string
+  employee_nos: string[]
+  scope_mode: string
+  project_ref: string | null
+  created_by_type: string | null
+  created_by_ref: string | null
+  updated_by_type: string | null
+  updated_by_ref: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PerformanceFocusGroupPayload {
+  name: string
+  tab: 'semester' | 'project'
+  employee_nos: string[]
+  scope_mode: string
+  project_ref?: string | null
+}
+
+export interface PerformanceFocusGroupPage {
+  total: number
+  items: PerformanceFocusGroup[]
+}
+
+export interface PerformanceFocusGroupPriorityCheck {
+  data: boolean
+}
+
+export const performanceFocusGroupApi = {
+  async priorityCheck(cycleId: number): Promise<boolean> {
+    const { data } = await api.get<PerformanceFocusGroupPriorityCheck>(`/performance/cycles/${cycleId}/focus-groups/priority-check`)
+    return data.data
+  },
+  async list(cycleId: number, params: { tab: 'semester' | 'project'; current?: number; size?: number; keyword?: string }): Promise<PerformanceFocusGroupPage> {
+    const { data } = await api.get<PerformanceFocusGroupPage>(`/performance/cycles/${cycleId}/focus-groups`, { params })
+    return data
+  },
+  async create(cycleId: number, payload: PerformanceFocusGroupPayload): Promise<PerformanceFocusGroup> {
+    const { data } = await api.post<PerformanceFocusGroup>(`/performance/cycles/${cycleId}/focus-groups`, payload)
+    return data
+  },
+  async update(cycleId: number, groupId: number, payload: PerformanceFocusGroupPayload): Promise<PerformanceFocusGroup> {
+    const { data } = await api.patch<PerformanceFocusGroup>(`/performance/cycles/${cycleId}/focus-groups/${groupId}`, payload)
+    return data
+  },
+  async remove(cycleId: number, groupId: number): Promise<void> {
+    await api.delete(`/performance/cycles/${cycleId}/focus-groups/${groupId}`)
+  },
+}
