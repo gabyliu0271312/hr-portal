@@ -128,6 +128,7 @@ describe('FocusPeopleGroupProjectCreate', () => {
       description: { 'zh-CN': '', 'en-US': '' },
       employee_nos: [],
       scope_mode: 'manual',
+      scope_setting_mode: 1,
       activity_ids: ['1'],
       roles_of_managing_scope: ['leader'],
     })

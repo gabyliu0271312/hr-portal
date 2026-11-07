@@ -306,32 +306,6 @@ class PerformanceObjectAuthorizationService:
         )}
         selected = set(group.roles_of_managing_scope or [])
         scope = set()
-        if "leader" in selected and ROLE_LINE_MANAGER in enabled:
-            resolved = await self.snapshot_service.resolve_scopes(
-                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
-                identity_type=DYNAMIC_IDENTITY_TYPE_DIRECT_MANAGER,
-            )
-            # A manually assigned DIRECT_MANAGER cannot replace the frozen reporting relationship.
-            direct = {person.employee_no for person in people if person.direct_supervisor_employee_no == actor.actor_ref}
-            scope |= {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE} & direct
-        if "hrbp" in selected and PERFORMANCE_HRBP_ROLE_CODE in enabled:
-            resolved = await self.snapshot_service.resolve_scopes(
-                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
-                identity_type=DYNAMIC_IDENTITY_TYPE_HRBP,
-            )
-            hrbp_scope = {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE}
-            permission = await self.db.scalar(select(PerformanceHrbpPermission).where(
-                PerformanceHrbpPermission.cycle_ref == cycle_ref,
-                PerformanceHrbpPermission.hrbp_employee_no == actor.actor_ref,
-            ))
-            organizations = list(permission.scope or []) if permission else []
-            hrbp_scope |= {person.employee_no for person in people if any(
-                person.organization_ref == org or str(person.organization_ref or "").startswith(f"{org}/")
-                for org in organizations
-            )}
-            hidden = set(permission.invisible_people or []) if permission else set()
-            hidden |= await global_hrbp_invisible_people(self.db, scopes=organizations)
-            scope |= hrbp_scope - hidden
         projects = []
         if group.tab == "project" or ("activity_manager" in selected and PERFORMANCE_PROJECT_ADMIN_ROLE_CODE in enabled):
             projects = list((await self.db.execute(select(PerformanceProject).where(
@@ -351,6 +325,38 @@ class PerformanceObjectAuthorizationService:
             project_members[project.id] = set((await self.db.execute(select(PerformanceProjectMember.employee_no).where(
                 PerformanceProjectMember.snapshot_id == member_snapshot.id,
             ))).scalars().all()) if member_snapshot else set()
+        if "leader" in selected and ROLE_LINE_MANAGER in enabled:
+            resolved = await self.snapshot_service.resolve_scopes(
+                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+                identity_type=DYNAMIC_IDENTITY_TYPE_DIRECT_MANAGER,
+            )
+            # A manually assigned DIRECT_MANAGER cannot replace the frozen reporting relationship.
+            direct = {person.employee_no for person in people if person.direct_supervisor_employee_no == actor.actor_ref}
+            leader_scope = {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE} & direct
+            if "inner_leader" in selected:
+                # 「仅组内成员的实线上级」：实线上级解析结果只保留属于组内成员范围的人。
+                # 组内成员 = 项目版所关联评估项目的成员并集；否则 = 当前人员组已维护的成员。
+                inner = set().union(*project_members.values()) if group.tab == "project" and project_members else set(group.employee_nos or [])
+                leader_scope &= inner
+            scope |= leader_scope
+        if "hrbp" in selected and PERFORMANCE_HRBP_ROLE_CODE in enabled:
+            resolved = await self.snapshot_service.resolve_scopes(
+                cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+                identity_type=DYNAMIC_IDENTITY_TYPE_HRBP,
+            )
+            hrbp_scope = {item.target_ref for item in resolved if item.target_type == DYNAMIC_ASSIGNMENT_TARGET_TYPE_EMPLOYEE}
+            permission = await self.db.scalar(select(PerformanceHrbpPermission).where(
+                PerformanceHrbpPermission.cycle_ref == cycle_ref,
+                PerformanceHrbpPermission.hrbp_employee_no == actor.actor_ref,
+            ))
+            organizations = list(permission.scope or []) if permission else []
+            hrbp_scope |= {person.employee_no for person in people if any(
+                person.organization_ref == org or str(person.organization_ref or "").startswith(f"{org}/")
+                for org in organizations
+            )}
+            hidden = set(permission.invisible_people or []) if permission else set()
+            hidden |= await global_hrbp_invisible_people(self.db, scopes=organizations)
+            scope |= hrbp_scope - hidden
         if "activity_manager" in selected and PERFORMANCE_PROJECT_ADMIN_ROLE_CODE in enabled:
             resolved = await self.snapshot_service.resolve_scopes(
                 cycle_ref, actor_type=actor.actor_type, actor_ref=actor.actor_ref,

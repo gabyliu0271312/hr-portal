@@ -384,6 +384,32 @@ async def test_focus_project_tab_intersects_bound_members_but_semester_does_not(
     assert [person.employee_no for person in people] == ["A"]
 
 
+@pytest.mark.asyncio
+async def test_focus_inner_leader_keeps_directs_inside_group_members(focus_auth):
+    db, context, _, facade = focus_auth
+    db.group.roles_of_managing_scope = ["leader", "inner_leader"]
+    _, people = await facade.resolve_focus_group_member_scope(context, cycle_ref="C", group=db.group)
+    assert [person.employee_no for person in people] == ["A"]
+    db.group.employee_nos = ["B"]
+    with pytest.raises(PerformanceObjectAuthorizationDenied):
+        await facade.resolve_focus_group_member_scope(context, cycle_ref="C", group=db.group)
+    db.group.employee_nos = ["B", "A"]
+
+
+@pytest.mark.asyncio
+async def test_focus_inner_leader_project_tab_uses_bound_project_members(focus_auth):
+    db, context, _, facade = focus_auth
+    db.group.roles_of_managing_scope = ["leader", "inner_leader"]
+    db.projects = [SimpleNamespace(id=4, project_ref="P4", administrators=[])]
+    db.group.activity_ids = ["4"]
+    db.group.tab = "project"
+    with pytest.raises(PerformanceObjectAuthorizationDenied):
+        await facade.resolve_focus_group_member_scope(context, cycle_ref="C", group=db.group)
+    db.members[4] = {"A"}
+    _, people = await facade.resolve_focus_group_member_scope(context, cycle_ref="C", group=db.group)
+    assert [person.employee_no for person in people] == ["A"]
+
+
 def test_object_authorization_migration_has_immutable_audit_trigger():
     migration_path = (
         Path(__file__).resolve().parents[1]

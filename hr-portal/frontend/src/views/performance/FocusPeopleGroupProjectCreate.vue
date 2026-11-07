@@ -97,6 +97,7 @@ async function submit() {
       description: { 'zh-CN': descriptionZh.value.trim(), 'en-US': descriptionEn.value.trim() },
       employee_nos: employeeNos.value,
       scope_mode: 'manual',
+      scope_setting_mode: 1,
       activity_ids: projectIds.value,
       roles_of_managing_scope: Object.entries(roles.value).filter(([, checked]) => checked).map(([role]) => role),
     })
@@ -173,6 +174,7 @@ onMounted(() => { void loadProjects(); void loadDetail() })
   --performance-input-field-gap: var(--spacing-4);
 }
 .focus-group-project-card {
+  flex: none;
   padding: var(--spacing-5);
 }
 .focus-group-project-card :deep(.performance-form-item:last-child) {
