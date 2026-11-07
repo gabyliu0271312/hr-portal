@@ -521,18 +521,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         and not (task.submitted_at is not None or task.status == "completed")
         and getattr(task, "revoked_at", None) is None
     ):
-        voluntary_states = (
-            await db.execute(
-                select(PerformanceAuditEvent.after_state).where(
-                    PerformanceAuditEvent.cycle_ref == project.cycle_ref,
-                    PerformanceAuditEvent.subject_ref == actor_ref,
-                    PerformanceAuditEvent.event_type == "REVIEWER_360_VOLUNTEERED",
-                )
-            )
-        ).scalars().all()
-        can_giveup = any(
-            str((state or {}).get("task_id")) == str(task.id) for state in voluntary_states
-        )
+        can_giveup = getattr(task, "source_type", None) == "VOLUNTARY"
     visibility_role = await resolve_subject_visibility_role(db, context, actor_ref, member, node, project)
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     reconsideration_reason = None
@@ -2040,6 +2029,18 @@ def _can_manage_project(context: PerformanceAccessContext, project: PerformanceP
         "performance.projects.manage" in context.permission_codes
         and project.project_ref in _project_scope_refs(context)
     )
+
+
+async def _can_manage_project_like_overview(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession) -> bool:
+    """与周期概览 overview 口径一致的「可管理该项目」判定。
+
+    overview 通过 resolve_frontend_access 已将项目管理员 / 范围内 HRBP 计入 manage_projects；
+    添加被评估人三个接口复用该口径，避免「按钮可见却搜索 403」。
+    """
+    if _can_manage_project(context, project):
+        return True
+    access = await resolve_frontend_access(db, context)
+    return any(item.project_id == project.id for item, _cycle in access.manage_projects)
 
 
 async def _project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
@@ -4222,7 +4223,7 @@ async def search_project_reviewees(
     db: AsyncSession = Depends(get_session),
 ):
     project = await _project_started(db, project_id)
-    if not _can_manage_project(context, project):
+    if not await _can_manage_project_like_overview(context, project, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     if cycle is None:
@@ -4279,7 +4280,7 @@ async def check_project_reviewee_conflict(
     db: AsyncSession = Depends(get_session),
 ):
     project = await _project_started(db, project_id)
-    if not _can_manage_project(context, project):
+    if not await _can_manage_project_like_overview(context, project, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     if cycle is None:
@@ -4319,7 +4320,7 @@ async def add_project_reviewee(
     成员列表 / 总览完成率 / 矩阵 / 统计报表均查同一快照，落库即全链路一致，无需分别刷新。
     """
     project = await _project_started(db, project_id)
-    if not _can_manage_project(context, project):
+    if not await _can_manage_project_like_overview(context, project, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
     if cycle is None:
@@ -4437,6 +4438,7 @@ async def add_project_reviewee(
                         phase_id="",
                         available_at=available_at, due_at=due_at,
                         status="pending",
+                        source_type="DEFAULT",
                     ))
                     PerformanceAuditService(db).append_event(AuditEventInput(
                         event_type="REVIEWER_360_INVITED",
