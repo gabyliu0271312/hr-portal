@@ -372,6 +372,22 @@ async def test_focus_members_partial_replace_preserves_others_audits_and_rejects
 
 
 @pytest.mark.asyncio
+async def test_focus_members_keeps_group_nos_not_in_snapshot(focus_auth, monkeypatch):
+    """组内成员不在授权快照时仍返回该成员（列表人数与详情页一致，问题 1 场景）。"""
+    db, context, _, facade = focus_auth
+    monkeypatch.setattr("app.performance.focus_group_members_router.PerformanceFeatureAuthorizationService", lambda db: facade)
+    db.group.employee_nos = ["B", "A", "ZZ"]
+    result = await get_focus_group_members(1, 8, context, db)
+    assert result["employee_nos"] == ["B", "A", "ZZ"]
+    people_by_value = {person["value"]: person for person in result["people"]}
+    assert list(people_by_value) == ["B", "A", "ZZ"]
+    assert people_by_value["ZZ"]["display_name"] == "ZZ"
+    assert people_by_value["ZZ"]["direct_supervisor_name"] is None
+    assert people_by_value["ZZ"]["department_2"] is None
+    assert people_by_value["A"]["display_name"] == "甲"
+
+
+@pytest.mark.asyncio
 async def test_focus_http_contract_uses_real_facade_and_rejects_extra_actor(focus_auth, monkeypatch):
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient

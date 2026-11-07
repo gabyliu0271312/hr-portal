@@ -82,28 +82,32 @@ async def _scope(db, context, cycle, group):
 
 
 def _members(group, people, name_source=None):
-    """成员列表 payload。people 为组内成员（group.employee_nos ∩ 快照）；name_source 为快照全量人（用于直属上级姓名解析）。"""
-    group_nos = set(group.employee_nos or [])
-    members = [person for person in people if person.employee_no in group_nos]
-    all_by_no = {person.employee_no: person for person in (name_source or people)}
-    return {
-        "group_id": group.id,
-        "employee_nos": [value for value in (group.employee_nos or []) if value in {person.employee_no for person in people}],
-        "people": [{
-            "value": person.employee_no,
-            "label": person.display_name,
-            "sub_label": " · ".join(value for value in (person.employee_no, person.organization_ref or person.department) if value),
-            "department": person.organization_ref or person.department,
+    """成员列表 payload：按组内 employee_nos 逐人返回。
+
+    people 为快照全量人（name_source 同用于直属上级姓名解析）；快照有画像的成员给完整画像，
+    组内但不在快照的成员兜底最小画像（保证详情人数与列表 employee_nos.length 一致）。
+    """
+    people_by_no = {person.employee_no: person for person in (name_source or people)}
+    member_nos = []
+    member_rows = []
+    for value in group.employee_nos or []:
+        member_nos.append(value)
+        person = people_by_no.get(value)
+        member_rows.append({
+            "value": value,
+            "label": person.display_name if person else value,
+            "sub_label": " · ".join(item for item in (value, person.organization_ref or person.department) if item) if person else value,
+            "department": person.organization_ref or person.department if person else None,
             "email": None,
-            "display_name": person.display_name,
-            "direct_supervisor_employee_no": person.direct_supervisor_employee_no,
-            "direct_supervisor_name": all_by_no[person.direct_supervisor_employee_no].display_name
-                if person.direct_supervisor_employee_no in all_by_no else None,
-            "department_2": person.department_2,
-            "department_5": person.department_5,
-            "job_family": person.job_family,
-        } for person in sorted(members, key=lambda item: (item.display_name, item.employee_no))],
-    }
+            "display_name": person.display_name if person else value,
+            "direct_supervisor_employee_no": person.direct_supervisor_employee_no if person else None,
+            "direct_supervisor_name": (people_by_no[person.direct_supervisor_employee_no].display_name
+                if person and person.direct_supervisor_employee_no in people_by_no else None),
+            "department_2": person.department_2 if person else None,
+            "department_5": person.department_5 if person else None,
+            "job_family": person.job_family if person else None,
+        })
+    return {"group_id": group.id, "employee_nos": member_nos, "people": member_rows}
 
 
 @router.get("/{cycle_id}/manageable-focus-groups")

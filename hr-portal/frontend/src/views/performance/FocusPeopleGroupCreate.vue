@@ -259,7 +259,7 @@ async function submit() {
     const save = isEditing.value
       ? (payload: Parameters<typeof performanceFocusGroupApi.create>[1]) => performanceFocusGroupApi.update(cycleId.value!, groupId.value!, payload)
       : (payload: Parameters<typeof performanceFocusGroupApi.create>[1]) => performanceFocusGroupApi.create(cycleId.value!, payload)
-    await save({
+    const saved = await save({
       name: nameZh.value.trim(),
       en_name: nameEn.value.trim(),
       tab: 'semester',
@@ -280,6 +280,11 @@ async function submit() {
       roles_of_managing_scope: scopeMode.value === 1 ? Object.entries(roles.value).filter(([, checked]) => checked).map(([role]) => role) : [],
     })
     ElMessage.success(isEditing.value ? '人员组已保存' : '人员组已创建')
+    if (!isEditing.value && saved.id) {
+      // 新建后直接进入详情管理页（基本信息 + 人员列表/变更记录），与飞书一致
+      void router.push({ name: 'PerformanceCycleFocusPeopleManagementDetail', params: { cycleId: cycleId.value, groupId: saved.id } })
+      return
+    }
     void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.detail || '创建失败，请稍后重试')
