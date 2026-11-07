@@ -1,5 +1,5 @@
 <template>
-  <PerformanceDrawerShell v-model="open" :title="title" aria-label="绩效评估详情" width="720px" :initial-width="1000" variant="evaluation" body-class="performance-drawer__body--flush" :resizable="true" :min-width="720" :mask="false" cache-key="perf-drawer" :keyboard="false" @close="emit('close')" @closed="emit('closed')">
+  <UiDrawerShell v-model="open" :title="title" aria-label="绩效评估详情" width="720px" :initial-width="1000" variant="evaluation" body-class="performance-drawer__body--flush" :resizable="true" :min-width="720" :mask="false" cache-key="perf-drawer" :keyboard="false" @close="emit('close')" @closed="emit('closed')">
     <template #header>
       <div class="performance-review-evaluation-drawer__person"><PerformanceReviewPersonHeader :person="displayPerson" @translate="notifyTranslationUnavailable" @translate-menu="notifyTranslationUnavailable" @copy-link="emit('copy-link')" /><p v-if="task?.opened_at" class="performance-review-evaluation-drawer__opening">本次绩效结果已于 {{ formatDate(task.opened_at) }} 开通。</p></div>
     </template>
@@ -33,14 +33,14 @@
         <section v-else class="performance-review-evaluation-drawer__tab-content performance-review-evaluation-drawer__tab-placeholder">该页签内容将在后续迭代中开发</section>
       </PerformanceLineTabs>
     </div>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { performanceReviewApi, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type SelfSummaryPerson } from '@/api/performance'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceReviewPersonHeader from './PerformanceReviewPersonHeader.vue'

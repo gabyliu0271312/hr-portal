@@ -1189,14 +1189,14 @@ describe('PerformanceTemplateContentSettings', () => {
     ])
     await allContentButton.trigger('click')
     expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('title')).toBe('全部评估内容')
-    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('全部评估内容')
+    expect(document.body.querySelector('.performance-drawer__header h2')?.textContent).toBe('全部评估内容')
 
-    ;(document.body.querySelector('.drawer-header .icon-button') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     await wrapper.findAll('.stage-card')[0].trigger('click')
     await wrapper.find('.template-operate__button').trigger('click')
     expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('title')).toBe('选择评估内容')
-    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('选择评估内容')
+    expect(document.body.querySelector('.performance-drawer__header h2')?.textContent).toBe('选择评估内容')
   })
 
   it('derives the middle tabs from the selected workflow node and moves the active ink', async () => {
@@ -1216,8 +1216,8 @@ describe('PerformanceTemplateContentSettings', () => {
 
     await wrapper.findAll('.stage-card')[0].trigger('click')
     await wrapper.findAll('.template-operate__button')[0].trigger('click')
-    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('选择评估内容')
-    ;(document.body.querySelector('.drawer-header .icon-button') as HTMLButtonElement).click()
+    expect(document.body.querySelector('.performance-drawer__header h2')?.textContent).toBe('选择评估内容')
+    ;(document.body.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
 
     await wrapper.findAll('.stage-card')[1].trigger('click')
@@ -1226,19 +1226,19 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.get('.template-operate__button').trigger('click')
     expect(wrapper.getComponent(PerformancePromptModal).props('open')).toBe(true)
     expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('添加提示')
-    expect(document.body.querySelector('#assessment-drawer-title')).toBeNull()
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('open')).toBe(false)
     ;([...document.body.querySelectorAll('.prompt-modal__footer button')].find(button => button.textContent === '取消') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     expect(wrapper.getComponent(PerformancePromptModal).props('open')).toBe(false)
 
     await wrapper.findAll('.stage-card')[3].trigger('click')
     await wrapper.findAll('.template-operate__button')[0].trigger('click')
-    expect(document.body.querySelector('#assessment-drawer-title')?.textContent).toBe('选择评估内容')
+    expect(document.body.querySelector('.performance-drawer__header h2')?.textContent).toBe('选择评估内容')
     expect(Array.from(document.body.querySelectorAll('.create-menu [role="menuitem"]')).map((node) => node.textContent)).toEqual([])
     ;(document.body.querySelector('.create-button') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     expect(Array.from(document.body.querySelectorAll('.create-menu [role="menuitem"]')).map((node) => node.textContent)).toEqual(['工作总结', '评分评级', '自定义'])
-    ;(document.body.querySelector('.drawer-header .icon-button') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     await wrapper.findAll('.stage-card')[7].trigger('click')
     await wrapper.findAll('.template-operate__button')[0].trigger('click')
@@ -1362,7 +1362,7 @@ describe('PerformanceTemplateContentSettings', () => {
     await wrapper.findAll('.content-tab')[1].trigger('click')
     expect(wrapper.get('.reference-entry-bar button').text()).toBe('选择参考内容')
     await wrapper.get('.reference-entry-bar button').trigger('click')
-    expect(document.body.querySelector('.reference-drawer')).not.toBeNull()
+    expect(document.body.querySelector('.performance-drawer__panel')).not.toBeNull()
     ;(document.body.querySelector('.reference-drawer__footer button') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
     await wrapper.findAll('.stage-card')[1].trigger('click')
@@ -1793,10 +1793,10 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(pane.element.contains(wrapper.get('.reference-entry-bar').element)).toBe(true)
     expect(pane.get('button').text()).toBe('选择参考内容')
     await pane.get('button').trigger('click')
-    const referenceDrawer = document.body.querySelector('.reference-drawer')
+    const referenceDrawer = document.body.querySelector('.performance-drawer__panel')
     expect(referenceDrawer).not.toBeNull()
-    expect(referenceDrawer?.querySelector('.reference-drawer__title-text')?.textContent).toBe('选择参考内容')
-    expect(referenceDrawer?.querySelector('.reference-drawer__panel')?.className).toContain('reference-drawer__panel')
+    expect(referenceDrawer?.querySelector('.performance-drawer__header h2')?.textContent).toBe('选择参考内容')
+    expect(referenceDrawer?.getAttribute('role')).toBe('dialog')
   })
 
   it('opens the reference drawer with node candidates and fixed more options, then confirm writes reference contents', async () => {
@@ -1820,7 +1820,7 @@ describe('PerformanceTemplateContentSettings', () => {
     ;([...document.body.querySelectorAll('.reference-drawer__footer button')].find((node) => node.textContent === '确认') as HTMLButtonElement).click()
     await wrapper.vm.$nextTick()
 
-    expect(document.body.querySelector('.reference-drawer')).toBeNull()
+    expect(wrapper.getComponent({ name: 'PerformanceReferenceContentDrawer' }).props('open')).toBe(false)
     expect(wrapper.get('.reference-content-group').text()).toContain('OKR')
     // 内容设置区 OKR 与模板预览一致：渲染 OKR 数据面板（PerformanceOkrPanel placeholder，含周期/条目/进度）
     const okrPanel = wrapper.find('.okr-card')

@@ -1,5 +1,5 @@
 <template>
-  <PerformanceDrawerShell v-model="open" title="自定义列" @close="cancel">
+  <UiDrawerShell v-model="open" title="自定义列" @close="cancel">
     <div class="column-drawer__side column-drawer__available">
       <h3>列表项</h3>
       <label v-for="column in columns" :key="column.key" class="column-option" :class="{ locked: column.locked }">
@@ -21,13 +21,13 @@
       </UiSortableList>
     </div>
     <template #footer><PerformanceDrawerFooter @confirm="confirm" @cancel="cancel" /></template>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import UiDragHandle from '../ui/UiDragHandle.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceRemoveButton from './PerformanceRemoveButton.vue'

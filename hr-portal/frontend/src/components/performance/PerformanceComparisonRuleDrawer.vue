@@ -1,8 +1,8 @@
 <template>
-  <PerformanceDrawerShell
+  <UiDrawerShell
     v-model="open"
     title="添加需对比的环节"
-    width="680px"
+    width="var(--drawer-wide-width)"
     variant="captured"
     body-class="performance-comparison-rule-drawer__body"
     @close="cancel"
@@ -108,7 +108,7 @@
     <template #footer>
       <PerformanceDrawerFooter variant="captured" confirm-text="提交" cancel-text="取消" @confirm="submit" @cancel="cancel" />
     </template>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <script setup lang="ts">
@@ -117,7 +117,7 @@ import PerformanceAssessmentSelect, { type PerformanceAssessmentSelectOption } f
 import UiButton from '../ui/UiButton.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 import PerformanceMetricSelect, { type PerformanceMetricSelectOption } from './PerformanceMetricSelect.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'

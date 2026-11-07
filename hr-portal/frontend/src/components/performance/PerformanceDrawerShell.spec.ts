@@ -1,8 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
-import source from './PerformanceDrawerShell.vue?raw'
+import PerformanceDrawerShell from '../ui/UiDrawerShell.vue'
+import source from '../ui/UiDrawerShell.vue?raw'
 
 const props = { modelValue: true, width: '720px', initialWidth: 1000, resizable: true, minWidth: 720, mask: false, cacheKey: 'perf-drawer' }
 const namespace = 'RESIZABLE-DRAWER-LOCKR-NS'
@@ -20,7 +20,29 @@ beforeEach(() => {
 })
 afterEach(() => { document.body.innerHTML = ''; vi.useRealTimers(); vi.unstubAllGlobals() })
 
-describe('PerformanceDrawerShell', () => {
+describe('UiDrawerShell', () => {
+  it.each([true, false])('closes from the outside layer with mask=%s, but not from panel content', mask => {
+    const wrapper = mount(PerformanceDrawerShell, { props: { modelValue: true, mask } })
+    panel().click()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    ;(document.body.querySelector(mask ? '.performance-drawer__mask' : '.performance-drawer__outside') as HTMLElement).click()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    wrapper.unmount()
+  })
+
+  it('blocks every close path while saving and permits outside close afterwards', async () => {
+    const wrapper = mount(PerformanceDrawerShell, { props: { modelValue: true, closeDisabled: true } })
+    ;(document.body.querySelector('.performance-drawer__mask') as HTMLElement).click()
+    ;(document.body.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
+    panel().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.setProps({ closeDisabled: false })
+    ;(document.body.querySelector('.performance-drawer__mask') as HTMLElement).click()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
   it('keeps the default modal while an evaluation drawer uses initialWidth and no mask', () => {
     const modal = mount(PerformanceDrawerShell, { props: { modelValue: true } })
     expect(document.body.querySelector('.performance-drawer__mask')).not.toBeNull()

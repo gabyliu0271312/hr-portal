@@ -1,10 +1,11 @@
 <template>
-  <PerformanceDrawerShell
+  <UiDrawerShell
     v-model="open"
-    width="680px"
+    width="var(--drawer-wide-width)"
     variant="captured-invite"
     aria-label="360°评估人设置"
     body-class="performance-drawer__body--invite"
+    :close-disabled="saving"
     @close="cancel"
   >
     <template #header>
@@ -211,7 +212,7 @@
       <p v-if="saveError" class="invite-settings-save-error" role="alert">{{ saveError }}</p>
       <PerformanceDrawerFooter variant="captured-invite" :confirm-disabled="saving" @confirm="confirm" @cancel="cancel" />
     </template>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <script setup lang="ts">
@@ -220,7 +221,7 @@ import type { PerformanceProjectFlowSettings } from '@/api/performance'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceNumberInput from './PerformanceNumberInput.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
 import UiSwitch from '../ui/UiSwitch.vue'

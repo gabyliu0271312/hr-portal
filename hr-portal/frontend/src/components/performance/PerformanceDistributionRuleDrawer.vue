@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { PerformanceDistributionAssessmentOption, PerformanceDistributionRule } from '@/api/performance'
 import PerformanceDistributionRuleEditor from './PerformanceDistributionRuleEditor.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -26,7 +26,7 @@ function reset() {
   Object.assign(draft, props.initialValue ? cloneRule(props.initialValue) : emptyRule())
   submitted.value = false
 }
-function cancel() { reset(); emit('cancel'); open.value = false }
+function cancel() { if (props.saving) return; reset(); emit('cancel'); open.value = false }
 function submit() {
   submitted.value = true
   const invalid = !draft.assessment_item_id || draft.min_people_count < 0 || !draft.conditions.length || draft.conditions.some(condition => !condition.grade_codes.length || condition.value <= 0 || (condition.unit === 'PERCENT' && condition.value > 100))
@@ -37,7 +37,7 @@ watch(() => props.modelValue, value => { if (value) reset() })
 </script>
 
 <template>
-  <PerformanceDrawerShell v-model="open" title="添加分布规则" width="680px" variant="captured" body-class="performance-distribution-rule-drawer__body" @close="cancel">
+  <UiDrawerShell v-model="open" title="添加分布规则" width="var(--drawer-wide-width)" variant="captured" body-class="performance-distribution-rule-drawer__body" :close-disabled="saving" @close="cancel">
     <form class="distribution-rule-form" novalidate @submit.prevent="submit">
       <PerformanceDistributionRuleEditor
         :model-value="draft"
@@ -50,7 +50,7 @@ watch(() => props.modelValue, value => { if (value) reset() })
       <p v-if="saveError" class="distribution-save-error" role="alert">{{ saveError }}</p>
     </form>
     <template #footer><PerformanceDrawerFooter variant="captured" :confirm-disabled="saving" @confirm="submit" @cancel="cancel" /></template>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <style scoped>

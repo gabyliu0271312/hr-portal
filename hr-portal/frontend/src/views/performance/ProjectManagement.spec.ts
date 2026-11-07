@@ -411,7 +411,7 @@ describe('ProjectManagement', () => {
     expect(document.body.textContent).toContain('上级已提交内容')
     expect(replace).toHaveBeenLastCalledWith({ query: expect.objectContaining({ rootReviewId: '71', member_project_id: '3', activeTab: 'management-final' }) })
     Object.assign(routeQuery, { cycle_id: '1', rootReviewId: '71', member_project_id: '3', employee_no: 'E1', activeTab: 'management-final' })
-    ;(document.body.querySelector('.performance-drawer__close') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.performance-drawer__outside') as HTMLElement).click()
     await flushPromises()
     expect(replace).toHaveBeenLastCalledWith({ query: { cycle_id: '1' } })
     wrapper.unmount()

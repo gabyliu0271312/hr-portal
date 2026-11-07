@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import PerformanceComparisonRuleDrawer from './PerformanceComparisonRuleDrawer.vue'
 
 const stubs = {
-  PerformanceDrawerShell: {
+  UiDrawerShell: {
     props: ['modelValue', 'title'],
     template: '<div v-if="modelValue" class="drawer-shell"><h2>{{ title }}</h2><slot /><slot name="footer" /></div>',
   },

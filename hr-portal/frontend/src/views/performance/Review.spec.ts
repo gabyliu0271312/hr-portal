@@ -571,7 +571,7 @@ describe('PerformanceReview', () => {
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('rootReviewId=22'))
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('activeTab=reference-summary'))
-    ;(document.body.querySelector('[aria-label="关闭"]') as HTMLButtonElement).click()
+    ;(document.body.querySelector('.performance-drawer__outside') as HTMLElement).click()
     await flushPromises()
     await new Promise(resolve => setTimeout(resolve, 250))
     expect(replace).toHaveBeenLastCalledWith({ query: { project_id: '1', node: 'manager-review' } })

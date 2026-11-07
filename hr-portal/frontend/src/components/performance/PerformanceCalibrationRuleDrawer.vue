@@ -1,9 +1,10 @@
 <template>
-  <PerformanceDrawerShell
+  <UiDrawerShell
     v-model="open"
     :title="mode === 'edit' ? '编辑校准规则' : '添加校准规则'"
-    width="680px"
+    width="var(--drawer-wide-width)"
     variant="captured"
+    :close-disabled="saving"
     @close="cancel"
   >
     <div class="calibration-rule-drawer" aria-label="校准规则编辑">
@@ -125,7 +126,7 @@
       <p v-if="saveError" class="calibration-rule-error" role="alert">{{ saveError }}</p>
       <PerformanceDrawerFooter variant="captured" :confirm-text="isDistributionFlow && step === 0 ? '下一步' : '确定'" :cancel-text="isDistributionFlow && step === 1 ? '上一步' : '取消'" :confirm-disabled="saving" @confirm="confirm" @cancel="isDistributionFlow && step === 1 ? backStep() : cancel()" />
     </template>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <script setup lang="ts">
@@ -133,7 +134,7 @@ import { computed, ref, watch } from 'vue'
 import type { PerformanceCalibrationConditionGroup as CalibrationGroup, PerformanceDistributionAssessmentOption, PerformanceDistributionRule, PerformanceHrbpOrganizationNode, PerformanceProjectFlowRule } from '@/api/performance'
 import type { PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceCalibrationConditionGroup from './PerformanceCalibrationConditionGroup.vue'
 import PerformanceDistributionRuleEditor from './PerformanceDistributionRuleEditor.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'

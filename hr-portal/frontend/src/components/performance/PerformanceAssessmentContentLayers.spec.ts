@@ -319,13 +319,28 @@ describe('PerformanceAssessmentContentLayers', () => {
 
   it('renders the measured drawer and reveals the three types only from the create menu', async () => {
     const wrapper = mountLayers()
-    expect(wrapper.get('.assessment-drawer').attributes('role')).toBe('dialog')
-    expect(wrapper.get('#assessment-drawer-title').text()).toBe('选择评估内容')
+    expect(wrapper.get('.performance-drawer__panel').attributes('role')).toBe('dialog')
+    expect(wrapper.get('.performance-drawer__header h2').text()).toBe('选择评估内容')
     expect(wrapper.get('.visibility-row').text()).toContain('评估内容分人群可见')
     expect(wrapper.find('.create-menu').exists()).toBe(false)
     await wrapper.get('.create-button').trigger('click')
     expect(wrapper.findAll('.create-menu [role="menuitem"]').map((item) => item.text())).toEqual(['工作总结', '评分评级', '自定义'])
     expect(wrapper.find('.content-modal').exists()).toBe(false)
+  })
+
+  it('closes outside without confirming content and protects an open content editor', async () => {
+    const wrapper = mountLayers()
+    await wrapper.get('.performance-drawer__outside').trigger('click')
+    expect(wrapper.emitted('update:open')).toEqual([[false]])
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    wrapper.unmount()
+
+    const editing = mountLayers()
+    await openType(editing, '工作总结')
+    await editing.get('.performance-drawer__outside').trigger('click')
+    expect(editing.emitted('update:open')).toBeUndefined()
+    expect(editing.find('.content-modal').exists()).toBe(true)
+    editing.unmount()
   })
 
   it('toggles group settings without removing the drawer empty state', async () => {
@@ -1015,7 +1030,7 @@ describe('PerformanceAssessmentContentLayers', () => {
     expect(checkbox.attributes('disabled')).toBeUndefined()
     await checkbox.setValue(true)
     expect((checkbox.element as HTMLInputElement).checked).toBe(true)
-    expect(checkbox.attributes('disabled')).toBeUndefined()
+    expect(checkbox.attributes('disabled')).toBeDefined()
     expect(wrapper.get('.created-item').text()).toContain('共享工作总结')
   })
   it('edits available-only content into a local selection without changing the shared library', async () => {

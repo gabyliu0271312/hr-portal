@@ -36,15 +36,24 @@ describe('PerformanceReferenceContentDrawer', () => {
 
   it('renders the captured drawer structure: header, two groups, fixed more options, footer order', () => {
     mountDrawer()
-    const drawer = document.body.querySelector('.reference-drawer')
+    const drawer = document.body.querySelector('.performance-drawer__panel')
     expect(drawer).not.toBeNull()
     expect(drawer?.getAttribute('role')).toBe('dialog')
-    expect(drawer?.querySelector('.reference-drawer__title-text')?.textContent).toBe('选择参考内容')
+    expect(drawer?.querySelector('.performance-drawer__header h2')?.textContent).toBe('选择参考内容')
     expect([...document.body.querySelectorAll('.reference-drawer__group-title')].map((n) => n.textContent)).toEqual(['评估环节内容', '更多参考内容'])
     expect([...document.body.querySelectorAll('.reference-drawer__group:nth-of-type(2) .reference-option-card__text')].map((n) => n.textContent)).toEqual(['OKR', '更多参考', '团队统计'])
     const footerButtons = [...document.body.querySelectorAll('.reference-drawer__footer button')].map((n) => n.textContent)
     expect(footerButtons).toEqual(['确认', '取消'])
-    expect(document.body.querySelector('.reference-drawer__close-button svg[data-icon="CloseOutlined"]')).not.toBeNull()
+    expect(document.body.querySelector('.performance-drawer__close svg[data-icon="CloseOutlined"]')).not.toBeNull()
+  })
+
+  it('treats an outside click as cancel and never confirms the draft', () => {
+    const wrapper = mountDrawer({ selected: ['n1'] })
+    ;(document.body.querySelector('.performance-drawer__mask') as HTMLElement).click()
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
+    expect(wrapper.emitted('update:open')).toEqual([[false]])
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+    wrapper.unmount()
   })
 
   it('renders node candidates excluding none by default and marks multiline cards with descriptions', () => {
@@ -78,7 +87,7 @@ describe('PerformanceReferenceContentDrawer', () => {
   it('cancel and close button close without emitting confirm; Escape keypress does not close', async () => {
     const wrapper = mountDrawer()
     const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
-    document.body.querySelector('.reference-drawer')?.dispatchEvent(escapeEvent)
+    document.body.querySelector('.performance-drawer__panel')?.dispatchEvent(escapeEvent)
     await wrapper.vm.$nextTick()
     expect(wrapper.props('open')).toBe(true)
     expect(wrapper.emitted('update:open')).toBeUndefined()
@@ -94,12 +103,9 @@ describe('PerformanceReferenceContentDrawer', () => {
     expect(componentSource).toContain('PerformanceContentOptionCard')
     expect(componentSource).not.toBe('')
     const css = componentSource.replace(/\s+/g, ' ')
+    expect(componentSource).toContain('UiDrawerShell')
+    expect(componentSource).toContain('var(--drawer-wide-width)')
     const expectations = [
-      'width: 680px;',
-      'padding: 16px 24px;',
-      'border-bottom: 1px solid rgba(31, 35, 41, 0.15);',
-      'margin: -2px -4px;',
-      'width: 20px; height: 20px;',
       'min-height: 54px;',
       'padding-top: 12px; padding-bottom: 12px;',
       'border: 1px solid #dee0e3;',

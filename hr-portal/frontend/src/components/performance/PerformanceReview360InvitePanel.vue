@@ -8,7 +8,7 @@ import {
 } from '@/api/performance'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import UiButton from '../ui/UiButton.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
@@ -220,7 +220,7 @@ onMounted(() => void load())
     </PerformanceManagementTable>
     <ProjectMemberColumnDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
 
-    <PerformanceDrawerShell v-model="inviteDrawerOpen" width="560px" variant="captured" title="邀请 360° 评估人" aria-label="邀请 360° 评估人">
+    <UiDrawerShell v-model="inviteDrawerOpen" width="560px" variant="captured" title="邀请 360° 评估人" aria-label="邀请 360° 评估人">
       <div class="invite-candidates">
         <PerformanceListToolbar
           v-model:keyword="candidateKeyword"
@@ -249,7 +249,7 @@ onMounted(() => void load())
           <UiButton variant="primary" :disabled="selectedCandidates.size === 0 || inviting" :loading="inviting" @click="confirmInvite">确认邀请</UiButton>
         </div>
       </div>
-    </PerformanceDrawerShell>
+    </UiDrawerShell>
   </section>
 </template>
 

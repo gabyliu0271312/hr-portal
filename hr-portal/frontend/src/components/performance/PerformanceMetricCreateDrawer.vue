@@ -1,5 +1,5 @@
 <template>
-  <PerformanceDrawerShell
+  <UiDrawerShell
     v-model="open"
     :title="mode === 'edit' ? '编辑指标' : '新建指标'"
     aria-label="新建指标"
@@ -62,13 +62,13 @@
     <template #footer>
       <PerformanceDrawerFooter variant="captured" continue-text="确定并继续添加" @confirm="submit('confirm')" @continue="submit('continue')" @cancel="cancel" />
     </template>
-  </PerformanceDrawerShell>
+  </UiDrawerShell>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
-import PerformanceDrawerShell from './PerformanceDrawerShell.vue'
+import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceMetricSelect, { type PerformanceMetricSelectOption } from './PerformanceMetricSelect.vue'
 import PerformanceRadioGroup, { type PerformanceRadioOption } from './PerformanceRadioGroup.vue'
 import PerformanceTextField from './PerformanceTextField.vue'
