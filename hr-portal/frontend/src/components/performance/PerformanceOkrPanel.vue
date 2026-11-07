@@ -12,15 +12,17 @@
  *
  * 三种状态共用一套结构：有数据 / placeholder（模板预览骨架）/ 空态。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { PerformanceOkrObjective, PerformanceOkrStatus, PerformanceOkrView } from '@/api/performance'
 
 const props = withDefaults(defineProps<{
   okr?: PerformanceOkrView | null
+  okrs?: PerformanceOkrView[]
   title?: string
   placeholder?: boolean
 }>(), {
   okr: null,
+  okrs: () => [],
   title: 'OKR 内容',
   placeholder: false,
 })
@@ -34,8 +36,12 @@ const STATUS_LABEL: Record<string, string> = {
 
 const PLACEHOLDER_TEXT = '展示内容以实际数据为准'
 
-const periodLabel = computed(() => props.okr?.period_label || `${new Date().getFullYear()} 年度 OKR`)
-const objectives = computed<PerformanceOkrObjective[]>(() => props.okr?.objectives || [])
+const periods = computed(() => props.okrs.length ? props.okrs : props.okr ? [props.okr] : [])
+const selectedPeriod = ref(0)
+watch(() => [props.okr, props.okrs], () => { selectedPeriod.value = 0 })
+const selectedOkr = computed(() => periods.value[selectedPeriod.value] || null)
+const periodLabel = computed(() => selectedOkr.value?.period_label || `${new Date().getFullYear()} 年度 OKR`)
+const objectives = computed<PerformanceOkrObjective[]>(() => selectedOkr.value?.objectives || [])
 const isEmpty = computed(() => objectives.value.length === 0)
 
 /** 占位骨架：1 个 O + 2 个 KR（与 REA 模板预览一致：O 进度暂无、权重 100%；KR 进度 100%、权重 50.0%、状态正常） */
@@ -94,16 +100,16 @@ function barColor(status?: PerformanceOkrStatus | null) {
   <div class="okr-card">
     <div class="okr-card__head">
       <span class="okr-card__title">{{ title }}</span>
-      <span class="okr-period" aria-hidden="true">
-        <span class="okr-period__cursor okr-period__cursor--prev">
+      <span class="okr-period">
+        <button type="button" aria-label="上一个OKR周期" :disabled="placeholder || selectedPeriod === 0" class="okr-period__cursor okr-period__cursor--prev" @click="selectedPeriod--">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M16.293 2.293a1 1 0 0 1 0 1.414L8 12l8.293 8.293a1 1 0 0 1-1.414 1.414l-8.293-8.293a2 2 0 0 1 0-2.828l8.293-8.293a1 1 0 0 1 1.414 0Z" fill="currentColor"/></svg>
-        </span>
-        <span class="okr-period__label">{{ periodLabel }}</span>
+        </button>
+        <span class="okr-period__label"><span>{{ periodLabel }}</span><select v-if="periods.length && !placeholder" v-model="selectedPeriod" class="okr-period__select" aria-label="选择OKR周期"><option v-for="(period, index) in periods" :key="period.okr_id || index" :value="index">{{ period.period_label }}</option></select></span>
         <!-- 右按钮与 REA DOM 同构：自身仍是「左圆角 + 无右边框」，靠整体 rotate(180deg) 翻到右侧。
              千万不能先把边框 / 圆角手动镜像再旋转——两次镜像会互相抵消，边框跑到错误一侧。 -->
-        <span class="okr-period__cursor okr-period__cursor--next">
+        <button type="button" aria-label="下一个OKR周期" :disabled="placeholder || selectedPeriod >= periods.length - 1" class="okr-period__cursor okr-period__cursor--next" @click="selectedPeriod++">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M16.293 2.293a1 1 0 0 1 0 1.414L8 12l8.293 8.293a1 1 0 0 1-1.414 1.414l-8.293-8.293a2 2 0 0 1 0-2.828l8.293-8.293a1 1 0 0 1 1.414 0Z" fill="currentColor"/></svg>
-        </span>
+        </button>
       </span>
       <button type="button" class="okr-detail" tabindex="-1">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 0a7 7 0 1 0 0 14A7 7 0 0 0 7 0Zm2.707 7A2.71 2.71 0 0 1 7 9.707 2.71 2.71 0 0 1 4.293 7 2.71 2.71 0 0 1 7 4.293 2.71 2.71 0 0 1 9.707 7ZM7 1.352C4.362 2.912 3.39 5.114 3.3 5.33a4.057 4.057 0 0 0-.046 3.237A9.435 9.435 0 0 1 1.36 6.99l-.008.007A5.654 5.654 0 0 1 7 1.352ZM1.8 9.204c2.31 1.74 4.47 1.855 5.002 1.855l.096-.001H7c1.493 0 2.8-.81 3.505-2.013a8.57 8.57 0 0 1-.199 1.29 5.653 5.653 0 0 1-9.014-.685 8.63 8.63 0 0 1 .508-.446Z" fill="#3370ff"/></svg>
@@ -174,6 +180,10 @@ function barColor(status?: PerformanceOkrStatus | null) {
 /* 左右按钮同构（REA 实测两层完全相同）：只有 top/left/bottom 三条边，无右边框，圆角在左上/左下；
    右按钮靠 rotate(180deg) 翻到右侧，边框与圆角随之镜像到正确的方向。 */
 .okr-period__cursor { display: flex; align-items: center; justify-content: center; flex: none; width: 32px; height: 32px; box-sizing: border-box; border: var(--okr-bw) solid #d0d3d6; border-right: 0; border-radius: 6px 0 0 6px; background: #fff; color: #bbbfc4; }
+.okr-period__cursor:not(:disabled) { color: #1f2329; cursor: pointer; }
+.okr-period__cursor:focus-visible, .okr-period__label:focus-within { outline: 2px solid #3370ff; outline-offset: -2px; }
+.okr-period__label { position: relative; }
+.okr-period__select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .okr-period__cursor--next { transform: rotate(180deg); }
 .okr-period__label { flex: 1 1 auto; width: auto; min-width: 0; height: 32px; box-sizing: border-box; padding: 0 12px; border: var(--okr-bw) solid #d0d3d6; background: #fff; font-size: 14px; line-height: 32px; color: #1f2329; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .okr-detail { display: inline-flex; align-items: center; flex: none; gap: 4px; height: 32px; padding: 4px 11px; box-sizing: border-box; border: var(--okr-bw) solid #d0d3d6; border-radius: 6px; background: #fff; font-family: inherit; font-feature-settings: normal; font-variant-numeric: normal; font-size: 14px; line-height: 22px; color: #1f2329; white-space: nowrap; cursor: pointer; }

@@ -1142,6 +1142,7 @@ export type EmployeeOkrResponse = {
   source?: string | null
   employee_no: string
   okr?: PerformanceOkrView | null
+  okrs?: PerformanceOkrView[]
 }
 export type PerformanceReferenceTab = {
   key: string
@@ -1161,6 +1162,7 @@ export type PerformanceReferenceTab = {
   can_remind: boolean
   /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
   okr?: PerformanceOkrView | null
+  okrs?: PerformanceOkrView[]
 }
 export type SelfSummaryOption = PerformanceTemplateOption
 export type SelfSummaryField = PerformanceTemplateField
@@ -2235,7 +2237,7 @@ export const performanceProjectApi = {
 
 export const performanceOkrApi = {
   async taskOkr(taskId: number | string): Promise<EmployeeOkrResponse> {
-    const { data } = await api.get<EmployeeOkrResponse>(`/performance/okr/tasks/${encodeURIComponent(String(taskId))}/okr`)
+    const { data } = await api.get<EmployeeOkrResponse>(`/performance/okr/tasks/${encodeURIComponent(String(taskId))}/okr`, { params: { include_periods: true } })
     return data
   },
 }

@@ -2,7 +2,11 @@
 
 全部为纯单元测试：不连数据库、不触网。
 """
+from unittest.mock import AsyncMock
+
 import pytest
+
+from tests.test_performance_projects import management_member_data as management_member_data
 
 from app.core.config import settings
 from app.integrations.feishu.feishu_client import FeishuClientError
@@ -12,6 +16,7 @@ from app.performance.okr_provider import (
     OkrView,
     get_okr_provider,
     map_feishu_okr,
+    map_feishu_okrs,
 )
 
 
@@ -83,7 +88,8 @@ async def test_roster_identity_resolution_without_portal_account(monkeypatch, id
 
 
 @pytest.mark.asyncio
-async def test_contact_permission_denial_never_falls_back_to_another_identity(monkeypatch):
+@pytest.mark.parametrize("method", ["fetch", "fetch_all"])
+async def test_contact_permission_denial_never_falls_back_to_another_identity(monkeypatch, method):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from sqlalchemy import Column, MetaData, String, Table
@@ -95,7 +101,7 @@ async def test_contact_permission_denial_never_falls_back_to_another_identity(mo
         async def execute(self, query):
             assert "performance_identity_links" not in str(query)
             return SimpleNamespace(mappings=lambda: SimpleNamespace(one_or_none=lambda: {"corporate_email": "person@example.com"}))
-    assert await FeishuOkrProvider(client).fetch(Db(), "434") is None
+    assert await getattr(FeishuOkrProvider(client), method)(Db(), "434") == (None if method == "fetch" else [])
     client.get_json.assert_not_awaited()
 
 
@@ -408,3 +414,208 @@ def test_project_voluntary_okr_setting_roundtrip_default_and_validation():
     assert validate(flow({"allow_voluntary_evaluation": False}), saved)["node_settings"]["feedback"]["invite"]["allow_voluntary_okr_access"] is True
     for value in ["false", 1, None]:
         with pytest.raises(ProjectValidationError): validate(flow({"allow_voluntary_okr_access": value}))
+
+
+def _period_payload(start, count, total=None):
+    data = {"okr_list": [
+        {**OKR_PAYLOAD["data"]["okr_list"][0], "id": f"okr-{i}", "period_id": f"period-{i}", "name": f"周期 {i}"}
+        for i in range(start, start + count)
+    ]}
+    if total is not None:
+        data["total"] = total
+    return {"code": 0, "data": data}
+
+
+def test_maps_every_period_and_keeps_legacy_first_period():
+    payload = _period_payload(0, 3, 3)
+    views = map_feishu_okrs(payload)
+    assert [view.period_id for view in views] == ["period-0", "period-1", "period-2"]
+    assert all(view.objectives[0].key_results[1].percent == 33.3 for view in views)
+    assert map_feishu_okr(payload) == views[0]
+    assert map_feishu_okrs({}) == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_paginates_52_periods_and_resolves_identity_once():
+    client = _StubFeishuClient()
+    async def page(path, params):
+        client.calls.append((path, dict(params)))
+        offset = int(params["offset"])
+        return _period_payload(offset, min(10, 52 - offset), 52)
+    client.get_json = page
+    provider = FeishuOkrProvider(client, ["configured-period"])
+    provider.resolve_open_id = AsyncMock(return_value="ou_same/app")
+    views = await provider.fetch_all(None, "E001")
+    assert len(views) == 52
+    assert [view.period_id for view in views] == [f"period-{i}" for i in range(52)]
+    assert [params["offset"] for _, params in client.calls] == ["0", "10", "20", "30", "40", "50"]
+    assert all(path == "/okr/v1/users/ou_same%2Fapp/okrs" for path, _ in client.calls)
+    assert all(params == {"user_id_type": "open_id", "offset": str(i * 10), "limit": "10", "lang": "zh_cn", "period_ids": ["configured-period"]} for i, (_, params) in enumerate(client.calls))
+    provider.resolve_open_id.assert_awaited_once_with(None, "E001")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pages,expected", [
+    ([_period_payload(0, 0, 0)], 0),
+    ([_period_payload(0, 2, 52), _period_payload(2, 0, 52)], 0),
+    ([_period_payload(0, 10), _period_payload(10, 2)], 12),
+    ([_period_payload(0, 2, 12), _period_payload(2, 10, 12)], 12),
+    ([_period_payload(0, 10), _period_payload(0, 10)], 0),
+])
+async def test_fetch_all_stops_on_empty_short_or_repeated_page(pages, expected):
+    client = _StubFeishuClient()
+    client.get_json = AsyncMock(side_effect=pages)
+    assert len(await _BoundProvider(client, "ou_same").fetch_all(None, "E001")) == expected
+    assert client.get_json.await_count == len(pages)
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_never_returns_partial_periods_on_later_page_error():
+    client = _StubFeishuClient()
+    client.get_json = AsyncMock(side_effect=[_period_payload(0, 10, 52), FeishuClientError("denied", 99991672)])
+    assert await _BoundProvider(client, "ou_same").fetch_all(None, "E001") == []
+    assert client.get_json.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_legacy_fetch_only_requests_first_page():
+    client = _StubFeishuClient(payload=_period_payload(0, 10, 52))
+    result = await _BoundProvider(client, "ou_same").fetch(None, "E001")
+    assert result.period_id == "period-0"
+    assert len(client.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_all_skips_missing_identity_and_disabled_provider(monkeypatch):
+    from app.performance import okr_provider
+    client = _StubFeishuClient(payload=OKR_PAYLOAD)
+    assert await _BoundProvider(client, None).fetch_all(None, "E001") == []
+    assert client.calls == []
+    monkeypatch.setattr(okr_provider, "get_okr_provider", lambda: None)
+    assert await okr_provider.fetch_employee_okrs(None, "E001") == []
+
+
+@pytest.mark.asyncio
+async def test_all_period_wrapper_uses_fetch_all_and_degrades_on_exception(monkeypatch):
+    from types import SimpleNamespace
+    from app.performance import okr_provider
+    views = map_feishu_okrs(_period_payload(0, 2))
+    fetch = AsyncMock(return_value=views)
+    monkeypatch.setattr(okr_provider, "get_okr_provider", lambda: SimpleNamespace(fetch_all=fetch))
+    assert await okr_provider.fetch_employee_okrs(None, "E001") == views
+    fetch.assert_awaited_once_with(None, "E001")
+    fetch.side_effect = RuntimeError("later page failed")
+    assert await okr_provider.fetch_employee_okrs(None, "E001") == []
+
+
+@pytest.fixture
+def period_task_api(monkeypatch):
+    from types import SimpleNamespace
+    from app.performance import okr_router, projects_router
+    task = SimpleNamespace(id=17, task_kind="evaluation", target_employee_no="E001")
+    node = SimpleNamespace(node_type="evaluation", node_id="current")
+    db = SimpleNamespace(get=AsyncMock(return_value=task))
+    auth = AsyncMock(return_value=(task, node))
+    template = AsyncMock(return_value={"content": [{"content_slot": "reference", "reference_kind": "more", "reference_value": "okr"}]})
+    policy = AsyncMock(return_value=True)
+    views = map_feishu_okrs(_period_payload(0, 2))
+    single = AsyncMock(return_value=views[0])
+    all_periods = AsyncMock(return_value=views)
+    monkeypatch.setattr(projects_router, "_self_summary_task", auth)
+    monkeypatch.setattr(projects_router, "_self_summary_template", template)
+    monkeypatch.setattr(okr_router, "task_okr_access_allowed", policy)
+    monkeypatch.setattr(okr_router, "get_okr_provider", lambda: SimpleNamespace(name="feishu"))
+    monkeypatch.setattr(okr_router, "fetch_employee_okr", single)
+    monkeypatch.setattr(okr_router, "fetch_employee_okrs", all_periods)
+    return SimpleNamespace(route=okr_router.get_task_okr, db=db, auth=auth, template=template, policy=policy, single=single, all_periods=all_periods, views=views)
+
+
+@pytest.mark.asyncio
+async def test_period_api_default_and_opt_in_response_contract(period_task_api):
+    data = period_task_api
+    legacy = await data.route(17, context=object(), db=data.db)
+    assert legacy.okr == data.views[0] and legacy.okrs == []
+    data.single.assert_awaited_once_with(data.db, "E001")
+    data.all_periods.assert_not_awaited()
+    result = await data.route(17, context=object(), db=data.db, include_periods=True)
+    assert result.okr == data.views[0] and result.okrs == data.views
+    assert result.employee_no == "E001" and result.enabled and result.source == "feishu"
+    data.all_periods.assert_awaited_once_with(data.db, "E001")
+    assert data.auth.await_count == data.policy.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["missing", "unauthorized", "unconfigured", "policy"])
+async def test_period_api_denies_before_accessing_provider(period_task_api, monkeypatch, reason):
+    from fastapi import HTTPException
+    from app.performance import okr_router
+    data = period_task_api
+    provider = AsyncMock()
+    monkeypatch.setattr(okr_router, "get_okr_provider", provider)
+    if reason == "missing":
+        data.db.get.return_value = None
+    elif reason == "unauthorized":
+        data.auth.side_effect = HTTPException(404, "TASK_NOT_FOUND")
+    elif reason == "unconfigured":
+        data.template.return_value = {"content": []}
+    else:
+        data.policy.return_value = False
+    with pytest.raises(HTTPException) as error:
+        await data.route(17, context=object(), db=data.db, include_periods=True)
+    assert error.value.status_code == (403 if reason == "policy" else 404)
+    provider.assert_not_called()
+    data.single.assert_not_awaited()
+    data.all_periods.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_period_api_empty_and_disabled_responses(period_task_api, monkeypatch):
+    from app.performance import okr_router
+    data = period_task_api
+    data.all_periods.return_value = []
+    result = await data.route(17, context=object(), db=data.db, include_periods=True)
+    assert result.enabled and result.okr is None and result.okrs == []
+    data.all_periods.reset_mock()
+    monkeypatch.setattr(okr_router, "get_okr_provider", lambda: None)
+    result = await data.route(17, context=object(), db=data.db, include_periods=True)
+    assert not result.enabled and result.okr is None and result.okrs == []
+    data.all_periods.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("period_count", [0, 2])
+async def test_management_detail_loads_all_periods_only_when_configured(management_member_data, monkeypatch, period_count):
+    from tests.test_performance_projects import context
+    from app.performance import okr_provider
+    data = management_member_data
+    views = map_feishu_okrs(_period_payload(0, period_count))
+    fetch = AsyncMock(return_value=views)
+    monkeypatch.setattr(okr_provider, "fetch_employee_okrs", fetch)
+    await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    fetch.assert_not_awaited()
+    data.nodes[-1].config["template"]["content"].append({"content_slot": "reference", "reference_kind": "more", "reference_value": "okr"})
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    fetch.assert_awaited_once_with(data.db, "E1")
+    tab = detail["management_tabs"][-1]
+    assert tab["kind"] == "okr" and tab["task_id"] is None
+    assert tab["okr"] == (views[0] if views else None) and tab["okrs"] == views
+    assert tab["status"] == ("completed" if views else "not_started")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["forbidden", "outside_scope", "foreign_root"])
+async def test_management_okr_denies_before_external_fetch(management_member_data, monkeypatch, reason):
+    from fastapi import HTTPException
+    from tests.test_performance_projects import context
+    from app.performance import okr_provider
+    data = management_member_data
+    fetch = AsyncMock()
+    monkeypatch.setattr(okr_provider, "fetch_employee_okrs", fetch)
+    data.nodes[-1].config["template"]["content"].append({"content_slot": "reference", "reference_kind": "more", "reference_value": "okr"})
+    if reason == "forbidden":
+        monkeypatch.setattr(data.routes, "_project_data_scope", AsyncMock(side_effect=HTTPException(403)))
+    elif reason == "outside_scope":
+        monkeypatch.setattr(data.routes, "_project_data_scope", AsyncMock(return_value={"E2"}))
+    with pytest.raises(HTTPException):
+        await data.routes._project_member_detail(data.project, "E1", context(), data.db, 999 if reason == "foreign_root" else 1)
+    fetch.assert_not_awaited()

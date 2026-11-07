@@ -7407,8 +7407,9 @@ async def test_management_detail_okr_loaded_only_when_configured_without_handler
     from unittest.mock import AsyncMock
     from app.performance import okr_provider
     data = management_member_data
-    fetch = AsyncMock(return_value=okr_provider.OkrView(period_label="本期"))
-    monkeypatch.setattr(okr_provider, "fetch_employee_okr", fetch)
+    periods = [okr_provider.OkrView(period_id="current", period_label="本期"), okr_provider.OkrView(period_id="previous", period_label="上期")]
+    fetch = AsyncMock(return_value=periods)
+    monkeypatch.setattr(okr_provider, "fetch_employee_okrs", fetch)
     await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
     fetch.assert_not_awaited()
     data.nodes[-1].config["template"]["content"].append({"content_slot": "reference", "reference_kind": "more", "reference_value": "okr"})
@@ -7416,6 +7417,7 @@ async def test_management_detail_okr_loaded_only_when_configured_without_handler
     fetch.assert_awaited_once_with(data.db, "E1")
     okr = detail["management_tabs"][-1]
     assert okr["kind"] == "okr" and okr["task_id"] is None and okr["okr"].period_label == "本期"
+    assert okr["okrs"] == periods
 
 
 @pytest.mark.asyncio

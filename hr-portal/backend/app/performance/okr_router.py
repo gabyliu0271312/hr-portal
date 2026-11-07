@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context
 from app.performance.models import PerformanceNodeTask
-from app.performance.okr_provider import OkrView, fetch_employee_okr, get_okr_provider
+from app.performance.okr_provider import OkrView, fetch_employee_okr, fetch_employee_okrs, get_okr_provider
 from app.performance.okr_policy import task_okr_access_allowed
 
 
@@ -20,6 +20,7 @@ class EmployeeOkrResponse(BaseModel):
     source: str | None = None
     employee_no: str
     okr: OkrView | None = None
+    okrs: list[OkrView] = Field(default_factory=list)
 
 
 @router.get("/tasks/{task_id}/okr", response_model=EmployeeOkrResponse)
@@ -27,6 +28,7 @@ async def get_task_okr(
     task_id: int,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    include_periods: bool = False,
 ) -> EmployeeOkrResponse:
     """按已授权的绩效任务读取其被评估人 OKR，避免前端直接按工号越权查询。"""
     task = await db.get(PerformanceNodeTask, task_id)
@@ -55,6 +57,15 @@ async def get_task_okr(
     provider = get_okr_provider()
     if provider is None:
         return EmployeeOkrResponse(enabled=False, employee_no=task.target_employee_no)
+    if include_periods:
+        okrs = await fetch_employee_okrs(db, task.target_employee_no)
+        return EmployeeOkrResponse(
+            enabled=True,
+            source=provider.name,
+            employee_no=task.target_employee_no,
+            okr=okrs[0] if okrs else None,
+            okrs=okrs,
+        )
     return EmployeeOkrResponse(
         enabled=True,
         source=provider.name,

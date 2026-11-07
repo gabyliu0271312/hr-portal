@@ -3,7 +3,7 @@
     <h2 v-if="showTitle" class="reference-content-title">{{ reference.node_name }}</h2>
     <p v-if="reference.kind === 'okr' && okrLoading" role="status">正在加载 OKR…</p>
     <p v-if="reference.kind === 'okr' && okrError" role="alert">OKR 加载失败 <button type="button" @click="loadOkr">重试</button></p>
-    <PerformanceOkrPanel v-if="reference.kind === 'okr' && !okrLoading && !okrError" :okr="okr" />
+    <PerformanceOkrPanel v-if="reference.kind === 'okr' && !okrLoading && !okrError" :okr="okr" :okrs="okrs" />
     <PerformanceTemplateRenderer
       v-else-if="reference.status === 'completed' && reference.form_schema.length"
       mode="readonly"
@@ -32,6 +32,7 @@ import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 const props = defineProps<{ reference: PerformanceReferenceTab; showTitle?: boolean }>()
 const emit = defineEmits<{ remind: [reference: PerformanceReferenceTab] }>()
 const okr = ref(props.reference.okr || null)
+const okrs = ref(props.reference.okrs || [])
 const okrLoading = ref(false)
 const okrError = ref('')
 let requestId = 0
@@ -43,14 +44,14 @@ async function loadOkr() {
   okrError.value = ''
   try {
     const result = await performanceOkrApi.taskOkr(props.reference.task_id)
-    if (current === requestId) okr.value = result.okr || null
+    if (current === requestId) { okr.value = result.okr || null; okrs.value = result.okrs || [] }
   } catch (error) {
     if (current === requestId) okrError.value = error instanceof Error ? error.message : 'OKR加载失败'
   } finally {
     if (current === requestId) okrLoading.value = false
   }
 }
-watch(() => props.reference, () => { ++requestId; okr.value = props.reference.okr || null; okrLoading.value = false; okrError.value = ''; void loadOkr() }, { immediate: true })
+watch(() => props.reference, () => { ++requestId; okr.value = props.reference.okr || null; okrs.value = props.reference.okrs || []; okrLoading.value = false; okrError.value = ''; void loadOkr() }, { immediate: true })
 onBeforeUnmount(() => { ++requestId })
 </script>
 

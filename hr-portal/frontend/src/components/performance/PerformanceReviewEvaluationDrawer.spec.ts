@@ -113,10 +113,12 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
-  it('loads management tabs through the supplied loader without using handler task APIs', async () => {
+  it('loads management periods through the supplied loader and switches OKR without using handler task APIs', async () => {
+    const fetchOkr = vi.spyOn(performanceOkrApi, 'taskOkr')
+    const periods = ['本期', '上期'].map((label, index) => ({ source: 'feishu', okr_id: `okr-${index}`, period_id: `period-${index}`, period_label: label, objectives: [{ id: `o-${index}`, content: `${label}管理目标`, key_results: [] }] }))
     const detailLoader = vi.fn().mockResolvedValue({ ...task, task_id: null, editable: false, submit_allowed: false, opened_at: '2026-09-22T07:29:00Z', management_tabs: [
       { key: 'management-final', node_id: 'final', node_name: '上级评估', kind: 'node', status: 'completed', employee_no: 'E001', can_remind: false, form_schema: task.form_schema, answers: { good: '管理只读答案' } },
-      { key: 'management-okr', node_id: '', node_name: 'OKR', kind: 'okr', task_id: null, status: 'not_started', employee_no: 'E001', can_remind: false, form_schema: [], answers: {}, okr: null },
+      { key: 'management-okr', node_id: '', node_name: 'OKR', kind: 'okr', task_id: null, status: 'completed', employee_no: 'E001', can_remind: false, form_schema: [], answers: {}, okr: periods[0], okrs: periods },
     ], default_active_tab: 'management-final' })
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', readonly: true, detailLoader } })
     await flushPromises()
@@ -129,6 +131,17 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     await flushPromises()
     expect(wrapper.emitted('update:activeTab')).toContainEqual(['management-okr'])
     expect(document.body.querySelector('.okr-card')).not.toBeNull()
+    expect(document.body.textContent).toContain('本期管理目标')
+    const selector = document.body.querySelector<HTMLSelectElement>('.okr-card select')!
+    expect(Array.from(selector.options).map(option => option.text)).toEqual(['本期', '上期'])
+    selector.value = '1'
+    selector.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(document.body.textContent).toContain('上期管理目标')
+    expect(document.body.textContent).not.toContain('本期管理目标')
+    expect(fetchOkr).not.toHaveBeenCalled()
+    expect(detailLoader).toHaveBeenCalledTimes(1)
+    expect(performanceReviewApi.templateTask).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 

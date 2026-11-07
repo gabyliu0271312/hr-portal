@@ -89,20 +89,7 @@ def _percent(progress_rate: Any) -> float | None:
     return _as_float(progress_rate.get("percent"))
 
 
-def map_feishu_okr(payload: dict[str, Any], *, source: str = "feishu") -> OkrView | None:
-    """把飞书 ``/okr/v1/users/{user_id}/okrs`` 的响应归一化成 :class:`OkrView`。
-
-    纯函数（不触网、不查库），便于用固定响应体做回归测试。
-    响应中没有 OKR（或 okr_list 为空）时返回 ``None``。
-    """
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, dict):
-        return None
-    okr_list = data.get("okr_list") or []
-    if not okr_list:
-        return None
-
-    okr = okr_list[0] if isinstance(okr_list[0], dict) else {}
+def _map_feishu_okr(okr: dict[str, Any], *, source: str = "feishu") -> OkrView:
     objectives: list[OkrObjectiveView] = []
     for objective in okr.get("objective_list") or []:
         if not isinstance(objective, dict):
@@ -138,12 +125,31 @@ def map_feishu_okr(payload: dict[str, Any], *, source: str = "feishu") -> OkrVie
     )
 
 
+def map_feishu_okrs(payload: dict[str, Any], *, source: str = "feishu") -> list[OkrView]:
+    """把一个飞书分页响应中的全部 OKR 归一化。"""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return []
+    return [_map_feishu_okr(okr, source=source) for okr in data.get("okr_list") or [] if isinstance(okr, dict)]
+
+
+def map_feishu_okr(payload: dict[str, Any], *, source: str = "feishu") -> OkrView | None:
+    """把飞书 OKR 响应的首个 OKR 归一化，保持 legacy 单周期语义。"""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict) or not data.get("okr_list"):
+        return None
+    okr = data["okr_list"][0]
+    return _map_feishu_okr(okr if isinstance(okr, dict) else {}, source=source)
+
+
 class OkrProvider(Protocol):
     """OKR 数据源协议"""
 
     name: str
 
     async def fetch(self, db: AsyncSession, employee_no: str) -> OkrView | None: ...
+
+    async def fetch_all(self, db: AsyncSession, employee_no: str) -> list[OkrView]: ...
 
 
 class FeishuOkrProvider:
@@ -198,10 +204,17 @@ class FeishuOkrProvider:
         return str(open_id).strip() if open_id else None
 
     async def fetch(self, db: AsyncSession, employee_no: str) -> OkrView | None:
+        okrs = await self._fetch(db, employee_no, include_periods=False)
+        return okrs[0] if okrs else None
+
+    async def fetch_all(self, db: AsyncSession, employee_no: str) -> list[OkrView]:
+        return await self._fetch(db, employee_no, include_periods=True)
+
+    async def _fetch(self, db: AsyncSession, employee_no: str, *, include_periods: bool) -> list[OkrView]:
         open_id = await self.resolve_open_id(db, employee_no)
         if not open_id:
             logger.info("[okr] 员工未绑定飞书身份，跳过 OKR 拉取: %s", employee_no)
-            return None
+            return []
 
         params: dict[str, Any] = {
             "user_id_type": "open_id",
@@ -211,17 +224,43 @@ class FeishuOkrProvider:
         }
         if self._period_ids:
             params["period_ids"] = self._period_ids
-        try:
-            payload = await self._client.get_json(f"/okr/v1/users/{quote(open_id, safe='')}/okrs", params)
-        except FeishuClientError as exc:
-            # 1001004 = OKR 数据不存在，属于正常空态；其它错误记录后按空态降级，不阻塞填写页
-            logger.warning("[okr] 拉取飞书 OKR 失败 employee=%s code=%s: %s", employee_no, exc.code, exc)
-            return None
-
-        view = map_feishu_okr(payload)
-        if view is None:
-            logger.info("[okr] 飞书未返回 OKR: employee=%s", employee_no)
-        return view
+        okrs: list[OkrView] = []
+        seen_pages = set()
+        offset = 0
+        total = None
+        while True:
+            params["offset"] = str(offset)
+            try:
+                payload = await self._client.get_json(f"/okr/v1/users/{quote(open_id, safe='')}/okrs", params)
+            except FeishuClientError as exc:
+                # 1001004 = OKR 数据不存在；外部错误按空态降级，不阻塞填写页
+                logger.warning("[okr] 拉取飞书 OKR 失败 employee=%s code=%s: %s", employee_no, exc.code, exc)
+                return []
+            if not include_periods:
+                view = map_feishu_okr(payload)
+                return [view] if view is not None else []
+            page = map_feishu_okrs(payload)
+            reported_total = (payload.get("data") or {}).get("total")
+            if reported_total is not None:
+                total = int(reported_total)
+            if not page:
+                if total is not None and offset < total:
+                    logger.warning("[okr] 飞书分页提前为空 employee=%s offset=%s total=%s", employee_no, offset, total)
+                    return []
+                break
+            page_ids = tuple((view.okr_id, view.period_id) for view in page)
+            if page_ids in seen_pages:
+                logger.warning("[okr] 飞书返回重复分页 employee=%s offset=%s", employee_no, offset)
+                return []
+            seen_pages.add(page_ids)
+            okrs.extend(page)
+            offset += len((payload.get("data") or {}).get("okr_list") or [])
+            if total is not None:
+                if offset >= total:
+                    break
+            elif len(page) < 10:
+                break
+        return okrs
 
 
 def okr_provider_name() -> str:
@@ -250,3 +289,15 @@ async def fetch_employee_okr(db: AsyncSession, employee_no: str) -> OkrView | No
     except Exception:  # noqa: BLE001 - 参考内容是旁路信息，任何异常都不应阻塞填写页
         logger.exception("[okr] 获取 OKR 异常 employee=%s", employee_no)
         return None
+
+
+async def fetch_employee_okrs(db: AsyncSession, employee_no: str) -> list[OkrView]:
+    """按被评估人工号读取全部可用 OKR 周期。"""
+    provider = get_okr_provider()
+    if provider is None:
+        return []
+    try:
+        return await provider.fetch_all(db, employee_no)
+    except Exception:  # noqa: BLE001 - 与单周期参考内容使用相同的空态降级边界
+        logger.exception("[okr] 获取全部 OKR 异常 employee=%s", employee_no)
+        return []
