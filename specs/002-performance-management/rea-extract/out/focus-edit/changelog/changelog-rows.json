@@ -1,0 +1,253 @@
+{
+ "tables": [
+  "ref: <Node>",
+  "ref: <Node>"
+ ],
+ "rows": [
+  {
+   "cells": [
+    {
+     "text": "",
+     "cls": "",
+     "width": 264,
+     "html": "<div style=\"height: 0px; overflow: hidden;\">&nbsp;</div>"
+    },
+    {
+     "text": "",
+     "cls": "",
+     "width": 200,
+     "html": "<div style=\"height: 0px; overflow: hidden;\">&nbsp;</div>"
+    },
+    {
+     "text": "",
+     "cls": "",
+     "width": 450,
+     "html": "<div style=\"height: 0px; overflow: hidden;\">&nbsp;</div>"
+    },
+    {
+     "text": "",
+     "cls": "",
+     "width": 223,
+     "html": "<div style=\"height: 0px; overflow: hidden;\">&nbsp;</div>"
+    },
+    {
+     "text": "",
+     "cls": "",
+     "width": 223,
+     "html": "<div style=\"height: 0px; overflow: hidden;\">&nbsp;</div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  },
+  {
+   "cells": [
+    {
+     "text": "alice.xiao肖惠方",
+     "cls": "ud__table-cell",
+     "width": 264,
+     "html": "<div class=\"contents\"><ee-user-card data-user-id=\"6733065927262635534\" data-delegate-mouse-event=\"true\"><div class=\"employee-label-internal user-id-6733065927262635534 label\"><span class=\"ud__avatar u"
+    },
+    {
+     "text": "新增",
+     "cls": "ud__table-cell",
+     "width": 200,
+     "html": "<div class=\"clamp  \"><span>新增</span></div>"
+    },
+    {
+     "text": "",
+     "cls": "ud__table-cell",
+     "width": 450,
+     "html": ""
+    },
+    {
+     "text": "1",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md hover:bg-transparent p-0\">1</button>"
+    },
+    {
+     "text": "2026-08-04 10:54",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<div class=\"clamp  \"><span>2026-08-04 10:54</span></div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  },
+  {
+   "cells": [
+    {
+     "text": "alice.xiao肖惠方",
+     "cls": "ud__table-cell",
+     "width": 264,
+     "html": "<div class=\"contents\"><ee-user-card data-user-id=\"6733065927262635534\" data-delegate-mouse-event=\"true\"><div class=\"employee-label-internal user-id-6733065927262635534 label\"><span class=\"ud__avatar u"
+    },
+    {
+     "text": "新增",
+     "cls": "ud__table-cell",
+     "width": 200,
+     "html": "<div class=\"clamp  \"><span>新增</span></div>"
+    },
+    {
+     "text": "",
+     "cls": "ud__table-cell",
+     "width": 450,
+     "html": ""
+    },
+    {
+     "text": "1",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md hover:bg-transparent p-0\">1</button>"
+    },
+    {
+     "text": "2026-08-04 10:46",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<div class=\"clamp  \"><span>2026-08-04 10:46</span></div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  },
+  {
+   "cells": [
+    {
+     "text": "alice.xiao肖惠方",
+     "cls": "ud__table-cell",
+     "width": 264,
+     "html": "<div class=\"contents\"><ee-user-card data-user-id=\"6733065927262635534\" data-delegate-mouse-event=\"true\"><div class=\"employee-label-internal user-id-6733065927262635534 label\"><span class=\"ud__avatar u"
+    },
+    {
+     "text": "新增",
+     "cls": "ud__table-cell",
+     "width": 200,
+     "html": "<div class=\"clamp  \"><span>新增</span></div>"
+    },
+    {
+     "text": "",
+     "cls": "ud__table-cell",
+     "width": 450,
+     "html": ""
+    },
+    {
+     "text": "4",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md hover:bg-transparent p-0\">4</button>"
+    },
+    {
+     "text": "2026-08-04 10:36",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<div class=\"clamp  \"><span>2026-08-04 10:36</span></div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  },
+  {
+   "cells": [
+    {
+     "text": "alice.xiao肖惠方",
+     "cls": "ud__table-cell",
+     "width": 264,
+     "html": "<div class=\"contents\"><ee-user-card data-user-id=\"6733065927262635534\" data-delegate-mouse-event=\"true\"><div class=\"employee-label-internal user-id-6733065927262635534 label\"><span class=\"ud__avatar u"
+    },
+    {
+     "text": "新增",
+     "cls": "ud__table-cell",
+     "width": 200,
+     "html": "<div class=\"clamp  \"><span>新增</span></div>"
+    },
+    {
+     "text": "",
+     "cls": "ud__table-cell",
+     "width": 450,
+     "html": ""
+    },
+    {
+     "text": "4",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md hover:bg-transparent p-0\">4</button>"
+    },
+    {
+     "text": "2026-08-04 10:35",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<div class=\"clamp  \"><span>2026-08-04 10:35</span></div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  },
+  {
+   "cells": [
+    {
+     "text": "alice.xiao肖惠方",
+     "cls": "ud__table-cell",
+     "width": 264,
+     "html": "<div class=\"contents\"><ee-user-card data-user-id=\"6733065927262635534\" data-delegate-mouse-event=\"true\"><div class=\"employee-label-internal user-id-6733065927262635534 label\"><span class=\"ud__avatar u"
+    },
+    {
+     "text": "新增",
+     "cls": "ud__table-cell",
+     "width": 200,
+     "html": "<div class=\"clamp  \"><span>新增</span></div>"
+    },
+    {
+     "text": "",
+     "cls": "ud__table-cell",
+     "width": 450,
+     "html": ""
+    },
+    {
+     "text": "5",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md hover:bg-transparent p-0\">5</button>"
+    },
+    {
+     "text": "2026-08-04 10:34",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<div class=\"clamp  \"><span>2026-08-04 10:34</span></div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  },
+  {
+   "cells": [
+    {
+     "text": "alice.xiao肖惠方",
+     "cls": "ud__table-cell",
+     "width": 264,
+     "html": "<div class=\"contents\"><ee-user-card data-user-id=\"6733065927262635534\" data-delegate-mouse-event=\"true\"><div class=\"employee-label-internal user-id-6733065927262635534 label\"><span class=\"ud__avatar u"
+    },
+    {
+     "text": "新增",
+     "cls": "ud__table-cell",
+     "width": 200,
+     "html": "<div class=\"clamp  \"><span>新增</span></div>"
+    },
+    {
+     "text": "",
+     "cls": "ud__table-cell",
+     "width": 450,
+     "html": ""
+    },
+    {
+     "text": "7",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md hover:bg-transparent p-0\">7</button>"
+    },
+    {
+     "text": "2026-08-04 10:32",
+     "cls": "ud__table-cell",
+     "width": 223,
+     "html": "<div class=\"clamp  \"><span>2026-08-04 10:32</span></div>"
+    }
+   ],
+   "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间"
+  }
+ ]
+}

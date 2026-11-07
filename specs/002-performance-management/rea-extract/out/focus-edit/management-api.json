@@ -1,0 +1,23 @@
+[
+ {
+  "m": "GET",
+  "url": "/perf/api/review/v2/stage_indicators",
+  "status": 200,
+  "len": 13598,
+  "body": "{\"code\":0,\"data\":[{\"id\":\"7704532499640093716\",\"indicatorModelTypeStr\":\"normal\",\"type\":\"level\",\"name\":{\"zh-CN\":\"岗位层级是否调整-评估题\"},\"langs\":[\"zh-CN\"],\"description\":{\"zh-CN\":\"\"},\"level\":{\"option_style\":\"tag\",\"options\":[{\"id\":\"7704531821161123079\",\"label\":{\"zh-CN\":\"推荐调整\"},\"name\":{\"zh-CN\":\"推荐调整\"},\"description\":{\"zh-CN\":\"1\"},\"is_hide_level\":false,\"score\":null,\"value\":null,\"color\":\"#fde2e2\"},{\"id\":\"7704531821278530837\",\"label\":{\"zh-CN\":\"维持不变\"},\"name\":{\"zh-CN\":\"维持不变\"},\"description\":{\"zh-CN\":\"1\"},\"is_hide_level\":false,\"score\":null,\"value\":null,\"color\":\"#feead2\"}],\"ratingRange\":[],\"subIndicators\":[{\"id\":\"\","
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/settings",
+  "status": 200,
+  "len": 1476,
+  "body": "{\"code\":0,\"data\":{\"user\":{\"avatar\":\"https://s1-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=noop\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar240\":\"https://s1-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=240x240\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar640\":\"https://s3-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=640x640\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar72\":\"https://s1-imfile.feishucdn.com/st"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/custom_text_setting",
+  "status": 200,
+  "len": 88,
+  "body": "{\"code\":0,\"data\":{\"has_set_text\":false,\"replace_text\":null},\"msg\":\"操作成功\",\"success\":true}"
+ }
+]

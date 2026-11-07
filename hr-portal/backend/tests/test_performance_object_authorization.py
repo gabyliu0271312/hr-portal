@@ -174,7 +174,7 @@ class _FocusDb:
     @staticmethod
     def person(no, name):
         return SimpleNamespace(employee_no=no, display_name=name, department="Org", organization_ref="Org/Team",
-            direct_supervisor_employee_no=None, hrbp_employee_no=None)
+            direct_supervisor_employee_no=None, hrbp_employee_no=None, department_2="一级", department_5="末级", job_family="序列")
 
     async def scalar(self, statement):
         text = str(statement)
@@ -201,6 +201,17 @@ class _FocusDb:
             rows = self.projects
         elif "FROM performance_project_members" in text:
             rows = list(self.members[statement.compile().params["snapshot_id_1"]])
+        elif "FROM performance_audit_events" in text:
+            rows = self.events
+        elif "FROM users" in text:
+            params = statement.compile().params
+            ids = []
+            for value in params.values():
+                if isinstance(value, list):
+                    ids.extend(v for v in value if str(v).isdigit())
+                elif str(value).isdigit():
+                    ids.append(value)
+            rows = [SimpleNamespace(id=int(value), display_name="管理员") for value in ids]
         else:
             raise AssertionError(text)
         return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
@@ -426,3 +437,82 @@ def test_object_authorization_migration_has_immutable_audit_trigger():
     assert "performance_reject_audit_event_mutation" in migration
     assert "trg_performance_audit_events_immutable" in migration
     assert 'op.drop_table("performance_audit_events")' in migration
+
+
+def _audit_event(event_id, cycle_ref, actor_ref, before, after, event_at):
+    return SimpleNamespace(
+        id=event_id, cycle_ref=cycle_ref, event_type="PERFORMANCE_FOCUS_GROUP_MEMBERS_UPDATED",
+        actor_type="PORTAL_USER", actor_ref=actor_ref, subject_type="PERFORMANCE_FOCUS_GROUP",
+        subject_ref="8", before_state={"employee_nos": before}, after_state={"employee_nos": after},
+        event_at=event_at,
+    )
+
+
+@pytest.mark.asyncio
+async def test_focus_change_log_diff_add_remove_and_added_by(focus_auth, monkeypatch):
+    """变更记录：一次 updateMembers 事件 diff 成「新增」「移除」两条，操作条件仅移除显示姓名；
+    添加人/时间 = 成员最近一次「新增」事件的操作人/时间。"""
+    from datetime import UTC, datetime
+
+    from app.performance.focus_group_members_router import (
+        get_focus_group_change_log, get_focus_group_change_people, get_focus_group_members,
+    )
+
+    db, context, _, facade = focus_auth
+    monkeypatch.setattr("app.performance.focus_group_members_router.PerformanceFeatureAuthorizationService", lambda db: facade)
+    # hrbp + 组织范围覆盖：A/B 都在可维护范围内
+    db.group.roles_of_managing_scope = ["hrbp"]
+    db.permission = SimpleNamespace(scope=["Org"], invisible_people=[])
+    for person in db.people:
+        person.department_2 = "一级"
+        person.department_5 = "末级"
+        person.job_family = "序列"
+    db.group.employee_nos = ["A", "B"]
+    # 最近事件：actor 加入 B（before=[A]，after=[A,B]）
+    db.events = [
+        _audit_event(3, "C", "9", ["A"], ["A", "B"], datetime(2026, 8, 4, 10, 54, tzinfo=UTC)),
+        # 更早事件：同批加入 A + B（before=[], after=[A,B]）→ A 的 added_by 取这条
+        _audit_event(1, "C", "9", [], ["A", "B"], datetime(2026, 8, 3, 9, 0, tzinfo=UTC)),
+    ]
+
+    log = await get_focus_group_change_log(1, 8, 1, 10, context, db)
+    assert log["total"] == 2
+    # 倒序：B 加入(事件3) → A/B 同批加入(事件1)
+    assert [item["id"] for item in log["items"]] == ["3-add", "1-add"]
+    assert log["items"][0]["change_type"] == "新增"
+    assert log["items"][0]["condition"] == ""
+    assert log["items"][0]["user_ids"] == ["B"]
+    assert log["items"][0]["count"] == 1
+    assert log["items"][0]["operator"] == "管理员"
+    assert log["items"][0]["changed_at"].startswith("2026-08-04T10:54")
+
+    # 移除：事件 diff 出移除记录，操作条件显示被移除成员姓名
+    db.events = [
+        _audit_event(5, "C", "9", ["A", "B", "C"], ["A", "B"], datetime(2026, 8, 5, 11, 0, tzinfo=UTC)),
+    ]
+    db.people.append(db.person("C", "丙"))
+    log = await get_focus_group_change_log(1, 8, 1, 10, context, db)
+    assert len(log["items"]) == 1
+    assert log["items"][0]["change_type"] == "移除"
+    assert log["items"][0]["condition"] == "丙"
+    assert log["items"][0]["user_ids"] == ["C"]
+
+    # 分页（stub DB 不截断行，仅验证 total；分页截断由真实 DB 测试覆盖）
+    db.events = [_audit_event(6, "C", "9", [], ["A"], datetime(2026, 8, 6, 12, 0, tzinfo=UTC))]
+    log = await get_focus_group_change_log(1, 8, 2, 1, context, db)
+    assert log["total"] == 1 and len(log["items"]) == 1
+
+    # 变更人员数展开：按 user_ids 回传快照画像
+    people = (await get_focus_group_change_people(1, 8, 6, "A,B", context, db))["items"]
+    assert [person["employee_no"] for person in people] == ["A", "B"]
+    assert people[0]["display_name"] == "甲" and people[0]["department_2"] == "一级"
+
+    # 添加人/添加时间：A 取事件1，B 取事件3
+    db.events = [
+        _audit_event(3, "C", "9", ["A"], ["A", "B"], datetime(2026, 8, 4, 10, 54, tzinfo=UTC)),
+        _audit_event(1, "C", "9", [], ["A", "B"], datetime(2026, 8, 3, 9, 0, tzinfo=UTC)),
+    ]
+    result = await get_focus_group_members(1, 8, context, db)
+    by_no = {person["value"]: person for person in result["people"]}
+    assert by_no["B"]["added_by"] == "管理员" and by_no["B"]["added_at"].startswith("2026-08-04")
+    assert by_no["A"]["added_at"].startswith("2026-08-03")

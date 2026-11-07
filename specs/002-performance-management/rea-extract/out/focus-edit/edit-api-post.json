@@ -1,0 +1,6 @@
+[
+ {
+  "url": "https://idreamsky.feishu.cn/perf/api/review/follow/group/edit",
+  "body": "{\"groupId\":\"7705321089009716245\",\"semesterId\":\"7654423719619710195\",\"tenantId\":\"6732051441411884552\",\"scope_setting_mode\":1,\"viewPermission\":1,\"name\":\"1\",\"enName\":\"\",\"description\":{\"zh-CN\":\"2\",\"en-US\":\"\"},\"roles_of_managing_scope\":null,\"activity_ids\":[\"7654470731517987794\"]}"
+ }
+]

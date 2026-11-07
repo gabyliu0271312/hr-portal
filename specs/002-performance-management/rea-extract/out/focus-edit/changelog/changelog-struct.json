@@ -1,0 +1,875 @@
+{
+ "viewport": [
+  1280,
+  673
+ ],
+ "url": "https://idreamsky.feishu.cn/perf/admin/semester-activities/7654423719619710195/focus-people/management/7669998387978046396?currentPage=1&pageSize=10",
+ "nodes": [
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__tabs__tab--line ud__tabs__tab ud-typography-body-0 u132xexn uses1vf u82itaf u71fsbu u1kcqot9 upe6lb7",
+   "rect": [
+    20,
+    362,
+    56,
+    46
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "12px 0px",
+   "margin": "0px 28px 0px 0px",
+   "display": "inline-flex",
+   "flex": "row normal center",
+   "gap": "normal",
+   "lineHeight": "22px",
+   "pos": "relative",
+   "text": "人员列表"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__tabs__tab-bar-more-body ud-typography-body-0 uses1vf u82itaf u71fsbu u1kcqot9 upe6lb7",
+   "rect": [
+    188,
+    339,
+    44,
+    46
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "12px 0px",
+   "margin": "0px",
+   "display": "flex",
+   "flex": "row normal center",
+   "gap": "normal",
+   "lineHeight": "22px",
+   "pos": "static",
+   "text": "更多"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__tabs__content",
+   "rect": [
+    20,
+    420,
+    1240,
+    233
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "22.001px",
+   "pos": "static",
+   "text": "搜索成员\n筛选\n操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间\n\n\n \n\t\n \n\t"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__tabs__pane",
+   "rect": [
+    20,
+    420,
+    1240,
+    233
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "22.001px",
+   "pos": "static",
+   "text": "搜索成员\n筛选\n操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间\n\n\n \n\t\n \n\t"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__select__selector__content",
+   "rect": [
+    932,
+    446,
+    193,
+    29
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "22.001px",
+   "pos": "relative",
+   "text": "搜索成员"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__text ud__select__selector__placeholder uiy7161 uz5stix u1a3p1vp u1cmbuwj ud-typography-body-0 uhx3js9 uokg",
+   "rect": [
+    932,
+    446,
+    193,
+    28
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(143, 149, 158)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(143, 149, 158)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "28px",
+   "pos": "static",
+   "text": "搜索成员"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__table-content",
+   "rect": [
+    44,
+    492,
+    1184,
+    361
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "22.001px",
+   "pos": "static",
+   "text": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间\n\n\n \n\t\n \n\t\n \n\t\n \n\t"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "TBODY",
+   "cls": "ud__table-tbody",
+   "rect": [
+    44,
+    539,
+    1360,
+    306
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "table-row-group",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "22.001px",
+   "pos": "static",
+   "text": "alice.xiao肖惠方\n\t\n新增\n\t\t1\t\n2026-08-04 10:54\n\n\nalice.x"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__select__selector__content",
+   "rect": [
+    1157,
+    871,
+    45,
+    25
+   ],
+   "font": "12px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "18.858px",
+   "pos": "relative",
+   "text": "10 条/页"
+  },
+  {
+   "label": "TAB_PANEL",
+   "tag": "DIV",
+   "cls": "ud__text ud__select__selector__selectItem ud-typography-body-2 uhx3js9 uokg9q4 u1ugzwwg u1n95isl u71fsbu uiy71",
+   "rect": [
+    1157,
+    871,
+    45,
+    24
+   ],
+   "font": "12px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgb(31, 35, 41)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "border": "0px rgb(31, 35, 41)",
+   "radius": "0px",
+   "pad": "0px",
+   "margin": "0px",
+   "display": "block",
+   "flex": "row normal normal",
+   "gap": "normal",
+   "lineHeight": "24px",
+   "pos": "static",
+   "text": "10 条/页"
+  },
+  {
+   "label": "ITEM",
+   "tag": "DIV",
+   "cls": "event card",
+   "rect": [
+    32,
+    72,
+    796,
+    529
+   ],
+   "font": "14px/400 -apple-system, BlinkMacSystemF",
+   "color": "rgba(0, 0, 0, 0.65)",
+   "bg": "rgb(255, 255, 255)",
+   "border": "0px rgba(0, 0, 0, 0.65)",
+   "radius": "12px",
+   "pad": "20px",
+   "margin": "0px",
+   "display": "flex",
+   "flex": "column normal normal",
+   "gap": "normal",
+   "lineHeight": "21px",
+   "pos": "static",
+   "text": ""
+  }
+ ],
+ "texts": [
+  {
+   "text": "飞书绩效",
+   "cls": "",
+   "tag": "TITLE"
+  },
+  {
+   "text": "!window.setImmediate&&(window.setImmediate=function(e){setTimeout(e,0)})",
+   "cls": "",
+   "tag": "SCRIPT"
+  },
+  {
+   "text": "You need to enable JavaScript to run this app.",
+   "cls": "",
+   "tag": "NOSCRIPT"
+  },
+  {
+   "text": "人员组管理",
+   "cls": "indexstyled__ModalTitle-fiTFzW jvXyQS",
+   "tag": "DIV"
+  },
+  {
+   "text": "基本信息",
+   "cls": "text-16 font-semibold",
+   "tag": "SPAN"
+  },
+  {
+   "text": "人员组名称",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "核心管理干部",
+   "cls": "",
+   "tag": "DIV"
+  },
+  {
+   "text": "人员组说明",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "truncate-clamp",
+   "tag": "DIV"
+  },
+  {
+   "text": "关注人",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "该人员组对谁可见",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "仅关注人可见",
+   "cls": "",
+   "tag": "DIV"
+  },
+  {
+   "text": "展示该人员组标签",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "是",
+   "cls": "",
+   "tag": "DIV"
+  },
+  {
+   "text": "人员范围设置方式",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "手动维护人员范围",
+   "cls": "",
+   "tag": "DIV"
+  },
+  {
+   "text": "人员范围规则",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "项目管理员",
+   "cls": "",
+   "tag": "DIV"
+  },
+  {
+   "text": "独立结果沟通时间",
+   "cls": "mr-2",
+   "tag": "SPAN"
+  },
+  {
+   "text": "未设置",
+   "cls": "",
+   "tag": "DIV"
+  },
+  {
+   "text": "人员列表",
+   "cls": "ud__tabs__tab--line ud__tabs__tab ud-typography-body-0 u132x",
+   "tag": "DIV"
+  },
+  {
+   "text": "变更记录",
+   "cls": "ud__tabs__tab--line ud__tabs__tab--active ud__tabs__tab ud-t",
+   "tag": "DIV"
+  },
+  {
+   "text": "更多",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "搜索成员",
+   "cls": "ud__text ud__select__selector__placeholder uiy7161 uz5stix u",
+   "tag": "DIV"
+  },
+  {
+   "text": "姓名",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "直属上级",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "虚线上级",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "一级部门",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "末级部门",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "序列",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "添加人",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "添加时间",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "操作",
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita",
+   "tag": "SPAN"
+  },
+  {
+   "text": "jason.yu于东坤",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "ace.xiao肖坚",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "游戏研发事业部",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "客户端2组",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "研发类",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:54",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "nan.zhang张楠楠",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "anfernee.guan关嵩",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "游戏发行事业部",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "C2工作室",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:46",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "cai.cai蔡兴艳",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "hagen.yang杨佳亮",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "后台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "行政中心",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:36",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "emmabh.wu吴冰晖",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "jasmine.liu刘艳晶",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "后台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "内审部",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:36",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "jill.guo郭清华",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "hagen.yang杨佳亮",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "后台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "招聘组",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:36",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "raymond.chen陈旭",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "kevin.lei雷俊文",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "后台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "财务部",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:36",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "bill.li李泌",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "anfernee.guan关嵩",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "技术中台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "运维中心",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:35",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "neil.wang王胜",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "anfernee.guan关嵩",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "技术中台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "产品运营中心",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:35",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "wei.zuo左伟",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "erica.wu吴宇坤",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "业务中台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "采购部",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "font-medium text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "alice.xiao肖惠方",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "2026-08-04 10:35",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "移除",
+   "cls": "ud__button ud__button--link ud__button--link-primary ud__but",
+   "tag": "BUTTON"
+  },
+  {
+   "text": "pengfei.yuan原鹏飞",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "anfernee.guan关嵩",
+   "cls": "name truncate max-w-100",
+   "tag": "SPAN"
+  },
+  {
+   "text": "--",
+   "cls": "text-N-500",
+   "tag": "SPAN"
+  },
+  {
+   "text": "技术中台",
+   "cls": "",
+   "tag": "SPAN"
+  },
+  {
+   "text": "质量中心",
+   "cls": "",
+   "tag": "SPAN"
+  }
+ ]
+}

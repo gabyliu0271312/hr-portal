@@ -1,0 +1,6 @@
+[
+ {
+  "url": "https://idreamsky.feishu.cn/perf/api/review/follow/group/edit",
+  "body": "{\"groupId\":\"7669998387978046396\",\"semesterId\":\"7654423719619710195\",\"tenantId\":\"6732051441411884552\",\"name\":\"核心管理干部\",\"enName\":\"\",\"description\":{\"zh-CN\":\"\",\"en-US\":\"\"},\"followeeUserIds\":[\"6733065927262635534\"],\"viewPermission\":0,\"scope_setting_mode\":1,\"roles_of_managing_scope\":[\"activity_manager\"],\"show_group_tag\":1,\"tag_color\":\"indigo-option\",\"isCommunicateTime\":0,\"startTime\":0,\"endTime\":0,\"scope\":[],\"text_color\":\"#151b70\",\"bg_color\":\"rgba(91,101,245,0.2)\"}"
+ }
+]

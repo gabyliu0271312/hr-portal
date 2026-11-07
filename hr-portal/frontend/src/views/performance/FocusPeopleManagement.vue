@@ -101,6 +101,14 @@ function openCreate() {
   void router.push({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: id }, query: { tab: activeTab.value } })
 }
 
+function openDetail(row: PerformanceFocusGroup) {
+  const id = cycleId()
+  if (!id) { ElMessage.warning('缺少绩效周期'); return }
+  // 飞书两层链路：列表「编辑」先进详情管理页（基本信息 + 人员列表 + 变更记录），头部「编辑」才进表单
+  const name = activeTab.value === 'project' ? 'PerformanceActivityFocusPeopleDetail' : 'PerformanceCycleFocusPeopleManagementDetail'
+  void router.push({ name, params: { cycleId: id, groupId: row.id } })
+}
+
 function openDelete(row: PerformanceFocusGroup) {
   deleteTarget.value = row
   deleteOpen.value = true
@@ -183,7 +191,7 @@ onMounted(async () => {
           >
             <template #cell="{ row, column }">
               <template v-if="column.key === 'action'">
-                <button class="row-action" type="button" :disabled="loading || !canCreate" @click="router.push({ name: 'PerformanceCycleFocusPeopleEdit', params: { cycleId: cycleId(), groupId: row.id }, query: { tab: activeTab } })">编辑</button>
+                <button class="row-action" type="button" :disabled="loading || !canCreate" @click="openDetail(row as PerformanceFocusGroup)">编辑</button>
                 <button class="row-action" type="button" :disabled="loading || !canCreate" @click="openDelete(row as PerformanceFocusGroup)">删除</button>
               </template>
               <span v-else-if="column.key === 'people_count'">{{ (row as PerformanceFocusGroup).employee_nos.length }}</span>

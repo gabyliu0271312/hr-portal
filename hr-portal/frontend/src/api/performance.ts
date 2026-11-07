@@ -2328,10 +2328,52 @@ export interface PerformanceFocusGroupPriorityCheck {
   data: boolean
 }
 
+export interface PerformanceFocusGroupMember {
+  value: string
+  label: string
+  sub_label?: string
+  department?: string | null
+  email?: string | null
+  display_name?: string | null
+  direct_supervisor_employee_no?: string | null
+  direct_supervisor_name?: string | null
+  department_2?: string | null
+  department_5?: string | null
+  job_family?: string | null
+  /** 添加人 / 添加时间：老成员缺失时为 null（前端显示 --） */
+  added_by?: string | null
+  added_at?: string | null
+}
+
 export interface PerformanceFocusGroupMembers {
   group_id: number
   employee_nos: string[]
-  people: PerformanceFocusGroupOptions['people']
+  people: PerformanceFocusGroupMember[]
+}
+
+export interface PerformanceFocusGroupChangeLogItem {
+  id: string
+  event_id: number
+  operator: string
+  change_type: '新增' | '移除'
+  condition: string
+  user_ids: string[]
+  count: number
+  changed_at: string
+}
+
+export interface PerformanceFocusGroupChangeLogPage {
+  total: number
+  items: PerformanceFocusGroupChangeLogItem[]
+}
+
+export interface PerformanceFocusGroupChangePerson {
+  employee_no: string
+  display_name: string
+  direct_supervisor_name?: string | null
+  department_2?: string | null
+  department_5?: string | null
+  job_family?: string | null
 }
 
 export const performanceFocusGroupApi = {
@@ -2346,6 +2388,18 @@ export const performanceFocusGroupApi = {
   async updateMembers(cycleId: number, groupId: number, employeeNos: string[]): Promise<PerformanceFocusGroupMembers> {
     const { data } = await api.patch<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`, { employee_nos: employeeNos })
     return data
+  },
+  async changeLog(cycleId: number, groupId: number, current = 1, size = 10): Promise<PerformanceFocusGroupChangeLogPage> {
+    const { data } = await api.get<PerformanceFocusGroupChangeLogPage>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/change-log`, {
+      params: { current, size },
+    })
+    return data
+  },
+  async changePeople(cycleId: number, groupId: number, eventId: number, userIds: string[]): Promise<PerformanceFocusGroupChangePerson[]> {
+    const { data } = await api.get<{ items: PerformanceFocusGroupChangePerson[] }>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/change-log/${eventId}/people`, {
+      params: { user_ids: userIds.join(',') },
+    })
+    return data.items
   },
   async get(cycleId: number, groupId: number): Promise<PerformanceFocusGroup> {
     const { data } = await api.get<PerformanceFocusGroup>(`/performance/cycles/${cycleId}/focus-groups/${groupId}`)

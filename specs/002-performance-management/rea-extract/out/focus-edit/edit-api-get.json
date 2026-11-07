@@ -1,0 +1,128 @@
+[
+ {
+  "m": "GET",
+  "url": "/perf/api/review/v2/stage_indicators",
+  "status": 200,
+  "len": 13598,
+  "body": "{\"code\":0,\"data\":[{\"id\":\"7704532499640093716\",\"indicatorModelTypeStr\":\"normal\",\"type\":\"level\",\"name\":{\"zh-CN\":\"岗位层级是否调整-评估题\"},\"langs\":[\"zh-CN\"],\"description\":{\"zh-CN\":\"\"},\"level\":{\"option_style\":\"tag\",\"options\":[{\"id\":\"7704531821161123079\",\"label\":{\"zh-CN\":\"推荐调整\"},\"name\":{\"zh-CN\":\"推荐调整\"},\"description\":{\"zh-CN\":\"1\"},\"is_hide_level\":false,\"score\":null,\"value\":null,\"color\":\"#fde2e2\"},{\"id\":\"7704531821278530837\",\"label\":{\"zh-CN\":\"维持不变\"},\"name\":{\"zh-CN\":\"维持不变\"},\"description\":{\"zh-CN\":\"1\"},\"is_hide_level\":false,\"score\":null,\"value\":null,\"color\":\"#feead2\"}],\"ratingRange\":[],\"subIndicators\":[{\"id\":\"\",\"name\":{},\"description\":{},\"weight\":0,\"type\":\"\",\"indicatorModelTypeStr\":\"\"},{\"id\":\"\",\"name\":{},\"description\":{},\"weight\":0,\"type\":\"\",\"indicatorModelTypeStr\":\"\"}],\"editOrder\":\"indicator_first\",\"viewOrder\":\"indicator_first\",\"computation_rule\":\"directed\",\"enable_score_calc\":false,\"hide_score\":false},\"ratingTendency\":false,\"ruleId\":\"7704531821291212078\",\"rule_name\":{\"zh-CN\":\"岗位层级\"},\"create_time\":1793851260000},{\"id\":\"7681226946923023626\",\"indicatorModelTypeStr\":\"normal\",\"type\":\"level\",\"name\":{\"zh-CN\":\"绩效评级测试\"},\"langs\":[\"zh-CN\"],\"description\":{\"zh-CN\":\"\"},\"level\":{\"option_style\":\"drop\",\"options\":[{\"id\":\"7111633368893341697\",\"label\":{\"zh-CN\":\"1星\"},\"name\":{\"zh-CN\":\"不合格\"},\"description\":{},\"is_hide_level\":false,\"score\":null,\"value\":1,\"color\":\"#fde2e2\"},{\"id\":\"7111633368893358081\",\"label\":{\"zh-CN\":\"2星\"},\"name\":{\"zh-CN\":\"待改进\"},\"description\":{},\"is_hide_level\":false,\"score\":null,\"value\":2,\"color\":\"#"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/settings",
+  "status": 200,
+  "len": 1476,
+  "body": "{\"code\":0,\"data\":{\"user\":{\"avatar\":\"https://s1-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=noop\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar240\":\"https://s1-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=240x240\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar640\":\"https://s3-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=640x640\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar72\":\"https://s1-imfile.feishucdn.com/static-resource/v1/241f200104700f02cab36~?image_size=72x72\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"department\":{\"id\":\"6732684025645172228\",\"name\":\"薪酬绩效组\",\"i18nName\":{\"zh-CN\":\"薪酬绩效组\",\"en-US\":\"薪酬绩效组\"}},\"email\":\"gaby.liu@idreamsky.com\",\"lang\":\"zh-CN\",\"timezone\":\"Asia/Shanghai\",\"employeeType\":{\"id\":\"1\",\"i18nName\":{\"zh-CN\":\"正式员工\",\"en-US\":\"Full-time employee\"}},\"id\":\"6733065964654462476\",\"openId\":\"ou_dff9c83fc29517c0877ab9f84188b119\",\"status\":0,\"i18nName\":{\"zh-CN\":\"gaby.liu刘琦\",\"en-US\":\"gaby.liu\"}},\"tenant\":{\"id\":\"6732051441411884552\"},\"instruction\":{\"web\":false,\"applet\":false},\"admin\":true,\"alarmTime\":{\"en-US\":\"10:00 AM\",\"zh-CN\":\"上午 10:00\"},\"hashTag\":{\"tid\":\"36f9c2930d6bbd6df6c85ce56c3381d5\",\"uid\":\"bb6f390be23c4909cfe29625658c9e3b\"},\"addHeader\":{\"x-f-lang\":\"zh-CN\",\"x-f-timezone\":\"Asia/Shanghai\"},\"env\":\"online\"},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/custom_text_setting",
+  "status": 200,
+  "len": 88,
+  "body": "{\"code\":0,\"data\":{\"has_set_text\":false,\"replace_text\":null},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/coefficients",
+  "status": 200,
+  "len": 48,
+  "body": "{\"code\":0,\"data\":[],\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/template/indicators",
+  "status": 200,
+  "len": 19757,
+  "body": "{\"code\":0,\"data\":[{\"id\":\"6971764501968897568\",\"frontend\":{},\"name\":{\"en-US\":\"performance\",\"zh-CN\":\"价值贡献\"},\"create_time\":0,\"props\":{\"enable_rating_tendency\":true,\"indicator_type\":\"quantitative\",\"options\":[{\"color\":\"red\",\"description\":{\"en-US\":\"Unable to meet basic requirements:\\nLack basic knowledge and skills required to perform responsibilities; often make mistakes and omissions; consistently fail to meet basic requirements.\",\"zh-CN\":\"缺乏履行岗位职责所必须的知识和技能，在工作结果的交付效率和质量上达不到基本要求，与组织内其他人相比，工作产出明显偏低。\"},\"id\":\"6971764501969487392\",\"label\":\"1星\",\"name\":{\"en-US\":\"Failed\",\"zh-CN\":\"不合格\"},\"value\":1},{\"color\":\"orange\",\"description\":{\"en-US\":\"Unable to consistently meet standard requirements:\\nNeeds improvement in one or more essential areas; sometimes fails to meet standard requirements and occasionally causes complaints from internal or external clients.\",\"zh-CN\":\"工作偶尔能达到岗位职责的基本要求，在工作结果的交付上与岗位期望存在一定差距，在工作的一个或多个方面存在明显需要改进的地方。\"},\"id\":\"6971764501969503776\",\"label\":\"2星\",\"name\":{\"en-US\":\"Improvement needed\",\"zh-CN\":\"待改进\"},\"value\":3},{\"color\":\"wathet\",\"description\":{\"en-US\":\"Consistently meet requirements:\\nConsistently meet requirements in all essential areas without major deviations. Overall performance is stable and satisfying.\",\"zh-CN\":\"勉强能够达到岗位职责的基本要求，在工作结果的交付效率和质量上大多数时候能达到岗位期望，但偶尔会有瑕疵，在工作结果交付的稳定性上有提升空间。\"},\"id\":\"6971764501969520160\",\"label\":\"3星-\",\"name\":{\"en-US\":\"Consistently meet expectations-\",\"zh-CN\":\"符合预期-\"},\"value\":4},{\"color\":\"wathet\",\"description\":{\"en-US\":\"Consistently meet requirem"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/auth",
+  "status": 200,
+  "len": 347,
+  "body": "{\"code\":0,\"data\":{\"authCodes\":[\"settings\",\"manage_semester\",\"manage_activity\",\"create_activity\",\"manage_data_permission\",\"manage_indicator_rule\",\"manage_indicator\",\"manage_template\",\"global_setting\",\"manage_metrics_lib\",\"manage_kpi_template\",\"manage_license\",\"manage_question\",\"manage_reviewer_info_display_settings\"]},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/manager/isManager",
+  "status": 200,
+  "len": 88,
+  "body": "{\"code\":0,\"data\":{\"isAppManager\":true,\"isTenantAdmin\":true},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/v2/auth",
+  "status": 200,
+  "len": 976,
+  "body": "{\"code\":0,\"data\":{\"roles\":[{\"roleId\":\"7340285661219061761\",\"name\":{\"en-US\":\"Performance Admin\",\"zh-CN\":\"绩效管理员\"},\"type\":\"application_manager\",\"authCodes\":[\"manage_activity_user_group\",\"manage_focus_groups\",\"manage_global_settings\",\"manage_indicator\",\"manage_kpi_template\",\"manage_metrics_lib\",\"manage_privilege\",\"manage_reviewer_info_display_settings\",\"manage_semester\",\"manage_template\"]},{\"roleId\":\"7340285661267951618\",\"name\":{\"en-US\":\"HRBP\",\"zh-CN\":\"HRBP\"},\"type\":\"hrbp\",\"authCodes\":[\"adjust_authorization\",\"authorization\",\"export_detail\",\"export_members\",\"manage_reviewee\",\"progress_manage_and_remind\",\"release_performance_results\",\"review_data\"]},{\"roleId\":\"7340285661313974274\",\"name\":{\"en-US\":\"Project admin\",\"zh-CN\":\"项目管理员\"},\"type\":\"manager\",\"authCodes\":[\"adjust_authorization\",\"authorization\",\"export_detail\",\"export_members\",\"manage_reviewee\",\"manage_semester\",\"progress_manage_and_remind\",\"release_performance_results\",\"review_data\"]}]},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/okr/custom_setting",
+  "status": 200,
+  "len": 452,
+  "body": "{\"code\":0,\"data\":{\"product_name\":null,\"okr_name\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"},\"object_name\":{\"full_name\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"},\"short_name\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"},\"input_prompt\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"}},\"kr_name\":{\"full_name\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"},\"short_name\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"},\"input_prompt\":{\"zh-CN\":\"\",\"en-US\":\"\",\"ja-JP\":\"\"}},\"category_list\":null},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/release",
+  "status": 200,
+  "len": 9112,
+  "body": "{\"code\":0,\"data\":{\"items\":[{\"feature\":\"360_anonymous_config\",\"release\":true},{\"feature\":\"360_reviewer_tag\",\"release\":true},{\"feature\":\"activity_scope_limit\",\"release\":true},{\"feature\":\"adjust_authorize_department_tree_optimize\",\"release\":true},{\"feature\":\"adjust_distribution_optimize\",\"release\":true},{\"feature\":\"adjust_dont_use_level\",\"release\":false},{\"feature\":\"adjust_scope_rule_optimize\",\"release\":true},{\"feature\":\"admin_migrate\",\"release\":true},{\"feature\":\"aggregate_dimension\",\"release\":true},{\"feature\":\"auth_gate\",\"release\":true},{\"feature\":\"authorization_approval\",\"release\":false},{\"feature\":\"batch_data_source_import\",\"release\":true},{\"feature\":\"bee_confirm_result\",\"release\":false},{\"feature\":\"brief_review\",\"release\":false},{\"feature\":\"business_line_invitation_config\",\"release\":false},{\"feature\":\"cant_download_after_15_days\",\"release\":false},{\"feature\":\"change_semester_create_time\",\"release\":false},{\"feature\":\"coefficient\",\"release\":true},{\"feature\":\"collaborate_goal_setting\",\"release\":false},{\"feature\":\"comm_confirm_config\",\"release\":false},{\"feature\":\"compate_old_byte_indicator\",\"release\":false},{\"feature\":\"compute_rule_optimize\",\"release\":true},{\"feature\":\"cross_tenant_360\",\"release\":false},{\"feature\":\"custom_add_metric_opt\",\"release\":true},{\"feature\":\"custom_notice_frequency\",\"release\":true},{\"feature\":\"custom_org\",\"release\":true},{\"feature\":\"custom_page\",\"release\":false},{\"feature\":\"custom_review\",\"release\":true},{\"feature\":\"custom_role_settings\",\"release\":false},{"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/license_status",
+  "status": 200,
+  "len": 48,
+  "body": "{\"code\":0,\"data\":{},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/foundation/translation/get_supported_languages",
+  "status": 200,
+  "len": 4360,
+  "body": "{\"code\":0,\"data\":{\"supported_languages\":[{\"language_key\":\"zh\",\"language_name\":{\"en-US\":\"Chinese, Simplified\",\"zh-CN\":\"简体中文\"},\"is_rtl\":false},{\"language_key\":\"en\",\"language_name\":{\"en-US\":\"English\",\"zh-CN\":\"英语\"},\"is_rtl\":false},{\"language_key\":\"ja\",\"language_name\":{\"en-US\":\"Japanese\",\"zh-CN\":\"日语\"},\"is_rtl\":false},{\"language_key\":\"th\",\"language_name\":{\"en-US\":\"Thai\",\"zh-CN\":\"泰语\"},\"is_rtl\":false},{\"language_key\":\"hi\",\"language_name\":{\"en-US\":\"Hindi\",\"zh-CN\":\"印地语\"},\"is_rtl\":false},{\"language_key\":\"id\",\"language_name\":{\"en-US\":\"Bahasa Indonesia\",\"zh-CN\":\"印度尼西亚语\"},\"is_rtl\":false},{\"language_key\":\"zh-Hant\",\"language_name\":{\"en-US\":\"Chinese, Traditional\",\"zh-CN\":\"繁体中文\"},\"is_rtl\":false},{\"language_key\":\"fr\",\"language_name\":{\"en-US\":\"French\",\"zh-CN\":\"法语\"},\"is_rtl\":false},{\"language_key\":\"es\",\"language_name\":{\"en-US\":\"Spanish\",\"zh-CN\":\"西班牙语\"},\"is_rtl\":false},{\"language_key\":\"pt\",\"language_name\":{\"en-US\":\"Portuguese\",\"zh-CN\":\"葡萄牙语\"},\"is_rtl\":false},{\"language_key\":\"ko\",\"language_name\":{\"en-US\":\"Korean\",\"zh-CN\":\"韩语\"},\"is_rtl\":false},{\"language_key\":\"vi\",\"language_name\":{\"en-US\":\"Vietnamese\",\"zh-CN\":\"越南语\"},\"is_rtl\":false},{\"language_key\":\"ru\",\"language_name\":{\"en-US\":\"Russian\",\"zh-CN\":\"俄语\"},\"is_rtl\":false},{\"language_key\":\"de\",\"language_name\":{\"en-US\":\"German\",\"zh-CN\":\"德语\"},\"is_rtl\":false},{\"language_key\":\"it\",\"language_name\":{\"en-US\":\"Italian\",\"zh-CN\":\"意大利语\"},\"is_rtl\":false},{\"language_key\":\"ar\",\"language_name\":{\"en-US\":\"Arabic\",\"zh-CN\":\"阿拉伯语\"},\"is_rtl\":true},{\"language_key\":\"pl\",\"languag"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/mark",
+  "status": 200,
+  "len": 4001,
+  "body": "{\"code\":0,\"data\":{\"semester_id\":\"\",\"type\":\"\",\"mark\":{\"__mobile__on-page-total-time-after-satisfaction-submitted\":1346000,\"__mobile__satisfaction-user-enter-app-timestamp\":1641488135130,\"__mobile__satisfaction-user-last-active-timestamp\":1739614496563,\"__mobile__total-time-on-page\":1346000,\"adjustReview-scroll-count-7035907577847760388\":{\"performance_x_PC_perfom_report_evaluation\":1},\"adjustReview-scroll-count-7108635050968170498\":{\"performance_x_PC_perfom_report_evaluation\":7},\"adjustReview-scroll-count-7174602563014148098\":{\"performance_x_PC_perfom_report_evaluation\":14},\"adjustReview-scroll-count-7247044506398081025\":{\"performance_x_PC_perfom_report_evaluation\":6},\"adjustReview-scroll-count-7314953140334264348\":{\"performance_x_PC_perfom_report_evaluation\":13},\"adjustReview-scroll-count-7382128154889863171\":{\"performance_x_PC_perfom_report_evaluation\":14},\"adjustReview-scroll-count-7446241584558997506\":{\"performance_x_PC_perfom_report_evaluation\":4},\"adjustReview-scroll-count-7582047029224852679\":{\"performance_x_PC_perfom_report_evaluation\":5},\"adjustReview-scroll-count-7654423719619710195\":{\"performance_x_PC_perfom_report_evaluation\":29},\"feel-good-adjust-report-view-6972176345700156935\":10,\"feel-good-adjust-report-view-7702053437998894368\":23,\"feel-good-invitation-submit-7702053437998894368\":2,\"feel-good-leader-submit-7582047029224852679\":6,\"feel-good-leader-submit-7654423719619710195\":6,\"feel-good-leader-submit-7683431373507431625\":1,\"feel-good-leader-submit-7688256309405"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/mark",
+  "status": 200,
+  "len": 4001,
+  "body": "{\"code\":0,\"data\":{\"semester_id\":\"\",\"type\":\"\",\"mark\":{\"__mobile__on-page-total-time-after-satisfaction-submitted\":1346000,\"__mobile__satisfaction-user-enter-app-timestamp\":1641488135130,\"__mobile__satisfaction-user-last-active-timestamp\":1739614496563,\"__mobile__total-time-on-page\":1346000,\"adjustReview-scroll-count-7035907577847760388\":{\"performance_x_PC_perfom_report_evaluation\":1},\"adjustReview-scroll-count-7108635050968170498\":{\"performance_x_PC_perfom_report_evaluation\":7},\"adjustReview-scroll-count-7174602563014148098\":{\"performance_x_PC_perfom_report_evaluation\":14},\"adjustReview-scroll-count-7247044506398081025\":{\"performance_x_PC_perfom_report_evaluation\":6},\"adjustReview-scroll-count-7314953140334264348\":{\"performance_x_PC_perfom_report_evaluation\":13},\"adjustReview-scroll-count-7382128154889863171\":{\"performance_x_PC_perfom_report_evaluation\":14},\"adjustReview-scroll-count-7446241584558997506\":{\"performance_x_PC_perfom_report_evaluation\":4},\"adjustReview-scroll-count-7582047029224852679\":{\"performance_x_PC_perfom_report_evaluation\":5},\"adjustReview-scroll-count-7654423719619710195\":{\"performance_x_PC_perfom_report_evaluation\":29},\"feel-good-adjust-report-view-6972176345700156935\":10,\"feel-good-adjust-report-view-7702053437998894368\":23,\"feel-good-invitation-submit-7702053437998894368\":2,\"feel-good-leader-submit-7582047029224852679\":6,\"feel-good-leader-submit-7654423719619710195\":6,\"feel-good-leader-submit-7683431373507431625\":1,\"feel-good-leader-submit-7688256309405"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/user/translation/get_translation_setting",
+  "status": 200,
+  "len": 247,
+  "body": "{\"code\":0,\"data\":{\"translation_setting\":{\"auto_translate\":false,\"default_language\":\"zh\"},\"translation_while_typing_setting\":{\"auto_translate\":true,\"default_language\":\"en\",\"scene\":\"cross_language\",\"insert_mode\":\"both\"}},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/follow/group/info?semesterId=7654423719619710195&groupId=7705321089009716245",
+  "status": 200,
+  "len": 965,
+  "body": "{\"code\":0,\"data\":{\"groupId\":\"7705321089009716245\",\"semesterId\":\"7654423719619710195\",\"group_type\":1,\"activity_ids\":[\"7654470731517987794\"],\"name\":\"1\",\"enName\":\"\",\"description\":{\"zh-CN\":\"2\"},\"followeeUserIds\":null,\"isCommunicateTime\":0,\"startTime\":0,\"endTime\":0,\"scope\":null,\"viewPermission\":1,\"manuallyOpen\":false,\"specifiedPersonnel\":null,\"scope_setting_mode\":1,\"roles_of_managing_scope\":null,\"scope_visible_mode\":0,\"group_key\":\"\",\"show_group_tag\":0,\"color\":\"{\\\"tag_color\\\":\\\"\\\",\\\"text_color\\\":\\\"\\\",\\\"bg_color\\\":\\\"\\\"}\",\"tag_color\":\"\",\"text_color\":\"\",\"bg_color\":\"\",\"seq\":0,\"tenantId\":\"6732051441411884552\",\"status\":0,\"remark\":\"\",\"createUserId\":\"6733065964654462476\",\"modifyUserId\":\"6733065964654462476\",\"createTime\":1794034868000,\"modifyTime\":1794034868000,\"count\":0,\"disable_count\":false,\"scope_permission_tips\":{\"mode\":0},\"activities\":[{\"id\":\"7654470731517987794\",\"name\":{\"zh-CN\":\"2026年半年度绩效评估\"},\"has_permission\":true}],\"ref_by\":null},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/activities_v2?offset=0&limit=9999&semesterId=7654423719619710195",
+  "status": 200,
+  "len": 3614,
+  "body": "{\"code\":0,\"data\":{\"count\":2,\"activities\":[{\"id\":\"7654470731517987794\",\"name\":{\"zh-CN\":\"2026年半年度绩效评估\"},\"progress\":\"finished\",\"managers\":[\"6733065927262635534\",\"6733065964654462476\"],\"semesterId\":\"7654423719619710195\",\"semesterName\":{\"zh-CN\":\"2026年半年度绩效评估\"},\"semesterType\":\"customized\",\"semester_tag\":3,\"includeDimission\":0,\"dimissionStartTime\":0,\"dimissionEndTime\":0,\"templateGroupId\":\"7654112475373161658\",\"dateRange\":{\"start\":0,\"end\":0},\"scopeRule\":null,\"scopeRuleWithSpecificGroup\":null,\"scopeCount\":411,\"disable_count\":false,\"editable\":true,\"currentStep\":0,\"startable\":false,\"closedEvent\":[],\"stageStatus\":[],\"semesterCreateTime\":1782195347000,\"empTotal\":0,\"manageDataRoles\":null,\"editDisableReason\":\"\",\"influential\":false,\"limit_reviewee_scope_switch\":0,\"limit_scopes\":[],\"use_local_end_time\":false,\"description\":{},\"activity_type\":\"review_360\",\"deletable\":true,\"is_show_import\":true,\"invalid_mark\":{\"specific_group_need_update\":false,\"stage_add_notice\":false,\"stage_deleted_notice\":false,\"kpi_indicator_deleted_notice\":false,\"kpi_and_review_template_kpi_config_invalid\":false,\"okr_indicator_deleted_notice\":false,\"view_result_end_time_notice\":false,\"kpi_indicator_add_notice\":false,\"okr_indicator_add_notice\":false},\"use_kpi_template\":false,\"use_perf_template\":false,\"kpi_template_id\":\"0\",\"kpi_group_user\":null,\"kpi_project_id\":\"0\"},{\"id\":\"7704157229821381562\",\"name\":{\"zh-CN\":\"2026年半年度绩效评估 测试\"},\"progress\":\"unable\",\"managers\":[\"6733065964654462476\",\"6733065927262635534\"],\"semesterId\":\"76544237"
+ },
+ {
+  "m": "GET",
+  "url": "/perf/api/review/release",
+  "status": 200,
+  "len": 9112,
+  "body": "{\"code\":0,\"data\":{\"items\":[{\"feature\":\"360_anonymous_config\",\"release\":true},{\"feature\":\"360_reviewer_tag\",\"release\":true},{\"feature\":\"activity_scope_limit\",\"release\":true},{\"feature\":\"adjust_authorize_department_tree_optimize\",\"release\":true},{\"feature\":\"adjust_distribution_optimize\",\"release\":true},{\"feature\":\"adjust_dont_use_level\",\"release\":false},{\"feature\":\"adjust_scope_rule_optimize\",\"release\":true},{\"feature\":\"admin_migrate\",\"release\":true},{\"feature\":\"aggregate_dimension\",\"release\":true},{\"feature\":\"auth_gate\",\"release\":true},{\"feature\":\"authorization_approval\",\"release\":false},{\"feature\":\"batch_data_source_import\",\"release\":true},{\"feature\":\"bee_confirm_result\",\"release\":false},{\"feature\":\"brief_review\",\"release\":false},{\"feature\":\"business_line_invitation_config\",\"release\":false},{\"feature\":\"cant_download_after_15_days\",\"release\":false},{\"feature\":\"change_semester_create_time\",\"release\":false},{\"feature\":\"coefficient\",\"release\":true},{\"feature\":\"collaborate_goal_setting\",\"release\":false},{\"feature\":\"comm_confirm_config\",\"release\":false},{\"feature\":\"compate_old_byte_indicator\",\"release\":false},{\"feature\":\"compute_rule_optimize\",\"release\":true},{\"feature\":\"cross_tenant_360\",\"release\":false},{\"feature\":\"custom_add_metric_opt\",\"release\":true},{\"feature\":\"custom_notice_frequency\",\"release\":true},{\"feature\":\"custom_org\",\"release\":true},{\"feature\":\"custom_page\",\"release\":false},{\"feature\":\"custom_review\",\"release\":true},{\"feature\":\"custom_role_settings\",\"release\":false},{"
+ }
+]

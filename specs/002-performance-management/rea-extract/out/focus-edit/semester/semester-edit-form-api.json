@@ -1,0 +1,14 @@
+[
+ {
+  "url": "/perf/api/review/follow/group/info?semesterId=7654423719619710195&groupId=7669998387978046396",
+  "status": 200,
+  "len": 1457,
+  "body": "{\"code\":0,\"data\":{\"groupId\":\"7669998387978046396\",\"semesterId\":\"7654423719619710195\",\"group_type\":0,\"activity_ids\":[],\"name\":\"核心管理干部\",\"enName\":\"\",\"followeeUserIds\":[\"6733065927262635534\"],\"isCommunicateTime\":0,\"startTime\":0,\"endTime\":0,\"scope\":[],\"viewPermission\":0,\"manuallyOpen\":false,\"specifiedPersonnel\":null,\"followedUserIDs\":[\"6732684025644975620\",\"6733007350317434379\",\"6733065924410099214\",\"6733065953648707080\",\"6733065956731635203\",\"6734498626175010308\",\"6734498626175075844\",\"6734544040081131015\",\"6734544040081229319\",\"6734553610681583111\",\"6817454294628173325\",\"6853770100571850247\",\"6874534484365444616\",\"6883112808066598413\",\"6934949706942514701\",\"7212914361718554652\",\"7365701442860367900\",\"7491127216789897235\",\"7537896495985278978\",\"7563871707233075202\",\"7620340997370350813\",\"7626212111462468805\"],\"scope_setting_mode\":1,\"roles_of_managing_scope\":[\"activity_manager\"],\"scope_visible_mode\":0,\"group_key\":\"\",\"show_group_tag\":1,\"color\":\"{\\\"tag_color\\\":\\\"indigo-option\\\",\\\"text_color\\\":\\\"#151b70\\\",\\\"bg_color\\\":\\\"rgba(91,101,245,0.2)\\\"}\",\"tag_color\":\"indigo-option\",\"text_color\":\"#151b70\",\"bg_color\":\"rgba(91,101,245,0.2)\",\"seq\":1,\"tenantId\":\"6732051441411884552\",\"status\":0,\"remark\":\"\",\"createUserId\":\"6733065927262635534\",\"modifyUserId\":\"6733065927262635534\",\"createTime\":1785810661000,\"modifyTime\":1785810661000,\"count\":22,\"disable_count\":false,\"scope_permission_tips\":{\"mode\":0},\"activities\":[],\"ref_by\":null},\"msg\":\"操作成功\",\"success\":true}"
+ },
+ {
+  "url": "/perf/api/review/semester/communication_stages?semester_id=7654423719619710195",
+  "status": 200,
+  "len": 90,
+  "body": "{\"code\":0,\"data\":{\"is_semester_stage\":false,\"stage_infos\":[]},\"msg\":\"操作成功\",\"success\":true}"
+ }
+]

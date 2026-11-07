@@ -1,0 +1,120 @@
+{
+ "before": [],
+ "after": [
+  {
+   "m": "GET",
+   "url": "/perf/api/review/follow/group/info?semesterId=7654423719619710195&groupId=7669998387978046396",
+   "status": 200,
+   "len": 1457,
+   "body": "{\"code\":0,\"data\":{\"groupId\":\"7669998387978046396\",\"semesterId\":\"7654423719619710195\",\"group_type\":0,\"activity_ids\":[],\"name\":\"核心管理干部\",\"enName\":\"\",\"followeeUserIds\":[\"6733065927262635534\"],\"isCommunicateTime\":0,\"startTime\":0,\"endTime\":0,\"scope\":[],\"viewPermission\":0,\"manuallyOpen\":false,\"specifiedPersonnel\":null,\"followedUserIDs\":[\"6732684025644975620\",\"6733007350317434379\",\"6733065924410099214\",\"6733065953648707080\",\"6733065956731635203\",\"6734498626175010308\",\"6734498626175075844\",\"6734544040081131015\",\"6734544040081229319\",\"6734553610681583111\",\"6817454294628173325\",\"6853770100571850247\",\"6874534484365444616\",\"6883112808066598413\",\"6934949706942514701\",\"7212914361718554652\",\"7365701442860367900\",\"7491127216789897235\",\"7537896495985278978\",\"7563871707233075202\",\"7620340997370350813\",\"7626212111462468805\"],\"scope_setting_mode\":1,\"roles_of_managing_scope\":[\"activity_manager\"],\"scope_visible_mode\":0,\"group_key\":\"\",\"show_group_tag\":1,\"color\":\"{\\\"tag_color\\\":\\\"indigo-option\\\",\\\"text_color\\\":\\\"#151b70\\\",\\\"bg_color\\\":\\\"rgba(91,101,245,0.2)\\\"}\",\"tag_color\":\"indigo-option\",\"text_color\":\"#151b70\",\"bg_color\":\"rgba(91,101,245,0.2)\",\"seq\":1,\"tenantId\":\"6732051441411884552\",\"status\":0,\"remark\":\"\",\"createUserId\":\"6733065927262635534\",\"modifyUserId\":\"6733065927262635534\",\"createTime\":1785810661000,\"modifyTime\":1785810661000,\"count\":22,\"disable_count\":false,\"scope_permission_tips\":{\"mode\":0},\"activities\":[],\"ref_by\":null},\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+   "m": "POST",
+   "url": "/perf/api/review/user_group/change_log/show",
+   "status": 200,
+   "len": 2170,
+   "body": "{\"code\":0,\"data\":{\"list\":[{\"semester_id\":\"7654423719619710195\",\"group_id\":\"7669998387978046396\",\"change_event\":1,\"change_type\":1,\"operator_id\":\"6733065927262635534\",\"change_content\":{\"user_ids\":[\"6934949706942514701\"],\"scope_rule\":null,\"activity_change\":[],\"activity_change_infos\":null},\"operator_time\":1785812085000},{\"semester_id\":\"7654423719619710195\",\"group_id\":\"7669998387978046396\",\"change_event\":1,\"change_type\":1,\"operator_id\":\"6733065927262635534\",\"change_content\":{\"user_ids\":[\"7620340997370350813\"],\"scope_rule\":null,\"activity_change\":[],\"activity_change_infos\":null},\"operator_time\":1785811617000},{\"semester_id\":\"7654423719619710195\",\"group_id\":\"7669998387978046396\",\"change_event\":1,\"change_type\":1,\"operator_id\":\"6733065927262635534\",\"change_content\":{\"user_ids\":[\"6733007350317434379\",\"6734544040081229319\",\"6817454294628173325\",\"6874534484365444616\"],\"scope_rule\":null,\"activity_change\":[],\"activity_change_infos\":null},\"operator_time\":1785810997000},{\"semester_id\":\"7654423719619710195\",\"group_id\":\"7669998387978046396\",\"change_event\":1,\"change_type\":1,\"operator_id\":\"6733065927262635534\",\"change_content\":{\"user_ids\":[\"6732684025644975620\",\"6733065924410099214\",\"6853770100571850247\",\"7212914361718554652\"],\"scope_rule\":null,\"activity_change\":[],\"activity_change_infos\":null},\"operator_time\":1785810934000},{\"semester_id\":\"7654423719619710195\",\"group_id\":\"7669998387978046396\",\"change_event\":1,\"change_type\":1,\"operator_id\":\"6733065927262635534\",\"change_content\":{\"user_ids\":[\"6734498626175010308\",\"6734498626175075844\",\"6734544040081131015\",\"6734553610681583111\",\"6883112808066598413\"],\"scope_rule\":null,\"activity_change\":[],\"activity_change_infos\":null},\"operator_time\":1785810856000},{\"semester_id\":\"7654423719619710195\",\"group_id\":\"7669998387978046396\",\"change_event\":1,\"change_type\":1,\"operator_id\":\"6733065927262635534\",\"change_content\":{\"user_ids\":[\"6733065953648707080\",\"6733065956731635203\",\"7365701442860367900\",\"7491127216789897235\",\"7537896495985278978\",\"7563871707233075202\",\"7626212111462468805\"],\"scope_rule\":null,\"activity_change\":[],\"activity_change_infos\":null},\"operator_time\":1785810769000}],\"total\":6},\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+   "m": "GET",
+   "url": "/perf/api/user/position-switch",
+   "status": 200,
+   "len": 62,
+   "body": "{\"code\":0,\"data\":{\"enable\":false},\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+   "m": "GET",
+   "url": "/perf/api/user/custom_org_type/list?semester_id=7654423719619710195",
+   "status": 200,
+   "len": 50,
+   "body": "{\"code\":0,\"data\":null,\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+   "m": "POST",
+   "url": "/perf/api/user/snapshot/simple_emp",
+   "status": 200,
+   "len": 1025,
+   "body": "{\"code\":0,\"data\":[{\"userId\":\"6733065927262635534\",\"i18nName\":{\"zh-CN\":\"alice.xiao肖惠方\",\"en-US\":\"alice.xiao\"},\"email\":\"alice.xiao@idreamsky.com\",\"dimissionStatus\":\"in_service\",\"userNumber\":\"102626\",\"avatar\":\"https://s1-imfile.feishucdn.com/static-resource/v1/v3_00112_e4cc21fd-b4e4-47a3-9788-41921761a3fg~?image_size=noop\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar72\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00112_e4cc21fd-b4e4-47a3-9788-41921761a3fg~?image_size=72x72\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar240\":\"https://s1-imfile.feishucdn.com/static-resource/v1/v3_00112_e4cc21fd-b4e4-47a3-9788-41921761a3fg~?image_size=240x240\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar640\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00112_e4cc21fd-b4e4-47a3-9788-41921761a3fg~?image_size=640x640\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\"}],\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+   "m": "POST",
+   "url": "/perf/api/review/snapshot/simple",
+   "status": 200,
+   "len": 994,
+   "body": "{\"code\":0,\"data\":[{\"tenantId\":\"6732051441411884552\",\"userId\":\"6934949706942514701\",\"leaderId\":\"7365701442860367900\",\"recruitmentType\":{\"id\":\"\",\"zh-CN\":\"\",\"en-US\":\"\"},\"hasChange\":false,\"i18nName\":{\"id\":\"\",\"zh-CN\":\"jason.yu于东坤\",\"en-US\":\"jason.yu\"},\"i18nLeaderName\":{\"id\":\"\",\"zh-CN\":\"ace.xiao肖坚\",\"en-US\":\"ace.xiao\"},\"topDepartment\":{\"id\":\"\",\"zh-CN\":\"游戏研发事业部\",\"en-US\":\"游戏研发事业部\"},\"department\":{\"id\":\"7299932397880623132\",\"zh-CN\":\"客户端2组\",\"en-US\":\"客户端2组\"},\"i18nNameCategory\":{\"id\":\"\",\"zh-CN\":\"创梦天地集\",\"en-US\":\"创梦天地集\"},\"dottedLeaderIds\":[],\"i18nNameSubCategory\":{\"id\":\"\",\"zh-CN\":\"研发类\",\"en-US\":\"研发类\"},\"missing_indicator\":null,\"businessLine\":[],\"jobTitle\":{\"id\":\"\",\"zh-CN\":\"\",\"en-US\":\"\"},\"employeeSubtype\":{\"id\":\"0\",\"zh-CN\":\"\",\"en-US\":\"\"},\"employeeType\":{\"id\":\"1\",\"zh-CN\":\"正式\",\"en-US\":\"Regular\"},\"customOrgTypes\":{},\"position\":{\"id\":\"\",\"zh-CN\":\"\",\"en-US\":\"\",\"Active\":false},\"manageDepartments\":null,\"position_list\":[],\"firstContractInfo\":{\"endDate\":\"\",\"duration\":0,\"unit\":0}}],\"msg\":\"操作成功\",\"success\":true}"
+  },
+  {
+   "m": "POST",
+   "url": "/perf/api/user/snapshot/simple_emp",
+   "status": 200,
+   "len": 1982,
+   "body": "{\"code\":0,\"data\":[{\"userId\":\"7365701442860367900\",\"i18nName\":{\"zh-CN\":\"ace.xiao肖坚\",\"en-US\":\"ace.xiao\"},\"email\":\"ace.xiao@idreamsky.com\",\"dimissionStatus\":\"in_service\",\"userNumber\":\"106297\",\"avatar\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00am_c64732f7-c19e-4d6b-bc7b-89914bd3e02g~?image_size=noop\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar72\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00am_c64732f7-c19e-4d6b-bc7b-89914bd3e02g~?image_size=72x72\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar240\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00am_c64732f7-c19e-4d6b-bc7b-89914bd3e02g~?image_size=240x240\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar640\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00am_c64732f7-c19e-4d6b-bc7b-89914bd3e02g~?image_size=640x640\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\"},{\"userId\":\"6934949706942514701\",\"i18nName\":{\"zh-CN\":\"jason.yu于东坤\",\"en-US\":\"jason.yu\"},\"email\":\"jason.yu@idreamsky.com\",\"dimissionStatus\":\"in_service\",\"userNumber\":\"103571\",\"avatar\":\"https://s1-imfile.feishucdn.com/static-resource/v1/v3_00i2_f8a2e32a-3781-4d5b-9e14-c800ac505a4g~?image_size=noop\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar72\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00i2_f8a2e32a-3781-4d5b-9e14-c800ac505a4g~?image_size=72x72\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar240\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00i2_f8a2e32a-3781-4d5b-9e14-c800ac505a4g~?image_size=240x240\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\",\"avatar640\":\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_00i2_f8a2e32a-3781-4d5b-9e14-c800ac505a4g~?image_size=640x640\\u0026cut_type=\\u0026quality=\\u0026format=png\\u0026sticker_format=.webp\"}],\"msg\":\"操作成功\",\"success\":true}"
+  }
+ ],
+ "tableInfo": {
+  "url": "https://idreamsky.feishu.cn/perf/admin/semester-activities/7654423719619710195/focus-people/management/7669998387978046396?currentPage=1&pageSize=10",
+  "tables": [
+   {
+    "head": "操作人\n\t\n操作类型\n\t\n操作条件\n\t\n变更人员数\n\t\n操作时间",
+    "colWidths": [
+     264,
+     200,
+     450,
+     223,
+     223
+    ],
+    "rows": [
+     [
+      "",
+      "",
+      "",
+      "",
+      ""
+     ],
+     [
+      "alice.xiao肖惠方",
+      "新增",
+      "",
+      "1",
+      "2026-08-04 10:54"
+     ],
+     [
+      "alice.xiao肖惠方",
+      "新增",
+      "",
+      "1",
+      "2026-08-04 10:46"
+     ],
+     [
+      "alice.xiao肖惠方",
+      "新增",
+      "",
+      "4",
+      "2026-08-04 10:36"
+     ],
+     [
+      "alice.xiao肖惠方",
+      "新增",
+      "",
+      "4",
+      "2026-08-04 10:35"
+     ],
+     [
+      "alice.xiao肖惠方",
+      "新增",
+      "",
+      "5",
+      "2026-08-04 10:34"
+     ],
+     [
+      "alice.xiao肖惠方",
+      "新增",
+      "",
+      "7",
+      "2026-08-04 10:32"
+     ]
+    ]
+   }
+  ]
+ }
+}

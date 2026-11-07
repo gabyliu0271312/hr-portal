@@ -1,0 +1,171 @@
+{
+ "fields": {
+  "nameInput": {
+   "tag": "DIV",
+   "cls": "ud__row ud__form__item ud__form__item-error-none",
+   "rect": [
+    256,
+    165,
+    760,
+    31
+   ],
+   "disabled": false,
+   "ariaDisabled": null,
+   "readOnly": false,
+   "tabIndex": null,
+   "pointerEvents": "auto",
+   "cursor": "auto",
+   "opacity": "1",
+   "isSelect": false,
+   "text": "中文"
+  },
+  "projectSelect": {
+   "tag": "DIV",
+   "cls": "ud__row ud__form__item ud__form__item-error-locally mb-0",
+   "rect": [
+    256,
+    350,
+    760,
+    85
+   ],
+   "disabled": false,
+   "ariaDisabled": null,
+   "readOnly": false,
+   "tabIndex": null,
+   "pointerEvents": "auto",
+   "cursor": "auto",
+   "opacity": "1",
+   "isSelect": true,
+   "text": "关联评估项目*\n仅可关联你有管理权限的评估项目，关联后，仅可"
+  },
+  "checkboxes": [
+   {
+    "tag": "LABEL",
+    "cls": "ud__checkbox__wrapper ud-typography-body-0 uses1vf u82itaf u71fsbu",
+    "rect": [
+     256,
+     605,
+     760,
+     22
+    ],
+    "disabled": false,
+    "ariaDisabled": null,
+    "readOnly": false,
+    "tabIndex": null,
+    "pointerEvents": "auto",
+    "cursor": "default",
+    "opacity": "1",
+    "isSelect": false,
+    "text": "关联评估项目的被评估人的实线上级",
+    "checked": false
+   },
+   {
+    "tag": "LABEL",
+    "cls": "ud__checkbox__wrapper ud-typography-body-0 uses1vf u82itaf u71fsbu mt-4",
+    "rect": [
+     256,
+     635,
+     760,
+     22
+    ],
+    "disabled": false,
+    "ariaDisabled": null,
+    "readOnly": false,
+    "tabIndex": null,
+    "pointerEvents": "auto",
+    "cursor": "default",
+    "opacity": "1",
+    "isSelect": false,
+    "text": "关联评估项目的被评估人的 HRBP",
+    "checked": false
+   },
+   {
+    "tag": "LABEL",
+    "cls": "ud__checkbox__wrapper ud-typography-body-0 uses1vf u82itaf u71fsbu mt-4",
+    "rect": [
+     256,
+     665,
+     760,
+     22
+    ],
+    "disabled": false,
+    "ariaDisabled": null,
+    "readOnly": false,
+    "tabIndex": null,
+    "pointerEvents": "auto",
+    "cursor": "default",
+    "opacity": "1",
+    "isSelect": false,
+    "text": "关联评估项目的项目管理员",
+    "checked": false
+   }
+  ],
+  "addEnglishBtns": [
+   {
+    "tag": "BUTTON",
+    "cls": "ud__button ud__button--text ud__button--text-primary ud__button--size-md people_multilingu",
+    "rect": [
+     252,
+     204,
+     82,
+     22
+    ],
+    "disabled": false,
+    "ariaDisabled": null,
+    "readOnly": false,
+    "tabIndex": null,
+    "pointerEvents": "auto",
+    "cursor": "pointer",
+    "opacity": "1",
+    "isSelect": false,
+    "text": "添加英文"
+   },
+   {
+    "tag": "BUTTON",
+    "cls": "ud__button ud__button--text ud__button--text-primary ud__button--size-md people_multilingu",
+    "rect": [
+     252,
+     312,
+     82,
+     22
+    ],
+    "disabled": false,
+    "ariaDisabled": null,
+    "readOnly": false,
+    "tabIndex": null,
+    "pointerEvents": "auto",
+    "cursor": "pointer",
+    "opacity": "1",
+    "isSelect": false,
+    "text": "添加英文"
+   }
+  ]
+ },
+ "dropdownOpen": {
+  "open": true,
+  "rect": [
+   256,
+   439,
+   760,
+   69
+  ],
+  "cls": "ud__select__dropdown",
+  "text": "2026年半年度绩效评估\n2026年半年度绩效评估 测试",
+  "display": "flex",
+  "visibility": "visible"
+ },
+ "checkboxToggled": [
+  {
+   "text": "关联评估项目的被评估人的实线上级",
+   "checked": false
+  },
+  {
+   "text": "关联评估项目的被评估人的 HRBP",
+   "checked": false
+  },
+  {
+   "text": "关联评估项目的项目管理员",
+   "checked": false
+  }
+ ]
+}

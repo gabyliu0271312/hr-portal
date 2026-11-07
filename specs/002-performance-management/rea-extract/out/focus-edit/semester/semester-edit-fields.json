@@ -1,0 +1,202 @@
+{
+ "followeeSelect": {
+  "rect": [
+   256,
+   350,
+   760,
+   62
+  ],
+  "cls": "ud__row ud__form__item ud__form__item-error-locally mb-8",
+  "disabled": false,
+  "ariaDisabled": null,
+  "pe": "auto",
+  "cur": "auto",
+  "opacity": "1",
+  "readOnly": false,
+  "tabIndex": null,
+  "text": "关注人\n \nalice.xiao肖惠方\n+0"
+ },
+ "tagColor": {
+  "rect": [
+   256,
+   564,
+   760,
+   54
+  ],
+  "cls": "ud__row ud__form__item ud__form__item-error-locally",
+  "disabled": false,
+  "ariaDisabled": null,
+  "pe": "auto",
+  "cur": "auto",
+  "opacity": "1",
+  "readOnly": false,
+  "tabIndex": null,
+  "text": "标签颜色\n标签"
+ },
+ "tagColorControls": [],
+ "radioGroups": [
+  {
+   "rect": [
+    256,
+    458,
+    352,
+    22
+   ],
+   "cls": "ud__radio-group ud__radio-group--mode-solid ud__radio-group--direction-horizontal ud__radio-group--s",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "auto",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "有组内人员绩效查看权限的用户\n仅关注人可见"
+  },
+  {
+   "rect": [
+    256,
+    765,
+    760,
+    316
+   ],
+   "cls": "ud__radio-group ud__radio-group--mode-solid ud__radio-group--direction-vertical ud__radio-group--siz",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "auto",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "按规则维护人员范围\n配置圈人规则，系统根据规则动态更新人员范围\n手动维护人员范围"
+  }
+ ],
+ "checkboxes": [
+  {
+   "rect": [
+    296,
+    915,
+    704,
+    22
+   ],
+   "cls": "ud__checkbox__wrapper ud-typography-body-0 uses1vf u82itaf u71fsbu",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "default",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "实线上级",
+   "checked": false,
+   "disabledCls": false
+  },
+  {
+   "rect": [
+    296,
+    945,
+    704,
+    22
+   ],
+   "cls": "ud__checkbox__wrapper ud-typography-body-0 uses1vf u82itaf u71fsbu mt-4",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "default",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "HRBP",
+   "checked": false,
+   "disabledCls": false
+  },
+  {
+   "rect": [
+    296,
+    975,
+    704,
+    22
+   ],
+   "cls": "ud__checkbox__wrapper ud-typography-body-0 uses1vf u82itaf u71fsbu mt-4",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "default",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "项目管理员",
+   "checked": true,
+   "disabledCls": false
+  }
+ ],
+ "inputs": [
+  {
+   "rect": [
+    256,
+    165,
+    760,
+    31
+   ],
+   "cls": "ud__input ud__input--size-md uly5x3f",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "auto",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "中文"
+  },
+  {
+   "rect": [
+    257,
+    165,
+    759,
+    30
+   ],
+   "cls": "ud__input-input-wrap",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "text",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "中文"
+  },
+  {
+   "rect": [
+    256,
+    272,
+    760,
+    31
+   ],
+   "cls": "ud__input ud__input--size-md uly5x3f",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "auto",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "中文"
+  },
+  {
+   "rect": [
+    257,
+    273,
+    759,
+    30
+   ],
+   "cls": "ud__input-input-wrap",
+   "disabled": false,
+   "ariaDisabled": null,
+   "pe": "auto",
+   "cur": "text",
+   "opacity": "1",
+   "readOnly": false,
+   "tabIndex": null,
+   "text": "中文"
+  }
+ ]
+}
