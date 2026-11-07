@@ -13,7 +13,12 @@ from __future__ import annotations
 
 import logging
 import time
+import re
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 
@@ -23,6 +28,57 @@ from app.core.config import settings
 logger = logging.getLogger("feishu.client")
 
 FEISHU_OPEN_API = "https://open.feishu.cn/open-apis"
+
+
+@dataclass
+class _OkrReadScope:
+    switch_call: object
+    employee_no: str
+    open_ids: set[str] = field(default_factory=set)
+    active: bool = True
+
+
+_okr_read_scope: ContextVar[_OkrReadScope | None] = ContextVar("feishu_okr_read_scope", default=None)
+
+
+@contextmanager
+def authorized_okr_read(employee_no: str, context):
+    from app.identity_switch.service import current_switch
+    call = current_switch.get()
+    if call is not None and (
+        getattr(context, "switch_session_id", None) != call.session_id
+        or getattr(context, "operator_user_id", None) != call.operator_user_id
+        or getattr(context, "effective_employee_no", None) != call.employee_no
+    ):
+        raise FeishuClientError("OKR读取身份与切换会话不一致")
+    scope = _OkrReadScope(call, employee_no)
+    token = _okr_read_scope.set(scope)
+    try:
+        yield
+    finally:
+        scope.active = False
+        _okr_read_scope.reset(token)
+
+
+def _current_okr_read_scope():
+    from app.identity_switch.service import current_switch
+    scope = _okr_read_scope.get()
+    return scope if scope is not None and scope.active and scope.switch_call == current_switch.get() else None
+
+
+def validate_okr_employee(employee_no: str):
+    from app.identity_switch.service import current_switch
+    if current_switch.get() is not None:
+        scope = _current_okr_read_scope()
+        if scope is None or scope.employee_no != employee_no:
+            raise FeishuClientError("身份切换期间仅允许读取已授权被评估人的OKR")
+
+
+def bind_okr_open_id(employee_no: str, open_id: str):
+    validate_okr_employee(employee_no)
+    scope = _current_okr_read_scope()
+    if scope is not None and scope.employee_no == employee_no:
+        scope.open_ids.add(open_id)
 
 
 class FeishuClientError(Exception):
@@ -96,7 +152,7 @@ class FeishuClient:
     async def resolve_user_ids(self, payload: dict[str, Any]) -> dict[str, Any]:
         """通过邮箱、手机号查询当前应用的 Open ID，不受消息投递开关影响。"""
         from app.identity_switch.service import current_switch
-        if current_switch.get() is not None:
+        if current_switch.get() is not None and _current_okr_read_scope() is None:
             raise FeishuClientError("身份切换期间禁止调用飞书接口")
         token = await self._ensure_token()
         headers = {
@@ -125,7 +181,10 @@ class FeishuClient:
         """
         from app.identity_switch.service import current_switch
         if current_switch.get() is not None:
-            raise FeishuClientError("身份切换期间禁止调用飞书接口")
+            scope = _current_okr_read_scope()
+            match = re.fullmatch(r"/okr/v1/users/([^/?#]+)/okrs", path)
+            if scope is None or match is None or unquote(match.group(1)) not in scope.open_ids or (params or {}).get("user_id_type") != "open_id":
+                raise FeishuClientError("身份切换期间仅允许读取已授权用户的OKR接口")
         token = await self._ensure_token()
         headers = {
             "Authorization": f"Bearer {token}",

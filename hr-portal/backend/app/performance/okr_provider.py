@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.data.employee_roster_contract import EmployeeRosterContractError, employee_roster_table
-from app.integrations.feishu.feishu_client import FeishuClient, FeishuClientError, get_feishu_client
+from app.integrations.feishu.feishu_client import FeishuClient, FeishuClientError, bind_okr_open_id, get_feishu_client, validate_okr_employee
 from app.performance.models import PerformanceIdentityLink
 from app.users.models import User
 
@@ -165,6 +165,7 @@ class FeishuOkrProvider:
         """employee_no → current application's Feishu open_id."""
         if not employee_no:
             return None
+        validate_okr_employee(employee_no)
         try:
             table = employee_roster_table()
             columns = table.c
@@ -211,11 +212,13 @@ class FeishuOkrProvider:
         return await self._fetch(db, employee_no, include_periods=True)
 
     async def _fetch(self, db: AsyncSession, employee_no: str, *, include_periods: bool) -> list[OkrView]:
+        validate_okr_employee(employee_no)
         open_id = await self.resolve_open_id(db, employee_no)
         if not open_id:
             logger.info("[okr] 员工未绑定飞书身份，跳过 OKR 拉取: %s", employee_no)
             return []
 
+        bind_okr_open_id(employee_no, open_id)
         params: dict[str, Any] = {
             "user_id_type": "open_id",
             "offset": "0",

@@ -8,9 +8,10 @@ from typing import Literal
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError
-from sqlalchemy import or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.employee_roster_contract import EmployeeRosterContractError, employee_roster_table, normalize_employee_no
 from app.core.db import get_session
 from app.core.config import settings
 from app.core.deps import bearer_scheme, user_has_op
@@ -65,6 +66,10 @@ class PerformanceIdentityMappingNotFound(ValueError):
     """Raised when a Portal user has no authorized employee identity for a cycle."""
 
 
+class PerformanceIdentityMappingConflict(PerformanceIdentityMappingNotFound):
+    """Raised when trusted identity sources disagree or are ambiguous."""
+
+
 PERFORMANCE_PORTAL_ADMIN_PERMISSIONS = (
     "performance.authorization.manage",
     "performance.configuration.manage",
@@ -87,6 +92,83 @@ def performance_admin_preview_enabled(context: PerformanceAccessContext) -> bool
     )
 
 
+async def resolve_performance_employee_no(db: AsyncSession, context: PerformanceAccessContext) -> str | None:
+    if context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT:
+        return None
+    if context.effective_employee_no:
+        return context.effective_employee_no
+    if context.subject_type != SUBJECT_TYPE_PORTAL_USER:
+        return None
+
+    linked_employee_no = (await db.execute(select(PerformanceIdentityLink.employee_no).where(
+        PerformanceIdentityLink.portal_user_id == context.subject_id,
+        PerformanceIdentityLink.is_active.is_(True),
+    ))).scalar_one_or_none()
+    user = await db.get(User, context.subject_id)
+    if user is None or not user.is_active:
+        return None
+    email = str(user.email or "").strip().lower()
+    email_employee_no = None
+    if email:
+        try:
+            roster = employee_roster_table()
+        except EmployeeRosterContractError:
+            roster = None
+        if roster is not None and "corporate_email" in roster.c and "employee_no" in roster.c:
+            matches = (await db.execute(select(roster.c.employee_no).where(
+                func.lower(func.trim(cast(roster.c.corporate_email, String))) == email,
+            ).limit(2))).scalars().all()
+            if len(matches) > 1:
+                raise PerformanceIdentityMappingConflict("邮箱匹配到多个花名册人员")
+            if matches:
+                email_employee_no = normalize_employee_no(matches[0])
+        if email_employee_no:
+            other_user = (await db.execute(select(User.id).where(
+                User.is_active.is_(True),
+                User.id != context.subject_id,
+                func.lower(func.trim(User.email)) == email,
+            ).limit(1))).scalar_one_or_none()
+            if other_user is not None:
+                raise PerformanceIdentityMappingConflict("Portal 用户邮箱存在冲突")
+    if linked_employee_no and email_employee_no and linked_employee_no != email_employee_no:
+        raise PerformanceIdentityMappingConflict("人工绑定与邮箱匹配的员工不一致")
+    employee_no = linked_employee_no or email_employee_no
+    if not employee_no:
+        snapshot_matches = (await db.execute(select(PerformanceAuthorizationSnapshotPerson.employee_no).where(
+            PerformanceAuthorizationSnapshotPerson.portal_user_id == context.subject_id,
+        ).distinct())).scalars().all()
+        if len(snapshot_matches) > 1:
+            raise PerformanceIdentityMappingConflict("历史快照绑定到多个员工")
+        employee_no = normalize_employee_no(snapshot_matches[0]) if snapshot_matches else None
+    if not employee_no:
+        return None
+    other_link = (await db.execute(select(PerformanceIdentityLink.portal_user_id).where(
+        PerformanceIdentityLink.employee_no == employee_no,
+        PerformanceIdentityLink.portal_user_id != context.subject_id,
+        PerformanceIdentityLink.is_active.is_(True),
+    ))).scalar_one_or_none()
+    if other_link is not None:
+        raise PerformanceIdentityMappingConflict("员工已绑定其他 Portal 用户")
+    return employee_no
+
+
+def employee_no_in_cycle(context: PerformanceAccessContext, employee_no: str | None, people) -> str | None:
+    """Confirm membership without changing frozen people or organization relationships."""
+    if context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT:
+        return None
+    if context.effective_employee_no:
+        return employee_no
+    bound_refs = {person.employee_no for person in people if getattr(person, "portal_user_id", None) == context.subject_id}
+    if employee_no is None:
+        return next(iter(bound_refs)) if len(bound_refs) == 1 else None
+    if bound_refs and bound_refs != {employee_no}:
+        return None
+    candidates = [person for person in people if person.employee_no == employee_no]
+    if len(candidates) != 1 or getattr(candidates[0], "portal_user_id", None) not in (None, context.subject_id):
+        return None
+    return employee_no
+
+
 async def resolve_trusted_performance_actor(
     db: AsyncSession,
     context: PerformanceAccessContext,
@@ -95,28 +177,30 @@ async def resolve_trusted_performance_actor(
     require_employee_identity: bool = False,
 ) -> TrustedPerformanceActor:
     """Derive a performance actor from the authenticated server-side context only."""
-    if getattr(context, "effective_employee_no", None):
-        return TrustedPerformanceActor(actor_type="EMPLOYEE", actor_ref=context.effective_employee_no)
     if context.subject_type == SUBJECT_TYPE_SYSTEM_ACCOUNT:
         return TrustedPerformanceActor(
             actor_type=SUBJECT_TYPE_SYSTEM_ACCOUNT,
             actor_ref=str(context.subject_id),
         )
-    statement = select(PerformanceAuthorizationSnapshotPerson.employee_no).where(
-        PerformanceAuthorizationSnapshotPerson.portal_user_id == context.subject_id
-    )
-    if cycle_ref is not None:
-        statement = statement.join(
+    try:
+        employee_no = await resolve_performance_employee_no(db, context)
+    except PerformanceIdentityMappingConflict:
+        if require_employee_identity:
+            raise
+        return TrustedPerformanceActor(actor_type=SUBJECT_TYPE_PORTAL_USER, actor_ref=str(context.subject_id))
+    if cycle_ref is not None and not context.effective_employee_no:
+        people = (await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
             PerformanceAuthorizationSnapshot,
             PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
-        ).where(PerformanceAuthorizationSnapshot.cycle_ref == cycle_ref)
-    else:
-        statement = select(PerformanceIdentityLink.employee_no).where(
-            PerformanceIdentityLink.portal_user_id == context.subject_id,
-            PerformanceIdentityLink.is_active.is_(True),
-        )
-    employee_no = (await db.execute(statement)).scalar_one_or_none()
-    if employee_no is not None:
+        ).where(
+            PerformanceAuthorizationSnapshot.cycle_ref == cycle_ref,
+            or_(
+                PerformanceAuthorizationSnapshotPerson.portal_user_id == context.subject_id,
+                PerformanceAuthorizationSnapshotPerson.employee_no == employee_no if employee_no else False,
+            ),
+        ))).scalars().all()
+        employee_no = employee_no_in_cycle(context, employee_no, people)
+    if employee_no:
         return TrustedPerformanceActor(actor_type="EMPLOYEE", actor_ref=employee_no)
     if require_employee_identity:
         raise PerformanceIdentityMappingNotFound("当前 Portal 用户未映射到该周期的绩效员工快照")

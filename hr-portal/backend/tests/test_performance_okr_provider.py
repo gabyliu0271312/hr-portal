@@ -121,12 +121,15 @@ async def test_empty_roster_identity_retains_existing_portal_binding(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_roster_to_real_client_contact_and_okr_endpoints(monkeypatch):
+@pytest.mark.parametrize("switched", [False, True])
+async def test_roster_to_real_client_contact_and_okr_endpoints(monkeypatch, switched):
     import httpx
+    import contextlib
     from types import SimpleNamespace
     from sqlalchemy import Column, MetaData, String, Table
     from app.performance import okr_provider
-    from app.integrations.feishu.feishu_client import FeishuClient
+    from app.integrations.feishu.feishu_client import FeishuClient, authorized_okr_read
+    from app.identity_switch.service import SwitchCall, current_switch
     table = Table("emp_realtime_roster", MetaData(), Column("employee_no", String), Column("corporate_email", String), Column("mobile_phone", String))
     monkeypatch.setattr(okr_provider, "employee_roster_table", lambda: table)
     monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
@@ -149,9 +152,55 @@ async def test_roster_to_real_client_contact_and_okr_endpoints(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     class Db:
         async def execute(self, query): return SimpleNamespace(mappings=lambda: SimpleNamespace(one_or_none=lambda: {"corporate_email": "person@example.com", "mobile_phone": "13800000000"}))
-    view = await FeishuOkrProvider(FeishuClient("same-app", "secret"), ["period-1"]).fetch(Db(), "434")
+    if switched:
+        token = current_switch.set(SwitchCall("session", 7, "REVIEWER", "request", "/performance/okr/tasks/17/okr"))
+        scope = authorized_okr_read("434", SimpleNamespace(switch_session_id="session", operator_user_id=7, effective_employee_no="REVIEWER"))
+    else:
+        token = None
+        scope = contextlib.nullcontext()
+    try:
+        with scope:
+            view = await FeishuOkrProvider(FeishuClient("same-app", "secret"), ["period-1"]).fetch(Db(), "434")
+    finally:
+        if token is not None: current_switch.reset(token)
     assert view.objectives[0].content == "提升交付效率"
     assert len(requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_authorized_switch_okr_read_is_scoped_and_resets(monkeypatch):
+    import httpx
+    from types import SimpleNamespace
+    from app.identity_switch.service import SwitchCall, current_switch
+    from app.integrations.feishu.feishu_client import FeishuClient, authorized_okr_read, bind_okr_open_id, validate_okr_employee
+    call = SwitchCall("session", 7, "REVIEWER", "request", "/performance/okr/tasks/17/okr")
+    context = SimpleNamespace(switch_session_id="session", operator_user_id=7, effective_employee_no="REVIEWER")
+    client = FeishuClient("app", "secret")
+    monkeypatch.setattr(client, "_ensure_token", AsyncMock(return_value="token"))
+    requests = []
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"code": 0, "data": {"user_list": [{"user_id": "ou_target"}]}})
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    token = current_switch.set(call)
+    try:
+        with authorized_okr_read("TARGET", context):
+            validate_okr_employee("TARGET")
+            with pytest.raises(FeishuClientError): validate_okr_employee("OTHER")
+            await client.resolve_user_ids({"emails": ["target@example.com"]})
+            bind_okr_open_id("TARGET", "ou_target")
+            await client.get_json("/okr/v1/users/ou_target/okrs", {"user_id_type": "open_id"})
+            for path in ["/contact/v3/users/ou_target", "/okr/v1/users/ou_other/okrs", "/okr/v1/users/ou_target/okrs?extra=1"]:
+                with pytest.raises(FeishuClientError): await client.get_json(path, {"user_id_type": "open_id"})
+            with pytest.raises(FeishuClientError): await client.send_text_to_user("ou_target", "blocked")
+        with pytest.raises(FeishuClientError): await client.resolve_user_ids({})
+        with pytest.raises(FeishuClientError): await client.get_json("/okr/v1/users/ou_target/okrs", {"user_id_type": "open_id"})
+        with pytest.raises(FeishuClientError):
+            with authorized_okr_read("TARGET", SimpleNamespace(switch_session_id="wrong")): pass
+        assert len(requests) == 2
+    finally:
+        current_switch.reset(token)
 
 
 @pytest.mark.asyncio
@@ -528,6 +577,30 @@ def period_task_api(monkeypatch):
     monkeypatch.setattr(okr_router, "fetch_employee_okr", single)
     monkeypatch.setattr(okr_router, "fetch_employee_okrs", all_periods)
     return SimpleNamespace(route=okr_router.get_task_okr, db=db, auth=auth, template=template, policy=policy, single=single, all_periods=all_periods, views=views)
+
+
+@pytest.mark.asyncio
+async def test_switched_task_okr_permission_scope_begins_only_after_authorization(period_task_api):
+    from types import SimpleNamespace
+    from app.identity_switch.service import SwitchCall, current_switch
+    from app.integrations.feishu.feishu_client import validate_okr_employee
+    data = period_task_api
+    async def fetched(db, employee_no):
+        validate_okr_employee(employee_no)
+        return data.views
+    data.all_periods.side_effect = fetched
+    handle = current_switch.set(SwitchCall("session", 7, "REVIEWER", "request", "/performance/okr/tasks/17/okr"))
+    context = SimpleNamespace(switch_session_id="session", operator_user_id=7, effective_employee_no="REVIEWER")
+    try:
+        result = await data.route(17, context=context, db=data.db, include_periods=True)
+        assert result.okrs == data.views
+        with pytest.raises(FeishuClientError): validate_okr_employee("E001")
+        data.auth.side_effect = __import__("fastapi").HTTPException(404, "TASK_NOT_FOUND")
+        data.all_periods.reset_mock()
+        with pytest.raises(__import__("fastapi").HTTPException): await data.route(17, context=context, db=data.db, include_periods=True)
+        data.all_periods.assert_not_awaited()
+    finally:
+        current_switch.reset(handle)
 
 
 @pytest.mark.asyncio

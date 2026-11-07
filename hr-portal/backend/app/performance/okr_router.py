@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.integrations.feishu.feishu_client import authorized_okr_read
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context
 from app.performance.models import PerformanceNodeTask
 from app.performance.okr_provider import OkrView, fetch_employee_okr, fetch_employee_okrs, get_okr_provider
@@ -57,18 +58,19 @@ async def get_task_okr(
     provider = get_okr_provider()
     if provider is None:
         return EmployeeOkrResponse(enabled=False, employee_no=task.target_employee_no)
-    if include_periods:
-        okrs = await fetch_employee_okrs(db, task.target_employee_no)
+    with authorized_okr_read(task.target_employee_no, context):
+        if include_periods:
+            okrs = await fetch_employee_okrs(db, task.target_employee_no)
+            return EmployeeOkrResponse(
+                enabled=True,
+                source=provider.name,
+                employee_no=task.target_employee_no,
+                okr=okrs[0] if okrs else None,
+                okrs=okrs,
+            )
         return EmployeeOkrResponse(
             enabled=True,
             source=provider.name,
             employee_no=task.target_employee_no,
-            okr=okrs[0] if okrs else None,
-            okrs=okrs,
+            okr=await fetch_employee_okr(db, task.target_employee_no),
         )
-    return EmployeeOkrResponse(
-        enabled=True,
-        source=provider.name,
-        employee_no=task.target_employee_no,
-        okr=await fetch_employee_okr(db, task.target_employee_no),
-    )

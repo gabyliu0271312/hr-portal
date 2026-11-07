@@ -1960,7 +1960,9 @@ async def _project_member_detail(project: PerformanceProject, employee_no: str, 
     okr_relation = next((content for template in templates.values() for content in template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "more" and content.get("reference_value") == "okr"), None)
     if okr_relation is not None:
         from app.performance.okr_provider import fetch_employee_okrs
-        okrs = await fetch_employee_okrs(db, employee_no)
+        from app.integrations.feishu.feishu_client import authorized_okr_read
+        with authorized_okr_read(employee_no, context):
+            okrs = await fetch_employee_okrs(db, employee_no)
         okr = okrs[0] if okrs else None
         tabs.append({"key": "management-okr", "kind": "okr", "node_id": "", "node_name": (okr_relation.get("reference_settings") or {}).get("page_name") or okr_relation.get("name") or "OKR", "task_id": None, "task_kind": None, "employee_no": employee_no, "status": "completed" if okr is not None else "not_started", "deadline_at": None, "submitted_at": None, "submitted_by": None, "form_schema": [], "answers": {}, "can_remind": False, "okr": okr, "okrs": okrs})
     selected_tab = next(tab for tab in tabs if tab["node_id"] == selected_node.node_id)
