@@ -259,14 +259,23 @@ onBeforeUnmount(() => {
         <PerformanceFormItem label="关注人">
           <PerformancePersonSelect v-model="followeeIds" :options="followeeOptions" multiple aria-label="关注人" placeholder="搜索关注人" option-style="checkmark" @search="searchPeople" />
         </PerformanceFormItem>
-        <PerformanceFormItem label="该人员组对谁可见">
-          <PerformanceRadioGroup v-model="viewPermission" :options="viewPermissionOptions" name="focus-group-view-permission" direction="horizontal" :gap="32" aria-label="该人员组对谁可见" />
+        <PerformanceFormItem label="该人员组对谁可见" class="focus-group-create-visibility">
+          <PerformanceRadioGroup v-model="viewPermission" :options="viewPermissionOptions" name="focus-group-view-permission" direction="horizontal" :gap="24" :style="{ gap: 'var(--spacing-6)' }" aria-label="该人员组对谁可见" />
         </PerformanceFormItem>
+        <div class="focus-group-create-tag-setting">
+          <PerformanceSwitchSettingRow v-model="showGroupTag" label="展示该人员组标签" />
+          <p class="focus-group-create-desc">开启后，可见人员组的用户可在人员组成员的「绩效详情页」和「成员列表」查看人员组标签。</p>
+        </div>
       </PerformanceSurfaceCard>
 
-      <PerformanceSurfaceCard title="人员范围设置" class="focus-group-create-card">
+      <PerformanceSurfaceCard title="人员范围" class="focus-group-create-card">
         <PerformanceFormItem label="设置方式" required>
-          <PerformanceRadioGroup v-model="scopeSettingMode" :options="scopeModeOptions" name="focus-group-scope-mode" direction="vertical" :gap="0" aria-label="人员范围设置方式" />
+          <PerformanceRadioGroup v-model="scopeSettingMode" class="focus-group-create-mode-options" :options="scopeModeOptions" name="focus-group-scope-mode" direction="vertical" :gap="8" :style="{ gap: 'var(--spacing-2)' }" aria-label="人员范围设置方式">
+            <template #label="{ option }">
+              <span class="focus-group-create-mode-label">{{ option.label }}</span>
+              <span class="focus-group-create-mode-description">{{ option.description }}</span>
+            </template>
+          </PerformanceRadioGroup>
         </PerformanceFormItem>
         <template v-if="scopeMode === 0">
           <PerformanceFormItem label="人员范围设置" required>
@@ -304,8 +313,6 @@ onBeforeUnmount(() => {
       </PerformanceSurfaceCard>
 
       <PerformanceSurfaceCard v-if="communicationEnabled" title="其他设置" class="focus-group-create-card">
-        <PerformanceSwitchSettingRow v-model="showGroupTag" label="展示人员组标签" />
-        <p class="focus-group-create-desc">开启后，可见人员组的用户可在人员组成员的「绩效详情页」和「成员列表」查看人员组标签。</p>
         <PerformanceSwitchSettingRow v-model="communicateTime" label="设置独立的结果沟通时间" />
         <p class="focus-group-create-desc">将结合绩效项目中配置的结果沟通时间，取最晚的开始时间和结束时间。</p>
         <p class="focus-group-create-desc">对本周期所有结果沟通型环节生效</p>
@@ -333,9 +340,22 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.focus-group-create-page { display: flex; flex-direction: column; width: 100%; max-width: var(--performance-content-width); margin: 0 auto; padding: var(--spacing-5); box-sizing: border-box; gap: var(--spacing-4); }
-.focus-group-create-card { padding: var(--spacing-5); }
-.focus-group-create-desc { margin: 0 0 var(--spacing-6); color: var(--performance-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
+.focus-group-create-page { display: flex; flex-direction: column; align-self: flex-start; width: 100%; max-width: var(--performance-content-width); margin: 0 auto; padding: var(--performance-content-surface-padding) 0; box-sizing: border-box; gap: var(--spacing-4); --performance-input-field-gap: var(--spacing-4); }
+.focus-group-create-card { flex: none; padding: var(--performance-content-surface-padding); }
+.focus-group-create-card :deep(.section-card-header) { flex: none; margin-bottom: var(--spacing-4); }
+.focus-group-create-card :deep(.header-bar) { display: none; }
+.focus-group-create-card :deep(.performance-form-item:last-child) { margin-bottom: 0; }
+.focus-group-create-card :deep(.performance-form-item__description) { color: var(--performance-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
+.focus-group-create-card :deep(.performance-form-item__label) { margin-bottom: var(--performance-field-label-gap); }
+.focus-group-create-visibility { margin-bottom: var(--spacing-5); }
+.focus-group-create-tag-setting { margin-bottom: var(--spacing-5); }
+.focus-group-create-desc { margin: 0; color: var(--performance-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
+.focus-group-create-mode-options { width: 100%; }
+.focus-group-create-mode-options :deep(.performance-radio-option) { width: 100%; height: auto; align-items: flex-start; }
+.focus-group-create-mode-options :deep(.radio-wallpaper) { margin-top: calc((var(--performance-input-line-height) - var(--performance-workbench-editor-radio-size)) / 2); }
+.focus-group-create-mode-options :deep(.radio-label) { flex: 1; min-width: 0; white-space: normal; }
+.focus-group-create-mode-label, .focus-group-create-mode-description { display: block; line-height: var(--performance-input-line-height); }
+.focus-group-create-mode-description { color: var(--performance-text-secondary); }
 .focus-group-create-count { margin: 0 0 var(--spacing-3); color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
 .focus-group-create-error { margin: var(--spacing-2) 0 0; color: var(--performance-field-error-color); font-size: var(--font-size-sm); }
 .focus-group-create-api-link { color: var(--color-primary); text-decoration: none; }

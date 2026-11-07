@@ -176,7 +176,7 @@ describe('FocusPeopleGroupCreate', () => {
     await wrapper.findAll('.localized-input')[0].setValue('核心研发团队')
     await wrapper.getComponent({ name: 'PerformancePersonSelect' }).vm.$emit('update:modelValue', ['E001'])
     await wrapper.find('.set-rule').trigger('click')
-    await wrapper.find('[data-label="展示人员组标签"]').trigger('click')
+    await wrapper.find('[data-label="展示该人员组标签"]').trigger('click')
     await wrapper.find('[data-label="设置独立的结果沟通时间"]').trigger('click')
     await wrapper.find('[aria-label="开始日期"]').setValue('2026-11-01')
     await wrapper.find('[aria-label="开始时间"]').setValue('09:00')
@@ -202,6 +202,19 @@ describe('FocusPeopleGroupCreate', () => {
       scope_mode: 'rule',
       roles_of_managing_scope: [],
     })
+  })
+
+  it('标签开关位于基本信息的可见范围下方，不依赖结果沟通环节', async () => {
+    vi.mocked(performanceFocusGroupApi.options).mockResolvedValue({ ...evaluatorOptions, communication_enabled: false } as any)
+    const wrapper = mountPage()
+    await flushPromises()
+    const cards = wrapper.findAll('.surface-card-stub')
+    expect(cards).toHaveLength(2)
+    const basic = cards[0]
+    expect(basic.text()).toContain('展示该人员组标签')
+    expect(basic.text().indexOf('该人员组对谁可见')).toBeLessThan(basic.text().indexOf('展示该人员组标签'))
+    expect(cards[1].text()).not.toContain('展示该人员组标签')
+    expect(wrapper.find('[data-label="设置独立的结果沟通时间"]').exists()).toBe(false)
   })
 
   it('名称为空时不能提交', async () => {
