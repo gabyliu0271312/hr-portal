@@ -349,17 +349,17 @@ async def test_focus_members_partial_replace_preserves_others_audits_and_rejects
     db, context, _, facade = focus_auth
     monkeypatch.setattr("app.performance.focus_group_members_router.PerformanceFeatureAuthorizationService", lambda db: facade)
     result = await get_focus_group_members(1, 8, context, db)
-    assert result["employee_nos"] == ["A"]
-    assert [person["value"] for person in result["people"]] == ["A"]
+    assert result["employee_nos"] == ["B", "A"]
+    assert [person["value"] for person in result["people"]] == ["B", "A"]
     with pytest.raises(HTTPException) as error:
         await update_focus_group_members(1, 8, FocusGroupMembersPayload(employee_nos=["B"]), context, db)
     assert error.value.status_code == 403 and db.commits == 0
     assert db.group.employee_nos == ["B", "A"] and not db.events
     result = await update_focus_group_members(1, 8, FocusGroupMembersPayload(employee_nos=[]), context, db)
-    assert result["employee_nos"] == [] and db.group.employee_nos == ["B"]
+    assert result["employee_nos"] == ["B"] and db.group.employee_nos == ["B"]
     assert db.commits == 1 and db.events[0].before_state == {"employee_nos": ["B", "A"]}
     assert db.events[0].after_state == {"employee_nos": ["B"]}
-    assert (await get_focus_group_members(1, 8, context, db))["employee_nos"] == []
+    assert (await get_focus_group_members(1, 8, context, db))["employee_nos"] == ["B"]
     with pytest.raises(HTTPException) as error:
         await get_focus_group_members(2, 8, context, db)
     assert error.value.status_code == 404
@@ -389,11 +389,11 @@ async def test_focus_http_contract_uses_real_facade_and_rejects_extra_actor(focu
         response = await client.get("/api/v1/performance/cycles/1/manageable-focus-groups?tab=semester")
         assert response.status_code == 200 and response.json()["items"] == [{"id": 8, "name": "重点人员", "tab": "semester", "scope_setting_mode": 1}]
         response = await client.get(url)
-        assert response.status_code == 200 and response.json()["employee_nos"] == ["A"]
+        assert response.status_code == 200 and response.json()["employee_nos"] == ["B", "A"]
         assert (await client.patch(url, json={"employee_nos": ["A"], "actor_ref": "other"})).status_code == 422
         assert (await client.patch(url, json={"employee_nos": ["unknown"]})).status_code == 403
         response = await client.patch(url, json={"employee_nos": []})
-        assert response.status_code == 200 and response.json()["employee_nos"] == []
+        assert response.status_code == 200 and response.json()["employee_nos"] == ["B"]
         assert db.group.employee_nos == ["B"] and db.commits == 1
         assert (await client.get(url.replace("cycles/1", "cycles/2"))).status_code == 404
         db.roles[0].is_active = False

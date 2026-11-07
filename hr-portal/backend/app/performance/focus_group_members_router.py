@@ -82,12 +82,13 @@ async def _scope(db, context, cycle, group):
 
 
 def _members(group, people, name_source=None):
-    """成员列表 payload。people 为当前有权限维护的成员；name_source 为快照全量人（用于直属上级姓名解析）。"""
-    allowed = {person.employee_no for person in people}
+    """成员列表 payload。people 为组内成员（group.employee_nos ∩ 快照）；name_source 为快照全量人（用于直属上级姓名解析）。"""
+    group_nos = set(group.employee_nos or [])
+    members = [person for person in people if person.employee_no in group_nos]
     all_by_no = {person.employee_no: person for person in (name_source or people)}
     return {
         "group_id": group.id,
-        "employee_nos": [value for value in (group.employee_nos or []) if value in allowed],
+        "employee_nos": [value for value in (group.employee_nos or []) if value in {person.employee_no for person in people}],
         "people": [{
             "value": person.employee_no,
             "label": person.display_name,
@@ -101,7 +102,7 @@ def _members(group, people, name_source=None):
             "department_2": person.department_2,
             "department_5": person.department_5,
             "job_family": person.job_family,
-        } for person in sorted(people, key=lambda item: (item.display_name, item.employee_no))],
+        } for person in sorted(members, key=lambda item: (item.display_name, item.employee_no))],
     }
 
 
@@ -294,10 +295,10 @@ async def get_focus_group_members(
 ):
     cycle = await _cycle(db, cycle_id)
     group = await _group(db, cycle, group_id)
-    _, people = await _scope(db, context, cycle, group)
+    await _scope(db, context, cycle, group)
     snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
     added_by = await _member_added_by(db, cycle, group)
-    result = _members(group, people, name_source=snapshot_people)
+    result = _members(group, snapshot_people, name_source=snapshot_people)
     for person in result["people"]:
         info = added_by.get(person["value"])
         person["added_by"] = info["added_by"] if info else None
@@ -330,7 +331,7 @@ async def update_focus_group_members(
     ))
     snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
     added_by = await _member_added_by(db, cycle, group)
-    result = _members(group, people, name_source=snapshot_people)
+    result = _members(group, snapshot_people, name_source=snapshot_people)
     for person in result["people"]:
         info = added_by.get(person["value"])
         person["added_by"] = info["added_by"] if info else None
