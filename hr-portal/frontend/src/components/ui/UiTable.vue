@@ -318,6 +318,8 @@ function onSort(key: string) {
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
+  /* 表格容器顶部边框线（对齐 REA ud__table-wrapper 顶边，位于工具栏与表头之间） */
+  border-top: 1px solid var(--ui-table-border-color);
   background: var(--ui-surface-background);
 }
 .ui-table__cell {

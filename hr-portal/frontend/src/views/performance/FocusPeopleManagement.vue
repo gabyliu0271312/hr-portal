@@ -151,7 +151,7 @@ onMounted(async () => {
   <UiFullScreenModal title="人员组管理" :show-footer="false" @back="goBack">
     <div class="focus-people-page">
       <PerformanceContentSurface class="focus-people-surface">
-        <PerformanceLineTabs v-model="activeTab" :tabs="tabs">
+        <PerformanceLineTabs v-model="activeTab" :tabs="tabs" fill>
           <div class="focus-people-toolbar">
             <PerformanceCreateButton :disabled="!canCreate" label="新建" @click="openCreate" />
             <div class="focus-people-tools">
@@ -211,14 +211,20 @@ onMounted(async () => {
 .focus-people-page {
   width: 100%;
   min-width: 0;
-  min-height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   padding: 16px 20px 0;
   box-sizing: border-box;
   overflow: auto;
   background: #f5f6f7;
 }
 .focus-people-surface {
-  min-height: calc(100vh - 88px);
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding: 0 20px 20px;
   box-shadow: none;
   --performance-line-tabs-surface: #fff;
@@ -255,8 +261,8 @@ onMounted(async () => {
 .focus-people-table {
   --ui-table-header-background: #ffffff;
   --ui-table-header-height: 47px;
-  /* 空态撑满全屏页剩余空间（head 56 + page padding 16 + surface 上边距 + tab 区 + toolbar + 表头），下限 220 */
-  --ui-table-empty-height: max(220px, calc(100vh - 320px));
+  /* 表格区域高度 = 视口剩余（head 56 + page padding 16 + tabs 区 48 + toolbar 48+8 + 表头 47 = 223，空态从表头底起） */
+  --ui-table-empty-height: calc(100vh - 223px);
 }
 .focus-people-table :deep(.ui-table__cell--head) {
   color: #646a73;
