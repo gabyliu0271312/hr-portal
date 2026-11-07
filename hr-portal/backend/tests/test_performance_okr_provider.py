@@ -58,6 +58,123 @@ class _StubFeishuClient:
         return self.payload or {}
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identities,expected", [
+    ([{"user_id": "ou_same", "email": "person@example.com"}, {"user_id": "ou_same", "mobile": "13800000000"}], "ou_same"),
+    ([{"user_id": "ou_email"}], "ou_email"),
+    ([{"user_id": "ou_mobile"}], "ou_mobile"),
+    ([], None),
+    ([{"user_id": "ou_a"}, {"user_id": "ou_b"}], None),
+])
+async def test_roster_identity_resolution_without_portal_account(monkeypatch, identities, expected):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from sqlalchemy import Column, MetaData, String, Table
+    from app.performance import okr_provider
+    table = Table("emp_realtime_roster", MetaData(), Column("employee_no", String), Column("corporate_email", String), Column("mobile_phone", String))
+    monkeypatch.setattr(okr_provider, "employee_roster_table", lambda: table)
+    client = SimpleNamespace(resolve_user_ids=AsyncMock(return_value={"code": 0, "data": {"user_list": identities}}))
+    class Db:
+        async def execute(self, query):
+            assert query.compile().params["employee_no_1"] == "434"
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(one_or_none=lambda: {"corporate_email": "person@example.com", "mobile_phone": "13800000000"}))
+    assert await FeishuOkrProvider(client).resolve_open_id(Db(), "434") == expected
+    client.resolve_user_ids.assert_awaited_once_with({"emails": ["person@example.com"], "mobiles": ["13800000000"], "include_resigned": True})
+
+
+@pytest.mark.asyncio
+async def test_contact_permission_denial_never_falls_back_to_another_identity(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from sqlalchemy import Column, MetaData, String, Table
+    from app.performance import okr_provider
+    table = Table("emp_realtime_roster", MetaData(), Column("employee_no", String), Column("corporate_email", String))
+    monkeypatch.setattr(okr_provider, "employee_roster_table", lambda: table)
+    client = SimpleNamespace(resolve_user_ids=AsyncMock(side_effect=FeishuClientError("denied", 99991672)), get_json=AsyncMock())
+    class Db:
+        async def execute(self, query):
+            assert "performance_identity_links" not in str(query)
+            return SimpleNamespace(mappings=lambda: SimpleNamespace(one_or_none=lambda: {"corporate_email": "person@example.com"}))
+    assert await FeishuOkrProvider(client).fetch(Db(), "434") is None
+    client.get_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_empty_roster_identity_retains_existing_portal_binding(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.performance import okr_provider
+    from app.data.employee_roster_contract import EmployeeRosterContractError
+    def missing(): raise EmployeeRosterContractError("not loaded")
+    monkeypatch.setattr(okr_provider, "employee_roster_table", missing)
+    client = SimpleNamespace(resolve_user_ids=AsyncMock())
+    class Db:
+        async def execute(self, query): return SimpleNamespace(scalar_one_or_none=lambda: "ou_bound")
+    assert await FeishuOkrProvider(client).resolve_open_id(Db(), "434") == "ou_bound"
+    client.resolve_user_ids.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_roster_to_real_client_contact_and_okr_endpoints(monkeypatch):
+    import httpx
+    from types import SimpleNamespace
+    from sqlalchemy import Column, MetaData, String, Table
+    from app.performance import okr_provider
+    from app.integrations.feishu.feishu_client import FeishuClient
+    table = Table("emp_realtime_roster", MetaData(), Column("employee_no", String), Column("corporate_email", String), Column("mobile_phone", String))
+    monkeypatch.setattr(okr_provider, "employee_roster_table", lambda: table)
+    monkeypatch.setattr(settings, "FEISHU_NOTIFICATION_DELIVERY_ENABLED", False)
+    requests = []
+    def handle(request):
+        import json
+        requests.append(request)
+        if "/auth/v3/" in request.url.path:
+            assert json.loads(request.content) == {"app_id": "same-app", "app_secret": "secret"}
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "test-token", "expire": 7200})
+        assert request.headers["Authorization"] == "Bearer test-token"
+        if request.url.path.endswith("batch_get_id"):
+            assert request.url.params["user_id_type"] == "open_id"
+            assert json.loads(request.content) == {"emails": ["person@example.com"], "mobiles": ["13800000000"], "include_resigned": True}
+            return httpx.Response(200, json={"code": 0, "data": {"user_list": [{"user_id": "ou_current_app"}]}})
+        assert request.url.path.endswith("/users/ou_current_app/okrs")
+        assert request.url.params["period_ids"] == "period-1"
+        return httpx.Response(200, json=OKR_PAYLOAD)
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    class Db:
+        async def execute(self, query): return SimpleNamespace(mappings=lambda: SimpleNamespace(one_or_none=lambda: {"corporate_email": "person@example.com", "mobile_phone": "13800000000"}))
+    view = await FeishuOkrProvider(FeishuClient("same-app", "secret"), ["period-1"]).fetch(Db(), "434")
+    assert view.objectives[0].content == "提升交付效率"
+    assert len(requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_contact_resolution_does_not_bypass_identity_switch(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.identity_switch.service import current_switch
+    from app.integrations.feishu.feishu_client import FeishuClient
+    client = FeishuClient("app", "secret")
+    token_fetch = AsyncMock()
+    monkeypatch.setattr(client, "_ensure_token", token_fetch)
+    handle = current_switch.set(SimpleNamespace())
+    try:
+        with pytest.raises(FeishuClientError): await client.resolve_user_ids({"emails": ["person@example.com"]})
+        token_fetch.assert_not_awaited()
+    finally:
+        current_switch.reset(handle)
+
+
+def test_official_okr_progress_and_current_kr_weight():
+    import copy
+    payload = copy.deepcopy(OKR_PAYLOAD)
+    kr = payload["data"]["okr_list"][0]["objective_list"][0]["kr_list"][0]
+    kr.update(weight=0, kr_weight=75, progress_rate={"status": "0", "percent": 10})
+    mapped = map_feishu_okr(payload)
+    assert mapped.objectives[0].key_results[0].weight == 75
+    assert mapped.objectives[0].key_results[0].status == "normal"
+
+
 class _BoundProvider(FeishuOkrProvider):
     """绕过数据库身份查询的 provider。"""
 
@@ -82,10 +199,10 @@ def test_map_feishu_okr_normalizes_objectives_and_krs():
     assert isinstance(objective, OkrObjectiveView)
     assert objective.content == "提升交付效率"
     assert objective.percent == 66.67          # 两位小数
-    assert objective.status == "normal"        # 数字码 "1" 归一化为枚举名
+    assert objective.status == "risk"
     assert [kr.content for kr in objective.key_results] == ["自动化覆盖率 60%", "平均交付周期 -20%"]
-    assert [kr.weight for kr in objective.key_results] == [50.0, 50.0]   # 第二个 KR 回退 kr_weight
-    assert [kr.status for kr in objective.key_results] == ["normal", "risk"]
+    assert [kr.weight for kr in objective.key_results] == [50.0, 50.0]
+    assert [kr.status for kr in objective.key_results] == ["risk", "extended"]
     assert [kr.percent for kr in objective.key_results] == [100.0, 33.3]
 
 

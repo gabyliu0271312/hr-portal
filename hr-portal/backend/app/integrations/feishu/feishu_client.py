@@ -93,6 +93,30 @@ class FeishuClient:
             raise FeishuClientError(f"飞书接口错误: {msg} (code={data.get('code')})", data.get("code", -1))
         return data
 
+    async def resolve_user_ids(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """通过邮箱、手机号查询当前应用的 Open ID，不受消息投递开关影响。"""
+        from app.identity_switch.service import current_switch
+        if current_switch.get() is not None:
+            raise FeishuClientError("身份切换期间禁止调用飞书接口")
+        token = await self._ensure_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{FEISHU_OPEN_API}/contact/v3/users/batch_get_id",
+                params={"user_id_type": "open_id"}, json=payload, headers=headers,
+            )
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise FeishuClientError(f"飞书接口返回非 JSON（HTTP {resp.status_code}）") from exc
+        if data.get("code") != 0:
+            msg = data.get("msg", "unknown error")
+            raise FeishuClientError(f"飞书接口错误: {msg} (code={data.get('code')})", data.get("code", -1))
+        return data
+
     async def get_json(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """通用 GET，携带 tenant_access_token（供 OKR 等只读 OpenAPI 使用）。
 

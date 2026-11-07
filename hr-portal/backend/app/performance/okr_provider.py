@@ -10,12 +10,8 @@
 - ``none``（默认）：不接外部系统，``fetch`` 返回 ``None``，前端展示空态；
 - ``feishu``：调用飞书开放平台 OKR v1 接口（tenant_access_token）。
 
-身份链路（employee_no → 飞书 open_id）::
-
-    performance_identity_links.employee_no
-        → portal_user_id → users.feishu_user_id（open_id）
-
-未绑定飞书身份的员工取不到数据，返回 ``None``（不报错，前端展示空态）。
+身份按员工实时花名册的邮箱、手机号解析为当前应用的 Open ID；
+缺少花名册联系方式时兼容已有 Portal 飞书绑定，不写入人员快照或 SSO 绑定。
 """
 from __future__ import annotations
 
@@ -28,7 +24,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.integrations.feishu.feishu_client import FeishuClient, FeishuClientError
+from app.data.employee_roster_contract import EmployeeRosterContractError, employee_roster_table
+from app.integrations.feishu.feishu_client import FeishuClient, FeishuClientError, get_feishu_client
 from app.performance.models import PerformanceIdentityLink
 from app.users.models import User
 
@@ -36,7 +33,7 @@ from app.users.models import User
 logger = logging.getLogger("performance.okr")
 
 #: 飞书 progress_rate.status 既有枚举字符串也有数字码，统一成语义值
-_STATUS_ALIASES = {"0": "unset", "1": "normal", "2": "risk", "3": "extended"}
+_STATUS_ALIASES = {"-1": "unset", "0": "normal", "1": "risk", "2": "extended"}
 
 
 class OkrKeyResultView(BaseModel):
@@ -119,8 +116,7 @@ def map_feishu_okr(payload: dict[str, Any], *, source: str = "feishu") -> OkrVie
             key_results.append(OkrKeyResultView(
                 id=str(kr.get("id") or ""),
                 content=str(kr.get("content") or ""),
-                # 飞书两版字段：weight（KR 在 O 内的权重）/ kr_weight（跨 O 的权重）
-                weight=_as_float(kr.get("weight") if kr.get("weight") is not None else kr.get("kr_weight")),
+                weight=_as_float(kr.get("kr_weight") if kr.get("kr_weight") is not None else kr.get("weight")),
                 percent=_percent(kr_progress),
                 status=_status(kr_progress.get("status")) if isinstance(kr_progress, dict) else None,
             ))
@@ -156,21 +152,48 @@ class FeishuOkrProvider:
     name = "feishu"
 
     def __init__(self, client: FeishuClient | None = None, period_ids: list[str] | None = None):
-        self._client = client or FeishuClient.from_settings()
+        self._client = client or get_feishu_client()
         self._period_ids = period_ids or []
 
     async def resolve_open_id(self, db: AsyncSession, employee_no: str) -> str | None:
-        """employee_no → 飞书 open_id（未绑定返回 None）。"""
+        """employee_no → current application's Feishu open_id."""
         if not employee_no:
+            return None
+        try:
+            table = employee_roster_table()
+            columns = table.c
+            email_col = columns.get("corporate_email")
+            mobile_col = columns.get("mobile_phone")
+            if email_col is not None or mobile_col is not None:
+                values = (await db.execute(
+                    select(*[column for column in (email_col, mobile_col) if column is not None])
+                    .where(columns.employee_no == employee_no)
+                )).mappings().one_or_none()
+                if values is not None:
+                    email = str(values.get("corporate_email") or "").strip()
+                    mobile = str(values.get("mobile_phone") or "").strip()
+                    payload = {
+                        **({"emails": [email]} if email else {}),
+                        **({"mobiles": [mobile]} if mobile else {}),
+                    }
+                    if payload:
+                        resolved = await self._client.resolve_user_ids({**payload, "include_resigned": True})
+                        users = (resolved.get("data") or {}).get("user_list") or []
+                        ids = {str(item.get("user_id")) for item in users if item.get("user_id")}
+                        if len(ids) == 1:
+                            return next(iter(ids))
+                        if len(ids) > 1:
+                            logger.warning("[okr] 花名册联系方式解析到多个飞书用户: employee=%s", employee_no)
+                        return None
+        except EmployeeRosterContractError:
+            pass
+        except FeishuClientError as exc:
+            logger.warning("[okr] 花名册身份解析失败 employee=%s code=%s", employee_no, exc.code)
             return None
         open_id = (await db.execute(
             select(User.feishu_user_id)
             .join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id)
-            .where(
-                PerformanceIdentityLink.employee_no == employee_no,
-                PerformanceIdentityLink.is_active.is_(True),
-                User.is_active.is_(True),
-            )
+            .where(PerformanceIdentityLink.employee_no == employee_no, PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True))
         )).scalar_one_or_none()
         return str(open_id).strip() if open_id else None
 
