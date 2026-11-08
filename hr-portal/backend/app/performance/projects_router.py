@@ -3988,9 +3988,10 @@ async def _communication_progress_detail(db, project, employee_nos):
             people.setdefault(str(task.handler_ref), _task_completed(task))
             handler_nos.add(str(task.handler_ref))
     # 解析评估人姓名与离职状态（source_snapshot_id → snapshot person）
-    member_snapshots = {member.snapshot_id for member in list((await db.execute(
-        select(PerformanceProjectMember).where(PerformanceProjectMember.project_id == project.id)
-    )).scalars().all())} if reviewers else set()
+    # 项目成员挂在最新成员快照下（project_id 在 PerformanceProjectMemberSnapshot 上）
+    member_snapshots = set((await db.execute(
+        select(PerformanceProjectMemberSnapshot.id).where(PerformanceProjectMemberSnapshot.id == _latest_member_snapshot_statement(project.id))
+    )).scalars().all()) if reviewers else set()
     people_rows = []
     if member_snapshots and handler_nos:
         people_rows = (await db.execute(

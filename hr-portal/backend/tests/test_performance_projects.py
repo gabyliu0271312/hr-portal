@@ -5863,6 +5863,44 @@ async def test_communication_progress_counts_invited_and_voluntary_people_once()
 
 
 @pytest.mark.asyncio
+async def test_communication_progress_detail_joins_member_snapshot_for_person_names_and_dimission():
+    from app.performance import projects_router
+
+    reviewer = SimpleNamespace(config={"template": {"executor_role_code": "assessment.reviewer_360"}})
+    def task(handler, completed=False):
+        return SimpleNamespace(target_employee_no="E1", handler_ref=handler, status="completed" if completed else "pending", submitted_at=None)
+    class Db:
+        def __init__(self):
+            self.calls = 0
+        async def execute(self, query):
+            self.calls += 1
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if self.calls == 1:  # 节点任务查询
+                assert "performance_node_tasks.project_id = 7" in sql
+                return SimpleNamespace(all=lambda: [(task("H1", True), reviewer), (task("H2"), reviewer)])
+            if self.calls == 2:  # 最新成员快照查询（project_id 在 member_snapshots 表上）
+                assert "performance_project_member_snapshots" in sql
+                assert "performance_project_members" not in sql
+                assert sql.index("max(performance_project_member_snapshots.id)") < sql.index("performance_project_member_snapshots.project_id = 7")
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [5]))
+            # 评估人 person join
+            assert "performance_authorization_snapshot_people" in sql
+            assert "performance_project_member_snapshots.id IN (5)" in sql
+            return SimpleNamespace(all=lambda: [
+                (5, "H1", "邓超", "在职", "在职"),
+                (5, "H2", "张玉柱", None, "离职"),
+            ])
+    result = await projects_router._communication_progress_detail(Db(), SimpleNamespace(id=7, cycle_ref="C1"), {"E1"})
+    assert result["E1"] == {
+        "completion": "1/2",
+        "evaluated": [{"name": "邓超", "dimission": False}],
+        "pending": [{"name": "张玉柱", "dimission": True}],
+        "dimission_count": 1,
+        "invite_stage": "in_progress",
+    }
+
+
+@pytest.mark.asyncio
 async def test_previous_published_level_uses_latest_employee_release_without_live_fallback():
     from app.performance import projects_router
     current = SimpleNamespace(start_at="2026-11-01")
@@ -7374,6 +7412,7 @@ def management_member_data(monkeypatch):
     monkeypatch.setattr(routes, "load_subject_visibility_rules", AsyncMock(return_value={"activity_manager": [], "hrbp": []}))
     monkeypatch.setattr(routes, "_snapshot_supervisor_names", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "_communication_progress", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "_communication_progress_detail", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "_delegatable_stages", AsyncMock(return_value={}))
     return SimpleNamespace(routes=routes, project=target, members=members, nodes=nodes, tasks=tasks, db=Db(), task=task, node=node)
 
