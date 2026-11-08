@@ -635,3 +635,58 @@ async def test_focus_groups_real_database_round_trip():
             assert await connection.scalar(select(PerformanceFocusGroup.id).where(PerformanceFocusGroup.id == group_id)) is None
     finally:
         await engine.dispose()
+
+
+async def test_focus_scope_handler_resolves_each_group_into_counts_and_peoples(monkeypatch):
+    """逐组人数 + 名单详情：handler 对每组独立 preview_people(group_index)，写入 group_selected/group_counts/group_peoples。"""
+    from types import SimpleNamespace
+
+    from app.performance.project_service import PerformanceProjectService
+    from app.scheduler.handlers import _handler_performance_focus_scope
+
+    class _Person:
+        def __init__(self, employee_no, display_name, supervisor_no=None):
+            self.employee_no = employee_no
+            self.display_name = display_name
+            self.direct_supervisor_employee_no = supervisor_no
+            self.organization_ref = "/技术中台/研发部"
+            self.department_2 = "技术中台"
+            self.job_family = "研发"
+
+    people_by_group = {
+        # 合并解析（group_index=None）→ 并集
+        None: [_Person("E1", "张三"), _Person("E2", "李四"), _Person("E3", "王五")],
+        # 组1 → E1(上级E2)/E2；组2 → E2/E3（组间「或」，可重叠）
+        0: [_Person("E1", "张三", "E2"), _Person("E2", "李四")],
+        1: [_Person("E2", "李四"), _Person("E3", "王五")],
+    }
+    calls: list[int | None] = []
+
+    async def fake_preview_people(self, cycle, settings, *, group_index=None, project_id=None, exclude_occupied=True):
+        calls.append(group_index)
+        return people_by_group[group_index], [], []
+
+    monkeypatch.setattr(PerformanceProjectService, "preview_people", fake_preview_people)
+
+    job = SimpleNamespace(payload={
+        "task_id": "v2_task",
+        "cycle_id": 1,
+        "cycle_ref": "cycle:1",
+        "evaluator_rules": {"groups": [{"conditions": []}, {"conditions": []}]},
+        "scope_rules": {"groups": []},
+        "owner": {"subject_type": "SYSTEM_ACCOUNT", "subject_id": "1"},
+    })
+    db = _StubDb(_StubCycle(1))
+    rows, message = await _handler_performance_focus_scope(job, db, "SYSTEM_ACCOUNT:1")
+
+    assert rows == 3
+    assert calls == [None, 0, 1]
+    assert job.payload["group_selected"] == [["E1", "E2"], ["E2", "E3"]]
+    assert job.payload["group_peoples"][0] == [{
+        "employee_no": "E1", "display_name": "张三", "direct_supervisor_name": "李四",
+        "organization_ref": "/技术中台/研发部", "department_2": "技术中台", "job_family": "研发",
+    }, {
+        "employee_no": "E2", "display_name": "李四", "direct_supervisor_name": None,
+        "organization_ref": "/技术中台/研发部", "department_2": "技术中台", "job_family": "研发",
+    }]
+

@@ -52,7 +52,7 @@ describe('FocusGroupChangeLogPanel', () => {
     })
     const peopleSpy = vi.spyOn(performanceFocusGroupApi, 'changePeople').mockResolvedValue({
       total: 1,
-      items: [{ employee_no: 'E001', display_name: '甲', direct_supervisor_name: '管理员', organization_ref: '一级/二级/末级', department_2: '一级', job_family: '序列' }],
+      items: [{ employee_no: 'E001', display_name: '甲', direct_supervisor_name: '管理员', organization_ref: '一级/二级/末级', department: '一级', department_2: '二级', job_family: '序列', job_category: '研发', job_sequence: '序列-研发' }],
     })
 
     const wrapper = mount(FocusGroupChangeLogPanel, {

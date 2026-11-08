@@ -511,6 +511,27 @@ async def _handler_ucp_event_maintenance(
 
 
 
+def _resolve_group_people_items(group_matched, all_matched):
+    """组匹配结果 → 人员列表行（姓名 / 直属上级 / 部门路径 / 序列）。
+
+    与 focus_group_members_router._change_people_items 同构：
+    organization_ref 为部门路径（/ 分隔），前端 leaf_department 从末段计算末级部门；
+    序列直接读 job_family；直属上级姓名从全量匹配人员（含本组之外）取。
+    """
+    names = {person.employee_no: person.display_name for person in all_matched}
+    items = []
+    for person in group_matched:
+        items.append({
+            "employee_no": person.employee_no,
+            "display_name": person.display_name,
+            "direct_supervisor_name": names.get(person.direct_supervisor_employee_no) if person.direct_supervisor_employee_no else None,
+            "organization_ref": person.organization_ref,
+            "department_2": person.department_2,
+            "job_family": person.job_family,
+        })
+    return items
+
+
 async def _handler_performance_focus_scope(
     job: ScheduledJob,
     db: AsyncSession,
@@ -541,13 +562,34 @@ async def _handler_performance_focus_scope(
     rules = payload.get("evaluator_rules")
     if not isinstance(rules, dict) or not rules.get("groups"):
         raise RuntimeError("范围解析规则不完整")
-    matched, _, _ = await PerformanceProjectService(db).preview_people(
+    groups = rules.get("groups")
+    if not isinstance(groups, list) or not groups:
+        raise RuntimeError("范围解析规则不完整")
+    service = PerformanceProjectService(db)
+    matched, _, _ = await service.preview_people(
         cycle,
         {"evaluator_rules": rules, "scope_rules": {"groups": []}},
         exclude_occupied=False,
     )
     selected = [person.employee_no for person in matched]
-    job.payload = {**payload, "selected": selected}
+    # 逐组解析：组间「或」，每组按 group_index 独立匹配，供前端逐组人数与跳转名单
+    group_selected: list[list[str]] = []
+    group_peoples: list[list[dict[str, Any]]] = []
+    for group_index in range(len(groups)):
+        group_matched, _, _ = await service.preview_people(
+            cycle,
+            {"evaluator_rules": {"groups": groups}, "scope_rules": {"groups": []}},
+            group_index=group_index,
+            exclude_occupied=False,
+        )
+        group_selected.append([person.employee_no for person in group_matched])
+        group_peoples.append(_resolve_group_people_items(group_matched, matched))
+    job.payload = {
+        **payload,
+        "selected": selected,
+        "group_selected": group_selected,
+        "group_peoples": group_peoples,
+    }
     return len(selected), f"performance focus scope resolved: selected={len(selected)}"
 
 

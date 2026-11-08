@@ -13,5 +13,5 @@ const emit = defineEmits<{ back: [] }>()
 </script>
 
 <style scoped>
-.performance-task-header-description { min-width: 0; margin-left: var(--spacing-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--performance-settings-text-secondary); font: 400 var(--font-size-md)/var(--performance-input-line-height) var(--font-sans); }
+.performance-task-header-description { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--performance-settings-text-secondary); font: 400 var(--font-size-md)/var(--performance-input-line-height) var(--font-sans); }
 </style>

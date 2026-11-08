@@ -174,6 +174,17 @@ class ResolveScopeItemOut(BaseModel):
     no_task_list: None = None
     scope_permission_tips: dict[str, int] = Field(default_factory=lambda: {"mode": 0})
     selected: list[str]
+    selected_count: int = 0
+
+
+class ResolveScopeGroupPeopleOut(BaseModel):
+    """单组解析后的人员行（对齐人员列表全屏弹窗 `_change_people_items` 行结构）。"""
+    employee_no: str
+    display_name: str
+    direct_supervisor_name: str | None = None
+    organization_ref: str | None = None
+    department_2: str | None = None
+    job_family: str | None = None
 
 
 class ResolveScopeOut(BaseModel):
@@ -181,6 +192,8 @@ class ResolveScopeOut(BaseModel):
     status: int | None = None
     scopes: list[ResolveScopeItemOut] | None = None
     error: str | None = None
+    group_counts: list[int] = Field(default_factory=list)
+    group_peoples: list[list[ResolveScopeGroupPeopleOut]] = Field(default_factory=list)
 
 
 class FocusGroupPersonQuery(BaseModel):
@@ -319,6 +332,7 @@ async def create_or_poll_resolve_scope(
         "cycle_ref": cycle.cycle_ref,
         "user_group_id": payload.user_group_id,
         "scopes": payload.scopes,
+        "scope_groups": rules,
         "evaluator_rules": {"groups": rules},
         "owner": owner,
     }
@@ -369,10 +383,14 @@ async def create_or_poll_resolve_scope(
     if run.status == "failed":
         return ResolveScopeOut(task_id=task_id, status=3, error=run.message or "范围解析失败")
     selected = list((job.payload or {}).get("selected") or [])
+    group_selected = (job.payload or {}).get("group_selected") or []
+    group_peoples = (job.payload or {}).get("group_peoples") or []
     return ResolveScopeOut(
         task_id=task_id,
         status=2,
-        scopes=[ResolveScopeItemOut(selected=selected)],
+        scopes=[ResolveScopeItemOut(selected=selected, selected_count=len(selected))],
+        group_counts=[len(group) for group in group_selected],
+        group_peoples=group_peoples,
     )
 
 

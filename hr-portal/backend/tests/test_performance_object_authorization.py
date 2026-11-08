@@ -174,7 +174,8 @@ class _FocusDb:
     @staticmethod
     def person(no, name):
         return SimpleNamespace(employee_no=no, display_name=name, department="Org", organization_ref="Org/Team",
-            direct_supervisor_employee_no=None, hrbp_employee_no=None, department_2="一级", department_5="末级", job_family="序列")
+            direct_supervisor_employee_no=None, hrbp_employee_no=None, department_2="一级", department_5="末级",
+            job_family="序列", job_category="研发", position_level=None, hire_date=None)
 
     async def scalar(self, statement):
         text = str(statement)
@@ -393,6 +394,8 @@ async def test_focus_members_keeps_group_nos_not_in_snapshot(focus_auth, monkeyp
     assert people_by_value["ZZ"]["display_name"] == "ZZ"
     assert people_by_value["ZZ"]["direct_supervisor_name"] is None
     assert people_by_value["ZZ"]["department_2"] is None
+    assert people_by_value["ZZ"]["department"] is None
+    assert people_by_value["ZZ"]["job_sequence"] is None
     assert people_by_value["A"]["display_name"] == "甲"
     # 规则组（scope_setting_mode=0，scope_mode='rule'）：详情页同样能查看成员（问题 1 生产数据形态）
     db.group.scope_setting_mode = 0
@@ -519,9 +522,11 @@ async def test_focus_change_log_diff_add_remove_and_added_by(focus_auth, monkeyp
     db.group.roles_of_managing_scope = ["hrbp"]
     db.permission = SimpleNamespace(scope=["Org"], invisible_people=[])
     for person in db.people:
+        person.department = "Org"
         person.department_2 = "一级"
         person.department_5 = "末级"
         person.job_family = "序列"
+        person.job_category = "研发"
     db.group.employee_nos = ["A", "B"]
     # 最近事件：actor 加入 B（before=[A]，after=[A,B]）
     db.events = [
@@ -557,10 +562,10 @@ async def test_focus_change_log_diff_add_remove_and_added_by(focus_auth, monkeyp
     log = await get_focus_group_change_log(1, 8, 2, 1, context, db)
     assert log["total"] == 1 and len(log["items"]) == 1
 
-    # 变更人员数展开：按 user_ids 回传快照画像
+    # 变更人员数展开：按 user_ids 回传快照画像（一级部门 department / 序列 job_sequence 复用上级评估逻辑）
     people = (await get_focus_group_change_people(1, 8, 6, "A,B", context, db))["items"]
     assert [person["employee_no"] for person in people] == ["A", "B"]
-    assert people[0]["display_name"] == "甲" and people[0]["department_2"] == "一级"
+    assert people[0]["display_name"] == "甲" and people[0]["department"] == "Org" and people[0]["job_sequence"] == "序列-研发"
 
     # 分页 / 搜索：末级部门走 organization_ref（前端 leaf_department 复用），keyword 过滤姓名工号部门序列
     paged = await get_focus_group_change_people(1, 8, 6, "A,B", context, db, current=1, size=1)

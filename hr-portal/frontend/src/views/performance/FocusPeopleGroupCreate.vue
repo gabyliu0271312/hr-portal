@@ -13,6 +13,7 @@ import PerformanceLocalizedInput from '@/components/performance/PerformanceLocal
 import PerformanceRadioGroup from '@/components/performance/PerformanceRadioGroup.vue'
 import PerformancePersonSelect from '@/components/performance/PerformancePersonSelect.vue'
 import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceAudienceRuleEditor.vue'
+import PerformanceScopeCount from '@/components/performance/PerformanceScopeCount.vue'
 import PerformanceSwitchSettingRow from '@/components/performance/PerformanceSwitchSettingRow.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import PerformanceTimeField from '@/components/performance/PerformanceTimeField.vue'
@@ -65,13 +66,9 @@ const apiDocumentUrl = ref('')
 const communicationEnabled = ref(false)
 const saving = ref(false)
 const scopeGroups = ref<PerformanceAudienceGroup[]>([{ conditions: [{ field: '', operator: 'include', values: [] }] }])
-const scopeCount = ref<number | null>(null)
-const scopeLoading = ref(false)
 const scopeError = ref('')
-let debounceTimer: ReturnType<typeof setTimeout> | undefined
+const scopeCountEnabled = computed(() => scopeMode.value === 0 && hasCompleteScopeRule(scopeGroups.value))
 let peopleSearchTimer: ReturnType<typeof setTimeout> | undefined
-let pollTimer: ReturnType<typeof setTimeout> | undefined
-let requestVersion = 0
 let peopleSearchVersion = 0
 
 const viewPermissionOptions = [
@@ -169,61 +166,6 @@ async function loadDetail() {
   }
 }
 
-async function refreshScopeCount() {
-  const version = ++requestVersion
-  if (!cycleId.value || scopeMode.value !== 0 || !hasCompleteScopeRule(scopeGroups.value)) {
-    scopeLoading.value = false
-    scopeCount.value = null
-    return
-  }
-  if (pollTimer) clearTimeout(pollTimer)
-  scopeLoading.value = true
-  scopeError.value = ''
-  scopeCount.value = null
-  const payload = { scopes: toFeishuScopes(scopeGroups.value), user_group_id: '' }
-  try {
-    const created = await performanceFocusGroupApi.resolveScope(cycleId.value, payload, '-1')
-    if (version !== requestVersion || !created.task_id) return
-    const poll = async () => {
-      if (version !== requestVersion) return
-      try {
-        const result = await performanceFocusGroupApi.resolveScope(cycleId.value!, payload, created.task_id!)
-        if (version !== requestVersion) return
-        if (result.status === 3 || result.status === 4) throw new Error('人员范围统计失败，请重试')
-        const selected = result.selected ?? result.scopes?.[0]?.selected
-        if (result.selected_count != null || selected != null) {
-          scopeCount.value = result.selected_count ?? selected?.length ?? 0
-          scopeLoading.value = false
-          return
-        }
-        pollTimer = setTimeout(() => void poll(), 500)
-      } catch (error: any) {
-        if (version === requestVersion) {
-          scopeLoading.value = false
-          scopeError.value = error?.response?.data?.detail || '人员范围统计失败'
-        }
-      }
-    }
-    pollTimer = setTimeout(() => void poll(), 250)
-  } catch (error: any) {
-    if (version === requestVersion) {
-      scopeLoading.value = false
-      scopeError.value = error?.response?.data?.detail || '人员范围统计失败'
-    }
-  }
-}
-
-watch(scopeGroups, () => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  if (pollTimer) clearTimeout(pollTimer)
-  debounceTimer = setTimeout(() => void refreshScopeCount(), 200)
-}, { deep: true })
-watch(scopeSettingMode, () => {
-  if (debounceTimer) clearTimeout(debounceTimer)
-  if (pollTimer) clearTimeout(pollTimer)
-  debounceTimer = setTimeout(() => void refreshScopeCount(), 200)
-})
-
 async function submit() {
   if (!cycleId.value || saving.value || (isEditing.value && !detailLoaded.value)) return
   if (!nameZh.value.trim()) {
@@ -288,11 +230,8 @@ function goBack() {
 
 onMounted(() => { if (!isProjectTab.value) { void loadOptions(); void loadDetail() } })
 onBeforeUnmount(() => {
-  requestVersion += 1
   peopleSearchVersion += 1
-  if (debounceTimer) clearTimeout(debounceTimer)
   if (peopleSearchTimer) clearTimeout(peopleSearchTimer)
-  if (pollTimer) clearTimeout(pollTimer)
 })
 </script>
 
@@ -340,20 +279,34 @@ onBeforeUnmount(() => {
         <template v-if="scopeMode === 0">
           <PerformanceFormItem label="人员范围设置" required>
             <template #description>编辑人员范围规则，系统将根据规则动态更新人员范围</template>
-            <p class="focus-group-create-count" role="status">符合条件的人员，共计 {{ scopeLoading ? '计算中…' : scopeCount ?? '--' }} 人</p>
-            <PerformanceAudienceRuleEditor
-              v-model="scopeGroups"
-              scope-mode
-              :show-scope-heading="false"
-              :allowed-fields="[...allowedScopeFields]"
-              :organization-tree="organizationTree"
-              :person-options="rulePersonOptions"
-              :employee-type-options="employeeTypeOptions"
-              :snapshot-options="options || undefined"
-              group-title-pattern="条件组 {index}"
-              @search-people="searchPeople"
-            />
             <p v-if="scopeError" class="focus-group-create-error" role="alert">{{ scopeError }}</p>
+            <PerformanceScopeCount :cycle-id="cycleId" :groups="scopeGroups" :enabled="scopeCountEnabled" title="人员列表">
+              <template #default="{ counts, loading, open }">
+                <PerformanceAudienceRuleEditor
+                  v-model="scopeGroups"
+                  scope-mode
+                  :show-scope-heading="false"
+                  :allowed-fields="[...allowedScopeFields]"
+                  :organization-tree="organizationTree"
+                  :person-options="rulePersonOptions"
+                  :employee-type-options="employeeTypeOptions"
+                  :snapshot-options="options || undefined"
+                  group-title-pattern="条件组 {index}"
+                  @search-people="searchPeople"
+                >
+                  <template #group-heading-extra="{ index }">
+                    <button
+                      type="button"
+                      class="focus-group-create-group-count"
+                      :disabled="!counts[index]"
+                      @click="open(index)"
+                    >
+                      同时满足以下条件：{{ loading ? '…' : counts[index] ?? '--' }} 人
+                    </button>
+                  </template>
+                </PerformanceAudienceRuleEditor>
+              </template>
+            </PerformanceScopeCount>
           </PerformanceFormItem>
         </template>
         <template v-else>
@@ -405,7 +358,21 @@ onBeforeUnmount(() => {
 .focus-group-create-mode-options :deep(.radio-label) { flex: 1; min-width: 0; white-space: normal; }
 .focus-group-create-mode-label, .focus-group-create-mode-description { display: block; line-height: var(--performance-input-line-height); }
 .focus-group-create-mode-description { color: var(--performance-text-secondary); }
-.focus-group-create-count { margin: 0 0 var(--spacing-3); color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--performance-input-line-height); }
+.focus-group-create-group-count {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--performance-button-link-disabled-color);
+  font: 400 var(--font-size-sm)/22px var(--font-sans);
+  cursor: default;
+}
+.focus-group-create-group-count:not(:disabled) {
+  color: var(--color-primary-hover);
+  cursor: pointer;
+}
+.focus-group-create-group-count:hover:not(:disabled) {
+  text-decoration: underline;
+}
 .focus-group-create-error { margin: var(--spacing-2) 0 0; color: var(--performance-field-error-color); font-size: var(--font-size-sm); }
 .focus-group-create-api-link { color: var(--color-primary); text-decoration: none; }
 .focus-group-create-roles { display: flex; flex-direction: column; gap: var(--spacing-2); }

@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
+from app.data.employee_roster_contract import format_job_sequence
 from app.performance.auth_context import PerformanceAccessContext, get_performance_access_context
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService, PerformanceObjectAuthorizationDenied
 from app.performance.feature_authorization import PerformanceFeatureAuthorizationService
@@ -97,7 +98,7 @@ def _members(group, people, name_source=None):
             "value": value,
             "label": person.display_name if person else value,
             "sub_label": " · ".join(item for item in (value, person.organization_ref or person.department) if item) if person else value,
-            "department": person.organization_ref or person.department if person else None,
+            "department": person.department if person else None,
             "organization_ref": person.organization_ref if person else None,
             "email": None,
             "display_name": person.display_name if person else value,
@@ -107,6 +108,8 @@ def _members(group, people, name_source=None):
             "department_2": person.department_2 if person else None,
             "department_5": person.department_5 if person else None,
             "job_family": person.job_family if person else None,
+            "job_category": person.job_category if person else None,
+            "job_sequence": format_job_sequence(person.job_family, person.job_category) if person else None,
         })
     return {"group_id": group.id, "employee_nos": member_nos, "people": member_rows}
 
@@ -258,7 +261,8 @@ def _change_people_items(snapshot_people, employee_nos):
     """快照画像 → 人员列表行（姓名 / 直属上级 / 一级部门 / 末级部门 / 序列）。
 
     organization_ref 为部门路径（/ 分隔），前端 leaf_department 从末段计算末级部门，
-    与 PerformancePeopleListPanel 的取数实现复用同一字段；序列直接读 job_family。
+    与 PerformancePeopleListPanel 的取数实现复用同一字段；一级部门读 department 物理列，
+    序列复用 format_job_sequence（与绩效评估「上级评估」成员列表同逻辑，职位族-职位类）。
     """
     by_no = {person.employee_no: person for person in snapshot_people}
     names = {person.employee_no: person.display_name for person in snapshot_people}
@@ -272,8 +276,11 @@ def _change_people_items(snapshot_people, employee_nos):
             "display_name": person.display_name,
             "direct_supervisor_name": names.get(person.direct_supervisor_employee_no) if person.direct_supervisor_employee_no else None,
             "organization_ref": person.organization_ref,
+            "department": person.department,
             "department_2": person.department_2,
             "job_family": person.job_family,
+            "job_category": person.job_category,
+            "job_sequence": format_job_sequence(person.job_family, person.job_category),
         })
     return items
 
@@ -309,7 +316,8 @@ async def get_focus_group_change_people(
         if person is None:
             continue
         fields = [person.employee_no, person.display_name, names.get(person.direct_supervisor_employee_no),
-                  person.organization_ref, person.department_2, person.job_family]
+                  person.organization_ref, person.department, person.department_2,
+                  format_job_sequence(person.job_family, person.job_category)]
         if keyword and keyword not in " ".join(value for value in fields if value):
             continue
         people.append(person)

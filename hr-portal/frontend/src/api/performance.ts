@@ -2376,6 +2376,10 @@ export interface PerformanceResolveScopeResult {
   selected_count?: number | null
   selected?: string[] | null
   scopes?: Array<{ selected?: string[] | null }>
+  /** 逐组人数（组间「或」，每组独立匹配） */
+  group_counts?: number[]
+  /** 逐组人员行（与 FocusGroupPeopleDialog 表格行同构） */
+  group_peoples?: PerformanceFocusGroupChangePerson[][]
 }
 
 export interface PerformanceFocusGroupPage {
@@ -2423,6 +2427,9 @@ export interface PerformanceFocusGroupMember {
   department_2?: string | null
   department_5?: string | null
   job_family?: string | null
+  job_category?: string | null
+  /** 序列：与绩效评估「上级评估」同逻辑，职位族-职位类（format_job_sequence） */
+  job_sequence?: string | null
   /** 添加人 / 添加时间：老成员缺失时为 null（前端显示 --） */
   added_by?: string | null
   added_at?: string | null
@@ -2456,8 +2463,13 @@ export interface PerformanceFocusGroupChangePerson {
   direct_supervisor_name?: string | null
   /** 部门路径（/ 分隔），末级部门由前端 leaf_department 取末段（与 PerformancePeopleListPanel 同源） */
   organization_ref?: string | null
+  /** 一级部门（花名册 department 物理列，label 即「一级部门」） */
+  department?: string | null
   department_2?: string | null
   job_family?: string | null
+  job_category?: string | null
+  /** 序列：与绩效评估「上级评估」同逻辑，职位族-职位类（format_job_sequence） */
+  job_sequence?: string | null
 }
 
 export interface PerformanceFocusGroupChangePersonPage {

@@ -32,9 +32,9 @@ const addOpen = ref(false)
 const columns = computed<PerformanceTableColumn[]>(() => [
   { key: 'display_name', label: '姓名', width: 195, fixed: 'left' },
   { key: 'direct_supervisor_name', label: '直属上级', width: 195 },
-  { key: 'department_2', label: '一级部门', width: 240 },
+  { key: 'department', label: '一级部门', width: 240 },
   { key: 'department_5', label: '末级部门', width: 240 },
-  { key: 'job_family', label: '序列', width: 240 },
+  { key: 'job_sequence', label: '序列', width: 240 },
   { key: 'added_by', label: '添加人', width: 195 },
   { key: 'added_at', label: '添加时间', width: 195 },
   ...(props.removable ? [{ key: 'action', label: '操作', width: 102, fixed: 'right' } as PerformanceTableColumn] : []),
@@ -44,7 +44,7 @@ const filteredRows = computed(() => {
   const query = keyword.value.trim()
   if (!query) return rows.value
   return rows.value.filter(person =>
-    [person.display_name, person.value, person.direct_supervisor_name, person.department_2, person.department_5, person.job_family]
+    [person.display_name, person.value, person.direct_supervisor_name, person.department, person.department_2, person.department_5, person.job_sequence]
       .filter(Boolean)
       .some(value => String(value).includes(query)))
 })

@@ -60,8 +60,11 @@ async function loadCountPeople() {
       display_name: person.display_name || person.value,
       direct_supervisor_name: person.direct_supervisor_name,
       organization_ref: person.organization_ref,
+      department: person.department,
       department_2: person.department_2,
       job_family: person.job_family,
+      job_category: person.job_category,
+      job_sequence: person.job_sequence,
     })),
   }
 }

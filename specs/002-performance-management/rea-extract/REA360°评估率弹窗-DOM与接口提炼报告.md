@@ -222,3 +222,52 @@ Body: { offset, limit(50), headerId, orders, roleId, filters }
 | `out/rate-tooltip/26/27/28-*.json` | 催办按钮出现条件探测（hover 标签触发） |
 
 > 提示：催办按钮「点击后请求」本次未观测到（避免打扰真实人员）；开发验证时在测试周期触发一次，抓 `/perf/api/` 下 remind/notify 类请求即可确认。
+
+---
+
+## 7. 反馈核对与补采记录（2026-11-08 二采）
+
+> 交付后收到三条视觉反馈，结合 DOM 复测定案（不改代码，只补参数）。补采脚本：`capture-rate-tooltip-30-feedback-fix.js`，证据：`out/rate-tooltip/30-huixiang.json`（0/1 离职态）、`30-judy.json`（1/1 全完成）。
+
+### 7.1 反馈①：为 0 的分组不渲染（已定案）
+
+| 行数据 | 弹窗分组 | 结论 |
+| --- | --- | --- |
+| `0/1`（huixiang，未评估 1 人含离职） | **仅 1 个「未评估」分组** | 无「已评估：0」空分组 |
+| `1/1`（judy，已评估 1 人） | **仅 1 个「已评估」分组** | 无「未评估：0」空分组 |
+| `1/2`（aaron，双分组） | 已评估 + 未评估 **2 个分组** | 两分组均 > 0 时并列 |
+
+**规则**：分组块按「该分组人数 > 0」条件渲染，与分母大小无关。实现上 `v-if="evaluated.length"` / `v-if="pending.length"` 分别控制两个分组块。
+
+### 7.2 反馈②：分组底色应为 #F8F9FA（实现色偏蓝）
+
+- **目标（实测）**：`rgb(248, 249, 250)` = **#F8F9FA**，无渐变（`background-image: none`），圆角 6px、padding 12px
+- **当前实现偏差**：用了 `--performance-member-avatar-background: #e5eaf5`（偏蓝浅灰），与 #F8F9FA 有色差
+- **修正**：分组块背景改为固定 `#F8F9FA`（或新增专用 token），不用头像底色 token
+
+### 7.3 反馈③：person 标签是灰色胶囊（名字下有深灰底）
+
+实测 `ud__tag`（`employee-label-internal`）完整样式：
+
+| 属性 | 值 |
+| --- | --- |
+| 标签底色 | `rgba(31, 35, 41, 0.1)`（黑 10% 叠加分组 #F8F9FA → 视觉更深灰） |
+| 圆角 | `999999px`（全圆角胶囊） |
+| padding | `0 8px 0 2px` |
+| 内部结构 | 20px 圆形头像（`ud__avatar`，真实头像图/占位图标）+ `<div class="name truncate max-w-100">` 名字 |
+| 名字 | 14px `#646A73`（未离职时同色，离职置灰） |
+| 标签间距 | `mr-2 mb-4`（右 8px 下 16px，wrap 布局） |
+
+**结论**：这是飞书全局 `ud__tag-neutral` 胶囊形态（全局设计 token），名字本身在胶囊内。当前实现的名字是**无底色裸文本**，需补胶囊底色 `rgba(31,35,41,0.1)` + 全圆角 + 内距。
+
+### 7.4 双分组间距（20-aaron 佐证）
+
+两组同 class `mb-10 last:mb-0`：组间垂直间距 14px（`mb-10`），**最后一组无下边距**。当前实现 `margin-bottom: 20px` 与 `:last-child { margin-bottom: 0 }` 需核对为 14px。
+
+### 7.5 补采证据文件
+
+| 文件 | 内容 |
+| --- | --- |
+| `out/rate-tooltip/30-huixiang.json` | 0/1 离职态：单分组 + 离职说明容器（透明无灰底）+ `ud__tag` 胶囊完整样式 |
+| `out/rate-tooltip/30-judy.json` | 1/1 全完成：单「已评估」分组（验证未评估 0 隐藏） |
+| `out/rate-tooltip/30-aaron.json` | 双分组（本次 hover 失败未抓到，以 20-aaron 佐证布局） |

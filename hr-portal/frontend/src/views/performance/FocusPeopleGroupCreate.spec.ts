@@ -95,6 +95,7 @@ function mountPage() {
         PerformancePersonSelect: personSelectStub,
         PerformanceRadioGroup: radioGroupStub,
         PerformanceAudienceRuleEditor: audienceRuleStub,
+        FocusGroupPeopleDialog: { props: ['modelValue', 'title', 'subtitle', 'rows'], template: '<div v-if="modelValue" class="people-dialog-stub">{{ title }} {{ subtitle }} {{ rows.length }}</div>' },
         PerformanceSwitchSettingRow: switchStub,
         PerformanceCheckbox: checkboxStub,
         PerformanceDateTimeField: dateFieldStub,
@@ -162,7 +163,7 @@ describe('FocusPeopleGroupCreate', () => {
     await vi.advanceTimersByTimeAsync(250)
     await flushPromises()
     expect(performanceFocusGroupApi.resolveScope).toHaveBeenNthCalledWith(2, 1, expect.any(Object), 'task-1')
-    expect(wrapper.text()).toContain('共计 3 人')
+    expect(wrapper.text()).toContain('共 3 人')
   })
 
   it('手动维护模式仅展示 REA 证据中的三个角色', async () => {

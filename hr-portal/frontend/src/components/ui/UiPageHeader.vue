@@ -96,6 +96,7 @@ const emit = defineEmits<{ back: [] }>()
   display: inline-flex;
   align-items: center;
   min-width: 0;
+  margin-left: var(--performance-header-title-desc-gap);
 }
 .full-screen-modal-header-subtitle:empty {
   display: none;

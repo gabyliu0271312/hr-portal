@@ -12,8 +12,10 @@ import type { PerformanceTableColumn } from '../performanceTableColumns'
  * 人员列表全屏弹窗（REA 对齐飞书人员列表页）。
  * - 页壳：UiFullScreenModal，title「人员列表」+ subtitle 组名，返回键关闭
  * - 工具栏：「搜索成员」搜索框 + 「筛选」按钮；数据源组件注入 loadFn 拉取
- * - 表格：姓名固定左列 / 直属上级 / 末级部门 / 序列；末级部门从 organization_ref 拆路径
- *   （leafDepartment，与 PerformancePeopleListPanel 同源复用），序列读 job_family
+ * - 表格：姓名固定左列 / 直属上级 / 一级部门 / 末级部门 / 序列；一级部门读 department 物理列
+ *   （花名册一级部门），末级部门从 organization_ref 拆路径（leafDepartment，与
+ *   PerformancePeopleListPanel 同源复用），序列读后端 format_job_sequence（职位族-职位类，
+ *   与绩效评估「上级评估」成员列表同逻辑）
  * - 分页：共 N 条 + 页码 + 条/页（走 PerformanceManagementTable 内置 UiPagination）
  */
 const props = defineProps<{
@@ -36,8 +38,9 @@ const pageSize = ref(10)
 const columns: PerformanceTableColumn[] = [
   { key: 'display_name', label: '姓名', width: 312, fixed: 'left' },
   { key: 'direct_supervisor_name', label: '直属上级', width: 312 },
+  { key: 'department', label: '一级部门', width: 312 },
   { key: 'leaf_department', label: '末级部门', width: 312 },
-  { key: 'job_family', label: '序列', width: 312 },
+  { key: 'job_sequence', label: '序列', width: 312 },
 ]
 
 function leafDepartment(row: PerformanceFocusGroupChangePerson): string {
@@ -60,7 +63,7 @@ const displayedRows = computed(() => {
 })
 
 function searchableText(row: PerformanceFocusGroupChangePerson) {
-  return [row.display_name, row.employee_no, row.direct_supervisor_name, leafDepartment(row), row.department_2, row.job_family]
+  return [row.display_name, row.employee_no, row.direct_supervisor_name, row.department, leafDepartment(row), row.department_2, row.job_sequence]
     .filter(Boolean)
     .join(' ')
 }
