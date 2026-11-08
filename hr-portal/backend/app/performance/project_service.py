@@ -979,7 +979,9 @@ class PerformanceProjectService:
         if "evaluated_count" in payload:
             project.evaluated_count = int(payload.get("evaluated_count") or 0)
         if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload and not payload.get("calibration_operations"):
-            await self.backfill_workflow_nodes(project, settings["flow_settings"].get("node_times") or {}, actor_type=actor_type, actor_id=actor_id, commit=False)
+            node_times = settings["flow_settings"].get("node_times") or {}
+            await self.backfill_workflow_nodes(project, node_times, actor_type=actor_type, actor_id=actor_id, commit=False)
+            await self._sync_node_task_times(project, node_times)
         self.audit.append_event(AuditEventInput(
             event_type="PERFORMANCE_PROJECT_UPDATED",
             cycle_ref=project.cycle_ref,
@@ -1393,6 +1395,47 @@ class PerformanceProjectService:
             await self.db.commit()
             await self.db.refresh(project)
         return created_ids
+
+    async def _sync_node_task_times(self, project: PerformanceProject, node_times: dict[str, dict]) -> None:
+        """按最新 node_times 同步节点快照下任务行的可用/截止时间。
+
+        中途调整流程节点时间后，flow_settings.node_times 已更新，但已建任务的
+        available_at/due_at 仍是旧值，导致不同入口展示的截止时间不一致。
+        本方法把该节点下全部任务（含已提交/已撤销）的窗口同步为新配置，
+        保证「改配置即更新快照」、全链路一致。
+        """
+        nodes = (await self.db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id))).scalars().all()
+        for node in nodes:
+            timing = node_times.get(node.node_id) or {}
+            if not timing:
+                continue
+            tasks = (await self.db.execute(select(PerformanceNodeTask).where(
+                PerformanceNodeTask.node_snapshot_id == node.id,
+            ))).scalars().all()
+            if not tasks:
+                continue
+            if node.node_type == "calibration":
+                phase_times = timing.get("phase_times") or {}
+                for task in tasks:
+                    if not task.phase_id or task.phase_id not in phase_times:
+                        continue
+                    window = phase_times[task.phase_id]
+                    task.available_at = _parse_time(window.get("start_at"))
+                    task.due_at = _parse_time(window.get("end_at"))
+                continue
+            if node.node_type == "result_reconsideration":
+                # 复议任务 available_at 是申请提交时刻（业务语义），仅同步截止时间
+                end_at = _parse_time(timing.get("appeal_deadline") or timing.get("end_at"))
+                for task in tasks:
+                    task.due_at = end_at
+                continue
+            if node.node_type in {"result_view", "result_reconsideration"}:
+                continue
+            start_at = _parse_time(timing.get("start_at"))
+            end_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
+            for task in tasks:
+                task.available_at = start_at
+                task.due_at = end_at
 
     async def copy_project(self, project: PerformanceProject, payload: dict[str, Any] | None = None, *, target_cycle_ref: str | None = None, actor_type: str, actor_id: int) -> PerformanceProject:
         cycle_ref = target_cycle_ref if target_cycle_ref is not None else project.cycle_ref

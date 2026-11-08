@@ -2301,7 +2301,8 @@ async def test_rescheduled_project_overview_and_timeline_read_current_settings(m
     timeline = await projects_router.workbench_timeline(1, context("performance.cycles.manage"), db)
     assert (timeline[0]["status"], timeline[0]["start_at"]) == ("in_progress", "2026-09-16T00:00:00Z")
     assert node.config["time"]["start_at"] == "2026-09-20T00:00:00Z"
-    assert task.available_at == Clock(2026, 9, 20, tzinfo=UTC)
+    assert task.available_at == Clock(2026, 9, 16, tzinfo=UTC)
+    assert task.due_at == Clock(2026, 9, 30, tzinfo=UTC)
 
 @pytest.mark.asyncio
 async def test_self_summary_save_uses_live_project_window_not_frozen_task(monkeypatch):
@@ -6105,7 +6106,7 @@ async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeyp
     from app.performance import review_360_feedback_router as feedback
     target = SimpleNamespace(id=1, settings={})
     node = SimpleNamespace(id=10, node_id="feedback", node_type="evaluation", config={"template": {"executor_role_code": "assessment.reviewer_360"}}, node_order=1)
-    task = SimpleNamespace(id=3, member_snapshot_id=7, target_employee_no="E1", status=status, submitted_at=datetime(2026, 1, 1, tzinfo=UTC) if submitted else None, due_at=datetime(2020, 1, 1, tzinfo=UTC))
+    task = SimpleNamespace(id=3, member_snapshot_id=7, target_employee_no="E1", status=status, source_type="VOLUNTARY", submitted_at=datetime(2026, 1, 1, tzinfo=UTC) if submitted else None, due_at=datetime(2020, 1, 1, tzinfo=UTC))
     async def project(*args): return target
     async def snapshot(*args): return SimpleNamespace(id=2)
     async def actor(*args): return "REVIEWER"
@@ -6115,8 +6116,7 @@ async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeyp
     async def member_snapshot(*args): return 7
     async def people(*args): return []
     async def labels(*args): return {}
-    async def no_voluntary(*args): return []
-    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_project_nodes", project_nodes), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels), ("_voluntary_task_ids", no_voluntary)]:
+    for name, function in [("_get_project", project), ("_locked_snapshot", snapshot), ("_resolve_cycle_member_employee", actor), ("_evaluation_node", evaluation_node), ("_project_nodes", project_nodes), ("_reviewer_tasks", tasks), ("_latest_member_snapshot_id", member_snapshot), ("_snapshot_people", people), ("_feedback_source_labels", labels)]:
         monkeypatch.setattr(feedback, name, function)
     result = await feedback.list_feedback(1, keyword=None, context=context(), db=object())
     assert result.items[0].status == expected
@@ -7593,18 +7593,14 @@ async def test_360_giveup_route_branches(monkeypatch, voluntary, submitted, expe
             self.status = "completed" if submitted else "pending"
             self.revoked_at = None
             self.member_snapshot_id = 7
+            self.source_type = "VOLUNTARY" if voluntary else "INVITE"
 
     task = FakeTask()
     db = SimpleNamespace(commit_count=0)
-    # scalar：task 查询；execute：voluntary 事件 after_state 列表
+    # scalar：task 查询
     scalars = [task]
-    voluntary_states = [{"task_id": 101}] if voluntary else []
-    class ExecuteResult:
-        def scalars(self): return SimpleNamespace(all=lambda: voluntary_states)
     async def fake_scalar(query):
         return scalars.pop(0) if scalars else None
-    async def fake_execute(query):
-        return ExecuteResult()
     async def fake_commit():
         db.commit_count += 1
     added_events = []
@@ -7623,7 +7619,6 @@ async def test_360_giveup_route_branches(monkeypatch, voluntary, submitted, expe
     monkeypatch.setattr(feedback, "_evaluation_node", fake_eval_node)
     monkeypatch.setattr(feedback, "_latest_member_snapshot_id", fake_latest)
     db.scalar = fake_scalar
-    db.execute = fake_execute
     db.commit = fake_commit
 
     if expected == "ok":
@@ -7637,3 +7632,47 @@ async def test_360_giveup_route_branches(monkeypatch, voluntary, submitted, expe
             await feedback.giveup_voluntary_evaluation(1, feedback.GiveUpPayload(task_id=101, node_id="feedback"), context=context(), db=db)
         assert (raised.value.status_code, raised.value.detail) == (status, detail)
         assert task.revoked_at is None
+
+
+@pytest.mark.asyncio
+async def test_sync_node_task_times_updates_all_tasks_including_calibration_and_completed():
+    from datetime import UTC, datetime
+    from app.performance.project_service import PerformanceProjectService
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+
+    now = datetime.now(UTC)
+    eval_node = PerformanceProjectNodeSnapshot(id=1, project_id=1, node_id="review-360", node_type="evaluation", node_order=1, name="360评估", config={})
+    calib_node = PerformanceProjectNodeSnapshot(id=2, project_id=1, node_id="calibration-1", node_type="calibration", node_order=2, name="校准", config={})
+    review_node = PerformanceProjectNodeSnapshot(id=3, project_id=1, node_id="result-reconsideration", node_type="result_reconsideration", node_order=3, name="复议", config={})
+    pending = PerformanceNodeTask(id=10, project_id=1, cycle_ref="cycle:1", member_snapshot_id=3, node_snapshot_id=1, target_employee_no="E1", handler_ref="H1", task_kind="evaluation", status="pending", available_at=now, due_at=now)
+    completed = PerformanceNodeTask(id=11, project_id=1, cycle_ref="cycle:1", member_snapshot_id=3, node_snapshot_id=1, target_employee_no="E2", handler_ref="H2", task_kind="evaluation", status="completed", available_at=now, due_at=now, submitted_at=now)
+    calib_task = PerformanceNodeTask(id=12, project_id=1, cycle_ref="cycle:1", member_snapshot_id=3, node_snapshot_id=2, target_employee_no="E3", handler_ref="C1", task_kind="calibration", phase_id="first", status="pending", available_at=now, due_at=now)
+    review_task = PerformanceNodeTask(id=13, project_id=1, cycle_ref="cycle:1", member_snapshot_id=3, node_snapshot_id=3, target_employee_no="E4", handler_ref="H4", task_kind="result_reconsideration", phase_id="", status="pending", available_at=now, due_at=now)
+
+    class Db:
+        async def execute(self, query):
+            text = str(query)
+            if "FROM performance_project_node_snapshots" in text:
+                rows = [eval_node, calib_node, review_node]
+            elif "FROM performance_node_tasks" in text:
+                params = query.compile().params
+                rows = [task for task in (pending, completed, calib_task, review_task) if task.node_snapshot_id == params.get("node_snapshot_id_1")]
+            else:
+                rows = []
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+
+    node_times = {
+        "review-360": {"start_at": "2026-09-20T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"},
+        "calibration-1": {"phase_times": {"first": {"start_at": "2026-09-21T00:00:00Z", "end_at": "2026-09-28T00:00:00Z"}}},
+        "result-reconsideration": {"appeal_deadline": "2026-10-05T00:00:00Z"},
+    }
+    await PerformanceProjectService(Db())._sync_node_task_times(SimpleNamespace(id=1), node_times)
+    from datetime import datetime as _dt
+    assert pending.available_at == _dt.fromisoformat("2026-09-20T00:00:00Z")
+    assert pending.due_at == _dt.fromisoformat("2026-09-30T00:00:00Z")
+    assert completed.available_at == _dt.fromisoformat("2026-09-20T00:00:00Z")
+    assert completed.due_at == _dt.fromisoformat("2026-09-30T00:00:00Z")
+    assert calib_task.available_at == _dt.fromisoformat("2026-09-21T00:00:00Z")
+    assert calib_task.due_at == _dt.fromisoformat("2026-09-28T00:00:00Z")
+    assert review_task.available_at == now
+    assert review_task.due_at == _dt.fromisoformat("2026-10-05T00:00:00Z")
