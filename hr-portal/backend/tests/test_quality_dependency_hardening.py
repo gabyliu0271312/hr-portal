@@ -65,7 +65,7 @@ async def test_internal_quality_queue_creation_is_atomic_upsert():
         "quality_queue",
         "cost_center_notification_queue",
         "performance_result_opening",
-        "performance_reconsideration_notifications",
+        "performance_reconsideration",
         "performance_cycle_lifecycle",
     ]
     assert db.statements[-1].compile().params["cron"] == "*/5 * * * *"

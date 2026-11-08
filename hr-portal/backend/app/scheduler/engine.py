@@ -61,7 +61,7 @@ class SchedulerEngine:
                 ("quality_queue", {}),
                 ("cost_center_notification_queue", {"batch_size": 20}),
                 ("performance_result_opening", {}),
-                ("performance_reconsideration_notifications", {}),
+                ("performance_reconsideration", {}),
                 ("performance_cycle_lifecycle", {}),
             ):
                 cron = "*/5 * * * *" if kind == "performance_cycle_lifecycle" else "* * * * *"
