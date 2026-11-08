@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { performanceOkrApi, performanceReviewApi, projectManagementApi } from '@/api/performance'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
+import previewCardSource from './PerformanceReminderPreviewCard.vue?raw'
 
 const task = {
   task_id: 145,
@@ -257,6 +258,14 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(action).not.toBeNull()
     expect(action.tagName).toBe('BUTTON')
     expect(action.hasAttribute('href')).toBe(false)
+    const title = document.body.querySelector<HTMLElement>('.reminder-preview-card__bot-title')!
+    expect(title.textContent).toBe('绩效任务提醒')
+    expect(['600', 'bold']).toContain(getComputedStyle(title).fontWeight)
+    const mentioned = document.body.querySelectorAll<HTMLElement>('.reminder-preview-card__name')
+    expect(mentioned.length).toBe(2)
+    expect(mentioned[0].textContent).toContain('rita.tang唐洁')
+    expect(mentioned[1].textContent).toContain('gaby.liu刘琦')
+    expect(previewCardSource).toContain(':deep(.reminder-preview-card__name){color:#3370ff;font-weight:600}')
     wrapper.unmount()
   })
 
