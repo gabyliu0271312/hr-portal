@@ -74,21 +74,23 @@ describe('PerformanceScopeCount', () => {
     expect(wrapper.find('.slot-capture').text()).toContain('counts=2')
   })
 
-  it('total count disabled when zero', async () => {
+  it('total count number greyed when zero while label stays normal', async () => {
     vi.mocked(performanceFocusGroupApi.resolveScope)
       .mockReset()
       .mockResolvedValueOnce({ task_id: 'task-1', status: 1 } as any)
       .mockResolvedValueOnce({ task_id: 'task-1', status: 2, selected_count: 0, group_counts: [0], group_peoples: [[]] } as any)
     const wrapper = mountCount()
     await settle()
-    expect((wrapper.find('.performance-scope-count__total').attributes('disabled') as string | undefined)).toBeDefined()
+    expect(wrapper.text()).toContain('符合条件的人员，共 0 人')
+    expect(wrapper.find('.performance-scope-count__num').classes()).not.toContain('performance-scope-count__num--active')
   })
 
   it('does not trigger resolve when disabled', async () => {
     const wrapper = mountCount({ enabled: false })
     await settle()
     expect(performanceFocusGroupApi.resolveScope).not.toHaveBeenCalled()
-    expect((wrapper.find('.performance-scope-count__total').attributes('disabled') as string | undefined)).toBeDefined()
+    expect(wrapper.text()).toContain('符合条件的人员，共 0 人')
+    expect(wrapper.find('.performance-scope-count__num').classes()).not.toContain('performance-scope-count__num--active')
   })
 
   it('opens group people dialog with resolved rows on group count click', async () => {
@@ -101,5 +103,15 @@ describe('PerformanceScopeCount', () => {
     expect(dialog.attributes('data-title')).toBe('人员列表')
     expect(dialog.attributes('data-subtitle')).toBe('条件组 1')
     expect(dialog.attributes('data-rows')).toBe('1')
+  })
+
+  it('opens total people dialog with employee count description', async () => {
+    const wrapper = mountCount()
+    await settle()
+    await wrapper.find('.performance-scope-count__total').trigger('click')
+    await flushPromises()
+    const dialog = wrapper.find('.people-dialog-stub')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.attributes('data-subtitle')).toBe('符合条件的员工，共计 3 人')
   })
 })

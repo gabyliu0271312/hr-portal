@@ -650,8 +650,10 @@ async def test_focus_scope_handler_resolves_each_group_into_counts_and_peoples(m
             self.display_name = display_name
             self.direct_supervisor_employee_no = supervisor_no
             self.organization_ref = "/技术中台/研发部"
+            self.department = "技术中台"
             self.department_2 = "技术中台"
             self.job_family = "研发"
+            self.job_category = "研发工程师"
 
     people_by_group = {
         # 合并解析（group_index=None）→ 并集
@@ -684,9 +686,11 @@ async def test_focus_scope_handler_resolves_each_group_into_counts_and_peoples(m
     assert job.payload["group_selected"] == [["E1", "E2"], ["E2", "E3"]]
     assert job.payload["group_peoples"][0] == [{
         "employee_no": "E1", "display_name": "张三", "direct_supervisor_name": "李四",
-        "organization_ref": "/技术中台/研发部", "department_2": "技术中台", "job_family": "研发",
+        "organization_ref": "/技术中台/研发部", "department": "技术中台", "department_2": "技术中台",
+        "job_family": "研发", "job_category": "研发工程师", "job_sequence": "研发-研发工程师",
     }, {
         "employee_no": "E2", "display_name": "李四", "direct_supervisor_name": None,
-        "organization_ref": "/技术中台/研发部", "department_2": "技术中台", "job_family": "研发",
+        "organization_ref": "/技术中台/研发部", "department": "技术中台", "department_2": "技术中台",
+        "job_family": "研发", "job_category": "研发工程师", "job_sequence": "研发-研发工程师",
     }]
 

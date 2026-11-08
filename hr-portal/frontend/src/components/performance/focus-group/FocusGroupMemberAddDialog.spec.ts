@@ -69,7 +69,7 @@ describe('FocusGroupMemberAddDialog', () => {
     expect(shell.attributes('data-width')).toBe('var(--performance-dialog-md-width)')
     expect(wrapper.text()).toContain('按规则选择用户添加到人员组中，人员范围不支持动态更新。')
     expect(wrapper.text()).toContain('适用范围')
-    expect(wrapper.text()).toContain('符合条件的人员，共 -- 人')
+    expect(wrapper.text()).toContain('符合条件的人员，共 0 人')
     expect(wrapper.find('.ui-button.secondary').exists()).toBe(true)
     expect(wrapper.find('.ui-button.primary').exists()).toBe(true)
   })
@@ -85,8 +85,8 @@ describe('FocusGroupMemberAddDialog', () => {
     const wrapper = mountDialog()
     await flushPromises()
 
-    // 初始不完整规则 → 确定禁用
-    expect((wrapper.find('.ui-button.primary').attributes('disabled') as string | undefined)).toBeDefined()
+    // 初始不完整规则 → 确定可点（点击时才校验）
+    expect((wrapper.find('.ui-button.primary').attributes('disabled') as string | undefined)).toBeUndefined()
 
     // 编辑器填出完整规则 → 计数轮询
     await wrapper.find('.set-rule').trigger('click')
@@ -104,11 +104,15 @@ describe('FocusGroupMemberAddDialog', () => {
     expect(performanceFocusGroupApi.updateMembers).toHaveBeenCalledWith(1, 8, ['E001', 'E002'])
   })
 
-  it('keeps button disabled when rule stays incomplete', async () => {
+  it('triggers inline required validation when rule stays incomplete on submit', async () => {
     const wrapper = mountDialog()
     await flushPromises()
-    expect((wrapper.find('.ui-button.primary').attributes('disabled') as string | undefined)).toBeDefined()
+    // 初始不完整规则 → 确定可点
+    expect((wrapper.find('.ui-button.primary').attributes('disabled') as string | undefined)).toBeUndefined()
+    // 点击确定：不弹 message，触发规则编辑器行内必填红框，不调 updateMembers
     await wrapper.find('.ui-button.primary').trigger('click')
+    await flushPromises()
     expect(performanceFocusGroupApi.updateMembers).not.toHaveBeenCalled()
+    expect(wrapper.find('.rule-editor-stub').attributes('highlight-invalid')).toBe('true')
   })
 })

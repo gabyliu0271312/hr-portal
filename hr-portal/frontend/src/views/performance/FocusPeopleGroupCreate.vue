@@ -67,6 +67,8 @@ const communicationEnabled = ref(false)
 const saving = ref(false)
 const scopeGroups = ref<PerformanceAudienceGroup[]>([{ conditions: [{ field: '', operator: 'include', values: [] }] }])
 const scopeError = ref('')
+/** 提交校验失败时置真，触发规则编辑器行内必填红框；规则补全后自动消除 */
+const scopeHighlightInvalid = ref(false)
 const scopeCountEnabled = computed(() => scopeMode.value === 0 && hasCompleteScopeRule(scopeGroups.value))
 let peopleSearchTimer: ReturnType<typeof setTimeout> | undefined
 let peopleSearchVersion = 0
@@ -173,7 +175,7 @@ async function submit() {
     return
   }
   if (scopeMode.value === 0 && scopeGroups.value.some(group => group.conditions.some(condition => !condition.field || condition.values.length === 0))) {
-    ElMessage.warning('请完善人员范围规则')
+    scopeHighlightInvalid.value = true
     return
   }
   saving.value = true
@@ -281,11 +283,12 @@ onBeforeUnmount(() => {
             <template #description>编辑人员范围规则，系统将根据规则动态更新人员范围</template>
             <p v-if="scopeError" class="focus-group-create-error" role="alert">{{ scopeError }}</p>
             <PerformanceScopeCount :cycle-id="cycleId" :groups="scopeGroups" :enabled="scopeCountEnabled" title="人员列表">
-              <template #default="{ counts, loading, open }">
+              <template #default="{ counts, open }">
                 <PerformanceAudienceRuleEditor
                   v-model="scopeGroups"
                   scope-mode
                   :show-scope-heading="false"
+                  :highlight-invalid="scopeHighlightInvalid"
                   :allowed-fields="[...allowedScopeFields]"
                   :organization-tree="organizationTree"
                   :person-options="rulePersonOptions"
@@ -298,10 +301,9 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       class="focus-group-create-group-count"
-                      :disabled="!counts[index]"
                       @click="open(index)"
                     >
-                      同时满足以下条件：{{ loading ? '…' : counts[index] ?? '--' }} 人
+                      <span class="focus-group-create-group-count__label">同时满足以下条件：</span><span class="focus-group-create-group-count__num" :class="{ 'focus-group-create-group-count__num--active': counts[index] > 0 }">{{ counts[index] ?? 0 }}</span><span class="focus-group-create-group-count__label"> 人</span>
                     </button>
                   </template>
                 </PerformanceAudienceRuleEditor>
@@ -362,16 +364,16 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--performance-button-link-disabled-color);
+  color: var(--color-text-secondary);
   font: 400 var(--font-size-sm)/22px var(--font-sans);
   cursor: default;
 }
-.focus-group-create-group-count:not(:disabled) {
+.focus-group-create-group-count__num {
+  color: var(--performance-button-link-disabled-color);
+}
+.focus-group-create-group-count__num--active {
   color: var(--color-primary-hover);
   cursor: pointer;
-}
-.focus-group-create-group-count:hover:not(:disabled) {
-  text-decoration: underline;
 }
 .focus-group-create-error { margin: var(--spacing-2) 0 0; color: var(--performance-field-error-color); font-size: var(--font-size-sm); }
 .focus-group-create-api-link { color: var(--color-primary); text-decoration: none; }

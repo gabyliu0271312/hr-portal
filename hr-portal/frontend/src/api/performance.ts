@@ -2391,21 +2391,27 @@ export interface PerformanceFocusGroupPriorityCheck {
   data: boolean
 }
 
-/** 人员组规则 → 飞书 scopes 载荷（新建页与「添加人员范围」弹窗共用同一转换）。 */
+/** 人员组规则 → 飞书 scopes 载荷（新建页与「添加人员范围」弹窗共用同一转换）。
+ * 不完整条件（未选字段或值空）与全空组会被剔除，避免中间态（如刚添加空条件组）
+ * 触发后端「暂不支持人员范围维度」校验失败；完整规则始终按组携带。 */
 export function toFeishuScopes(groups: PerformanceAudienceGroup[]) {
   const fields: Record<string, string> = {
     department: 'department', employee: 'employee', employee_type: 'employeeType', directLeader: 'directLeader', superior: 'superior',
     job_family: 'category', position_level: 'level', job_category: 'sequenceLevel', hire_date: 'joinDate', departure_date: 'dimissionTime', employment_status: 'dimissionStatus',
   }
   const operators: Record<string, string> = { include: 'eq', exclude: 'neq', before: 'lt', not_before: 'ge', after: 'gt', not_after: 'le' }
-  return groups.map(group => group.conditions.map((condition, index) => ({
-    key: fields[condition.field as keyof typeof fields] || condition.field,
-    condition: operators[condition.operator as keyof typeof operators] || condition.operator,
-    value: condition.values,
-    id: String(index + 1),
-    fe_extra: '',
-    __id__: `condition_${index + 1}`,
-  })))
+  return groups
+    .map(group => group.conditions
+      .filter(condition => condition.field && condition.values.length > 0)
+      .map((condition, index) => ({
+        key: fields[condition.field as keyof typeof fields] || condition.field,
+        condition: operators[condition.operator as keyof typeof operators] || condition.operator,
+        value: condition.values,
+        id: String(index + 1),
+        fe_extra: '',
+        __id__: `condition_${index + 1}`,
+      })))
+    .filter(group => group.length > 0)
 }
 
 /** 规则是否完整（至少一条已填字段与值的条件），用于计数与提交校验。 */

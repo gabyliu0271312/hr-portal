@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data.employee_roster_contract import format_job_sequence
 from app.scheduler.models import ScheduledJob
 
 
@@ -512,11 +513,12 @@ async def _handler_ucp_event_maintenance(
 
 
 def _resolve_group_people_items(group_matched, all_matched):
-    """组匹配结果 → 人员列表行（姓名 / 直属上级 / 部门路径 / 序列）。
+    """组匹配结果 → 人员列表行（姓名 / 直属上级 / 一级部门 / 末级部门 / 序列）。
 
     与 focus_group_members_router._change_people_items 同构：
     organization_ref 为部门路径（/ 分隔），前端 leaf_department 从末段计算末级部门；
-    序列直接读 job_family；直属上级姓名从全量匹配人员（含本组之外）取。
+    一级部门读 department 物理列，序列复用 format_job_sequence（职位族-职位类，
+    与绩效评估「上级评估」成员列表同逻辑）；直属上级姓名从全量匹配人员（含本组之外）取。
     """
     names = {person.employee_no: person.display_name for person in all_matched}
     items = []
@@ -526,8 +528,11 @@ def _resolve_group_people_items(group_matched, all_matched):
             "display_name": person.display_name,
             "direct_supervisor_name": names.get(person.direct_supervisor_employee_no) if person.direct_supervisor_employee_no else None,
             "organization_ref": person.organization_ref,
+            "department": person.department,
             "department_2": person.department_2,
             "job_family": person.job_family,
+            "job_category": person.job_category,
+            "job_sequence": format_job_sequence(person.job_family, person.job_category),
         })
     return items
 

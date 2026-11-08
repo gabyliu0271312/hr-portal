@@ -27,6 +27,8 @@ const allowedScopeFields = ['department', 'employee', 'employee_type', 'directLe
 const options = ref<PerformanceEvaluatorOptions | null>(null)
 const loadingOptions = ref(false)
 const scopeError = ref('')
+/** 提交校验失败时置真，触发规则编辑器行内必填红框；规则补全后自动消除 */
+const highlightInvalid = ref(false)
 const scopeGroups = ref<PerformanceAudienceGroup[]>([{ conditions: [{ field: 'department', operator: 'include', values: [] }] }])
 const rulePersonOptions = ref<PerformanceSearchSelectOption[]>([])
 const saving = ref(false)
@@ -34,12 +36,16 @@ let peopleSearchVersion = 0
 
 const organizationTree = computed<PerformanceHrbpOrganizationNode[]>(() => options.value?.organization_tree || [])
 const employeeTypeOptions = computed(() => options.value?.employee_types || [])
-const valid = computed(() => hasCompleteScopeRule(scopeGroups.value))
+/** 提交校验：所有已添加条件组的所有条件都须选字段且值非空；不完整时确定点击触发行内必填红框 */
+const valid = computed(() => scopeGroups.value.every(group => group.conditions.every(condition => condition.field && condition.values.length > 0)))
+/** 统计触发：只要至少一组规则完整就计数（中间态空组不阻断，组 1 计数仍显示） */
+const scopeCountEnabled = computed(() => hasCompleteScopeRule(scopeGroups.value))
 
 watch(() => props.modelValue, visible => {
   if (!visible) return
   scopeGroups.value = [{ conditions: [{ field: 'department', operator: 'include', values: [] }] }]
   scopeError.value = ''
+  highlightInvalid.value = false
   peopleSearchVersion += 1
   if (!props.cycleId) return
   void loadOptions()
@@ -77,7 +83,7 @@ function searchPeople(keyword: string) {
 async function submit() {
   if (!props.cycleId || !props.groupId || saving.value) return
   if (!valid.value) {
-    ElMessage.warning('请完善人员范围规则')
+    highlightInvalid.value = true
     return
   }
   saving.value = true
@@ -116,12 +122,13 @@ onBeforeUnmount(() => {
         适用范围<span class="focus-group-member-add-required">*</span>
       </p>
       <p v-if="scopeError" class="focus-group-member-add-error" role="alert">{{ scopeError }}</p>
-      <PerformanceScopeCount :cycle-id="props.cycleId" :groups="scopeGroups" :enabled="valid" title="人员列表">
-        <template #default="{ counts, loading, open }">
+      <PerformanceScopeCount :cycle-id="props.cycleId" :groups="scopeGroups" :enabled="scopeCountEnabled" title="人员列表">
+        <template #default="{ counts, open }">
           <PerformanceAudienceRuleEditor
             v-model="scopeGroups"
             scope-mode
             :show-scope-heading="false"
+            :highlight-invalid="highlightInvalid"
             :allowed-fields="[...allowedScopeFields]"
             :organization-tree="organizationTree"
             :person-options="rulePersonOptions"
@@ -136,10 +143,9 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 class="focus-group-member-add-group-count"
-                :disabled="!counts[index]"
                 @click="open(index)"
               >
-                同时满足以下条件：{{ loading ? '…' : counts[index] ?? '--' }} 人
+                <span class="focus-group-member-add-group-count__label">同时满足以下条件：</span><span class="focus-group-member-add-group-count__num" :class="{ 'focus-group-member-add-group-count__num--active': counts[index] > 0 }">{{ counts[index] ?? 0 }}</span><span class="focus-group-member-add-group-count__label"> 人</span>
               </button>
             </template>
           </PerformanceAudienceRuleEditor>
@@ -150,7 +156,7 @@ onBeforeUnmount(() => {
     <template #footer>
       <div class="focus-group-member-add-footer">
         <UiButton variant="secondary" :disabled="saving" @click="emit('update:modelValue', false)">取消</UiButton>
-        <UiButton variant="primary" :loading="saving" :disabled="!valid" @click="submit">确定</UiButton>
+        <UiButton variant="primary" :loading="saving" :disabled="saving" @click="submit">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -165,16 +171,16 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--performance-button-link-disabled-color);
+  color: var(--color-text-secondary);
   font: 400 var(--font-size-sm)/22px var(--font-sans);
   cursor: default;
 }
-.focus-group-member-add-group-count:not(:disabled) {
+.focus-group-member-add-group-count__num {
+  color: var(--performance-button-link-disabled-color);
+}
+.focus-group-member-add-group-count__num--active {
   color: var(--color-primary-hover);
   cursor: pointer;
-}
-.focus-group-member-add-group-count:hover:not(:disabled) {
-  text-decoration: underline;
 }
 .focus-group-member-add-footer { display: flex; justify-content: flex-end; gap: var(--performance-dialog-footer-gap); }
 .focus-group-member-add-footer .performance-button { min-width: var(--performance-button-min-width); }

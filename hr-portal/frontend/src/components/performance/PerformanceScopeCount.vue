@@ -22,7 +22,7 @@ const props = defineProps<{
   title?: string
 }>()
 
-const totalCount = ref<number | null>(null)
+const totalCount = ref(0)
 const groupCounts = ref<number[]>([])
 const groupPeoples = ref<PerformanceFocusGroupChangePerson[][]>([])
 const loading = ref(false)
@@ -43,7 +43,7 @@ async function refresh() {
   const version = ++requestVersion
   if (!props.cycleId || !props.enabled) {
     loading.value = false
-    totalCount.value = null
+    totalCount.value = 0
     groupCounts.value = []
     groupPeoples.value = []
     return
@@ -120,7 +120,7 @@ function openGroup(index: number) {
 
 /** 打开总名单人员列表 */
 function openTotal() {
-  openDialog(groupPeoples.value.flat(), '')
+  openDialog(groupPeoples.value.flat(), `符合条件的员工，共计 ${totalCount.value} 人`)
 }
 
 onBeforeUnmount(() => {
@@ -136,10 +136,9 @@ onBeforeUnmount(() => {
     <button
       type="button"
       class="performance-scope-count__total"
-      :disabled="!totalCount"
       @click="openTotal"
     >
-      符合条件的人员，共 {{ loading ? '计算中…' : totalCount ?? '--' }} 人
+      <span class="performance-scope-count__label">符合条件的人员，共 </span><span class="performance-scope-count__num" :class="{ 'performance-scope-count__num--active': totalCount > 0 }">{{ totalCount }}</span><span class="performance-scope-count__label"> 人</span>
     </button>
     <slot
       :counts="groupCounts"
@@ -170,15 +169,15 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--performance-button-link-disabled-color);
+  color: var(--color-text-secondary);
   font: 400 var(--font-size-md)/22px var(--font-sans);
   cursor: default;
 }
-.performance-scope-count__total:not(:disabled) {
+.performance-scope-count__num {
+  color: var(--performance-button-link-disabled-color);
+}
+.performance-scope-count__num--active {
   color: var(--color-primary-hover);
   cursor: pointer;
-}
-.performance-scope-count__total:hover:not(:disabled) {
-  text-decoration: underline;
 }
 </style>
