@@ -123,6 +123,22 @@ describe('ProjectPerformanceMatrix', () => {
     expect(wrapper.findAll('.completed-table .person-name')).toHaveLength(0)
   })
 
+  it('opens the people drilldown from a non-empty count cell', async () => {
+    vi.mocked(mockedApi.matrix).mockResolvedValue(matrixOf())
+    const wrapper = mount(ProjectPerformanceMatrix, {
+      props: { projectId: 7, cycleName: '2026年半年度绩效评估' },
+      global: { stubs: { MatrixPeopleDialog: { props: ['modelValue', 'projectId', 'cycleName', 'level', 'ratingKey', 'ratingLabel'], template: '<div v-if="modelValue" class="matrix-people-dialog-stub">{{ cycleName }} {{ level }} {{ ratingLabel }}</div>' } } },
+    })
+    await flushPromises()
+
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+    await wrapper.vm.$nextTick()
+    await wrapper.get('button[aria-label="查看J61星1人"]').trigger('click')
+
+    expect(wrapper.get('.matrix-people-dialog-stub').text()).toBe('2026年半年度绩效评估 J6 1星')
+    expect(wrapper.find('button[aria-label*="0人"]').exists()).toBe(false)
+  })
+
   it('shows retry state when the matrix request fails', async () => {
     vi.mocked(mockedApi.matrix).mockRejectedValueOnce(new Error('network'))
     const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7 } })

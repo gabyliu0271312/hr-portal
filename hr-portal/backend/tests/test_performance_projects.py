@@ -1805,7 +1805,24 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     assert result["answers"] == {"work": "已完成"}
 
     task.task_kind = "evaluation"
+    node.config["template"]["executor_role_code"] = "assessment.line_manager"
+    member.id = 21
+    from unittest.mock import AsyncMock
+    management_detail = {
+        "management_tabs": [{"key": "management-summary"}],
+        "default_active_tab": "management-summary",
+        "stage_views": [{"node_id": "summary", "reminder_target": "刘芝萍"}],
+        "root_review_id": 21,
+        "opened_at": None,
+        "cycle": {"name": "测试周期"},
+    }
+    detail = AsyncMock(return_value=management_detail)
+    monkeypatch.setattr(projects_router, "_project_member_detail", detail)
     evaluation = await projects_router.get_template_task(9, context(), Db())
+    assert detail.await_count == 1
+    assert detail.await_args.args[1] == "E001"
+    assert detail.await_args.kwargs == {"root_review_id": 21, "skip_scope": True, "visibility_role": "leader"}
+    assert all(evaluation[key] == value for key, value in management_detail.items())
     assert evaluation["task_kind"] == "evaluation"
     assert evaluation["entry_mode"] == "template_task"
     assert evaluation["node_name"] == "模板手动维护名称"
@@ -2412,6 +2429,7 @@ async def test_task_people_returns_dynamic_ratings_from_the_current_task(monkeyp
     monkeypatch.setattr(routes, "load_subject_visibility_rules", rules)
     monkeypatch.setattr(routes, "resolve_subject_visibility_role", role)
     monkeypatch.setattr(routes, "_communication_progress", progress)
+    monkeypatch.setattr(routes, "_communication_progress_detail", progress)
     class Db:
         async def get(self, model, key): return project if model is PerformanceProject else None
         async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, member)])
@@ -6058,6 +6076,41 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
     assert row["completion"] == "0/0"
     assert row["employee_type"] == ("正式员工" if visible else None)
     assert ("employee_type" in row["visible_profile_fields"]) is visible
+
+
+@pytest.mark.asyncio
+async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+
+    project = SimpleNamespace(id=7)
+    actor, db = context(), object()
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=project))
+    monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value={"E1", "E2"}))
+    drilldown = AsyncMock(return_value={"E2"})
+    loader = AsyncMock(return_value=([
+        routes.ProjectMemberResponse(id=2, root_review_id=2, project_id=7, employee_no="E2", display_name="员工二")
+    ], []))
+    monkeypatch.setattr(routes, "_matrix_drilldown_scope", drilldown)
+    monkeypatch.setattr(routes, "_project_member_rows", loader)
+
+    result = await routes.list_project_members(7, None, 1, 50, "name", "asc", actor, db, "J6", "three")
+
+    assert [item.employee_no for item in result.items] == ["E2"]
+    drilldown.assert_awaited_once_with(project, {"E1", "E2"}, "J6", "three", db)
+    loader.assert_awaited_once_with(project, {"E2"}, None, "name", "asc", actor, db)
+
+
+@pytest.mark.asyncio
+async def test_matrix_drilldown_members_requires_both_filters(monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=SimpleNamespace(id=7)))
+    with pytest.raises(HTTPException) as error:
+        await routes.list_project_members(7, None, 1, 50, None, None, context(), object(), "J6", None)
+    assert (error.value.status_code, error.value.detail) == (422, "MATRIX_DRILLDOWN_FILTERS_REQUIRED")
 
 
 @pytest.mark.asyncio

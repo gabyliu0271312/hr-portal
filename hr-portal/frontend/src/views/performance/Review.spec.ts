@@ -785,6 +785,15 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('passes the shared 360 ratio payload through the review member-list field', async () => {
+    const evaluateRatio = { completion: '1/2', evaluated: [{ name: '已评人', dimission: false }], pending: [{ name: '待评人', dimission: false }], dimission_count: 0, invite_stage: 'in_progress' as const }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ task_id: 1, employee_no: 'E1', display_name: '员工', status: 'completed', due_at: null, completion: '1/2', evaluate_ratio: evaluateRatio, job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }])
+    const wrapper = mount(ProjectMemberListPanel, { props: { projectId: 1, reviewContext: { nodeId: 'manager', state: 'all' } } })
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PerformanceEvaluateRatioPopover' }).props('ratio')).toEqual(evaluateRatio)
+    wrapper.unmount()
+  })
+
   it('displays blue 0/0 instead of a dash in the communication table', async () => {
     vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([{ task_id: 1, employee_no: 'E1', display_name: '员工', status: 'pending', due_at: null, completion: null, job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null }])
     const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'communication', mode: 'communication' } })

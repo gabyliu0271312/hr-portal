@@ -76,7 +76,7 @@
                 <td class="level-cell sticky-level">{{ row.level }}</td>
                 <td v-for="rating in matrix.ratings" :key="rating.key" class="rating-cell">
                   <template v-if="row.cells[rating.key]?.count">
-                    <span v-if="displayMode === 'count'" class="count-value">{{ row.cells[rating.key].count }}</span>
+                    <button v-if="displayMode === 'count'" type="button" class="count-value" :aria-label="`查看${row.level}${rating.label}${row.cells[rating.key].count}人`" @click="openPeople(row.level, rating)">{{ row.cells[rating.key].count }}</button>
                     <PeopleCell v-else :people="row.cells[rating.key].people" :expanded="isExpanded(`completed-${row.level}-${rating.key}`)" @toggle="toggle(`completed-${row.level}-${rating.key}`)" />
                   </template>
                   <span v-else class="matrix-zero">--</span>
@@ -86,24 +86,41 @@
           </table>
         </div>
       </section>
+      <MatrixPeopleDialog
+        v-if="drilldown"
+        v-model="peopleOpen"
+        :project-id="props.projectId"
+        :cycle-name="props.cycleName || '当前周期'"
+        :level="drilldown.level"
+        :rating-key="drilldown.rating.key"
+        :rating-label="drilldown.rating.label"
+      />
     </template>
   </PerformanceSurfaceCard>
 </template>
 
 <script setup lang="ts">
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
 
-const props = defineProps<{ projectId: number }>()
+const props = defineProps<{ projectId: number; cycleName?: string }>()
 const matrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
 const loading = ref(false)
 const error = ref('')
 const displayMode = ref<'name' | 'count'>('name')
 const expanded = ref(new Set<string>())
 const rootEl = ref<HTMLElement | null>(null)
+const peopleOpen = ref(false)
+const drilldown = ref<{ level: string; rating: ProjectMatrixRating } | null>(null)
+
+function openPeople(level: string, rating: ProjectMatrixRating) {
+  drilldown.value = { level, rating }
+  peopleOpen.value = true
+}
 
 function syncColumnWidths() {
   // 表头表体分离后，两表各自按内容定宽会错位；用表体实测列宽回填两表 colgroup，保证对齐。
@@ -243,7 +260,9 @@ export default { components: { PeopleCell } }
 .people-cell.expanded :deep(.people-toggle) { position: static; width: auto; height: auto; padding: 0; margin-left: 8px; background: transparent; }
 .rating-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 24px; padding: 0 10px; border-radius: 9999px; background: var(--rating-bg); color: #1f2329; font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Tahoma, "PingFang SC", "Microsoft Yahei", Arial, "Hiragino Sans GB", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-size: 14px; font-weight: 400; line-height: 22px; }
 .rating-cell { min-height: 57px; }
-.count-value { display: block; color: #1f2329; font-variant-numeric: tabular-nums; text-align: center; }
+.count-value { display: block; width: 100%; min-height: 31px; padding: 4px 8px; border: 0; border-radius: 4px; background: rgb(186, 206, 253); color: rgb(19, 60, 154); font: inherit; font-variant-numeric: tabular-nums; text-align: center; cursor: pointer; }
+.count-value:hover { background: rgb(166, 191, 252); }
+.count-value:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
 .matrix-zero, .matrix-empty { color: #8f959e; }
 .matrix-empty { padding: 20px !important; text-align: center !important; }
 .matrix-state { display: grid; place-items: center; min-height: 220px; color: #646a73; }

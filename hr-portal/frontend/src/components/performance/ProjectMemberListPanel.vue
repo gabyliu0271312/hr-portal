@@ -159,6 +159,7 @@ const loadMembers = async () => {
         rating_tone: item.rating_tone ?? null,
         ratings: item.ratings,
         completion: item.completion || '0/0',
+        evaluate_ratio: item.evaluate_ratio,
         direct_supervisor: item.direct_supervisor,
         job_family: item.job_family,
         job_category: item.job_category,

@@ -109,6 +109,7 @@ export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile
   direct_supervisor?: string | null
   hrbp?: string | null
   completion?: string | null
+  evaluate_ratio?: PerformanceEvaluateRatio | null
   department_path?: string | null
   visibility_role?: string
   visible_profile_fields?: string[]
@@ -1089,9 +1090,9 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectMemberPage>(`/performance/project-management/cycles/${cycleId}/members/export`, { params: { keyword, sort_by: sortBy, sort_order: sortOrder } })
     return data
   },
-  async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<ProjectMemberPage> {
+  async members(projectId: number | string, keyword?: string, page = 1, pageSize = 50, sortBy?: string, sortOrder?: 'asc' | 'desc', matrixLevel?: string, matrixRating?: string): Promise<ProjectMemberPage> {
     const { data } = await api.get<ProjectMemberPage>(`/performance/projects/${encodeURIComponent(String(projectId))}/members`, {
-      params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), page, page_size: pageSize },
+      params: { ...(keyword ? { keyword } : {}), ...(sortBy && sortOrder ? { sort_by: sortBy, sort_order: sortOrder } : {}), ...(matrixLevel && matrixRating ? { matrix_level: matrixLevel, matrix_rating: matrixRating } : {}), page, page_size: pageSize },
     })
     return data
   },
@@ -1274,6 +1275,9 @@ export type PerformanceTemplateTask = {
   /** 结果复议处理：处理人「是否保持复议前结果」选择（keep=保持原结果 隐藏绩效结果 / change=变更结果 展示，默认 change） */
   keep_result?: 'keep' | 'change' | null
   reference_tabs?: PerformanceReferenceTab[]
+  /** 评估人（handler）视角复用被评估人管理详情：其他环节进度与催办/填写入口 */
+  stage_views?: PerformanceStageView[]
+  cycle?: { name: string; start_at?: string | null; end_at?: string | null }
 }
 export type PerformanceStageView = {
   node_id: string

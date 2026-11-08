@@ -534,6 +534,19 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         template = ((node.config or {}).get("template") or {})
         show_result_and_modify = bool(template.get("show_result_and_modify", True))
         keep_result = (task.answers or {}).get("keep_result") or "change"
+    management_detail = None
+    current_role_code = node_role_code({
+        "node_type": getattr(node, "node_type", task.task_kind),
+        **((node.config or {}).get("template") or {}),
+    })
+    if task.task_kind == "evaluation" and member is not None and current_role_code in MANAGER_ROLE_CODES:
+        # 评估人（handler）视角：复用被评估人管理详情（management_tabs/stage_views），
+        # 成员已由 _self_summary_task 的 handler 授权保证可见，跳过管理范围检查；
+        # 可见性沿用本环节 resolve_subject_visibility_role 的结果（leader 等）。
+        management_detail = await _project_member_detail(
+            project, task.target_employee_no, context, db,
+            root_review_id=member.id, skip_scope=True, visibility_role=visibility_role,
+        )
     return {
         "reconsideration_reason": reconsideration_reason,
         "show_result_and_modify": show_result_and_modify,
@@ -574,6 +587,11 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
         "reference_tabs": await _reference_tabs(task, node, project, actor_ref, db),
+        **({
+            key: management_detail[key]
+            for key in ("management_tabs", "default_active_tab", "stage_views", "root_review_id", "opened_at", "cycle")
+            if management_detail is not None and key in management_detail
+        }),
     }
 
 
@@ -1252,6 +1270,21 @@ async def project_matrix(
     )
 
 
+async def _matrix_drilldown_scope(project, scope, level, rating_key, db):
+    snapshot_id = _latest_member_snapshot_statement(project.id)
+    statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
+    if scope is not None:
+        statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
+    members = list((await db.execute(statement)).scalars().all())
+    _, final_values, _ = await _project_final_ratings(project, {member.employee_no for member in members}, db)
+    return {
+        member.employee_no for member in members
+        if _matrix_level(member.position_level) == level
+        and final_values.get(member.employee_no)
+        and final_values[member.employee_no][3]["key"] == rating_key
+    }
+
+
 def _result_view_snapshot(nodes: list[PerformanceProjectNodeSnapshot]) -> PerformanceProjectNodeSnapshot | None:
     return next((node for node in nodes if node.node_type == "result_view"), None)
 
@@ -1679,16 +1712,24 @@ async def list_project_members(
     sort_order: str | None = Query(default=None, pattern="^(asc|desc)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    matrix_level: str | None = None,
+    matrix_rating: str | None = None,
 ):
     project = await _get_project(db, project_id)
+    if bool(matrix_level) != bool(matrix_rating):
+        raise HTTPException(status_code=422, detail="MATRIX_DRILLDOWN_FILTERS_REQUIRED")
     try:
         scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
     except HTTPException as exc:
         if exc.status_code != 403:
             raise
+        if matrix_level and matrix_rating:
+            raise
         scope = await _task_management_scope(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
         return await _task_authorization_members(project, scope, context, db, keyword, page, page_size, sort_by, sort_order)
 
+    if matrix_level and matrix_rating:
+        scope = await _matrix_drilldown_scope(project, scope, matrix_level, matrix_rating, db)
     items, rating_columns = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
     start = (page - 1) * page_size
     return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size, rating_columns=rating_columns)
@@ -1881,10 +1922,29 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     return items, rating_columns
 
 
-async def _project_member_detail(project: PerformanceProject, employee_no: str, context: PerformanceAccessContext, db: AsyncSession, root_review_id: int | None = None):
-    scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
-    if scope is not None and employee_no not in scope:
-        raise HTTPException(status_code=404, detail="PROJECT_MEMBER_NOT_FOUND")
+async def _project_member_detail(
+    project: PerformanceProject,
+    employee_no: str,
+    context: PerformanceAccessContext,
+    db: AsyncSession,
+    root_review_id: int | None = None,
+    *,
+    skip_scope: bool = False,
+    visibility_role: str | None = None,
+):
+    """被评估人管理详情（management_tabs + stage_views）。
+
+    skip_scope=True 用于评估人（handler）视角——调用方已通过 _self_summary_task 的
+    handler 授权保证该成员可见，跳过 _project_data_scope 的管理范围检查；
+    visibility_role 由调用方传入（评估人视角用 resolve_subject_visibility_role 的结果），
+    None 时按管理视角计算（_member_visibility_role）。
+    """
+    if not skip_scope:
+        scope = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+        if scope is not None and employee_no not in scope:
+            raise HTTPException(status_code=404, detail="PROJECT_MEMBER_NOT_FOUND")
+    else:
+        scope = None
     member_query = select(PerformanceProjectMember).join(
         PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
     ).where(
@@ -1981,7 +2041,8 @@ async def _project_member_detail(project: PerformanceProject, employee_no: str, 
         okr = okrs[0] if okrs else None
         tabs.append({"key": "management-okr", "kind": "okr", "node_id": "", "node_name": (okr_relation.get("reference_settings") or {}).get("page_name") or okr_relation.get("name") or "OKR", "task_id": None, "task_kind": None, "employee_no": employee_no, "status": "completed" if okr is not None else "not_started", "deadline_at": None, "submitted_at": None, "submitted_by": None, "form_schema": [], "answers": {}, "can_remind": False, "okr": okr, "okrs": okrs})
     selected_tab = next(tab for tab in tabs if tab["node_id"] == selected_node.node_id)
-    visibility_role = await _member_visibility_role(context, project, member, scope, str(actor.actor_ref), db)
+    if visibility_role is None:
+        visibility_role = await _member_visibility_role(context, project, member, scope, str(actor.actor_ref), db)
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     supervisors = await _snapshot_supervisor_names(db, [member])
     supervisor_name = supervisors.get((snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
@@ -2062,6 +2123,35 @@ class MemberRemindPayload(BaseModel):
     task_id: int = Field(ge=1)
 
 
+async def _member_manager_task_for_actor(
+    db: AsyncSession,
+    project_id: int,
+    employee_no: str,
+    actor_ref: str,
+    member_snapshot_id: int | None = None,
+) -> PerformanceNodeTask | None:
+    statement = select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
+        PerformanceProjectNodeSnapshot,
+        PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).where(
+        PerformanceNodeTask.project_id == project_id,
+        PerformanceNodeTask.target_employee_no == employee_no,
+        PerformanceNodeTask.task_kind == "evaluation",
+        PerformanceNodeTask.revoked_at.is_(None),
+    )
+    if member_snapshot_id is not None:
+        statement = statement.where(PerformanceNodeTask.member_snapshot_id == member_snapshot_id)
+    rows = (await db.execute(statement)).all()
+    for task, node in rows:
+        role_code = node_role_code({
+            "node_type": node.node_type,
+            **((node.config or {}).get("template") or {}),
+        })
+        if role_code in MANAGER_ROLE_CODES and await _task_handler_allowed(db, task, actor_ref):
+            return task
+    return None
+
+
 @router.get("/projects/{project_id}/members/{employee_no}/reminder-preview")
 async def project_member_reminder_preview(
     project_id: int,
@@ -2073,7 +2163,47 @@ async def project_member_reminder_preview(
 ):
     """项目管理成员弹窗催办预览：返回飞书 Bot 卡片所需字段（不发通知）。"""
     project = await _get_project(db, project_id)
-    detail = await _project_member_detail(project, employee_no, context, db)
+    try:
+        detail = await _project_member_detail(project, employee_no, context, db)
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        # 评估人（handler）视角：与 _template_task_detail 同一授权语义——
+        # 该评估人正为被评估人完成 evaluation 任务时，可预览该成员其他环节催办。
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        requested_task = (await db.execute(
+            select(PerformanceNodeTask)
+            .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+            .where(
+                PerformanceNodeTask.id == task_id,
+                PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.target_employee_no == employee_no,
+                PerformanceNodeTask.revoked_at.is_(None),
+                PerformanceProjectNodeSnapshot.node_id == node_id,
+            )
+        )).scalars().first()
+        if requested_task is None:
+            raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
+        handler_task = await _member_manager_task_for_actor(
+            db, project.id, employee_no, actor.actor_ref, requested_task.member_snapshot_id,
+        )
+        if handler_task is None:
+            raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
+        member = await db.scalar(select(PerformanceProjectMember).join(
+            PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
+        ).where(
+            PerformanceProjectMemberSnapshot.project_id == project.id,
+            PerformanceProjectMember.snapshot_id == requested_task.member_snapshot_id,
+            PerformanceProjectMember.employee_no == employee_no,
+        ))
+        if member is None:
+            raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
+        handler_node = await db.get(PerformanceProjectNodeSnapshot, handler_task.node_snapshot_id)
+        detail = await _project_member_detail(
+            project, employee_no, context, db,
+            root_review_id=member.id, skip_scope=True,
+            visibility_role=await resolve_subject_visibility_role(db, context, actor.actor_ref, member, handler_node, project),
+        )
     stage = next((view for view in detail.get("stage_views") or [] if view["node_id"] == node_id and view["task_id"] == task_id), None)
     if stage is None or not stage.get("reminder_target"):
         raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
@@ -2105,8 +2235,6 @@ async def project_member_remind(
     project = await _get_project(db, project_id)
     if project is None or project.status != PROJECT_STATUS_STARTED:
         raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
-    if not await _can_manage_project_like_overview(context, project, db):
-        raise HTTPException(status_code=403, detail="PROJECT_MEMBER_REMIND_FORBIDDEN")
     row = (await db.execute(
         select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
         .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
@@ -2121,10 +2249,19 @@ async def project_member_remind(
     if row is None:
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
     task, node = row
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+    if not await _can_manage_project_like_overview(context, project, db):
+        # 评估人（handler）视角催办：复用 templateTask 的 handler 授权语义，
+        # 不新增权限点——仅当该评估人正为被评估人完成 evaluation 任务时，
+        # 可催办该成员的其他未提交环节（本人任务除外）。
+        handler_task = await _member_manager_task_for_actor(
+            db, project.id, employee_no, actor.actor_ref, task.member_snapshot_id,
+        )
+        if handler_task is None:
+            raise HTTPException(status_code=403, detail="PROJECT_MEMBER_REMIND_FORBIDDEN")
     if task.status != "pending" or _task_completed(task) or not _task_is_available(task, node, project):
         raise HTTPException(status_code=422, detail="TASK_NOT_REMINDABLE")
-    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
-    if str(task.handler_ref) == str(actor.actor_ref):
+    if await _task_handler_allowed(db, task, actor.actor_ref):
         raise HTTPException(status_code=422, detail="TASK_SELF_REMIND_FORBIDDEN")
     outcomes = []
     for handler_ref in sorted(await _task_handlers(db, task)):
@@ -4210,7 +4347,9 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     project = await db.get(PerformanceProject, project_id)
     rows = [row for row in rows if getattr(row[0], "revoked_at", None) is None and (row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1]))]
     communication_people = {task.target_employee_no for task, node, _member in rows if node.node_type == "result_communication"}
-    progress = await _communication_progress(db, project, {task.target_employee_no for task, _node, _member in rows}) if project and rows else {}
+    member_nos = {task.target_employee_no for task, _node, _member in rows}
+    progress = await _communication_progress(db, project, member_nos) if project and rows else {}
+    progress_detail = await _communication_progress_detail(db, project, member_nos) if project and rows else {}
     supervisor_names = await _snapshot_supervisor_names(db, [member for _task, _node, member in rows if member])
     previous_levels = await _previous_published_position_levels(db, project, communication_people) if project and communication_people else {}
     if state == "pending":
@@ -4258,6 +4397,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             "direct_supervisor": supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None))) if member else None,
             "hrbp": getattr(member, "hrbp_employee_no", None) if member else None,
             "completion": progress.get(task.target_employee_no, "0/0"),
+            "evaluate_ratio": progress_detail.get(task.target_employee_no),
             "previous_position_level": previous_levels.get(task.target_employee_no) if "position_level" in visible_fields else None,
             "visibility_role": visibility_role,
             "visible_profile_fields": visible_fields,
