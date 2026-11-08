@@ -1919,7 +1919,7 @@ async def _project_member_detail(project: PerformanceProject, employee_no: str, 
     templates = {node.id: await _reference_template(next(iter(by_node[node.id]), None), node, project, db) for node in nodes}
     selected_template = templates[selected_node.id]
     relations = {str(content.get("reference_value")): content for content in selected_template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "node"}
-    handler_refs = {str(task.handler_ref) for node in nodes if node_role_code(templates[node.id]) != ROLE_REVIEWER_360 for task in by_node[node.id] if task.submitted_at is not None}
+    handler_refs = {str(task.handler_ref) for node in nodes for task in by_node[node.id] if task.handler_ref is not None}
     handler_names = {}
     if handler_refs:
         rows = (await db.execute(select(PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name).join(

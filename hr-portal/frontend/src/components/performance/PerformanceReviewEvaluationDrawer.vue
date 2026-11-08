@@ -53,7 +53,7 @@
   >
     <template #icon><InfoFilledIcon /></template>
     <template #footer-left>
-      <a class="performance-remind-preview-link" href="#" @mouseenter="loadPreview" @mouseleave="closePreview">预览通知</a>
+      <a class="performance-remind-preview-link" role="button" tabindex="0" @mouseenter="loadPreview" @mouseleave="closePreview">预览通知</a>
     </template>
   </PerformanceConfirmDialog>
   <PerformancePopover :visible="previewOpen" :anchor="previewAnchor" role="dialog" :width="380" name="performance-reminder-preview-popover" @close="closePreview" @mouseenter="cancelClose" @mouseleave="closePreview">
@@ -106,6 +106,7 @@ const activeTab = ref(props.activeTab || 'evaluation')
 const remindOpen = ref(false)
 const previewOpen = ref(false)
 const previewAnchor = ref<HTMLElement | null>(null)
+const previewHoverAnchor = ref<HTMLElement | null>(null)
 const previewData = ref<PerformanceReminderPreview | null>(null)
 const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
 let loadSequence = 0
@@ -198,6 +199,7 @@ function cancelClose() {
   if (previewCloseTimer) { clearTimeout(previewCloseTimer); previewCloseTimer = undefined }
 }
 function closePreview() {
+  previewHoverAnchor.value = null
   if (previewCloseTimer) return
   previewCloseTimer = setTimeout(() => {
     previewCloseTimer = undefined
@@ -210,12 +212,18 @@ function loadPreview(event: MouseEvent) {
   const stage = stageView.value
   if (!stage || !event.currentTarget || stage.task_id == null) return
   cancelClose()
-  previewAnchor.value = event.currentTarget as HTMLElement
-  previewData.value = null
-  previewOpen.value = true
+  const anchor = event.currentTarget as HTMLElement
+  previewHoverAnchor.value = anchor
   void projectManagementApi.memberReminderPreview(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
-    .then(data => { if (previewOpen.value) previewData.value = data })
-    .catch(() => { if (previewOpen.value) closePreview() })
+    .then(data => {
+      if (previewHoverAnchor.value !== anchor) return
+      previewOpen.value = true
+      previewAnchor.value = anchor
+      previewData.value = data
+    })
+    .catch(() => {
+      if (previewHoverAnchor.value === anchor) closePreview()
+    })
 }
 async function confirmRemind() {
   const stage = stageView.value
