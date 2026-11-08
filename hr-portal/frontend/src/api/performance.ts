@@ -892,6 +892,19 @@ export interface PerformanceTaskDelegationTarget {
   task_map?: ProjectMemberTaskOption[]
 }
 
+export interface PerformanceEvaluateRatioPerson {
+  name: string
+  dimission: boolean
+}
+
+export interface PerformanceEvaluateRatio {
+  completion: string
+  evaluated: PerformanceEvaluateRatioPerson[]
+  pending: PerformanceEvaluateRatioPerson[]
+  dimission_count: number
+  invite_stage: 'not_started' | 'in_progress' | 'ended'
+}
+
 export interface ProjectMember extends PerformanceMemberProfile {
   root_review_id?: number
   project_id?: number
@@ -907,6 +920,7 @@ export interface ProjectMember extends PerformanceMemberProfile {
   task_id?: number | null
   can_authorize?: boolean
   task_map?: ProjectMemberTaskOption[]
+  evaluate_ratio?: PerformanceEvaluateRatio | null
 }
 
 export interface ProjectMemberPage {
@@ -2373,11 +2387,35 @@ export interface PerformanceFocusGroupPriorityCheck {
   data: boolean
 }
 
+/** 人员组规则 → 飞书 scopes 载荷（新建页与「添加人员范围」弹窗共用同一转换）。 */
+export function toFeishuScopes(groups: PerformanceAudienceGroup[]) {
+  const fields: Record<string, string> = {
+    department: 'department', employee: 'employee', employee_type: 'employeeType', directLeader: 'directLeader', superior: 'superior',
+    job_family: 'category', position_level: 'level', job_category: 'sequenceLevel', hire_date: 'joinDate', departure_date: 'dimissionTime', employment_status: 'dimissionStatus',
+  }
+  const operators: Record<string, string> = { include: 'eq', exclude: 'neq', before: 'lt', not_before: 'ge', after: 'gt', not_after: 'le' }
+  return groups.map(group => group.conditions.map((condition, index) => ({
+    key: fields[condition.field as keyof typeof fields] || condition.field,
+    condition: operators[condition.operator as keyof typeof operators] || condition.operator,
+    value: condition.values,
+    id: String(index + 1),
+    fe_extra: '',
+    __id__: `condition_${index + 1}`,
+  })))
+}
+
+/** 规则是否完整（至少一条已填字段与值的条件），用于计数与提交校验。 */
+export function hasCompleteScopeRule(groups: PerformanceAudienceGroup[]) {
+  return groups.some(group => group.conditions.some(condition => condition.field && condition.values.length > 0))
+}
+
 export interface PerformanceFocusGroupMember {
   value: string
   label: string
   sub_label?: string
   department?: string | null
+  /** 部门路径（/ 分隔），末级部门由前端 leaf_department 取末段 */
+  organization_ref?: string | null
   email?: string | null
   display_name?: string | null
   direct_supervisor_employee_no?: string | null
@@ -2416,10 +2454,9 @@ export interface PerformanceFocusGroupChangePerson {
   employee_no: string
   display_name: string
   direct_supervisor_name?: string | null
-  /** 虚线上级（飞书人员列表第 3 列；本地数据源暂无，后端预留字段，缺省 null → 显示 --） */
-  dotted_supervisor_name?: string | null
+  /** 部门路径（/ 分隔），末级部门由前端 leaf_department 取末段（与 PerformancePeopleListPanel 同源） */
+  organization_ref?: string | null
   department_2?: string | null
-  department_5?: string | null
   job_family?: string | null
 }
 

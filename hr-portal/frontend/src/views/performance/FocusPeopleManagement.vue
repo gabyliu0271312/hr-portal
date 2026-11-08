@@ -59,9 +59,8 @@ async function loadCountPeople() {
       employee_no: person.value,
       display_name: person.display_name || person.value,
       direct_supervisor_name: person.direct_supervisor_name,
-      dotted_supervisor_name: null,
+      organization_ref: person.organization_ref,
       department_2: person.department_2,
-      department_5: person.department_5,
       job_family: person.job_family,
     })),
   }
@@ -261,7 +260,7 @@ onMounted(async () => {
                 v-else-if="column.key === 'people_count'"
                 class="focus-people-count"
                 type="button"
-                :disabled="loading"
+                :disabled="loading || !(row as PerformanceFocusGroup).employee_nos.length"
                 @click="openCount(row as PerformanceFocusGroup)"
               >{{ (row as PerformanceFocusGroup).employee_nos.length }}</button>
               <span v-else-if="column.key === 'project'">{{ (row as PerformanceFocusGroup).activity_names?.length ? (row as PerformanceFocusGroup).activity_names.join('、') : ((row as PerformanceFocusGroup).project_ref || '--') }}</span>
@@ -306,14 +305,21 @@ onMounted(async () => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #1456f0;
+  color: var(--performance-button-link-disabled-color);
   font: inherit;
   font-size: 14px;
   line-height: 22px;
   cursor: pointer;
 }
-.focus-people-count:hover {
+.focus-people-count:not(:disabled) {
+  color: var(--color-primary-hover);
+  cursor: pointer;
+}
+.focus-people-count:hover:not(:disabled) {
   background: #eff0f1;
+}
+.focus-people-count:disabled {
+  cursor: not-allowed;
 }
 .focus-people-page {
   width: 100%;

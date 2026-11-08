@@ -42,9 +42,8 @@ function person(overrides: Partial<PerformanceFocusGroupChangePerson> = {}): Per
     employee_no: 'E001',
     display_name: '甲',
     direct_supervisor_name: '管理员',
-    dotted_supervisor_name: null,
+    organization_ref: '一级/二级/末级',
     department_2: '一级',
-    department_5: '末级',
     job_family: '序列',
     ...overrides,
   }
@@ -64,7 +63,7 @@ describe('FocusGroupPeopleDialog', () => {
     vi.restoreAllMocks()
   })
 
-  it('renders full-screen header, 6 columns, result count, total and pagination', async () => {
+  it('renders full-screen header, 4 columns, result count, total and pagination', async () => {
     const rows = [person(), person({ employee_no: 'E002', display_name: '乙' })]
     const wrapper = mount(FocusGroupPeopleDialog, {
       props: { modelValue: true, title: '人员列表', subtitle: '核心研发团队', rows, total: 2, loading: false, error: '' },
@@ -80,13 +79,13 @@ describe('FocusGroupPeopleDialog', () => {
 
     const table = wrapper.findComponent(managementTableStub)
     const columnKeys = (table.props('columns') as Array<{ key: string; label: string; fixed?: string }>).map(column => column.key)
-    expect(columnKeys).toEqual(['display_name', 'direct_supervisor_name', 'dotted_supervisor_name', 'department_2', 'department_5', 'job_family'])
+    expect(columnKeys).toEqual(['display_name', 'direct_supervisor_name', 'leaf_department', 'job_family'])
     const nameColumn = (table.props('columns') as Array<{ key: string; fixed?: string }>).find(column => column.key === 'display_name')
     expect(nameColumn?.fixed).toBe('left')
 
     expect(wrapper.text()).toContain('共 2 条')
     expect(wrapper.text()).toContain('甲')
-    expect(wrapper.text()).toContain('--') // 虚线上级 null → --
+    expect(wrapper.text()).toContain('末级') // 末级部门从 organization_ref 末段计算
   })
 
   it('filters and paginates locally when no loadFn provided', async () => {

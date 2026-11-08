@@ -98,6 +98,7 @@ def _members(group, people, name_source=None):
             "label": person.display_name if person else value,
             "sub_label": " · ".join(item for item in (value, person.organization_ref or person.department) if item) if person else value,
             "department": person.organization_ref or person.department if person else None,
+            "organization_ref": person.organization_ref if person else None,
             "email": None,
             "display_name": person.display_name if person else value,
             "direct_supervisor_employee_no": person.direct_supervisor_employee_no if person else None,
@@ -254,10 +255,10 @@ async def get_focus_group_change_log(
 
 
 def _change_people_items(snapshot_people, employee_nos):
-    """快照画像 → 人员列表行（姓名 / 直属上级 / 虚线上级 / 一级部门 / 末级部门 / 序列）。
+    """快照画像 → 人员列表行（姓名 / 直属上级 / 一级部门 / 末级部门 / 序列）。
 
-    数据源（北森花名册）当前仅提供直接上级；虚线上级列预留字段 dotted_supervisor_name，
-    等数据源补充后直接填充，缺省为 None（前端显示 --）。
+    organization_ref 为部门路径（/ 分隔），前端 leaf_department 从末段计算末级部门，
+    与 PerformancePeopleListPanel 的取数实现复用同一字段；序列直接读 job_family。
     """
     by_no = {person.employee_no: person for person in snapshot_people}
     names = {person.employee_no: person.display_name for person in snapshot_people}
@@ -270,9 +271,8 @@ def _change_people_items(snapshot_people, employee_nos):
             "employee_no": person.employee_no,
             "display_name": person.display_name,
             "direct_supervisor_name": names.get(person.direct_supervisor_employee_no) if person.direct_supervisor_employee_no else None,
-            "dotted_supervisor_name": None,
+            "organization_ref": person.organization_ref,
             "department_2": person.department_2,
-            "department_5": person.department_5,
             "job_family": person.job_family,
         })
     return items
@@ -293,7 +293,7 @@ async def get_focus_group_change_people(
     """变更人员数展开弹窗的数据（对齐飞书 snapshot/simple 员工快照）。
 
     user_ids 为逗号分隔员工编号（前端点击记录时回传本记录的 user_ids），返回当前快照画像：
-    姓名 / 直属上级 / 虚线上级 / 一级部门 / 末级部门 / 序列。
+    姓名 / 直属上级 / 一级部门 / 末级部门 / 序列。
     支持可选 current/size 分页与 keyword 搜索（姓名 / 工号 / 直属上级 / 部门 / 序列），
     缺省按调用方传参行为不变（size 上限 100 覆盖旧的全量场景）。
     """
@@ -309,7 +309,7 @@ async def get_focus_group_change_people(
         if person is None:
             continue
         fields = [person.employee_no, person.display_name, names.get(person.direct_supervisor_employee_no),
-                  person.department_2, person.department_5, person.job_family]
+                  person.organization_ref, person.department_2, person.job_family]
         if keyword and keyword not in " ".join(value for value in fields if value):
             continue
         people.append(person)

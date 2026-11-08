@@ -143,7 +143,7 @@ watch(() => [props.cycleId, props.groupId], () => {
           v-if="column.key === 'count'"
           class="focus-group-changelog-count"
           type="button"
-          :disabled="loading"
+          :disabled="loading || !(row as PerformanceFocusGroupChangeLogItem).count"
           @click="openCountDetail(row as PerformanceFocusGroupChangeLogItem)"
         >{{ (row as PerformanceFocusGroupChangeLogItem).count }}</button>
         <span v-else-if="column.key === 'changed_at'">{{ formatDateTime((row as PerformanceFocusGroupChangeLogItem).changed_at) }}</span>
@@ -194,14 +194,21 @@ watch(() => [props.cycleId, props.groupId], () => {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #1456f0;
+  color: var(--performance-button-link-disabled-color);
   font: inherit;
   font-size: 14px;
   line-height: 22px;
   cursor: pointer;
 }
-.focus-group-changelog-count:hover {
+.focus-group-changelog-count:not(:disabled) {
+  color: var(--color-primary-hover);
+  cursor: pointer;
+}
+.focus-group-changelog-count:hover:not(:disabled) {
   background: #eff0f1;
+}
+.focus-group-changelog-count:disabled {
+  cursor: not-allowed;
 }
 .focus-group-empty {
   display: flex;

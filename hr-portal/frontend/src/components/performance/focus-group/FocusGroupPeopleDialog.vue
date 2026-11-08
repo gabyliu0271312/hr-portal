@@ -12,7 +12,8 @@ import type { PerformanceTableColumn } from '../performanceTableColumns'
  * 人员列表全屏弹窗（REA 对齐飞书人员列表页）。
  * - 页壳：UiFullScreenModal，title「人员列表」+ subtitle 组名，返回键关闭
  * - 工具栏：「搜索成员」搜索框 + 「筛选」按钮；数据源组件注入 loadFn 拉取
- * - 表格：6 列等宽（姓名固定左列 / 直属上级 / 虚线上级 / 一级部门 / 末级部门 / 序列）
+ * - 表格：姓名固定左列 / 直属上级 / 末级部门 / 序列；末级部门从 organization_ref 拆路径
+ *   （leafDepartment，与 PerformancePeopleListPanel 同源复用），序列读 job_family
  * - 分页：共 N 条 + 页码 + 条/页（走 PerformanceManagementTable 内置 UiPagination）
  */
 const props = defineProps<{
@@ -35,11 +36,14 @@ const pageSize = ref(10)
 const columns: PerformanceTableColumn[] = [
   { key: 'display_name', label: '姓名', width: 312, fixed: 'left' },
   { key: 'direct_supervisor_name', label: '直属上级', width: 312 },
-  { key: 'dotted_supervisor_name', label: '虚线上级', width: 312 },
-  { key: 'department_2', label: '一级部门', width: 312 },
-  { key: 'department_5', label: '末级部门', width: 312 },
+  { key: 'leaf_department', label: '末级部门', width: 312 },
   { key: 'job_family', label: '序列', width: 312 },
 ]
+
+function leafDepartment(row: PerformanceFocusGroupChangePerson): string {
+  const parts = (row.organization_ref ?? '').split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? ''
+}
 
 const resultCount = computed(() => {
   if (props.loadFn) return props.total ?? 0
@@ -56,7 +60,7 @@ const displayedRows = computed(() => {
 })
 
 function searchableText(row: PerformanceFocusGroupChangePerson) {
-  return [row.display_name, row.employee_no, row.direct_supervisor_name, row.dotted_supervisor_name, row.department_2, row.department_5, row.job_family]
+  return [row.display_name, row.employee_no, row.direct_supervisor_name, leafDepartment(row), row.department_2, row.job_family]
     .filter(Boolean)
     .join(' ')
 }
@@ -135,7 +139,10 @@ function close() {
         <template #pagination-prefix>
           <span class="focus-group-people-total">共 {{ resultCount }} 条</span>
         </template>
-        <template #cell="{ value }"><span>{{ value ?? '--' }}</span></template>
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'leaf_department'">{{ leafDepartment(row as PerformanceFocusGroupChangePerson) || '--' }}</span>
+          <span v-else>{{ (row as PerformanceFocusGroupChangePerson)[column.key as keyof PerformanceFocusGroupChangePerson] ?? '--' }}</span>
+        </template>
         <template #empty="{ loading: isLoading, text }">
           <div v-if="!isLoading" class="focus-group-people-empty">
             <MetricTemplateEmptyIllustration />
