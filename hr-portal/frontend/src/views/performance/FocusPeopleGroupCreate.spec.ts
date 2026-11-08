@@ -9,9 +9,13 @@ vi.mock('vue-router', () => ({
   useRoute: () => routeState,
   useRouter: () => ({ push: vi.fn() }),
 }))
-vi.mock('@/api/performance', () => ({
-  performanceFocusGroupApi: { get: vi.fn(), update: vi.fn(), create: vi.fn(), options: vi.fn(), searchPeople: vi.fn(), resolveScope: vi.fn() },
-}))
+vi.mock('@/api/performance', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/performance')>()
+  return {
+    ...actual,
+    performanceFocusGroupApi: { get: vi.fn(), update: vi.fn(), create: vi.fn(), options: vi.fn(), searchPeople: vi.fn(), resolveScope: vi.fn() },
+  }
+})
 
 const uiButtonStub = {
   props: ['variant', 'loading'],

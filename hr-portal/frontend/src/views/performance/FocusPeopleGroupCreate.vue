@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { performanceFocusGroupApi } from '@/api/performance'
+import { performanceFocusGroupApi, hasCompleteScopeRule, toFeishuScopes } from '@/api/performance'
 import type { PerformanceAudienceGroup, PerformanceEvaluatorOptions, PerformanceHrbpOrganizationNode } from '@/api/performance'
 import type { PerformanceSearchSelectOption } from '@/components/performance/PerformanceSearchSelect.vue'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
@@ -98,26 +98,6 @@ function setRole(key: keyof typeof roles.value, value: boolean) {
   roles.value[key] = value
 }
 
-function toFeishuScopes() {
-  const fields: Record<string, string> = {
-    department: 'department', employee: 'employee', employee_type: 'employeeType', directLeader: 'directLeader', superior: 'superior',
-    job_family: 'category', position_level: 'level', job_category: 'sequenceLevel', hire_date: 'joinDate', departure_date: 'dimissionTime', employment_status: 'dimissionStatus',
-  }
-  const operators: Record<string, string> = { include: 'eq', exclude: 'neq', before: 'lt', not_before: 'ge', after: 'gt', not_after: 'le' }
-  return scopeGroups.value.map(group => group.conditions.map((condition, index) => ({
-    key: fields[condition.field] || condition.field,
-    condition: operators[condition.operator] || condition.operator,
-    value: condition.values,
-    id: String(index + 1),
-    fe_extra: '',
-    __id__: `condition_${index + 1}`,
-  })))
-}
-
-function hasCompleteScopeRule() {
-  return scopeGroups.value.some(group => group.conditions.some(condition => condition.field && condition.values.length > 0))
-}
-
 function searchPeople(keyword: string) {
   const query = keyword.trim()
   if (!query || !cycleId.value) return
@@ -191,7 +171,7 @@ async function loadDetail() {
 
 async function refreshScopeCount() {
   const version = ++requestVersion
-  if (!cycleId.value || scopeMode.value !== 0 || !hasCompleteScopeRule()) {
+  if (!cycleId.value || scopeMode.value !== 0 || !hasCompleteScopeRule(scopeGroups.value)) {
     scopeLoading.value = false
     scopeCount.value = null
     return
@@ -200,7 +180,7 @@ async function refreshScopeCount() {
   scopeLoading.value = true
   scopeError.value = ''
   scopeCount.value = null
-  const payload = { scopes: toFeishuScopes(), user_group_id: '' }
+  const payload = { scopes: toFeishuScopes(scopeGroups.value), user_group_id: '' }
   try {
     const created = await performanceFocusGroupApi.resolveScope(cycleId.value, payload, '-1')
     if (version !== requestVersion || !created.task_id) return
@@ -267,7 +247,7 @@ async function submit() {
       followee_user_ids: followeeIds.value,
       view_permission: Number(viewPermission.value),
       scope_setting_mode: scopeMode.value,
-      scope: scopeMode.value === 0 ? toFeishuScopes() : null,
+      scope: scopeMode.value === 0 ? toFeishuScopes(scopeGroups.value) : null,
       show_group_tag: showGroupTag.value,
       tag_color: tagColor.value,
       text_color: textColor.value,
