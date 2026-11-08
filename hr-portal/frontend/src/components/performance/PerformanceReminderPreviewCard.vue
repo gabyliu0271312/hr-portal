@@ -6,7 +6,7 @@
         <h1 class="reminder-preview-card__bot-title">{{ preview.title }}</h1>
       </div>
       <div class="reminder-preview-card__bot-body">
-        <p class="reminder-preview-card__line reminder-preview-card__description" v-html="highlightMentions(preview.description)"></p>
+        <p class="reminder-preview-card__line reminder-preview-card__description" v-html="highlightMentions(preview.description, [preview.assessee_name])"></p>
         <div class="reminder-preview-card__line">
           <h2 class="reminder-preview-card__subheading">{{ preview.stage_type }}</h2>
           <p v-if="preview.deadline_at">截止时间：{{ formatDateTime(preview.deadline_at) }}（GMT+8）</p>
@@ -15,7 +15,7 @@
           <p v-if="preview.cycle_name">评估周期：{{ preview.cycle_name }}</p>
           <p v-if="preview.cycle_start_at || preview.cycle_end_at">周期范围：{{ formatPeriod(preview.cycle_start_at) }} - {{ formatPeriod(preview.cycle_end_at) }}</p>
         </div>
-        <p class="reminder-preview-card__line reminder-preview-card__reminder" v-html="highlightMentions(`提醒人：@${preview.reminder_name}`)"></p>
+        <p class="reminder-preview-card__line reminder-preview-card__reminder" v-html="highlightMentions(`提醒人：@${preview.reminder_name}`, [preview.reminder_name])"></p>
         <button type="button" class="reminder-preview-card__action" disabled>前往飞书绩效</button>
       </div>
     </div>
@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<{
   preview: PerformanceReminderPreview | null
 }>(), { preview: null })
 
-const preview = computed(() => props.preview || { title: '', description: '', stage_label: '', deadline_at: null, cycle_name: '', cycle_start_at: null, cycle_end_at: null, reminder_name: '', stage_type: '' })
+const preview = computed(() => props.preview || { title: '', description: '', stage_label: '', deadline_at: null, cycle_name: '', cycle_start_at: null, cycle_end_at: null, reminder_name: '', stage_type: '', assessee_name: '' })
 
 const format = (value?: string | null) => {
   if (!value) return ''
@@ -42,8 +42,14 @@ const format = (value?: string | null) => {
 }
 const formatDateTime = (value?: string | null) => format(value)
 const formatPeriod = (value?: string | null) => (value ? format(value) : '')
-function highlightMentions(text: string) {
-  return text.replace(/@([^\s，。,；;]+)/g, '<span class="reminder-preview-card__name">@$1</span>')
+function highlightMentions(text: string, names: string[]) {
+  let result = text
+  for (const name of names) {
+    if (!name) continue
+    const mention = `@${name}`
+    result = result.split(mention).join(`<span class="reminder-preview-card__name">${mention}</span>`)
+  }
+  return result
 }
 </script>
 

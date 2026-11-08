@@ -1305,6 +1305,7 @@ export type PerformanceReminderPreview = {
   cycle_end_at?: string | null
   reminder_name: string
   stage_type: string
+  assessee_name: string
 }
 export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }

@@ -2078,9 +2078,10 @@ async def project_member_reminder_preview(
     if stage is None or not stage.get("reminder_target"):
         raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
     cycle = detail.get("cycle") or {}
+    assessee_name = (detail.get("person") or {}).get("display_name") or employee_no
     return {
         "title": "绩效任务提醒",
-        "description": f"请尽快前往绩效系统为@{(detail.get('person') or {}).get('display_name') or employee_no}完成{stage['node_name']}。",
+        "description": f"请尽快前往绩效系统为@{assessee_name}完成{stage['node_name']}。",
         "stage_label": stage["node_name"],
         "deadline_at": stage["deadline_at"],
         "cycle_name": cycle.get("name") or "",
@@ -2088,6 +2089,7 @@ async def project_member_reminder_preview(
         "cycle_end_at": cycle.get("end_at"),
         "reminder_name": stage["reminder_target"],
         "stage_type": "自评" if stage["node_type"] in {"work_summary", "evaluation"} and stage.get("anonymous") else stage["node_name"],
+        "assessee_name": assessee_name,
     }
 
 

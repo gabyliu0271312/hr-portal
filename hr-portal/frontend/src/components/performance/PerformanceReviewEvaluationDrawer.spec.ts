@@ -223,7 +223,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
   })
 
   it('opens the remind confirm with preview link and loads the bot card preview on hover', async () => {
-    const preview = { title: '绩效任务提醒', description: '请尽快前往绩效系统为@rita.tang唐洁完成自评。', stage_label: '自评', deadline_at: '2026-11-21T23:59:00Z', cycle_name: '测试绩效', cycle_start_at: '2026-01-01T00:00:00Z', cycle_end_at: '2026-12-31T23:59:00Z', reminder_name: 'gaby.liu刘琦', stage_type: '自评' }
+    const preview = { title: '绩效任务提醒', description: '请尽快前往绩效系统为@rita.tang唐洁完成自评。', stage_label: '自评', deadline_at: '2026-11-21T23:59:00Z', cycle_name: '测试绩效', cycle_start_at: '2026-01-01T00:00:00Z', cycle_end_at: '2026-12-31T23:59:00Z', reminder_name: 'gaby.liu刘琦', stage_type: '自评', assessee_name: 'rita.tang唐洁' }
     vi.spyOn(projectManagementApi, 'memberReminderPreview').mockResolvedValue(preview)
     const detailLoader = vi.fn().mockResolvedValue({
       ...structuredClone(task),
@@ -263,8 +263,11 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(['600', 'bold']).toContain(getComputedStyle(title).fontWeight)
     const mentioned = document.body.querySelectorAll<HTMLElement>('.reminder-preview-card__name')
     expect(mentioned.length).toBe(2)
-    expect(mentioned[0].textContent).toContain('rita.tang唐洁')
-    expect(mentioned[1].textContent).toContain('gaby.liu刘琦')
+    expect(mentioned[0].textContent).toBe('@rita.tang唐洁')
+    expect(mentioned[0].textContent).not.toContain('完成自评')
+    expect(mentioned[1].textContent).toBe('@gaby.liu刘琦')
+    const description = document.body.querySelector<HTMLElement>('.reminder-preview-card__description')!
+    expect(description.textContent).toContain('完成自评')
     expect(previewCardSource).toContain(':deep(.reminder-preview-card__name){color:#3370ff;font-weight:600}')
     wrapper.unmount()
   })
