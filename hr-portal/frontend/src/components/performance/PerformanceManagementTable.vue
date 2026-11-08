@@ -320,6 +320,7 @@ function rowClassName({ row }: { row: any }) {
     </template>
 
     <div v-if="showPagination" ref="paginationRef" class="table-pagination" :aria-label="paginationAriaLabel">
+      <slot name="pagination-prefix" />
       <UiPagination :page="page" :page-size="pageSize" :total="totalCount" @page-change="emit('page-change', $event)" @page-size-change="emit('page-size-change', $event)" />
     </div>
 

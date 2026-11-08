@@ -2416,9 +2416,16 @@ export interface PerformanceFocusGroupChangePerson {
   employee_no: string
   display_name: string
   direct_supervisor_name?: string | null
+  /** 虚线上级（飞书人员列表第 3 列；本地数据源暂无，后端预留字段，缺省 null → 显示 --） */
+  dotted_supervisor_name?: string | null
   department_2?: string | null
   department_5?: string | null
   job_family?: string | null
+}
+
+export interface PerformanceFocusGroupChangePersonPage {
+  total: number
+  items: PerformanceFocusGroupChangePerson[]
 }
 
 export const performanceFocusGroupApi = {
@@ -2440,11 +2447,11 @@ export const performanceFocusGroupApi = {
     })
     return data
   },
-  async changePeople(cycleId: number, groupId: number, eventId: number, userIds: string[]): Promise<PerformanceFocusGroupChangePerson[]> {
-    const { data } = await api.get<{ items: PerformanceFocusGroupChangePerson[] }>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/change-log/${eventId}/people`, {
-      params: { user_ids: userIds.join(',') },
+  async changePeople(cycleId: number, groupId: number, eventId: number, userIds: string[], current = 1, size = 10, keyword = ''): Promise<PerformanceFocusGroupChangePersonPage> {
+    const { data } = await api.get<PerformanceFocusGroupChangePersonPage>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/change-log/${eventId}/people`, {
+      params: { user_ids: userIds.join(','), current, size, ...(keyword ? { keyword } : {}) },
     })
-    return data.items
+    return data
   },
   async get(cycleId: number, groupId: number): Promise<PerformanceFocusGroup> {
     const { data } = await api.get<PerformanceFocusGroup>(`/performance/cycles/${cycleId}/focus-groups/${groupId}`)

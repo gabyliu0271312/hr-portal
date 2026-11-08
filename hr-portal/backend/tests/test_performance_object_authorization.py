@@ -562,6 +562,15 @@ async def test_focus_change_log_diff_add_remove_and_added_by(focus_auth, monkeyp
     assert [person["employee_no"] for person in people] == ["A", "B"]
     assert people[0]["display_name"] == "甲" and people[0]["department_2"] == "一级"
 
+    # 分页 / 搜索：虚线上级列预留 null，keyword 过滤姓名工号部门序列
+    paged = await get_focus_group_change_people(1, 8, 6, "A,B", context, db, current=1, size=1)
+    assert paged["total"] == 2 and len(paged["items"]) == 1 and paged["items"][0]["employee_no"] == "A"
+    assert paged["items"][0]["dotted_supervisor_name"] is None
+    searched = await get_focus_group_change_people(1, 8, 6, "A,B", context, db, keyword="乙")
+    assert searched["total"] == 1 and searched["items"][0]["employee_no"] == "B"
+    empty = await get_focus_group_change_people(1, 8, 6, "A,B", context, db, keyword="不存在")
+    assert empty["total"] == 0 and empty["items"] == []
+
     # 添加人/添加时间：A 取事件1，B 取事件3
     db.events = [
         _audit_event(3, "C", "9", ["A"], ["A", "B"], datetime(2026, 8, 4, 10, 54, tzinfo=UTC)),

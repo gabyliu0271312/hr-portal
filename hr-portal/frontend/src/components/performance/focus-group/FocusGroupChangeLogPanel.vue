@@ -64,23 +64,35 @@ function formatDateTime(value: string) {
 /* ---- 变更人员数展开弹窗 ---- */
 const detailOpen = ref(false)
 const detailTitle = ref('')
+const detailItem = ref<PerformanceFocusGroupChangeLogItem | null>(null)
 const detailRows = ref<PerformanceFocusGroupChangePerson[]>([])
+const detailTotal = ref(0)
 const detailLoading = ref(false)
 const detailError = ref('')
 let detailVersion = 0
 
+async function loadDetailPeople(keyword: string, page: number, pageSize: number) {
+  const item = detailItem.value
+  if (!props.cycleId || !props.groupId || !item) return { total: 0, items: [] }
+  const result = await performanceFocusGroupApi.changePeople(props.cycleId, props.groupId, item.event_id, item.user_ids, page, pageSize, keyword)
+  return { total: result.total, items: result.items }
+}
+
 async function openCountDetail(item: PerformanceFocusGroupChangeLogItem) {
   if (!props.cycleId || !props.groupId || detailLoading.value) return
   const version = ++detailVersion
+  detailItem.value = item
   detailOpen.value = true
-  detailTitle.value = `人员列表（共 ${item.count} 人）`
+  detailTitle.value = '人员列表'
   detailRows.value = []
+  detailTotal.value = 0
   detailLoading.value = true
   detailError.value = ''
   try {
-    const people = await performanceFocusGroupApi.changePeople(props.cycleId, props.groupId, item.event_id, item.user_ids)
-    if (version !== detailVersion) return
-    detailRows.value = people
+    const result = await loadDetailPeople('', 1, 10)
+    if (version !== detailVersion || !result) return
+    detailRows.value = result.items
+    detailTotal.value = result.total
   } catch (e: any) {
     if (version === detailVersion) detailError.value = e?.response?.data?.detail || '人员加载失败，请稍后重试'
   } finally {
@@ -149,8 +161,10 @@ watch(() => [props.cycleId, props.groupId], () => {
       :model-value="detailOpen"
       :title="detailTitle"
       :rows="detailRows"
+      :total="detailTotal"
       :loading="detailLoading"
       :error="detailError"
+      :load-fn="loadDetailPeople"
       @update:model-value="updateDetailOpen"
     />
   </div>

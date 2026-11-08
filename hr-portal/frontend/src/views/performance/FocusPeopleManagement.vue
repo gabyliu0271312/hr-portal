@@ -40,31 +40,50 @@ const deleteTarget = ref<PerformanceFocusGroup | null>(null)
 const deleting = ref(false)
 const countOpen = ref(false)
 const countTitle = ref('')
+const countSubtitle = ref('')
 const countRows = ref<PerformanceFocusGroupChangePerson[]>([])
+const countTotal = ref(0)
 const countLoading = ref(false)
 const countError = ref('')
+const countGroup = ref<PerformanceFocusGroup | null>(null)
 let countVersion = 0
+
+async function loadCountPeople() {
+  const id = cycleId()
+  const group = countGroup.value
+  if (!id || !group) return null
+  const result = await performanceFocusGroupApi.members(id, group.id)
+  return {
+    total: result.people.length,
+    items: result.people.map(person => ({
+      employee_no: person.value,
+      display_name: person.display_name || person.value,
+      direct_supervisor_name: person.direct_supervisor_name,
+      dotted_supervisor_name: null,
+      department_2: person.department_2,
+      department_5: person.department_5,
+      job_family: person.job_family,
+    })),
+  }
+}
 
 async function openCount(row: PerformanceFocusGroup) {
   const id = cycleId()
   if (!id) return
   const version = ++countVersion
+  countGroup.value = row
   countOpen.value = true
-  countTitle.value = `人员列表（共 ${row.employee_nos.length} 人）`
+  countTitle.value = '人员列表'
+  countSubtitle.value = row.name
   countRows.value = []
+  countTotal.value = 0
   countLoading.value = true
   countError.value = ''
   try {
-    const result = await performanceFocusGroupApi.members(id, row.id)
-    if (version !== countVersion) return
-    countRows.value = result.people.map(person => ({
-      employee_no: person.value,
-      display_name: person.display_name || person.value,
-      direct_supervisor_name: person.direct_supervisor_name,
-      department_2: person.department_2,
-      department_5: person.department_5,
-      job_family: person.job_family,
-    }))
+    const result = await loadCountPeople()
+    if (version !== countVersion || !result) return
+    countRows.value = result.items
+    countTotal.value = result.total
   } catch (e: any) {
     if (version === countVersion) countError.value = e?.response?.data?.detail || '人员加载失败，请稍后重试'
   } finally {
@@ -262,7 +281,9 @@ onMounted(async () => {
       <FocusGroupPeopleDialog
         :model-value="countOpen"
         :title="countTitle"
+        :subtitle="countSubtitle"
         :rows="countRows"
+        :total="countTotal"
         :loading="countLoading"
         :error="countError"
         @update:model-value="updateCountOpen"

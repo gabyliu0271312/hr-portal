@@ -17,16 +17,13 @@ const managementTableStub = {
       </template>
       <span v-if="!loading && !rows.length">{{ emptyText }}</span>
       <button class="stub-page" type="button" @click="$emit('page-change', 2)">next</button>
+      <span class="stub-total">{{ total }}</span>
     </div>`,
 }
-const dialogShellStub = {
-  props: ['modelValue', 'title', 'width'],
-  emits: ['update:modelValue', 'close'],
-  template: `<div v-if="modelValue" class="dialog-shell-stub" :data-title="title"><slot /><slot name="footer" /></div>`,
-}
-const uiTableStub = {
-  props: ['columns', 'rows', 'loading', 'emptyText'],
-  template: `<div class="ui-table-stub"><template v-for="row in rows" :key="row.employee_no"><span class="stub-person">{{ row.display_name }}</span></template></div>`,
+const peopleDialogStub = {
+  props: ['modelValue', 'title', 'subtitle', 'rows', 'total', 'loading', 'error', 'loadFn'],
+  emits: ['update:modelValue'],
+  template: `<div v-if="modelValue" class="people-dialog-stub" :data-title="title" :data-subtitle="subtitle"><span class="stub-person" v-for="row in rows" :key="row.employee_no">{{ row.display_name }}</span><span class="stub-total">{{ total }}</span></div>`,
 }
 
 function changeLogItem(overrides: Partial<PerformanceFocusGroupChangeLogItem> = {}): PerformanceFocusGroupChangeLogItem {
@@ -53,17 +50,17 @@ describe('FocusGroupChangeLogPanel', () => {
       total: 2,
       items: [changeLogItem(), changeLogItem({ id: '2-remove', event_id: 2, change_type: '移除', condition: '张三、李四', user_ids: ['E002', 'E003'], count: 2, changed_at: '2026-08-05T09:30:00' })],
     })
-    const peopleSpy = vi.spyOn(performanceFocusGroupApi, 'changePeople').mockResolvedValue([
-      { employee_no: 'E001', display_name: '甲', direct_supervisor_name: '管理员', department_2: '一级', department_5: '末级', job_family: '序列' },
-    ])
+    const peopleSpy = vi.spyOn(performanceFocusGroupApi, 'changePeople').mockResolvedValue({
+      total: 1,
+      items: [{ employee_no: 'E001', display_name: '甲', direct_supervisor_name: '管理员', department_2: '一级', department_5: '末级', job_family: '序列' }],
+    })
 
     const wrapper = mount(FocusGroupChangeLogPanel, {
       props: { cycleId: 1, groupId: 8 },
       global: {
         stubs: {
           PerformanceManagementTable: managementTableStub,
-          PerformanceDialogShell: dialogShellStub,
-          UiTable: uiTableStub,
+          FocusGroupPeopleDialog: peopleDialogStub,
         },
       },
     })
@@ -73,12 +70,13 @@ describe('FocusGroupChangeLogPanel', () => {
     expect(wrapper.findAll('.focus-group-changelog-count').length).toBe(2)
     expect(wrapper.text()).toContain('张三、李四')
 
-    // 点变更人员数 → 弹窗请求 people
+    // 点变更人员数 → 弹窗请求 people（分页参数）
     await wrapper.find('.focus-group-changelog-count').trigger('click')
     await flushPromises()
-    expect(peopleSpy).toHaveBeenCalledWith(1, 8, 1, ['E001'])
-    expect(wrapper.find('.dialog-shell-stub').exists()).toBe(true)
-    expect(wrapper.find('.dialog-shell-stub').attributes('data-title')).toBe('人员列表（共 1 人）')
+    expect(peopleSpy).toHaveBeenCalledWith(1, 8, 1, ['E001'], 1, 10, '')
+    const dialog = wrapper.find('.people-dialog-stub')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.attributes('data-title')).toBe('人员列表')
     expect(wrapper.text()).toContain('甲')
   })
 
@@ -86,7 +84,7 @@ describe('FocusGroupChangeLogPanel', () => {
     vi.spyOn(performanceFocusGroupApi, 'changeLog').mockResolvedValue({ total: 0, items: [] })
     const wrapper = mount(FocusGroupChangeLogPanel, {
       props: { cycleId: 1, groupId: 8 },
-      global: { stubs: { PerformanceManagementTable: managementTableStub, PerformanceDialogShell: dialogShellStub, UiTable: uiTableStub } },
+      global: { stubs: { PerformanceManagementTable: managementTableStub, FocusGroupPeopleDialog: peopleDialogStub } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('暂无变更记录')

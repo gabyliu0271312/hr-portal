@@ -253,24 +253,12 @@ async def get_focus_group_change_log(
     return {"total": total, "items": items}
 
 
-@router.get("/{cycle_id}/focus-groups/{group_id}/change-log/{event_id}/people")
-async def get_focus_group_change_people(
-    cycle_id: int,
-    group_id: int,
-    event_id: int,
-    user_ids: str = Query(...),
-    context: PerformanceAccessContext = Depends(get_performance_access_context),
-    db: AsyncSession = Depends(get_session),
-):
-    """变更人员数展开弹窗的数据（对齐飞书 snapshot/simple 员工快照）。
+def _change_people_items(snapshot_people, employee_nos):
+    """快照画像 → 人员列表行（姓名 / 直属上级 / 虚线上级 / 一级部门 / 末级部门 / 序列）。
 
-    user_ids 为逗号分隔员工编号（前端点击记录时回传本记录的 user_ids），返回当前快照画像：
-    姓名 / 直属上级 / 一级部门 / 末级部门 / 序列。
+    数据源（北森花名册）当前仅提供直接上级；虚线上级列预留字段 dotted_supervisor_name，
+    等数据源补充后直接填充，缺省为 None（前端显示 --）。
     """
-    cycle = await _cycle(db, cycle_id)
-    group = await _group(db, cycle, group_id, require_manual=False)
-    employee_nos = [value for value in (user_ids.split(",") if user_ids else []) if value]
-    snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
     by_no = {person.employee_no: person for person in snapshot_people}
     names = {person.employee_no: person.display_name for person in snapshot_people}
     items = []
@@ -282,11 +270,51 @@ async def get_focus_group_change_people(
             "employee_no": person.employee_no,
             "display_name": person.display_name,
             "direct_supervisor_name": names.get(person.direct_supervisor_employee_no) if person.direct_supervisor_employee_no else None,
+            "dotted_supervisor_name": None,
             "department_2": person.department_2,
             "department_5": person.department_5,
             "job_family": person.job_family,
         })
-    return {"items": items}
+    return items
+
+
+@router.get("/{cycle_id}/focus-groups/{group_id}/change-log/{event_id}/people")
+async def get_focus_group_change_people(
+    cycle_id: int,
+    group_id: int,
+    event_id: int,
+    user_ids: str = Query(...),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    current: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=1, le=100)] = 10,
+    keyword: Annotated[str | None, Query(max_length=100)] = None,
+):
+    """变更人员数展开弹窗的数据（对齐飞书 snapshot/simple 员工快照）。
+
+    user_ids 为逗号分隔员工编号（前端点击记录时回传本记录的 user_ids），返回当前快照画像：
+    姓名 / 直属上级 / 虚线上级 / 一级部门 / 末级部门 / 序列。
+    支持可选 current/size 分页与 keyword 搜索（姓名 / 工号 / 直属上级 / 部门 / 序列），
+    缺省按调用方传参行为不变（size 上限 100 覆盖旧的全量场景）。
+    """
+    cycle = await _cycle(db, cycle_id)
+    group = await _group(db, cycle, group_id, require_manual=False)
+    employee_nos = [value for value in (user_ids.split(",") if user_ids else []) if value]
+    snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
+    by_no = {person.employee_no: person for person in snapshot_people}
+    names = {person.employee_no: person.display_name for person in snapshot_people}
+    people = []
+    for employee_no in employee_nos:
+        person = by_no.get(employee_no)
+        if person is None:
+            continue
+        fields = [person.employee_no, person.display_name, names.get(person.direct_supervisor_employee_no),
+                  person.department_2, person.department_5, person.job_family]
+        if keyword and keyword not in " ".join(value for value in fields if value):
+            continue
+        people.append(person)
+    items = _change_people_items(snapshot_people, [person.employee_no for person in people])
+    return {"total": len(items), "items": items[(current - 1) * size: current * size]}
 
 
 @router.get("/{cycle_id}/focus-groups/{group_id}/members")
