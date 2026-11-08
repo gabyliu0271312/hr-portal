@@ -9,6 +9,7 @@ import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
+import PerformanceEvaluateRatioPopover from './PerformanceEvaluateRatioPopover.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
 import { type PerformanceTableColumn } from './performanceTableColumns'
@@ -37,6 +38,7 @@ const emit = defineEmits<{
   'select-member': [member: MemberRow]
   'authorize-selected': [members: MemberRow[]]
   'transfer-selected': [members: MemberRow[]]
+  'remind-evaluate': [payload: { member: MemberRow; pendingCount: number }]
 }>()
 const selectedKeys = ref<string[]>([])
 const memberSelectionKey = (member: MemberRow) => props.cycleId ? String(member.root_review_id || `${member.project_id}:${member.employee_no}`) : member.employee_no
@@ -248,6 +250,10 @@ function onRowClick(member: MemberRow) {
   if (props.reviewContext || member.can_view_detail) emit('select-member', member)
 }
 
+function onEvaluateRemind(member: MemberRow, pendingCount: number) {
+  emit('remind-evaluate', { member, pendingCount })
+}
+
 watch(() => [props.projectId, props.cycleId, props.reviewContext?.nodeId, props.reviewContext?.state, props.reviewContext?.phaseId], () => {
   page.value = 1
   void loadMembers()
@@ -306,7 +312,10 @@ onMounted(() => void loadMembers())
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
-        <span v-else-if="column.key === 'completion'" class="table-text completion-text">{{ cellValue(row, column.key) }}</span>
+        <span v-else-if="column.key === 'completion'" class="table-text completion-text">
+          <PerformanceEvaluateRatioPopover v-if="row.evaluate_ratio" :completion="cellValue(row, column.key)" :ratio="row.evaluate_ratio" :can-remind="row.can_authorize" @remind="onEvaluateRemind(row, $event)" />
+          <template v-else>{{ cellValue(row, column.key) }}</template>
+        </span>
         <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>
       </template>
       <template #empty>

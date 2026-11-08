@@ -917,6 +917,7 @@ class ProjectMemberResponse(BaseModel):
     task_id: int | None = None
     can_authorize: bool = False
     task_map: list[ProjectMemberTaskOption] = Field(default_factory=list)
+    evaluate_ratio: dict[str, object] | None = None
 
 
 class ProjectMemberTaskOption(BaseModel):
@@ -1793,6 +1794,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
 
     supervisor_names = await _snapshot_supervisor_names(db, members)
     progress = await _communication_progress(db, project, {member.employee_no for member in members}) if members else {}
+    progress_detail = await _communication_progress_detail(db, project, {member.employee_no for member in members}) if members else {}
     visibility_rules = await load_subject_visibility_rules(db)
     visible_fields_by_member: dict[int, list[str]] = {}
     for member in members:
@@ -1850,6 +1852,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
             item["rating"] = rating["label"] if rating else None
             item["rating_tone"] = rating["color"] if rating else None
         item["completion"] = progress.get(member.employee_no, "0/0")
+        item["evaluate_ratio"] = progress_detail.get(member.employee_no)
         item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
         item["visible_profile_fields"] = visible_fields
@@ -3954,6 +3957,64 @@ async def _communication_progress(db, project, employee_nos):
         if people is not None:
             people[task.handler_ref] = people.get(task.handler_ref, False) or _task_completed(task)
     return {employee: f"{sum(people.values())}/{len(people)}" for employee, people in reviewers.items()}
+
+
+async def _communication_progress_detail(db, project, employee_nos):
+    """360° 评估率弹窗数据：评估人名单（含完成状态与离职）、完成比例、评估阶段。
+
+    与 _communication_progress 同源查询，但补充每位评估人的 display_name / 离职状态，
+    供成员列表「360° 评估率」hover 弹窗三态渲染（空态 / 双分组 / 离职说明）。
+    """
+    rows = (await db.execute(
+        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
+        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+        .where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.node_type == "evaluation",
+            PerformanceNodeTask.task_kind == "evaluation",
+            PerformanceNodeTask.status.in_(["pending", "completed"]),
+            PerformanceNodeTask.target_employee_no.in_(employee_nos),
+        )
+    )).all()
+    reviewers: dict[str, dict[str, bool]] = {employee: {} for employee in employee_nos}
+    handler_nos: set[str] = set()
+    for task, node in rows:
+        if node_role_code((node.config or {}).get("template") or {}) != ROLE_REVIEWER_360:
+            continue
+        people = reviewers.get(task.target_employee_no)
+        if people is not None:
+            people.setdefault(str(task.handler_ref), _task_completed(task))
+            handler_nos.add(str(task.handler_ref))
+    # 解析评估人姓名与离职状态（source_snapshot_id → snapshot person）
+    member_snapshots = {member.snapshot_id for member in list((await db.execute(
+        select(PerformanceProjectMember).where(PerformanceProjectMember.project_id == project.id)
+    )).scalars().all())} if reviewers else set()
+    people_rows = []
+    if member_snapshots and handler_nos:
+        people_rows = (await db.execute(
+            select(PerformanceProjectMemberSnapshot.id, PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name, PerformanceAuthorizationSnapshotPerson.live_employment_status, PerformanceAuthorizationSnapshotPerson.employment_status)
+            .join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id)
+            .where(PerformanceProjectMemberSnapshot.id.in_(member_snapshots), PerformanceAuthorizationSnapshotPerson.employee_no.in_(handler_nos))
+        )).all()
+    person_by_no: dict[str, dict] = {}
+    for _, employee_no, display_name, live_status, emp_status in people_rows:
+        person_by_no.setdefault(employee_no, {"name": display_name, "dimission": bool((live_status or emp_status) == "离职")})
+    result: dict[str, dict] = {}
+    for employee, people in reviewers.items():
+        evaluated = [{"name": person_by_no.get(no, {}).get("name", no), "dimission": person_by_no.get(no, {}).get("dimission", False)} for no, done in people.items() if done]
+        pending = [{"name": person_by_no.get(no, {}).get("name", no), "dimission": person_by_no.get(no, {}).get("dimission", False)} for no, done in people.items() if not done]
+        completion = f"{len(evaluated)}/{len(people)}"
+        invite_stage = "not_started" if not people else ("ended" if all(done for done in people.values()) else "in_progress")
+        result[employee] = {
+            "completion": completion,
+            "evaluated": evaluated,
+            "pending": pending,
+            "dimission_count": sum(1 for person in [*evaluated, *pending] if person["dimission"]),
+            "invite_stage": invite_stage,
+        }
+    return result
 
 
 async def _previous_published_position_levels(db, project, employee_nos):

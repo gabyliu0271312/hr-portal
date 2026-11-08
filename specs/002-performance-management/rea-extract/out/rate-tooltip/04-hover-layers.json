@@ -1,0 +1,17 @@
+[
+ {
+  "tag": "DIV",
+  "cls": "ud__popover EvaluateRatio-popover ud__popover--mode-normal",
+  "x": 2289,
+  "y": 288,
+  "w": 380,
+  "h": 92,
+  "pos": "absolute",
+  "z": "1030",
+  "bg": "rgba(0, 0, 0, 0)",
+  "shadow": "none",
+  "br": "0px",
+  "bd": "0px none rgb(31, 35, 41)",
+  "text": "邀请和评估情况暂未邀请 360˚ 评估人"
+ }
+]

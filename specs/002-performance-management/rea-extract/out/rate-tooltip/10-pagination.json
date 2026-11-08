@@ -1,0 +1,962 @@
+[
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1277,
+  "w": 16,
+  "h": 22,
+  "cls": "ud__checkbox",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1280,
+  "w": 16,
+  "h": 16,
+  "cls": "ud__checkbox__wallpaper",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "nicole.fu傅媛媛",
+  "x": 435.2,
+  "y": 1274,
+  "w": 450,
+  "h": 28,
+  "cls": "style__EmpLabelWrapper-jgkdhS iHPmvs",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 435.2,
+  "y": 1276.1,
+  "w": 24,
+  "h": 24,
+  "cls": "ud__avatar ud__avatar-filled ud__avatar-circle ud__avatar-image avatar",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "nicole.fu傅媛媛",
+  "x": 467.2,
+  "y": 1274,
+  "w": 94,
+  "h": 28,
+  "cls": "mx-4",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "nicole.fu傅媛媛",
+  "x": 467.2,
+  "y": 1277,
+  "w": 94,
+  "h": 22,
+  "cls": "name truncate inline-block max-w-100 relative custom-top-3",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "",
+  "x": 1113,
+  "y": 1261,
+  "w": 1,
+  "h": 53,
+  "cls": "ud__table__divider ud__table__divider--left",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "后台/法务部/Legal-team2",
+  "x": 1125,
+  "y": 1277,
+  "w": 200,
+  "h": 22,
+  "cls": " ReservedClampFontFamily",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "后台/法务部/Legal-team2",
+  "x": 1125,
+  "y": 1278,
+  "w": 161.2,
+  "h": 20,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1276,
+  "w": 419.5,
+  "h": 24,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1276,
+  "w": 51.8,
+  "h": 24,
+  "cls": "cursor-default flex-1 inline-block max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1276,
+  "w": 51.8,
+  "h": 24,
+  "cls": " text-14 leading-22  text-T-900 items-center flex",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1276,
+  "w": 51.8,
+  "h": 24,
+  "cls": "indicatorLevelDisplay flex max-w-full rounded-full items-center justif",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1824.9,
+  "y": 1277,
+  "w": 31.8,
+  "h": 22,
+  "cls": "flex w-full justify-between items-center",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "3星+",
+  "x": 1824.9,
+  "y": 1277,
+  "w": 31.8,
+  "h": 22,
+  "cls": "content flex-1 truncate max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1277,
+  "w": 419.5,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1279,
+  "w": 20.7,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1279,
+  "w": 20.7,
+  "h": 17,
+  "cls": "text-B-500",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1277,
+  "w": 160,
+  "h": 22,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1277,
+  "w": 160,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1279,
+  "w": 70,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "J3",
+  "x": 3022.1,
+  "y": 1277,
+  "w": 200,
+  "h": 22,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "J3",
+  "x": 3022.1,
+  "y": 1277,
+  "w": 200,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "J3",
+  "x": 3022.1,
+  "y": 1279,
+  "w": 13.5,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1330,
+  "w": 16,
+  "h": 22,
+  "cls": "ud__checkbox",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1333,
+  "w": 16,
+  "h": 16,
+  "cls": "ud__checkbox__wallpaper",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "penny.wei魏艳",
+  "x": 435.2,
+  "y": 1327,
+  "w": 450,
+  "h": 28,
+  "cls": "style__EmpLabelWrapper-jgkdhS iHPmvs",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 435.2,
+  "y": 1329.1,
+  "w": 24,
+  "h": 24,
+  "cls": "ud__avatar ud__avatar-filled ud__avatar-circle ud__avatar-image avatar",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "penny.wei魏艳",
+  "x": 467.2,
+  "y": 1327,
+  "w": 89.5,
+  "h": 28,
+  "cls": "mx-4",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "penny.wei魏艳",
+  "x": 467.2,
+  "y": 1330,
+  "w": 89.5,
+  "h": 22,
+  "cls": "name truncate inline-block max-w-100 relative custom-top-3",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "",
+  "x": 1113,
+  "y": 1314,
+  "w": 1,
+  "h": 53,
+  "cls": "ud__table__divider ud__table__divider--left",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "后台/法务部/Legal-team2",
+  "x": 1125,
+  "y": 1330,
+  "w": 200,
+  "h": 22,
+  "cls": " ReservedClampFontFamily",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "后台/法务部/Legal-team2",
+  "x": 1125,
+  "y": 1331,
+  "w": 161.2,
+  "h": 20,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1329,
+  "w": 419.5,
+  "h": 24,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1329,
+  "w": 51.8,
+  "h": 24,
+  "cls": "cursor-default flex-1 inline-block max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1329,
+  "w": 51.8,
+  "h": 24,
+  "cls": " text-14 leading-22  text-T-900 items-center flex",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1329,
+  "w": 51.8,
+  "h": 24,
+  "cls": "indicatorLevelDisplay flex max-w-full rounded-full items-center justif",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1824.9,
+  "y": 1330,
+  "w": 31.8,
+  "h": 22,
+  "cls": "flex w-full justify-between items-center",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "3星+",
+  "x": 1824.9,
+  "y": 1330,
+  "w": 31.8,
+  "h": 22,
+  "cls": "content flex-1 truncate max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1330,
+  "w": 419.5,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1332,
+  "w": 20.7,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1332,
+  "w": 20.7,
+  "h": 17,
+  "cls": "text-B-500",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1330,
+  "w": 160,
+  "h": 22,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1330,
+  "w": 160,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1332,
+  "w": 70,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "J5",
+  "x": 3022.1,
+  "y": 1330,
+  "w": 200,
+  "h": 22,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "J5",
+  "x": 3022.1,
+  "y": 1330,
+  "w": 200,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "J5",
+  "x": 3022.1,
+  "y": 1332,
+  "w": 13.5,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1383,
+  "w": 16,
+  "h": 22,
+  "cls": "ud__checkbox",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1386,
+  "w": 16,
+  "h": 16,
+  "cls": "ud__checkbox__wallpaper",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "hermosa.he何琼",
+  "x": 435.2,
+  "y": 1380,
+  "w": 450,
+  "h": 28,
+  "cls": "style__EmpLabelWrapper-jgkdhS iHPmvs",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 435.2,
+  "y": 1382.1,
+  "w": 24,
+  "h": 24,
+  "cls": "ud__avatar ud__avatar-filled ud__avatar-circle ud__avatar-image avatar",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "hermosa.he何琼",
+  "x": 467.2,
+  "y": 1380,
+  "w": 100.6,
+  "h": 28,
+  "cls": "mx-4",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "hermosa.he何琼",
+  "x": 467.2,
+  "y": 1383,
+  "w": 100.6,
+  "h": 22,
+  "cls": "name truncate inline-block max-w-100 relative custom-top-3",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "",
+  "x": 1113,
+  "y": 1367,
+  "w": 1,
+  "h": 53,
+  "cls": "ud__table__divider ud__table__divider--left",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "游戏发行事业部/C5工作室",
+  "x": 1125,
+  "y": 1383,
+  "w": 200,
+  "h": 22,
+  "cls": " ReservedClampFontFamily",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "游戏发行事业部/C5工作室",
+  "x": 1125,
+  "y": 1384,
+  "w": 162.2,
+  "h": 20,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1382,
+  "w": 419.5,
+  "h": 24,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1382,
+  "w": 51.8,
+  "h": 24,
+  "cls": "cursor-default flex-1 inline-block max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1382,
+  "w": 51.8,
+  "h": 24,
+  "cls": " text-14 leading-22  text-T-900 items-center flex",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1814.9,
+  "y": 1382,
+  "w": 51.8,
+  "h": 24,
+  "cls": "indicatorLevelDisplay flex max-w-full rounded-full items-center justif",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星+",
+  "x": 1824.9,
+  "y": 1383,
+  "w": 31.8,
+  "h": 22,
+  "cls": "flex w-full justify-between items-center",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "3星+",
+  "x": 1824.9,
+  "y": 1383,
+  "w": 31.8,
+  "h": 22,
+  "cls": "content flex-1 truncate max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1383,
+  "w": 419.5,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1385,
+  "w": 20.7,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1385,
+  "w": 20.7,
+  "h": 17,
+  "cls": "text-B-500",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1383,
+  "w": 160,
+  "h": 22,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1383,
+  "w": 160,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "创梦天地集",
+  "x": 2701.8,
+  "y": 1385,
+  "w": 70,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "J4",
+  "x": 3022.1,
+  "y": 1383,
+  "w": 200,
+  "h": 22,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "J4",
+  "x": 3022.1,
+  "y": 1383,
+  "w": 200,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "J4",
+  "x": 3022.1,
+  "y": 1385,
+  "w": 13.5,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1436,
+  "w": 16,
+  "h": 22,
+  "cls": "ud__checkbox",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 312,
+  "y": 1439,
+  "w": 16,
+  "h": 16,
+  "cls": "ud__checkbox__wallpaper",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "ace.xiao肖坚",
+  "x": 435.2,
+  "y": 1433,
+  "w": 450,
+  "h": 28,
+  "cls": "style__EmpLabelWrapper-jgkdhS iHPmvs",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 435.2,
+  "y": 1435.1,
+  "w": 24,
+  "h": 24,
+  "cls": "ud__avatar ud__avatar-filled ud__avatar-circle ud__avatar-image avatar",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "ace.xiao肖坚",
+  "x": 467.2,
+  "y": 1433,
+  "w": 78.5,
+  "h": 28,
+  "cls": "mx-4",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "ace.xiao肖坚",
+  "x": 467.2,
+  "y": 1436,
+  "w": 78.5,
+  "h": 22,
+  "cls": "name truncate inline-block max-w-100 relative custom-top-3",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "",
+  "x": 1113,
+  "y": 1420,
+  "w": 1,
+  "h": 53,
+  "cls": "ud__table__divider ud__table__divider--left",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "游戏研发事业部/D1工作室",
+  "x": 1125,
+  "y": 1436,
+  "w": 200,
+  "h": 22,
+  "cls": " ReservedClampFontFamily",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "游戏研发事业部/D1工作室",
+  "x": 1125,
+  "y": 1437,
+  "w": 162.9,
+  "h": 20,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星",
+  "x": 1814.9,
+  "y": 1435,
+  "w": 419.5,
+  "h": 24,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星",
+  "x": 1814.9,
+  "y": 1435,
+  "w": 44,
+  "h": 24,
+  "cls": "cursor-default flex-1 inline-block max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星",
+  "x": 1814.9,
+  "y": 1435,
+  "w": 44,
+  "h": 24,
+  "cls": " text-14 leading-22  text-B-900 items-center flex",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星",
+  "x": 1814.9,
+  "y": 1435,
+  "w": 44,
+  "h": 24,
+  "cls": "indicatorLevelDisplay flex max-w-full rounded-full items-center justif",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "3星",
+  "x": 1824.9,
+  "y": 1436,
+  "w": 24,
+  "h": 22,
+  "cls": "flex w-full justify-between items-center",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "3星",
+  "x": 1824.9,
+  "y": 1436,
+  "w": 24,
+  "h": 22,
+  "cls": "content flex-1 truncate max-w-full",
+  "role": ""
+ },
+ {
+  "tag": "DIV",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1436,
+  "w": 419.5,
+  "h": 22,
+  "cls": "clamp  ",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1438,
+  "w": 20.7,
+  "h": 17,
+  "cls": "",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "0/0",
+  "x": 2258.3,
+  "y": 1438,
+  "w": 20.7,
+  "h": 17,
+  "cls": "text-B-500",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 2701.8,
+  "y": 1438,
+  "w": 10.2,
+  "h": 17,
+  "cls": "style__NoDataText-fYUjkX inutJp",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "",
+  "x": 3022.1,
+  "y": 1438,
+  "w": 10.2,
+  "h": 17,
+  "cls": "style__NoDataText-fYUjkX inutJp",
+  "role": ""
+ },
+ {
+  "tag": "BUTTON",
+  "t": "授权他人处理",
+  "x": 300,
+  "y": 1297,
+  "w": 108,
+  "h": 32,
+  "cls": "ud__button ud__button--outlined ud__button--outlined-primary ud__butto",
+  "role": ""
+ },
+ {
+  "tag": "BUTTON",
+  "t": "转交他人处理",
+  "x": 420,
+  "y": 1297,
+  "w": 108,
+  "h": 32,
+  "cls": "ud__button ud__button--outlined ud__button--outlined-primary ud__butto",
+  "role": ""
+ },
+ {
+  "tag": "SPAN",
+  "t": "已选择 0 条",
+  "x": 552,
+  "y": 1302,
+  "w": 72.4,
+  "h": 22,
+  "cls": "mr-6 text-N-600 text-14 leading-22 flex items-center",
+  "role": ""
+ },
+ {
+  "tag": "BUTTON",
+  "t": "清除",
+  "x": 636.4,
+  "y": 1302,
+  "w": 36,
+  "h": 22,
+  "cls": "ud__button ud__button--text ud__button--text-primary ud__button--size-",
+  "role": ""
+ }
+]

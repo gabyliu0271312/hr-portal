@@ -51,9 +51,9 @@
         @sort-change="changeSort"
       >
         <template #cell="{ row, column }">
-          <PerformanceMemberIdentity v-if="column.key === 'display_name'" :display-name="row.display_name" />
-          <span v-else-if="column.key === 'reminder_target'" class="reminder-target"><PerformanceMemberIdentity :display-name="String(reminderCellValue(row, column.key))" /></span>
-          <PerformanceMemberIdentity v-else-if="(column.key === 'direct_supervisor' || column.key === 'hrbp') && row[column.key]" :display-name="row[column.key]" />
+          <PerformanceMemberIdentity v-if="column.key === 'display_name'" :display-name="row.display_name" size="sm" />
+          <span v-else-if="column.key === 'reminder_target'" class="reminder-target"><PerformanceMemberIdentity :display-name="String(reminderCellValue(row, column.key))" size="sm" /></span>
+          <PerformanceMemberIdentity v-else-if="(column.key === 'direct_supervisor' || column.key === 'hrbp') && row[column.key]" :display-name="row[column.key]" size="sm" />
           <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
           <span v-else-if="column.key === 'completion'" class="cell-text completion-text">{{ reminderCellValue(row, column.key) }}</span>
           <span v-else class="cell-text">{{ reminderCellValue(row, column.key) }}</span>
@@ -65,7 +65,7 @@
         </template>
         <template #selection-actions>
           <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通所选成员</UiButton>
-          <UiButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')">催办</UiButton>
+          <UiButton v-else variant="text" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')"><BellOutlinedIcon />催办</UiButton>
           <UiButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</UiButton>
           <UiButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</UiButton>
         </template>
@@ -113,6 +113,7 @@ import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import InfoFilledIcon from './InfoFilledIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
+import BellOutlinedIcon from './BellOutlinedIcon.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -391,8 +392,6 @@ onMounted(() => void initialize())
 
 <style scoped>
 .performance-reminder-panel :deep(.performance-sort-header) { height:22px; font-weight:400; }
-.performance-reminder-panel :deep(.member-avatar) { width:24px; height:24px; flex-basis:24px; font-size:12px; }
-.performance-reminder-panel :deep(.member-name) { margin-left:8px; }
 .reminder-target :deep(.member-avatar) { width:20px; height:20px; flex-basis:20px; }
 .performance-reminder-panel__description.is-statistics { display:flex; align-items:center; flex-wrap:wrap; }
 .is-statistics > span + span::before { content:''; display:inline-block; height:12px; margin:0 12px; border-left:1px solid #dee0e3; vertical-align:middle; }
@@ -403,6 +402,7 @@ onMounted(() => void initialize())
 
 .cell-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .completion-text { color: var(--color-primary); }
+.performance-reminder-panel .performance-button--text :deep(svg), .performance-reminder-panel :deep(.performance-button--text svg) { display:inline-block; width:14px; height:14px; margin-right:4px; flex:none; }
 .reminder-target { display:inline-flex; max-width:100%; padding:2px 8px; border-radius:16px; background:#eff0f1; }
 .table-state { display:grid; min-height:220px; place-content:center; gap:8px; color:#646a73; }
 .table-state--error { color:#d14343; }

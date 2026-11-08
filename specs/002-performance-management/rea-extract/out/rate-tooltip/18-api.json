@@ -1,0 +1,22 @@
+[
+ {
+  "m": "POST",
+  "u": "https://idreamsky.feishu.cn/perf/api/report/v3/semesters/7654423719619710195/users/list",
+  "pd": "{\"offset\":0,\"limit\":50,\"advance_filters\":[],\"headerId\":\"header_activity_manager_list_all\",\"orders\":[{\"key\":\"directDepartment\",\"order\":\"ASC\"},{\"key\":\"user\",\"order\":\"ASC\"}],\"roleId\":\"7340285661313974274\",\"filters\":[{\"key\":\"range\",\"values\":[\"2\"]}]}"
+ },
+ {
+  "m": "POST",
+  "u": "https://idreamsky.feishu.cn/perf/api/report/v3/semesters/7654423719619710195/users/list",
+  "pd": "{\"headerId\":\"header_activity_manager_list_all\",\"stageIds\":[],\"filters\":[{\"key\":\"range\",\"values\":[\"2\"]},{\"key\":\"rootReviewIdSelect\",\"values\":[{\"isSelectAll\":false,\"selectedRootReviewIds\":[],\"deselectedRootReviewIds\":[]}]}],\"advance_filters\":[],\"roleId\":\"7340285661313974274\",\"limit\":0,\"offset\":0,\"semesterId\":\"7654423719619710195\",\"roleType\":\"\"}"
+ },
+ {
+  "m": "POST",
+  "u": "https://idreamsky.feishu.cn/perf/api/report/v3/semesters/7654423719619710195/users/list",
+  "pd": "{\"headerId\":\"header_activity_manager_list_all\",\"stageIds\":[],\"filters\":[{\"key\":\"range\",\"values\":[\"2\"]},{\"key\":\"rootReviewIdSelect\",\"values\":[{\"isSelectAll\":false,\"selectedRootReviewIds\":[],\"deselectedRootReviewIds\":[]}]}],\"advance_filters\":[],\"roleId\":\"7340285661313974274\",\"limit\":0,\"offset\":0,\"semesterId\":\"7654423719619710195\",\"roleType\":\"\"}"
+ },
+ {
+  "m": "POST",
+  "u": "https://idreamsky.feishu.cn/perf/api/report/v3/semesters/7654423719619710195/users/list",
+  "pd": "{\"offset\":150,\"limit\":50,\"advance_filters\":[],\"headerId\":\"header_activity_manager_list_all\",\"orders\":[{\"key\":\"directDepartment\",\"order\":\"ASC\"},{\"key\":\"user\",\"order\":\"ASC\"}],\"roleId\":\"7340285661313974274\",\"filters\":[{\"key\":\"range\",\"values\":[\"2\"]}]}"
+ }
+]

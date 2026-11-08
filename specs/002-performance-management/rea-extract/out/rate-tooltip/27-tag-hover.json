@@ -1,0 +1,40 @@
+{
+ "tags": [
+  {
+   "t": "已评估：1",
+   "x": 2318,
+   "y": 995,
+   "w": 64.9,
+   "h": 22,
+   "tag": "SPAN",
+   "cls": "font-medium"
+  },
+  {
+   "t": "danny.deng邓超",
+   "x": 2344,
+   "y": 1026,
+   "w": 99.2,
+   "h": 22,
+   "tag": "DIV",
+   "cls": "name truncate max-w-100"
+  },
+  {
+   "t": "未评估：1",
+   "x": 2318,
+   "y": 1093,
+   "w": 64.9,
+   "h": 22,
+   "tag": "SPAN",
+   "cls": "font-medium"
+  },
+  {
+   "t": "ryan1.zhang张宏宇",
+   "x": 2344,
+   "y": 1124,
+   "w": 117.7,
+   "h": 22,
+   "tag": "DIV",
+   "cls": "name truncate max-w-100"
+  }
+ ]
+}

@@ -1,0 +1,248 @@
+{
+ "popovers": [
+  {
+   "cls": "ud__popover EvaluateRatio-popover ud__popover--mode-normal",
+   "x": 2289,
+   "y": 926,
+   "w": 380,
+   "h": 246,
+   "t": "邀请和评估情况已评估：1danny.deng邓超未评估：1催办ryan1.zhang张宏宇"
+  }
+ ],
+ "btns": [
+  {
+   "tag": "BUTTON",
+   "t": "",
+   "x": 2869.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(100, 106, 115)",
+    "fs": "12px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(100, 106, 115)"
+   },
+   "cls": "ud__pagination-item-link"
+  },
+  {
+   "tag": "A",
+   "t": "1",
+   "x": 2905.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px 4px",
+    "bd": "0px none rgb(31, 35, 41)"
+   },
+   "cls": ""
+  },
+  {
+   "tag": "A",
+   "t": "",
+   "x": 2940.5,
+   "y": 1245,
+   "w": 28,
+   "h": 28,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(24, 144, 255)",
+    "fs": "12px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(24, 144, 255)"
+   },
+   "cls": "ud__pagination-item-link u1k6fduh"
+  },
+  {
+   "tag": "A",
+   "t": "5",
+   "x": 2977.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px 4px",
+    "bd": "0px none rgb(31, 35, 41)"
+   },
+   "cls": ""
+  },
+  {
+   "tag": "A",
+   "t": "6",
+   "x": 3013.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(20, 86, 240)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px 4px",
+    "bd": "0px none rgb(20, 86, 240)"
+   },
+   "cls": ""
+  },
+  {
+   "tag": "A",
+   "t": "7",
+   "x": 3049.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px 4px",
+    "bd": "0px none rgb(31, 35, 41)"
+   },
+   "cls": ""
+  },
+  {
+   "tag": "A",
+   "t": "8",
+   "x": 3085.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px 4px",
+    "bd": "0px none rgb(31, 35, 41)"
+   },
+   "cls": ""
+  },
+  {
+   "tag": "A",
+   "t": "9",
+   "x": 3121.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px 4px",
+    "bd": "0px none rgb(31, 35, 41)"
+   },
+   "cls": ""
+  },
+  {
+   "tag": "BUTTON",
+   "t": "",
+   "x": 3157.5,
+   "y": 1246,
+   "w": 26,
+   "h": 26,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(100, 106, 115)",
+    "fs": "12px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(100, 106, 115)"
+   },
+   "cls": "ud__pagination-item-link"
+  },
+  {
+   "tag": "BUTTON",
+   "t": "授权他人处理",
+   "x": 300,
+   "y": 1297,
+   "w": 108,
+   "h": 32,
+   "cs": {
+    "bg": "rgb(255, 255, 255)",
+    "c": "rgb(20, 86, 240)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "6px",
+    "pd": "4px 11px",
+    "bd": "1px solid rgb(20, 86, 240)"
+   },
+   "cls": "ud__button ud__button--outlined ud__button--outlined-primary"
+  },
+  {
+   "tag": "BUTTON",
+   "t": "转交他人处理",
+   "x": 420,
+   "y": 1297,
+   "w": 108,
+   "h": 32,
+   "cs": {
+    "bg": "rgb(255, 255, 255)",
+    "c": "rgb(20, 86, 240)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "6px",
+    "pd": "4px 11px",
+    "bd": "1px solid rgb(20, 86, 240)"
+   },
+   "cls": "ud__button ud__button--outlined ud__button--outlined-primary"
+  },
+  {
+   "tag": "BUTTON",
+   "t": "清除",
+   "x": 636.4,
+   "y": 1302,
+   "w": 36,
+   "h": 22,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(20, 86, 240)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "6px",
+    "pd": "2px 4px",
+    "bd": "0px none rgba(0, 0, 0, 0)"
+   },
+   "cls": "ud__button ud__button--text ud__button--text-primary ud__but"
+  },
+  {
+   "tag": "BUTTON",
+   "t": "催办",
+   "x": 2586,
+   "y": 1093,
+   "w": 54,
+   "h": 22,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(20, 86, 240)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "6px",
+    "pd": "2px 4px",
+    "bd": "0px none rgba(0, 0, 0, 0)"
+   },
+   "cls": "ud__button ud__button--text ud__button--text-primary ud__but"
+  }
+ ]
+}

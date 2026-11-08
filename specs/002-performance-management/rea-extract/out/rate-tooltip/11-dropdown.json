@@ -1,0 +1,110 @@
+[
+ {
+  "tag": "COL",
+  "cls": "ud__table-selection-col",
+  "x": 300,
+  "y": 261,
+  "w": 123.2,
+  "h": 47,
+  "text": ""
+ },
+ {
+  "tag": "TH",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 261,
+  "w": 123.2,
+  "h": 47,
+  "text": ""
+ },
+ {
+  "tag": "COL",
+  "cls": "ud__table-selection-col",
+  "x": 300,
+  "y": 308,
+  "w": 123.2,
+  "h": 2650,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 308,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 361,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 414,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 467,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 520,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 573,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 626,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 679,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ },
+ {
+  "tag": "TD",
+  "cls": "ud__table-cell ud__table-selection-column ud__table-cell-fix-left",
+  "x": 300,
+  "y": 732,
+  "w": 123.2,
+  "h": 53,
+  "text": ""
+ }
+]

@@ -1,0 +1,274 @@
+{
+ "lists": [
+  {
+   "cls": "EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0",
+   "x": 2300.9,
+   "y": 1100.8,
+   "w": 242.2,
+   "h": 54.6,
+   "rows": [
+    {
+     "tag": "DIV",
+     "cls": "leading-22 flex justify-between items-center mb-4",
+     "x": 2309.3,
+     "y": 1109.2,
+     "w": 225.4,
+     "h": 15.4,
+     "cs": {
+      "display": "flex",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22px",
+      "br": "0px",
+      "pd": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "align": "center",
+      "flex": "row"
+     },
+     "t": "已评估：1",
+     "kids": [
+      {
+       "tag": "SPAN",
+       "cls": "font-medium",
+       "x": 2309.3,
+       "y": 1109.2,
+       "w": 45.4,
+       "h": 15.4,
+       "cs": {
+        "display": "block",
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "600",
+        "lh": "22px",
+        "br": "0px",
+        "pd": "0px",
+        "bd": "0px none rgb(31, 35, 41)",
+        "align": "normal",
+        "flex": "row"
+       },
+       "t": "已评估：1"
+      }
+     ]
+    },
+    {
+     "tag": "DIV",
+     "cls": "flex-wrap -mb-4",
+     "x": 2309.3,
+     "y": 1130.2,
+     "w": 225.4,
+     "h": 22.4,
+     "cs": {
+      "display": "flex",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22px",
+      "br": "0px",
+      "pd": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "align": "normal",
+      "flex": "row"
+     },
+     "t": "danny.deng邓超",
+     "kids": [
+      {
+       "tag": "DIV",
+       "cls": "contents",
+       "x": 0,
+       "y": 0,
+       "w": 0,
+       "h": 0,
+       "cs": {
+        "display": "contents",
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "br": "0px",
+        "pd": "0px",
+        "bd": "0px none rgb(31, 35, 41)",
+        "align": "normal",
+        "flex": "row"
+       },
+       "t": "danny.deng邓超"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "cls": "EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0",
+   "x": 2300.9,
+   "y": 1169.4,
+   "w": 242.2,
+   "h": 54.6,
+   "rows": [
+    {
+     "tag": "DIV",
+     "cls": "leading-22 flex justify-between items-center mb-4",
+     "x": 2309.3,
+     "y": 1177.8,
+     "w": 225.4,
+     "h": 15.4,
+     "cs": {
+      "display": "flex",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22px",
+      "br": "0px",
+      "pd": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "align": "center",
+      "flex": "row"
+     },
+     "t": "未评估：1",
+     "kids": [
+      {
+       "tag": "SPAN",
+       "cls": "font-medium",
+       "x": 2309.3,
+       "y": 1177.8,
+       "w": 45.4,
+       "h": 15.4,
+       "cs": {
+        "display": "block",
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "600",
+        "lh": "22px",
+        "br": "0px",
+        "pd": "0px",
+        "bd": "0px none rgb(31, 35, 41)",
+        "align": "normal",
+        "flex": "row"
+       },
+       "t": "未评估：1"
+      },
+      {
+       "tag": "DIV",
+       "cls": "absolute bottom-0 left-0 bg-white flex justify-center items-",
+       "x": 2298.1,
+       "y": 1061.6,
+       "w": 264.6,
+       "h": 170.8,
+       "cs": {
+        "display": "flex",
+        "bg": "rgb(255, 255, 255)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "br": "0px",
+        "pd": "0px",
+        "bd": "0px none rgb(31, 35, 41)",
+        "align": "center",
+        "flex": "row"
+       },
+       "t": ""
+      }
+     ]
+    },
+    {
+     "tag": "DIV",
+     "cls": "flex-wrap -mb-4",
+     "x": 2309.3,
+     "y": 1198.8,
+     "w": 225.4,
+     "h": 22.4,
+     "cs": {
+      "display": "flex",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22px",
+      "br": "0px",
+      "pd": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "align": "normal",
+      "flex": "row"
+     },
+     "t": "ryan1.zhang张宏宇",
+     "kids": [
+      {
+       "tag": "DIV",
+       "cls": "contents",
+       "x": 0,
+       "y": 0,
+       "w": 0,
+       "h": 0,
+       "cs": {
+        "display": "contents",
+        "bg": "rgba(0, 0, 0, 0)",
+        "c": "rgb(31, 35, 41)",
+        "fs": "14px",
+        "fw": "400",
+        "lh": "22px",
+        "br": "0px",
+        "pd": "0px",
+        "bd": "0px none rgb(31, 35, 41)",
+        "align": "normal",
+        "flex": "row"
+       },
+       "t": "ryan1.zhang张宏宇"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "texts": [
+  {
+   "t": "已评估：1",
+   "x": 2309.3,
+   "y": 1109.2,
+   "w": 45.4,
+   "h": 15.4,
+   "cs": {
+    "display": "block",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "600",
+    "lh": "22px",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "align": "normal",
+    "flex": "row"
+   },
+   "tag": "SPAN",
+   "cls": "font-medium"
+  },
+  {
+   "t": "未评估：1",
+   "x": 2309.3,
+   "y": 1177.8,
+   "w": 45.4,
+   "h": 15.4,
+   "cs": {
+    "display": "block",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "600",
+    "lh": "22px",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "align": "normal",
+    "flex": "row"
+   },
+   "tag": "SPAN",
+   "cls": "font-medium"
+  }
+ ]
+}

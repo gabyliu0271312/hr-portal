@@ -1,0 +1,782 @@
+[
+ {
+  "x": 300,
+  "y": 308,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 308,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "jenna.zhang张娜",
+    "x": 423.2,
+    "y": 308,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "技术中台",
+    "x": 1113,
+    "y": 308,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 308,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 308,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 308,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J5",
+    "x": 3010.1,
+    "y": 308,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 361,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 361,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "alice.xiao肖惠方",
+    "x": 423.2,
+    "y": 361,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/人力资源...部/薪酬绩效组",
+    "x": 1113,
+    "y": 361,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星",
+    "x": 1802.9,
+    "y": 361,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 361,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 361,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J3",
+    "x": 3010.1,
+    "y": 361,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 414,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 414,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "cynthia.lin林少娜",
+    "x": 423.2,
+    "y": 414,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/人力资源...部/薪酬绩效组",
+    "x": 1113,
+    "y": 414,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 414,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 414,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 414,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J4",
+    "x": 3010.1,
+    "y": 414,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 467,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 467,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "rita.tang唐洁",
+    "x": 423.2,
+    "y": 467,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/人力资源...部/薪酬绩效组",
+    "x": 1113,
+    "y": 467,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 467,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 467,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 467,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J3",
+    "x": 3010.1,
+    "y": 467,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 520,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 520,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "angela.zhang张丽敏",
+    "x": 423.2,
+    "y": 520,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/人力资源...部/员工关系组",
+    "x": 1113,
+    "y": 520,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星",
+    "x": 1802.9,
+    "y": 520,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 520,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 520,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J3",
+    "x": 3010.1,
+    "y": 520,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 573,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 573,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "jone.zhuang庄灿鹏",
+    "x": 423.2,
+    "y": 573,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/人力资源...部/员工关系组",
+    "x": 1113,
+    "y": 573,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 573,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 573,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 573,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J2",
+    "x": 3010.1,
+    "y": 573,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 626,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 626,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "emmabh.wu吴冰晖",
+    "x": 423.2,
+    "y": 626,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/内审部",
+    "x": 1113,
+    "y": 626,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 626,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 626,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "",
+    "x": 2689.8,
+    "y": 626,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "",
+    "x": 3010.1,
+    "y": 626,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 679,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 679,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "raymond.chen陈旭",
+    "x": 423.2,
+    "y": 679,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "后台/财务部",
+    "x": 1113,
+    "y": 679,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 679,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 679,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "",
+    "x": 2689.8,
+    "y": 679,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "",
+    "x": 3010.1,
+    "y": 679,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 732,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 732,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "am.li李爱民",
+    "x": 423.2,
+    "y": 732,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "游戏发行事业部...营部/客服中心",
+    "x": 1113,
+    "y": 732,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 732,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 732,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "",
+    "x": 2689.8,
+    "y": 732,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "",
+    "x": 3010.1,
+    "y": 732,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 785,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 785,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "sophia.huang黄文莲",
+    "x": 423.2,
+    "y": 785,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "业务中台/采购部",
+    "x": 1113,
+    "y": 785,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 785,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 785,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 785,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J4",
+    "x": 3010.1,
+    "y": 785,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 838,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 838,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "summer.zeng曾喜",
+    "x": 423.2,
+    "y": 838,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "业务中台/采购部",
+    "x": 1113,
+    "y": 838,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星+",
+    "x": 1802.9,
+    "y": 838,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 838,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 838,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J3",
+    "x": 3010.1,
+    "y": 838,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ },
+ {
+  "x": 300,
+  "y": 891,
+  "w": 3092,
+  "h": 53,
+  "cls": "ud__table-row ud__table-row-level-0 ud__table-row-hoverable ",
+  "cells": [
+   {
+    "t": "",
+    "x": 300,
+    "y": 891,
+    "w": 123.2,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-selection-column ud__tabl"
+   },
+   {
+    "t": "sunny.chen陈曦",
+    "x": 423.2,
+    "y": 891,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell ud__table-cell-fix-left ud__table-c"
+   },
+   {
+    "t": "业务中台/采购部",
+    "x": 1113,
+    "y": 891,
+    "w": 689.8,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "3星",
+    "x": 1802.9,
+    "y": 891,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "0/0",
+    "x": 2246.3,
+    "y": 891,
+    "w": 443.5,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "创梦天地集",
+    "x": 2689.8,
+    "y": 891,
+    "w": 320.3,
+    "h": 53,
+    "cls": "ud__table-cell"
+   },
+   {
+    "t": "J4",
+    "x": 3010.1,
+    "y": 891,
+    "w": 381.9,
+    "h": 53,
+    "cls": "ud__table-cell"
+   }
+  ]
+ }
+]

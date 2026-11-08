@@ -1,0 +1,149 @@
+{
+ "label": "肖惠方",
+ "layers": [
+  {
+   "label": "肖惠方",
+   "tag": "DIV",
+   "cls": "line1 skeleton-item",
+   "x": 1129,
+   "y": 368,
+   "w": 300,
+   "h": 20,
+   "ownText": "",
+   "shadow": "none",
+   "children": []
+  },
+  {
+   "label": "肖惠方",
+   "tag": "DIV",
+   "cls": "line1 skeleton-item",
+   "x": 1129,
+   "y": 436,
+   "w": 300,
+   "h": 20,
+   "ownText": "",
+   "shadow": "none",
+   "children": []
+  },
+  {
+   "label": "肖惠方",
+   "tag": "DIV",
+   "cls": "line1 skeleton-item",
+   "x": 1129,
+   "y": 504,
+   "w": 300,
+   "h": 20,
+   "ownText": "",
+   "shadow": "none",
+   "children": []
+  },
+  {
+   "label": "肖惠方",
+   "tag": "DIV",
+   "cls": " ReservedClampFontFamily",
+   "x": 1125,
+   "y": 323,
+   "w": 200,
+   "h": 22,
+   "ownText": "",
+   "shadow": "none",
+   "children": [
+    {
+     "tag": "SPAN",
+     "cls": "",
+     "t": "技术中台",
+     "x": 1125,
+     "y": 324,
+     "w": 56,
+     "h": 20,
+     "cs": {
+      "display": "inline",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22.001px",
+      "br": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "pd": "0px",
+      "shadow": "none",
+      "pos": "static",
+      "ff": "\"PingFang SC\""
+     }
+    }
+   ]
+  },
+  {
+   "label": "肖惠方",
+   "tag": "DIV",
+   "cls": "clamp  ",
+   "x": 2258.3,
+   "y": 323,
+   "w": 419.5,
+   "h": 22,
+   "ownText": "",
+   "shadow": "none",
+   "children": [
+    {
+     "tag": "SPAN",
+     "cls": "",
+     "t": "0/0",
+     "x": 2258.3,
+     "y": 325,
+     "w": 20.7,
+     "h": 17,
+     "cs": {
+      "display": "inline",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22.001px",
+      "br": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "pd": "0px",
+      "shadow": "none",
+      "pos": "static",
+      "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+     }
+    }
+   ]
+  },
+  {
+   "label": "肖惠方",
+   "tag": "DIV",
+   "cls": "",
+   "x": 2701.8,
+   "y": 323,
+   "w": 160,
+   "h": 22,
+   "ownText": "",
+   "shadow": "none",
+   "children": [
+    {
+     "tag": "DIV",
+     "cls": "clamp  ",
+     "t": "创梦天地集",
+     "x": 2701.8,
+     "y": 323,
+     "w": 160,
+     "h": 22,
+     "cs": {
+      "display": "block",
+      "bg": "rgba(0, 0, 0, 0)",
+      "c": "rgb(31, 35, 41)",
+      "fs": "14px",
+      "fw": "400",
+      "lh": "22.001px",
+      "br": "0px",
+      "bd": "0px none rgb(31, 35, 41)",
+      "pd": "0px",
+      "shadow": "none",
+      "pos": "static",
+      "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -32,7 +32,7 @@
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" />
+            <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
@@ -209,6 +209,24 @@ function delegationCompleted() {
   delegationTasks.value = []
   selectedDelegationMembers.value = []
   void loadOverview(activeCycleId.value ?? undefined)
+}
+
+function handleEvaluateRemind(payload: { member: ProjectMember; pendingCount: number }) {
+  const cycle = activeCycle.value
+  if (!cycle || !payload.pendingCount) return
+  // 弹窗催办：打开该成员 360° 评估的未完成评估人浮层（review-360 走自愿评估 node）
+  reminderMode.value = 'remind'
+  reminderContext.value = {
+    projectId: Number(payload.member.project_id || memberProjectId.value),
+    cycleId: cycle.cycle_id,
+    nodeId: 'review-360',
+    nodeType: 'review',
+    reviewType: 'review',
+    title: `${payload.member.display_name} · 360° 评估催办`,
+    sectionTitle: '未完成的评估人',
+    description: `仅展示 ${payload.member.display_name} 尚未完成 360° 评估的评估人`,
+  }
+  reminderOpen.value = true
 }
 
 function formatDeadline(value: string | null) {

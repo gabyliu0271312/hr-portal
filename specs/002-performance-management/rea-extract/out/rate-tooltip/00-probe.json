@@ -1,0 +1,281 @@
+{
+ "url": "https://idreamsky.feishu.cn/perf/management/v2/7654423719619710195/7340285661313974274/all-projects/members",
+ "headers": [
+  {
+   "t": "姓名部门全路径绩效评级360° 评估率序列职级       ",
+   "x": 300,
+   "y": 260,
+   "w": 3092,
+   "h": 2698,
+   "cls": "ud__table ud__table-md ud__table-fixed-header ud__table-fixe"
+  },
+  {
+   "t": "姓名部门全路径绩效评级360° 评估率序列职级",
+   "x": 300,
+   "y": 260,
+   "w": 3092,
+   "h": 48,
+   "cls": "ud__table-header"
+  },
+  {
+   "t": "姓名部门全路径绩效评级360° 评估率序列职级",
+   "x": 300,
+   "y": 261,
+   "w": 3092,
+   "h": 47,
+   "cls": "ud__table-thead"
+  },
+  {
+   "t": "姓名",
+   "x": 423.2,
+   "y": 261,
+   "w": 689.8,
+   "h": 47,
+   "cls": "ud__table-cell ud__table-cell-fix-left ud__table-cell-fix-le"
+  },
+  {
+   "t": "姓名",
+   "x": 435.2,
+   "y": 273,
+   "w": 28,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "部门全路径",
+   "x": 1113,
+   "y": 261,
+   "w": 689.8,
+   "h": 47,
+   "cls": "ud__table-cell"
+  },
+  {
+   "t": "部门全路径",
+   "x": 1125,
+   "y": 273,
+   "w": 70,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "绩效评级",
+   "x": 1802.9,
+   "y": 261,
+   "w": 443.5,
+   "h": 47,
+   "cls": "ud__table-cell ud__table-column-has-sorters"
+  },
+  {
+   "t": "绩效评级",
+   "x": 1814.9,
+   "y": 273,
+   "w": 56,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2246.3,
+   "y": 261,
+   "w": 443.5,
+   "h": 47,
+   "cls": "ud__table-cell ud__table-column-has-sorters"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2258.3,
+   "y": 273,
+   "w": 75.9,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "序列",
+   "x": 2689.8,
+   "y": 261,
+   "w": 320.3,
+   "h": 47,
+   "cls": "ud__table-cell ud__table-column-has-sorters"
+  },
+  {
+   "t": "序列",
+   "x": 2701.8,
+   "y": 273,
+   "w": 28,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "职级",
+   "x": 3010.1,
+   "y": 261,
+   "w": 381.9,
+   "h": 47,
+   "cls": "ud__table-cell ud__table-column-has-sorters"
+  },
+  {
+   "t": "职级",
+   "x": 3022.1,
+   "y": 273,
+   "w": 28,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  }
+ ],
+ "titles": [
+  {
+   "t": "工作台",
+   "x": 205,
+   "y": 0,
+   "w": 48,
+   "h": 56,
+   "cls": "ud__text ud__menu-item-title-content ud__menu-item-title-con"
+  },
+  {
+   "t": "绩效评估",
+   "x": 285,
+   "y": 0,
+   "w": 64,
+   "h": 56,
+   "cls": "ud__text ud__menu-item-title-content ud__menu-item-title-con"
+  },
+  {
+   "t": "项目管理",
+   "x": 381,
+   "y": 0,
+   "w": 64,
+   "h": 56,
+   "cls": "ud__text ud__menu-item-title-content ud__menu-item-title-con"
+  },
+  {
+   "t": "项目管理员",
+   "x": 48,
+   "y": 122,
+   "w": 160,
+   "h": 22,
+   "cls": "ud__text ud__menu-item-title-content ud__menu-item-title-con"
+  },
+  {
+   "t": "周期概览",
+   "x": 48,
+   "y": 154,
+   "w": 188,
+   "h": 38,
+   "cls": "ud__text ud__menu-item-title-content ud__menu-item-title-con"
+  },
+  {
+   "t": "2026年半年度绩效评估",
+   "x": 48,
+   "y": 194,
+   "w": 188,
+   "h": 38,
+   "cls": "ud__text ud__menu-item-title-content ud__menu-item-title-con"
+  },
+  {
+   "t": "成员列表",
+   "x": 340,
+   "y": 116,
+   "w": 64,
+   "h": 36,
+   "cls": "ud__tabs__tab--line ud__tabs__tab--active ud__tabs__tab ud-t"
+  },
+  {
+   "t": "矩阵分析",
+   "x": 432,
+   "y": 116,
+   "w": 64,
+   "h": 36,
+   "cls": "ud__tabs__tab--line ud__tabs__tab ud-typography-title-5 u132"
+  },
+  {
+   "t": "统计报表",
+   "x": 524,
+   "y": 116,
+   "w": 64,
+   "h": 36,
+   "cls": "ud__tabs__tab--line ud__tabs__tab ud-typography-title-5 u132"
+  },
+  {
+   "t": "更多",
+   "x": 616,
+   "y": 92,
+   "w": 48,
+   "h": 48,
+   "cls": "ud__tabs__tab-bar-more ud-typography-title-5 u71fsbu u4ybsrx"
+  },
+  {
+   "t": "更多",
+   "x": 616,
+   "y": 92,
+   "w": 48,
+   "h": 48,
+   "cls": "ud__tabs__tab-bar-more-body ud-typography-title-5 u71fsbu u4"
+  },
+  {
+   "t": "部门全路径",
+   "x": 1125,
+   "y": 273,
+   "w": 70,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "绩效评级",
+   "x": 1814.9,
+   "y": 273,
+   "w": 56,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2258.3,
+   "y": 273,
+   "w": 75.9,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  }
+ ],
+ "keyHits": [
+  {
+   "t": "姓名部门全路径绩效评级360° 评估率序列职级",
+   "x": 300,
+   "y": 260,
+   "w": 3092,
+   "h": 48,
+   "cls": "ud__table-header"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2246.3,
+   "y": 261,
+   "w": 443.5,
+   "h": 47,
+   "cls": "ud__table-cell ud__table-column-has-sorters"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2258.3,
+   "y": 273,
+   "w": 419.5,
+   "h": 22,
+   "cls": "ud__table-column-wrapper"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2258.3,
+   "y": 273,
+   "w": 75.9,
+   "h": 22,
+   "cls": "ud__table-column-title ud-typography-headline uses1vf u82ita"
+  },
+  {
+   "t": "360° 评估率",
+   "x": 2258.3,
+   "y": 273,
+   "w": 75.9,
+   "h": 22,
+   "cls": "truncate"
+  }
+ ]
+}

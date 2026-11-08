@@ -1,0 +1,176 @@
+{
+ "err": null,
+ "remindEls": [
+  {
+   "depth": 7,
+   "tag": "DIV",
+   "cls": "leading-22 flex justify-between items-center mb-4",
+   "x": 2318,
+   "y": 1093,
+   "w": 322,
+   "h": 22,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">未评估：1</span><button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md ml-6\"><span class=\"ud__button__icon-inline ud__button__icon-inline-start\"><span class=\"universe-icon\"><svg width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" data-icon=\"BellOutlined\"><path d=\"M10 3.176v-.26c0-.55.45-1 1-1h2c.55 0 1 .45 1 1v.26c3.45.917 6 4.15 6 7.998v6.364h1a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2h1v-6.364c0-3.848 2.55-7.081 6-7.998ZM6 17.538h12v-"
+  },
+  {
+   "depth": 8,
+   "tag": "BUTTON",
+   "cls": "ud__button ud__button--text ud__button--text-primary ud__button--size-md ml-6",
+   "x": 2586,
+   "y": 1093,
+   "w": 54,
+   "h": 22,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(20, 86, 240)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "6px",
+    "pd": "2px 4px",
+    "bd": "0px none rgba(0, 0, 0, 0)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "18px"
+   },
+   "inner": "<button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md ml-6\"><span class=\"ud__button__icon-inline ud__button__icon-inline-start\"><span class=\"universe-icon\"><svg width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" data-icon=\"BellOutlined\"><path d=\"M10 3.176v-.26c0-.55.45-1 1-1h2c.55 0 1 .45 1 1v.26c3.45.917 6 4.15 6 7.998v6.364h1a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2h1v-6.364c0-3.848 2.55-7.081 6-7.998ZM6 17.538h12v-6.361c0-3.458-2.686-6.261-6-6.261s-6 2.803-6 6.26v6.362Zm2.75 4.5a1 1 0 0 1 1-1h4.5a1 1 0 0 1 0 2h-4."
+  }
+ ],
+ "ancestors": [
+  {
+   "tag": "DIV",
+   "cls": "leading-22 flex justify-between items-center mb-4",
+   "x": 2318,
+   "y": 1093,
+   "w": 322,
+   "h": 22,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">未评估：1</span><button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md ml-6\"><span class=\"ud__button__icon-inline ud__button__icon-inline-start\"><span class=\"universe-icon\"><svg width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" data-icon=\"BellOutlined\"><path d=\"M10 3.176v-.26c0-.55.45-1 1-1h2c.55 0 1 .45 1 1v.26c3.45.917 6 4.15 6 7.998v6.364h1a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2h1v-6.364c0-3.848 2.55-7.081 6-7.998ZM6 17.538h12v-6.361c0-3.458-2.686-6.261-6-6.261s-6 2.803-6 6.26v6.362Zm2.75 4.5a1 1 0 0 1 1-1h4.5a1 1 0 0 1 0 2h-4.5a1 1 0 0 1-1-1Z\" fill=\"currentColor\"></path></svg></span></span>催办</button></div>"
+  },
+  {
+   "tag": "DIV",
+   "cls": "EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0",
+   "x": 2306,
+   "y": 1081,
+   "w": 346,
+   "h": 78,
+   "cs": {
+    "bg": "rgb(248, 249, 250)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "6px",
+    "pd": "12px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div class=\"EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0\"><div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">未评估：1</span><button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md ml-6\"><span class=\"ud__button__icon-inline ud__button__icon-inline-start\"><span class=\"universe-icon\"><svg width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" data-icon=\"BellOutlined\"><path d=\"M10 3.176v-.26c0-.55.45-1 1-1h2c.55 0 1 .45 1 1v.26c3.45.917 6 4.15 6 7.998v6.364h1a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2h1v-6.364c0-3.848 2.55-7.081 6-7.998ZM6 17.538h12v-6.361c0-3.458-2.686-6.261-6-6.261s-6 2.803-6 6.26v6.362Zm2.75 4.5a1 1 0 0 1 1-1h4.5a1 1 0 0 1 0 2h-4.5a1 1 0"
+  },
+  {
+   "tag": "DIV",
+   "cls": "",
+   "x": 2306,
+   "y": 939,
+   "w": 346,
+   "h": 220,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div><div class=\"flex items-center justify-between mb-10\"><div class=\"text-16 leading-24 font-medium text-N-900\"><div class=\"inline-block mr-4 my-2 align-bottom w-1 h-8 bg-B-500\"></div>邀请和评估情况</div></div><div class=\"EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0\"><div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">已评估：1</span></div><div class=\"flex-wrap -mb-4\" style=\"display: flex;\"><div class=\"contents\"><ee-user-card data-user-id=\"6733065924942988813\" data-delegate-mouse-event=\"true\"><span class=\"ud__tag employee-label-internal user-id-6733065924942988813 mb-4 mr-2 tag ud__tag-md ud__tag-round ud__tag-neutral u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszdx u1g0x7ka u19lj068 u1qch9an u177v4lu u55qycf u2ie9lg u1ewtp5v u1j6dxmp "
+  },
+  {
+   "tag": "DIV",
+   "cls": "",
+   "x": 2306,
+   "y": 939,
+   "w": 346,
+   "h": 220,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div><div><div class=\"flex items-center justify-between mb-10\"><div class=\"text-16 leading-24 font-medium text-N-900\"><div class=\"inline-block mr-4 my-2 align-bottom w-1 h-8 bg-B-500\"></div>邀请和评估情况</div></div><div class=\"EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0\"><div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">已评估：1</span></div><div class=\"flex-wrap -mb-4\" style=\"display: flex;\"><div class=\"contents\"><ee-user-card data-user-id=\"6733065924942988813\" data-delegate-mouse-event=\"true\"><span class=\"ud__tag employee-label-internal user-id-6733065924942988813 mb-4 mr-2 tag ud__tag-md ud__tag-round ud__tag-neutral u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszdx u1g0x7ka u19lj068 u1qch9an u177v4lu u55qycf u2ie9lg u1ewtp5v u1j6"
+  },
+  {
+   "tag": "DIV",
+   "cls": "ud__popover__overlay-content",
+   "x": 2306,
+   "y": 939,
+   "w": 346,
+   "h": 220,
+   "cs": {
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "0px",
+    "pd": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div class=\"ud__popover__overlay-content\"><div><div><div class=\"flex items-center justify-between mb-10\"><div class=\"text-16 leading-24 font-medium text-N-900\"><div class=\"inline-block mr-4 my-2 align-bottom w-1 h-8 bg-B-500\"></div>邀请和评估情况</div></div><div class=\"EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0\"><div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">已评估：1</span></div><div class=\"flex-wrap -mb-4\" style=\"display: flex;\"><div class=\"contents\"><ee-user-card data-user-id=\"6733065924942988813\" data-delegate-mouse-event=\"true\"><span class=\"ud__tag employee-label-internal user-id-6733065924942988813 mb-4 mr-2 tag ud__tag-md ud__tag-round ud__tag-neutral u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszdx u1g0x7ka u19lj068 u1qch"
+  },
+  {
+   "tag": "DIV",
+   "cls": "ud__popover-content",
+   "x": 2289,
+   "y": 926,
+   "w": 380,
+   "h": 246,
+   "cs": {
+    "bg": "rgb(255, 255, 255)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "br": "8px",
+    "pd": "12px 16px",
+    "bd": "1px solid rgb(222, 224, 227)",
+    "f": "LarkHackSafariFont, LarkEmojiFont, LarkC",
+    "lh": "22px"
+   },
+   "inner": "<div class=\"ud__popover-content\" role=\"tooltip\"><div class=\"ud__popover__overlay-content\"><div><div><div class=\"flex items-center justify-between mb-10\"><div class=\"text-16 leading-24 font-medium text-N-900\"><div class=\"inline-block mr-4 my-2 align-bottom w-1 h-8 bg-B-500\"></div>邀请和评估情况</div></div><div class=\"EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0\"><div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">已评估：1</span></div><div class=\"flex-wrap -mb-4\" style=\"display: flex;\"><div class=\"contents\"><ee-user-card data-user-id=\"6733065924942988813\" data-delegate-mouse-event=\"true\"><span class=\"ud__tag employee-label-internal user-id-6733065924942988813 mb-4 mr-2 tag ud__tag-md ud__tag-round ud__tag-neutral u1ewtqcl u1lmfglv "
+  }
+ ],
+ "unevalBlock": [
+  {
+   "cls": "EmpLabelList__EmpLabelListContainDismissionStyle-fsmiIF krnvnx mb-10 last:mb-0",
+   "inner": "<div class=\"leading-22 flex justify-between items-center mb-4\"><span class=\"font-medium\">未评估：1</span><button type=\"button\" class=\"ud__button ud__button--text ud__button--text-primary ud__button--size-md ml-6\"><span class=\"ud__button__icon-inline ud__button__icon-inline-start\"><span class=\"universe-icon\"><svg width=\"1em\" height=\"1em\" viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" data-icon=\"BellOutlined\"><path d=\"M10 3.176v-.26c0-.55.45-1 1-1h2c.55 0 1 .45 1 1v.26c3.45.917 6 4.15 6 7.998v6.364h1a1 1 0 1 1 0 2H3a1 1 0 1 1 0-2h1v-6.364c0-3.848 2.55-7.081 6-7.998ZM6 17.538h12v-6.361c0-3.458-2.686-6.261-6-6.261s-6 2.803-6 6.26v6.362Zm2.75 4.5a1 1 0 0 1 1-1h4.5a1 1 0 0 1 0 2h-4.5a1 1 0 0 1-1-1Z\" fill=\"currentColor\"></path></svg></span></span>催办</button></div><div class=\"flex-wrap -mb-4\" style=\"display: flex;\"><div class=\"contents\"><ee-user-card data-user-id=\"7617666927736966332\" data-delegate-mouse-event=\"true\"><span class=\"ud__tag employee-label-internal user-id-7617666927736966332 mb-4 mr-2 tag ud__tag-md ud__tag-round ud__tag-neutral u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszdx u1g0x7ka u19lj068 u1qch9an u177v4lu u55qycf u2ie9lg u1ewtp5v u1j6dxmp u113hnb5 utuwxu6 u122n59 uz5stix u7o03ib u15l5c9n u6dzj5z uw295qw uses1vf urvgh55 u1a3p1vp\"><div class=\"ud__tag__content ud-typography-body-0 utgm304 u1ewtqcl u1lmfglv uibjyge u1abmfm4 u9yszdx u1nbblvp uifp7yv u1ov4xf1 u1asdtw4 uiy7161 uz5stix u1a3p1vp u1cmbuwj uses1vf u82itaf u71fsbu\"><span class=\"ud__avatar ud__avatar-filled ud__avatar-circle ud__avatar-image avatar\" style=\"width: 20px; height: 20px;\"><img class=\"ud__avatar__image\" src=\"https://s3-imfile.feishucdn.com/static-resource/v1/v3_0013i_0761ace7-72fc-49ab-a4e9-e1474f393e7g~?image_size=72x72&amp;cut_type=&amp;quality=&amp;format=png&amp;sticker_format=.webp\"></span><div class=\"name truncate max-w-100\">ryan1.zhang张宏宇</div></div></span></ee-user-card></div></div>"
+  }
+ ],
+ "popText": "邀请和评估情况已评估：1danny.deng邓超未评估：1催办ryan1.zhang张宏宇"
+}

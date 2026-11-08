@@ -1,0 +1,479 @@
+{
+ "rect": {
+  "x": 2289,
+  "y": 341,
+  "w": 380,
+  "h": 92
+ },
+ "cs": {
+  "display": "flex",
+  "pos": "absolute",
+  "z": "1030",
+  "bg": "rgba(0, 0, 0, 0)",
+  "c": "rgb(31, 35, 41)",
+  "fs": "14px",
+  "fw": "400",
+  "lh": "21px",
+  "br": "0px",
+  "bd": "0px none rgb(31, 35, 41)",
+  "shadow": "none",
+  "pd": "0px",
+  "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+ },
+ "tree": {
+  "tag": "DIV",
+  "cls": "ud__popover EvaluateRatio-popover ud__popover--mode-normal",
+  "x": 2289,
+  "y": 341,
+  "w": 380,
+  "h": 92,
+  "cs": {
+   "display": "flex",
+   "pos": "absolute",
+   "z": "1030",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgb(31, 35, 41)",
+   "fs": "14px",
+   "fw": "400",
+   "lh": "21px",
+   "br": "0px",
+   "bd": "0px none rgb(31, 35, 41)",
+   "shadow": "none",
+   "pd": "0px",
+   "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+  },
+  "text": "邀请和评估情况暂未邀请 360˚ 评估人",
+  "children": [
+   {
+    "tag": "DIV",
+    "cls": "",
+    "x": 2290,
+    "y": 342,
+    "w": 1,
+    "h": 0,
+    "cs": {
+     "display": "block",
+     "pos": "fixed",
+     "z": "auto",
+     "bg": "rgba(0, 0, 0, 0)",
+     "c": "rgb(31, 35, 41)",
+     "fs": "14px",
+     "fw": "400",
+     "lh": "21px",
+     "br": "0px",
+     "bd": "0px none rgb(31, 35, 41)",
+     "shadow": "none",
+     "pd": "0px",
+     "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+    },
+    "text": "",
+    "children": []
+   },
+   {
+    "tag": "SECTION",
+    "cls": "ud__popover__content ud__zoom-300-300-200-enter-done",
+    "x": 2289,
+    "y": 341,
+    "w": 380,
+    "h": 92,
+    "cs": {
+     "display": "flex",
+     "pos": "static",
+     "z": "auto",
+     "bg": "rgba(0, 0, 0, 0)",
+     "c": "rgb(31, 35, 41)",
+     "fs": "14px",
+     "fw": "400",
+     "lh": "21px",
+     "br": "0px",
+     "bd": "0px none rgb(31, 35, 41)",
+     "shadow": "none",
+     "pd": "0px",
+     "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+    },
+    "text": "邀请和评估情况暂未邀请 360˚ 评估人",
+    "children": [
+     {
+      "tag": "DIV",
+      "cls": "ud__popover-content",
+      "x": 2289,
+      "y": 341,
+      "w": 380,
+      "h": 92,
+      "cs": {
+       "display": "block",
+       "pos": "relative",
+       "z": "auto",
+       "bg": "rgb(255, 255, 255)",
+       "c": "rgb(31, 35, 41)",
+       "fs": "14px",
+       "fw": "400",
+       "lh": "22px",
+       "br": "8px",
+       "bd": "1px solid rgb(222, 224, 227)",
+       "shadow": "rgba(31, 35, 41, 0.04) 0px 8px 24px 8px, rgba(31, 35, 41, 0.04) 0px 6px 12px 0px, rgba(31, 35, 41, 0.06) 0px 4px 8px -8px",
+       "pd": "12px 16px",
+       "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+      },
+      "text": "邀请和评估情况暂未邀请 360˚ 评估人",
+      "children": [
+       {
+        "tag": "DIV",
+        "cls": "ud__popover__overlay-content",
+        "x": 2306,
+        "y": 354,
+        "w": 346,
+        "h": 66,
+        "cs": {
+         "display": "block",
+         "pos": "static",
+         "z": "auto",
+         "bg": "rgba(0, 0, 0, 0)",
+         "c": "rgb(31, 35, 41)",
+         "fs": "14px",
+         "fw": "400",
+         "lh": "22px",
+         "br": "0px",
+         "bd": "0px none rgb(31, 35, 41)",
+         "shadow": "none",
+         "pd": "0px",
+         "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+        },
+        "text": "邀请和评估情况暂未邀请 360˚ 评估人",
+        "children": [
+         {
+          "tag": "DIV",
+          "cls": "",
+          "x": 2306,
+          "y": 354,
+          "w": 346,
+          "h": 66,
+          "cs": {
+           "display": "block",
+           "pos": "static",
+           "z": "auto",
+           "bg": "rgba(0, 0, 0, 0)",
+           "c": "rgb(31, 35, 41)",
+           "fs": "14px",
+           "fw": "400",
+           "lh": "22px",
+           "br": "0px",
+           "bd": "0px none rgb(31, 35, 41)",
+           "shadow": "none",
+           "pd": "0px",
+           "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+          },
+          "text": "邀请和评估情况暂未邀请 360˚ 评估人",
+          "children": [
+           {
+            "tag": "DIV",
+            "cls": "",
+            "x": 2306,
+            "y": 354,
+            "w": 346,
+            "h": 66,
+            "cs": {
+             "display": "block",
+             "pos": "static",
+             "z": "auto",
+             "bg": "rgba(0, 0, 0, 0)",
+             "c": "rgb(31, 35, 41)",
+             "fs": "14px",
+             "fw": "400",
+             "lh": "22px",
+             "br": "0px",
+             "bd": "0px none rgb(31, 35, 41)",
+             "shadow": "none",
+             "pd": "0px",
+             "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+            },
+            "text": "邀请和评估情况暂未邀请 360˚ 评估人",
+            "children": []
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "tag": "DIV",
+      "cls": "ud__popover__arrow",
+      "x": 2289,
+      "y": 387,
+      "w": 0,
+      "h": 0,
+      "cs": {
+       "display": "block",
+       "pos": "absolute",
+       "z": "auto",
+       "bg": "rgba(0, 0, 0, 0)",
+       "c": "rgb(31, 35, 41)",
+       "fs": "14px",
+       "fw": "400",
+       "lh": "0px",
+       "br": "0px",
+       "bd": "0px none rgb(31, 35, 41)",
+       "shadow": "none",
+       "pd": "0px",
+       "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+      },
+      "text": "",
+      "children": [
+       {
+        "tag": "svg",
+        "cls": "[object SVGAnimatedString]",
+        "x": 2282,
+        "y": 379,
+        "w": 8,
+        "h": 16,
+        "cs": {
+         "display": "flex",
+         "pos": "absolute",
+         "z": "auto",
+         "bg": "rgba(0, 0, 0, 0)",
+         "c": "rgb(31, 35, 41)",
+         "fs": "14px",
+         "fw": "400",
+         "lh": "0px",
+         "br": "0px",
+         "bd": "0px none rgb(31, 35, 41)",
+         "shadow": "none",
+         "pd": "0px",
+         "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+        },
+        "text": "",
+        "children": [
+         {
+          "tag": "path",
+          "cls": "[object SVGAnimatedString]",
+          "x": 2284,
+          "y": 379,
+          "w": 6.5,
+          "h": 16,
+          "cs": {
+           "display": "block",
+           "pos": "static",
+           "z": "auto",
+           "bg": "rgba(0, 0, 0, 0)",
+           "c": "rgb(31, 35, 41)",
+           "fs": "14px",
+           "fw": "400",
+           "lh": "0px",
+           "br": "0px",
+           "bd": "0px none rgb(31, 35, 41)",
+           "shadow": "none",
+           "pd": "0px",
+           "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+          },
+          "text": "",
+          "children": []
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "tag": "DIV",
+    "cls": "",
+    "x": 2290,
+    "y": 342,
+    "w": 1,
+    "h": 0,
+    "cs": {
+     "display": "block",
+     "pos": "fixed",
+     "z": "auto",
+     "bg": "rgba(0, 0, 0, 0)",
+     "c": "rgb(31, 35, 41)",
+     "fs": "14px",
+     "fw": "400",
+     "lh": "21px",
+     "br": "0px",
+     "bd": "0px none rgb(31, 35, 41)",
+     "shadow": "none",
+     "pd": "0px",
+     "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+    },
+    "text": "",
+    "children": []
+   }
+  ]
+ },
+ "btns": [],
+ "icons": [
+  {
+   "cls": "[object SVGAnimatedString]",
+   "x": 2282,
+   "y": 379,
+   "w": 8,
+   "h": 16,
+   "svg": "<svg width=\"8\" height=\"16\" viewBox=\"0 0 8 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\" class=\"ud__popover__arrow__streamline\" style=\"display: flex; z-index: inherit; position: absolute; transform: translate(calc(-100% + 1px), -50%) rotate(180de"
+  }
+ ],
+ "textRows": [
+  {
+   "t": "邀请和评估情况暂未邀请 360˚ 评估人",
+   "x": 2289,
+   "y": 341,
+   "w": 380,
+   "h": 92,
+   "cls": "ud__popover-content",
+   "cs": {
+    "display": "block",
+    "pos": "relative",
+    "z": "auto",
+    "bg": "rgb(255, 255, 255)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "lh": "22px",
+    "br": "8px",
+    "bd": "1px solid rgb(222, 224, 227)",
+    "shadow": "rgba(31, 35, 41, 0.04) 0px 8px 24px 8px, rgba(31, 35, 41, 0.04) 0px 6px 12px 0px, rgba(31, 35, 41, 0.06) 0px 4px 8px -8px",
+    "pd": "12px 16px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  },
+  {
+   "t": "邀请和评估情况暂未邀请 360˚ 评估人",
+   "x": 2306,
+   "y": 354,
+   "w": 346,
+   "h": 66,
+   "cls": "ud__popover__overlay-content",
+   "cs": {
+    "display": "block",
+    "pos": "static",
+    "z": "auto",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "lh": "22px",
+    "br": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "shadow": "none",
+    "pd": "0px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  },
+  {
+   "t": "邀请和评估情况暂未邀请 360˚ 评估人",
+   "x": 2306,
+   "y": 354,
+   "w": 346,
+   "h": 66,
+   "cls": "",
+   "cs": {
+    "display": "block",
+    "pos": "static",
+    "z": "auto",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "lh": "22px",
+    "br": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "shadow": "none",
+    "pd": "0px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  },
+  {
+   "t": "邀请和评估情况暂未邀请 360˚ 评估人",
+   "x": 2306,
+   "y": 354,
+   "w": 346,
+   "h": 66,
+   "cls": "",
+   "cs": {
+    "display": "block",
+    "pos": "static",
+    "z": "auto",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "lh": "22px",
+    "br": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "shadow": "none",
+    "pd": "0px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  },
+  {
+   "t": "邀请和评估情况",
+   "x": 2306,
+   "y": 354,
+   "w": 346,
+   "h": 24,
+   "cls": "flex items-center justify-between mb-10",
+   "cs": {
+    "display": "flex",
+    "pos": "static",
+    "z": "auto",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "14px",
+    "fw": "400",
+    "lh": "22px",
+    "br": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "shadow": "none",
+    "pd": "0px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  },
+  {
+   "t": "邀请和评估情况",
+   "x": 2306,
+   "y": 354,
+   "w": 122,
+   "h": 24,
+   "cls": "text-16 leading-24 font-medium text-N-900",
+   "cs": {
+    "display": "block",
+    "pos": "static",
+    "z": "auto",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(31, 35, 41)",
+    "fs": "16px",
+    "fw": "600",
+    "lh": "24px",
+    "br": "0px",
+    "bd": "0px none rgb(31, 35, 41)",
+    "shadow": "none",
+    "pd": "0px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  },
+  {
+   "t": "暂未邀请 360˚ 评估人",
+   "x": 2306,
+   "y": 398,
+   "w": 346,
+   "h": 22,
+   "cls": "text-N-600",
+   "cs": {
+    "display": "block",
+    "pos": "static",
+    "z": "auto",
+    "bg": "rgba(0, 0, 0, 0)",
+    "c": "rgb(100, 106, 115)",
+    "fs": "14px",
+    "fw": "400",
+    "lh": "22px",
+    "br": "0px",
+    "bd": "0px none rgb(100, 106, 115)",
+    "shadow": "none",
+    "pd": "0px",
+    "ff": "LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, \"Helvetica Neue\", Tahoma, \"PingFang SC\", \"Microsoft Yahei\", Arial, \"Hiragino Sans GB\", sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\""
+   }
+  }
+ ]
+}
