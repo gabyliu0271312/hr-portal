@@ -1837,6 +1837,14 @@ export interface PerformanceCycleProjectShell {
   scope_rules?: PerformanceAudienceRules
   status: string
   evaluated_count: number
+  configuration_completed?: boolean
+  template_id?: number | null
+  start_at?: string | null
+  end_at?: string | null
+  evaluator_rules?: PerformanceAudienceRules
+  flow_settings?: PerformanceProjectFlowSettings
+  node_meta?: Record<string, { name: string; node_type: string }>
+  start_blocked_reason?: string
 }
 
 export interface PerformanceCalibrationCondition {
@@ -1994,6 +2002,7 @@ export type PerformanceProjectPatch = Partial<PerformanceProjectPayload> & {
   calibration_operations?: PerformanceCalibrationOperation[]
   calibration_base_digest?: string
   notify_calibrators?: boolean
+  configuration_completed?: boolean
 }
 
 export interface PerformanceProject extends PerformanceCycleProjectShell {

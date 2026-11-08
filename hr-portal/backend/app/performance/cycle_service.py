@@ -39,6 +39,7 @@ from app.performance.models import (
     PerformanceOtherSetting,
     PerformanceProject,
     PerformanceTemplate,
+    PerformanceTemplateWorkflow,
     PROJECT_STATUS_STARTED,
 )
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService, RosterAuthorizationInput
@@ -89,6 +90,44 @@ def normalize_cycle_datetime(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _node_deadline(time: dict, node_type: str | None) -> datetime | None:
+    """节点用于启动禁用的截止时间：result_view 用复议截止，校准取最后阶段截止，其余用 end_at。"""
+    if node_type == "result_view":
+        raw = time.get("appeal_deadline")
+    elif node_type == "calibration" and time.get("phase_times"):
+        raw = max((phase.get("end_at") for phase in time["phase_times"].values() if phase.get("end_at")), default=None)
+    else:
+        raw = time.get("end_at")
+    if not raw:
+        return None
+    value = raw if isinstance(raw, datetime) else _parse_node_datetime(str(raw))
+    return value
+
+
+def _parse_node_datetime(raw: str) -> datetime | None:
+    try:
+        value = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=ZoneInfo("Asia/Shanghai"))
+    return value.astimezone(timezone.utc)
+
+
+def _expired_flow_nodes(node_times: dict, node_names: dict[str, dict[str, str]], now: datetime) -> list[str]:
+    """已完成配置的项目中，截止时间早于当前时间的环节名列表（保持节点顺序）。"""
+    expired: list[str] = []
+    for node_id, raw_time in node_times.items():
+        if not isinstance(raw_time, dict):
+            continue
+        meta = node_names.get(node_id) or {}
+        node_type = meta.get("node_type")
+        deadline = _node_deadline(raw_time, node_type)
+        if deadline is not None and deadline <= now:
+            expired.append(meta.get("name") or node_id)
+    return expired
+
+
 class PerformanceCycleService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -125,7 +164,41 @@ class PerformanceCycleService:
                 return []
             statement = statement.where(PerformanceProject.project_ref.in_(project_refs))
         projects = (await self.db.execute(statement.order_by(PerformanceProject.created_at.asc()))).scalars().all()
-        return [{"id": project.id, "project_ref": project.project_ref, "name": project.name, "description": project.description, "administrators": project.administrators or [], "status": project.status, "evaluated_count": project.evaluated_count, "template_id": (project.settings or {}).get("template_id"), "start_at": (project.settings or {}).get("start_at"), "end_at": (project.settings or {}).get("end_at"), "evaluator_rules": (project.settings or {}).get("evaluator_rules", {"groups": []})} for project in projects]
+        node_names_by_template = await self._workflow_node_names({(project.settings or {}).get("template_id") for project in projects})
+        now = datetime.now(UTC)
+        result: list[dict[str, Any]] = []
+        for project in projects:
+            settings = project.settings or {}
+            flow_settings = settings.get("flow_settings") or {}
+            template_id = settings.get("template_id")
+            node_names = node_names_by_template.get(str(template_id)) if template_id is not None else {}
+            node_times = (flow_settings.get("node_times") or {}) if isinstance(flow_settings, dict) else {}
+            expired_nodes = _expired_flow_nodes(node_times, node_names, now)
+            base = {
+                "id": project.id, "project_ref": project.project_ref, "name": project.name, "description": project.description, "administrators": project.administrators or [], "status": project.status, "evaluated_count": project.evaluated_count, "configuration_completed": bool(settings.get("configuration_completed", False)), "template_id": template_id, "start_at": settings.get("start_at"), "end_at": settings.get("end_at"), "evaluator_rules": settings.get("evaluator_rules", {"groups": []}), "flow_settings": flow_settings, "node_meta": node_names,
+            }
+            if project.status == "DRAFT" and not bool(settings.get("configuration_completed", False)):
+                base["start_blocked_reason"] = "项目未配置完成，无法启动"
+            elif project.status == "DRAFT" and expired_nodes:
+                base["start_blocked_reason"] = "\n".join(f"{name}环节截止时间早于当前时间，无法启动" for name in expired_nodes)
+            result.append(base)
+        return result
+
+    async def _workflow_node_names(self, template_ids: set[Any]) -> dict[str, dict[str, dict[str, str]]]:
+        """template_id -> {node_id: {name, node_type}}，供列表页启动禁用弹窗展示环节名。"""
+        ids = {int(template_id) for template_id in template_ids if str(template_id or "").isdigit()}
+        if not ids:
+            return {}
+        records = (await self.db.execute(select(PerformanceTemplateWorkflow).where(PerformanceTemplateWorkflow.template_id.in_(ids)))).scalars().all()
+        result: dict[str, dict[str, dict[str, str]]] = {}
+        for record in records:
+            nodes: dict[str, dict[str, str]] = {}
+            for node in record.nodes or []:
+                node_id = str(node.get("node_id") or "")
+                if node_id:
+                    nodes[node_id] = {"name": str(node.get("name") or node.get("node_type") or ""), "node_type": str(node.get("node_type") or "")}
+            result[str(record.template_id)] = nodes
+        return result
 
     async def has_started_projects(self, cycle: PerformanceCycle) -> bool:
         return bool((await self.db.execute(select(PerformanceProject.id).where(PerformanceProject.cycle_ref == cycle.cycle_ref, PerformanceProject.status == PROJECT_STATUS_STARTED).limit(1))).scalar_one_or_none())

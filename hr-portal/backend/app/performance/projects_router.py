@@ -823,6 +823,7 @@ class ProjectPatchPayload(BaseModel):
     end_at: datetime | None = None
     evaluator_rules: dict | None = None
     flow_settings: dict | None = None
+    configuration_completed: bool | None = None
     calibration_operations: list[CalibrationOperation] = Field(default_factory=list, max_length=500)
     calibration_base_digest: str | None = Field(default=None, max_length=128)
     notify_calibrators: bool = False
@@ -857,6 +858,7 @@ class ProjectResponse(BaseModel):
     scope_rules: dict = Field(default_factory=lambda: {"groups": []})
     status: str
     evaluated_count: int
+    configuration_completed: bool = False
     template_id: int | None = None
     start_at: str | None = None
     end_at: str | None = None

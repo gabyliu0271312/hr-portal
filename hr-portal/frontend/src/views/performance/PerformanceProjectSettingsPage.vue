@@ -1,7 +1,7 @@
 <template>
   <div class="project-settings-page">
     <UiPageHeader :title="projectName || '新建项目'" @back="goBack">
-      <template #subtitle><span v-if="savedView" class="project-status-badge">待完成配置</span></template>
+      <template #subtitle><span v-if="savedView" class="project-status-badge">{{ savedStatusLabel }}</span></template>
       <template #actions>
         <UiStepFlow :steps="steps" :current-step="currentStep" aria-label="项目设置步骤" />
         <UiButton v-if="currentStep > 0" variant="secondary" @click="currentStep--">上一步</UiButton>
@@ -172,6 +172,7 @@ const form = reactive<{ name: string; description: string; administrators: strin
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
 const dataManagerTags = computed(() => (basicDialogProject.value?.data_managers ?? []).map(value => ({ value, label: value === 'PROJECT_ADMIN' ? '项目管理员' : 'HRBP' })))
 const projectName = computed(() => form.name)
+const savedStatusLabel = computed(() => projectStatus.value === 'STARTED' ? '已启动' : projectStatus.value === 'ARCHIVED' ? '已结束' : '待启动')
 const audiencePreviewTitle = computed(() => audiencePreviewGroup.value == null ? '符合条件的员工' : `范围 ${audiencePreviewGroup.value + 1} 符合条件的员工`)
 const audiencePreviewDescription = computed(() => `${audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务，仅纳入报表统计' : '符合当前筛选条件'}，共计 ${audiencePreviewTotal.value} 人`)
 const audiencePreviewContext = computed(() => ({ projectId: projectId.value || 0, cycleId: cycleId.value || 0, nodeId: 'evaluator-preview', nodeType: 'preview', reviewType: 'evaluator_preview', title: audiencePreviewTitle.value, sectionTitle: audiencePreviewTitle.value }))
@@ -347,12 +348,13 @@ function flowSaved(project: ProjectSettingsResponse, submitted?: ProjectFlowSett
   if (project.calibration_base_digest !== undefined) calibrationBaseDigest.value = project.calibration_base_digest
   if (project.editing_policy) editingPolicy.value = project.editing_policy
 }
-async function saveDraft() {
+async function saveDraft(finalize = false) {
   if (!projectId.value || !rawBaseline.value || !displayBaseline.value) return true
   if (flowPending.value) { validationError.value = '请先确认或取消当前流程配置'; return false }
   if (currentStep.value < 2 && calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings)) return true
   const current = payload()
   const patch = changedProjectSettings(rawBaseline.value, displayBaseline.value, current)
+  if (finalize && projectStatus.value !== 'STARTED' && projectStatus.value !== 'ARCHIVED') patch.configuration_completed = true
   if (!Object.keys(patch).length) return true
   if (patch.flow_settings) {
     if (calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings) && projectNodeTimeError(workflowNodes.value.filter(node => node.node_type === 'calibration'), form.flow_settings)) {
@@ -394,7 +396,7 @@ async function nextStep() {
   }
   if (nodeTimeError.value) { validationError.value = nodeTimeError.value; return }
   if (!validate() || saving.value) return
-  if (await saveDraft()) { savedView.value = true; notice.value = '项目设置已保存' }
+  if (await saveDraft(true)) { savedView.value = true; notice.value = '项目设置已保存' }
 }
 function goBack() { void router.push({ name: 'PerformanceCycles' }) }
 onMounted(async () => { document.body.style.overflow = 'hidden'; await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow(); displayBaseline.value = JSON.parse(JSON.stringify(payload())) })

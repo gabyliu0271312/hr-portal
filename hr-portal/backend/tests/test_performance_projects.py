@@ -4755,6 +4755,7 @@ async def test_preview_and_actual_start_share_six_field_snapshot_filters(monkeyp
             {"conditions": [{"field": "employment_status", "operator": "include", "values": ["在职"]}]},
         ]},
         "scope_rules": {"groups": [{"conditions": [{"field": "department", "operator": "include", "values": ["集团/研发"]}]}]},
+        "configuration_completed": True,
         "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}},
     }
     workflow = SimpleNamespace(content_library=[], nodes=[
@@ -7310,6 +7311,7 @@ async def test_reporting_filter_preview_start_share_unchanged_cycle_snapshot(mon
             {"field": "department", "operator": "include", "values": ["研发", "销售"]},
         ]}]}),
         "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}},
+        "configuration_completed": True,
     }
     workflow = SimpleNamespace(content_library=[], nodes=[
         {"node_id": "summary", "node_type": "work_summary", "name": "总结", "include_final_result": True, "executor_types": ["SUBJECT"]},

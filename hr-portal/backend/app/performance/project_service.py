@@ -346,6 +346,7 @@ class PerformanceProjectService:
             "scope_rules": (project.settings or {}).get("scope_rules", {"groups": []}),
             "status": project.status,
             "evaluated_count": project.evaluated_count,
+            "configuration_completed": bool((project.settings or {}).get("configuration_completed", False)),
         }
 
     @staticmethod
@@ -364,6 +365,7 @@ class PerformanceProjectService:
             "scope_rules": (project.settings or {}).get("scope_rules", {"groups": []}),
             "status": project.status,
             "evaluated_count": project.evaluated_count,
+            "configuration_completed": bool(settings.get("configuration_completed", False)),
             "template_id": settings.get("template_id"),
             "start_at": settings.get("start_at"),
             "end_at": settings.get("end_at"),
@@ -848,6 +850,8 @@ class PerformanceProjectService:
         if "flow_settings" in payload and payload.get("flow_settings") is not None:
             settings["flow_settings"] = cls._validate_flow_settings(payload.get("flow_settings"), settings.get("flow_settings"))
         settings.setdefault("flow_settings", {"node_settings": {}})
+        if payload.get("configuration_completed") is not None:
+            settings["configuration_completed"] = bool(payload.get("configuration_completed"))
         start_at = settings.get("start_at")
         end_at = settings.get("end_at")
         if start_at and end_at and end_at <= start_at:
@@ -998,6 +1002,27 @@ class PerformanceProjectService:
             from app.performance.calibration_service import notify_revoked_calibrators
             project.calibration_change_result["notification_results"] = await notify_revoked_calibrators(self.db, project, notify)
         return project
+
+    def _expired_node_names(self, nodes: list[dict], flow: dict[str, Any]) -> list[str]:
+        """流程节点截止时间早于当前时间的环节名列表（保持节点顺序）。"""
+        now = datetime.now(UTC)
+        node_times = (flow.get("node_times") or {}) if isinstance(flow, dict) else {}
+        node_settings = (flow.get("node_settings") or {}) if isinstance(flow, dict) else {}
+        expired: list[str] = []
+        for node in nodes:
+            node_id = str(node.get("node_id") or "")
+            time = node_times.get(node_id) or {}
+            node_type = node.get("node_type")
+            if node_type == "result_view":
+                deadline = _parse_time(time.get("appeal_deadline"))
+            elif node_type == "calibration" and (time.get("phase_times") or {}):
+                deadlines = [_parse_time(phase.get("end_at")) for phase in time["phase_times"].values()]
+                deadline = max((value for value in deadlines if value is not None), default=None)
+            else:
+                deadline = _parse_time(time.get("end_at"))
+            if deadline is not None and deadline <= now:
+                expired.append(str(node.get("name") or node_id))
+        return expired
 
     @staticmethod
     def _validate_distribution_start_readiness(flow: dict[str, Any], nodes: list[dict]) -> None:
@@ -1185,6 +1210,11 @@ class PerformanceProjectService:
             raise ProjectValidationError("请且仅请选择一个环节作为最终结果")
         flow = canonical_flow((project.settings or {}).get("flow_settings") or {}, project.id)
         project.settings = {**(project.settings or {}), "flow_settings": flow}
+        if not bool((project.settings or {}).get("configuration_completed", False)):
+            raise ProjectValidationError("项目未配置完成，无法启动")
+        expired_names = self._expired_node_names(nodes, flow)
+        if expired_names:
+            raise ProjectValidationError("、".join(expired_names) + "环节截止时间早于当前时间，无法启动")
         self._validate_distribution_start_readiness(flow, nodes)
         try:
             await validate_executor_roles(self.db, nodes)

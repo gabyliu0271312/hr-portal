@@ -3,7 +3,7 @@ import PerformanceInfoPopover from './PerformanceInfoPopover.vue'
 
 withDefaults(defineProps<{
   disabled?: boolean
-  reason?: string
+  reason?: string | string[]
   variant?: 'default' | 'popover'
 }>(), {
   disabled: false,

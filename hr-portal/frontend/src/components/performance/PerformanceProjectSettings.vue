@@ -41,8 +41,11 @@ function canManage(project: PerformanceCycleProjectShell) {
 function projectRow(row: unknown) {
   return row as PerformanceCycleProjectShell
 }
-function statusLabel(status: string) {
-  return { DRAFT: '待完成配置', STARTED: '进行中', ARCHIVED: '已归档' }[status] || status
+function projectStatus(project: PerformanceCycleProjectShell) {
+  if (project.status === 'STARTED') return { label: '已启动', color: 'var(--performance-project-status-started)' }
+  if (project.status === 'ARCHIVED') return { label: '已结束', color: 'var(--performance-project-status-ended)' }
+  if (project.configuration_completed) return { label: '待启动', color: 'var(--performance-project-status-wait-start)' }
+  return { label: '待完成配置', color: 'var(--performance-project-status-wait-config)' }
 }
 </script>
 
@@ -77,7 +80,7 @@ function statusLabel(status: string) {
           <template #default="{ row }">{{ row.administrators.join('、') || '--' }}</template>
         </el-table-column>
         <el-table-column label="状态" min-width="110">
-          <template #default="{ row }"><span class="project-status"><i />{{ statusLabel(row.status) }}</span></template>
+          <template #default="{ row }"><span class="project-status" :style="{ '--project-status-color': projectStatus(projectRow(row)).color }"><i />{{ projectStatus(projectRow(row)).label }}</span></template>
         </el-table-column>
         <el-table-column prop="evaluated_count" label="评估人数" min-width="148" />
         <el-table-column label="操作" width="180" fixed="right" class-name="fixed-operation">
@@ -87,6 +90,9 @@ function statusLabel(status: string) {
               :can-copy="canCreate"
               :started="projectRow(row).status === 'STARTED'"
               :project-name="projectRow(row).name"
+              :status="projectRow(row).status"
+              :configuration-completed="Boolean(projectRow(row).configuration_completed)"
+              :start-blocked-reason="projectRow(row).start_blocked_reason || ''"
               @edit="emit('edit', projectRow(row))"
               @start="emit('start', projectRow(row))"
               @copy="emit('copy', projectRow(row))"
@@ -108,6 +114,6 @@ function statusLabel(status: string) {
 .project-create { width: 80px; }
 .project-filter-panel { margin: -8px 0 16px; padding: 10px 12px; border: 1px solid #d0d3d6; border-radius: 6px; color: #646a73; background: #fff; font-size: 14px; line-height: 22px; }
 .project-table-wrap { min-width: 0; }
-.project-status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.project-status i { width: 6px; height: 6px; border-radius: 50%; background: #f58220; }
+.project-status { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.project-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--project-status-color); }
 </style>
