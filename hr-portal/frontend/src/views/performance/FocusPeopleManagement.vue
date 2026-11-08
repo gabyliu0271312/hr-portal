@@ -22,7 +22,7 @@ function cycleId() {
   return Number.isInteger(value) && value > 0 ? value : null
 }
 
-const activeTab = ref<'semester' | 'project'>('semester')
+const activeTab = ref<'semester' | 'project'>(route.query.tab === 'project' ? 'project' : 'semester')
 const tabs = [
   { key: 'semester', label: '周期级人员组' },
   { key: 'project', label: '关联评估项目的人员组' },
@@ -106,7 +106,7 @@ function openDetail(row: PerformanceFocusGroup) {
   if (!id) { ElMessage.warning('缺少绩效周期'); return }
   // 飞书两层链路：列表「编辑」先进详情管理页（基本信息 + 人员列表 + 变更记录），头部「编辑」才进表单
   const name = activeTab.value === 'project' ? 'PerformanceActivityFocusPeopleDetail' : 'PerformanceCycleFocusPeopleManagementDetail'
-  void router.push({ name, params: { cycleId: id, groupId: row.id } })
+  void router.push({ name, params: { cycleId: id, groupId: row.id }, query: { tab: activeTab.value } })
 }
 
 function openDelete(row: PerformanceFocusGroup) {
@@ -139,6 +139,10 @@ function goBack() {
 watch(activeTab, () => {
   keyword.value = ''
   void load()
+})
+
+watch(() => route.query.tab, value => {
+  if (value === 'project' || value === 'semester') activeTab.value = value
 })
 
 onMounted(async () => {

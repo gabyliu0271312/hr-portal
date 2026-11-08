@@ -107,6 +107,11 @@ async function submit() {
       void router.push({ name: 'PerformanceActivityFocusPeopleDetail', params: { cycleId: cycleId.value, groupId: saved.id } })
       return
     }
+    if (groupId.value) {
+      // 编辑保存后返回详情管理页（飞书两层链路：列表 → 详情 → 表单）
+      void router.push({ name: 'PerformanceActivityFocusPeopleDetail', params: { cycleId: cycleId.value, groupId: groupId.value } })
+      return
+    }
     void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.detail || '创建失败，请稍后重试')
@@ -116,7 +121,11 @@ async function submit() {
 }
 
 function goBack() {
-  void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value } })
+  if (groupId.value) {
+    void router.push({ name: 'PerformanceActivityFocusPeopleDetail', params: { cycleId: cycleId.value, groupId: groupId.value } })
+    return
+  }
+  void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value }, query: { tab: route.query.tab } })
 }
 
 onMounted(() => { void loadProjects(); void loadDetail() })

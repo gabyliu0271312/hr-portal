@@ -46,7 +46,7 @@ async function load() {
 }
 
 function goBack() {
-  const tab = isProject.value ? 'project' : 'semester'
+  const tab = route.query.tab === 'project' ? 'project' : 'semester'
   void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value }, query: { tab } })
 }
 
