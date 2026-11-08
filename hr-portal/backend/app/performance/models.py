@@ -993,6 +993,7 @@ class PerformanceNodeTask(Base):
     phase_id: Mapped[str] = mapped_column(String(96), nullable=False, default="", server_default="")
     task_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    source_type: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

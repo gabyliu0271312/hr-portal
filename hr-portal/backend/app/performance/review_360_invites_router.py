@@ -513,6 +513,7 @@ async def submit_invites(
                         available_at=available_at,
                         due_at=due_at,
                         status="pending",
+                        source_type="INVITE",
                     )
                 )
         await db.commit()

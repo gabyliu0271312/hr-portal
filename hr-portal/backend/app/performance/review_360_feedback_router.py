@@ -189,40 +189,6 @@ async def _reviewer_tasks(
     return list(rows)
 
 
-async def _voluntary_task_ids(
-    db: AsyncSession,
-    project: PerformanceProject,
-    handler_ref: str,
-) -> list[int]:
-    """The ids of the handler's voluntary (self-started) 360° evaluation tasks.
-
-    A task is voluntary when a REVIEWER_360_VOLUNTEERED audit event references
-    it (``after_state.task_id``). Only voluntary tasks may be given up.
-    """
-    rows = (
-        await db.execute(
-            select(PerformanceAuditEvent.after_state)
-            .where(
-                PerformanceAuditEvent.cycle_ref == project.cycle_ref,
-                PerformanceAuditEvent.subject_ref == handler_ref,
-                PerformanceAuditEvent.event_type == VOLUNTARY_AUDIT_EVENT,
-            )
-            .order_by(PerformanceAuditEvent.event_at, PerformanceAuditEvent.id)
-        )
-    ).scalars().all()
-    ids: list[int] = []
-    for state in rows:
-        state = state or {}
-        if str(state.get("project_id")) != str(project.id):
-            continue
-        raw = state.get("task_id")
-        try:
-            ids.append(int(raw))
-        except (TypeError, ValueError):
-            continue
-    return ids
-
-
 async def _feedback_source_labels(
     db: AsyncSession,
     project: PerformanceProject,
@@ -299,7 +265,6 @@ async def list_feedback(
     tasks = [task for task in tasks if task.member_snapshot_id == member_snapshot_id]
     people_by_no = _people_by_no(await _snapshot_people(db, snapshot.id))
     labels = await _feedback_source_labels(db, project, actor_ref, node.node_id if node else None)
-    voluntary_task_ids = set(await _voluntary_task_ids(db, project, actor_ref))
     items: list[FeedbackItemOut] = []
     for task in tasks:
         person = people_by_no.get(task.target_employee_no)
@@ -316,7 +281,7 @@ async def list_feedback(
                 source_label=labels.get(task.target_employee_no, INVITE_SOURCE_LABELS["SELF"]),
                 relationship=_relationship(people_by_no.get(actor_ref), person),
                 due_at=task.due_at.isoformat() if task.due_at else None,
-                can_giveup=task.id in voluntary_task_ids and not is_completed,
+                can_giveup=getattr(task, "source_type", None) == "VOLUNTARY" and not is_completed,
             )
         )
     if keyword:
@@ -429,6 +394,7 @@ async def start_voluntary_evaluation(
         available_at=start_at,
         due_at=end_at,
         status="pending",
+        source_type="VOLUNTARY",
     )
     db.add(task)
     try:
@@ -502,19 +468,7 @@ async def giveup_voluntary_evaluation(
     member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
     if task.member_snapshot_id != member_snapshot_id:
         raise HTTPException(status_code=409, detail="TASK_SNAPSHOT_CHANGED")
-    voluntary_states = (
-        await db.execute(
-            select(PerformanceAuditEvent.after_state).where(
-                PerformanceAuditEvent.cycle_ref == project.cycle_ref,
-                PerformanceAuditEvent.subject_ref == actor_ref,
-                PerformanceAuditEvent.event_type == VOLUNTARY_AUDIT_EVENT,
-            )
-        )
-    ).scalars().all()
-    voluntary = any(
-        str((state or {}).get("task_id")) == str(task.id) for state in voluntary_states
-    )
-    if not voluntary:
+    if getattr(task, "source_type", None) != "VOLUNTARY":
         raise HTTPException(status_code=409, detail="TASK_NOT_VOLUNTARY")
     now = datetime.now(UTC)
     task.revoked_at = now
