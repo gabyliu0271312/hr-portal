@@ -62,7 +62,7 @@ describe('FocusGroupMembersPanel', () => {
     const updateSpy = vi.spyOn(performanceFocusGroupApi, 'updateMembers').mockResolvedValue({ group_id: 8, employee_nos: [], people: [] })
 
     const wrapper = mount(FocusGroupMembersPanel, {
-      props: { cycleId: 1, groupId: 8, groupName: '重点人员', maintainable: true },
+      props: { cycleId: 1, groupId: 8, groupName: '重点人员', maintainable: true, removable: true },
       global: {
         stubs: {
           PerformanceManagementTable: managementTableStub,
@@ -87,6 +87,25 @@ describe('FocusGroupMembersPanel', () => {
     await dialog.find('.confirm-ok').trigger('click')
     await flushPromises()
     expect(updateSpy).toHaveBeenCalledWith(1, 8, [])
+  })
+
+  it('allows remove but not add for semester rule groups', async () => {
+    vi.spyOn(performanceFocusGroupApi, 'members').mockResolvedValue({ group_id: 8, employee_nos: ['E001'], people: [member()] })
+    const wrapper = mount(FocusGroupMembersPanel, {
+      props: { cycleId: 1, groupId: 8, groupName: '规则组', maintainable: false, removable: true },
+      global: {
+        stubs: {
+          PerformanceManagementTable: managementTableStub,
+          PerformanceSearchInput: searchInputStub,
+          PerformanceConfirmDialog: confirmDialogStub,
+          FocusGroupMemberAddDialog: addDialogStub,
+          UiButton: { template: '<button class="ui-button"><slot /></button>' },
+        },
+      },
+    })
+    await flushPromises()
+    expect(wrapper.find('.focus-group-members-row-action').exists()).toBe(true)
+    expect(wrapper.find('.ui-button').text()).toBe('筛选')
   })
 
   it('renders empty state 暂无人员', async () => {

@@ -314,19 +314,28 @@ async def update_focus_group_members(
     db: AsyncSession = Depends(get_session),
 ):
     cycle = await _cycle(db, cycle_id)
-    group = await _group(db, cycle, group_id, lock=True)
-    actor, people = await _scope(db, context, cycle, group)
-    allowed = {person.employee_no for person in people}
+    group = await _group(db, cycle, group_id, lock=True, require_manual=False)
     requested = list(dict.fromkeys(value.strip() for value in payload.employee_nos))
-    if any(value not in allowed for value in requested):
-        raise HTTPException(403, "包含无权维护的成员")
     before = list(group.employee_nos or [])
-    group.employee_nos = list(dict.fromkeys([value for value in before if value not in allowed] + requested))
-    group.updated_by_type = actor.actor_type
-    group.updated_by_ref = actor.actor_ref
+    if group.scope_setting_mode == 1:
+        actor, people = await _scope(db, context, cycle, group)
+        allowed = {person.employee_no for person in people}
+        if any(value not in allowed for value in requested):
+            raise HTTPException(403, "包含无权维护的成员")
+        group.employee_nos = list(dict.fromkeys([value for value in before if value not in allowed] + requested))
+        actor_type, actor_ref = actor.actor_type, actor.actor_ref
+    else:
+        if group.tab != "semester" or "performance.cycles.manage" not in context.permission_codes:
+            raise HTTPException(403, "该人员组不允许手动维护成员")
+        if any(value not in before for value in requested):
+            raise HTTPException(403, "规则维护的周期级人员组仅允许移除成员")
+        group.employee_nos = requested
+        actor_type, actor_ref = context.subject_type, str(context.subject_id)
+    group.updated_by_type = actor_type
+    group.updated_by_ref = actor_ref
     PerformanceAuditService(db).append_event(AuditEventInput(
         event_type="PERFORMANCE_FOCUS_GROUP_MEMBERS_UPDATED", cycle_ref=cycle.cycle_ref,
-        actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+        actor_type=actor_type, actor_ref=actor_ref,
         subject_type="PERFORMANCE_FOCUS_GROUP", subject_ref=str(group.id),
         before_state={"employee_nos": before}, after_state={"employee_nos": group.employee_nos},
     ))

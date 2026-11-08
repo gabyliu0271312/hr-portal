@@ -13,6 +13,8 @@ import PerformanceCreateButton from '@/components/performance/PerformanceCreateB
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
 import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
+import FocusGroupPeopleDialog from '@/components/performance/focus-group/FocusGroupPeopleDialog.vue'
+import type { PerformanceFocusGroupChangePerson } from '@/api/performance'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,6 +38,44 @@ const priorityLoading = ref(true)
 const deleteOpen = ref(false)
 const deleteTarget = ref<PerformanceFocusGroup | null>(null)
 const deleting = ref(false)
+const countOpen = ref(false)
+const countTitle = ref('')
+const countRows = ref<PerformanceFocusGroupChangePerson[]>([])
+const countLoading = ref(false)
+const countError = ref('')
+let countVersion = 0
+
+async function openCount(row: PerformanceFocusGroup) {
+  const id = cycleId()
+  if (!id) return
+  const version = ++countVersion
+  countOpen.value = true
+  countTitle.value = `人员列表（共 ${row.employee_nos.length} 人）`
+  countRows.value = []
+  countLoading.value = true
+  countError.value = ''
+  try {
+    const result = await performanceFocusGroupApi.members(id, row.id)
+    if (version !== countVersion) return
+    countRows.value = result.people.map(person => ({
+      employee_no: person.value,
+      display_name: person.display_name || person.value,
+      direct_supervisor_name: person.direct_supervisor_name,
+      department_2: person.department_2,
+      department_5: person.department_5,
+      job_family: person.job_family,
+    }))
+  } catch (e: any) {
+    if (version === countVersion) countError.value = e?.response?.data?.detail || '人员加载失败，请稍后重试'
+  } finally {
+    if (version === countVersion) countLoading.value = false
+  }
+}
+
+function updateCountOpen(value: boolean) {
+  countOpen.value = value
+  if (!value) countVersion += 1
+}
 
 const columns = computed<PerformanceTableColumn[]>(() => [
   { key: 'name', label: '人员组名称', width: 240, fixed: 'left' },
@@ -198,7 +238,13 @@ onMounted(async () => {
                 <button class="row-action" type="button" :disabled="loading || !canCreate" @click="openDetail(row as PerformanceFocusGroup)">编辑</button>
                 <button class="row-action" type="button" :disabled="loading || !canCreate" @click="openDelete(row as PerformanceFocusGroup)">删除</button>
               </template>
-              <span v-else-if="column.key === 'people_count'">{{ (row as PerformanceFocusGroup).employee_nos.length }}</span>
+              <button
+                v-else-if="column.key === 'people_count'"
+                class="focus-people-count"
+                type="button"
+                :disabled="loading"
+                @click="openCount(row as PerformanceFocusGroup)"
+              >{{ (row as PerformanceFocusGroup).employee_nos.length }}</button>
               <span v-else-if="column.key === 'project'">{{ (row as PerformanceFocusGroup).activity_names?.length ? (row as PerformanceFocusGroup).activity_names.join('、') : ((row as PerformanceFocusGroup).project_ref || '--') }}</span>
               <span v-else-if="column.key === 'scope_mode'">{{ scopeModeLabels[(row as PerformanceFocusGroup).scope_mode] || (row as PerformanceFocusGroup).scope_mode || '--' }}</span>
               <span v-else-if="column.key === 'created_at' || column.key === 'updated_at'">{{ formatDateTime((row as PerformanceFocusGroup)[column.key]) }}</span>
@@ -213,6 +259,14 @@ onMounted(async () => {
           </PerformanceManagementTable>
         </PerformanceLineTabs>
       </PerformanceContentSurface>
+      <FocusGroupPeopleDialog
+        :model-value="countOpen"
+        :title="countTitle"
+        :rows="countRows"
+        :loading="countLoading"
+        :error="countError"
+        @update:model-value="updateCountOpen"
+      />
       <PerformanceConfirmDialog
         v-model="deleteOpen"
         message="确定删除该人员组吗？"
@@ -226,6 +280,20 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.focus-people-count {
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1456f0;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.focus-people-count:hover {
+  background: #eff0f1;
+}
 .focus-people-page {
   width: 100%;
   min-width: 0;

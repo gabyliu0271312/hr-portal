@@ -2,10 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { performanceFocusGroupApi, type PerformanceFocusGroupChangeLogItem, type PerformanceFocusGroupChangePerson } from '@/api/performance'
 import PerformanceManagementTable from '../PerformanceManagementTable.vue'
-import PerformanceDialogShell from '../PerformanceDialogShell.vue'
 import MetricTemplateEmptyIllustration from '../MetricTemplateEmptyIllustration.vue'
-import UiTable from '@/components/ui/UiTable.vue'
-import type { UiTableColumn } from '@/components/ui/UiTable.vue'
+import FocusGroupPeopleDialog from './FocusGroupPeopleDialog.vue'
 import type { PerformanceTableColumn } from '../performanceTableColumns'
 
 const props = defineProps<{
@@ -95,13 +93,10 @@ function closeCountDetail() {
   detailOpen.value = false
 }
 
-const detailColumns: UiTableColumn[] = [
-  { key: 'display_name', label: '姓名' },
-  { key: 'direct_supervisor_name', label: '直属上级' },
-  { key: 'department_2', label: '一级部门' },
-  { key: 'department_5', label: '末级部门' },
-  { key: 'job_family', label: '序列' },
-]
+function updateDetailOpen(value: boolean) {
+  if (!value) closeCountDetail()
+  else detailOpen.value = true
+}
 
 watch(() => [props.cycleId, props.groupId], () => {
   page.value = 1
@@ -150,24 +145,14 @@ watch(() => [props.cycleId, props.groupId], () => {
       </template>
     </PerformanceManagementTable>
 
-    <PerformanceDialogShell v-model="detailOpen" :title="detailTitle" width="var(--performance-dialog-wide-width)" @close="closeCountDetail">
-      <p v-if="detailError" class="focus-group-changelog-detail-error" role="alert">{{ detailError }}</p>
-      <div class="focus-group-changelog-detail">
-        <UiTable
-          :columns="detailColumns"
-          :rows="detailRows"
-          :loading="detailLoading"
-          loading-text="正在加载人员…"
-          empty-text="暂无人员"
-          row-key="employee_no"
-          aria-label="变更人员列表"
-        >
-          <template #cell="{ row, column, value }">
-            <span>{{ value ?? '--' }}</span>
-          </template>
-        </UiTable>
-      </div>
-    </PerformanceDialogShell>
+    <FocusGroupPeopleDialog
+      :model-value="detailOpen"
+      :title="detailTitle"
+      :rows="detailRows"
+      :loading="detailLoading"
+      :error="detailError"
+      @update:model-value="updateDetailOpen"
+    />
   </div>
 </template>
 
@@ -215,16 +200,5 @@ watch(() => [props.cycleId, props.groupId], () => {
   color: #646a73;
   font-size: 14px;
   line-height: 22px;
-}
-.focus-group-changelog-detail-error {
-  margin: 0 0 var(--spacing-3);
-  color: var(--performance-field-error-color);
-  font-size: var(--font-size-md);
-  line-height: 22px;
-}
-.focus-group-changelog-detail {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
 }
 </style>

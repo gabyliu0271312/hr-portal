@@ -14,8 +14,10 @@ const props = defineProps<{
   cycleId: number | null
   groupId: number | null
   groupName: string
-  /** 是否可手动维护成员（scope_setting_mode === 1）。规则组只读，不渲染添加/移除 */
+  /** 是否可手动添加成员（scope_setting_mode === 1）。 */
   maintainable?: boolean
+  /** 是否可手动移除成员。周期级规则组允许移除，但不允许添加。 */
+  removable?: boolean
 }>()
 
 const rows = ref<PerformanceFocusGroupMember[]>([])
@@ -35,7 +37,7 @@ const columns = computed<PerformanceTableColumn[]>(() => [
   { key: 'job_family', label: '序列', width: 240 },
   { key: 'added_by', label: '添加人', width: 195 },
   { key: 'added_at', label: '添加时间', width: 195 },
-  ...(props.maintainable ? [{ key: 'action', label: '操作', width: 102, fixed: 'right' } as PerformanceTableColumn] : []),
+  ...(props.removable ? [{ key: 'action', label: '操作', width: 102, fixed: 'right' } as PerformanceTableColumn] : []),
 ])
 
 const filteredRows = computed(() => {

@@ -363,12 +363,19 @@ async def test_focus_members_partial_replace_preserves_others_audits_and_rejects
     with pytest.raises(HTTPException) as error:
         await get_focus_group_members(2, 8, context, db)
     assert error.value.status_code == 404
-    # 规则组（scope_setting_mode=0）：查看成员允许（管理端），手动维护仍拒绝
+    # 周期级规则组允许后台管理员手动移除，但禁止添加新成员
     db.group.scope_setting_mode = 0
-    assert (await get_focus_group_members(1, 8, context, db))["employee_nos"] == ["B"]
+    db.group.tab = "semester"
+    admin_context = PerformanceAccessContext(
+        "PORTAL_USER", 9, "管理员", None, ("performance.app",), (), ("performance.cycles.manage",),
+    )
+    assert (await get_focus_group_members(1, 8, admin_context, db))["employee_nos"] == ["B"]
+    result = await update_focus_group_members(1, 8, FocusGroupMembersPayload(employee_nos=[]), admin_context, db)
+    assert result["employee_nos"] == [] and db.commits == 2
+    db.group.employee_nos = ["B"]
     with pytest.raises(HTTPException) as error:
-        await update_focus_group_members(1, 8, FocusGroupMembersPayload(employee_nos=["A", "B"]), context, db)
-    assert error.value.status_code == 409 and db.commits == 1
+        await update_focus_group_members(1, 8, FocusGroupMembersPayload(employee_nos=["A", "B"]), admin_context, db)
+    assert error.value.status_code == 403 and db.commits == 2
     with pytest.raises(ValueError):
         FocusGroupMembersPayload(employee_nos=["A"], actor_ref="other")
 

@@ -23,7 +23,7 @@ const lineTabsStub = {
 const managementTableStub = {
   props: ['rows', 'columns', 'loading', 'emptyText', 'scrollMode'],
   emits: [],
-  template: `<div class="management-table-stub"><template v-for="row in rows" :key="row.id"><span class="stub-row">{{ row.name }}</span></template><slot v-if="!loading && !rows.length" name="empty" :loading="false" :text="emptyText" /></div>`,
+  template: `<div class="management-table-stub"><template v-for="row in rows" :key="row.id"><span class="stub-row">{{ row.name }}</span><template v-for="column in columns" :key="column.key"><slot name="cell" :row="row" :column="column" :value="row[column.key]" /></template></template><slot v-if="!loading && !rows.length" name="empty" :loading="false" :text="emptyText" /></div>`,
 }
 
 function stubGlobals() {
@@ -123,6 +123,23 @@ describe('FocusPeopleManagement', () => {
 
     await wrapper.find('.create-button').trigger('click')
     expect(routerPushMock).toHaveBeenCalledWith({ name: 'PerformanceCycleFocusPeopleCreate', params: { cycleId: 1 }, query: { tab: 'project' } })
+  })
+
+  it('opens shared people dialog from count in either tab', async () => {
+    vi.spyOn(performanceFocusGroupApi, 'list').mockResolvedValue({ total: 1, items: [group({ employee_nos: ['E001'] })] })
+    vi.spyOn(performanceFocusGroupApi, 'priorityCheck').mockResolvedValue(true)
+    const membersSpy = vi.spyOn(performanceFocusGroupApi, 'members').mockResolvedValue({ group_id: 1, employee_nos: ['E001'], people: [{ value: 'E001', label: '甲', display_name: '甲' }] })
+    const wrapper = mount(FocusPeopleManagement, { global: { ...stubGlobals(), stubs: { ...stubGlobals().stubs, FocusGroupPeopleDialog: { props: ['modelValue', 'title', 'rows'], template: '<div v-if="modelValue" class="people-dialog-stub">{{ title }} {{ rows.length }}</div>' } } } })
+    await flushPromises()
+    await wrapper.find('.focus-people-count').trigger('click')
+    await flushPromises()
+    expect(membersSpy).toHaveBeenCalledWith(1, 1)
+    expect(wrapper.find('.people-dialog-stub').text()).toContain('人员列表（共 1 人）')
+    vi.spyOn(performanceFocusGroupApi, 'list').mockResolvedValue({ total: 1, items: [group({ id: 2, tab: 'project', employee_nos: ['E002'] })] })
+    wrapper.findComponent(lineTabsStub).vm.$emit('update:modelValue', 'project')
+    await flushPromises()
+    await wrapper.find('.focus-people-count').trigger('click')
+    expect(membersSpy).toHaveBeenLastCalledWith(1, 2)
   })
 
   it('renders empty illustration state when no rows', async () => {
