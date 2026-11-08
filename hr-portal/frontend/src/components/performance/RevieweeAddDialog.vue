@@ -76,7 +76,7 @@ async function search(keyword: string) {
 async function submit() {
   const projectId = Number(projectValue.value)
   if (!projectId || saving.value) return
-  if (!selected.value.length) { error.value = '请选择要添加的被评估人'; return }
+  if (!selected.value.length) { error.value = '被评估人为必填'; return }
   saving.value = true
   error.value = ''
   const addedPeople = new Set<string>()
@@ -135,8 +135,8 @@ async function submit() {
     </PerformanceFormItem>
     <template #footer>
       <div class="reviewee-add-footer">
-        <UiButton variant="primary" :loading="saving" :disabled="!selected.length || !projectValue" @click="submit">确定</UiButton>
         <UiButton variant="secondary" :disabled="saving" @click="emit('update:modelValue', false)">取消</UiButton>
+        <UiButton variant="primary" :loading="saving" :disabled="!projectValue" @click="submit">确定</UiButton>
       </div>
     </template>
   </PerformanceDialogShell>
@@ -155,7 +155,7 @@ async function submit() {
 .reviewee-add-notice__icon { flex: none; margin-top: 2px; color: var(--performance-notice-info-icon); }
 .reviewee-add-notice__text { font-size: var(--font-size-md); line-height: 22px; color: var(--performance-notice-info-text); }
 .reviewee-add-notice__text p { margin: 0; }
-.reviewee-add-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: 22px; }
+.reviewee-add-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--performance-field-error-font-size); line-height: var(--performance-field-error-line-height); }
 .reviewee-add-footer { display: flex; justify-content: flex-end; gap: var(--performance-dialog-footer-gap); }
 .reviewee-add-footer .performance-button { min-width: var(--performance-button-min-width); }
 </style>
