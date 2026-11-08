@@ -1,5 +1,5 @@
 <template>
-  <PerformanceSurfaceCard class="authorization-panel" title="授权管理">
+  <PerformanceSurfaceCard class="authorization-panel" :title="title">
     <div class="auth-grid">
       <PerformanceGridCard v-for="item in authorizations" :key="item.key" class="auth-card">
         <div class="auth-head">
@@ -23,9 +23,12 @@ export interface AuthorizationItem {
   description: string
 }
 
-defineProps<{
+withDefaults(defineProps<{
+  title?: string
   authorizations: AuthorizationItem[]
-}>()
+}>(), {
+  title: '授权管理',
+})
 
 const emit = defineEmits<{
   view: [item: AuthorizationItem]

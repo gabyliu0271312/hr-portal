@@ -25,6 +25,15 @@ describe('AuthorizationManagementPanel', () => {
     expect(buttons.map(item => item.text())).toEqual(['查看', '查看'])
   })
 
+  it('overrides the section title through the title prop for the 其他 group', () => {
+    const wrapper = mount(AuthorizationManagementPanel, { props: { title: '其他', authorizations: [{ key: 'focus-people', title: '人员组管理', description: '可将管理范围内的人员，添加进对应的人员组中' }] } })
+    expect(wrapper.text()).toContain('其他')
+    expect(wrapper.text()).toContain('人员组管理')
+    expect(wrapper.text()).toContain('可将管理范围内的人员，添加进对应的人员组中')
+    const buttons = wrapper.findAll('.text-button')
+    expect(buttons.map(item => item.text())).toEqual(['查看'])
+  })
+
   it('emits the selected authorization item for the container to handle', async () => {
     const wrapper = mount(AuthorizationManagementPanel, { props: { authorizations } })
 

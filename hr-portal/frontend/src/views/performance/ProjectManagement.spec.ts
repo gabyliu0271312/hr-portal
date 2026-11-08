@@ -267,12 +267,15 @@ describe('ProjectManagement', () => {
     const lineTabs = wrapper.findAllComponents({ name: 'PerformanceLineTabs' })
     expect(lineTabs).toHaveLength(1)
 
-    // 总览 tab 渲染完成率面板（8 张环节卡 + 完成率标题）与授权管理面板
+    // 总览 tab 渲染完成率面板（8 张环节卡 + 完成率标题）与授权管理面板、其他面板（人员组管理）
     expect(wrapper.findComponent({ name: 'CompletionRatePanel' }).exists()).toBe(true)
     expect(wrapper.findComponent({ name: 'AuthorizationManagementPanel' }).exists()).toBe(true)
     expect(wrapper.text()).toContain('完成率')
     expect(wrapper.text()).toContain('授权管理')
-    expect(wrapper.findAll('.grid-card')).toHaveLength(2)
+    expect(wrapper.text()).toContain('其他')
+    expect(wrapper.text()).toContain('人员组管理')
+    expect(wrapper.text()).toContain('可将管理范围内的人员，添加进对应的人员组中')
+    expect(wrapper.findAll('.grid-card')).toHaveLength(3)
     expect(wrapper.findAll('.completion-node-card')).toHaveLength(0)
 
     await tabs[1].trigger('click')
@@ -280,6 +283,7 @@ describe('ProjectManagement', () => {
     expect(wrapper.text()).toContain('406个结果')
     expect(wrapper.findComponent({ name: 'CompletionRatePanel' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'AuthorizationManagementPanel' }).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('人员组管理')
     expect(lineTabs[0].emitted('update:modelValue')).toEqual([['members']])
   })
 
@@ -498,6 +502,26 @@ it('routes authorization views to distinct full-screen pages for the selected cy
   await buttons[1].trigger('click')
   await flushPromises()
   expect(push).toHaveBeenCalledWith({ name: 'PerformanceCalibrationAuthorization', query: { cycle_id: '1' } })
+  wrapper.unmount()
+})
+
+it('renders the 其他 group with a 人员组管理 card whose 查看 does not navigate yet', async () => {
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+  const wrapper = mountView()
+  await flushPromises()
+  const panels = wrapper.findAllComponents({ name: 'AuthorizationManagementPanel' })
+  expect(panels).toHaveLength(2)
+  expect(panels[1].props('title')).toBe('其他')
+  const other = panels[1].findAll('.auth-card')
+  expect(other).toHaveLength(1)
+  expect(other[0].text()).toContain('人员组管理')
+  expect(other[0].text()).toContain('可将管理范围内的人员，添加进对应的人员组中')
+  const pushCallsBefore = push.mock.calls.length
+  await other[0].find('.text-button').trigger('click')
+  await flushPromises()
+  expect(push.mock.calls.length).toBe(pushCallsBefore)
   wrapper.unmount()
 })
 

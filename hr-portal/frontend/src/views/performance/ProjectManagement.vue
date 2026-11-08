@@ -32,8 +32,9 @@
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
+            <AuthorizationManagementPanel v-if="activeTab === 'overview'" title="其他" :authorizations="otherModules" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
-            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" />
+            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" :cycle-name="activeCycle.cycle_name" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
@@ -278,6 +279,11 @@ const completionNodes = computed<CompletionNode[]>(() => {
 const authorizations = ref<AuthorizationItem[]>([
   { key: 'evaluation-transfer', title: '评估任务授权及转交', description: '查看和管理评估任务授权转交记录' },
   { key: 'calibration-auth', title: '校准任务授权', description: '可协助校准人将任务授权他人校准' },
+])
+
+// 「其他」分组：可新增其他管理类模块卡片；查看跳转后续开发
+const otherModules = ref<AuthorizationItem[]>([
+  { key: 'focus-people', title: '人员组管理', description: '可将管理范围内的人员，添加进对应的人员组中' },
 ])
 
 const filterOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
