@@ -9,15 +9,15 @@
         </div>
 
         <div v-if="hasInvites" class="evaluate-ratio-list">
-          <div class="evaluate-ratio-group">
+          <div v-if="evaluated.length" class="evaluate-ratio-group">
             <div class="evaluate-ratio-group-head">
               <span class="evaluate-ratio-group-label">已评估：{{ evaluated.length }}</span>
             </div>
             <div class="evaluate-ratio-people">
-              <PerformanceMemberIdentity v-for="person in evaluated" :key="`e-${person.name}`" :display-name="person.name" size="sm" :dimission="person.dimission" />
+              <PerformanceMemberIdentity v-for="person in evaluated" :key="`e-${person.name}`" :display-name="person.name" size="sm" tag :dimission="person.dimission" />
             </div>
           </div>
-          <div class="evaluate-ratio-group">
+          <div v-if="pending.length" class="evaluate-ratio-group">
             <div class="evaluate-ratio-group-head">
               <span class="evaluate-ratio-group-label">未评估：{{ pending.length }}</span>
               <span v-if="canRemindVisible" class="evaluate-ratio-remind">
@@ -27,7 +27,7 @@
               </span>
             </div>
             <div class="evaluate-ratio-people">
-              <PerformanceMemberIdentity v-for="person in pending" :key="`p-${person.name}`" :display-name="person.name" size="sm" :dimission="person.dimission" />
+              <PerformanceMemberIdentity v-for="person in pending" :key="`p-${person.name}`" :display-name="person.name" size="sm" tag :dimission="person.dimission" />
             </div>
           </div>
         </div>
@@ -86,11 +86,11 @@ function remind() { emit('remind', pending.value.length) }
 .evaluate-ratio-title-bar { display: inline-block; width: 4px; height: 16px; margin: 4px 8px 4px 0; border-radius: 2px; background: var(--color-primary); flex: none; }
 .evaluate-ratio-title { color: var(--color-text-primary); font-size: 16px; font-weight: 600; line-height: 24px; }
 .evaluate-ratio-list { display: flex; flex-direction: column; }
-.evaluate-ratio-group { padding: 12px; margin-bottom: 20px; border-radius: 6px; background: var(--performance-member-avatar-background); }
+.evaluate-ratio-group { padding: 12px; margin-bottom: 14px; border-radius: 6px; background: #f8f9fa; }
 .evaluate-ratio-group:last-child { margin-bottom: 0; }
 .evaluate-ratio-group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; line-height: 22px; }
 .evaluate-ratio-group-label { color: var(--color-text-primary); font-size: 14px; font-weight: 600; }
-.evaluate-ratio-people { display: flex; flex-wrap: wrap; gap: 8px; }
+.evaluate-ratio-people { display: flex; flex-wrap: wrap; gap: 16px 8px; }
 .evaluate-ratio-people :deep(.member-name) { font-size: 14px; line-height: 22px; }
 .evaluate-ratio-empty { color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
 .evaluate-ratio-dimission { padding-top: 12px; color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
