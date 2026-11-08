@@ -7393,6 +7393,8 @@ def management_member_data(monkeypatch):
             self.queries.append(query)
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
             if "performance_result_openings" in sql: return None
+            if "performance_cycles" in sql:
+                return SimpleNamespace(name="测试周期", start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
             assert "performance_project_member_snapshots.project_id = 1" in sql
             assert "performance_project_members.employee_no = 'E1'" in sql
             if "performance_project_members.id = 999" in sql: return None
@@ -7404,8 +7406,11 @@ def management_member_data(monkeypatch):
             entity = query.column_descriptions[0]["entity"]
             if entity is models.PerformanceAuthorizationSnapshotPerson:
                 return SimpleNamespace(all=lambda: [(task.handler_ref, f"冻结处理人{task.id}") for task in tasks])
+            if entity is models.PerformanceNodeTaskAuthorization:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []), all=lambda: [], first=lambda: None)
             values = nodes if entity is models.PerformanceProjectNodeSnapshot else tasks if entity is models.PerformanceNodeTask else members
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+            rows = list(values)
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows), all=lambda: rows, first=lambda: rows[0] if rows else None)
     monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=target))
     monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN")))
@@ -7736,3 +7741,59 @@ async def test_sync_node_task_times_updates_all_tasks_including_calibration_and_
     assert calib_task.due_at == _dt.fromisoformat("2026-09-28T00:00:00Z")
     assert review_task.available_at == now
     assert review_task.due_at == _dt.fromisoformat("2026-10-05T00:00:00Z")
+
+
+@pytest.mark.asyncio
+async def test_management_member_reminder_preview_returns_bot_card_fields(management_member_data):
+    data = management_member_data
+    data.tasks[:] = [task for task in data.tasks if not (task.node_snapshot_id == 20 and task.submitted_at is not None)]
+    preview = await data.routes.project_member_reminder_preview(1, "E1", "node-20", 4, context(), data.db)
+    assert preview["title"] == "绩效任务提醒"
+    assert "为@员工1完成环节20" in preview["description"]
+    assert preview["stage_label"] == "环节20"
+    assert preview["cycle_name"] == "测试周期"
+    assert preview["cycle_start_at"] == "2026-01-01T00:00:00+00:00"
+    assert preview["cycle_end_at"] == "2026-12-31T00:00:00+00:00"
+    assert preview["reminder_name"] in {"M4", "冻结处理人4"}
+    assert preview["stage_type"] == "环节20"
+
+
+@pytest.mark.asyncio
+async def test_management_member_reminder_preview_denies_self_or_missing_target(management_member_data):
+    from fastapi import HTTPException
+    data = management_member_data
+    # task(4) 是 node-20 的未提交 pending 任务，预览必须能取到；node-10 的 task(1) 已提交 → 无 reminder_target → 404
+    with pytest.raises(HTTPException) as error:
+        await data.routes.project_member_reminder_preview(1, "E1", "node-10", 1, context(), data.db)
+    assert error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_management_member_remind_forwards_to_shared_sender(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import models as pm_models
+    data = management_member_data
+    data.project.status = "STARTED"
+    task = data.task(4, submitted=False)
+    sending = AsyncMock(return_value=(True, None))
+    monkeypatch.setattr(data.routes, "_task_handlers", AsyncMock(return_value=["M4"]))
+    monkeypatch.setattr(data.routes, "_send_performance_task_reminder", sending)
+    monkeypatch.setattr(data.routes, "_can_manage_project_like_overview", AsyncMock(return_value=True))
+    monkeypatch.setattr(data.routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN", actor_type="PORTAL_USER", actor_id=1)))
+    audit = SimpleNamespace(append_event=lambda _input: None)
+    monkeypatch.setattr(data.routes, "PerformanceAuditService", lambda _db: audit)
+    class Db:
+        async def execute(self, query):
+            entity = query.column_descriptions[0]["entity"]
+            rows = [task] if entity is pm_models.PerformanceNodeTask else []
+            node = data.nodes[1]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows), all=lambda: rows, first=lambda: (task, node))
+        async def get(self, model, key):
+            return data.project if model is pm_models.PerformanceProject else None
+        async def commit(self): pass
+    result = await data.routes.project_member_remind(1, "E1", SimpleNamespace(node_id="node-20", task_id=4), context(), Db())
+    assert result["delivery_status"] == "success"
+    assert result["accepted_task_ids"] == [4]
+    sending.assert_awaited_once()
+    sent = sending.call_args.args[0]
+    assert sent.id == 4 and sent.target_employee_no == "E1"

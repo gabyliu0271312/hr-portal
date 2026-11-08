@@ -9,7 +9,15 @@
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
             <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at" :editable="false" variant="evaluation-drawer" :message="managementCompletionMessage" />
-            <PerformanceReferenceContent :reference="managementTab" />
+            <PerformanceReferenceContent v-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" />
+            <div v-else-if="stageView" class="performance-stage-empty">
+              <img src="/performance-no-submit.svg" alt="" width="120" height="120">
+              <p>暂未提交</p>
+              <div class="performance-stage-empty__actions">
+                <button v-if="stageView.can_fill" type="button" class="performance-stage-empty__fill" @click="fillStage">填写评估</button>
+                <button v-else-if="stageView.reminder_target" type="button" class="performance-stage-empty__remind" @click="openRemind"><BellOutlinedIcon />催办</button>
+              </div>
+            </div>
           </div>
         </section>
         <section v-else-if="loading || error || activeTab === 'evaluation'" class="performance-review-evaluation-drawer__tab-content">
@@ -34,18 +42,41 @@
       </PerformanceLineTabs>
     </div>
   </UiDrawerShell>
+  <PerformanceConfirmDialog
+    v-model="remindOpen"
+    appearance="submit"
+    :message="stageRemindMessage"
+    description=""
+    cancel-text="取消"
+    confirm-text="确定"
+    @confirm="confirmRemind"
+  >
+    <template #icon><InfoFilledIcon /></template>
+    <template #footer-left>
+      <a class="performance-remind-preview-link" href="#" @click.prevent="loadPreview">预览通知</a>
+    </template>
+  </PerformanceConfirmDialog>
+  <PerformancePopover :visible="previewOpen" :anchor="previewAnchor" role="dialog" :width="380" name="performance-reminder-preview-popover" @close="closePreview">
+    <div v-if="previewLoading" class="performance-remind-preview-loading">正在加载通知预览…</div>
+    <PerformanceReminderPreviewCard v-else-if="previewData" :preview="previewData" />
+  </PerformancePopover>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { performanceReviewApi, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type SelfSummaryPerson } from '@/api/performance'
+import { performanceReviewApi, projectManagementApi, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type PerformanceReminderPreview, type SelfSummaryPerson } from '@/api/performance'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceReviewPersonHeader from './PerformanceReviewPersonHeader.vue'
 import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
+import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
+import PerformancePopover from './PerformancePopover.vue'
+import PerformanceReminderPreviewCard from './PerformanceReminderPreviewCard.vue'
+import BellOutlinedIcon from './BellOutlinedIcon.vue'
+import InfoFilledIcon from './InfoFilledIcon.vue'
 
 type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
 const props = withDefaults(defineProps<{
@@ -53,17 +84,18 @@ const props = withDefaults(defineProps<{
   readonly?: boolean
   taskId?: number | string | null
   employeeNo?: string
+  projectId?: number | string
   nodeName?: string
   activeTab?: string
   person?: Partial<DrawerPerson>
   detailLoader?: () => Promise<PerformanceManagementDetail>
-}>(), { readonly: false, taskId: null, employeeNo: '', nodeName: '', person: () => ({}) })
+}>(), { readonly: false, taskId: null, employeeNo: '', projectId: undefined, nodeName: '', person: () => ({}) })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'update:activeTab': [value: string]
   close: []
   closed: []
-  edit: [payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }]
+  edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; draft_choice?: 'use' | 'discard' }]
   'copy-link': []
   remind: [reference: PerformanceReferenceTab]
 }>()
@@ -72,13 +104,29 @@ const task = ref<PerformanceManagementDetail | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTab = ref(props.activeTab || 'evaluation')
+const remindOpen = ref(false)
+const previewOpen = ref(false)
+const previewAnchor = ref<HTMLElement | null>(null)
+const previewData = ref<PerformanceReminderPreview | null>(null)
+const previewLoading = ref(false)
 const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
 let loadSequence = 0
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const title = computed(() => task.value?.node_name || props.nodeName || '上级评估')
+const resolveProjectId = computed(() => props.projectId ?? task.value?.project_id ?? '')
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
 const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.key === activeTab.value) || referenceTabs.value.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value) || null)
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
+const stageView = computed(() => {
+  const tab = managementTab.value
+  if (!tab?.task_id || tab.status === 'completed') return null
+  return task.value?.stage_views?.find(view => view.node_id === tab.node_id) || null
+})
+const stageRemindMessage = computed(() => {
+  const stage = stageView.value
+  const name = stage?.reminder_target || ''
+  return `确定催办后，会立即向${name}发送飞书通知`
+})
 const tabs = computed<PerformanceLineTab[]>(() => task.value?.management_tabs
   ? task.value.management_tabs.map(tab => ({ key: tab.key, label: tab.node_name }))
   : [
@@ -138,6 +186,53 @@ function edit(choice?: 'use' | 'discard') {
   if (!task.value || task.value.task_id == null || props.readonly || !task.value.editable) return
   emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no, draft_choice: choice })
 }
+function fillStage() {
+  const stage = stageView.value
+  if (!stage || !task.value || !stage.can_fill || stage.task_id == null) return
+  emit('edit', { task_id: stage.task_id, employee_no: displayPerson.value.employee_no, node_id: stage.node_id })
+}
+function openRemind() {
+  if (!stageView.value?.reminder_target) return
+  remindOpen.value = true
+}
+function closePreview() {
+  previewOpen.value = false
+  previewData.value = null
+  previewAnchor.value = null
+}
+async function loadPreview(event: MouseEvent) {
+  const stage = stageView.value
+  if (!stage || !event.currentTarget || stage.task_id == null) return
+  previewAnchor.value = event.currentTarget as HTMLElement
+  previewLoading.value = true
+  previewData.value = null
+  previewOpen.value = true
+  try {
+    previewData.value = await projectManagementApi.memberReminderPreview(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
+  } catch {
+    previewData.value = null
+    ElMessage.error('通知预览加载失败，请稍后重试')
+  } finally {
+    previewLoading.value = false
+  }
+}
+async function confirmRemind() {
+  const stage = stageView.value
+  if (!stage || stage.task_id == null || remindOpen.value === false) return
+  remindOpen.value = false
+  try {
+    const result = await projectManagementApi.memberRemind(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
+    if (result.delivery_status === 'success') {
+      ElMessage.success('催办已发送')
+    } else if (result.delivery_status === 'preview_only') {
+      ElMessage.info('通知仅生成预览，未实际发送')
+    } else {
+      ElMessage.error(result.errors?.map(item => item.error).join('；') || '催办发送失败，请稍后重试')
+    }
+  } catch {
+    ElMessage.error('催办请求提交失败，请稍后重试')
+  }
+}
 watch(() => [props.modelValue, props.taskId, props.employeeNo, props.detailLoader], () => {
   if (props.modelValue) {
     task.value = null
@@ -152,4 +247,5 @@ watch(() => props.activeTab, value => { activeTab.value = value || 'evaluation' 
 <style scoped>
 .performance-review-evaluation-drawer__person{width:100%;min-width:0}.performance-review-evaluation-drawer__opening{margin:0;padding:0 0 12px;color:var(--color-text-secondary);font-size:14px;line-height:22px}
 .performance-review-evaluation-drawer__scroll{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;overflow:auto;background:#f2f3f5}.performance-review-evaluation-drawer__scroll :deep(.line-tabs){min-height:100%;flex:1 0 auto}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-holder){position:sticky;top:0;z-index:20;flex:none;padding:12px 20px 0!important;background:#fff}.performance-review-evaluation-drawer__scroll :deep(.line-tabs.sticky .line-tabs-holder){top:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-overflow){flex-wrap:nowrap;width:max-content;min-width:100%;margin-bottom:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap){overflow-x:auto;scrollbar-width:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap::-webkit-scrollbar){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tab){padding-bottom:12px}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header){margin-bottom:16px;padding-left:0}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header::before){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-ink){top:33px}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-content),.performance-review-evaluation-drawer__scroll :deep(.line-tabs-pane){display:flex;min-height:0;flex:1 0 auto;flex-direction:column}.performance-review-evaluation-drawer__tab-content{display:flex;min-height:0;flex:1 0 auto;flex-direction:column;padding:12px 4px 12px 12px;box-sizing:border-box;background:#f2f3f5}.performance-review-evaluation-drawer__card{flex:1 0 auto;padding:12px 20px;box-sizing:border-box;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px}.performance-review-evaluation-drawer__card :deep(.performance-reference-content){min-height:0}.performance-review-evaluation-drawer__card-title{margin-bottom:16px;color:#1f2329;font-size:16px;font-weight:600;line-height:24px}.performance-review-evaluation-drawer__state{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:14px}.performance-review-evaluation-drawer__state p{margin:0 0 12px}.performance-review-evaluation-drawer__state button{height:32px;padding:4px 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-review-evaluation-drawer__state--error{color:#d14343}.performance-review-evaluation-drawer__tab-placeholder{display:grid;min-height:360px;place-items:center;color:#8f959e;font-size:14px}
+.performance-stage-empty{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:16px;line-height:24px}.performance-stage-empty p{margin:16px 0 24px}.performance-stage-empty__actions{display:flex;align-items:center;gap:12px}.performance-stage-empty__fill{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__fill:hover{background:#2a5fd8}.performance-stage-empty__remind{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__remind:hover{background:#f2f3f5}.performance-stage-empty__remind svg{display:inline-block;width:14px;height:14px;margin-right:4px}.performance-remind-preview-link{color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans);text-decoration:none}.performance-remind-preview-link:hover{color:#2a5fd8}.performance-remind-preview-loading{display:flex;min-height:120px;align-items:center;justify-content:center;color:#646a73;font-size:14px}
 </style>

@@ -1984,12 +1984,52 @@ async def _project_member_detail(project: PerformanceProject, employee_no: str, 
     supervisors = await _snapshot_supervisor_names(db, [member])
     supervisor_name = supervisors.get((snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
     opened_at = await db.scalar(select(PerformanceResultOpening.opened_at).where(PerformanceResultOpening.project_id == project.id, PerformanceResultOpening.employee_no == employee_no))
+    cycle_row = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+    stage_views = []
+    now = datetime.now(UTC)
+    for node in reversed(nodes):
+        related = by_node[node.id]
+        role_code = node_role_code(templates[node.id])
+        anonymous = role_code == ROLE_REVIEWER_360
+        task = max(related, key=lambda item: (item.submitted_at is not None, item.submitted_at.isoformat() if item.submitted_at else "", item.id), default=None)
+        statuses = []
+        for item in related:
+            available_at, due_at = _task_window(item, node, project)
+            statuses.append("completed" if item.submitted_at is not None else "not_started" if available_at and now < available_at else "overdue" if due_at and now > due_at else "pending")
+        statuses = statuses or [_reference_status(None, node, project)]
+        stage_status = "completed" if related and len([item for item in related if item.submitted_at is not None]) == len(related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
+        deadline = _task_window(task, node, project)[1] if task else _parse_time((_node_timing(project, node) or {}).get("end_at"))
+        handler_names_for_view = dict(handler_names)
+        can_fill = False
+        if task is not None and not anonymous and task.submitted_at is None and not _task_completed(task):
+            can_fill = await _task_edit_allowed(db, task, str(actor.actor_ref)) and task.status == "pending" and _task_is_available(task, node, project)
+        reminder_target = None
+        if task is not None and not anonymous and task.submitted_at is None and not _task_completed(task) and str(task.handler_ref) != str(actor.actor_ref):
+            reminder_target = handler_names_for_view.get(str(task.handler_ref)) or str(task.handler_ref)
+        stage_views.append({
+            "node_id": node.node_id, "node_type": node.node_type, "node_name": node.name,
+            "key": f"management-{node.node_id}",
+            "status": stage_status,
+            "task_id": task.id if task is not None and not anonymous else None,
+            "task_kind": getattr(task, "task_kind", None) if task else None,
+            "deadline_at": deadline, "submitted_at": task.submitted_at if task else None,
+            "empty": not related,
+            "can_fill": can_fill,
+            "reminder_target": reminder_target,
+            "anonymous": anonymous,
+        })
     return {
         "task_id": selected_tab["task_id"], "project_id": project.id, "root_review_id": member.id,
         "management_tabs": tabs, "default_active_tab": selected_tab["key"], "opened_at": opened_at,
         "node_id": selected_node.node_id, "return_view": "drawer", "task_kind": selected_node.node_type,
         "entry_mode": "template_task", "node_name": selected_node.name, "content_page_name": _task_content_page_name(selected_node),
         "executor_role_code": selected_template.get("executor_role_code"), "phase_id": None,
+        "stage_views": stage_views,
+        "cycle": {
+            "name": cycle_row.name if cycle_row else "",
+            "start_at": cycle_row.start_at.isoformat() if cycle_row and cycle_row.start_at else None,
+            "end_at": cycle_row.end_at.isoformat() if cycle_row and cycle_row.end_at else None,
+        },
         "deadline_at": selected_tab["deadline_at"], "submitted_at": selected_tab["submitted_at"],
         "editable": False, "submit_allowed": False, "submission_count": sum(task.submitted_at is not None for task in selected_tasks),
         "version": selected_task.answer_version if selected_task else 1,
@@ -2013,6 +2053,99 @@ async def project_member_detail(
 ):
     project = await _get_project(db, project_id)
     return await _project_member_detail(project, employee_no, context, db, root_review_id)
+
+
+class MemberRemindPayload(BaseModel):
+    node_id: str = Field(min_length=1, max_length=128)
+    task_id: int = Field(ge=1)
+
+
+@router.get("/projects/{project_id}/members/{employee_no}/reminder-preview")
+async def project_member_reminder_preview(
+    project_id: int,
+    employee_no: str,
+    node_id: str = Query(min_length=1, max_length=128),
+    task_id: int = Query(ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    """项目管理成员弹窗催办预览：返回飞书 Bot 卡片所需字段（不发通知）。"""
+    project = await _get_project(db, project_id)
+    detail = await _project_member_detail(project, employee_no, context, db)
+    stage = next((view for view in detail.get("stage_views") or [] if view["node_id"] == node_id and view["task_id"] == task_id), None)
+    if stage is None or not stage.get("reminder_target"):
+        raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
+    cycle = detail.get("cycle") or {}
+    return {
+        "title": "绩效任务提醒",
+        "description": f"请尽快前往绩效系统为@{(detail.get('person') or {}).get('display_name') or employee_no}完成{stage['node_name']}。",
+        "stage_label": stage["node_name"],
+        "deadline_at": stage["deadline_at"],
+        "cycle_name": cycle.get("name") or "",
+        "cycle_start_at": cycle.get("start_at"),
+        "cycle_end_at": cycle.get("end_at"),
+        "reminder_name": stage["reminder_target"],
+        "stage_type": "自评" if stage["node_type"] in {"work_summary", "evaluation"} and stage.get("anonymous") else stage["node_name"],
+    }
+
+
+@router.post("/projects/{project_id}/members/{employee_no}/remind")
+async def project_member_remind(
+    project_id: int,
+    employee_no: str,
+    payload: MemberRemindPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    """项目管理成员弹窗催办：对指定任务的实际接收人发送飞书通知。"""
+    project = await _get_project(db, project_id)
+    if project is None or project.status != PROJECT_STATUS_STARTED:
+        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
+    if not await _can_manage_project_like_overview(context, project, db):
+        raise HTTPException(status_code=403, detail="PROJECT_MEMBER_REMIND_FORBIDDEN")
+    row = (await db.execute(
+        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
+        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+        .where(
+            PerformanceNodeTask.id == payload.task_id,
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.target_employee_no == employee_no,
+            PerformanceNodeTask.revoked_at.is_(None),
+            PerformanceProjectNodeSnapshot.node_id == payload.node_id,
+        )
+    )).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
+    task, node = row
+    if task.status != "pending" or _task_completed(task) or not _task_is_available(task, node, project):
+        raise HTTPException(status_code=422, detail="TASK_NOT_REMINDABLE")
+    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+    if str(task.handler_ref) == str(actor.actor_ref):
+        raise HTTPException(status_code=422, detail="TASK_SELF_REMIND_FORBIDDEN")
+    outcomes = []
+    for handler_ref in sorted(await _task_handlers(db, task)):
+        delivery_key = (project.id, node.id, handler_ref, getattr(task, "phase_id", ""))
+        notification_task = SimpleNamespace(id=task.id, handler_ref=handler_ref, member_snapshot_id=task.member_snapshot_id, target_employee_no=task.target_employee_no)
+        outcomes.append(await _send_performance_task_reminder(notification_task, project, node, context, db))
+    ok = bool(outcomes) and all(item[0] for item in outcomes)
+    error = next((item[1] for item in outcomes if not item[0]), None)
+    if ok:
+        PerformanceAuditService(db).append_event(AuditEventInput(
+            event_type="PERFORMANCE_TASK_REMINDER_REQUESTED",
+            cycle_ref=project.cycle_ref,
+            employee_no=task.target_employee_no,
+            actor_type=actor.actor_type,
+            actor_ref=actor.actor_ref,
+            subject_type="PERFORMANCE_NODE_TASK",
+            subject_ref=str(task.id),
+            after_state={"action": "remind", "node_id": payload.node_id, "delivery_status": "sent"},
+        ))
+        await db.commit()
+        return {"delivery_status": "success", "accepted_task_ids": [task.id], "skipped_task_ids": [], "failed_task_ids": []}
+    if outcomes and all(item[0] or item[1] == "NOTIFICATION_PREVIEW_ONLY" for item in outcomes):
+        await db.commit()
+        return {"delivery_status": "preview_only", "accepted_task_ids": [], "skipped_task_ids": [], "failed_task_ids": []}
+    return {"delivery_status": "failed", "accepted_task_ids": [], "skipped_task_ids": [], "failed_task_ids": [task.id], "errors": [{"task_id": task.id, "error": error or "NOTIFICATION_FAILED"}]}
 
 
 def _project_scope_refs(context: PerformanceAccessContext) -> set[str]:

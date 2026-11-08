@@ -52,6 +52,7 @@
       v-if="drawerMember"
       v-model="drawerOpen"
       :employee-no="drawerMember.employee_no"
+      :project-id="drawerMember.project_id"
       :detail-loader="memberDetailLoader"
       :active-tab="drawerActiveTab"
       readonly
@@ -59,6 +60,7 @@
       @close="closeMember"
       @closed="finishClosingMember"
       @copy-link="copyMemberLink"
+      @edit="fillFromDrawer"
     />
     <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
     <RevieweeAddDialog
@@ -149,6 +151,20 @@ async function closeMember() {
   await router.replace({ query })
 }
 function finishClosingMember() { if (!drawerOpen.value) drawerMember.value = null }
+async function fillFromDrawer(payload: { task_id: string | number; employee_no: string; node_id?: string }) {
+  const member = drawerMember.value
+  const projectId = member?.project_id ?? Number(route.query.member_project_id)
+  if (!member || !Number.isFinite(projectId) || projectId <= 0) return
+  const path = '/performance/review/template-task'
+  const query: Record<string, string> = {
+    task_id: String(payload.task_id),
+    project_id: String(projectId),
+    node: payload.node_id || '',
+    employee_no: payload.employee_no,
+  }
+  drawerOpen.value = false
+  await router.push({ path, query })
+}
 async function copyMemberLink() {
   try {
     const resolved = router.resolve({ path: '/performance/project-management', query: memberQuery() })

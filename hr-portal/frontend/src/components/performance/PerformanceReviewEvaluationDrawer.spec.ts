@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { performanceOkrApi, performanceReviewApi } from '@/api/performance'
+import { performanceOkrApi, performanceReviewApi, projectManagementApi } from '@/api/performance'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 
@@ -196,6 +196,89 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(source).toContain(':deep(.line-tabs.sticky .line-tabs-holder){top:0}')
     expect(source).toContain(':deep(.performance-reference-content){min-height:0}')
     expect(source).not.toContain('padding:12px 20px 32px')
+  })
+
+  it('renders the empty stage with fill action and emits edit for the pending task', async () => {
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task),
+      task_id: null,
+      editable: false,
+      submit_allowed: false,
+      node_name: '自评',
+      management_tabs: [{ key: 'management-summary', node_id: 'summary', node_name: '自评', kind: 'node', status: 'pending', task_id: 12, task_kind: 'work_summary', employee_no: 'E001', can_remind: false, submitted_at: null, deadline_at: null, form_schema: [], answers: {} }],
+      default_active_tab: 'management-summary',
+      stage_views: [{ node_id: 'summary', node_type: 'work_summary', node_name: '自评', key: 'management-summary', status: 'pending', task_id: 12, task_kind: 'work_summary', deadline_at: null, submitted_at: null, empty: false, can_fill: true, reminder_target: null, anonymous: false }],
+      cycle: { name: '测试绩效', start_at: '2026-01-01T00:00:00Z', end_at: '2026-12-31T23:59:00Z' },
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', projectId: 1, readonly: true, detailLoader } })
+    await flushPromises()
+    expect(document.body.textContent).toContain('暂未提交')
+    const fill = document.body.querySelector<HTMLButtonElement>('.performance-stage-empty__fill')!
+    expect(fill).not.toBeNull()
+    fill.click()
+    await flushPromises()
+    expect(wrapper.emitted('edit')).toEqual([[{ task_id: 12, employee_no: 'E001', node_id: 'summary' }]])
+    wrapper.unmount()
+  })
+
+  it('opens the remind confirm with preview link and loads the bot card preview', async () => {
+    const preview = { title: '绩效任务提醒', description: '请尽快前往绩效系统为@rita.tang唐洁完成自评。', stage_label: '自评', deadline_at: '2026-11-21T23:59:00Z', cycle_name: '测试绩效', cycle_start_at: '2026-01-01T00:00:00Z', cycle_end_at: '2026-12-31T23:59:00Z', reminder_name: 'gaby.liu刘琦', stage_type: '自评' }
+    vi.spyOn(projectManagementApi, 'memberReminderPreview').mockResolvedValue(preview)
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task),
+      task_id: null,
+      editable: false,
+      submit_allowed: false,
+      node_name: '自评',
+      management_tabs: [{ key: 'management-summary', node_id: 'summary', node_name: '自评', kind: 'node', status: 'pending', task_id: 12, task_kind: 'work_summary', employee_no: 'E001', can_remind: false, submitted_at: null, deadline_at: null, form_schema: [], answers: {} }],
+      default_active_tab: 'management-summary',
+      stage_views: [{ node_id: 'summary', node_type: 'work_summary', node_name: '自评', key: 'management-summary', status: 'pending', task_id: 12, task_kind: 'work_summary', deadline_at: null, submitted_at: null, empty: false, can_fill: false, reminder_target: 'rita.tang唐洁', anonymous: false }],
+      cycle: { name: '测试绩效', start_at: '2026-01-01T00:00:00Z', end_at: '2026-12-31T23:59:00Z' },
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', projectId: 1, readonly: true, detailLoader } })
+    await flushPromises()
+    const remind = document.body.querySelector<HTMLButtonElement>('.performance-stage-empty__remind')!
+    expect(remind).not.toBeNull()
+    remind.click()
+    await flushPromises()
+    expect(document.body.textContent).toContain('确定催办后，会立即向rita.tang唐洁发送飞书通知')
+    const previewLink = document.body.querySelector<HTMLAnchorElement>('.performance-remind-preview-link')!
+    expect(previewLink).not.toBeNull()
+    previewLink.click()
+    await flushPromises()
+    expect(projectManagementApi.memberReminderPreview).toHaveBeenCalledWith(1, 'E001', 'summary', 12)
+    expect(document.body.textContent).toContain('飞书推送')
+    expect(document.body.textContent).toContain('请尽快前往绩效系统为')
+    expect(document.body.textContent).toContain('截止时间：')
+    expect(document.body.textContent).toContain('评估周期：测试绩效')
+    expect(document.body.textContent).toContain('周期范围：')
+    expect(document.body.textContent).toContain('前往飞书绩效')
+    wrapper.unmount()
+  })
+
+  it('sends the member remind and surfaces the delivery result', async () => {
+    vi.spyOn(projectManagementApi, 'memberRemind').mockResolvedValue({ delivery_status: 'success', accepted_task_ids: [12], skipped_task_ids: [], failed_task_ids: [] } as any)
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task),
+      task_id: null,
+      editable: false,
+      submit_allowed: false,
+      node_name: '自评',
+      management_tabs: [{ key: 'management-summary', node_id: 'summary', node_name: '自评', kind: 'node', status: 'pending', task_id: 12, task_kind: 'work_summary', employee_no: 'E001', can_remind: false, submitted_at: null, deadline_at: null, form_schema: [], answers: {} }],
+      default_active_tab: 'management-summary',
+      stage_views: [{ node_id: 'summary', node_type: 'work_summary', node_name: '自评', key: 'management-summary', status: 'pending', task_id: 12, task_kind: 'work_summary', deadline_at: null, submitted_at: null, empty: false, can_fill: false, reminder_target: 'rita.tang唐洁', anonymous: false }],
+      cycle: { name: '测试绩效', start_at: '2026-01-01T00:00:00Z', end_at: '2026-12-31T23:59:00Z' },
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', projectId: 1, readonly: true, detailLoader } })
+    await flushPromises()
+    ;(document.body.querySelector<HTMLButtonElement>('.performance-stage-empty__remind')!).click()
+    await flushPromises()
+    const dialog = document.body.querySelector('.performance-confirm-dialog--submit')!
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === '确定')!
+    confirm.click()
+    await flushPromises()
+    expect(projectManagementApi.memberRemind).toHaveBeenCalledWith(1, 'E001', 'summary', 12)
+    wrapper.unmount()
   })
 
 })

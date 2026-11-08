@@ -36,8 +36,11 @@
           <div v-if="$slots.check" class="performance-confirm-dialog__check-field"><slot name="check" /></div>
         </header>
         <footer class="performance-confirm-dialog__footer">
-          <button ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">{{ cancelText }}</button>
-          <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">{{ confirmText }}</button>
+          <div v-if="$slots['footer-left']" class="performance-confirm-dialog__footer-left"><slot name="footer-left" /></div>
+          <div class="performance-confirm-dialog__footer-actions">
+            <button ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">{{ cancelText }}</button>
+            <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">{{ confirmText }}</button>
+          </div>
         </footer>
       </section>
     </div>
@@ -277,6 +280,20 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
 }
 
+.performance-confirm-dialog__footer-left {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+  font-size: var(--font-size-md);
+  line-height: 22px;
+}
+
+.performance-confirm-dialog__footer-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--performance-dialog-footer-gap);
+}
+
 .performance-confirm-dialog__button {
   display: inline-flex;
   align-items: center;
@@ -334,6 +351,8 @@ onBeforeUnmount(() => {
 .performance-confirm-dialog--submit .performance-confirm-dialog__icon{color:var(--color-action-primary)}
 .performance-confirm-dialog--submit .performance-confirm-dialog__body{color:var(--performance-text-secondary)}
 .performance-confirm-dialog--submit .performance-confirm-dialog__footer{min-height:56px;padding:0 24px 24px;gap:12px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__footer-left{margin-right:auto;padding-right:12px}
+.performance-confirm-dialog--submit .performance-confirm-dialog__footer-actions{display:flex;align-items:flex-end;gap:12px;margin-left:auto}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button{height:32px;min-width:80px;padding:4px 11px;font-weight:400;font-size:14px;line-height:22px;border-radius:6px}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--danger{background:#1456f0;border-color:#1456f0;color:#fff}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:hover:not(:disabled){background:#336df4;border-color:#336df4;color:#fff}

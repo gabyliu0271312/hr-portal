@@ -1105,6 +1105,14 @@ export const projectManagementApi = {
     const { data } = await api.get<PerformanceManagementDetail>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/detail`, { params: rootReviewId ? { root_review_id: rootReviewId } : undefined })
     return data
   },
+  async memberReminderPreview(projectId: number | string, employeeNo: string, nodeId: string, taskId: number): Promise<PerformanceReminderPreview> {
+    const { data } = await api.get<PerformanceReminderPreview>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/reminder-preview`, { params: { node_id: nodeId, task_id: taskId } })
+    return data
+  },
+  async memberRemind(projectId: number | string, employeeNo: string, nodeId: string, taskId: number): Promise<PerformanceReminderResult> {
+    const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/remind`, { node_id: nodeId, task_id: taskId })
+    return data
+  },
   async matrix(projectId: number | string): Promise<ProjectMatrix> {
     const { data } = await api.get<ProjectMatrix>(`/performance/projects/${encodeURIComponent(String(projectId))}/matrix`)
     return data
@@ -1267,7 +1275,37 @@ export type PerformanceTemplateTask = {
   keep_result?: 'keep' | 'change' | null
   reference_tabs?: PerformanceReferenceTab[]
 }
-export type PerformanceManagementDetail = Omit<PerformanceTemplateTask, 'task_id'> & { task_id: string | number | null }
+export type PerformanceStageView = {
+  node_id: string
+  node_type: string
+  node_name: string
+  key: string
+  status: 'completed' | 'overdue' | 'pending' | 'not_started'
+  task_id: number | null
+  task_kind?: string | null
+  deadline_at?: string | null
+  submitted_at?: string | null
+  empty: boolean
+  can_fill: boolean
+  reminder_target?: string | null
+  anonymous: boolean
+}
+export type PerformanceManagementDetail = Omit<PerformanceTemplateTask, 'task_id'> & {
+  task_id: string | number | null
+  stage_views?: PerformanceStageView[]
+  cycle?: { name: string; start_at?: string | null; end_at?: string | null }
+}
+export type PerformanceReminderPreview = {
+  title: string
+  description: string
+  stage_label: string
+  deadline_at?: string | null
+  cycle_name: string
+  cycle_start_at?: string | null
+  cycle_end_at?: string | null
+  reminder_name: string
+  stage_type: string
+}
 export type SelfSummaryTask = PerformanceTemplateTask
 export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }
 
