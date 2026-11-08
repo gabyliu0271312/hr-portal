@@ -6100,6 +6100,24 @@ async def test_member_task_map_skips_non_delegatable_stage_without_key_error(mon
 
 
 @pytest.mark.asyncio
+async def test_reviewer_tasks_excludes_revoked(monkeypatch):
+    """放弃评估后任务带 revoked_at，_reviewer_tasks 列表不得再返回。"""
+    from app.performance import review_360_feedback_router as feedback
+
+    active = SimpleNamespace(id=1, project_id=1, node_snapshot_id=10, handler_ref="REVIEWER", task_kind="evaluation", revoked_at=None)
+    revoked = SimpleNamespace(id=2, project_id=1, node_snapshot_id=10, handler_ref="REVIEWER", task_kind="evaluation", revoked_at="2026-11-08T00:00:00+00:00")
+
+    class FakeDb:
+        async def execute(self, query):
+            captured.append(str(query))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [active, revoked]))
+
+    captured = []
+    result = await feedback._reviewer_tasks(FakeDb(), 1, 10, "REVIEWER")
+    assert "revoked_at IS NULL" in captured[0], captured[0]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status,submitted,expected", [("rejected", False, "rejected"), ("pending", False, "pending"), ("completed", False, "completed"), ("pending", True, "completed")])
 async def test_360_feedback_list_preserves_rejected_and_completed_states(monkeypatch, status, submitted, expected):
     from datetime import UTC, datetime

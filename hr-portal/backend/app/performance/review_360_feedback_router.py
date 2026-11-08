@@ -182,6 +182,7 @@ async def _reviewer_tasks(
                 PerformanceNodeTask.node_snapshot_id == node_id,
                 PerformanceNodeTask.handler_ref == handler_ref,
                 PerformanceNodeTask.task_kind == "evaluation",
+                PerformanceNodeTask.revoked_at.is_(None),
             )
             .order_by(PerformanceNodeTask.created_at, PerformanceNodeTask.id)
         )
