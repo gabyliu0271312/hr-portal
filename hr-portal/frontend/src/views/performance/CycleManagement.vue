@@ -1350,7 +1350,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-page { min-width: 0; }
 .cycle-list-page :deep(.list-page-title) { margin: 0; }
 .cycle-page-content { display: flex; flex: 1; min-width: 0; padding: 0; }
-.cycle-list-page :deep(.list-page-content) { display: flex; min-height: auto; padding: var(--performance-content-surface-padding) 0; }
+.cycle-list-page :deep(.list-page-content) { display: flex; min-height: auto; padding: var(--performance-content-surface-padding); }
 .cycle-workspace-card { min-width: 0; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .cycle-workspace { display: flex; width: 100%; min-width: 0; align-items: stretch; }
 .cycle-list-panel { position: relative; flex: 0 0 228px; width: 228px; min-width: 228px; padding-right: 20px; box-sizing: border-box; }
