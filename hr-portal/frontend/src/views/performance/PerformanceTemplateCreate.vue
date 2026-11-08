@@ -7,6 +7,11 @@
         <UiButton class="next-button" variant="primary" :disabled="loadingTemplate || saving" @click="handleNext">{{ currentStep === steps.length - 1 ? '保存' : '下一步' }}</UiButton>
       </template>
     </UiPageHeader>
+    <div v-if="usageBannerVisible && usageSummary.cycle_count > 0" class="usage-banner">
+      <span class="banner-icon" aria-hidden="true">i</span>
+      <div class="banner-copy">已有 <a href="javascript:void(0)" @click="usageDialogOpen = true">{{ usageSummary.cycle_count }} 个周期的项目</a> 使用此模板，新修改将在保存后同步至用户，仅支持编辑所有的参考、提示内容，但无法修改评估流程、数据写入相关的设置。</div>
+      <button class="banner-close" type="button" aria-label="关闭提示" @click="usageBannerVisible = false">×</button>
+    </div>
     <main class="full-screen-modal-content">
       <section v-if="currentStep === 0" class="basic-info-panel" aria-labelledby="basic-info-title">
         <h1 id="basic-info-title">基本信息</h1><p class="panel-description">请填写绩效模板基本信息</p>
@@ -34,6 +39,7 @@
       <PerformanceTemplatePreviewStep v-else-if="isPreviewStep" :template-id="activeTemplateId" />
       <section v-else-if="currentStep >= 3" class="placeholder-panel" aria-live="polite"><h1>{{ steps[currentStep].label }}</h1><p>当前为前端原型，后续配置功能开放。</p></section>
     </main><div v-if="notice" class="notice" role="alert">{{ notice }}</div>
+    <PerformanceTemplateUsageDialog v-model="usageDialogOpen" :semesters="refSemesterActivity" :summary="usageSummary" />
   </div>
 </template>
 
@@ -49,6 +55,8 @@ import { performanceTemplateApi } from '@/api/performance'
 import PerformanceTemplateWorkflowSettings from './PerformanceTemplateWorkflowSettings.vue'
 import PerformanceTemplateContentSettings from './PerformanceTemplateContentSettings.vue'
 import PerformanceTemplatePreviewStep from '@/components/performance/PerformanceTemplatePreviewStep.vue'
+import PerformanceTemplateUsageDialog from '@/components/performance/PerformanceTemplateUsageDialog.vue'
+import type { PerformanceRefSemesterActivity } from '@/api/performance'
 
 const router = useRouter()
 const workflowRef = ref<InstanceType<typeof PerformanceTemplateWorkflowSettings> | null>(null)
@@ -67,6 +75,10 @@ const calculationError = ref(false)
 const notice = ref('')
 const saving = ref(false)
 const loadingTemplate = ref(false)
+const usageBannerVisible = ref(true)
+const usageDialogOpen = ref(false)
+const usageSummary = ref({ cycle_count: 0, project_count: 0 })
+const refSemesterActivity = ref<PerformanceRefSemesterActivity[]>([])
 const calculationOptions = [{ key: 'content', label: '按评估内容计算', description: '可配置环节内的各个评估项评分计算得到环节内的总分' }, { key: 'role', label: '按评估角色计算', description: '可配置不同环节的评估项评分计算得到最终结果' }]
 const steps = computed(() => { const result = [{ key: 'basic', label: '基本信息' }, { key: 'flow', label: '流程设置' }, { key: 'content', label: '内容设置' }]; if (calculationEnabled.value) result.push({ key: 'calculation', label: '计算规则' }); result.push({ key: 'preview', label: '模板预览' }); return result })
 const isPreviewStep = computed(() => currentStep.value === steps.value.length - 1 && steps.value[currentStep.value]?.key === 'preview')
@@ -97,6 +109,13 @@ async function loadTemplate(id: number) {
   } finally {
     loadingTemplate.value = false
   }
+}
+async function loadUsage(id: number) {
+  try {
+    const data = await performanceTemplateApi.getWorkflow(id)
+    usageSummary.value = data.usage_summary || { cycle_count: 0, project_count: 0 }
+    refSemesterActivity.value = data.ref_semester_activity || []
+  } catch { /* API error is surfaced by the shared client interceptor. */ }
 }
 async function handleNext() {
   if (currentStep.value === steps.value.length - 1) {
@@ -181,7 +200,10 @@ onMounted(async () => {
   const step = router.currentRoute.value.query.step
   if (step === 'workflow') currentStep.value = 1
   if (step === 'content') currentStep.value = 2
-  if (activeTemplateId.value) await loadTemplate(activeTemplateId.value)
+  if (activeTemplateId.value) {
+    await loadTemplate(activeTemplateId.value)
+    loadUsage(activeTemplateId.value)
+  }
 })
 onBeforeUnmount(() => { document.body.style.overflow = '' })
 </script>
@@ -256,6 +278,11 @@ onBeforeUnmount(() => { document.body.style.overflow = '' })
 .full-screen-modal-header .previous-button { border: .666667px solid #d0d3d6; background: #fff; color: #1f2329; }
 .full-screen-modal-header .next-button { margin-left: 0; border: .666667px solid var(--performance-button-primary, #1456f0); background: var(--performance-button-primary, #1456f0); color: #fff; }
 .full-screen-modal-content { display: flex; flex: 1 1 auto; min-height: 0; min-width: 1200px; overflow: auto; background: #fff; }
+.usage-banner { display: flex; align-items: center; flex: 0 0 40px; width: 100%; height: 40px; padding: 0 16px; box-sizing: border-box; background: #e1eaff; font: 400 14px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif; }
+.banner-icon { width: 16px; height: 16px; margin-right: 8px; border-radius: 50%; background: #3370ff; color: #fff; text-align: center; font-size: 12px; line-height: 16px; flex: 0 0 16px; }
+.banner-copy { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.banner-copy a { color: #1890ff; }
+.banner-close { margin-left: 8px; border: 0; background: transparent; color: #646a73; font-size: 20px; line-height: 16px; cursor: pointer; }
 .full-screen-modal-content .basic-info-panel, .full-screen-modal-content .placeholder-panel { width: auto; min-width: 640px; margin: 20px auto 0; padding: 0; border-radius: 0; background: transparent; }
 .full-screen-modal-content .basic-info-panel h1, .full-screen-modal-content .panel-description { display: none; }
 .full-screen-modal-content .basic-info-form { width: 640px; }
