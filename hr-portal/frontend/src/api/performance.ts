@@ -221,6 +221,7 @@ export interface PerformanceReviewNode {
   executor_label: string
   executor_role_code?: string | null
   phase_id?: string | null
+  show_status?: boolean
   status: 'pending' | 'not_started' | 'overdue' | 'completed'
   start_at: string | null
   end_at: string | null
@@ -335,6 +336,8 @@ export interface PerformanceReview360FeedbackList {
   total: number
   node_id: string | null
   allow_voluntary_evaluation: boolean
+  voluntary_evaluation_enabled?: boolean
+  voluntary_evaluation_disabled_reason?: string | null
 }
 
 export interface PerformanceReview360VoluntaryCandidate {

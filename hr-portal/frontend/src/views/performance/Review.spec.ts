@@ -932,6 +932,19 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('hides task status badges when a 360 node has no active tasks', async () => {
+    const loaded = structuredClone(overview)
+    Object.assign(loaded.categories[1].nodes[0], { show_status: false })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(loaded)
+    const wrapper = mountView()
+    await flushPromises()
+    const sidebar = wrapper.get('.review-sidebar')
+    expect(sidebar.findAll('.review-node')).toHaveLength(4)
+    expect(sidebar.text()).not.toContain('已逾期')
+    expect(sidebar.find('.status-overdue').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('hides completed badges in the sidebar without removing their navigation entries', async () => {
     const loaded = structuredClone(overview)
     Object.assign(loaded.categories[0].nodes[0], { status: 'completed' })

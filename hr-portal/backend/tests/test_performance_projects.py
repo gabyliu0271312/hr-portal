@@ -6241,7 +6241,7 @@ def voluntary_360_context(monkeypatch):
     (True, "early", False, (409, "VOLUNTARY_WINDOW_NOT_OPEN")),
     (True, "early", True, (409, "VOLUNTARY_WINDOW_NOT_OPEN")),
     (True, "closed", False, (409, "VOLUNTARY_WINDOW_CLOSED")),
-    (True, "closed", True, None),
+    (True, "closed", True, (409, "VOLUNTARY_WINDOW_CLOSED")),
     (True, "open", False, None),
 ])
 async def test_voluntary_360_list_candidates_and_start_share_permission(voluntary_360_context, enabled, window, overdue, error):
@@ -6259,6 +6259,9 @@ async def test_voluntary_360_list_candidates_and_start_share_permission(voluntar
     data.db.overdue = overdue
     listed = await data.feedback.list_feedback(1, node_id="feedback-second", keyword=None, context=context(), db=data.db)
     assert listed.allow_voluntary_evaluation is (error is None)
+    assert listed.voluntary_evaluation_enabled is enabled
+    if enabled and window == "closed":
+        assert listed.voluntary_evaluation_disabled_reason == "360°评估已截止，无法发起自愿评估"
     assert [item.task_id for item in listed.items] == [102]
     assert listed.items[0].source_label == "自己邀请"
     calls = [

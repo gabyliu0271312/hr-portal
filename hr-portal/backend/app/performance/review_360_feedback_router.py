@@ -32,7 +32,6 @@ from app.performance.models import (
     PerformanceAuditEvent,
     PerformanceAuthorizationSnapshotPerson,
     PerformanceNodeTask,
-    PerformanceOtherSetting,
     PerformanceProject,
     PerformanceProjectNodeSnapshot,
 )
@@ -74,6 +73,8 @@ class FeedbackListOut(BaseModel):
     total: int
     node_id: str | None = None
     allow_voluntary_evaluation: bool = False
+    voluntary_evaluation_enabled: bool = False
+    voluntary_evaluation_disabled_reason: str | None = None
 
 
 class FeedbackCandidateOut(BaseModel):
@@ -105,11 +106,6 @@ class GiveUpPayload(BaseModel):
     node_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
-async def _overdue_voluntary_allowed(db: AsyncSession) -> bool:
-    setting = await db.get(PerformanceOtherSetting, 1)
-    return setting is not None and setting.overdue_voluntary_360_submission_enabled
-
-
 async def _voluntary_permission_error(db, project, node, nodes):
     if node is None:
         return 409, "REVIEWER_360_NODE_NOT_CONFIGURED"
@@ -119,7 +115,7 @@ async def _voluntary_permission_error(db, project, node, nodes):
     now = datetime.now(UTC)
     if start_at is not None and now < start_at:
         return 409, "VOLUNTARY_WINDOW_NOT_OPEN"
-    if end_at is not None and now > end_at and not await _overdue_voluntary_allowed(db):
+    if end_at is not None and now > end_at:
         return 409, "VOLUNTARY_WINDOW_CLOSED"
     return None
 
@@ -260,7 +256,16 @@ async def list_feedback(
     actor_ref = await _resolve_cycle_member_employee(db, context, project)
     nodes = await _project_nodes(db, project.id)
     node = await _evaluation_node(db, project.id, node_id, nodes=nodes)
-    allow_voluntary = await _voluntary_permission_error(db, project, node, nodes) is None
+    voluntary_enabled = bool(node and _invite_settings(project, node.node_id, nodes=nodes).get("allow_voluntary_evaluation"))
+    voluntary_error = await _voluntary_permission_error(db, project, node, nodes)
+    allow_voluntary = voluntary_error is None
+    voluntary_disabled_reason = {
+        "VOLUNTARY_WINDOW_CLOSED": "360°评估已截止，无法发起自愿评估",
+        "VOLUNTARY_WINDOW_NOT_OPEN": "360°评估尚未开始，无法发起自愿评估",
+        "VOLUNTARY_NOT_ALLOWED": "当前项目未开启自愿评估",
+        "REVIEWER_360_NODE_NOT_CONFIGURED": "当前未配置360°评估环节",
+    }.get(voluntary_error[1] if voluntary_error else "")
+
     tasks = await _reviewer_tasks(db, project.id, node.id if node else None, actor_ref)
     member_snapshot_id = await _latest_member_snapshot_id(db, project.id)
     tasks = [task for task in tasks if task.member_snapshot_id == member_snapshot_id]
@@ -296,6 +301,8 @@ async def list_feedback(
         total=len(items),
         node_id=node.node_id if node else None,
         allow_voluntary_evaluation=allow_voluntary,
+        voluntary_evaluation_enabled=voluntary_enabled,
+        voluntary_evaluation_disabled_reason=voluntary_disabled_reason,
     )
 
 

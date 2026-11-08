@@ -3755,7 +3755,11 @@ async def review_overview(
         )
     ).scalars().all()
     task_ids = access.task_ids_by_project.get(project.id, set())
-    task_query = select(PerformanceNodeTask).where(PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.id.in_(task_ids))
+    task_query = select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.id.in_(task_ids),
+        PerformanceNodeTask.revoked_at.is_(None),
+    )
     tasks = (await db.execute(task_query.order_by(PerformanceNodeTask.id))).scalars().all()
     tasks = [task for task in tasks if task.id in task_ids]
     tasks_by_node = {}
@@ -3791,6 +3795,7 @@ async def review_overview(
             "node_name": template_names.get(node.node_id, node.name),
             "node_type": node.node_type,
             "task_kind": selected_task_kind,
+            "show_status": bool(status_tasks) if node_role_code(raw_node) == ROLE_REVIEWER_360 else True,
             "entry_mode": _task_entry_mode(selected_task),
             "executor_label": raw_node.get("executor_label") or "",
             "executor_role_code": node_role_code({"node_type": node.node_type, **raw_node}),

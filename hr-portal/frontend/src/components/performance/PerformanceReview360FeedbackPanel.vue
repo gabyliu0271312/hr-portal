@@ -40,6 +40,8 @@ type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<Pe
 const items = ref<FeedbackRow[]>([])
 const total = ref(0)
 const allowVoluntary = ref(false)
+const voluntaryEnabled = ref(false)
+const voluntaryDisabledReason = ref('')
 const communicationMode = computed(() => props.mode === 'communication')
 
 const columns: MemberColumnOption[] = [
@@ -85,6 +87,9 @@ const visibleColumns = computed(() => selectedColumnKeys.value.map(key => active
 async function load() {
   loading.value = true
   error.value = ''
+  allowVoluntary.value = false
+  voluntaryEnabled.value = false
+  voluntaryDisabledReason.value = ''
   try {
     if (communicationMode.value) {
       const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.nodeId, 'all', keyword.value.trim() || undefined)
@@ -96,6 +101,8 @@ async function load() {
       items.value = result.items
       total.value = result.total
       allowVoluntary.value = result.allow_voluntary_evaluation
+      voluntaryEnabled.value = result.voluntary_evaluation_enabled ?? result.allow_voluntary_evaluation
+      voluntaryDisabledReason.value = result.voluntary_evaluation_disabled_reason || ''
     }
   } catch {
     items.value = []
@@ -233,7 +240,7 @@ const pagedItems = computed(() => sortedItems.value.slice((page.value - 1) * pag
 watch(() => [props.projectId, props.nodeId, props.mode], () => { page.value = 1; void load() })
 onMounted(() => void load())
 
-defineExpose({ allowVoluntary, openVoluntaryDialog })
+defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVoluntaryDialog })
 </script>
 
 <template>

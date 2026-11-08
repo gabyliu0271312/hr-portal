@@ -55,7 +55,7 @@ defineEmits<{ click: [event: MouseEvent] }>()
 .performance-button--primary { border-color: var(--performance-button-primary-background); background: var(--performance-button-primary-background); color: var(--performance-button-primary-text); }
 .performance-button--primary:hover:not(:disabled) { border-color: var(--performance-button-primary-hover-background); background: var(--performance-button-primary-hover-background); }
 .performance-button--primary:active:not(:disabled) { border-color: var(--performance-button-primary-active-background); background: var(--performance-button-primary-active-background); }
-.performance-button--primary:disabled { border-color: var(--performance-button-primary-disabled-background); background: var(--performance-button-primary-disabled-background); color: var(--color-text-disabled); }
+.performance-button--primary:disabled { border-color: var(--performance-button-primary-disabled-background); background: var(--performance-button-primary-disabled-background); color: var(--performance-button-primary-disabled-text, var(--color-text-disabled)); opacity: var(--performance-button-primary-disabled-opacity, .6); }
 .performance-button--secondary { border-color: var(--performance-button-secondary-border); background: var(--performance-button-secondary-background); color: var(--performance-button-secondary-text); }
 .performance-button--outline-primary { border-color: var(--performance-button-outline-primary-border); background: var(--performance-button-outline-primary-background); color: var(--performance-button-outline-primary-text); }
 .performance-button--outline-primary:hover:not(:disabled) { background: var(--performance-button-outline-primary-hover-background); }

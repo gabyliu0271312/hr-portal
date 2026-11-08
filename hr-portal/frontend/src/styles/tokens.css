@@ -327,7 +327,9 @@
   --performance-button-primary-background: var(--color-primary-hover);
   --performance-button-primary-hover-background: var(--color-primary-hover);
   --performance-button-primary-active-background: var(--color-primary-active);
-  --performance-button-primary-disabled-background: var(--color-surface-disabled);
+  --performance-button-primary-disabled-background: #bbbfc4;
+  --performance-button-primary-disabled-text: #fff;
+  --performance-button-primary-disabled-opacity: 1;
   --performance-button-primary-text: var(--color-bg-card);
   --performance-button-secondary-background: var(--color-bg-card);
   --performance-button-secondary-hover-background: var(--color-surface-disabled);

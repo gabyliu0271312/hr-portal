@@ -17,8 +17,10 @@
           <span v-else-if="node.status !== 'completed' && node.end_at" class="review-deadline">截止时间：{{ formatDeadline(node.end_at) }}</span>
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
         </div>
-        <div v-if="shows360Feedback" class="review-heading-actions">
-          <UiButton v-if="feedbackPanel?.allowVoluntary" variant="primary" aria-label="自愿评估" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</UiButton>
+        <div v-if="shows360Feedback && feedbackPanel?.voluntaryEnabled" class="review-heading-actions">
+          <PerformanceDisabledReason :disabled="!feedbackPanel?.allowVoluntary" :reason="feedbackPanel?.voluntaryDisabledReason">
+            <UiButton variant="primary" aria-label="自愿评估" :disabled="!feedbackPanel?.allowVoluntary" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</UiButton>
+          </PerformanceDisabledReason>
         </div>
       </div>
       <div class="review-body" :class="{ 'review-body--completed': node.status === 'completed' && !showsEvaluationWorkspace }">
@@ -77,6 +79,7 @@
 import { computed, ref, watch } from 'vue'
 import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
+import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
