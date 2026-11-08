@@ -46,7 +46,8 @@ async function load() {
 }
 
 function goBack() {
-  const tab = route.query.tab === 'project' ? 'project' : 'semester'
+  // 项目版详情页（activity-focus-people/:groupId）返回项目级 tab，不依赖进入时的 query
+  const tab = isProject.value ? 'project' : 'semester'
   void router.push({ name: 'PerformanceCycleFocusPeople', params: { cycleId: cycleId.value }, query: { tab } })
 }
 
