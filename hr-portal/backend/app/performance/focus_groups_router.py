@@ -183,8 +183,11 @@ class ResolveScopeGroupPeopleOut(BaseModel):
     display_name: str
     direct_supervisor_name: str | None = None
     organization_ref: str | None = None
+    department: str | None = None
     department_2: str | None = None
     job_family: str | None = None
+    job_category: str | None = None
+    job_sequence: str | None = None
 
 
 class ResolveScopeOut(BaseModel):
