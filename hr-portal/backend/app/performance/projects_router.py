@@ -2003,16 +2003,16 @@ async def _project_member_detail(project: PerformanceProject, employee_no: str, 
         deadline = _task_window(task, node, project)[1] if task else _parse_time((_node_timing(project, node) or {}).get("end_at"))
         handler_names_for_view = dict(handler_names)
         can_fill = False
-        if task is not None and not anonymous and task.submitted_at is None and not _task_completed(task):
+        if task is not None and task.submitted_at is None and not _task_completed(task):
             can_fill = await _task_edit_allowed(db, task, str(actor.actor_ref)) and task.status == "pending" and _task_is_available(task, node, project)
         reminder_target = None
-        if task is not None and not anonymous and task.submitted_at is None and not _task_completed(task) and str(task.handler_ref) != str(actor.actor_ref):
+        if task is not None and task.submitted_at is None and not _task_completed(task) and str(task.handler_ref) != str(actor.actor_ref):
             reminder_target = handler_names_for_view.get(str(task.handler_ref)) or str(task.handler_ref)
         stage_views.append({
             "node_id": node.node_id, "node_type": node.node_type, "node_name": node.name,
             "key": f"management-{node.node_id}",
             "status": stage_status,
-            "task_id": task.id if task is not None and not anonymous else None,
+            "task_id": task.id if task is not None else None,
             "task_kind": getattr(task, "task_kind", None) if task else None,
             "deadline_at": deadline, "submitted_at": task.submitted_at if task else None,
             "empty": not related,

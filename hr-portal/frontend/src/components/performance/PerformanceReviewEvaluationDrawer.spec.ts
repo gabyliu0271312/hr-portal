@@ -221,7 +221,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
-  it('opens the remind confirm with preview link and loads the bot card preview', async () => {
+  it('opens the remind confirm with preview link and loads the bot card preview on hover', async () => {
     const preview = { title: '绩效任务提醒', description: '请尽快前往绩效系统为@rita.tang唐洁完成自评。', stage_label: '自评', deadline_at: '2026-11-21T23:59:00Z', cycle_name: '测试绩效', cycle_start_at: '2026-01-01T00:00:00Z', cycle_end_at: '2026-12-31T23:59:00Z', reminder_name: 'gaby.liu刘琦', stage_type: '自评' }
     vi.spyOn(projectManagementApi, 'memberReminderPreview').mockResolvedValue(preview)
     const detailLoader = vi.fn().mockResolvedValue({
@@ -244,7 +244,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(document.body.textContent).toContain('确定催办后，会立即向rita.tang唐洁发送飞书通知')
     const previewLink = document.body.querySelector<HTMLAnchorElement>('.performance-remind-preview-link')!
     expect(previewLink).not.toBeNull()
-    previewLink.click()
+    previewLink.dispatchEvent(new MouseEvent('mouseenter'))
     await flushPromises()
     expect(projectManagementApi.memberReminderPreview).toHaveBeenCalledWith(1, 'E001', 'summary', 12)
     expect(document.body.textContent).toContain('飞书推送')
@@ -253,11 +253,14 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(document.body.textContent).toContain('评估周期：测试绩效')
     expect(document.body.textContent).toContain('周期范围：')
     expect(document.body.textContent).toContain('前往飞书绩效')
+    const action = document.body.querySelector<HTMLButtonElement>('.reminder-preview-card__action')!
+    expect(action).not.toBeNull()
+    expect(action.tagName).toBe('BUTTON')
+    expect(action.hasAttribute('href')).toBe(false)
     wrapper.unmount()
   })
 
-  it('sends the member remind and surfaces the delivery result', async () => {
-    vi.spyOn(projectManagementApi, 'memberRemind').mockResolvedValue({ delivery_status: 'success', accepted_task_ids: [12], skipped_task_ids: [], failed_task_ids: [] } as any)
+  it('sends the member remind and surfaces the delivery result', async () => {    vi.spyOn(projectManagementApi, 'memberRemind').mockResolvedValue({ delivery_status: 'success', accepted_task_ids: [12], skipped_task_ids: [], failed_task_ids: [] } as any)
     const detailLoader = vi.fn().mockResolvedValue({
       ...structuredClone(task),
       task_id: null,
@@ -278,6 +281,29 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     confirm.click()
     await flushPromises()
     expect(projectManagementApi.memberRemind).toHaveBeenCalledWith(1, 'E001', 'summary', 12)
+    wrapper.unmount()
+  })
+
+  it('renders the anonymous 360 stage as fill when the actor is its handler', async () => {
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task),
+      task_id: null,
+      editable: false,
+      submit_allowed: false,
+      node_name: '360°反馈',
+      management_tabs: [{ key: 'management-feedback', node_id: 'feedback', node_name: '360°反馈', kind: 'node', status: 'pending', task_id: null, task_kind: 'evaluation', employee_no: 'E001', can_remind: false, submitted_at: null, deadline_at: null, form_schema: [], answers: {} }],
+      default_active_tab: 'management-feedback',
+      stage_views: [{ node_id: 'feedback', node_type: 'evaluation', node_name: '360°反馈', key: 'management-feedback', status: 'pending', task_id: 40, task_kind: 'evaluation', deadline_at: null, submitted_at: null, empty: false, can_fill: true, reminder_target: null, anonymous: true }],
+      cycle: { name: '测试绩效', start_at: '2026-01-01T00:00:00Z', end_at: '2026-12-31T23:59:00Z' },
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', projectId: 1, readonly: true, detailLoader } })
+    await flushPromises()
+    expect(document.body.textContent).toContain('暂未提交')
+    const fill = document.body.querySelector<HTMLButtonElement>('.performance-stage-empty__fill')!
+    expect(fill).not.toBeNull()
+    fill.click()
+    await flushPromises()
+    expect(wrapper.emitted('edit')).toEqual([[{ task_id: 40, employee_no: 'E001', node_id: 'feedback' }]])
     wrapper.unmount()
   })
 

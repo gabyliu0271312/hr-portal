@@ -7505,6 +7505,32 @@ async def test_management_detail_masks_360_until_anonymous_projection_is_availab
 
 
 @pytest.mark.asyncio
+async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anonymous_node(management_member_data):
+    from unittest.mock import AsyncMock
+    data = management_member_data
+    data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    for index in (2, 3, 4):
+        data.tasks[index - 1].submitted_at = None
+        data.tasks[index - 1].status = "pending"
+    # actor 是 360 任务的处理人：应显示「填写评估」
+    for index in (2, 3, 4):
+        data.tasks[index - 1].handler_ref = "ADMIN"
+    data.routes.resolve_trusted_performance_actor = AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN"))
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
+    assert stage["anonymous"] is True
+    assert stage["can_fill"] is True and stage["reminder_target"] is None
+    assert stage["task_id"] == 4
+    # actor 非处理人：应显示「催办」
+    for index in (2, 3, 4):
+        data.tasks[index - 1].handler_ref = "M4"
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
+    assert stage["can_fill"] is False
+    assert stage["reminder_target"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("column_count", [1, 2])
 async def test_management_list_dynamic_final_ratings_empty_page_and_sort_validation(management_member_data, monkeypatch, column_count):
     from unittest.mock import AsyncMock

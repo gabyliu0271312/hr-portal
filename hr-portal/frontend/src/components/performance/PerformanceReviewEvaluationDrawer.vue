@@ -53,12 +53,11 @@
   >
     <template #icon><InfoFilledIcon /></template>
     <template #footer-left>
-      <a class="performance-remind-preview-link" href="#" @click.prevent="loadPreview">预览通知</a>
+      <a class="performance-remind-preview-link" href="#" @mouseenter="loadPreview" @mouseleave="closePreview">预览通知</a>
     </template>
   </PerformanceConfirmDialog>
-  <PerformancePopover :visible="previewOpen" :anchor="previewAnchor" role="dialog" :width="380" name="performance-reminder-preview-popover" @close="closePreview">
-    <div v-if="previewLoading" class="performance-remind-preview-loading">正在加载通知预览…</div>
-    <PerformanceReminderPreviewCard v-else-if="previewData" :preview="previewData" />
+  <PerformancePopover :visible="previewOpen" :anchor="previewAnchor" role="dialog" :width="380" name="performance-reminder-preview-popover" @close="closePreview" @mouseenter="cancelClose" @mouseleave="closePreview">
+    <PerformanceReminderPreviewCard v-if="previewData" :preview="previewData" />
   </PerformancePopover>
 </template>
 
@@ -108,7 +107,6 @@ const remindOpen = ref(false)
 const previewOpen = ref(false)
 const previewAnchor = ref<HTMLElement | null>(null)
 const previewData = ref<PerformanceReminderPreview | null>(null)
-const previewLoading = ref(false)
 const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
 let loadSequence = 0
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
@@ -119,7 +117,7 @@ const activeReference = computed<PerformanceReferenceTab | null>(() => reference
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
 const stageView = computed(() => {
   const tab = managementTab.value
-  if (!tab?.task_id || tab.status === 'completed') return null
+  if (!tab || tab.status === 'completed') return null
   return task.value?.stage_views?.find(view => view.node_id === tab.node_id) || null
 })
 const stageRemindMessage = computed(() => {
@@ -195,26 +193,29 @@ function openRemind() {
   if (!stageView.value?.reminder_target) return
   remindOpen.value = true
 }
-function closePreview() {
-  previewOpen.value = false
-  previewData.value = null
-  previewAnchor.value = null
+let previewCloseTimer: ReturnType<typeof setTimeout> | undefined
+function cancelClose() {
+  if (previewCloseTimer) { clearTimeout(previewCloseTimer); previewCloseTimer = undefined }
 }
-async function loadPreview(event: MouseEvent) {
+function closePreview() {
+  if (previewCloseTimer) return
+  previewCloseTimer = setTimeout(() => {
+    previewCloseTimer = undefined
+    previewOpen.value = false
+    previewData.value = null
+    previewAnchor.value = null
+  }, 150)
+}
+function loadPreview(event: MouseEvent) {
   const stage = stageView.value
   if (!stage || !event.currentTarget || stage.task_id == null) return
+  cancelClose()
   previewAnchor.value = event.currentTarget as HTMLElement
-  previewLoading.value = true
   previewData.value = null
   previewOpen.value = true
-  try {
-    previewData.value = await projectManagementApi.memberReminderPreview(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
-  } catch {
-    previewData.value = null
-    ElMessage.error('通知预览加载失败，请稍后重试')
-  } finally {
-    previewLoading.value = false
-  }
+  void projectManagementApi.memberReminderPreview(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
+    .then(data => { if (previewOpen.value) previewData.value = data })
+    .catch(() => { if (previewOpen.value) closePreview() })
 }
 async function confirmRemind() {
   const stage = stageView.value
@@ -247,5 +248,5 @@ watch(() => props.activeTab, value => { activeTab.value = value || 'evaluation' 
 <style scoped>
 .performance-review-evaluation-drawer__person{width:100%;min-width:0}.performance-review-evaluation-drawer__opening{margin:0;padding:0 0 12px;color:var(--color-text-secondary);font-size:14px;line-height:22px}
 .performance-review-evaluation-drawer__scroll{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;overflow:auto;background:#f2f3f5}.performance-review-evaluation-drawer__scroll :deep(.line-tabs){min-height:100%;flex:1 0 auto}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-holder){position:sticky;top:0;z-index:20;flex:none;padding:12px 20px 0!important;background:#fff}.performance-review-evaluation-drawer__scroll :deep(.line-tabs.sticky .line-tabs-holder){top:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-overflow){flex-wrap:nowrap;width:max-content;min-width:100%;margin-bottom:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap){overflow-x:auto;scrollbar-width:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap::-webkit-scrollbar){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tab){padding-bottom:12px}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header){margin-bottom:16px;padding-left:0}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header::before){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-ink){top:33px}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-content),.performance-review-evaluation-drawer__scroll :deep(.line-tabs-pane){display:flex;min-height:0;flex:1 0 auto;flex-direction:column}.performance-review-evaluation-drawer__tab-content{display:flex;min-height:0;flex:1 0 auto;flex-direction:column;padding:12px 4px 12px 12px;box-sizing:border-box;background:#f2f3f5}.performance-review-evaluation-drawer__card{flex:1 0 auto;padding:12px 20px;box-sizing:border-box;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px}.performance-review-evaluation-drawer__card :deep(.performance-reference-content){min-height:0}.performance-review-evaluation-drawer__card-title{margin-bottom:16px;color:#1f2329;font-size:16px;font-weight:600;line-height:24px}.performance-review-evaluation-drawer__state{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:14px}.performance-review-evaluation-drawer__state p{margin:0 0 12px}.performance-review-evaluation-drawer__state button{height:32px;padding:4px 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-review-evaluation-drawer__state--error{color:#d14343}.performance-review-evaluation-drawer__tab-placeholder{display:grid;min-height:360px;place-items:center;color:#8f959e;font-size:14px}
-.performance-stage-empty{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:16px;line-height:24px}.performance-stage-empty p{margin:16px 0 24px}.performance-stage-empty__actions{display:flex;align-items:center;gap:12px}.performance-stage-empty__fill{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__fill:hover{background:#2a5fd8}.performance-stage-empty__remind{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__remind:hover{background:#f2f3f5}.performance-stage-empty__remind svg{display:inline-block;width:14px;height:14px;margin-right:4px}.performance-remind-preview-link{color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans);text-decoration:none}.performance-remind-preview-link:hover{color:#2a5fd8}.performance-remind-preview-loading{display:flex;min-height:120px;align-items:center;justify-content:center;color:#646a73;font-size:14px}
+.performance-stage-empty{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:16px;line-height:24px}.performance-stage-empty p{margin:16px 0 24px}.performance-stage-empty__actions{display:flex;align-items:center;gap:12px}.performance-stage-empty__fill{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__fill:hover{background:#2a5fd8}.performance-stage-empty__remind{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__remind:hover{background:#f2f3f5}.performance-stage-empty__remind svg{display:inline-block;width:14px;height:14px;margin-right:4px}.performance-remind-preview-link{color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans);text-decoration:none}.performance-remind-preview-link:hover{color:#2a5fd8}
 </style>
