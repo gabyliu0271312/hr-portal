@@ -342,13 +342,13 @@ const CreateMenu=defineComponent({props:{disabled:Boolean,allowedTypes:{type:Arr
 <style>
 .config-pane.is-display-only .saved-item{display:block}
 .config-pane.is-display-only .config-box__heading{display:flex;justify-content:space-between}
-.assessment-layer button:disabled{opacity:.5;cursor:not-allowed}
-.assessment-layer .create-anchor{position:relative;display:inline-flex}
-.assessment-layer .create-button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:80px;height:32px;margin-top:16px;padding:4px 16px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#245bdb;font:inherit;cursor:pointer}
-.assessment-layer .create-button svg{width:14px}
-.assessment-layer .create-menu{position:absolute;z-index:5;top:52px;left:0;display:flex;flex-direction:column;min-width:96px;padding:4px 0;border:1px solid #dee0e3;border-radius:6px;background:#fff;box-shadow:0 6px 24px rgba(31,35,41,.16)}
-.assessment-layer .create-menu button{height:32px;padding:5px 12px;border:0;background:#fff;text-align:left;font:inherit;cursor:pointer}
-.assessment-layer .create-menu button:hover{background:#eff0f1}
+.assessment-drawer button:disabled{opacity:.5;cursor:not-allowed}
+.assessment-drawer .create-anchor{position:relative;display:inline-flex}
+.assessment-drawer .create-button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:80px;height:32px;margin-top:16px;padding:4px 16px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#245bdb;font:inherit;cursor:pointer}
+.assessment-drawer .create-button svg{width:14px}
+.assessment-drawer .create-menu{position:absolute;z-index:5;top:52px;left:0;display:flex;flex-direction:column;min-width:96px;padding:4px 0;border:1px solid #dee0e3;border-radius:6px;background:#fff;box-shadow:0 6px 24px rgba(31,35,41,.16)}
+.assessment-drawer .create-menu button{height:32px;padding:5px 12px;border:0;background:#fff;text-align:left;font:inherit;cursor:pointer}
+.assessment-drawer .create-menu button:hover{background:#eff0f1}
 .modal-layer .form-field{display:block;margin-bottom:18px}
 .modal-layer .form-field--inside{margin:18px 20px}
 .modal-layer .item-card+.item-card{margin-top:0}
