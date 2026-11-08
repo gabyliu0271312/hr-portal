@@ -2040,7 +2040,7 @@ async def _can_manage_project_like_overview(context: PerformanceAccessContext, p
     if _can_manage_project(context, project):
         return True
     access = await resolve_frontend_access(db, context)
-    return any(item.project_id == project.id for item, _cycle in access.manage_projects)
+    return any(item.id == project.id for item, _cycle in access.manage_projects)
 
 
 async def _project_data_scope(context: PerformanceAccessContext, project: PerformanceProject, db: AsyncSession, function_key: str) -> set[str] | None:
