@@ -363,10 +363,12 @@ async def test_focus_members_partial_replace_preserves_others_audits_and_rejects
     with pytest.raises(HTTPException) as error:
         await get_focus_group_members(2, 8, context, db)
     assert error.value.status_code == 404
+    # 规则组（scope_setting_mode=0）：查看成员允许（管理端），手动维护仍拒绝
     db.group.scope_setting_mode = 0
+    assert (await get_focus_group_members(1, 8, context, db))["employee_nos"] == ["B"]
     with pytest.raises(HTTPException) as error:
-        await get_focus_group_members(1, 8, context, db)
-    assert error.value.status_code == 409
+        await update_focus_group_members(1, 8, FocusGroupMembersPayload(employee_nos=["A", "B"]), context, db)
+    assert error.value.status_code == 409 and db.commits == 1
     with pytest.raises(ValueError):
         FocusGroupMembersPayload(employee_nos=["A"], actor_ref="other")
 
@@ -385,6 +387,12 @@ async def test_focus_members_keeps_group_nos_not_in_snapshot(focus_auth, monkeyp
     assert people_by_value["ZZ"]["direct_supervisor_name"] is None
     assert people_by_value["ZZ"]["department_2"] is None
     assert people_by_value["A"]["display_name"] == "甲"
+    # 规则组（scope_setting_mode=0，scope_mode='rule'）：详情页同样能查看成员（问题 1 生产数据形态）
+    db.group.scope_setting_mode = 0
+    db.group.scope_mode = "rule"
+    result = await get_focus_group_members(1, 8, context, db)
+    assert result["employee_nos"] == ["B", "A", "ZZ"]
+    assert [person["value"] for person in result["people"]] == ["B", "A", "ZZ"]
 
 
 @pytest.mark.asyncio
@@ -413,7 +421,9 @@ async def test_focus_http_contract_uses_real_facade_and_rejects_extra_actor(focu
         assert db.group.employee_nos == ["B"] and db.commits == 1
         assert (await client.get(url.replace("cycles/1", "cycles/2"))).status_code == 404
         db.roles[0].is_active = False
-        assert (await client.get(url)).status_code == 403
+        # 查看成员不受维护范围角色影响（管理端查看）；手动维护才受角色门禁
+        assert (await client.get(url)).status_code == 200
+        assert (await client.patch(url, json={"employee_nos": []})).status_code == 403
         response = await client.get("/api/v1/performance/cycles/1/manageable-focus-groups")
         assert response.json() == {"total": 0, "items": []}
 

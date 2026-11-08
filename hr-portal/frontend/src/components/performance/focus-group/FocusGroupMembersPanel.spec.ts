@@ -62,7 +62,7 @@ describe('FocusGroupMembersPanel', () => {
     const updateSpy = vi.spyOn(performanceFocusGroupApi, 'updateMembers').mockResolvedValue({ group_id: 8, employee_nos: [], people: [] })
 
     const wrapper = mount(FocusGroupMembersPanel, {
-      props: { cycleId: 1, groupId: 8, groupName: '重点人员' },
+      props: { cycleId: 1, groupId: 8, groupName: '重点人员', maintainable: true },
       global: {
         stubs: {
           PerformanceManagementTable: managementTableStub,

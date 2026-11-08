@@ -14,6 +14,8 @@ const props = defineProps<{
   cycleId: number | null
   groupId: number | null
   groupName: string
+  /** 是否可手动维护成员（scope_setting_mode === 1）。规则组只读，不渲染添加/移除 */
+  maintainable?: boolean
 }>()
 
 const rows = ref<PerformanceFocusGroupMember[]>([])
@@ -33,7 +35,7 @@ const columns = computed<PerformanceTableColumn[]>(() => [
   { key: 'job_family', label: '序列', width: 240 },
   { key: 'added_by', label: '添加人', width: 195 },
   { key: 'added_at', label: '添加时间', width: 195 },
-  { key: 'action', label: '操作', width: 102, fixed: 'right' },
+  ...(props.maintainable ? [{ key: 'action', label: '操作', width: 102, fixed: 'right' } as PerformanceTableColumn] : []),
 ])
 
 const filteredRows = computed(() => {
@@ -107,7 +109,8 @@ watch(() => [props.cycleId, props.groupId], () => {
 <template>
   <div class="focus-group-members-panel">
     <div class="focus-group-members-toolbar">
-      <UiButton variant="outline-primary" :disabled="!cycleId || !groupId" @click="addOpen = true">添加</UiButton>
+      <UiButton v-if="maintainable" variant="outline-primary" :disabled="!cycleId || !groupId" @click="addOpen = true">添加</UiButton>
+      <div v-else class="focus-group-members-toolbar__placeholder" />
       <div class="focus-group-members-tools">
         <PerformanceSearchInput
           v-model="keyword"

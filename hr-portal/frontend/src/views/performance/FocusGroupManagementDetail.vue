@@ -75,7 +75,7 @@ watch(groupId, () => {
         </template>
       </FocusGroupDetailInfo>
       <PerformanceLineTabs v-if="group" v-model="activeTab" :tabs="tabs" fill class="focus-group-detail-tabs">
-        <FocusGroupMembersPanel v-if="activeTab === 'members'" :cycle-id="cycleId" :group-id="groupId" :group-name="group.name" />
+        <FocusGroupMembersPanel v-if="activeTab === 'members'" :cycle-id="cycleId" :group-id="groupId" :group-name="group.name" :maintainable="group.scope_setting_mode === 1" />
         <FocusGroupChangeLogPanel v-else :cycle-id="cycleId" :group-id="groupId" />
       </PerformanceLineTabs>
     </div>

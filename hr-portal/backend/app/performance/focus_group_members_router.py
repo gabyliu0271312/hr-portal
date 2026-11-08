@@ -138,7 +138,7 @@ async def manageable_focus_groups(
     return {"total": len(items), "items": items}
 
 
-async def _group(db, cycle, group_id, *, lock=False):
+async def _group(db, cycle, group_id, *, lock=False, require_manual=True):
     statement = select(PerformanceFocusGroup).where(
         PerformanceFocusGroup.id == group_id, PerformanceFocusGroup.cycle_ref == cycle.cycle_ref,
     )
@@ -147,7 +147,7 @@ async def _group(db, cycle, group_id, *, lock=False):
     group = await db.scalar(statement)
     if group is None:
         raise HTTPException(404, "人员组不存在")
-    if group.scope_setting_mode != 1:
+    if require_manual and group.scope_setting_mode != 1:
         raise HTTPException(409, "该人员组不允许手动维护成员")
     return group
 
@@ -214,8 +214,7 @@ async def get_focus_group_change_log(
     - 操作人/操作时间：审计事件 actor + event_at
     """
     cycle = await _cycle(db, cycle_id)
-    group = await _group(db, cycle, group_id)
-    await _scope(db, context, cycle, group)
+    group = await _group(db, cycle, group_id, require_manual=False)
     total, events = await _change_events(db, cycle, group, size, (current - 1) * size)
     snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
     names = {person.employee_no: person.display_name for person in snapshot_people}
@@ -269,8 +268,7 @@ async def get_focus_group_change_people(
     姓名 / 直属上级 / 一级部门 / 末级部门 / 序列。
     """
     cycle = await _cycle(db, cycle_id)
-    group = await _group(db, cycle, group_id)
-    await _scope(db, context, cycle, group)
+    group = await _group(db, cycle, group_id, require_manual=False)
     employee_nos = [value for value in (user_ids.split(",") if user_ids else []) if value]
     snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
     by_no = {person.employee_no: person for person in snapshot_people}
@@ -298,8 +296,7 @@ async def get_focus_group_members(
     db: AsyncSession = Depends(get_session),
 ):
     cycle = await _cycle(db, cycle_id)
-    group = await _group(db, cycle, group_id)
-    await _scope(db, context, cycle, group)
+    group = await _group(db, cycle, group_id, require_manual=False)
     snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
     added_by = await _member_added_by(db, cycle, group)
     result = _members(group, snapshot_people, name_source=snapshot_people)
