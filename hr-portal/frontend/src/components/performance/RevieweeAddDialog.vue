@@ -29,11 +29,15 @@ const options = ref<PerformanceSearchSelectOption[]>([])
 const searching = ref(false)
 const saving = ref(false)
 const error = ref('')
+const revieweeTouched = ref(false)
 let searchVersion = 0
 
 const projectOptions = computed<PerformanceSearchSelectOption[]>(() =>
   props.projects.map(project => ({ value: String(project.project_id), label: project.project_name })),
 )
+
+/** 必填项校验：点击确定时未选被评估人则该项进入 invalid 态（该项下方提示 + 输入框红边框），选人后自动消除 */
+const invalidReviewee = computed(() => revieweeTouched.value && !selected.value.length)
 
 watch(() => props.modelValue, visible => {
   if (!visible) return
@@ -41,12 +45,14 @@ watch(() => props.modelValue, visible => {
   selected.value = []
   options.value = []
   error.value = ''
+  revieweeTouched.value = false
 })
 
 watch(projectValue, () => {
   selected.value = []
   options.value = []
   error.value = ''
+  revieweeTouched.value = false
 })
 
 async function search(keyword: string) {
@@ -76,7 +82,7 @@ async function search(keyword: string) {
 async function submit() {
   const projectId = Number(projectValue.value)
   if (!projectId || saving.value) return
-  if (!selected.value.length) { error.value = '被评估人为必填'; return }
+  if (!selected.value.length) { revieweeTouched.value = true; return }
   saving.value = true
   error.value = ''
   const addedPeople = new Set<string>()
@@ -121,7 +127,7 @@ async function submit() {
         :disabled="saving || !projects.length"
       />
     </PerformanceFormItem>
-    <PerformanceFormItem label="被评估人" required>
+    <PerformanceFormItem label="被评估人" required :invalid="invalidReviewee" error-message="被评估人为必填">
       <PerformancePersonSelect
         v-model="selected"
         :options="options"
@@ -130,6 +136,7 @@ async function submit() {
         placeholder="请输入"
         aria-label="选择被评估人"
         :disabled="saving || !projectValue"
+        :loading="searching"
         @search="search"
       />
     </PerformanceFormItem>

@@ -12,6 +12,7 @@
     :open-on-search="remoteSearch"
     class="performance-search-select__trigger"
     :disabled="disabled"
+    @update:query="onQueryChange"
     @open="$emit('open')"
     @update:model-value="updateValues"
   >
@@ -40,7 +41,7 @@
           <svg v-if="optionStyle === 'checkmark' && selectedValues.includes(option.value)" class="performance-flat-option-list__checkmark" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
           <span v-if="option.disabled && option.disabledText" class="performance-flat-option-list__disabled-reason">{{ option.disabledText }}</span>
         </button>
-        <div v-if="!filteredOptions(query).length" class="performance-flat-option-list__empty">{{ emptyText }}</div>
+        <div v-if="!filteredOptions(query).length" class="performance-flat-option-list__empty">{{ loading ? loadingText : emptyText }}</div>
       </div>
       <div v-if="$slots.footer" class="performance-flat-option-list__footer"><slot name="footer" :close="close" /></div>
     </template>
@@ -71,6 +72,9 @@ const props = withDefaults(defineProps<{
   options?: PerformanceSearchSelectOption[]
   placeholder?: string
   emptyText?: string
+  /** 远程搜索请求进行中（结果未返回时列表显示 loadingText 而非空态） */
+  loading?: boolean
+  loadingText?: string
   multiple?: boolean
   optionStyle?: 'checkmark' | 'none'
   optionLayout?: 'default' | 'detailed'
@@ -85,6 +89,8 @@ const props = withDefaults(defineProps<{
   options: () => [],
   placeholder: '请选择',
   emptyText: '暂无可选项',
+  loading: false,
+  loadingText: '搜索中',
   multiple: false,
   optionStyle: 'checkmark',
   optionLayout: 'default',
@@ -110,8 +116,10 @@ function filteredOptions(query: string) {
   } else {
     result = !keyword ? props.options : props.options.filter(option => option.label.toLowerCase().includes(keyword))
   }
-  if (keyword) emit('search', query)
   return result
+}
+function onQueryChange(query: unknown) {
+  if (props.remoteSearch && typeof query === 'string' && query.trim()) emit('search', query)
 }
 function updateValues(values: string[]) {
   emit('update:modelValue', props.multiple ? values : (values[0] || null))
