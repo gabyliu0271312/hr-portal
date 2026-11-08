@@ -1384,7 +1384,7 @@ watch(() => [route.name, route.params.id], () => { void syncRoute() }); watch(ed
 .cycle-action-menu__icon :deep(.performance-icon-button:hover), .cycle-action-menu__icon :deep(.performance-icon-button:focus-visible) { background: transparent; color: inherit; }
 .cycle-action-menu__item.is-disabled .cycle-action-menu__icon { pointer-events: none; }
 .cycle-detail-panel { flex: 1 1 0; min-width: 0; }
-.detail-content { min-width: 0; padding-left: 0; color: #1f2329; }
+.detail-content { min-width: 0; padding-left: 20px; color: #1f2329; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; height: 40px; margin-bottom: 0; }
 .detail-heading h2 { margin: 0; color: #1f2329; font-size: 20px; font-weight: 600; line-height: 28px; }
 .detail-actions { display: flex; align-items: center; gap: 8px; }
