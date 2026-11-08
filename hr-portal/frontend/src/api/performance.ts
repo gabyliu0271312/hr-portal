@@ -913,6 +913,7 @@ export interface ProjectMember extends PerformanceMemberProfile {
   rating_columns?: Array<{ key: string; label: string }>
   ratings?: Record<string, PerformanceTaskRatingValue | null>
   direct_supervisor?: string | null
+  department_path?: string | null
   id: number
   avatar_url: string | null
   rating: string | null

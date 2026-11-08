@@ -915,6 +915,7 @@ class ProjectMemberResponse(BaseModel):
     employee_no: str
     display_name: str
     company_org: str | None = None
+    department_path: str | None = None
     department_2: str | None = None
     department_3: str | None = None
     department_4: str | None = None
@@ -1899,6 +1900,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
         item["visible_profile_fields"] = visible_fields
+        item["department_path"] = member.organization_ref if "department" in visible_fields else None
         profile_values = {
             "company_org": item.get("company_org"),
             "department": item.get("department"),
