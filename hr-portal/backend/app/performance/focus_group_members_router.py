@@ -330,7 +330,16 @@ async def get_focus_group_members(
     cycle_id: int, group_id: int,
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    current: Annotated[int, Query(ge=1)] = 1,
+    size: Annotated[int, Query(ge=0, le=1000)] = 0,
+    keyword: Annotated[str | None, Query(max_length=100)] = None,
 ):
+    """成员列表（对齐飞书 emp_list：分页 + 搜索 + total）。
+
+    - 缺省 size=0 = 全量返回（兼容后台详情页既有调用，行为不变）
+    - keyword 对姓名 / 工号 / 直属上级 / 部门 / 序列 模糊过滤（与变更记录展开同语义）
+    - employee_nos 始终为组内全量（更新接口传全量维护成员，不随分页截断）
+    """
     cycle = await _cycle(db, cycle_id)
     group = await _group(db, cycle, group_id, require_manual=False)
     snapshot_people = await _snapshot_people(db, cycle.cycle_ref)
@@ -340,6 +349,19 @@ async def get_focus_group_members(
         info = added_by.get(person["value"])
         person["added_by"] = info["added_by"] if info else None
         person["added_at"] = info["added_at"] if info else None
+    if keyword:
+        keyword_cf = keyword.casefold()
+        result["people"] = [person for person in result["people"] if keyword_cf in " ".join(
+            value for value in (
+                person.get("display_name"), person.get("value"),
+                person.get("direct_supervisor_name"), person.get("department"),
+                person.get("department_2"), person.get("department_5"),
+                person.get("job_sequence"),
+            ) if value
+        ).casefold()]
+    result["total"] = len(result["people"])
+    if size:
+        result["people"] = result["people"][(current - 1) * size: current * size]
     return result
 
 

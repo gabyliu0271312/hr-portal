@@ -424,6 +424,14 @@ async def test_focus_http_contract_uses_real_facade_and_rejects_extra_actor(focu
         assert response.status_code == 200 and response.json()["items"] == [{"id": 8, "name": "重点人员", "tab": "semester", "scope_setting_mode": 1}]
         response = await client.get(url)
         assert response.status_code == 200 and response.json()["employee_nos"] == ["B", "A"]
+        # 分页：缺省 size=0 全量；显式 size=1 截断且 total 为全量（前端弹窗 emp_list 语义）
+        response = await client.get(url, params={"current": 1, "size": 1})
+        assert response.status_code == 200 and [person["value"] for person in response.json()["people"]] == ["B"]
+        assert response.json()["total"] == 2
+        # keyword 过滤（姓名/工号/部门/序列模糊）
+        response = await client.get(url, params={"keyword": "甲"})
+        assert response.status_code == 200 and [person["value"] for person in response.json()["people"]] == ["A"]
+        assert response.json()["total"] == 1
         assert (await client.patch(url, json={"employee_nos": ["A"], "actor_ref": "other"})).status_code == 422
         assert (await client.patch(url, json={"employee_nos": ["unknown"]})).status_code == 403
         response = await client.patch(url, json={"employee_nos": []})

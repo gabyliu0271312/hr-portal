@@ -32,7 +32,7 @@
           <PerformanceLineTabs v-model="activeTab" sticky :tabs="overviewTabs">
             <CompletionRatePanel v-if="activeTab === 'overview'" :nodes="completionNodes" :cycle-id="activeCycle.cycle_id" v-model:view-mode="overviewViewMode" :department-provider="projectManagementApi.departmentCompletion" @action="handleCompletionAction" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
-            <AuthorizationManagementPanel v-if="activeTab === 'overview'" title="其他" :authorizations="otherModules" />
+            <AuthorizationManagementPanel v-if="activeTab === 'overview'" title="其他" :authorizations="otherModules" @view="handleOtherView" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
             <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" :cycle-name="activeCycle.cycle_name" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
@@ -70,6 +70,7 @@
       :projects="revieweeAddProjects"
       @added="onRevieweeAdded"
     />
+    <FrontFocusGroupManagementDialog v-model="focusGroupDialogOpen" :cycle-id="activeCycleId" />
   </div>
 </template>
 
@@ -93,6 +94,7 @@ import ProjectPerformanceMatrix from '@/components/performance/ProjectPerformanc
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vue'
 import AuthorizationManagementPanel from '@/components/performance/AuthorizationManagementPanel.vue'
+import FrontFocusGroupManagementDialog from '@/components/performance/focus-group/FrontFocusGroupManagementDialog.vue'
 import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
 import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
@@ -410,6 +412,13 @@ async function handleCompletionAction(payload: { action: 'remind' | 'enable-resu
 async function handleAuthorizationView(item: AuthorizationItem) {
   if (!activeCycle.value) return
   await router.push({ name: item.key === 'calibration-auth' ? 'PerformanceCalibrationAuthorization' : 'PerformanceAuthorizationRecords', query: { cycle_id: String(activeCycle.value.cycle_id) } })
+}
+
+const focusGroupDialogOpen = ref(false)
+
+function handleOtherView(item: AuthorizationItem) {
+  if (item.key !== 'focus-people') return
+  focusGroupDialogOpen.value = true
 }
 
 function closeReminder() {

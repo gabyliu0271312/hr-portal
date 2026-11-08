@@ -2511,6 +2511,8 @@ export interface PerformanceFocusGroupMembers {
   group_id: number
   employee_nos: string[]
   people: PerformanceFocusGroupMember[]
+  /** 分页过滤后的成员总数（未分页时为 people.length） */
+  total?: number
 }
 
 export interface PerformanceFocusGroupChangeLogItem {
@@ -2549,13 +2551,33 @@ export interface PerformanceFocusGroupChangePersonPage {
   items: PerformanceFocusGroupChangePerson[]
 }
 
+export interface PerformanceFocusGroupOverviewItem {
+  id: number
+  name: string
+  tab: 'semester' | 'project'
+  count: number
+  scope_setting_mode: number
+  activity_names: string[]
+}
+
+export interface PerformanceFocusGroupOverview {
+  can_show: boolean
+  groups: PerformanceFocusGroupOverviewItem[]
+}
+
 export const performanceFocusGroupApi = {
   async manageable(cycleId: number, tab: 'semester' | 'project'): Promise<{ total: number; items: Array<Pick<PerformanceFocusGroup, 'id' | 'name' | 'tab' | 'scope_setting_mode'>> }> {
     const { data } = await api.get(`/performance/cycles/${cycleId}/manageable-focus-groups`, { params: { tab } })
     return data
   },
-  async members(cycleId: number, groupId: number): Promise<PerformanceFocusGroupMembers> {
-    const { data } = await api.get<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`)
+  async members(cycleId: number, groupId: number, params?: { current?: number; size?: number; keyword?: string }): Promise<PerformanceFocusGroupMembers> {
+    const { data } = await api.get<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`, {
+      params: params && (params.current || params.size || params.keyword) ? { current: params.current, size: params.size, ...(params.keyword ? { keyword: params.keyword } : {}) } : undefined,
+    })
+    return data
+  },
+  async overview(cycleId: number): Promise<PerformanceFocusGroupOverview> {
+    const { data } = await api.get<PerformanceFocusGroupOverview>(`/performance/cycles/${cycleId}/focus-groups/overview`)
     return data
   },
   async updateMembers(cycleId: number, groupId: number, employeeNos: string[]): Promise<PerformanceFocusGroupMembers> {

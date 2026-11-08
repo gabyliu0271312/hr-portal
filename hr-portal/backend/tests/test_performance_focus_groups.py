@@ -442,6 +442,36 @@ async def test_focus_group_project_tab_resolves_string_activity_ids():
         assert detailed.json()["activity_names"] == ["Q1 研发评估", "Q1 销售评估", "not-a-number"]
 
 
+async def test_focus_group_overview_mixes_semester_and_project_groups():
+    """前端项目管理弹窗 overview：周期级 + 关联项目混合一次全量，含 count / activity_names / scope_setting_mode。"""
+    db = _StubDb(
+        _StubCycle(1),
+        groups=[
+            _StubGroup(1, "cycle:1", "semester", "核心管理干部", ["E1", "E2"], "manual"),
+            _StubGroup(2, "cycle:1", "project", "12", ["E3"], "manual"),
+        ],
+        projects=[type("P", (), {"id": 20, "name": "2026年半年度绩效评估"})],
+    )
+    db.groups[1].activity_ids = ["20"]
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.get("/api/v1/performance/cycles/1/focus-groups/overview")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["can_show"] is True
+    assert [group["name"] for group in body["groups"]] == ["12", "核心管理干部"]
+    assert [group["count"] for group in body["groups"]] == [1, 2]
+    assert body["groups"][0]["tab"] == "project"
+    assert body["groups"][0]["activity_names"] == ["2026年半年度绩效评估"]
+    assert body["groups"][0]["scope_setting_mode"] == 1
+
+
+async def test_focus_group_overview_requires_cycle():
+    db = _StubDb(_StubCycle(1))
+    async with _make_app(db, ("performance.cycles.manage",)) as client:
+        response = await client.get("/api/v1/performance/cycles/999/focus-groups/overview")
+    assert response.status_code == 404
+
+
 async def test_focus_groups_requires_people_groups_permission():
     db = _StubDb(_StubCycle(1))
     base = "/api/v1/performance/cycles/1/focus-groups"

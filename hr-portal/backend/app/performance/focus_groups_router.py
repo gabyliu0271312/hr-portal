@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.performance.auth_context import (
     PerformanceAccessContext,
+    get_performance_access_context,
     require_performance_permission,
 )
 from app.performance.authorization_service import AuditEventInput, PerformanceAuditService
@@ -527,6 +528,21 @@ async def check_focus_group_priority(
     return FocusGroupPriorityCheck(data=True)
 
 
+class FocusGroupOverviewItem(BaseModel):
+    """前端项目管理弹窗人员组 Tab 项（REA group/list subjectType:3 语义：周期级+关联项目混合一次全量）。"""
+    id: int
+    name: str
+    tab: str
+    count: int = 0
+    scope_setting_mode: int = 0
+    activity_names: list[str] = Field(default_factory=list)
+
+
+class FocusGroupOverviewOut(BaseModel):
+    can_show: bool = True
+    groups: list[FocusGroupOverviewItem] = Field(default_factory=list)
+
+
 async def _project_names(db: AsyncSession, ids: list[str]) -> dict[str, str]:
     if not ids:
         return {}
@@ -535,6 +551,40 @@ async def _project_names(db: AsyncSession, ids: list[str]) -> dict[str, str]:
         return {}
     projects = (await db.execute(select(PerformanceProject).where(PerformanceProject.id.in_(int_ids)))).scalars().all()
     return {str(project.id): project.name for project in projects}
+
+
+@router.get("/{cycle_id}/focus-groups/overview", response_model=FocusGroupOverviewOut)
+async def focus_group_overview(
+    cycle_id: int,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+) -> FocusGroupOverviewOut:
+    """前端项目管理「人员组管理」弹窗：该周期全部人员组（周期级 + 关联项目混合，一次全量）。
+
+    对应飞书 group/list（subjectType:3，无 tab 维度/无分页）；Tab = 组名。
+    鉴权复用 get_performance_access_context（与 members / manageable 同模型：项目管理员上下文即可查看，
+    维护能力由成员接口的 scope 校验兜底），而非 admin 权限位。
+    """
+    del context  # 能进入项目管理页 = 具备查看上下文；成员维护权限由 members 接口 scope 校验兜底
+    cycle = await _require_cycle(db, cycle_id)
+    groups = (await db.execute(
+        select(PerformanceFocusGroup).where(PerformanceFocusGroup.cycle_ref == cycle.cycle_ref)
+        .order_by(PerformanceFocusGroup.id.desc())
+    )).scalars().all()
+    project_ids = [value for group in groups for value in (group.activity_ids or [])]
+    names_by_id = await _project_names(db, project_ids)
+    items = [
+        FocusGroupOverviewItem(
+            id=group.id,
+            name=group.name,
+            tab=group.tab,
+            count=len(group.employee_nos or []),
+            scope_setting_mode=group.scope_setting_mode,
+            activity_names=[names_by_id.get(value, value) for value in (group.activity_ids or [])],
+        )
+        for group in groups
+    ]
+    return FocusGroupOverviewOut(can_show=True, groups=items)
 
 
 @router.get("/{cycle_id}/focus-groups", response_model=FocusGroupPage)
