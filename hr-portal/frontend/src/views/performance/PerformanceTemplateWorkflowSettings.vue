@@ -2,7 +2,7 @@
   <div class="workflow-page">
     <div v-if="usageSummary.cycle_count > 0" class="usage-banner">
       <span class="banner-icon" aria-hidden="true">i</span>
-      <div class="banner-copy"><a>{{ usageSummary.cycle_count }} 个周期的项目</a></div>
+      <div class="banner-copy"><a href="javascript:void(0)" @click="usageDialogOpen = true">{{ usageSummary.cycle_count }} 个周期的项目</a></div>
       <button class="banner-close" type="button" aria-label="关闭提示" @click="bannerVisible = false">×</button>
     </div>
     <p v-if="finalResultError" class="workflow-validation-error" role="alert">{{ finalResultError }}</p>
@@ -218,6 +218,7 @@
       </div>
     </Teleport>
     <div v-if="saving" class="save-state">保存中…</div>
+    <PerformanceTemplateUsageDialog v-model="usageDialogOpen" :semesters="refSemesterActivity" />
   </div>
 </template>
 
@@ -248,6 +249,8 @@ import type { PerformanceExecutorOption } from '@/components/performance/perform
 import type { PerformanceExecutorConfig, PerformanceExecutorPerson } from '@/api/performance'
 import PerformanceRoleMultiSelect from '@/components/performance/PerformanceRoleMultiSelect.vue'
 import PerformanceWorkflowStageIcon from './PerformanceWorkflowStageIcon.vue'
+import PerformanceTemplateUsageDialog from '@/components/performance/PerformanceTemplateUsageDialog.vue'
+import type { PerformanceRefSemesterActivity } from '@/api/performance'
 
 const props = defineProps<{ templateId?: number | null }>()
 const emit = defineEmits<{ (e: 'back'): void; (e: 'next'): void }>()
@@ -266,6 +269,8 @@ const workflowLocked = ref(false)
 const promptLocked = ref(false)
 const originalNodes = ref<PerformanceWorkflowNode[]>([])
 const usageSummary = ref({ cycle_count: 0, project_count: 0 })
+const usageDialogOpen = ref(false)
+const refSemesterActivity = ref<PerformanceRefSemesterActivity[]>([])
 const inviteValidationNodeId = ref<string | null>(null)
 const finalResultError = ref('')
 const appealPromptEditorOpen = ref(false)
@@ -610,7 +615,7 @@ watch(businessNodes, () => {
   pruneInviteSelections()
   if (inviteValidationNodeId.value && invalidInviteNodeId() !== inviteValidationNodeId.value) inviteValidationNodeId.value = null
 }, { deep: true })
-onMounted(async () => { window.addEventListener('resize', updatePopoverPosition); window.addEventListener('scroll', updatePopoverPosition, true); window.addEventListener('resize', updateAppealPreviewPosition); window.addEventListener('scroll', updateAppealPreviewPosition, true); if (!props.templateId) return; try { const data = await performanceTemplateApi.getWorkflow(props.templateId); usageSummary.value = data.usage_summary; workflowLocked.value = (data.usage_summary?.cycle_count || 0) > 0 || data.editable_scope?.workflow === false; promptLocked.value = data.editable_scope?.reference_and_prompt_content === false; if (data.nodes?.length) { originalNodes.value = JSON.parse(JSON.stringify(data.nodes)); data.nodes.forEach(normalizeNode); businessNodes.value = data.nodes; pruneInviteSelections() } } catch { /* API error is surfaced by the shared client interceptor. */ } })
+onMounted(async () => { window.addEventListener('resize', updatePopoverPosition); window.addEventListener('scroll', updatePopoverPosition, true); window.addEventListener('resize', updateAppealPreviewPosition); window.addEventListener('scroll', updateAppealPreviewPosition, true); if (!props.templateId) return; try { const data = await performanceTemplateApi.getWorkflow(props.templateId); usageSummary.value = data.usage_summary; refSemesterActivity.value = data.ref_semester_activity || []; workflowLocked.value = (data.usage_summary?.cycle_count || 0) > 0 || data.editable_scope?.workflow === false; promptLocked.value = data.editable_scope?.reference_and_prompt_content === false; if (data.nodes?.length) { originalNodes.value = JSON.parse(JSON.stringify(data.nodes)); data.nodes.forEach(normalizeNode); businessNodes.value = data.nodes; pruneInviteSelections() } } catch { /* API error is surfaced by the shared client interceptor. */ } })
 onBeforeUnmount(() => { cancelPopoverClose(); hideAppealPreview(); popoverResizeObserver?.disconnect(); window.removeEventListener('resize', updatePopoverPosition); window.removeEventListener('scroll', updatePopoverPosition, true); window.removeEventListener('resize', updateAppealPreviewPosition); window.removeEventListener('scroll', updateAppealPreviewPosition, true) })
 async function save() {
   if (!workflowLocked.value) businessNodes.value.forEach(normalizeNode)

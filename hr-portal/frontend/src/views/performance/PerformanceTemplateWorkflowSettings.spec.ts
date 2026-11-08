@@ -980,3 +980,38 @@ it('switches stable identity and executor types together without changing the av
   expect(state.businessNodes[0].executor_role_code).toBe('assessment.metric_evaluator')
   wrapper.unmount()
 })
+
+it('opens the usage dialog from the banner link and renders collapsible semesters with status badges', async () => {
+  const nodes = [{ node_id: 'final', node_type: 'evaluation', name: '终评', description: '', order: 1, executor_types: ['DIRECT_MANAGER'], executor_label: '实线上级', include_final_result: true, system: false }] as PerformanceWorkflowNode[]
+  const refSemesterActivity = [
+    { semester_id: 1, semester_name: '2025年全年度绩效考核', activities: [{ project_id: 10, project_name: '新疆项目', status: 'STARTED' }, { project_id: 11, project_name: '海南项目', status: 'ARCHIVED' }] },
+    { semester_id: 2, semester_name: '2024年全年度绩效考核', activities: [{ project_id: 12, project_name: '北京项目', status: 'DRAFT' }] },
+  ]
+  const get = vi.spyOn(performanceTemplateApi, 'getWorkflow').mockResolvedValue({ template_id: 1, nodes, usage_summary: { cycle_count: 2, project_count: 3 }, editable_scope: { workflow: false, data_write_settings: false, reference_and_prompt_content: true }, ref_semester_activity: refSemesterActivity })
+  const wrapper = mount(PerformanceTemplateWorkflowSettings, { props: { templateId: 1 } })
+  await flushPromises()
+  expect(wrapper.get('.usage-banner').text()).toContain('2 个周期的项目')
+  await wrapper.get('.banner-copy a').trigger('click')
+  await flushPromises()
+  expect(wrapper.get('.performance-dialog__header h2').text()).toBe('使用该模板的周期与项目')
+  const semesterHeads = wrapper.findAll('.template-usage__semester-head')
+  expect(semesterHeads).toHaveLength(2)
+  expect(semesterHeads.map(head => head.text())).toEqual(['2025年全年度绩效考核', '2024年全年度绩效考核'])
+  // 默认全部展开
+  expect(wrapper.findAll('.template-usage__activity')).toHaveLength(3)
+  const badges = wrapper.findAll('.template-usage__activity-badge')
+  expect(badges.map(badge => badge.text())).toEqual(['已启动', '已结束', '待完成配置'])
+  expect(badges[0].classes()).toContain('is-started')
+  expect(badges[1].classes()).toContain('is-finished')
+  expect(badges[2].classes()).toContain('is-pending')
+  // 收起第一周期
+  await semesterHeads[0].trigger('click')
+  await flushPromises()
+  expect(wrapper.findAll('.template-usage__activity')).toHaveLength(1)
+  // 关闭弹窗
+  await wrapper.get('.performance-dialog__close').trigger('click')
+  await flushPromises()
+  expect(wrapper.find('.performance-dialog__header h2').exists()).toBe(false)
+  get.mockRestore()
+  wrapper.unmount()
+})

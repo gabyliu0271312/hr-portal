@@ -2055,6 +2055,37 @@ async def test_usage_uses_cycle_json_legacy_fk_and_project_reference_not_cached_
 
 
 @pytest.mark.asyncio
+async def test_ref_semester_activity_guard_returns_empty_without_scalars(workflow_save_setup):
+    """测试替身 execute 无 scalars 时，明细查询返回空列表而非抛错（真实 DB 分组逻辑另行验证）。"""
+    service, db = workflow_save_setup
+    db.workflow = PerformanceTemplateWorkflow(template_id=77, nodes=default_workflow_nodes(), content_library=[])
+    assert await service.ref_semester_activity(77) == []
+    # guard 分支应提前返回，不追加 project 查询
+    assert all("performance_projects" not in str(statement) for statement in db.statements)
+
+
+@pytest.mark.asyncio
+async def test_ref_semester_activity_response_model_roundtrip():
+    payload = [
+        {"semester_id": 1, "semester_name": "2025年全年度绩效考核", "activities": [
+            {"project_id": 10, "project_name": "新疆项目", "status": "STARTED"},
+            {"project_id": 11, "project_name": "海南项目", "status": "ARCHIVED"},
+        ]},
+    ]
+    response = templates_router.WorkflowResponse(
+        template_id=77,
+        usage_summary=templates_router.UsageSummary(cycle_count=1, project_count=2),
+        editable_scope=templates_router.EditableScope(workflow=False, data_write_settings=False, reference_and_prompt_content=True),
+        nodes=default_workflow_nodes(),
+        ref_semester_activity=payload,
+    )
+    data = response.model_dump()
+    assert data["ref_semester_activity"][0]["semester_name"] == "2025年全年度绩效考核"
+    assert data["ref_semester_activity"][0]["activities"][0]["status"] == "STARTED"
+    assert data["usage_summary"] == {"cycle_count": 1, "project_count": 2}
+
+
+@pytest.mark.asyncio
 async def test_display_sync_failure_does_not_commit_template_or_audit(workflow_save_setup, monkeypatch):
     service, db = workflow_save_setup
     nodes, library = _used_display_workflow(db)

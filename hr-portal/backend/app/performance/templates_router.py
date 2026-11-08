@@ -86,6 +86,18 @@ class UsageSummary(BaseModel):
     project_count: int
 
 
+class RefActivityProject(BaseModel):
+    project_id: int
+    project_name: str
+    status: str
+
+
+class RefSemesterActivity(BaseModel):
+    semester_id: int
+    semester_name: str
+    activities: list[RefActivityProject] = Field(default_factory=list)
+
+
 class EditableScope(BaseModel):
     workflow: bool
     data_write_settings: bool
@@ -97,6 +109,7 @@ class WorkflowResponse(BaseModel):
     usage_summary: UsageSummary
     editable_scope: EditableScope
     content_library: list[dict] = Field(default_factory=list)
+    ref_semester_activity: list[RefSemesterActivity] = Field(default_factory=list)
     nodes: list[WorkflowNode]
 
 
@@ -453,7 +466,7 @@ async def create_template(
     return TemplateCreateResponse(template_id=template.id, name=template.name)
 
 
-def _response(template_id: int, nodes: list[dict], cycle_count: int, project_count: int, content_library: list[dict] | None = None) -> WorkflowResponse:
+def _response(template_id: int, nodes: list[dict], cycle_count: int, project_count: int, content_library: list[dict] | None = None, ref_semester_activity: list[dict] | None = None) -> WorkflowResponse:
     unlocked = cycle_count == 0 and project_count == 0
     return WorkflowResponse(
         template_id=template_id,
@@ -464,6 +477,7 @@ def _response(template_id: int, nodes: list[dict], cycle_count: int, project_cou
             reference_and_prompt_content=True,
         ),
         content_library=content_library or [],
+        ref_semester_activity=[RefSemesterActivity.model_validate(item) for item in (ref_semester_activity or [])],
         nodes=[WorkflowNode.model_validate(node) for node in nodes],
     )
 
@@ -478,7 +492,7 @@ async def get_template_workflow(
 ):
     service = PerformanceTemplateWorkflowService(db)
     nodes, cycle_count, project_count = await service.get_nodes(template_id)
-    return _response(template_id, nodes, cycle_count, project_count, await service.get_content_library(template_id))
+    return _response(template_id, nodes, cycle_count, project_count, await service.get_content_library(template_id), await service.ref_semester_activity(template_id))
 
 
 @router.patch("/{template_id}/workflow", response_model=WorkflowResponse)
@@ -515,4 +529,4 @@ async def update_template_workflow(
                 "node_id": exc.node_id,
             },
         ) from exc
-    return _response(template_id, record.nodes, record.cycle_count, record.project_count, record.content_library)
+    return _response(template_id, record.nodes, record.cycle_count, record.project_count, record.content_library, await service.ref_semester_activity(template_id))

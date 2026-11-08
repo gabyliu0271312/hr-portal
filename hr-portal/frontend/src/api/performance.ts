@@ -1745,12 +1745,25 @@ export interface PerformanceExecutorConfig {
   roles: PerformanceExecutorRole[]
 }
 
+export interface PerformanceRefActivityProject {
+  project_id: number
+  project_name: string
+  status: string
+}
+
+export interface PerformanceRefSemesterActivity {
+  semester_id: number
+  semester_name: string
+  activities: PerformanceRefActivityProject[]
+}
+
 export interface PerformanceWorkflowResponse {
   template_id: number
   usage_summary: { cycle_count: number; project_count: number }
   editable_scope?: { workflow: boolean; data_write_settings: boolean; reference_and_prompt_content: boolean }
   content_library?: PerformanceTemplateContent[]
   distribution_assessment_options?: PerformanceDistributionAssessmentOption[]
+  ref_semester_activity?: PerformanceRefSemesterActivity[]
   nodes: PerformanceWorkflowNode[]
 }
 

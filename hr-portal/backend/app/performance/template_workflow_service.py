@@ -761,6 +761,40 @@ class PerformanceTemplateWorkflowService:
         ))
         return int(cycles or 0), int(projects or 0)
 
+    async def ref_semester_activity(self, template_id: int) -> list[dict]:
+        """周期 + 项目明细：弹窗「使用该模板的周期与项目」数据源，与 usage_summary 同源。"""
+        cycles_result = await self.db.execute(select(PerformanceCycle).where(or_(
+            PerformanceCycle.template_id == template_id,
+            PerformanceCycle.template_ids.contains([template_id]),
+        )).order_by(PerformanceCycle.period_year.desc(), PerformanceCycle.id.desc()))
+        if not hasattr(cycles_result, "scalars"):
+            return []
+        cycles = cycles_result.scalars().all()
+        if not cycles:
+            return []
+        projects_result = await self.db.execute(select(PerformanceProject).where(
+            PerformanceProject.cycle_ref.in_([cycle.cycle_ref for cycle in cycles]),
+            PerformanceProject.settings["template_id"].as_string() == str(template_id),
+        ).order_by(PerformanceProject.id))
+        if not hasattr(projects_result, "scalars"):
+            return []
+        projects = projects_result.scalars().all()
+        projects_by_cycle: dict[str, list[dict]] = {}
+        for project in projects:
+            projects_by_cycle.setdefault(project.cycle_ref, []).append({
+                "project_id": project.id,
+                "project_name": project.name,
+                "status": project.status,
+            })
+        return [
+            {
+                "semester_id": cycle.id,
+                "semester_name": cycle.name,
+                "activities": projects_by_cycle.get(cycle.cycle_ref, []),
+            }
+            for cycle in cycles
+        ]
+
     async def lock_usage(self, template_id: int) -> None:
         await self.db.execute(select(PerformanceTemplate.id).where(
             PerformanceTemplate.id == template_id,
