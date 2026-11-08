@@ -114,6 +114,7 @@ function projectStatus(project: PerformanceCycleProjectShell) {
 .project-create { width: 80px; }
 .project-filter-panel { margin: -8px 0 16px; padding: 10px 12px; border: 1px solid #d0d3d6; border-radius: 6px; color: #646a73; background: #fff; font-size: 14px; line-height: 22px; }
 .project-table-wrap { min-width: 0; }
+.project-table-wrap :deep(.el-table td.el-table__cell) { padding-left: 0; padding-right: 0; }
 .project-status { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .project-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--project-status-color); }
 </style>
