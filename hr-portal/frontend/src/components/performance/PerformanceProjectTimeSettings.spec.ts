@@ -177,6 +177,44 @@ describe('deadline validation', () => {
     wrapper.unmount()
   })
 
+  it.each(['STARTED', 'ARCHIVED'])('allows historical deadlines for existing nodes in %s but preserves ordering errors', async projectStatus => {
+    const value = settings()
+    const nodes = ['evaluation', 'result_view', 'result_reconsideration'].map((type, index) => ({ ...node, node_id: type, node_type: type, order: index + 1 })) as PerformanceWorkflowNode[]
+    for (const target of nodes) value.node_times[target.node_id!] = { start_at: '2026-11-05T09:00', end_at: '2026-11-06T11:59', appeal_deadline: '2026-11-06T11:59' }
+    nodes.push(node)
+    const baseline = JSON.parse(JSON.stringify(value))
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, projectStatus, baselineFlowSettings: baseline, modelValue: value.node_times, nodeSettings: value.node_settings } })
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    expect(wrapper.findAll('.time-node-deadline')).toHaveLength(4)
+    expect(projectNodeTimeError(nodes, value, Date.now(), projectStatus, baseline)).toBe('')
+    await wrapper.get('#evaluation-end').setValue('2026-11-04 09:00')
+    expect(wrapper.get('#evaluation-deadline-error').text()).toBe('截止时间必须晚于开始时间')
+    value.node_times.evaluation.end_at = '2026-11-04T09:00'
+    expect(projectNodeTimeError(nodes, value, Date.now(), projectStatus, baseline)).toContain('必须晚于开始时间')
+    wrapper.unmount()
+  })
+
+  it('validates only new calibration phases against now and refreshes the saved baseline', async () => {
+    const value = settings()
+    const baseline = JSON.parse(JSON.stringify(value))
+    value.node_settings.calibration.calibration!.phases.push({ phase_id: 'new', rules: [] })
+    value.node_times.calibration.phase_times!.new = { start_at: '2026-11-05T09:00', end_at: '2026-11-06T11:59' }
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [node], projectStatus: 'STARTED', baselineFlowSettings: baseline, modelValue: value.node_times, nodeSettings: value.node_settings } })
+    expect(wrapper.findAll('[aria-invalid="true"]')).toHaveLength(1)
+    expect(wrapper.get('#calibration-new-error').text()).toBe('截止时间不能早于当前时间')
+    expect(projectNodeTimeError([node], value, Date.now(), 'STARTED', baseline)).toContain('第 3 阶段')
+    await wrapper.get('#calibration-new-end').setValue('2026-11-07 18:00')
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    value.node_times.calibration.phase_times!.new.end_at = '2026-11-07T18:00'
+    expect(projectNodeTimeError([node], value, Date.now(), 'STARTED', baseline)).toBe('')
+    await wrapper.setProps({ baselineFlowSettings: JSON.parse(JSON.stringify(value)) })
+    vi.setSystemTime(new Date('2026-11-08T04:00:00Z'))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    expect(projectNodeTimeError([node], value, Date.now(), 'STARTED', value)).toBe('')
+    wrapper.unmount()
+  })
+
   it('uses Beijing timestamps, accepts now exactly and preserves strict start/end ordering', () => {
     expect(projectDeadlineError('2026-11-05T09:00', '2026-11-06T12:00')).toBe('')
     expect(projectDeadlineError('2026-11-05T09:00', '2026-11-06T03:59:00Z')).toBe('截止时间不能早于当前时间')

@@ -52,7 +52,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { shanghaiLocalToUtcIso } from '@/utils/datetime'
 import type { PerformanceProjectFlowSettings, PerformanceProjectNodeTime, PerformanceWorkflowNode } from '@/api/performance'
-import { calibrationPhaseKey, projectDeadlineError, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
+import { calibrationPhaseKey, projectDeadlineError, requiresFutureDeadline, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
@@ -62,6 +62,7 @@ const props = withDefaults(defineProps<{
   nodeSettings?: PerformanceProjectFlowSettings['node_settings']
   modelValue?: Record<string, PerformanceProjectNodeTime>
   projectStatus?: string
+  baselineFlowSettings?: PerformanceProjectFlowSettings
   showValidation?: boolean
   loading?: boolean
   error?: string
@@ -105,18 +106,18 @@ function startError(value?: string) {
   if (!value) return '开始时间不能为空'
   return Number.isFinite(Date.parse(value)) ? '' : '开始时间格式不正确'
 }
-function endError(start: string | undefined, end: string | undefined, label = '截止时间') {
+function endError(start: string | undefined, end: string | undefined, label = '截止时间', requireFuture = true) {
   if (props.showValidation && !end) return `${label}不能为空`
-  return projectDeadlineError(start, end, clock.value, label)
+  return projectDeadlineError(start, end, clock.value, label, requireFuture)
 }
 function phaseDeadlineError(node: PerformanceWorkflowNode, phase: ReturnType<typeof phasesFor>[number], index: number) {
   const time = phaseTimeFor(node, phase, index)
-  return endError(time.start_at, time.end_at)
+  return endError(time.start_at, time.end_at, '截止时间', requiresFutureDeadline(props.projectStatus, props.baselineFlowSettings, nodeKey(node), calibrationPhaseKey(phase, index)))
 }
 function deadlineError(node: PerformanceWorkflowNode) {
   const time = timeFor(node)
   const label = node.node_type === 'result_view' ? '发起复议截止时间' : node.node_type === 'result_reconsideration' ? '处理复议截止时间' : '截止时间'
-  return endError(node.node_type === 'result_reconsideration' ? undefined : time.start_at, node.node_type === 'result_view' ? time.appeal_deadline : time.end_at, label)
+  return endError(node.node_type === 'result_reconsideration' ? undefined : time.start_at, node.node_type === 'result_view' ? time.appeal_deadline : time.end_at, label, requiresFutureDeadline(props.projectStatus))
 }
 function ensureAllNodes() { props.nodes.forEach(ensureNode); syncCalibrationPhaseTimes(props.nodeSettings, draft.value) }
 function timeFor(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value[nodeKey(node)] }

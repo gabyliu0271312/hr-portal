@@ -297,8 +297,8 @@ describe('CR-013 project partial saves', () => {
     mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'calibration', node_type: 'calibration', name: '校准', order: 1 }, { node_id: 'result', node_type: 'result_view', name: '结果', order: 2 }] })
     return project
   }
-  it('blocks completion with an elapsed deadline and saves after correcting it', async () => {
-    const project = await started()
+  it('blocks draft completion with an elapsed deadline and saves after correcting it', async () => {
+    const project = { ...await started(), status: 'DRAFT' }
     project.flow_settings.node_times.result.appeal_deadline = '2000-01-04T01:00:00Z'
     project.flow_settings.node_times.result.start_at = '2000-01-03T01:00:00Z'
     mocks.get.mockResolvedValue(project)
@@ -342,6 +342,51 @@ describe('CR-013 project partial saves', () => {
     expect(wrapper.findAll('.time-card [role="alert"]')).toHaveLength(0)
     await button(wrapper, '完成').trigger('click'); await flushPromises()
     expect(mocks.update).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it.each(['STARTED', 'ARCHIVED'])('allows historical deadlines on %s projects without a validation alert', async status => {
+    const project = { ...await started(), status }
+    project.flow_settings.node_times.result.appeal_deadline = '2000-01-04T01:00:00Z'
+    project.flow_settings.node_times.result.start_at = '2000-01-03T01:00:00Z'
+    mocks.get.mockResolvedValue(project)
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    expect(wrapper.find('.time-card > .error').exists()).toBe(false)
+    expect(wrapper.text()).toContain('项目设置已保存')
+    await wrapper.get('#result-appeal-deadline').setValue('2001-01-04 09:00')
+    await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledOnce()
+    expect(mocks.update.mock.calls[0][1].flow_settings.node_times.result.appeal_deadline).toBe('2001-01-04T01:00:00.000Z')
+    wrapper.unmount()
+  })
+
+  it('blocks a newly added started-project calibration phase with an elapsed deadline', async () => {
+    const project = await started()
+    project.flow_settings.node_times.calibration = { start_at: '2000-01-01T01:00:00Z', end_at: '2000-01-02T01:00:00Z' }
+    mocks.get.mockResolvedValue(project)
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    const flow = wrapper.getComponent(PerformanceProjectFlowSettings)
+    const nodeSettings = JSON.parse(JSON.stringify(flow.props('modelValue')!.node_settings))
+    nodeSettings.calibration.calibration.phases.push({ phase_id: 'new-phase', rules: [] })
+    const nodeTimes = JSON.parse(JSON.stringify(flow.props('modelValue')!.node_times))
+    nodeTimes.calibration.phase_times['new-phase'] = { start_at: '2000-01-01T01:00:00Z', end_at: '2000-01-02T01:00:00Z' }
+    flow.vm.$emit('update:modelValue', { ...flow.props('modelValue'), node_settings: nodeSettings, node_times: nodeTimes })
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.get('#calibration-new-phase-error').text()).toBe('截止时间不能早于当前时间')
+    await wrapper.get('#calibration-new-phase-end').setValue('2099-01-02 09:00')
+    await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledOnce()
+    expect(mocks.update.mock.calls[0][1].calibration_operations).toEqual(expect.arrayContaining([{ operation: 'add_phase', node_id: 'calibration', phase_id: 'new-phase' }]))
     wrapper.unmount()
   })
 

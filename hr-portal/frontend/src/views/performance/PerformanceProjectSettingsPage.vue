@@ -101,6 +101,7 @@
         <PerformanceProjectTimeSettings
           v-model="form.flow_settings.node_times"
           :show-validation="timeValidationSubmitted"
+          :baseline-flow-settings="rawBaseline?.flow_settings"
           :project-status="projectStatus"
           :node-settings="form.flow_settings.node_settings"
           :nodes="workflowNodes"
@@ -364,7 +365,7 @@ async function saveDraft(finalize = false) {
   if (finalize && projectStatus.value !== 'STARTED' && projectStatus.value !== 'ARCHIVED') patch.configuration_completed = true
   if (!Object.keys(patch).length) return true
   if (patch.flow_settings) {
-    if (calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings) && projectNodeTimeError(workflowNodes.value.filter(node => node.node_type === 'calibration'), form.flow_settings)) {
+    if (calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings) && projectNodeTimeError(workflowNodes.value.filter(node => node.node_type === 'calibration'), form.flow_settings, Date.now(), projectStatus.value, rawBaseline.value.flow_settings)) {
       validationError.value = '请先填写新增校准阶段的完整起止时间并保存'; return false
     }
     const operations = calibrationOperations(displayBaseline.value.flow_settings!, form.flow_settings)
@@ -402,7 +403,7 @@ async function nextStep() {
     return
   }
   timeValidationSubmitted.value = true
-  const timeError = projectNodeTimeError(workflowNodes.value, form.flow_settings)
+  const timeError = projectNodeTimeError(workflowNodes.value, form.flow_settings, Date.now(), projectStatus.value, rawBaseline.value?.flow_settings)
   if (timeError) return
   validationError.value = ''
   if (!validate() || saving.value) return

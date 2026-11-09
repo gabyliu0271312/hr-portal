@@ -164,17 +164,23 @@ export function syncCalibrationPhaseTimes(settings: NodeSettings, times: Record<
   }
 }
 
-export function projectDeadlineError(start: string | undefined, end: string | undefined, now = Date.now(), endLabel = '截止时间') {
+export function requiresFutureDeadline(projectStatus = 'DRAFT', baseline?: PerformanceProjectFlowSettings, nodeId?: string, phaseId?: string) {
+  if (projectStatus === 'DRAFT') return true
+  return projectStatus === 'STARTED' && Boolean(baseline && nodeId && phaseId
+    && !baseline.node_settings[nodeId]?.calibration?.phases.some((phase, index) => calibrationPhaseKey(phase, index) === phaseId))
+}
+
+export function projectDeadlineError(start: string | undefined, end: string | undefined, now = Date.now(), endLabel = '截止时间', requireFuture = true) {
   if (!end) return ''
   const timestamp = (value: string) => Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : shanghaiLocalToUtcIso(value.replace(' ', 'T')) || '')
   const deadline = timestamp(end)
   if (!Number.isFinite(deadline)) return `${endLabel}格式不正确`
   if (start && deadline <= timestamp(start)) return `${endLabel}必须晚于开始时间`
-  if (deadline < now) return `${endLabel}不能早于当前时间`
+  if (requireFuture && deadline < now) return `${endLabel}不能早于当前时间`
   return ''
 }
 
-export function projectNodeTimeError(nodes: PerformanceWorkflowNode[], settings: PerformanceProjectFlowSettings, now = Date.now()) {
+export function projectNodeTimeError(nodes: PerformanceWorkflowNode[], settings: PerformanceProjectFlowSettings, now = Date.now(), projectStatus = 'DRAFT', baseline?: PerformanceProjectFlowSettings) {
   for (const node of nodes) {
     const key = node.node_id || `${node.node_type}-${node.order}`
     const time = settings.node_times[key]
@@ -182,27 +188,27 @@ export function projectNodeTimeError(nodes: PerformanceWorkflowNode[], settings:
     if (node.node_type === 'calibration' && phases?.length) {
       for (const [index, phase] of phases.entries()) {
         const range = time?.phase_times?.[calibrationPhaseKey(phase, index)]
-        const error = rangeError(range?.start_at, range?.end_at, `${node.name}第 ${index + 1} 阶段`, now)
+        const error = rangeError(range?.start_at, range?.end_at, `${node.name}第 ${index + 1} 阶段`, now, '截止时间', requiresFutureDeadline(projectStatus, baseline, key, calibrationPhaseKey(phase, index)))
         if (error) return error
       }
     } else if (node.node_type === 'result_view') {
-      const error = rangeError(time?.start_at, time?.appeal_deadline, node.name, now, '发起复议截止时间')
+      const error = rangeError(time?.start_at, time?.appeal_deadline, node.name, now, '发起复议截止时间', requiresFutureDeadline(projectStatus))
       if (error) return error
     } else if (node.node_type === 'result_reconsideration') {
       if (!time?.end_at) return `${node.name}的处理复议截止时间不能为空`
-      const error = projectDeadlineError(undefined, time.end_at, now, `${node.name}的处理复议截止时间`)
+      const error = projectDeadlineError(undefined, time.end_at, now, `${node.name}的处理复议截止时间`, requiresFutureDeadline(projectStatus))
       if (error) return error
     } else {
-      const error = rangeError(time?.start_at, time?.end_at, node.name, now)
+      const error = rangeError(time?.start_at, time?.end_at, node.name, now, '截止时间', requiresFutureDeadline(projectStatus))
       if (error) return error
     }
   }
   return ''
 }
 
-function rangeError(start: string | undefined, end: string | undefined, label: string, now: number, endLabel = '截止时间') {
+function rangeError(start: string | undefined, end: string | undefined, label: string, now: number, endLabel = '截止时间', requireFuture = true) {
   if (!start || !end) return `${label}的开始时间和${endLabel}不能为空`
   if (!Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return `${label}的时间格式不正确`
-  const error = projectDeadlineError(start, end, now, endLabel)
+  const error = projectDeadlineError(start, end, now, endLabel, requireFuture)
   return error ? `${label}的${error}` : ''
 }

@@ -277,6 +277,9 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
     - UI 合规沿用 N000/N00/N11 和现有局部交互，无新蓝图必要；本轮未执行实际浏览器/独立PNG、真实API/SQL及生产验收，不以组件测试冒充；父卡仍 [ ]。未 commit/push/deploy。
   - Evidence（2026-11-09，提示统一收敛）：删除 PerformanceProjectSettingsPage 起止时间卡片底部 `nodeTimeError` 汇总提示，不再把字段级截止错误复写到页面底部；时间校验仍由 `projectNodeTimeError` 在“完成”点击时执行并阻止 PATCH，组件通过 `showValidation` 将空值/格式错误同样渲染到对应字段下。补页面回归断言：过期/缺失字段仅有字段下 alert，无 `.time-card > .error`，修正后全部清除并成功 PATCH。
     - 定向前端回归最终 6 文件 157 passed；生产构建 `vue-tsc + Vite` 通过，仅既有 VueUse PURE 注释警告；git diff --check 通过。未执行生产验收、未 commit/push/deploy。
+  - Evidence（2026-11-09，截止提醒状态边界优化）：用户确认并授权：DRAFT 截止不得早于当前时间；STARTED/ARCHIVED 既有节点历史截止不因此红框或阻断；STARTED 新增校准阶段仍独立校验未来截止。共用 requiresFutureDeadline，字段提醒、完成校验及新增阶段保存检查均传入项目状态/保存前基线；以 node_id + 稳定 phase_id 识别新增阶段，保存回读更新基线后不再视为新增。保留必填/格式/严格起止顺序、开始锁定、中性已截止标识、全局错误 token；后端启动门禁、数据库、权限、历史数据未修改。
+    - 定向 `npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectTimeSettings.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts src/components/performance/PerformanceDateTimeField.spec.ts src/components/performance/PerformanceProjectFlowSettings.spec.ts src/views/performance/CycleManagement.spec.ts src/utils/datetime.spec.ts`：最终 6 文件 168 passed。覆盖历史节点四类型、STARTED/ARCHIVED 无改完成及改为另一历史合法时间保存、DRAFT 过期阻断、已过期旧校准阶段与新增阶段混合（新阶段非法阻断/修正后 PATCH）、基线更新及跨时刷新、所有状态保留顺序校验。包含工作区并行新增的既有回归，不将其计作本卡新增。
+    - 首次构建新增夹具有 TS 错误且并行 UiTable 暂有类型缺口；本卡夹具修正后最终 `npm --prefix hr-portal/frontend run build`（vue-tsc + Vite）通过，仅既有 VueUse PURE 注释警告。本卡代码文件 diff --check 通过；全工作区另有并行文件尾空格，不改动。本轮真实浏览器视觉/PNG、真实 API/SQL、生产验收未运行，父卡仍 [ ]；无新文件、无 commit/push/deploy，其他并行差异保留。
   - Definition of done: 代码、联动/拒绝/旧数据测试、真实保存回读、UI 截图及构建均验证后才勾选；缺证据保持未完成并注明原因。
 
 ## PM-T003-I11 周期多模板与项目模板选择
