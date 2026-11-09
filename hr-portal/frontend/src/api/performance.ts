@@ -877,6 +877,7 @@ export interface ProjectManagementOverview {
 
 export interface ProjectMemberTaskOption {
   task_id: number
+  stage_id?: string | null
   stage_key: string
   stage_label: string
   role_key: string | null
@@ -1071,7 +1072,7 @@ export const projectManagementApi = {
     const { data } = await api.get(`/performance/projects/${projectId}/tasks/${taskId}/delegation-candidates`)
     return data
   },
-  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode: 'PARTIAL' | 'ALL'; scope_kind: string; selected_employee_nos: string[]; department_paths: string[]; distribution_mode: string; allow_reauthorize: boolean; notify_original: boolean }): Promise<{ id: number; task_id: number; status: string; notification_status?: 'preview_only' | string }> {
+  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean }): Promise<{ id: number; task_id: number; status: string; notification_status?: 'preview_only' | string }> {
     const { data } = await api.post(`/performance/projects/${projectId}/tasks/${taskId}/delegations`, { action, recipient_employee_no: recipientEmployeeNo, reason, ...options })
     return data
   },

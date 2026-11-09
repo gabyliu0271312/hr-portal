@@ -73,7 +73,7 @@
       <div v-if="notice" class="performance-reminder-notice" role="status">{{ notice }}</div>
     </div>
     <PerformanceColumnVisibilityDrawer v-model="columnDrawerOpen" :columns="columns" :selected-keys="selectedColumnKeys" @confirm="applyColumns" />
-    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
+    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="load()" />
     <PerformanceConfirmDialog
       v-if="mode === 'open-result'"
       v-model="confirmOpen"

@@ -6956,7 +6956,7 @@ async def test_cycle_reminder_hides_delegation_for_self_and_360_and_calibration_
         async def execute(self, query):
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
     node_types = {"work-summary": "work_summary", "self-review": "evaluation", "review-360": "evaluation", "calibration": "calibration", "manager-review": "evaluation", "communicate": "result_communication"}
-    role_codes = {"self-review": "assessment.reviewee", "review-360": "assessment.reviewer_360", "manager-review": "assessment.line_manager"}
+    role_codes = {"self-review": "assessment.reviewee", "review-360": "assessment.reviewer_360", "manager-review": "assessment.line_manager", "communicate": "assessment.line_manager"}
     task_extra = {"task_kind": "calibration", "phase_id": "p1"}
     calibration = {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "M1", "employee_no": "E1", "allow_authorize": True}]}]}
     for node_key, node_type in node_types.items():
@@ -6974,6 +6974,7 @@ async def test_cycle_reminder_hides_delegation_for_self_and_360_and_calibration_
             assert rows[0]["task_map"] == [{
                 "task_id": 1,
                 "stage_key": node_key,
+                "stage_id": "summary",
                 "stage_label": "上级评估" if node_key == "manager-review" else "绩效沟通并开通结果",
                 "role_key": "DIRECT_SUPERVISOR",
                 "role_label": "直属上级",
@@ -7120,6 +7121,8 @@ async def test_task_authorization_persists_without_rewriting_handler_or_answers(
     recipient = SimpleNamespace(employee_no="RECIPIENT", display_name="被授权人", employment_status="在职")
     async def actor(*args, **kwargs): return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ORIGINAL")
     monkeypatch.setattr(router, "resolve_trusted_performance_actor", actor)
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(router, "_task_management_scope", AsyncMock(return_value=None))
     records = []
     class Db:
         async def execute(self, statement):
@@ -7878,3 +7881,230 @@ async def test_management_member_remind_forwards_to_shared_sender(management_mem
     sending.assert_awaited_once()
     sent = sending.call_args.args[0]
     assert sent.id == 4 and sent.target_employee_no == "E1"
+
+
+@pytest.mark.asyncio
+async def test_delegation_roles_follow_frozen_config_and_matching_handler(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    member = SimpleNamespace(employee_no="E1", direct_supervisor_employee_no="BOTH", hrbp_employee_no="BOTH")
+    roles = [{"type": "REAL_LINE_MANAGER", "levels": ["DIRECT_MANAGER"]}, {"type": "HRBP"},
+             {"type": "SPECIFIED_PERSON", "people": [{"employee_no": "BOTH", "display_name": "重叠处理人"}, {"employee_no": "P1", "display_name": "指定处理人"}]},
+             {"type": "DEPARTMENT_HEAD", "levels": ["CURRENT_DEPARTMENT"]}]
+    node = SimpleNamespace(node_id="appeal", node_type="result_reconsideration", name="复议", config={"template": {"executor_config": {"mode": "MULTI_ROLE", "roles": roles}}})
+    stages = {10: {"key": "result-reconsideration", "label": "结果复议处理", "node": node}}
+    tasks = [SimpleNamespace(id=index, node_snapshot_id=10, handler_ref=handler, revoked_at=None) for index, handler in enumerate(["BOTH", "P1", "OUTSIDE"], 1)]
+    monkeypatch.setattr(routes, "_authorize_task_delegation", AsyncMock(return_value=True))
+    options = await routes._member_task_options(member, tasks, stages, {}, None, project("STARTED"), context(), "ADMIN", object())
+    assert [(item.task_id, item.role_key) for item in options] == [(1, "DIRECT_SUPERVISOR"), (1, "HRBP"), (1, "SPECIFIED_PERSON"), (2, "SPECIFIED_PERSON")]
+    assert all(item.stage_id == "appeal" for item in options)
+    roles[:] = [{"type": "SPECIFIED_PERSON", "people": [{"employee_no": "P1", "display_name": "指定处理人"}]}]
+    options = await routes._member_task_options(member, tasks, stages, {}, None, project("STARTED"), context(), "ADMIN", object())
+    assert [(item.task_id, item.role_key) for item in options] == [(2, "SPECIFIED_PERSON")]
+    roles[:] = [{"type": "REAL_LINE_MANAGER", "levels": ["LEVEL_1_MANAGER"]}]
+    options = await routes._member_task_options(member, tasks, stages, {}, None, project("STARTED"), context(), "ADMIN", object())
+    assert options == []
+
+
+@pytest.mark.asyncio
+async def test_delegation_stage_ids_distinguish_nodes_and_group_same_template_across_projects(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    monkeypatch.setattr(routes, "_authorize_task_delegation", AsyncMock(return_value=True))
+    member = SimpleNamespace(direct_supervisor_employee_no="M1", hrbp_employee_no=None)
+    all_options = []
+    for project_id, node_ids in [(1, ["review-one", "review-two"]), (2, ["review-one"])]:
+        target = SimpleNamespace(id=project_id)
+        nodes = [SimpleNamespace(id=project_id * 10 + index, node_id=node_id, node_type="evaluation", name="相同中文名", config={"template": {"executor_role_code": "assessment.line_manager", "executor_types": ["DIRECT_MANAGER"]}}) for index, node_id in enumerate(node_ids)]
+        stages = await routes._delegatable_stages(object(), target, nodes)
+        tasks = [SimpleNamespace(id=node.id, node_snapshot_id=node.id, handler_ref="M1") for node in nodes]
+        all_options.extend(await routes._member_task_options(member, tasks, stages, {}, None, target, context(), "ADMIN", object()))
+    assert [option.stage_key for option in all_options] == ["manager-review"] * 3
+    assert [option.stage_id for option in all_options] == ["review-one", "review-two", "review-one"]
+    assert routes.ProjectMemberTaskOption(task_id=1, stage_key="manager-review", stage_label="评估", handler_ref="M1").stage_id is None
+
+
+@pytest.mark.asyncio
+async def test_delegation_completed_and_revoked_tasks_disabled_without_changing_calibration(monkeypatch):
+    from app.performance import projects_router as routes
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(routes, "_task_management_scope", AsyncMock(return_value=None))
+    node = SimpleNamespace(node_type="evaluation")
+    for values in [{"status": "completed"}, {"submitted_at": "2026-01-01"}, {"revoked_at": "2026-01-01"}]:
+        task = SimpleNamespace(id=1, handler_ref="M1", target_employee_no="E1", **values)
+        assert not await routes._authorize_task_delegation(task, node, project("STARTED"), context(), "M1", object(), {})
+    calibration = SimpleNamespace(project_id=1, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "M1", "employee_no": "E1", "allow_authorize": True}]}]}})
+    task = SimpleNamespace(id=1, project_id=1, task_kind="calibration", phase_id="p1", handler_ref="M1", target_employee_no="E1", status="completed")
+    assert await routes._authorize_task_delegation(task, calibration, project("STARTED"), context(), "M1", object(), {})
+
+
+@pytest.fixture
+def task_delegation_backend(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance import models
+    task = models.PerformanceNodeTask(id=7, project_id=3, cycle_ref="C1", member_snapshot_id=10, node_snapshot_id=5, target_employee_no="E1", handler_ref="ORIGINAL", task_kind="evaluation", status="pending", answer_version=4, answers={"field": "history"}, draft_answers={"field": "draft"})
+    node = models.PerformanceProjectNodeSnapshot(id=5, project_id=3, node_id="review", node_type="evaluation", name="评估", config={"template": {"executor_role_code": "assessment.line_manager"}})
+    target = SimpleNamespace(id=3, cycle_ref="C1", status="STARTED", settings={}, name="测试项目")
+    recipient = SimpleNamespace(employee_no="RECIPIENT", display_name="被授权人", employment_status="在职", direct_supervisor_employee_no="ORIGINAL")
+    identity = SimpleNamespace(actor_ref="ORIGINAL", actor_type="EMPLOYEE")
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(side_effect=lambda *args, **kwargs: identity))
+    scope = AsyncMock(return_value=None)
+    monkeypatch.setattr(routes, "_task_management_scope", scope)
+    notices = AsyncMock(return_value=SimpleNamespace(errors=[], status="success"))
+    monkeypatch.setattr(routes, "send_notification", notices)
+    class Db:
+        def __init__(self):
+            self.records = []
+            self.events = []
+            self.commits = 0
+        async def execute(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            active = [record for record in self.records if record.status == "ACTIVE"]
+            return SimpleNamespace(first=lambda: (task, node, target), scalars=lambda: SimpleNamespace(all=lambda: active if entity is models.PerformanceNodeTaskAuthorization else [recipient]))
+        async def scalar(self, statement):
+            entity = statement.column_descriptions[0]["entity"]
+            if entity is models.PerformanceProject: return target
+            if entity is models.PerformanceAuthorizationSnapshotPerson: return recipient
+            if entity is routes.User: return SimpleNamespace(id=1, feishu_user_id="open-id")
+            return 10
+        async def get(self, model, key):
+            if model is models.PerformanceProject: return target
+            if model is models.PerformanceOtherSetting: return None
+            return SimpleNamespace(source_snapshot_id=20)
+        async def refresh(self, *args, **kwargs): pass
+        def add(self, row):
+            if isinstance(row, models.PerformanceNodeTaskAuthorization): self.records.append(row)
+            else: self.events.append(row)
+        async def flush(self):
+            for index, record in enumerate(self.records, 1): record.id = index
+        async def commit(self): self.commits += 1
+    return SimpleNamespace(routes=routes, models=models, task=task, node=node, project=target, recipient=recipient, identity=identity, db=Db(), scope=scope, notices=notices)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action,handlers,title,verb", [("AUTHORIZE", {"ORIGINAL", "RECIPIENT"}, "绩效任务授权通知", "已授权"), ("TRANSFER", {"RECIPIENT"}, "绩效任务转交通知", "已转交")])
+async def test_delegation_empty_reason_effective_handlers_and_operation_notice(task_delegation_backend, action, handlers, title, verb):
+    data = task_delegation_backend
+    result = await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action=action, recipient_employee_no="RECIPIENT", notify_original=True), context(), data.db)
+    assert result["notification_status"] == "success"
+    assert await data.routes._task_handlers(data.db, data.task) == handlers
+    assert data.db.records[0].reason == ""
+    assert data.task.handler_ref == "ORIGINAL" and data.task.answers == {"field": "history"} and data.task.draft_answers == {"field": "draft"} and data.task.answer_version == 4
+    assert data.db.commits == 1 and len(data.db.events) == 1
+    message = data.notices.await_args.args[0].message
+    assert message.title_template == title and verb in message.content_template
+
+
+@pytest.mark.asyncio
+async def test_delegation_candidates_and_write_reject_same_out_of_scope_recipient(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.scope.return_value = {"E1"}
+    assert await data.routes.task_delegation_candidates(3, 7, context(), data.db) == []
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", reason=""), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (403, "TASK_AUTHORIZATION_RECIPIENT_OUTSIDE_SCOPE")
+    assert not data.db.records and not data.db.events and data.db.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("employment_status", ["离职", "已离职"])
+async def test_delegation_candidates_and_write_reject_inactive_recipient(task_delegation_backend, employment_status):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.recipient.employment_status = employment_status
+    assert await data.routes.task_delegation_candidates(3, 7, context(), data.db) == []
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="TRANSFER", recipient_employee_no="RECIPIENT"), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (422, "TASK_AUTHORIZATION_RECIPIENT_INVALID")
+    assert not data.db.records
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["AUTHORIZE", "TRANSFER"])
+async def test_reconsideration_effective_delegate_reads_and_submits_real_task(task_delegation_backend, monkeypatch, action):
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    from app.performance import reconsideration_service
+    data = task_delegation_backend
+    data.task.task_kind = data.node.node_type = "result_reconsideration"
+    template = {"content": [{"content_id": "recon", "type": "work_summary", "name": "复议反馈", "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}]}]}
+    data.node.config = {"template": template}
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=SimpleNamespace(id=1)))
+    monkeypatch.setattr(reconsideration_service, "reconsideration_tasks", AsyncMock(return_value=[data.task]))
+    monkeypatch.setattr(data.routes, "_self_summary_template", AsyncMock(return_value=template))
+    monkeypatch.setattr(data.routes, "_sync_automatic_openings", AsyncMock())
+    await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action=action, recipient_employee_no="RECIPIENT"), context(), data.db)
+    data.identity.actor_ref = "RECIPIENT"
+    task, node = await data.routes._self_summary_task(7, context(), data.db, "evaluation")
+    assert task is data.task and node is data.node
+    if action == "TRANSFER":
+        data.identity.actor_ref = "ORIGINAL"
+        with pytest.raises(HTTPException) as error:
+            await data.routes._self_summary_task(7, context(), data.db, "evaluation")
+        assert error.value.status_code == 404
+        data.identity.actor_ref = "RECIPIENT"
+    result = await data.routes._save_self_summary(7, data.routes.SelfSummaryAnswersPayload(answers={"feedback": "<p>已复核</p>", "keep_result": "keep"}, version=4), True, context(), data.db, "evaluation")
+    assert result["version"] == 5 and data.task.status == "completed"
+    assert data.task.answers["feedback"] == "<p>已复核</p>" and data.task.answers["keep_result"] == "keep"
+    assert data.task.handler_ref == "ORIGINAL"
+    assert data.db.events[-1].actor_ref == "RECIPIENT"
+
+
+@pytest.mark.asyncio
+async def test_delegation_transfer_replaces_previous_authorizations(task_delegation_backend):
+    data = task_delegation_backend
+    await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT"), context(), data.db)
+    assert await data.routes._task_handlers(data.db, data.task) == {"ORIGINAL", "RECIPIENT"}
+    data.recipient.employee_no = "TRANSFERRED"
+    await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="TRANSFER", recipient_employee_no="TRANSFERRED", reason="  "), context(), data.db)
+    assert [record.status for record in data.db.records] == ["REPLACED", "ACTIVE"]
+    assert data.db.records[1].reason == ""
+    assert await data.routes._task_handlers(data.db, data.task) == {"TRANSFERRED"}
+    assert data.task.handler_ref == "ORIGINAL" and data.task.answers == {"field": "history"}
+
+
+@pytest.mark.asyncio
+async def test_delegation_reconsideration_fallback_only_when_configured_roles_unresolved(monkeypatch):
+    from app.performance import projects_router as routes
+    from unittest.mock import AsyncMock
+    member = SimpleNamespace(snapshot_id=1, employee_no="E1", direct_supervisor_employee_no=None, hrbp_employee_no=None)
+    target = SimpleNamespace(settings={"flow_settings": {"node_settings": {"appeal": {"result_reconsideration": {"handler_employee_nos": ["F1"]}}}}})
+    node = SimpleNamespace(node_type="result_reconsideration", node_id="appeal", name="复议", config={"template": {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "HRBP"}]}}})
+    task = SimpleNamespace(id=1, node_snapshot_id=10, handler_ref="F1", status="pending")
+    stages = {10: {"key": "result-reconsideration", "label": "复议", "node": node}}
+    monkeypatch.setattr(routes, "_authorize_task_delegation", AsyncMock(return_value=True))
+    class Db:
+        async def get(self, *args): return SimpleNamespace(source_snapshot_id=20)
+        async def execute(self, *args): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [SimpleNamespace(employee_no="F1")]))
+    options = await routes._member_task_options(member, [task], stages, {}, None, target, context(), "ADMIN", Db())
+    assert [option.role_key for option in options] == ["SPECIFIED_PERSON"]
+    member.hrbp_employee_no = "H1"
+    assert await routes._member_task_options(member, [task], stages, {}, None, target, context(), "ADMIN", Db()) == []
+
+
+@pytest.mark.asyncio
+async def test_delegation_task_map_omits_revoked_and_disables_completed(monkeypatch):
+    from app.performance import projects_router as routes
+    from unittest.mock import AsyncMock
+    member = SimpleNamespace(direct_supervisor_employee_no="M1", hrbp_employee_no=None)
+    node = SimpleNamespace(node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": "assessment.line_manager"}})
+    stages = {10: {"key": "manager-review", "label": "评估", "node": node}}
+    tasks = [SimpleNamespace(id=1, node_snapshot_id=10, handler_ref="M1", status="completed"), SimpleNamespace(id=2, node_snapshot_id=10, handler_ref="M1", revoked_at="2026-01-01")]
+    authorize = AsyncMock(return_value=True)
+    monkeypatch.setattr(routes, "_authorize_task_delegation", authorize)
+    options = await routes._member_task_options(member, tasks, stages, {}, None, project("STARTED"), context(), "ADMIN", object())
+    assert len(options) == 1 and options[0].task_id == 1 and not options[0].can_authorize
+    authorize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delegation_recipient_scope_preserves_identity_denial(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.scope.side_effect = HTTPException(403, "PROJECT_ADMIN_IDENTITY_AMBIGUOUS")
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT"), context(), data.db)
+    assert error.value.detail == "PROJECT_ADMIN_IDENTITY_AMBIGUOUS"
+    assert not data.db.records

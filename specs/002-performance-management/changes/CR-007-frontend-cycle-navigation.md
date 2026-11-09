@@ -169,3 +169,14 @@
     - 后端：`test_performance_projects.py` 377 passed / 5 skipped；`test_performance_auth_context.py` + `test_performance_subject_visibility.py` + `test_performance_role_configuration.py` 31 passed。本卡新增 mock 覆盖 `_delegatable_stages` 的节点快照查询与无 cycle_ref 的任务查询分支。
     - 状态：代码已在 HEAD（提交 `94d88a4f` 及后续 `4dbe5711`）；未部署生产、未执行真实登录浏览器验收；生产代码经开发推送发布规则不变。
   - 待后续：真实登录下项目管理页成员列表勾选→弹窗环节分组→提交生成授权记录→列表刷新的浏览器端到端验收；像素比对与飞书参考页留待统一像素轮。
+
+### 2026-11-09 CR-007-F07 授权／转交弹窗与二次确认收口
+
+- [ ] CR-007-F07：本地实现及定向回归通过；真实 PostgreSQL 新连接回读与原入口完整登录验收未完成，不勾选整体验收。
+- 确认依据：用户明确要求按本会话 REA 还原并完成本地开发；主弹窗被评估人在最上、三执行角色与环节集中展示，转交二次确认采用用户提供的 600px SnapSpec。保留既有入口和流程，本次为既有弹窗修正，无新页面／菜单或迁移。授权二次确认使用同一公共警告壳；不声称覆盖飞书全部审批及原处理人缺失分支。
+- 实现：复用 PerformanceDialogShell、PerformanceFormItem、PerformanceMemberIdentity、PerformanceSearchSelect、PerformancePromptNotice、PerformanceCheckbox、UiSwitch 和 PerformanceConfirmDialog。新增 PerformanceDelegationStages 只负责角色／环节选择；600px 二次确认增加 delegation 外观，不改变原删除／提交外观。切换角色清空已选环节；按 role_key + stage_id（兼容 stage_key）归并显示，提交保留 project_id + task_id 并排除不可授权任务。移除普通操作原因必填，默认开启通知原评估人并随请求提交。主弹窗首次确定不写入，二次确定才调用既有单任务 API；取消不写入，失败／部分成功禁止重复提交并刷新名单。
+- 后端：ProjectMemberTaskOption 增加可选 stage_id=node.node_id；角色严格匹配冻结配置与 task.handler_ref，保留重叠角色，指定人员必须准确匹配，直属上级要求对应级别；纳入真实结果复议任务，撤销过滤、普通完成任务禁用。候选查询和 POST 同范围校验，越界403 TASK_AUTHORIZATION_RECIPIENT_OUTSIDE_SCOPE，身份歧义拒绝不降级。保留快照、审计、校准只读授权和有效处理人服务；通知文案区分授权与转交。
+- 前端实际回归：`npm --prefix hr-portal/frontend exec -- vitest run src/components/performance/PerformanceReminderPanel.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts --root hr-portal/frontend` → **56 passed**。项目管理既有测试仍输出 jsdom XHR AggregateError，但套件 exit 0；不称无告警。类型检查及 Vite 构建通过，只有既有 VueUse PURE 注释及大包提醒。
+- 后端实际回归：`.venv/Scripts/python.exe -m pytest -q tests/test_performance_projects.py -k 'delegation or task_authorization or reconsideration or member_task_map or real_line_handlers'` → **29 passed**。排除三个已知失败测试名后的模块回归 **480 passed / 5 skipped / 8 deselected**。全模块曾得478 passed / 5 skipped / 6 failed，6项用 HEAD 原路由内存基线复现相同失败，集中工作台／成员列表360详情夹具；未改本轮外业务。存在 python_multipart 第三方弃用告警。
+- PC 证据：真实 Vite Vue 组件、1280×800、合成人员和浏览器拦截 API；双人相同环节只展示一次，二次确认前写请求0、二次确定后发两条对应任务请求、转交二次取消无新增写请求、pageerror0。截图 `ui-blueprints/CR-007-F07-implemented-authorization.png`、`CR-007-F07-implemented-authorization-confirm.png`、`CR-007-F07-implemented-transfer-confirm.png` 已查看。仅组件集成验证，不是原入口真实后端端到端验收；合成数据及“打开转交”按钮不加入正式页面。
+- 边界与停止：未操作飞书或生产、未实际外发消息、未执行迁移／部署／commit／push。Docker守护进程不可用，不反复重试。批量保持既有逐任务 API，不承诺原子批量；结果复议通知重试器 reconsideration_service.dispatch_notifications 仍按原 task.handler_ref 投递，不随有效授权人变化，这一通知重试限制未扩文件处理。后继须在本地真库可用时补原入口→真实 API→新连接回读，不能以组件截图或 ORM 测试替代 PostgreSQL 验收。

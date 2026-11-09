@@ -8,7 +8,7 @@
     >
       <section
         class="performance-confirm-dialog"
-        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit' }"
+        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit', 'performance-confirm-dialog--delegation': appearance === 'delegation' }"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
@@ -63,7 +63,7 @@ const props = withDefaults(defineProps<{
   confirmDisabled?: boolean
   confirmVariant?: 'danger' | 'primary'
   errorMessage?: string
-  appearance?: 'default' | 'submit'
+  appearance?: 'default' | 'submit' | 'delegation'
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   subject: '',
@@ -342,6 +342,12 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
+.performance-confirm-dialog--delegation { --performance-confirm-width:var(--performance-dialog-wide-width); }
+.performance-confirm-overlay:has(.performance-confirm-dialog--delegation) { background:var(--performance-overlay-dark); z-index:calc(var(--performance-confirm-z-index) + 2); }
+.performance-confirm-dialog--delegation .performance-confirm-dialog__header { min-height:0; }
+.performance-confirm-dialog--delegation .performance-confirm-dialog__body { margin:8px 0 20px 40px; color:var(--color-text-secondary); }
+.performance-confirm-dialog--delegation .performance-confirm-dialog__footer { padding:0 24px 24px; }
+.performance-confirm-dialog--delegation .performance-confirm-dialog__button { font-weight:400; }
 .performance-confirm-dialog--submit{--performance-confirm-width:420px;width:min(420px,calc(100vw - 64px));max-height:calc(100vh - 64px);border-radius:8px;box-shadow:none}
 .performance-confirm-overlay:has(.performance-confirm-dialog--submit){padding:32px;background:rgba(0,0,0,.55)}
 .performance-confirm-dialog--submit .performance-confirm-dialog__header{flex:1 1 auto;min-height:0;max-height:calc(100vh - 120px);padding:24px}

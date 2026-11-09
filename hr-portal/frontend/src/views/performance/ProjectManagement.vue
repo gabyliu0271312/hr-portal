@@ -63,7 +63,7 @@
       @copy-link="copyMemberLink"
       @edit="fillFromDrawer"
     />
-    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" />
+    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="viewRefreshKey++" />
     <RevieweeAddDialog
       v-model="revieweeAddOpen"
       :project-id="revieweeAddProjectId"
@@ -235,6 +235,7 @@ function openDelegation(action: 'AUTHORIZE' | 'TRANSFER', members: ProjectMember
 }
 
 function delegationCompleted() {
+  viewRefreshKey.value++
   delegationOpen.value = false
   delegationTasks.value = []
   selectedDelegationMembers.value = []

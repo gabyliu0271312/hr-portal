@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
-from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
+from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope, CalibrationConflict
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
@@ -26,6 +26,7 @@ from app.users.models import User
 from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import ORGANIZATION_FIELDS, format_job_sequence, organization_leaf, organization_path
+from app.performance.executor_config import normalize_executor_config
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time, _resolve_node_handlers
 from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
 from app.performance.task_authorization_service import effective_handlers, task_handler_condition
@@ -944,6 +945,7 @@ class ProjectMemberResponse(BaseModel):
 class ProjectMemberTaskOption(BaseModel):
     task_id: int
     stage_key: str
+    stage_id: str | None = None
     stage_label: str
     role_key: str | None = None
     role_label: str | None = None
@@ -1632,7 +1634,7 @@ async def _member_task_options(
     member: PerformanceProjectMember,
     tasks: list[PerformanceNodeTask],
     stages: dict[int, dict],
-    active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]],
+    active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None,
     progress_scope: set[str] | None,
     project: PerformanceProject,
     context: PerformanceAccessContext,
@@ -1641,21 +1643,61 @@ async def _member_task_options(
 ) -> list[ProjectMemberTaskOption]:
     direct_supervisor = getattr(member, "direct_supervisor_employee_no", None)
     hrbp = getattr(member, "hrbp_employee_no", None)
-    options = [
-        ProjectMemberTaskOption(
-            task_id=task.id,
-            stage_key=stage["key"],
-            stage_label=stage["label"],
-            role_key="DIRECT_SUPERVISOR" if str(task.handler_ref) == str(direct_supervisor) else "HRBP" if hrbp and str(task.handler_ref) == str(hrbp) else None,
-            role_label="直属上级" if str(task.handler_ref) == str(direct_supervisor) else "HRBP" if hrbp and str(task.handler_ref) == str(hrbp) else None,
-            handler_ref=str(task.handler_ref),
-            can_authorize=await _authorize_task_delegation(task, stage["node"], project, context, actor_ref, db, active_by_task, progress_scope),
-        )
-        for task in tasks
-        if task.node_snapshot_id in stages and getattr(task, "revoked_at", None) is None
-        for stage in [stages[task.node_snapshot_id]]
-    ]
-    return [option for option in options if option.role_key is not None]
+    options: list[ProjectMemberTaskOption] = []
+    for task in tasks:
+        if task.node_snapshot_id not in stages or getattr(task, "revoked_at", None) is not None:
+            continue
+        stage = stages[task.node_snapshot_id]
+        node = stage["node"]
+        template = (node.config or {}).get("template") or {}
+        executor_config = template.get("executor_config")
+        role_candidates: list[tuple[str, str]] = []
+        if executor_config is not None or node.node_type == "result_reconsideration":
+            roles = normalize_executor_config(executor_config)["roles"]
+            for role in roles:
+                role_type = role["type"]
+                if role_type == "REAL_LINE_MANAGER" and "DIRECT_MANAGER" in role["levels"] and direct_supervisor and str(task.handler_ref) == str(direct_supervisor):
+                    role_candidates.append(("DIRECT_SUPERVISOR", "直属上级"))
+                elif role_type == "HRBP" and hrbp and str(task.handler_ref) == str(hrbp):
+                    role_candidates.append(("HRBP", "HRBP"))
+                elif role_type == "SPECIFIED_PERSON" and any(str(person["employee_no"]) == str(task.handler_ref) for person in role["people"]):
+                    role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
+            if node.node_type == "result_reconsideration" and not role_candidates:
+                from app.performance.reconsideration_service import _fallback_employee_nos, resolve_handlers
+                fallback = _fallback_employee_nos(project, node)
+                if str(task.handler_ref) in fallback:
+                    snapshot = await db.get(PerformanceProjectMemberSnapshot, member.snapshot_id)
+                    people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+                        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+                    ))).scalars().all())
+                    people_by_employee = {person.employee_no: person for person in people}
+                    try:
+                        resolve_handlers(template, member, people_by_employee, [])
+                    except HTTPException as exc:
+                        if exc.detail != "RECONSIDERATION_FALLBACK_NOT_CONFIGURED":
+                            raise
+                        if str(task.handler_ref) in people_by_employee:
+                            role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
+        else:
+            role_code = node_role_code(template)
+            types = set(template.get("executor_types") or [])
+            if role_code == ROLE_LINE_MANAGER and (not types or "DIRECT_MANAGER" in types) and direct_supervisor and str(task.handler_ref) == str(direct_supervisor):
+                role_candidates.append(("DIRECT_SUPERVISOR", "直属上级"))
+            if role_code is None and "HRBP" in types and hrbp and str(task.handler_ref) == str(hrbp):
+                role_candidates.append(("HRBP", "HRBP"))
+        can_authorize = bool(role_candidates) and not _task_completed(task) and await _authorize_task_delegation(task, node, project, context, actor_ref, db, active_by_task, progress_scope)
+        for role_key, role_label in role_candidates:
+            options.append(ProjectMemberTaskOption(
+                task_id=task.id,
+                stage_key=stage["key"],
+                stage_id=getattr(node, "node_id", None),
+                stage_label=str(getattr(node, "name", None) or stage["label"]),
+                role_key=role_key,
+                role_label=role_label,
+                handler_ref=str(task.handler_ref),
+                can_authorize=can_authorize,
+            ))
+    return options
 
 
 async def _task_authorization_members(project, scope, context, db, keyword, page, page_size, sort_by, sort_order):
@@ -1681,7 +1723,7 @@ async def _task_authorization_members(project, scope, context, db, keyword, page
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
     items = []
     for member in members:
-        options = await _member_task_options(member, [task for task in tasks if task.target_employee_no == member.employee_no], stages, {}, scope, project, context, actor.actor_ref, db)
+        options = await _member_task_options(member, [task for task in tasks if task.target_employee_no == member.employee_no], stages, None, scope, project, context, actor.actor_ref, db)
         items.append(ProjectMemberResponse(
             id=member.id, root_review_id=member.id, project_id=project.id,
             employee_no=member.employee_no, display_name=member.display_name,
@@ -2790,10 +2832,12 @@ async def _delegatable_stages(db: AsyncSession, project: PerformanceProject, nod
         ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
     for node in nodes:
         key = _completion_node_key(node, await _completion_node_template(db, project, node))
-        if key == "manager-review":
-            result[node.id] = {"key": key, "label": "上级评估", "node": node}
+        if key == "manager-review" or node.node_type == "evaluation" and key is None and (node.config or {}).get("template", {}).get("executor_config") is not None:
+            result[node.id] = {"key": "manager-review", "label": "上级评估", "node": node}
         elif key == "communicate":
             result[node.id] = {"key": key, "label": "绩效沟通并开通结果", "node": node}
+        elif key == "result-reconsideration":
+            result[node.id] = {"key": key, "label": "结果复议处理", "node": node}
     return result
 
 
@@ -3216,7 +3260,7 @@ async def _task_management_scope(context: PerformanceAccessContext, project: Per
 
 
 async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession, active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None = None, progress_scope: set[str] | None | object = _SCOPE_NOT_PROVIDED) -> bool:
-    if getattr(task, "revoked_at", None) is not None:
+    if getattr(task, "revoked_at", None) is not None or node.node_type != "calibration" and _task_completed(task):
         return False
     if node.node_type == "calibration":
         if not calibration_task_scope(task, node):
@@ -3240,6 +3284,15 @@ async def _authorize_task_delegation(task: PerformanceNodeTask, node: Performanc
             return False
         raise
     return scope is None or task.target_employee_no in scope
+
+
+async def _task_recipient_scope(context, project, node, db):
+    try:
+        return await _task_management_scope(context, project, db, _task_authorization_key(node))
+    except HTTPException as exc:
+        if exc.status_code != 403 or exc.detail != "PROJECT_DATA_FORBIDDEN":
+            raise
+        return None
 
 
 @router.get("/projects/{project_id}/tasks/{task_id}/delegation-candidates")
@@ -3266,7 +3319,7 @@ async def task_delegation_candidates(
     ))).scalars().all())
     setting = await db.get(PerformanceOtherSetting, 1)
     restrict_subordinates = node.node_type == "calibration" and setting and not setting.calibration_authorization_outside_direct_reports_enabled
-    scope = await _task_management_scope(context, project, db, _task_authorization_key(node)) if {"performance.projects.manage", "performance.cycles.manage"}.intersection(context.permission_codes) else None
+    scope = await _task_recipient_scope(context, project, node, db)
     return [{"employee_no": person.employee_no, "display_name": person.display_name, "department_path": "/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)), "direct_supervisor_employee_no": person.direct_supervisor_employee_no} for person in people
             if person.employee_no != task.handler_ref and person.employment_status not in {"离职", "已离职"}
             and (scope is None or person.employee_no in scope)
@@ -3304,6 +3357,9 @@ async def create_task_delegation(
     ))
     if recipient is None or recipient.employee_no == task.handler_ref or recipient.employment_status in {"离职", "已离职"}:
         raise HTTPException(status_code=422, detail="TASK_AUTHORIZATION_RECIPIENT_INVALID")
+    recipient_scope = await _task_recipient_scope(context, project, node, db)
+    if recipient_scope is not None and recipient.employee_no not in recipient_scope:
+        raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_RECIPIENT_OUTSIDE_SCOPE")
     if node.node_type == "calibration":
         setting = await db.get(PerformanceOtherSetting, 1)
         if setting and not setting.calibration_authorization_outside_direct_reports_enabled and recipient.direct_supervisor_employee_no != task.handler_ref:
@@ -3312,8 +3368,6 @@ async def create_task_delegation(
         raise HTTPException(status_code=409, detail="TASK_NOT_STARTED")
     if node.node_type == "calibration" and payload.action == "TRANSFER":
         raise HTTPException(status_code=422, detail="CALIBRATION_TRANSFER_NOT_SUPPORTED")
-    if node.node_type != "calibration" and not payload.reason.strip():
-        raise HTTPException(status_code=422, detail="TASK_AUTHORIZATION_REASON_REQUIRED")
     if _task_completed(task) and node.node_type != "calibration":
         raise HTTPException(status_code=409, detail="TASK_ALREADY_COMPLETED")
     if node.node_type == "calibration" and payload.distribution_mode == "NONE":
@@ -3367,7 +3421,7 @@ async def create_task_delegation(
         if original_user and original_user.feishu_user_id:
             notice_result = await send_notification(NotificationConfig(
                 receivers=[FixedUsersRule(type="fixed_users", user_ids=[original_user.id])],
-                message=MessageConfig(title_template="绩效任务授权通知", content_template="项目“{{project_name}}”中的“{{node_name}}”已授权给{{recipient_name}}处理。"),
+                message=MessageConfig(title_template="绩效任务转交通知" if payload.action == "TRANSFER" else "绩效任务授权通知", content_template="项目“{{project_name}}”中的“{{node_name}}”已转交给{{recipient_name}}处理。" if payload.action == "TRANSFER" else "项目“{{project_name}}”中的“{{node_name}}”已授权给{{recipient_name}}处理。"),
             ), {"project_name": project.name, "node_name": node.name, "recipient_name": recipient.display_name}, db,
                 biz_type="performance_task_authorization", biz_id=str(record.id))
             notification_status = "preview_only" if "NOTIFICATION_PREVIEW_ONLY" in notice_result.errors else notice_result.status

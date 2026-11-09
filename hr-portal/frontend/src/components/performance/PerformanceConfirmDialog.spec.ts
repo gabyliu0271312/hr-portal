@@ -147,4 +147,15 @@ describe('PerformanceConfirmDialog', () => {
     wrapper.unmount()
   })
 
+  it('supports the shared wide delegation warning without deletion input', async () => {
+    const wrapper = mountDialog({ appearance: 'delegation', confirmVariant: 'primary', message: '确定转交吗?', description: '请确保转交对象有所选环节的操作资格，避免泄露敏感数据。', cancelText: '取消', confirmText: '确定' })
+    await flushPromises()
+    expect(document.querySelector('.performance-confirm-dialog--delegation')).not.toBeNull()
+    expect(document.querySelector('[data-icon="WarningFilled"]')).not.toBeNull()
+    expect(document.querySelector('.performance-confirm-dialog__confirm-input')).toBeNull()
+    expect(document.querySelector('.performance-confirm-dialog__title-content')?.textContent).toBe('确定转交吗?')
+    document.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--danger')!.click()
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+    wrapper.unmount()
+  })
 })
