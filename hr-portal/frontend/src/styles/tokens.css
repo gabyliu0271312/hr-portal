@@ -272,7 +272,7 @@
   --performance-dialog-cancel-hover: #f2f3f5;
   --performance-dialog-warning-icon: #ff811a;
   --performance-dialog-focus-ring: rgba(51, 112, 255, 0.45);
-  --performance-confirm-z-index: 2200;
+  --performance-confirm-z-index: 2300;
   --drawer-width: 480px;
   --drawer-wide-width: 680px;
   --drawer-z-index: 2200;

@@ -14,19 +14,19 @@
     <Teleport to="body">
       <div v-if="expanded" ref="menuRef" class="performance-member-more-menu__menu" :style="menuStyle" role="menu" @keydown="handleMenuKeydown">
         <button ref="firstItemRef" type="button" class="performance-member-more-menu__item" role="menuitem" @click="select('authorize')">
-          <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM6.5 18c.5-3 2.5-4.5 5.5-4.5s5 1.5 5.5 4.5c.07.42-.28.75-.71.75H7.21c-.43 0-.78-.33-.71-.75Z" fill="currentColor" /><path d="M19 11.5v4M17 13.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+          <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="TeamAddOutlined"><path d="M15 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Zm2.5 4.5a2.5 2.5 0 1 0-5.001.001A2.5 2.5 0 0 0 17.5 6.5ZM12.335 12H14.5v2h-2.165C10.515 14 9 15.498 9 17.4V19h5.5v2H9c-1.1 0-2-.9-2-2v-1.6c0-2.982 2.39-5.4 5.335-5.4ZM1 20h4.135v-2H2v-.6c0-1.002.845-1.9 2-1.9h1.31a5.46 5.46 0 0 1 .985-2H4c-2.21 0-4 1.746-4 3.9V19c0 .55.45 1 1 1ZM9 9a3.001 3.001 0 0 0-6 0 3.001 3.001 0 0 0 6 0ZM6 8a1.001 1.001 0 0 1 0 2 1.001 1.001 0 0 1 0-2Zm13.5 13a1 1 0 0 1-1-1v-2h-2a1 1 0 1 1 0-2h2v-2a1 1 0 1 1 2 0v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 0 1-1 1Z" fill="currentColor"/></svg>
           <span>授权他人处理</span>
         </button>
         <button type="button" class="performance-member-more-menu__item" role="menuitem" @click="select('transfer')">
-          <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4.5 3.5 8l3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /><path d="M4 8h13.5a3 3 0 0 1 0 6H13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /><path d="M11.5 14.5 8 18l3.5 3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="UserSwitchOutlined"><path d="M8.687 4.022a.6.6 0 01.424-.735l.585-.157a3.334 3.334 0 00-4.053.513A.667.667 0 114.7 2.7a4.667 4.667 0 015.482-.825l-.08-.303a.6.6 0 011.158-.31l.345 1.288c.181.675-.22 1.37-.895 1.551l-1.288.345a.6.6 0 01-.735-.424zm-2.02 3.311a2.667 2.667 0 11-5.334 0 2.667 2.667 0 015.334 0zm-4 0a1.333 1.333 0 102.666 0 1.333 1.333 0 00-2.666 0zm.666 3.334a2.667 2.667 0 00-2.666 2.666V14c0 .733.6 1.333 1.333 1.333h4c.733 0 1.333-.6 1.333-1.333v-.667a2.667 2.667 0 00-2.666-2.666H3.333zM2 13.333C2 12.597 2.597 12 3.333 12h1.334C5.403 12 6 12.597 6 13.333V14H2v-.667zm6.667 0a2.667 2.667 0 012.666-2.666h1.334a2.667 2.667 0 012.666 2.666V14c0 .733-.6 1.333-1.333 1.333h-4c-.733 0-1.333-.6-1.333-1.333v-.667zm1.333 0V14h4v-.667c0-.736-.597-1.333-1.333-1.333h-1.334c-.736 0-1.333.597-1.333 1.333zm2-8.666A2.667 2.667 0 1112 10a2.667 2.667 0 010-5.333zm0 4A1.333 1.333 0 1012 6a1.333 1.333 0 000 2.667z" fill="currentColor"/></svg>
           <span>转交他人处理</span>
         </button>
         <button type="button" class="performance-member-more-menu__item" role="menuitem" disabled>
           <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
           <span>转移</span>
         </button>
-        <button type="button" class="performance-member-more-menu__item performance-member-more-menu__item--danger" role="menuitem" @click="select('delete')">
-          <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 7h14M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7m3.5 0-.8 11.2A2 2 0 0 1 15.2 20H8.8a2 2 0 0 1-2-1.8L6 7m3 3.5v6m6-6v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <button type="button" class="performance-member-more-menu__item" role="menuitem" @click="select('delete')">
+          <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="DeleteTrashOutlined"><path d="M8 4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2h5a1 1 0 1 1 0 2h-1v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6H3a1 1 0 0 1 0-2h5ZM6 6v14h12V6H6Zm4 3a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v6a1 1 0 1 1-2 0v-6a1 1 0 0 1 1-1Z" fill="currentColor"/></svg>
           <span>删除</span>
         </button>
       </div>
@@ -124,5 +124,4 @@ onBeforeUnmount(() => {
 .performance-member-more-menu__item:hover:not(:disabled),.performance-member-more-menu__item:focus-visible{outline:0;background:rgba(31,35,41,.08)}
 .performance-member-more-menu__item:disabled{opacity:.45;cursor:not-allowed}
 .performance-member-more-menu__item-icon{flex:0 0 16px;width:16px;height:16px;margin-right:8px;color:currentColor}
-.performance-member-more-menu__item--danger{color:#f54a45}
 </style>
