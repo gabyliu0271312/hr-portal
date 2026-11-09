@@ -56,12 +56,16 @@
       :project-id="drawerMember.project_id"
       :detail-loader="memberDetailLoader"
       :active-tab="drawerActiveTab"
+      :member="drawerMember"
       readonly
       @update:active-tab="updateMemberTab"
       @close="closeMember"
       @closed="finishClosingMember"
       @copy-link="copyMemberLink"
       @edit="fillFromDrawer"
+      @authorize="openDrawerDelegation('AUTHORIZE', $event)"
+      @transfer="openDrawerDelegation('TRANSFER', $event)"
+      @delete="removeDrawerMember"
     />
     <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="viewRefreshKey++" />
     <RevieweeAddDialog
@@ -101,7 +105,7 @@ import PerformanceTaskDelegationDialog from '@/components/performance/Performanc
 import RevieweeAddDialog from '@/components/performance/RevieweeAddDialog.vue'
 import MemberAddIcon from '@/components/performance/MemberAddIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import type { ProjectMember } from '@/api/performance'
+import type { ProjectMember, ProjectMemberTaskOption } from '@/api/performance'
 import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import type { AuthorizationItem } from '@/components/performance/AuthorizationManagementPanel.vue'
@@ -127,7 +131,7 @@ const overview = ref<ProjectManagementOverview | null>(null)
 const activeCycleId = computed(() => projectContext.activeCycleId)
 const selectedKey = ref('')
 const activeTab = ref(route.query.rootReviewId ? 'members' : 'overview')
-const drawerMember = ref<{ project_id: number; employee_no: string; root_review_id?: number } | null>(null)
+const drawerMember = ref<{ project_id: number; employee_no: string; root_review_id?: number; display_name?: string; task_id?: number | null; task_map?: ProjectMemberTaskOption[] } | null>(null)
 const drawerOpen = ref(false)
 const drawerActiveTab = ref(String(route.query.activeTab || ''))
 const drawerSourceTab = ref('')
@@ -140,15 +144,15 @@ function memberQuery() {
 }
 async function openMember(member: ProjectMember) {
   if (!member.can_view_detail) return
-  drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id }
+  drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id, display_name: member.display_name, task_id: member.task_id, task_map: member.task_map }
   drawerActiveTab.value = ''
   drawerSourceTab.value = activeTab.value
   drawerOpen.value = true
   await router.replace({ query: memberQuery() })
 }
-function openMatrixMember(member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }) {
+function openMatrixMember(member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean; display_name?: string; task_id?: number | null; task_map?: ProjectMemberTaskOption[] }) {
   if (!member.can_view_detail) return
-  drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id }
+  drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id, display_name: member.display_name, task_id: member.task_id ?? null, task_map: member.task_map }
   drawerActiveTab.value = ''
   drawerSourceTab.value = activeTab.value
   drawerOpen.value = true
@@ -232,6 +236,32 @@ function openDelegation(action: 'AUTHORIZE' | 'TRANSFER', members: ProjectMember
     task_map: member.task_map || [],
   }))
   delegationOpen.value = true
+}
+
+function openDrawerDelegation(action: 'AUTHORIZE' | 'TRANSFER', payload: { project_id: number; employee_no: string; root_review_id?: number; display_name?: string; task_id?: number | null; task_map?: ProjectMemberTaskOption[] }) {
+  if (activeCycleId.value === null) return
+  delegationAction.value = action
+  selectedDelegationMembers.value = []
+  delegationTasks.value = [{
+    task_id: payload.task_id || 0,
+    project_id: payload.project_id,
+    employee_no: payload.employee_no,
+    display_name: payload.display_name,
+    task_map: payload.task_map || [],
+  }]
+  delegationOpen.value = true
+}
+
+async function removeDrawerMember(payload: { project_id: number; employee_no: string; root_review_id?: number; display_name?: string }) {
+  try {
+    await projectManagementApi.removeMember(payload.project_id, payload.employee_no, payload.root_review_id)
+    ElMessage.success('操作成功')
+    await closeMember()
+    viewRefreshKey.value++
+    void loadOverview(activeCycleId.value ?? undefined)
+  } catch {
+    ElMessage.error('删除失败，请稍后重试')
+  }
 }
 
 function delegationCompleted() {

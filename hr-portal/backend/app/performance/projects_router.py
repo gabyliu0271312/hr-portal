@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +18,7 @@ from app.performance.authorization_service import AuditEventInput, ObjectAuthori
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.calibration_service import calibration_task_scope, CalibrationConflict
 from app.performance.cycle_service import PerformanceCycleService
-from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
+from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
 from app.integrations.feishu.notification_service import send_notification
 from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
@@ -4880,3 +4880,97 @@ async def add_project_reviewee(
         department=person.organization_ref or person.department,
         is_permitted=True, reason=None,
     )
+@router.delete("/projects/{project_id}/members/{employee_no}")
+async def remove_project_member(
+    project_id: int,
+    employee_no: str,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+    root_review_id: int | None = Query(default=None, ge=1),
+):
+    """等价飞书 root/delete_v2：从最新成员快照删除被评估人，当前周期全清其评估数据。
+
+    删除 = 当前周期全清：硬删最新快照中的该成员行，并同步删除该成员在当前项目的
+    全部节点任务（授权/复议通知随任务级联），清理结果复议记录，将成员移出快照的
+    task_generation_employee_nos，维护 evaluated_count 与添加被评估人对称。
+    列表 / 总览完成率 / 矩阵 / 统计报表均查最新快照，落库即全链路一致。
+    """
+    project = await _project_started(db, project_id)
+    if not await _can_manage_project_like_overview(context, project, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
+    member_snapshot = await db.scalar(select(PerformanceProjectMemberSnapshot).where(
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1).with_for_update())
+    if member_snapshot is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="项目成员快照不存在")
+    member = await db.scalar(select(PerformanceProjectMember).where(
+        PerformanceProjectMember.snapshot_id == member_snapshot.id,
+        PerformanceProjectMember.employee_no == employee_no,
+    ).with_for_update())
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="被评估人不在当前项目中")
+    if root_review_id is not None and root_review_id != member.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ROOT_REVIEW_ID_MISMATCH")
+    task_ids = list((await db.execute(select(PerformanceNodeTask.id).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.member_snapshot_id == member_snapshot.id,
+        PerformanceNodeTask.target_employee_no == employee_no,
+    ))).scalars().all())
+    if task_ids:
+        await db.execute(delete(PerformanceNodeTask).where(PerformanceNodeTask.id.in_(task_ids)))
+    await db.execute(delete(PerformanceResultReconsideration).where(
+        PerformanceResultReconsideration.project_id == project.id,
+        PerformanceResultReconsideration.member_snapshot_id == member_snapshot.id,
+        PerformanceResultReconsideration.employee_no == employee_no,
+    ))
+    await db.delete(member)
+    calibration_updates: dict[int, dict] = {}
+    calibration_nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ))).scalars().all())
+    for node in calibration_nodes:
+        if node.node_type != "calibration":
+            continue
+        frozen = deepcopy((node.config or {}).get("calibration") or {})
+        phases = frozen.get("phases") or []
+        if not phases:
+            continue
+        for phase in phases:
+            for source in phase.get("rule_sources") or []:
+                source["assignments"] = [item for item in source.get("assignments") or [] if item["employee_no"] != employee_no]
+            phase["assignments"] = [item for item in phase.get("assignments") or [] if item["employee_no"] != employee_no]
+            phase["rule_sources"] = [source for source in phase.get("rule_sources") or [] if source.get("assignments")]
+        member_nos = list((member_snapshot.source_filter or {}).get("task_generation_employee_nos") or [])
+        member_nos = [item for item in member_nos if item != employee_no]
+        assigned = {item["employee_no"] for phase in phases for item in phase.get("assignments") or []}
+        frozen.update({"phases": phases, "evaluated_count": len(member_nos), "assigned_count": len(assigned), "unassigned_count": len(set(member_nos) - assigned)})
+        node.config = {**(node.config or {}), "calibration": frozen}
+        calibration_updates[node.id] = frozen
+    rules = deepcopy((project.settings or {}).get("evaluator_rules") or {"groups": []})
+    rules["groups"] = [
+        group for group in rules.get("groups") or []
+        if not (len(group.get("conditions") or []) == 1
+                and group["conditions"][0].get("field") == "employee"
+                and group["conditions"][0].get("operator") == "include"
+                and set(group["conditions"][0].get("values") or []) == {employee_no})
+    ]
+    for group in rules.get("groups") or []:
+        for condition in group.get("conditions") or []:
+            if condition.get("operator") == "exclude" and isinstance(condition.get("values"), list) and employee_no in condition["values"]:
+                condition["values"] = [value for value in condition["values"] if value != employee_no]
+    project.settings = {**(project.settings or {}), "evaluator_rules": rules}
+    source_filter = dict(member_snapshot.source_filter or {})
+    generation_nos = source_filter.get("task_generation_employee_nos")
+    if isinstance(generation_nos, list) and employee_no in generation_nos:
+        source_filter["task_generation_employee_nos"] = [item for item in generation_nos if item != employee_no]
+        member_snapshot.source_filter = source_filter
+    project.evaluated_count = max(0, project.evaluated_count - 1)
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type="PROJECT_REVIEWEE_REMOVED", cycle_ref=project.cycle_ref, employee_no=employee_no,
+        actor_type=context.subject_type, actor_ref=str(context.subject_id),
+        subject_type="PERFORMANCE_PROJECT", subject_ref=project.project_ref,
+        after_state={"project_id": project.id, "member_snapshot_id": member_snapshot.id, "revoked_task_ids": task_ids, "calibration_updates": calibration_updates},
+    ))
+    await db.commit()
+    return {"code": 0, "data": {}, "msg": "操作成功"}
+

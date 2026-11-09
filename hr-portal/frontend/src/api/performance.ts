@@ -1163,6 +1163,10 @@ export const projectManagementApi = {
     const { data } = await api.post<RevieweeSearchOption>(`/performance/projects/${encodeURIComponent(String(projectId))}/reviewees`, { employee_no: employeeNo, visible_add_okr_notice: visibleAddOkrNotice })
     return data
   },
+  async removeMember(projectId: number | string, employeeNo: string, rootReviewId?: number): Promise<{ code: number; data: object; msg: string }> {
+    const { data } = await api.delete<{ code: number; data: object; msg: string }>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}`, { params: rootReviewId ? { root_review_id: rootReviewId } : undefined })
+    return data
+  },
 }
 
 export type PerformanceTemplateOption = { id: string; code?: string; label: string; name?: string; color?: string; placeholder?: string; description?: string; required?: boolean; foreground?: string }

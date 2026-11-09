@@ -116,7 +116,7 @@ onMounted(async () => { try { if (!cycleStore.navigationReady) await cycleStore.
 .calibration-surface { min-width:0; min-height:0; flex:1; margin:0 20px 24px; padding:24px; border-radius:8px; background:#fff; }
 .info-banner { margin-bottom:24px; padding:12px 16px; border-radius:8px; background:#eff3ff; color:#1f2329; font-size:14px; line-height:22px; }
 .status-cell { display:inline-flex; align-items:center; gap:8px; }
-.status-cell.is-pending i { background:#ff8800; }
+.status-cell.is-pending i { background: var(--color-text-warning-strong); }
 .status-cell i { width:8px; height:8px; border-radius:50%; background:#34b658; }
 .scope-tag { padding:4px 8px; border-radius:4px; background:#eff0f1; }
 .count-link { color:#3370ff; }

@@ -340,8 +340,8 @@ function timeAgo(date: Date): string {
   background: #c9cdd4;
 }
 .health-unconfigured {
-  background: #ff8800;
-  box-shadow: 0 0 0 2px rgba(255, 136, 0, 0.15);
+  background: var(--color-text-warning-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-text-warning-strong) 15%, transparent);
 }
 
 /* 凭证 chips：对齐蓝图场景 2 */

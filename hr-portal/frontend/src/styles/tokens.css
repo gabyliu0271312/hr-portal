@@ -15,7 +15,7 @@
   /* 全屏页 head 下边框（REA 实测飞书绩效人员组管理页；全局 16 处 UiPageHeader 共用） */
   --color-line-header: rgba(187, 191, 196, 0.5);
   --color-text-danger-strong: #f54a45;
-  --color-text-warning-strong: #ff8800;
+  --color-text-warning-strong: #ff811a;
   --color-action-primary: var(--color-primary);
   --color-action-primary-hover: var(--color-primary-hover);
 

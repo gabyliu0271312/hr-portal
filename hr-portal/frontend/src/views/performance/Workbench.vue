@@ -410,7 +410,7 @@ onMounted(async () => {
 .quick-link { display: flex; width: calc(100% + 16px); height: 30px; min-width: 0; align-items: center; margin: 0 -8px; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; color: #1479e1; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 400; line-height: 21px; text-align: left; transition: color .3s, background-color .3s; }
 .quick-link:hover { background: #f5f6f7; }
 .quick-icon-slot { display: inline-block; width: 16px; height: 16px; flex: 0 0 16px; margin-right: 8px; color: #3370ff; line-height: 0; text-align: center; }
-.quick-icon-slot.is-warning { color: #ff8800; }
+.quick-icon-slot.is-warning { color: var(--color-text-warning-strong); }
 .quick-icon-slot :deep(svg) { display: inline-block; overflow: hidden; width: 16px; height: 16px; line-height: 16px; }
 .quick-link-text { min-width: 0; overflow: hidden; flex: 1; box-sizing: border-box; color: #1f2329; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 400; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
 .quick-result-spacer { flex: 0 0 auto; margin-right: 4px; margin-left: 16px; }

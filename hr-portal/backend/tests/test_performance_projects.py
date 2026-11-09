@@ -8108,3 +8108,102 @@ async def test_delegation_recipient_scope_preserves_identity_denial(task_delegat
         await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT"), context(), data.db)
     assert error.value.detail == "PROJECT_ADMIN_IDENTITY_AMBIGUOUS"
     assert not data.db.records
+@pytest.mark.asyncio
+async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance import models as pm_models
+    project = SimpleNamespace(id=1, cycle_ref="C1", status="STARTED", evaluated_count=2, project_ref="P1",
+                              settings={"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]}})
+    snapshot = SimpleNamespace(id=7, source_filter={"task_generation_employee_nos": ["E1", "E2"]})
+    member = SimpleNamespace(id=5, snapshot_id=7, employee_no="E1")
+    member_query = {"snapshot_id": 7, "employee_no": "E1"}
+    task_rows = [SimpleNamespace(id=11), SimpleNamespace(id=12)]
+    deleted_tasks = []
+    deleted_recons = []
+    deleted_member = []
+    calibration_node = SimpleNamespace(id=30, node_type="calibration",
+                                       config={"calibration": {"phases": [{"phase_id": "p1", "rule_sources": [{"rule_id": "r1", "assignments": [{"handler_ref": "H1", "employee_no": "E1"}, {"handler_ref": "H1", "employee_no": "E2"}]}], "assignments": [{"handler_ref": "H1", "employee_no": "E1"}, {"handler_ref": "H1", "employee_no": "E2"}]}], "evaluated_count": 2, "assigned_count": 2, "unassigned_count": 0}})
+    eval_node = SimpleNamespace(id=31, node_type="evaluation", config={})
+
+    class Db:
+        async def scalar(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_project_member_snapshots" in sql and "ORDER BY" in sql:
+                return snapshot
+            if "performance_project_members" in sql and "employee_no = 'E1'" in sql:
+                return member
+            return None
+        async def execute(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_node_tasks" in sql:
+                if "DELETE" in sql.upper():
+                    deleted_tasks.append(sql)
+                    return SimpleNamespace()
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [row.id for row in task_rows]))
+            if "performance_result_reconsiderations" in sql:
+                deleted_recons.append(sql)
+                return SimpleNamespace()
+            if "performance_project_node_snapshots" in sql:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [calibration_node, eval_node]))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+        async def delete(self, obj):
+            deleted_member.append(obj)
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(routes, "_project_started", AsyncMock(return_value=project))
+    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=True))
+    audit = SimpleNamespace(append_event=lambda _input: None)
+    monkeypatch.setattr(routes, "PerformanceAuditService", lambda _db: audit)
+    result = await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=5)
+    assert result == {"code": 0, "data": {}, "msg": "操作成功"}
+    assert project.evaluated_count == 1
+    assert snapshot.source_filter["task_generation_employee_nos"] == ["E2"]
+    assert deleted_member == [member]
+    assert len(deleted_tasks) == 1 and "performance_node_tasks" in deleted_tasks[0]
+    assert len(deleted_recons) == 1
+    assert project.settings["evaluator_rules"]["groups"] == []
+    frozen = calibration_node.config["calibration"]
+    assert frozen["phases"][0]["assignments"] == [{"handler_ref": "H1", "employee_no": "E2"}]
+    assert frozen["phases"][0]["rule_sources"][0]["assignments"] == [{"handler_ref": "H1", "employee_no": "E2"}]
+    assert (frozen["evaluated_count"], frozen["assigned_count"], frozen["unassigned_count"]) == (1, 1, 0)
+
+
+@pytest.mark.asyncio
+async def test_remove_project_member_guards_missing_member_and_root_mismatch(monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    from app.performance import models as pm_models
+    project = SimpleNamespace(id=1, cycle_ref="C1", status="STARTED", evaluated_count=1, settings={})
+    snapshot = SimpleNamespace(id=7, source_filter={"task_generation_employee_nos": ["E1"]})
+    member = SimpleNamespace(id=5, snapshot_id=7, employee_no="E1")
+
+    class Db:
+        async def scalar(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_project_member_snapshots" in sql and "ORDER BY" in sql:
+                return snapshot
+            return None
+        async def execute(self, query):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+
+    monkeypatch.setattr(routes, "_project_started", AsyncMock(return_value=project))
+    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=True))
+    with pytest.raises(HTTPException) as missing:
+        await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=None)
+    assert missing.value.status_code == 404
+
+    class DbWithMember(Db):
+        async def scalar(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_project_member_snapshots" in sql and "ORDER BY" in sql:
+                return snapshot
+            if "performance_project_members" in sql and "employee_no = 'E1'" in sql:
+                return member
+            return None
+
+    with pytest.raises(HTTPException) as mismatch:
+        await routes.remove_project_member(1, "E1", context(), DbWithMember(), root_review_id=99)
+    assert mismatch.value.status_code == 409 and mismatch.value.detail == "ROOT_REVIEW_ID_MISMATCH"

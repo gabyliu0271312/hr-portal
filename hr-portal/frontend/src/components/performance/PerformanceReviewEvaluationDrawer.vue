@@ -2,6 +2,7 @@
   <UiDrawerShell v-model="open" :title="title" aria-label="绩效评估详情" width="720px" :initial-width="1000" variant="evaluation" body-class="performance-drawer__body--flush" :resizable="true" :min-width="720" :mask="false" cache-key="perf-drawer" :keyboard="false" @close="emit('close')" @closed="emit('closed')">
     <template #header>
       <div class="performance-review-evaluation-drawer__person"><PerformanceReviewPersonHeader :person="displayPerson" @translate="notifyTranslationUnavailable" @translate-menu="notifyTranslationUnavailable" @copy-link="emit('copy-link')" /><p v-if="task?.opened_at" class="performance-review-evaluation-drawer__opening">本次绩效结果已于 {{ formatDate(task.opened_at) }} 开通。</p></div>
+      <PerformanceMemberMoreMenu v-if="props.member" :member="props.member" @authorize="onMoreAuthorize" @transfer="onMoreTransfer" @delete="deleteOpen = true" />
     </template>
     <div class="performance-review-evaluation-drawer__scroll">
       <PerformanceLineTabs v-model="selectedTab" :tabs="tabs" sticky flush>
@@ -56,6 +57,7 @@
       <a class="performance-remind-preview-link" role="button" tabindex="0" @mouseenter="loadPreview" @mouseleave="closePreview">预览通知</a>
     </template>
   </PerformanceConfirmDialog>
+  <PerformanceConfirmDialog v-model="deleteOpen" :message="'确定删除该人员吗？'" description="删除后，系统将清除本周期被评估人数据，且无法恢复。" cancel-text="保留" confirm-text="删除" @confirm="confirmDelete" />
   <PerformancePopover :visible="previewOpen" :anchor="previewAnchor" role="dialog" :width="380" name="performance-reminder-preview-popover" @close="closePreview" @mouseenter="cancelClose" @mouseleave="closePreview">
     <PerformanceReminderPreviewCard v-if="previewData" :preview="previewData" />
   </PerformancePopover>
@@ -74,6 +76,7 @@ import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import PerformancePopover from './PerformancePopover.vue'
 import PerformanceReminderPreviewCard from './PerformanceReminderPreviewCard.vue'
+import PerformanceMemberMoreMenu, { type PerformanceMemberContext } from './PerformanceMemberMoreMenu.vue'
 import BellOutlinedIcon from './BellOutlinedIcon.vue'
 import InfoFilledIcon from './InfoFilledIcon.vue'
 
@@ -88,7 +91,8 @@ const props = withDefaults(defineProps<{
   activeTab?: string
   person?: Partial<DrawerPerson>
   detailLoader?: () => Promise<PerformanceManagementDetail>
-}>(), { readonly: false, taskId: null, employeeNo: '', projectId: undefined, nodeName: '', person: () => ({}) })
+  member?: PerformanceMemberContext | null
+}>(), { readonly: false, taskId: null, employeeNo: '', projectId: undefined, nodeName: '', person: () => ({}), member: null })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'update:activeTab': [value: string]
@@ -97,6 +101,9 @@ const emit = defineEmits<{
   edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; draft_choice?: 'use' | 'discard' }]
   'copy-link': []
   remind: [reference: PerformanceReferenceTab]
+  authorize: [payload: PerformanceMemberContext]
+  transfer: [payload: PerformanceMemberContext]
+  delete: [payload: PerformanceMemberContext]
 }>()
 function notifyTranslationUnavailable() { ElMessage.info('当前尚未接入翻译服务，评估内容保留原文') }
 const task = ref<PerformanceManagementDetail | null>(null)
@@ -104,6 +111,7 @@ const loading = ref(false)
 const error = ref('')
 const activeTab = ref(props.activeTab || 'evaluation')
 const remindOpen = ref(false)
+const deleteOpen = ref(false)
 const previewOpen = ref(false)
 const previewAnchor = ref<HTMLElement | null>(null)
 const previewHoverAnchor = ref<HTMLElement | null>(null)
@@ -194,6 +202,17 @@ function openRemind() {
   if (!stageView.value?.reminder_target) return
   remindOpen.value = true
 }
+function onMoreAuthorize(payload: PerformanceMemberContext) {
+  emit('authorize', payload)
+}
+function onMoreTransfer(payload: PerformanceMemberContext) {
+  emit('transfer', payload)
+}
+function confirmDelete() {
+  if (!props.member) return
+  deleteOpen.value = false
+  emit('delete', { ...props.member })
+}
 let previewCloseTimer: ReturnType<typeof setTimeout> | undefined
 function cancelClose() {
   if (previewCloseTimer) { clearTimeout(previewCloseTimer); previewCloseTimer = undefined }
@@ -254,7 +273,7 @@ watch(() => props.activeTab, value => { activeTab.value = value || 'evaluation' 
 </script>
 
 <style scoped>
-.performance-review-evaluation-drawer__person{width:100%;min-width:0}.performance-review-evaluation-drawer__opening{margin:0;padding:0 0 12px;color:var(--color-text-secondary);font-size:14px;line-height:22px}
+.performance-review-evaluation-drawer__person{width:100%;min-width:0;flex:1}.performance-review-evaluation-drawer__person + .performance-member-more-menu{margin-left:8px}.performance-review-evaluation-drawer__opening{margin:0;padding:0 0 12px;color:var(--color-text-secondary);font-size:14px;line-height:22px}
 .performance-review-evaluation-drawer__scroll{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;overflow:auto;background:#f2f3f5}.performance-review-evaluation-drawer__scroll :deep(.line-tabs){min-height:100%;flex:1 0 auto}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-holder){position:sticky;top:0;z-index:20;flex:none;padding:12px 20px 0!important;background:#fff}.performance-review-evaluation-drawer__scroll :deep(.line-tabs.sticky .line-tabs-holder){top:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-overflow){flex-wrap:nowrap;width:max-content;min-width:100%;margin-bottom:0}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap){overflow-x:auto;scrollbar-width:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-wrap::-webkit-scrollbar){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tab){padding-bottom:12px}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header){margin-bottom:16px;padding-left:0}.performance-review-evaluation-drawer__scroll :deep(.template-section-header--readonly .performance-assessment-preview-header::before){display:none}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-ink){top:33px}.performance-review-evaluation-drawer__scroll :deep(.line-tabs-content),.performance-review-evaluation-drawer__scroll :deep(.line-tabs-pane){display:flex;min-height:0;flex:1 0 auto;flex-direction:column}.performance-review-evaluation-drawer__tab-content{display:flex;min-height:0;flex:1 0 auto;flex-direction:column;padding:12px 4px 12px 12px;box-sizing:border-box;background:#f2f3f5}.performance-review-evaluation-drawer__card{flex:1 0 auto;padding:12px 20px;box-sizing:border-box;border-radius:8px;background:#fff;box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px}.performance-review-evaluation-drawer__card :deep(.performance-reference-content){min-height:0}.performance-review-evaluation-drawer__card-title{margin-bottom:16px;color:#1f2329;font-size:16px;font-weight:600;line-height:24px}.performance-review-evaluation-drawer__state{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:14px}.performance-review-evaluation-drawer__state p{margin:0 0 12px}.performance-review-evaluation-drawer__state button{height:32px;padding:4px 16px;border:0;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-review-evaluation-drawer__state--error{color:#d14343}.performance-review-evaluation-drawer__tab-placeholder{display:grid;min-height:360px;place-items:center;color:#8f959e;font-size:14px}
 .performance-stage-empty{display:flex;min-height:320px;flex-direction:column;align-items:center;justify-content:center;color:#646a73;font-size:16px;line-height:24px}.performance-stage-empty p{margin:16px 0 24px}.performance-stage-empty__actions{display:flex;align-items:center;gap:12px}.performance-stage-empty__fill{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#3370ff;color:#fff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__fill:hover{background:#2a5fd8}.performance-stage-empty__remind{display:inline-flex;align-items:center;justify-content:center;min-width:80px;height:32px;padding:4px 11px;box-sizing:border-box;border:1px solid #3370ff;border-radius:6px;background:#fff;color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans)}.performance-stage-empty__remind:hover{background:#f2f3f5}.performance-stage-empty__remind svg{display:inline-block;width:14px;height:14px;margin-right:4px}.performance-remind-preview-link{color:#3370ff;cursor:pointer;font:400 14px/22px var(--font-sans);text-decoration:none}.performance-remind-preview-link:hover{color:#2a5fd8}
 </style>

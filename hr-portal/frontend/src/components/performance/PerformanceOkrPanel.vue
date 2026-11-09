@@ -89,8 +89,10 @@ function barStyle(status?: PerformanceOkrStatus | null, percent?: number | null)
 }
 
 function barColor(status?: PerformanceOkrStatus | null) {
-  if (status === 'risk') return '#f54a45'
-  if (status === 'extended') return '#ff8800'
+  const warn = getComputedStyle(document.documentElement).getPropertyValue('--color-text-warning-strong').trim() || '#ff811a'
+  const danger = getComputedStyle(document.documentElement).getPropertyValue('--color-text-danger-strong').trim() || '#f54a45'
+  if (status === 'risk') return danger
+  if (status === 'extended') return warn
   if (status === 'unset') return '#bbbfc4'
   return '#3370ff'
 }
