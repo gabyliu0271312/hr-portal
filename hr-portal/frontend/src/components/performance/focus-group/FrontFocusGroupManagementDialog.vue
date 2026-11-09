@@ -178,7 +178,7 @@ function formatDateTime(value: string | null | undefined) {
         <div class="front-fg-dialog__body">
           <p v-if="overviewError" class="front-fg-dialog__error" role="alert">{{ overviewError }}</p>
           <template v-else-if="groups.length">
-            <PerformanceLineTabs :model-value="String(activeGroupId ?? '')" :tabs="tabs" fill flush class="front-fg-dialog__tabs" @update:model-value="selectGroup">
+            <PerformanceLineTabs :model-value="String(activeGroupId ?? '')" :tabs="tabs" fill class="front-fg-dialog__tabs" @update:model-value="selectGroup">
               <!-- 提示条：周期版 / 关联项目版（REA 差异化呈现） -->
               <div class="front-fg-dialog__hint" :class="{ 'front-fg-dialog__hint--project': isProject }">
                 <template v-if="isProject">
@@ -288,8 +288,10 @@ function formatDateTime(value: string | null | undefined) {
   --performance-line-tabs-surface: #fff;
   --performance-line-tabs-text: #1f2329;
 }
-/* flush 后 holder 无负 margin/padding，这里对齐内容区 24px 左内边距（飞书 tab 与表格内容左对齐） */
-.front-fg-dialog__tabs :deep(.line-tabs-holder) {
+/* 去掉 flush：其 .line-tabs.flush .line-tabs-holder 特异性(0,4,0) 会压掉本覆盖。
+   这里直接对齐内容区 24px：清掉负 margin（-20px）与默认 padding，补 24px 左内边距。
+   双 class 前缀把特异性抬到 (0,4,0)，与子组件 flush 平手且源码靠后，稳定生效。 */
+.front-fg-dialog__tabs.front-fg-dialog__tabs :deep(.line-tabs-holder) {
   margin-right: 0;
   margin-left: 0;
   padding-right: 0;
