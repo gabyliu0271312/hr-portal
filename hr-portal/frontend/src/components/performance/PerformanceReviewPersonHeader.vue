@@ -15,6 +15,7 @@
               <button type="button" class="performance-review-person-header__action performance-review-person-header__translate-menu" aria-label="选择翻译语言" @click="emit('translate-menu')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" data-icon="DownOutlined"><path d="M2.293 7.707a1 1 0 0 1 1.414 0L12 16l8.293-8.293a1 1 0 1 1 1.414 1.414l-8.293 8.293a2 2 0 0 1-2.828 0L2.293 9.121a1 1 0 0 1 0-1.414Z" fill="currentColor"/></svg></button>
             </div>
             <button type="button" class="performance-review-person-header__action" aria-label="复制链接" @click="emit('copy-link')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" data-icon="GlobalLinkOutlined"><path d="M18.849 2.699a5.037 5.037 0 0 0-7.1.97L8.97 7.372a4.784 4.784 0 0 0 .957 6.699l.972.729a1 1 0 0 0 1.2-1.6l-.972-.73a2.784 2.784 0 0 1-.557-3.898l2.777-3.703a3.037 3.037 0 1 1 4.8 3.72l-1.429 1.786a1 1 0 1 0 1.562 1.25l1.43-1.788a5.037 5.037 0 0 0-.862-7.138Z" fill="currentColor"/><path d="M5.152 21.301a5.037 5.037 0 0 0 7.1-.97l2.777-3.703a4.784 4.784 0 0 0-.957-6.699L13.1 9.2a1 1 0 0 0-1.2 1.6l.973.73a2.784 2.784 0 0 1 .556 3.898l-2.777 3.703a3.037 3.037 0 1 1-4.8-3.72l1.429-1.786a1 1 0 1 0-1.562-1.25l-1.43 1.787a5.037 5.037 0 0 1-.863 7.14Z" fill="currentColor"/></svg><span>复制链接</span></button>
+            <div v-if="$slots['actions-end']" class="performance-review-person-header__actions-end"><slot name="actions-end" /></div>
           </div>
         </div>
         <span class="performance-review-person-header__profile-line">
@@ -58,9 +59,10 @@ const profileParts = computed(() => Array.isArray(props.person.profile_fields)
 .performance-review-person-header__primary-row>strong{display:block;min-width:0;max-width:fit-content;flex:1;margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1d252f;font-size:16px;font-weight:600;line-height:24px}
 .performance-review-person-header__profile-line{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#646a73;font-size:14px;line-height:21px}
 .performance-review-person-header__profile-value{display:inline;white-space:nowrap}
-.performance-review-person-header__actions{display:flex;flex:0 0 auto;align-items:center;margin-left:auto;color:#646a73}
-.performance-review-person-header__actions::after{display:block;width:1px;height:14.4px;flex:0 0 1px;margin:0 16px;background:rgba(31,35,41,.15);content:''}
-.performance-review-person-header__translate{display:flex;align-items:center;margin-right:8px}
+.performance-review-person-header__actions{display:flex;flex:0 0 auto;align-items:center;gap:var(--performance-review-person-action-gap);margin-left:auto;color:#646a73}
+.performance-review-person-header__actions-end{display:inline-flex;align-items:center}
+.performance-review-person-header__actions-end::before{display:block;width:1px;height:14.4px;flex:0 0 1px;margin-right:var(--performance-review-person-action-gap);background:rgba(31,35,41,.15);content:''}
+.performance-review-person-header__translate{display:flex;align-items:center}
 .performance-review-person-header__action{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:2px 4px;border:0;border-radius:6px;background:transparent;color:#1f2329;cursor:pointer;font:400 14px/22px var(--font-sans);white-space:nowrap}
 .performance-review-person-header__action:hover,.performance-review-person-header__action:focus-visible{background:rgba(31,35,41,.1);outline:0}
 .performance-review-person-header__action>span{display:block;margin-right:4px}

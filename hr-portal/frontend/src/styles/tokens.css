@@ -157,6 +157,7 @@
   /* 全屏页头标题↔副标间距（REA 实测：人员列表弹窗 header 标题 box x176..270、副标 box x290..339 → gap 20px = --spacing-5） */
   --performance-header-title-desc-gap: var(--spacing-5);
   --performance-header-action-gap: var(--spacing-3);
+  --performance-review-person-action-gap: var(--spacing-2);
   --performance-icon-button-size: 24px;
   --performance-icon-size: 16px;
   --performance-info-icon-size: 16px;

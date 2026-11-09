@@ -60,7 +60,19 @@ describe('PerformanceReviewPersonHeader visibility data', () => {
     expect(source).toMatch(/__profile-line\{[^}]*text-overflow:ellipsis;white-space:nowrap/)
     expect(source).toMatch(/__profile-value\{display:inline;white-space:nowrap\}/)
     expect(source).not.toContain('__actions::before')
-    expect(source).toContain('__actions::after')
+    expect(source).toContain('--performance-review-person-action-gap')
+    expect(source).toContain('actions-end')
+    wrapper.unmount()
+  })
+
+  it('renders slotted actions in the shared toolbar after copy link', () => {
+    const wrapper = mount(PerformanceReviewPersonHeader, {
+      props: { person: { employee_no: 'E1', display_name: '员工' } },
+      slots: { 'actions-end': '<button aria-label="更多成员操作">更多</button>' },
+    })
+    const actions = wrapper.get('.performance-review-person-header__actions')
+    expect(actions.get('[aria-label="复制链接"]').element.nextElementSibling).toBe(actions.get('.performance-review-person-header__actions-end').element)
+    expect(actions.get('[aria-label="更多成员操作"]').element.tagName).toBe('BUTTON')
     wrapper.unmount()
   })
 

@@ -9,7 +9,7 @@
       :aria-expanded="expanded"
       @click="toggle"
     >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="5.25" r="1.75" fill="currentColor" /><circle cx="12" cy="12" r="1.75" fill="currentColor" /><circle cx="12" cy="18.75" r="1.75" fill="currentColor" /></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="5.25" cy="12" r="1.75" fill="currentColor" /><circle cx="12" cy="12" r="1.75" fill="currentColor" /><circle cx="18.75" cy="12" r="1.75" fill="currentColor" /></svg>
     </button>
     <Teleport to="body">
       <div v-if="expanded" ref="menuRef" class="performance-member-more-menu__menu" :style="menuStyle" role="menu" @keydown="handleMenuKeydown">
