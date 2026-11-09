@@ -114,34 +114,6 @@ def _members(group, people, name_source=None):
     return {"group_id": group.id, "employee_nos": member_nos, "people": member_rows}
 
 
-@router.get("/{cycle_id}/manageable-focus-groups")
-async def manageable_focus_groups(
-    cycle_id: int, tab: str | None = None,
-    context: PerformanceAccessContext = Depends(get_performance_access_context),
-    db: AsyncSession = Depends(get_session),
-):
-    if tab not in (None, "semester", "project"):
-        raise HTTPException(422, "人员组类型无效")
-    cycle = await _cycle(db, cycle_id)
-    statement = select(PerformanceFocusGroup).where(
-        PerformanceFocusGroup.cycle_ref == cycle.cycle_ref,
-        PerformanceFocusGroup.scope_setting_mode == 1,
-    )
-    if tab:
-        statement = statement.where(PerformanceFocusGroup.tab == tab)
-    groups = (await db.execute(statement.order_by(PerformanceFocusGroup.id.desc()))).scalars().all()
-    items = []
-    for group in groups:
-        try:
-            await _scope(db, context, cycle, group)
-        except HTTPException as exc:
-            if exc.status_code != 403:
-                raise
-            continue
-        items.append({"id": group.id, "name": group.name, "tab": group.tab, "scope_setting_mode": 1})
-    return {"total": len(items), "items": items}
-
-
 async def _group(db, cycle, group_id, *, lock=False, require_manual=True):
     statement = select(PerformanceFocusGroup).where(
         PerformanceFocusGroup.id == group_id, PerformanceFocusGroup.cycle_ref == cycle.cycle_ref,

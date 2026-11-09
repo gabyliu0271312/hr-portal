@@ -420,8 +420,6 @@ async def test_focus_http_contract_uses_real_facade_and_rejects_extra_actor(focu
     app.dependency_overrides[get_performance_access_context] = lambda: context
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         url = "/api/v1/performance/cycles/1/focus-groups/8/members"
-        response = await client.get("/api/v1/performance/cycles/1/manageable-focus-groups?tab=semester")
-        assert response.status_code == 200 and response.json()["items"] == [{"id": 8, "name": "重点人员", "tab": "semester", "scope_setting_mode": 1}]
         response = await client.get(url)
         assert response.status_code == 200 and response.json()["employee_nos"] == ["B", "A"]
         # 分页：缺省 size=0 全量；显式 size=1 截断且 total 为全量（前端弹窗 emp_list 语义）
@@ -442,8 +440,6 @@ async def test_focus_http_contract_uses_real_facade_and_rejects_extra_actor(focu
         # 查看成员不受维护范围角色影响（管理端查看）；手动维护才受角色门禁
         assert (await client.get(url)).status_code == 200
         assert (await client.patch(url, json={"employee_nos": []})).status_code == 403
-        response = await client.get("/api/v1/performance/cycles/1/manageable-focus-groups")
-        assert response.json() == {"total": 0, "items": []}
 
 
 @pytest.mark.asyncio

@@ -28,7 +28,6 @@
       @select-project="selectProject"
       @select-node="selectNode"
     >
-      <template #cycle-actions><PerformanceFocusGroupMembersDialog :cycle-id="projectContext.activeCycleId || null" /></template>
     </PerformanceReviewCategorySidebar>
     <PerformanceReviewContent
       :loading="loading"
@@ -80,7 +79,6 @@ import PerformanceConfirmDialog from '@/components/performance/PerformanceConfir
 import PerformanceFormField from '@/components/performance/PerformanceFormField.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
-import PerformanceFocusGroupMembersDialog from '@/components/performance/PerformanceFocusGroupMembersDialog.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'

@@ -562,7 +562,7 @@ async def focus_group_overview(
     """前端项目管理「人员组管理」弹窗：该周期全部人员组（周期级 + 关联项目混合，一次全量）。
 
     对应飞书 group/list（subjectType:3，无 tab 维度/无分页）；Tab = 组名。
-    鉴权复用 get_performance_access_context（与 members / manageable 同模型：项目管理员上下文即可查看，
+    鉴权复用 get_performance_access_context（与 members 同模型：项目管理员上下文即可查看，
     维护能力由成员接口的 scope 校验兜底），而非 admin 权限位。
     """
     del context  # 能进入项目管理页 = 具备查看上下文；成员维护权限由 members 接口 scope 校验兜底

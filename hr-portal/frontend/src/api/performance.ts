@@ -2569,10 +2569,6 @@ export interface PerformanceFocusGroupOverview {
 }
 
 export const performanceFocusGroupApi = {
-  async manageable(cycleId: number, tab: 'semester' | 'project'): Promise<{ total: number; items: Array<Pick<PerformanceFocusGroup, 'id' | 'name' | 'tab' | 'scope_setting_mode'>> }> {
-    const { data } = await api.get(`/performance/cycles/${cycleId}/manageable-focus-groups`, { params: { tab } })
-    return data
-  },
   async members(cycleId: number, groupId: number, params?: { current?: number; size?: number; keyword?: string }): Promise<PerformanceFocusGroupMembers> {
     const { data } = await api.get<PerformanceFocusGroupMembers>(`/performance/cycles/${cycleId}/focus-groups/${groupId}/members`, {
       params: params && (params.current || params.size || params.keyword) ? { current: params.current, size: params.size, ...(params.keyword ? { keyword: params.keyword } : {}) } : undefined,
