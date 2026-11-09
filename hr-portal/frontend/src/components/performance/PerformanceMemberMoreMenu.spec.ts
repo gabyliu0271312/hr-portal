@@ -24,6 +24,8 @@ describe('PerformanceMemberMoreMenu', () => {
     expect(items).toHaveLength(4)
     expect(items.map(item => item.textContent)).toEqual(['授权他人处理', '转交他人处理', '转移', '删除'])
     expect(items[2].hasAttribute('disabled')).toBe(true)
+    expect(items[2].querySelector('[data-icon="MoveOutlined"]')).not.toBeNull()
+    expect(items[2].querySelectorAll('path')).toHaveLength(3)
 
     items[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await wrapper.vm.$nextTick()
@@ -41,6 +43,22 @@ describe('PerformanceMemberMoreMenu', () => {
     items3[3].dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await wrapper.vm.$nextTick()
     expect(wrapper.emitted('delete')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('shows hover hint popovers for authorize and transfer items', async () => {
+    const wrapper = mount(PerformanceMemberMoreMenu, { props: { member } })
+    await wrapper.find('[aria-label="更多成员操作"]').trigger('click')
+    const items = [...document.body.querySelectorAll('[role="menuitem"]')]
+
+    items[0].dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.performance-member-more-menu-popover')?.textContent).toContain('授权后，原评估人仍有任务权限')
+
+    items[1].dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(document.body.querySelector('.performance-member-more-menu-popover')?.textContent).toContain('转交后，原评估人将失去任务权限')
+
     wrapper.unmount()
   })
 })
