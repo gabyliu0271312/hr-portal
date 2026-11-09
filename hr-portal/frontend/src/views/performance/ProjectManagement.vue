@@ -252,16 +252,30 @@ function openDrawerDelegation(action: 'AUTHORIZE' | 'TRANSFER', payload: { proje
   delegationOpen.value = true
 }
 
+const deletingMember = ref(false)
 async function removeDrawerMember(payload: { project_id: number; employee_no: string; root_review_id?: number; display_name?: string }) {
+  if (deletingMember.value) return
+  const cycleId = activeCycleId.value
+  deletingMember.value = true
   try {
     await projectManagementApi.removeMember(payload.project_id, payload.employee_no, payload.root_review_id)
-    ElMessage.success('操作成功')
-    await closeMember()
-    viewRefreshKey.value++
-    void loadOverview(activeCycleId.value ?? undefined)
-  } catch {
-    ElMessage.error('删除失败，请稍后重试')
+  } catch (failure: any) {
+    const detail = failure?.response?.data?.detail
+    ElMessage.error(typeof detail === 'string' ? detail : detail?.message || '删除失败，请稍后重试')
+    return
+  } finally {
+    deletingMember.value = false
   }
+  ElMessage.success('操作成功')
+  if (activeCycleId.value !== cycleId) return
+  viewRefreshKey.value++
+  if (drawerMember.value?.project_id === payload.project_id && drawerMember.value?.employee_no === payload.employee_no) {
+    drawerOpen.value = false
+    drawerMember.value = null
+    try { await closeMember() }
+    catch { ElMessage.warning('人员已删除，详情链接清理失败，请刷新页面') }
+  }
+  if (activeCycleId.value === cycleId) await loadOverview(cycleId)
 }
 
 function delegationCompleted() {
@@ -386,16 +400,19 @@ function applyOverview(loaded: ProjectManagementOverview) {
   }
 }
 
+let overviewRequest = 0
 async function loadOverview(cycleId?: number | null) {
+  const request = ++overviewRequest
   loading.value = true
   error.value = ''
   try {
     const loaded = await projectManagementApi.overview(cycleId ?? undefined)
+    if (request !== overviewRequest || (cycleId != null && activeCycleId.value !== cycleId)) return
     applyOverview(loaded)
   } catch {
-    error.value = '项目管理加载失败，请稍后重试'
+    if (request === overviewRequest && (cycleId == null || activeCycleId.value === cycleId)) error.value = '项目管理加载失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (request === overviewRequest) loading.value = false
   }
 }
 

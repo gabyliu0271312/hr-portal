@@ -109,6 +109,54 @@ describe('ProjectManagement', () => {
     replace.mockReset()
   })
 
+  it.each(['success', 'failure', 'navigation-failure', 'cycle-change'] as const)('keeps member deletion consistent on %s', async scenario => {
+    const { ElMessage } = await import('element-plus')
+    const success = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} } as any))
+    const failure = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({ close: () => {} } as any))
+    const warning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => ({ close: () => {} } as any))
+    let resolve!: () => void
+    let reject!: (reason: unknown) => void
+    const pending = new Promise<void>((done, fail) => { resolve = done; reject = fail })
+    const remove = vi.spyOn(projectManagementApi, 'removeMember').mockReturnValue(pending as any)
+    routeQuery.rootReviewId = '5'; routeQuery.member_project_id = '3'; routeQuery.employee_no = 'E1'
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: {
+      PerformanceReviewEvaluationDrawer: true, ProjectMemberListPanel: true, CompletionRatePanel: true,
+    } } })
+    try {
+      await flushPromises()
+      const drawer = wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' })
+      const payload = { project_id: 3, employee_no: 'E1', root_review_id: 5 }
+      const calls = vi.mocked(mockedApi.overview).mock.calls.length
+      drawer.vm.$emit('delete', payload)
+      drawer.vm.$emit('delete', payload)
+      await flushPromises()
+      expect(remove).toHaveBeenCalledOnce()
+      expect(remove).toHaveBeenCalledWith(3, 'E1', 5)
+      if (scenario === 'cycle-change') usePerformanceProjectContextStore().setNavigation(navigationOf(2))
+      if (scenario === 'navigation-failure') replace.mockRejectedValueOnce(new Error('navigation'))
+      if (scenario === 'failure') reject({ response: { data: { detail: { message: '无权删除' } } } })
+      else resolve()
+      await flushPromises()
+      if (scenario === 'failure') {
+        expect(failure).toHaveBeenCalledWith('无权删除')
+        expect(success).not.toHaveBeenCalled()
+        expect(drawer.props('modelValue')).toBe(true)
+        expect(vi.mocked(mockedApi.overview).mock.calls.length).toBe(calls)
+      } else {
+        expect(success).toHaveBeenCalledWith('操作成功')
+        expect(failure).not.toHaveBeenCalled()
+        if (scenario === 'cycle-change') expect(vi.mocked(mockedApi.overview).mock.calls.length).toBe(calls)
+        else {
+          expect(wrapper.findComponent({ name: 'PerformanceReviewEvaluationDrawer' }).exists()).toBe(false)
+          expect(vi.mocked(mockedApi.overview).mock.calls.length).toBe(calls + 1)
+          if (scenario === 'navigation-failure') expect(warning).toHaveBeenCalled()
+          else expect(replace).toHaveBeenLastCalledWith({ query: expect.not.objectContaining({ employee_no: 'E1' }) })
+        }
+      }
+    } finally { wrapper.unmount(); remove.mockRestore(); success.mockRestore(); failure.mockRestore(); warning.mockRestore() }
+  })
+
   it('opens the reminder route with all eligible tasks selected and a viewport bottom action bar', async () => {
     const { default: Reminder } = await import('./ProjectManagementReminder.vue')
     routeQuery.cycle_id = '1'

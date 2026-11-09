@@ -8225,30 +8225,47 @@ async def test_delegation_recipient_scope_preserves_identity_denial(task_delegat
     assert error.value.detail == "PROJECT_ADMIN_IDENTITY_AMBIGUOUS"
     assert not data.db.records
 @pytest.mark.asyncio
-async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot(monkeypatch):
+@pytest.mark.parametrize("scenario", ["active", "report_only", "last_member", "denied", "archived", "repeated"])
+async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot(monkeypatch, scenario):
     from unittest.mock import AsyncMock
     from app.performance import projects_router as routes
     from app.performance import models as pm_models
     project = SimpleNamespace(id=1, cycle_ref="C1", status="STARTED", evaluated_count=2, project_ref="P1",
                               settings={"evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]}})
-    snapshot = SimpleNamespace(id=7, source_filter={"task_generation_employee_nos": ["E1", "E2"]})
+    generation = ["E2"] if scenario == "report_only" else ["E1"] if scenario == "last_member" else ["E1", "E2"]
+    project.evaluated_count = len(generation)
+    project.settings["evaluator_rules"]["groups"].append({"conditions": [{"field": "department", "operator": "include", "values": ["研发"]}, {"field": "employee", "operator": "exclude", "values": ["E9"]}]})
+    snapshot = SimpleNamespace(id=7, source_filter={"task_generation_employee_nos": generation})
+    remaining = sorted(set(generation) - {"E1"})
     member = SimpleNamespace(id=5, snapshot_id=7, employee_no="E1")
-    member_query = {"snapshot_id": 7, "employee_no": "E1"}
     task_rows = [SimpleNamespace(id=11), SimpleNamespace(id=12)]
     deleted_tasks = []
     deleted_recons = []
+    deleted_openings = []
     deleted_member = []
     calibration_node = SimpleNamespace(id=30, node_type="calibration",
                                        config={"calibration": {"phases": [{"phase_id": "p1", "rule_sources": [{"rule_id": "r1", "assignments": [{"handler_ref": "H1", "employee_no": "E1"}, {"handler_ref": "H1", "employee_no": "E2"}]}], "assignments": [{"handler_ref": "H1", "employee_no": "E1"}, {"handler_ref": "H1", "employee_no": "E2"}]}], "evaluated_count": 2, "assigned_count": 2, "unassigned_count": 0}})
     eval_node = SimpleNamespace(id=31, node_type="evaluation", config={})
+    calibration_phase = calibration_node.config["calibration"]["phases"][0]
+    calibration_phase["assignments"] = [{"handler_ref": "H1", "employee_no": no} for no in generation]
+    calibration_phase["rule_sources"][0]["assignments"] = list(calibration_phase["assignments"])
+    calibration_node.node_id = "cal"
+    rule = {"rule_id": "r1", "subject_groups": [{"conditions": [{"operator": "INCLUDE", "values": ["H1"]}]}], "scope": "PROJECT_ALL", "allow_authorize": False}
+    calibration_phase["rule_sources"][0]["rule"] = rule
+    project.settings["flow_settings"] = {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "p1", "rules": [rule]}]}}}}
 
     class Db:
+        async def refresh(self, row, **kwargs):
+            assert row is project and kwargs["with_for_update"]
+            if scenario == "archived": project.status = "ARCHIVED"
         async def scalar(self, query):
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_cycles" in sql:
+                return SimpleNamespace(cycle_ref="C1")
             if "performance_project_member_snapshots" in sql and "ORDER BY" in sql:
                 return snapshot
             if "performance_project_members" in sql and "employee_no = 'E1'" in sql:
-                return member
+                return None if deleted_member else member
             return None
         async def execute(self, query):
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
@@ -8260,6 +8277,9 @@ async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot
             if "performance_result_reconsiderations" in sql:
                 deleted_recons.append(sql)
                 return SimpleNamespace()
+            if "performance_result_openings" in sql:
+                deleted_openings.append(sql)
+                return SimpleNamespace()
             if "performance_project_node_snapshots" in sql:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [calibration_node, eval_node]))
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
@@ -8269,21 +8289,45 @@ async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot
             pass
 
     monkeypatch.setattr(routes, "_project_started", AsyncMock(return_value=project))
-    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_can_manage_project_like_overview", AsyncMock(return_value=scenario != "denied"))
     audit = SimpleNamespace(append_event=lambda _input: None)
     monkeypatch.setattr(routes, "PerformanceAuditService", lambda _db: audit)
+    monkeypatch.setattr(PerformanceProjectService, "project_audience", AsyncMock(return_value=([member], [SimpleNamespace(employee_no=no) for no in generation], [])))
+    if scenario in {"denied", "archived"}:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as rejected:
+            await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=5)
+        assert rejected.value.status_code == (403 if scenario == "denied" else 409)
+        assert not deleted_member and not deleted_tasks
+        return
     result = await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=5)
     assert result == {"code": 0, "data": {}, "msg": "操作成功"}
-    assert project.evaluated_count == 1
-    assert snapshot.source_filter["task_generation_employee_nos"] == ["E2"]
+    assert project.evaluated_count == len(remaining)
+    assert snapshot.source_filter["task_generation_employee_nos"] == remaining
     assert deleted_member == [member]
     assert len(deleted_tasks) == 1 and "performance_node_tasks" in deleted_tasks[0]
-    assert len(deleted_recons) == 1
-    assert project.settings["evaluator_rules"]["groups"] == []
+    assert len(deleted_recons) == len(deleted_openings) == 1
+    assert "target_employee_no = 'E1'" in deleted_tasks[0] or "performance_node_tasks.id IN" in deleted_tasks[0]
+    assert project.settings["evaluator_rules"]["groups"][0]["conditions"][-1] == {"field": "employee", "operator": "exclude", "values": ["E1"]}
+    assert project.settings["evaluator_rules"]["groups"][1]["conditions"][-1]["values"] == ["E9", "E1"]
     frozen = calibration_node.config["calibration"]
-    assert frozen["phases"][0]["assignments"] == [{"handler_ref": "H1", "employee_no": "E2"}]
-    assert frozen["phases"][0]["rule_sources"][0]["assignments"] == [{"handler_ref": "H1", "employee_no": "E2"}]
-    assert (frozen["evaluated_count"], frozen["assigned_count"], frozen["unassigned_count"]) == (1, 1, 0)
+    expected_assignments = [{"handler_ref": "H1", "employee_no": no} for no in remaining]
+    assert frozen["phases"][0]["assignments"] == expected_assignments
+    assert frozen["phases"][0]["rule_sources"][0]["assignments"] == expected_assignments
+    assert (frozen["evaluated_count"], frozen["assigned_count"], frozen["unassigned_count"]) == (len(remaining), len(remaining), 0)
+    if scenario == "last_member":
+        from app.performance.calibration_service import extend_calibration_member
+        people = {no: SimpleNamespace(employee_no=no, direct_supervisor_employee_no=None) for no in ["E1", "H1"]}
+        restored, delta = extend_calibration_member(calibration_node, project.settings["flow_settings"], people, [], "E1")
+        assert restored["evaluated_count"] == 1 and len(delta[0]["assignments"]) == 1
+        added_rules = PerformanceProjectService.adjust_evaluator_rules(project.settings["evaluator_rules"], include=["E1"])
+        assert [person.employee_no for person in PerformanceProjectService._matching_people([people["E1"]], {"evaluator_rules": added_rules})] == ["E1"]
+    if scenario == "repeated":
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as repeated:
+            await routes.remove_project_member(1, "E1", context(), Db(), root_review_id=5)
+        assert repeated.value.status_code == 404 and project.evaluated_count == len(remaining)
+        assert len(deleted_member) == 1
 
 
 @pytest.mark.asyncio
@@ -8297,8 +8341,11 @@ async def test_remove_project_member_guards_missing_member_and_root_mismatch(mon
     member = SimpleNamespace(id=5, snapshot_id=7, employee_no="E1")
 
     class Db:
+        async def refresh(self, row, **kwargs): pass
         async def scalar(self, query):
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "performance_cycles" in sql:
+                return SimpleNamespace(cycle_ref="C1")
             if "performance_project_member_snapshots" in sql and "ORDER BY" in sql:
                 return snapshot
             return None
@@ -8314,11 +8361,9 @@ async def test_remove_project_member_guards_missing_member_and_root_mismatch(mon
     class DbWithMember(Db):
         async def scalar(self, query):
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
-            if "performance_project_member_snapshots" in sql and "ORDER BY" in sql:
-                return snapshot
             if "performance_project_members" in sql and "employee_no = 'E1'" in sql:
                 return member
-            return None
+            return await super().scalar(query)
 
     with pytest.raises(HTTPException) as mismatch:
         await routes.remove_project_member(1, "E1", context(), DbWithMember(), root_review_id=99)

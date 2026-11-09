@@ -203,6 +203,14 @@
 - 删除本轮只预留统一规则变换，不新增删除入口或调整已提交删除实现；移除须对所有OR组生效，不能另加独立exclude OR组扩大范围。
 - 77项定向测试与生产构建通过；真实登录/SQL回读/浏览器PNG仍未完成，见atomic-tasks中F05证据。现有页面局部增强，无新完整蓝图。
 
+### PM-T003-I07-F06 删除被评估人一致性（2026-11-09 用户确认）
+
+- 入口沿用前台项目管理→成员列表→成员详情→右上角更多→删除；保留原确认弹窗与当前项目本周期数据清除提示，不新增系统调整区块或删除页面。
+- 成功后，在后台现有每个OR条件组中维护“员工不包括该人员”的AND条件；已有员工排除值合并去重，原条件保留。人数与预览继续读取实际成员，删除仅报表人员不误减参评人数。
+- 删除保留空的校准规则来源，清理被删除人的assignment与任务、复议和结果开通记录；不会清除该员工作为其他人的评估人的任务。删除后重新添加使用现有独立员工包含组和原校准规则增量。
+- 删除请求中重复确认不重复发请求；失败保留详情并显示接口错误。成功即关闭被删除人详情/清理URL并刷新成员和概览，导航失败单独提示，不误报删除失败。切周期时不刷新旧周期，旧概览响应不覆盖新周期。
+- 本地新增4项删除状态用例通过，成员菜单/详情/项目页3文件45项通过，构建通过。未取得原入口真实API/SQL回读或独立PNG，不以单测宣称整体验收通过。
+
 ## PM-T003-I07-F04 六项独立业务筛选组件（2026-10-28）
 
 - 用户要求每项具有独立具名入口：`PerformanceEmploymentStatusSelect`、`PerformanceDepartureDateSelect`、`PerformanceJobFamilySelect`、`PerformanceJobCategorySelect`、`PerformancePositionLevelSelect`、`PerformanceStandardPositionSelect`，均位于 `frontend/src/components/performance/`。

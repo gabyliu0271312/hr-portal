@@ -170,6 +170,22 @@
   - Not-run/blockers：本地5173可访问，但8000/8080 API未运行、Docker守护进程不可用；未完成真实登录UI→API→SQL→新连接回读、并发真库/回滚、独立PNG，不能据单测宣布端到端或生产通过。本轮不创建迁移、不commit/push/deploy、不外发消息；工作区另一会话删除交付eab7c07d不计为本卡实现。后续接入删除仍须独立确认业务与验收，不改其已提交行为。
   - Definition of done：本地代码/定向测试/构建已完成；整卡保留未勾选，待真实数据库和浏览器证据齐全后由主会话验收。
 
+- [ ] PM-T003-I07-F06 删除被评估人一致性接入（2026-11-09 用户确认）
+  - Goal：沿用成员详情→更多→删除，删除后现有条件同步员工不包括、有效成员/任务/校准/人数读回一致；不新增系统调整区块。
+  - Required reading：Spec002基线、PM-T003 F05及spec/ui-interaction、执行/验收契约，既有删除接口/确认弹窗及删除采集说明；Spec012通用UI门禁。
+  - Allowed modifications：backend/app/performance/{projects_router,project_service,calibration_service}.py及tests/test_performance_projects.py；frontend/src/views/performance/ProjectManagement.vue/spec.ts，必要PerformanceReviewEvaluationDrawer.vue/spec.ts；本功能spec/ui-interaction/atomic-tasks。新文件/脚本/报告无；共享文件只修改本卡函数/测试，不暂存其他会话差异。
+  - Frozen contract：DELETE /projects/{project_id}/members/{employee_no}、可选root_review_id、返回结构不变；沿用已实现并展示的当前项目本周期数据清除语义，保留不可变审计，不改成软删除或跨项目清除。不删除该员工评价他人的任务。
+  - Transaction：周期→项目→最新成员快照锁并重读状态/权限；同事务清理当前成员和其target任务/级联授权与复议通知、对应复议及结果开通记录，维护任务成员集合、校准分配和规则来源、员工exclude条件及人数。仅报表成员删除不减少任务人数。任何失败回滚，重复请求404无重复扣减；root不匹配409；无权403；状态变化409。
+  - Rule contract：exclude以AND加到所有现有OR组，值去重且保留其他字段/规则；加回员工以独立include组形成并集，后台锁定不变。保留空校准rule_sources及原规则，允许删除后重新加入。
+  - UI：保留原确认与菜单；删除请求防重复，成功后清理已删除详情URL、刷新当前周期成员和概览；API失败保留详情并显示真实错误，不误报删除失败于后续导航错误，不让旧周期响应覆盖新周期。现有界面小调整无需新蓝图。
+  - Test contract：项目测试覆盖多OR/部门与人员规则、仅报表/最后成员、未找到/root不匹配/权限/状态拒绝、校准来源删除重加及结果记录清理；ProjectManagement.spec.ts覆盖删除成功刷新/失败不关闭/防重与跨周期切换；相关前端定向与build分别记录。
+  - Non-scope：新删除入口、软删迁移、已发布数据政策重定义、生产写入、其他授权功能、commit/push/deploy（须另行授权）。
+  - Evidence（本地2026-11-09）：backend/.venv/Scripts/python.exe -m pytest backend/tests/test_performance_projects.py -q --tb=short -k 'remove_project_member or audience_adjustment or started_audience or started_preview or reviewee_add_syncs or calibration_member_increment' → 28 passed。既有删除2用例扩展为7项，覆盖任务/仅报表/最后一人/无权/状态/重复/root校验、结果记录清理与最后一人删除后校准重加。项目模块排除已知工作台夹具名 test_workbench_tasks_and_people_return_live_due_date、test_evaluation_member_list_can_return_completed_and_pending_tasks、test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate 后511 passed / 5 skipped / 8 deselected；存在python_multipart弃用警告，不称全量全绿。
+  - Frontend evidence：ProjectManagement.spec.ts新增4项删除状态用例通过；成员菜单/详情抽屉/项目管理页首次3文件45 passed。最终扩大到5文件得85 passed / 1 failed（总86），失败来自并行会话新加PerformanceMemberMoreMenu的hover hint popovers用例，不修改其在途功能，已通知负责会话。npm.cmd --prefix hr-portal/frontend run build → vue-tsc+Vite exit0，仅既有VueUse注释警告；本卡文件git diff --check通过。
+  - Not-run/blockers：localhost:8000/docs连接失败，前轮Docker守护进程不可用；本轮无真实API→SQL→新连接回读、并发/回滚真库与浏览器PNG。单测的事务及级联断言为受控夹具，不等价真实数据库约束验收。无迁移、无外部投递、未commit/push/deploy。
+  - 提交前复验：后端上述增删定向28 passed；前端ProjectManagement.spec.ts、PerformanceMemberMoreMenu.spec.ts、PerformanceReviewEvaluationDrawer.spec.ts共3文件46 passed，菜单hover修正已由并行会话完成，本卡不纳入该菜单改动。用户另行授权在main提交并推送本卡，不含部署。
+  - Definition of done：本地实现/定向回归/构建完成，整卡保持未勾选；待真实API/SQL/浏览器验收完成后独立验收。
+
 - [ ] PM-T003-I07-F03 被评估人人数统计与人员预览
   - Goal/Type：在项目信息被评估人区域展示真实总人数、任务人数、仅报表离职人数及每组人数，并复用去催办人员弹层查看明细；既有 UI/API/快照增强。
   - Prerequisites/reading：PM-T003-I07/F01/F02、Spec002 基线、本功能交互、execution-contract/migration-coordination/acceptance-evidence；Spec012 A01/A02/A05/N0001/N0002/N0004/N0005/N1101-N1106。

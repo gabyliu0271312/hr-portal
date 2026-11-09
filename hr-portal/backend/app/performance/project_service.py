@@ -306,7 +306,11 @@ class PerformanceProjectService:
             result["groups"].append({"conditions": [{"field": "employee", "operator": "include", "values": included}]})
         if excluded:
             for group in result["groups"]:
-                group["conditions"].append({"field": "employee", "operator": "exclude", "values": excluded})
+                condition = next((item for item in group["conditions"] if item["field"] == "employee" and item["operator"] == "exclude"), None)
+                if condition is None:
+                    group["conditions"].append({"field": "employee", "operator": "exclude", "values": list(excluded)})
+                else:
+                    condition["values"] = list(dict.fromkeys([*condition["values"], *excluded]))
         return result
 
     @staticmethod
