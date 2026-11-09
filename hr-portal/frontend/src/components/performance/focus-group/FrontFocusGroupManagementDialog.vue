@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { performanceFocusGroupApi, type PerformanceFocusGroupMember } from '@/api/performance'
 import type { PerformanceFocusGroupOverviewItem } from '@/api/performance'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import type { PerformanceTableColumn } from '@/components/performance/performanceTableColumns'
@@ -173,22 +174,11 @@ function formatDateTime(value: string | null | undefined) {
 <template>
   <Teleport to="body" :disabled="!teleport">
     <div v-if="modelValue" class="front-fg-dialog-overlay" @mousedown.self="emit('update:modelValue', false)">
-      <section class="front-fg-dialog" role="dialog" aria-modal="true" aria-label="人员组管理">
-        <header class="front-fg-dialog__header">
-          <div class="front-fg-dialog__header-left">
-            <button class="front-fg-dialog__back" type="button" @click="emit('update:modelValue', false)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14.5 4.5 7 12l7.5 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
-              <span>返回</span>
-            </button>
-            <span class="front-fg-dialog__header-gap" aria-hidden="true"></span>
-            <h2 class="front-fg-dialog__title">人员组管理</h2>
-          </div>
-        </header>
-
+      <UiFullScreenModal :title="'人员组管理'" :show-footer="false" content-scroll="inner" class="front-fg-dialog" @back="emit('update:modelValue', false)">
         <div class="front-fg-dialog__body">
           <p v-if="overviewError" class="front-fg-dialog__error" role="alert">{{ overviewError }}</p>
           <template v-else-if="groups.length">
-            <PerformanceLineTabs :model-value="String(activeGroupId ?? '')" :tabs="tabs" fill class="front-fg-dialog__tabs" @update:model-value="selectGroup">
+            <PerformanceLineTabs :model-value="String(activeGroupId ?? '')" :tabs="tabs" fill flush class="front-fg-dialog__tabs" @update:model-value="selectGroup">
               <!-- 提示条：周期版 / 关联项目版（REA 差异化呈现） -->
               <div class="front-fg-dialog__hint" :class="{ 'front-fg-dialog__hint--project': isProject }">
                 <template v-if="isProject">
@@ -267,7 +257,7 @@ function formatDateTime(value: string | null | undefined) {
             <span class="front-fg-dialog__empty-text">暂无人员组</span>
           </div>
         </div>
-      </section>
+      </UiFullScreenModal>
     </div>
   </Teleport>
 </template>
@@ -279,62 +269,16 @@ function formatDateTime(value: string | null | undefined) {
   z-index: var(--performance-confirm-z-index);
   background: var(--performance-dialog-overlay);
 }
-.front-fg-dialog {
-  display: flex;
-  flex-direction: column;
-  width: 100vw;
-  height: 100vh;
-  max-width: none;
-  box-sizing: border-box;
-  overflow: hidden;
-  background: var(--color-bg-card);
-  color: var(--color-text-primary);
-  font: 400 14px/22px var(--font-sans);
-}
-/* head：56px，下边框 1px rgba(31,35,41,0.15)（前端管理 v2 端独立主题，非全局 token） */
-.front-fg-dialog__header {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex: 0 0 56px;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-  padding: 0 24px 0 20px;
-  box-sizing: border-box;
-  background: #fff;
+/* UiFullScreenModal 页壳：覆盖头部下边框为飞书前端 1px rgba(31,35,41,0.15) */
+.front-fg-dialog :deep(.full-screen-modal-header) {
   border-bottom: 1px solid rgba(31, 35, 41, 0.15);
 }
-.front-fg-dialog__header-left { display: flex; align-items: center; min-width: 0; }
-.front-fg-dialog__back {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 2px 8px;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #1f2329;
-  font: 600 16px/24px var(--font-sans);
-  cursor: pointer;
-}
-.front-fg-dialog__back:hover { background: #eff0f1; }
-.front-fg-dialog__back svg { width: 14px; height: 14px; margin-right: 4px; }
-.front-fg-dialog__header-gap {
-  width: 1px;
-  height: 16px;
-  flex: 0 0 1px;
-  margin: 0 16px 0 12px;
-  background: rgba(31, 35, 41, 0.15);
-}
-.front-fg-dialog__title { margin: 0; color: #1f2329; font-size: 16px; font-weight: 600; line-height: 22px; }
 .front-fg-dialog__body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 .front-fg-dialog__error { margin: 0; padding: 16px 24px; color: var(--performance-field-error-color); font-size: 14px; line-height: 22px; }
 /* tab：14px/500 激活（前端 v2 端覆盖 PerformanceLineTabs 16px 默认） */
@@ -343,6 +287,13 @@ function formatDateTime(value: string | null | undefined) {
   min-height: 0;
   --performance-line-tabs-surface: #fff;
   --performance-line-tabs-text: #1f2329;
+}
+/* flush 后 holder 无负 margin/padding，这里对齐内容区 24px 左内边距（飞书 tab 与表格内容左对齐） */
+.front-fg-dialog__tabs .line-tabs-holder {
+  margin-right: 0;
+  margin-left: 0;
+  padding-right: 0;
+  padding-left: 24px;
 }
 .front-fg-dialog__tabs :deep(.line-tab) { font-size: 14px; line-height: 22px; }
 .front-fg-dialog__tabs :deep(.line-tab.active) { font-weight: 500; }
