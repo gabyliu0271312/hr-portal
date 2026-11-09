@@ -119,7 +119,7 @@ describe('ProjectPerformanceMatrix', () => {
 
     wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
     await wrapper.vm.$nextTick()
-    expect(wrapper.findAll('.count-value').map(item => item.text())).toEqual(['1', '1'])
+    expect(wrapper.findAll('.count-value').map(item => item.text())).toEqual(['50.0%1', '50.0%1'])
     expect(wrapper.findAll('.completed-table .person-name')).toHaveLength(0)
   })
 
@@ -137,6 +137,36 @@ describe('ProjectPerformanceMatrix', () => {
 
     expect(wrapper.get('.matrix-people-dialog-stub').text()).toBe('2026年半年度绩效评估 J6 1星')
     expect(wrapper.find('button[aria-label*="0人"]').exists()).toBe(false)
+  })
+
+  it('forwards a dialog row click as open-member when the row can view detail', async () => {
+    vi.mocked(mockedApi.matrix).mockResolvedValue(matrixOf())
+    const DialogStub = { name: 'MatrixPeopleDialog', props: ['modelValue'], emits: ['select-member'], template: '<div v-if="modelValue" class="matrix-people-dialog-stub" />' }
+    const wrapper = mount(ProjectPerformanceMatrix, {
+      props: { projectId: 7 },
+      global: { stubs: { MatrixPeopleDialog: DialogStub } },
+    })
+    await flushPromises()
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+    await wrapper.vm.$nextTick()
+    await wrapper.get('button[aria-label="查看J61星1人"]').trigger('click')
+    const stub = wrapper.findComponent({ name: 'MatrixPeopleDialog' })
+    expect(stub.exists()).toBe(true)
+    stub.vm.$emit('select-member', { employee_no: 'E001', project_id: 7, root_review_id: 1, can_view_detail: true })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('open-member')).toEqual([[{ project_id: 7, employee_no: 'E001', root_review_id: 1, can_view_detail: true }]])
+    wrapper.unmount()
+  })
+
+  it('emits open-member when a name-mode person with detail access is clicked', async () => {
+    const data = matrixOf()
+    data.completed_rows[0].cells.one.people = [{ employee_no: 'E001', display_name: '员工一', employment_status: '在职', can_view_detail: true, project_id: 7, root_review_id: 1 }]
+    vi.mocked(mockedApi.matrix).mockResolvedValue(data)
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7 } })
+    await flushPromises()
+    await wrapper.get('.completed-table .person-name').trigger('click')
+    expect(wrapper.emitted('open-member')).toEqual([[{ project_id: 7, employee_no: 'E001', root_review_id: 1, can_view_detail: true }]])
+    wrapper.unmount()
   })
 
   it('shows retry state when the matrix request fails', async () => {

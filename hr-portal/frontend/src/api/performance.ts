@@ -961,6 +961,9 @@ export interface ProjectMatrixPerson {
   employee_no: string
   display_name: string
   employment_status: string | null
+  can_view_detail?: boolean
+  project_id?: number
+  root_review_id?: number
 }
 
 export interface ProjectMatrixRating {

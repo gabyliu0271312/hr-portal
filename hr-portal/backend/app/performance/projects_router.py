@@ -963,6 +963,9 @@ class MatrixPersonResponse(BaseModel):
     employee_no: str
     display_name: str
     employment_status: str | None = None
+    can_view_detail: bool = False
+    project_id: int | None = None
+    root_review_id: int | None = None
 
 
 class MatrixRatingResponse(BaseModel):
@@ -1148,8 +1151,15 @@ async def _matrix_node_schema(node: PerformanceProjectNodeSnapshot, project: Per
     return build_self_summary_schema(await hydrate_self_summary_template(template, db))
 
 
-def _matrix_person(member: PerformanceProjectMember) -> dict:
-    return {"employee_no": member.employee_no, "display_name": member.display_name, "employment_status": member.employment_status}
+def _matrix_person(member: PerformanceProjectMember, project_id: int, root_review_id: int | None = None) -> dict:
+    return {
+        "employee_no": member.employee_no,
+        "display_name": member.display_name,
+        "employment_status": member.employment_status,
+        "can_view_detail": True,
+        "project_id": project_id,
+        "root_review_id": getattr(member, "id", None) if root_review_id is None else root_review_id,
+    }
 
 
 def _matrix_rows(level_people: dict[str, dict[str, list[dict]]], ratings: list[dict]) -> list[dict]:
@@ -1240,7 +1250,7 @@ async def project_matrix(
         member.employee_no: _matrix_level(member.position_level)
         for member in members
     }
-    people = {member.employee_no: _matrix_person(member) for member in members}
+    people = {member.employee_no: _matrix_person(member, project.id, getattr(member, "id", None)) for member in members}
     ratings, final_values, _ = await _project_final_ratings(project, set(people), db)
 
     pending_groups: dict[str, list[dict]] = {}

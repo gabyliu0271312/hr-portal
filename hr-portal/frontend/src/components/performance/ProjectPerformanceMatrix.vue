@@ -74,10 +74,13 @@
               <tr v-if="!matrix.completed_rows.length"><td :colspan="Math.max(matrix.ratings.length + 1, 2)" class="matrix-empty">暂无最终绩效评级</td></tr>
               <tr v-for="row in matrix.completed_rows" :key="`completed-${row.level}`">
                 <td class="level-cell sticky-level">{{ row.level }}</td>
-                <td v-for="rating in matrix.ratings" :key="rating.key" class="rating-cell">
+                <td v-for="rating in matrix.ratings" :key="rating.key" class="rating-cell" :class="{ 'count-cell': displayMode === 'count' }">
                   <template v-if="row.cells[rating.key]?.count">
-                    <button v-if="displayMode === 'count'" type="button" class="count-value" :aria-label="`查看${row.level}${rating.label}${row.cells[rating.key].count}人`" @click="openPeople(row.level, rating)">{{ row.cells[rating.key].count }}</button>
-                    <PeopleCell v-else :people="row.cells[rating.key].people" :expanded="isExpanded(`completed-${row.level}-${rating.key}`)" @toggle="toggle(`completed-${row.level}-${rating.key}`)" />
+                    <button v-if="displayMode === 'count'" type="button" class="count-value" :style="countStyle(row, rating)" :aria-label="`查看${row.level}${rating.label}${row.cells[rating.key].count}人`" @click="openPeople(row.level, rating)">
+                      <span class="count-ratio">{{ ratio(row, rating) }}</span>
+                      <span class="count-number">{{ row.cells[rating.key].count }}</span>
+                    </button>
+                    <PeopleCell v-else :people="row.cells[rating.key].people" :expanded="isExpanded(`completed-${row.level}-${rating.key}`)" @toggle="toggle(`completed-${row.level}-${rating.key}`)" @select-person="onPersonSelect" />
                   </template>
                   <span v-else class="matrix-zero">--</span>
                 </td>
@@ -94,6 +97,7 @@
         :level="drilldown.level"
         :rating-key="drilldown.rating.key"
         :rating-label="drilldown.rating.label"
+        @select-member="onDialogSelectMember"
       />
     </template>
   </PerformanceSurfaceCard>
@@ -103,11 +107,12 @@
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
 import { nextTick, onMounted, ref, watch } from 'vue'
-import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating } from '@/api/performance'
+import { projectManagementApi, type ProjectMatrix, type ProjectMatrixRating, type ProjectMatrixRow } from '@/api/performance'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { performanceLevelBackground } from './performanceColorOptions'
 
 const props = defineProps<{ projectId: number; cycleName?: string }>()
+const emit = defineEmits<{ 'open-member': [member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }] }>()
 const matrix = ref<ProjectMatrix>({ source: 'template_final_result', dimension: 'rating', display_modes: ['name', 'count'], total: 0, completed_count: 0, pending_count: 0, ratings: [], pending_rows: [], completed_rows: [] })
 const loading = ref(false)
 const error = ref('')
@@ -120,6 +125,16 @@ const drilldown = ref<{ level: string; rating: ProjectMatrixRating } | null>(nul
 function openPeople(level: string, rating: ProjectMatrixRating) {
   drilldown.value = { level, rating }
   peopleOpen.value = true
+}
+
+function onDialogSelectMember(member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }) {
+  if (!member.can_view_detail) return
+  emit('open-member', { project_id: member.project_id ?? props.projectId, employee_no: member.employee_no, root_review_id: member.root_review_id, can_view_detail: true })
+}
+
+function onPersonSelect(person: ProjectMatrixPerson) {
+  if (!person.can_view_detail) return
+  emit('open-member', { project_id: person.project_id ?? props.projectId, employee_no: person.employee_no, root_review_id: person.root_review_id, can_view_detail: true })
 }
 
 function syncColumnWidths() {
@@ -190,6 +205,45 @@ function ratingStyle(rating: ProjectMatrixRating) {
   return { '--rating-color': color, '--rating-bg': performanceLevelBackground(color) }
 }
 
+function ratio(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
+  const count = row.cells[rating.key]?.count ?? 0
+  const total = row.total
+  if (!total) return '0.0%'
+  return `${((count / total) * 100).toFixed(1)}%`
+}
+
+/* 数字块分档：占比越高底色越深。档位阈值与色值为 REA 证据初步约定，待真实采集校准。
+   浅档(≤20%)：浅蓝底+深蓝字；中档(20~40%)：中蓝底+深蓝字；深档(>40%)：深蓝实底+白字。 */
+const COUNT_TIER_OPTIONS = [
+  { max: 20, background: 'rgb(186, 206, 253)', foreground: 'rgb(19, 60, 154)' },
+  { max: 40, background: 'rgb(150, 185, 250)', foreground: 'rgb(19, 60, 154)' },
+  { max: Infinity, background: 'rgb(19, 60, 154)', foreground: 'rgb(255, 255, 255)' },
+]
+
+function countTier(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
+  const ratioValue = ratio(row, rating)
+  const percent = Number.parseFloat(ratioValue) || 0
+  const tier = COUNT_TIER_OPTIONS.find(option => percent <= option.max) ?? COUNT_TIER_OPTIONS[COUNT_TIER_OPTIONS.length - 1]
+  return { background: tier.background, foreground: tier.foreground }
+}
+
+function countHover(tier: { background: string; foreground: string }) {
+  // hover 统一加深：浅/中档转深蓝实底白字，深档保持深蓝实底白字
+  if (tier.foreground === 'rgb(19, 60, 154)') return { background: 'rgb(19, 60, 154)', foreground: 'rgb(255, 255, 255)' }
+  return tier
+}
+
+function countStyle(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
+  const tier = countTier(row, rating)
+  const hover = countHover(tier)
+  return {
+    '--count-bg': tier.background,
+    '--count-fg': tier.foreground,
+    '--count-bg-hover': hover.background,
+    '--count-fg-hover': hover.foreground,
+  }
+}
+
 onMounted(load)
 watch(() => props.projectId, load)
 watch(displayMode, () => nextTick(syncColumnWidths))
@@ -205,10 +259,15 @@ const PeopleCell = defineComponent({
     people: { type: Array as () => ProjectMatrixPerson[], default: () => [] },
     expanded: { type: Boolean, default: false },
   },
-  emits: ['toggle'],
+  emits: ['toggle', 'select-person'],
   setup(props, { emit }) {
     return () => h('div', { class: ['people-cell', { expanded: props.expanded }] }, [
-      h('div', { class: 'people-list' }, props.people.map(person => h('span', { class: 'person-name matrix-user-block', key: person.employee_no, title: person.display_name }, person.display_name))),
+      h('div', { class: 'people-list' }, props.people.map(person => h('span', {
+        class: ['person-name', 'matrix-user-block', { 'is-detail-link': person.can_view_detail }],
+        key: person.employee_no,
+        title: person.display_name,
+        onClick: person.can_view_detail ? () => emit('select-person', person) : undefined,
+      }, person.display_name))),
       props.people.length > 6 ? h('button', { type: 'button', class: 'people-toggle', 'aria-label': props.expanded ? '收起人员' : '展开人员', onClick: () => emit('toggle') }, props.expanded ? '收起' : '展开') : null,
     ])
   },
@@ -256,13 +315,18 @@ export default { components: { PeopleCell } }
 .people-cell :deep(.people-list) { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: flex-start; }
 .people-cell :deep(.person-name) { min-width: 0; min-height: 0; max-width: 100%; box-sizing: border-box; padding: 0; border: 0; background: transparent; font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Tahoma, "PingFang SC", "Microsoft Yahei", Arial, "Hiragino Sans GB", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-size: 14px; font-weight: 400; line-height: 22px; text-align: left; word-break: keep-all; color: #1f2329; list-style-type: none; cursor: pointer; }
 .people-cell :deep(.person-name:hover) { color: #4e83fd; }
+.people-cell :deep(.is-detail-link) { color: var(--color-primary); cursor: pointer; text-decoration: none; }
+.people-cell :deep(.is-detail-link:hover) { color: var(--color-primary-hover); }
 .people-cell :deep(.people-toggle) { position: absolute; right: 0; bottom: 0; width: 59px; height: 23px; padding-left: 14px; border: 0; background: linear-gradient(to right, rgba(255,255,255,0), #fff 20%, #fff); color: #4e83fd; font: inherit; cursor: pointer; text-align: left; }
 .people-cell.expanded :deep(.people-toggle) { position: static; width: auto; height: auto; padding: 0; margin-left: 8px; background: transparent; }
 .rating-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 24px; padding: 0 10px; border-radius: 9999px; background: var(--rating-bg); color: #1f2329; font-family: LarkHackSafariFont, LarkEmojiFont, LarkChineseQuote, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Tahoma, "PingFang SC", "Microsoft Yahei", Arial, "Hiragino Sans GB", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"; font-size: 14px; font-weight: 400; line-height: 22px; }
 .rating-cell { min-height: 57px; }
-.count-value { display: block; width: 100%; min-height: 31px; padding: 4px 8px; border: 0; border-radius: 4px; background: rgb(186, 206, 253); color: rgb(19, 60, 154); font: inherit; font-variant-numeric: tabular-nums; text-align: center; cursor: pointer; }
-.count-value:hover { background: rgb(166, 191, 252); }
+.count-cell { padding: 0 !important; }
+.count-value { display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; min-height: 31px; height: 55px; padding: 0 8px; border: 0; border-radius: 4px; background: var(--count-bg); color: var(--count-fg); font: inherit; font-variant-numeric: tabular-nums; text-align: center; cursor: pointer; }
+.count-value:hover { background: var(--count-bg-hover); color: var(--count-fg-hover); }
 .count-value:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
+.count-ratio { display: block; font-size: 14px; line-height: 22px; }
+.count-number { display: block; font-size: 14px; line-height: 22px; }
 .matrix-zero, .matrix-empty { color: #8f959e; }
 .matrix-empty { padding: 20px !important; text-align: center !important; }
 .matrix-state { display: grid; place-items: center; min-height: 220px; color: #646a73; }

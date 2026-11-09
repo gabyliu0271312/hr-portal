@@ -34,7 +34,7 @@
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" :authorizations="authorizations" @view="handleAuthorizationView" />
             <AuthorizationManagementPanel v-if="activeTab === 'overview'" title="其他" :authorizations="otherModules" @view="handleOtherView" />
             <ProjectMemberListPanel v-else-if="activeTab === 'members'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :project-id="memberProjectId" @filter="emit('member-filter')" @authorize-selected="openDelegation('AUTHORIZE', $event)" @transfer-selected="openDelegation('TRANSFER', $event)" @select-member="openMember" @remind-evaluate="handleEvaluateRemind" />
-            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" :cycle-name="activeCycle.cycle_name" />
+            <ProjectPerformanceMatrix v-else-if="activeTab === 'matrix'" :key="viewRefreshKey" :project-id="memberProjectId" :cycle-name="activeCycle.cycle_name" @open-member="openMatrixMember" />
             <ProjectStatisticsReportPanel v-else-if="activeTab === 'reports'" :key="viewRefreshKey" :cycle-id="activeCycle.cycle_id" :cycle-name="activeCycle.cycle_name" />
             <p v-else class="pane-hint">该页签内容将在后续迭代中开发</p>
           </PerformanceLineTabs>
@@ -143,6 +143,13 @@ async function openMember(member: ProjectMember) {
   drawerActiveTab.value = ''
   drawerOpen.value = true
   await router.replace({ query: memberQuery() })
+}
+function openMatrixMember(member: { project_id?: number; employee_no: string; root_review_id?: number; can_view_detail?: boolean }) {
+  if (!member.can_view_detail) return
+  drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id }
+  drawerActiveTab.value = ''
+  drawerOpen.value = true
+  void router.replace({ query: memberQuery() })
 }
 async function updateMemberTab(tab: string) {
   drawerActiveTab.value = tab

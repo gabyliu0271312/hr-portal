@@ -19,7 +19,7 @@ const props = defineProps<{
   ratingKey: string
   ratingLabel: string
 }>()
-const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; 'select-member': [member: ProjectMember] }>()
 
 const rows = ref<ProjectMember[]>([])
 const total = ref(0)
@@ -83,6 +83,9 @@ function changeSort(payload: { key: string; order: 'asc' | 'desc' | '' }) {
   void load()
 }
 function close() { emit('update:modelValue', false) }
+function onRowClick(row: ProjectMember) {
+  if (row.can_view_detail) emit('select-member', row)
+}
 
 watch(() => props.modelValue, open => {
   if (!open) return
@@ -121,12 +124,14 @@ watch(() => props.modelValue, open => {
         :sort-key="sortKey"
         :sort-order="sortOrder"
         sort-mode="remote"
+        :clickable-rows="rows.some(row => row.can_view_detail)"
+        @row-click="onRowClick"
         @page-change="changePage"
         @page-size-change="changePageSize"
         @sort-change="changeSort"
       >
         <template #cell="{ row, column }">
-          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="(row as ProjectMember).display_name" />
+          <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="(row as ProjectMember).display_name" :class="{ 'is-detail-link': (row as ProjectMember).can_view_detail }" />
           <span v-else-if="column.key === 'department_path'">{{ departmentPath(row as ProjectMember) }}</span>
           <PerformanceRatingTag v-else-if="column.key === 'rating' && (row as ProjectMember).rating" :label="(row as ProjectMember).rating!" :color="(row as ProjectMember).rating_tone || undefined" />
           <PerformanceEvaluateRatioPopover v-else-if="column.key === 'completion' && (row as ProjectMember).evaluate_ratio" :completion="(row as ProjectMember).completion || '0/0'" :ratio="(row as ProjectMember).evaluate_ratio" />
@@ -152,6 +157,9 @@ watch(() => props.modelValue, open => {
 .matrix-people-result { flex: none; margin-top: 16px; color: #1f2329; font-size: 14px; line-height: 22px; }
 .matrix-people-table { flex: 1 1 auto; min-height: 0; margin-top: 8px; --ui-table-header-background: #fff; --ui-table-header-height: 47px; --ui-table-row-height: 55px; }
 .matrix-people-table :deep(.ui-table__cell--head) { color: #646a73; font-weight: 500; }
+.matrix-people-table :deep(.is-detail-link) { cursor: pointer; }
+.matrix-people-table :deep(.is-detail-link .member-name) { color: var(--color-primary); text-decoration: none; }
+.matrix-people-table :deep(.is-detail-link:hover .member-name) { color: var(--color-primary-hover); }
 .matrix-people-table :deep(.table-pagination) { justify-content: flex-end; }
 .matrix-people-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0; color: #646a73; font-size: 14px; line-height: 22px; }
 </style>
