@@ -146,7 +146,6 @@ import RightOutlinedIcon from '@/components/performance/RightOutlinedIcon.vue'
 import WorkSummaryTaskIcon from '@/components/performance/WorkSummaryTaskIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceWorkbenchTimeline from '@/components/performance/PerformanceWorkbenchTimeline.vue'
-import { isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
 import { performanceApi, performanceWorkbenchApi, type PerformanceWorkbenchAnnouncementFeedItem, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 import { usePerformanceProjectContextStore, type PerformanceWorkbenchSnapshot } from '@/stores/performanceProjectContext'
 
@@ -288,17 +287,12 @@ async function selectProject(rawId: number | string) {
     ])
   } catch { ElMessage.error('工作台数据加载失败') }
 }
-function reviewQuery(entry: string) { return { name: 'PerformanceReview', query: { entry, project_id: String(activeProjectId.value || '') } } }
+function reviewQuery(entry: string) { return { name: 'PerformanceReview', query: { entry, cycle_id: String(activeCycleId.value || ''), project_id: String(activeProjectId.value || '') } } }
 function goToResults() { router.push(reviewQuery('results')) }
 function openTeam() { router.push(reviewQuery('team')) }
 function todoHref(todo: Todo) {
-  if (todo.task_id && todo.node_type === 'result_reconsideration') return `/performance/review/template-task?${new URLSearchParams({ task_id: String(todo.task_id), project_id: String(activeProjectId.value || '') })}`
-  if (todo.task_id && (todo.node_type === 'work_summary' || isSelfEvaluationNode(todo))) {
-    const path = todo.node_type === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'
-    return `${path}?${new URLSearchParams({ task_id: String(todo.task_id), project_id: String(activeProjectId.value || '') }).toString()}`
-  }
-  const query = new URLSearchParams({ node: String(todo.node_id), project_id: String(activeProjectId.value || '') })
-  return `${todo.action_url || '/performance/review'}?${query.toString()}`
+  const query = new URLSearchParams({ cycle_id: String(activeCycleId.value || ''), project_id: String(activeProjectId.value || ''), node: todo.node_id })
+  return `/performance/review?${query.toString()}`
 }
 
 function openTodo(todo: Todo, event?: MouseEvent) {

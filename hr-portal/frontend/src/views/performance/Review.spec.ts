@@ -39,6 +39,12 @@ const overview: PerformanceReviewOverview = {
   ],
 }
 
+const resultOverview = (): PerformanceReviewOverview => {
+  const value = structuredClone(overview)
+  value.categories[0].nodes.push({ node_id: 'view-result', node_name: '查看绩效结果', node_type: 'result_view', executor_label: '被评估人', status: 'pending', start_at: null, end_at: null, action_url: '/performance/review?node=view-result' })
+  return value
+}
+
 const navigationOf = (cycleId = 1, overrides: Partial<PerformanceNavigationContext> = {}): PerformanceNavigationContext => ({
   cycles: [
     { cycle_id: 1, cycle_name: '2025周期', cycle_start_at: '2025-01-01', cycle_end_at: '2025-12-31' },
@@ -128,8 +134,35 @@ describe('PerformanceReview', () => {
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
   })
 
+  it('maps the legacy results shortcut to the real result submenu and renders its readonly content', async () => {
+    Object.assign(routeQuery, { entry: 'results', cycle_id: '1', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [{ task_id: 11, field_id: 'rating', option_id: 'a', label: '优秀' }], contents: [] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(replace).toHaveBeenCalledWith({ query: { cycle_id: '1', project_id: '1', node: 'view-result' } })
+    expect(projectManagementApi.myResults).toHaveBeenCalledWith(1)
+    expect(wrapper.get('.review-results h1').text()).toBe('查看绩效结果')
+    expect(wrapper.get('.review-results').text()).toContain('优秀')
+    expect(wrapper.find('.review-sidebar').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps a deep link on the requested submenu and does not fall back to work summary', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', project_id: '1', node: 'manager' })
+    const loaded = resultOverview()
+    loaded.categories[2].nodes.push({ ...loaded.categories[0].nodes[0], node_id: 'manager', node_name: '上级评估' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(loaded)
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('.review-heading h2').text()).toBe('上级评估')
+    expect(replace).not.toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ node: 'summary' }) }))
+    wrapper.unmount()
+  })
+
   it('renders allowed result tags through the shared readonly renderer and honors display flags', async () => {
-    Object.assign(routeQuery, { entry: 'results', project_id: '1' })
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
     vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [{ task_id: 11, form_schema: [{ id: 'tags', name: '终评内容', fields: [
       { id: 'tag', type: 'tag_with_followup', label: '', hide_name: true, description: '', hide_description: true, options: [{ id: 'a', label: '协作' }] },
     ] }], answers: { tag: { tags: ['a'], notes: { a: '<p>终评反馈</p>' } } } }] })
@@ -146,7 +179,8 @@ describe('PerformanceReview', () => {
   })
 
   it('keeps legacy rating results and shows denied or empty result states without content', async () => {
-    Object.assign(routeQuery, { entry: 'results', project_id: '1' })
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
     const api = vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [{ task_id: 11, field_id: 'rating', option_id: 'a', label: '优秀' }] })
     const legacy = mountView()
     await flushPromises()
@@ -163,6 +197,81 @@ describe('PerformanceReview', () => {
     expect(denied.get('[role="alert"]').text()).toBe('当前结果尚未开通或不可查看')
     expect(denied.find('.performance-template-renderer').exists()).toBe(false)
     denied.unmount()
+  })
+
+  it('restores the linked project after loading a different cycle navigation', async () => {
+    Object.assign(routeQuery, { cycle_id: '2', project_id: '1', node: 'view-result' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(performanceNavigationApi.get).toHaveBeenCalledWith(2)
+    expect(performanceReviewApi.overview).toHaveBeenCalledWith(1, undefined, 2)
+    expect(projectManagementApi.myResults).toHaveBeenCalledWith(1)
+    expect(usePerformanceProjectContextStore().activeProjectId).toBe(1)
+    wrapper.unmount()
+  })
+
+  it('refuses unavailable result menus instead of selecting a different project or summary', async () => {
+    Object.assign(routeQuery, { entry: 'results', project_id: '1' })
+    const results = vi.spyOn(projectManagementApi, 'myResults')
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前项目没有可查看的绩效结果入口')
+    expect(results).not.toHaveBeenCalled()
+    expect(wrapper.find('.review-results').exists()).toBe(false)
+    wrapper.unmount()
+
+    Object.assign(routeQuery, { project_id: '9' })
+    const denied = mountView()
+    await flushPromises()
+    expect(denied.text()).toContain('当前项目不存在或无权查看')
+    expect(results).not.toHaveBeenCalled()
+    denied.unmount()
+  })
+
+  it('does not silently select summary for an unknown explicit node', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'manager?node=manager' })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前评估环节不存在或无权查看')
+    expect(wrapper.find('.review-heading').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('loads results when selecting the submenu and preserves the reconsideration entry', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'summary' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    const api = vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
+    vi.mocked(projectManagementApi.resultReconsideration).mockResolvedValue({ prompt: '结果存在疑问可发起复议', can_submit: true } as any)
+    const wrapper = mountView()
+    await flushPromises()
+    expect(api).not.toHaveBeenCalled()
+    await wrapper.findAll('.review-node').find(node => node.text().includes('查看绩效结果'))!.trigger('click')
+    await flushPromises()
+    expect(api).toHaveBeenCalledWith(1)
+    expect(wrapper.get('.result-reconsideration-action').text()).toContain('发起复议')
+    expect(wrapper.find('.review-sidebar').exists()).toBe(true)
+    expect(wrapper.find('.review-results input').exists()).toBe(false)
+    expect(push).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores a late result response after switching to a different project', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'view-result' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    let resolveResult!: (value: any) => void
+    vi.spyOn(projectManagementApi, 'myResults').mockReturnValue(new Promise(resolve => { resolveResult = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('正在加载绩效结果')
+    usePerformanceProjectContextStore().setActiveProjectId(2)
+    await wrapper.vm.$nextTick()
+    resolveResult({ results: [{ task_id: 11, field_id: 'rating', label: '旧项目敏感结果' }], contents: [] })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('旧项目敏感结果')
+    expect(projectManagementApi.resultReconsideration).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('renders the template name and all four template-driven categories', async () => {

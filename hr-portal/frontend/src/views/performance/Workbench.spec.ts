@@ -79,6 +79,57 @@ describe('PerformanceWorkbench project context', () => {
     vi.spyOn(performanceWorkbenchApi, 'announcements').mockResolvedValue({ announcement_enabled: true, items: [] })
   })
 
+  it.each(['pending', 'completed'] as const)('routes every %s todo to its exact submenu without opening a task', async (state) => {
+    const nodes = [
+      ['summary', 'work_summary', 'assessment.reviewee'],
+      ['self', 'evaluation', 'assessment.reviewee'],
+      ['manager', 'evaluation', 'assessment.line_manager'],
+      ['manager-2', 'evaluation', 'assessment.dotted_manager'],
+      ['invite', 'reviewer_360_invite', 'assessment.reviewee'],
+      ['confirm', 'reviewer_360_confirm', 'assessment.line_manager'],
+      ['feedback', 'evaluation', 'assessment.reviewer_360'],
+      ['calibration', 'calibration', 'assessment.calibrator'],
+      ['communication', 'result_communication', 'assessment.line_manager'],
+      ['appeal', 'result_reconsideration', 'assessment.line_manager'],
+      ['custom & node', 'evaluation', 'assessment.metric_evaluator'],
+    ]
+    const todos = nodes.map(([node_id, node_type, executor_role_code], index) => ({
+      ...pending[0], node_id, node_type, executor_role_code, task_id: index + 20,
+      action_url: `/performance/review?node=${node_id}`,
+    }))
+    vi.mocked(performanceWorkbenchApi.tasks).mockImplementation(async (_projectId, requestedState) => requestedState === state ? todos : [])
+    const wrapper = mountView()
+    await flushPromises()
+    if (state === 'completed') await wrapper.findAll('.todo-tabs button')[1].trigger('click')
+    const links = wrapper.findAll('.todo-item')
+    expect(links).toHaveLength(nodes.length)
+    for (const [index, link] of links.entries()) {
+      const url = new URL(link.attributes('href')!, 'http://localhost')
+      expect(url.pathname).toBe('/performance/review')
+      expect(Object.fromEntries(url.searchParams)).toEqual({ cycle_id: '1', project_id: '1', node: nodes[index][0] })
+      await link.trigger('click')
+      expect(push).toHaveBeenLastCalledWith(`${url.pathname}${url.search}`)
+    }
+    push.mockClear()
+    await links[0].trigger('click', { ctrlKey: true })
+    expect(push).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps the active cycle and project for both result entry points', async () => {
+    vi.mocked(performanceWorkbenchApi.listProjects).mockResolvedValue([{ ...projects[1], result_published: true }])
+    const context = usePerformanceProjectContextStore()
+    context.setActiveCycleId(2)
+    context.setActiveProjectId(2)
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.quick-link').trigger('click')
+    expect(push).toHaveBeenLastCalledWith({ name: 'PerformanceReview', query: { entry: 'results', cycle_id: '2', project_id: '2' } })
+    await wrapper.get('.result-card button').trigger('click')
+    expect(push).toHaveBeenLastCalledWith({ name: 'PerformanceReview', query: { entry: 'results', cycle_id: '2', project_id: '2' } })
+    wrapper.unmount()
+  })
+
   it('uses the project and cycle selected in performance review and keeps them in the URL', async () => {
     const context = usePerformanceProjectContextStore()
     context.setActiveCycleId(2)

@@ -84,6 +84,23 @@
 
 任务只有在代码、定向回归、构建和实际UI证据齐全后才能勾选。
 
+## 6.1 工作台入口纠偏（2026-11-09，CR-007-F07）
+
+用户确认工作台入口统一按以下规则处理：
+
+- 我的待办“待完成”和“已完成”均只跳转到绩效评估中对应的流程子菜单，不直接打开工作总结、自评、评估填写页、编辑页或人员详情。
+- 工作台待办跳转保留当前周期、项目和真实节点 ID；不得重复拼接已包含查询参数的后端 action URL，目标节点不存在或无权时不得静默回退到工作总结或首个节点。
+- 快捷入口“我的绩效结果”及工作台结果卡均进入“绩效评估 → 查看绩效结果”，复用结果子菜单的只读展示、未开通/无权限拒绝态和复议入口。
+- 评估页内部既有“去完成”、已完成只读抽屉、编辑确认、分享链接和身份切换能力不在本次入口修复范围内。
+
+- [x] CR-007-F07 工作台待办与结果入口纠偏（本地实现与定向验收；未部署）
+  - 实现：`hr-portal/frontend/src/views/performance/Workbench.vue`、`Review.vue`；仅统一工作台入口、结果节点解析/只读展示及异步旧响应丢弃。不修改后端、数据模型、迁移、任务权限或任务执行工作区。
+  - 测试：`npm --prefix hr-portal/frontend test -- src/views/performance/Workbench.spec.ts src/views/performance/Review.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/router/performanceTaskRoutes.spec.ts --pool=threads --poolOptions.threads.singleThread=true --silent` → 4文件96 passed，exit 0。覆盖11类节点两种待办状态、重复查询参数防回归、结果快捷入口/直接子菜单、无结果菜单/无项目权限/结果未开通/空态、跨周期链接、旧项目结果响应丢弃，以及原填写/抽屉/分享回归。
+  - 构建：`npm --prefix hr-portal/frontend run build` → vue-tsc + Vite exit 0；既有VueUse PURE注释警告。本次文件 `git diff --check` 通过，仅LF/CRLF提示。
+  - 浏览器：Chrome headless、1440×900、真实Vue路由、全部API响应隔离；待完成/已完成共18次入口点击均到准确项目/周期/节点；结果子菜单正常与拒绝态、刷新、前进后退通过。pageerror 0，业务写请求0；360邀请组件另有2次未覆盖的隔离GET返回404，只验证邀请子菜单定位，不宣称邀请业务API验收。
+  - UI证据：`ui-blueprints/CR-007-F07-implemented-results-submenu-20261109.png`、`ui-blueprints/CR-007-F07-implemented-results-denied-20261109.png`，已查看，均为合成验收数据，不是生产结果或像素级对齐证明。属于既有入口修复，无新蓝图。
+  - 未运行：真实鉴权API/数据库回读、后端套件、全量前端套件、部署或真实外部投递；无数据库变更，不适用迁移验收。代码按用户后续指令提交并推送 main；推送不代表部署或生产验收。
+
 ## 7. 风险与停止方式
 
 - 现有工作台和评估页面仍以项目承载具体内容；本轮只统一周期选择，不推断跨项目菜单合并规则。

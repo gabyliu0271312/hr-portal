@@ -101,7 +101,7 @@
 | 评估页分类 | `projects_router._review_node_category` | 角色码：被评估人→我的绩效，360/指标评价人→给他人的评估，管理者→我团队的绩效 |
 | 参考内容催办 | `projects_router._reference_tabs` | 管理者角色码或校准环节 |
 | 字段可见性 | `subject_visibility_service.resolve_subject_visibility_role` | 角色码映射七种评估身份，HRBP 按执行类型兜底 |
-| 工作台待办 | `projects_router.workbench_tasks` + `Workbench.todoHref` | 返回角色码；自评直达 template-task 表单 |
+| 工作台待办 | `projects_router.workbench_tasks` + `Workbench.todoHref` | 返回角色码；待完成/已完成统一进入对应评估子菜单，不直达表单（2026-11-09 用户新要求，见 CR-007-F07） |
 | 评估页渲染 | `PerformanceReviewContent` / `Review` | 评估型环节且非被评估人才进入成员工作区；自评走表单卡与只读表单 |
 | 模板显示 | 模板流程设置、模板内容设置 | 角色码判断实线上级，标签仅展示 |
 

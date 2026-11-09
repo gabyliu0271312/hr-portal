@@ -1,21 +1,5 @@
 <template>
   <div class="review-page">
-    <section v-if="route.query.entry === 'results'" class="review-results" aria-label="我的绩效结果">
-      <h1>我的绩效结果</h1>
-      <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
-      <div v-else-if="resultError" role="alert">{{ resultError }}</div>
-      <template v-else>
-        <div v-if="!myResults.length && !myResultContents.length">暂无可查看的绩效结果</div>
-        <ul v-if="myResults.length"><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
-        <PerformanceTemplateRenderer v-for="content in myResultContents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
-        <div v-if="reconsideration" class="result-reconsideration-action">
-          <p>{{ reconsideration.prompt }}</p>
-          <button v-if="reconsideration.can_submit" type="button" class="primary-button" @click="reconsiderationOpen = true">发起复议</button>
-          <span v-else-if="reconsideration.submitted_at">已发起复议</span>
-        </div>
-      </template>
-    </section>
-    <template v-else>
     <PerformanceReviewCategorySidebar
       :categories="visibleCategories"
       :filter-options="cycleOptions"
@@ -29,7 +13,23 @@
       @select-node="selectNode"
     >
     </PerformanceReviewCategorySidebar>
+    <section v-if="!loading && !error && selectedNode?.node_type === 'result_view'" class="review-results" aria-label="我的绩效结果">
+      <h1>{{ selectedNode.node_name }}</h1>
+      <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
+      <div v-else-if="resultError" role="alert">{{ resultError }}</div>
+      <template v-else>
+        <div v-if="!myResults.length && !myResultContents.length">暂无可查看的绩效结果</div>
+        <ul v-if="myResults.length"><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
+        <PerformanceTemplateRenderer v-for="content in myResultContents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
+        <div v-if="reconsideration" class="result-reconsideration-action">
+          <p>{{ reconsideration.prompt }}</p>
+          <button v-if="reconsideration.can_submit" type="button" class="primary-button" @click="reconsiderationOpen = true">发起复议</button>
+          <span v-else-if="reconsideration.submitted_at">已发起复议</span>
+        </div>
+      </template>
+    </section>
     <PerformanceReviewContent
+      v-else
       :loading="loading"
       :error="error"
       :template-name="overview?.template_name || ''"
@@ -55,7 +55,6 @@
       @edit="editDrawerTask"
       @remind="openReminderPlaceholder"
     />
-    </template>
     <PerformanceConfirmDialog v-model="reconsiderationOpen" appearance="submit" confirm-variant="primary" message="发起复议" description="确定发起复议后，配置的处理人会收到通知并负责跟进。" confirm-text="确定" cancel-text="取消" :loading="reconsiderationSaving" :confirm-disabled="!reconsiderationReason.trim()" :error-message="reconsiderationError" @confirm="submitReconsideration">
       <template #check><PerformanceFormField v-model="reconsiderationReason" label="复议理由" textarea required :maxlength="1500" show-count :placeholder="reconsideration?.instruction || '请输入复议理由'" /></template>
     </PerformanceConfirmDialog>
@@ -63,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -105,6 +104,9 @@ const reconsiderationOpen = ref(false)
 const reconsiderationReason = ref('')
 const reconsiderationSaving = ref(false)
 const reconsiderationError = ref('')
+const resultsEntry = ref(route.query.entry === 'results')
+let resultRequest = 0
+onBeforeUnmount(() => { ++resultRequest })
 async function submitReconsideration() {
   if (!activeProjectId.value || !reconsiderationReason.value.trim()) return
   reconsiderationSaving.value = true
@@ -118,28 +120,33 @@ async function submitReconsideration() {
   finally { reconsiderationSaving.value = false }
 }
 async function loadMyResults() {
-  if (!activeProjectId.value) { myResults.value = []; myResultContents.value = []; return }
-  resultLoading.value = true
+  const projectId = activeProjectId.value
+  const request = ++resultRequest
+  myResults.value = []
+  myResultContents.value = []
   reconsideration.value = null
+  reconsiderationOpen.value = false
   resultError.value = ''
+  resultLoading.value = false
+  if (!projectId || selectedNode.value?.node_type !== 'result_view') return
+  resultLoading.value = true
   try {
-    const response = await projectManagementApi.myResults(activeProjectId.value)
+    const response = await projectManagementApi.myResults(projectId)
+    if (request !== resultRequest) return
     myResults.value = response.results
     myResultContents.value = response.contents || []
-    const requestProjectId = activeProjectId.value
-    void projectManagementApi.resultReconsideration(requestProjectId).then(value => { if (activeProjectId.value === requestProjectId) reconsideration.value = value }).catch(() => { if (activeProjectId.value === requestProjectId) reconsideration.value = null })
+    void projectManagementApi.resultReconsideration(projectId).then(value => { if (request === resultRequest) reconsideration.value = value }).catch(() => { if (request === resultRequest) reconsideration.value = null })
   } catch {
-    myResults.value = []
-    myResultContents.value = []
-    resultError.value = '当前结果尚未开通或不可查看'
+    if (request === resultRequest) resultError.value = '当前结果尚未开通或不可查看'
   } finally {
-    resultLoading.value = false
+    if (request === resultRequest) resultLoading.value = false
   }
 }
 const visibleCategories = computed(() => (overview.value?.categories || []).filter(category => category.nodes.length > 0))
 const cycleOptions = computed(() => projectContext.cycles.map(cycle => ({ value: cycle.cycle_id, label: cycle.cycle_name })))
 const allNodes = computed(() => visibleCategories.value.flatMap(category => category.nodes))
-const selectedNode = computed(() => allNodes.value.find(node => node.node_id === selectedNodeId.value) || allNodes.value[0] || null)
+const selectedNode = computed(() => overview.value?.active_project?.project_id === activeProjectId.value ? allNodes.value.find(node => node.node_id === selectedNodeId.value) || null : null)
+watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.value?.node_type], () => { void loadMyResults() })
 const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number; active_tab: string } | null>(null)
 const drawerOpen = ref(false)
 function finishClosingDrawer() { if (!drawerOpen.value) drawerMember.value = null }
@@ -181,6 +188,13 @@ function restoreDrawer() {
   drawerMember.value = { node, task_id: taskId, member: { employee_no: '' }, active_tab: !route.query.activeTab || route.query.activeTab === node.node_id ? 'evaluation' : String(route.query.activeTab) }
   drawerOpen.value = true
 }
+watch(() => route.query.node, value => {
+  if (loading.value || overview.value?.active_project?.project_id !== activeProjectId.value || !value) return
+  const node = allNodes.value.find(item => item.node_id === String(value))
+  selectedNodeId.value = node?.node_id || ''
+  error.value = node ? '' : '当前评估环节不存在或无权查看'
+  if (node && activeProjectId.value) projectContext.setSelectedReviewNode(activeProjectId.value, node.node_id)
+})
 watch(() => [route.query.rootReviewId, route.query.activeTab, route.query.node], () => {
   if (!route.query.rootReviewId) drawerOpen.value = false
   else restoreDrawer()
@@ -195,8 +209,17 @@ function applyOverview(loaded: PerformanceReviewOverview) {
     if (String(route.query.project_id || '') !== String(projectId)) void router.replace({ query: { ...route.query, cycle_id: projectContext.activeCycleId ? String(projectContext.activeCycleId) : undefined, project_id: String(projectId) } })
   }
   const rememberedNode = projectContext.selectedReviewNode(projectId)
-  if (!allNodes.value.some(node => node.node_id === selectedNodeId.value)) {
-    selectedNodeId.value = allNodes.value.some(node => node.node_id === rememberedNode) ? rememberedNode : allNodes.value[0]?.node_id || ''
+  if (resultsEntry.value) {
+    selectedNodeId.value = allNodes.value.find(node => node.node_type === 'result_view')?.node_id || ''
+    if (selectedNodeId.value) {
+      const { entry: _entry, task_id: _task, ...query } = clearDrawerQuery()
+      void router.replace({ query: { ...query, cycle_id: String(projectContext.activeCycleId || ''), project_id: String(projectId || ''), node: selectedNodeId.value } })
+    } else error.value = '当前项目没有可查看的绩效结果入口'
+  } else if (!allNodes.value.some(node => node.node_id === selectedNodeId.value)) {
+    if (route.query.node) {
+      selectedNodeId.value = allNodes.value.find(node => node.node_id === String(route.query.node))?.node_id || ''
+      if (!selectedNodeId.value) error.value = '当前评估环节不存在或无权查看'
+    } else selectedNodeId.value = allNodes.value.some(node => node.node_id === rememberedNode) ? rememberedNode : allNodes.value[0]?.node_id || ''
   }
   if (projectId && selectedNodeId.value) projectContext.setSelectedReviewNode(projectId, selectedNodeId.value)
   restoreDrawer()
@@ -211,8 +234,8 @@ async function loadOverview(projectId?: number, silent = false) {
   try {
     const loaded = await performanceReviewApi.overview(projectId, routeTaskId(), projectContext.activeCycleId || undefined)
     if (projectId && activeProjectId.value !== projectId) return
-    applyOverview(loaded)
     error.value = ''
+    applyOverview(loaded)
     if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0)) {
       const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
       if (!navigation.can_review) await router.replace('/performance/workbench')
@@ -255,10 +278,12 @@ async function selectProject(rawProjectId: number | string) {
   } else await loadOverview(projectId)
 }
 async function selectNode(node: PerformanceReviewNode) {
+  resultsEntry.value = false
+  error.value = ''
   selectedNodeId.value = node.node_id
   if (activeProjectId.value) projectContext.setSelectedReviewNode(activeProjectId.value, node.node_id)
   drawerMember.value = null
-  const { task_id: _taskId, ...query } = clearDrawerQuery()
+  const { task_id: _taskId, entry: _entry, ...query } = clearDrawerQuery()
   await router.replace({ query: { ...query, project_id: String(activeProjectId.value || ''), node: node.node_id } })
 }
 async function openNode(node: PerformanceReviewNode) {
@@ -304,11 +329,14 @@ async function editDrawerTask(payload: { task_id: string | number; employee_no: 
 onMounted(async () => {
   const routeCycleId = Number(route.query.cycle_id)
   try {
-    if (!projectContext.navigationReady) await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+    if (!projectContext.navigationReady || (routeCycleId > 0 && routeCycleId !== projectContext.activeCycleId)) {
+      await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+    }
+    if (Number.isFinite(routeProjectId) && routeProjectId > 0) projectContext.setActiveProjectId(routeProjectId)
   } catch { error.value = projectContext.navigationError || '绩效评估加载失败，请稍后重试'; loading.value = false; return }
   if (projectContext.navigation && !projectContext.navigation.can_review) { await router.replace('/performance/workbench'); return }
-  if (route.query.entry === 'results') { void loadMyResults(); return }
   if (projectContext.navigation && !projectContext.navigation.review_projects.some(project => project.project_id === activeProjectId.value)) {
+    if (routeProjectId > 0) { error.value = '当前项目不存在或无权查看'; loading.value = false; return }
     projectContext.setActiveProjectId(projectContext.navigation.review_projects[0]?.project_id ?? null)
   }
   const cached = projectContext.reviewOverview(activeProjectId.value)
