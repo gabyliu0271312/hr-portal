@@ -289,7 +289,7 @@ function formatDateTime(value: string | null | undefined) {
   --performance-line-tabs-text: #1f2329;
 }
 /* flush 后 holder 无负 margin/padding，这里对齐内容区 24px 左内边距（飞书 tab 与表格内容左对齐） */
-.front-fg-dialog__tabs .line-tabs-holder {
+.front-fg-dialog__tabs :deep(.line-tabs-holder) {
   margin-right: 0;
   margin-left: 0;
   padding-right: 0;
