@@ -883,6 +883,7 @@ export interface ProjectMemberTaskOption {
   role_key: string | null
   role_label: string | null
   handler_ref: string
+  handler_name?: string | null
   can_authorize?: boolean
 }
 
@@ -1073,10 +1074,15 @@ export const projectManagementApi = {
     return data
   },
   async delegationCandidatesBatch(projectId: number, taskIds: number[]): Promise<Array<{ project_id: number; task_id: number; candidates: Array<{ employee_no: string; display_name: string; department_path?: string; direct_supervisor_employee_no?: string }> }>> {
-    const { data } = await api.post('/performance/projects/delegation-candidates/batch', { project_id: projectId, task_ids: taskIds })
-    return data
+    const uniqueTaskIds = [...new Set(taskIds)]
+    const result: Array<{ project_id: number; task_id: number; candidates: Array<{ employee_no: string; display_name: string; department_path?: string; direct_supervisor_employee_no?: string }> }> = []
+    for (let index = 0; index < uniqueTaskIds.length; index += 200) {
+      const { data } = await api.post('/performance/projects/delegation-candidates/batch', { project_id: projectId, task_ids: uniqueTaskIds.slice(index, index + 200) })
+      result.push(...data)
+    }
+    return result
   },
-  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean; idempotency_key?: string }): Promise<{ id: number; task_id: number; status: string; notification_status?: 'preview_only' | string; idempotent?: boolean }> {
+  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean; no_origin_reviewer_authorize?: boolean; idempotency_key?: string }): Promise<{ id?: number; task_id: number; status?: string; notification_status?: 'preview_only' | string; idempotent?: boolean; skipped?: boolean }> {
     const { data } = await api.post(`/performance/projects/${projectId}/tasks/${taskId}/delegations`, { action, recipient_employee_no: recipientEmployeeNo, reason, ...options })
     return data
   },

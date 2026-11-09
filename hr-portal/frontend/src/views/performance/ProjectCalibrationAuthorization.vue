@@ -88,7 +88,7 @@ async function load() {
   } catch { if (current === sequence) error.value = '校准授权加载失败，请稍后重试' } finally { if (current === sequence) loading.value = false }
 }
 function openAuthorization(row: ProjectCalibrationAuthorization) { target.value = row; dialogOpen.value = true }
-function authorized(count: number, notificationStatus?: string) { notice.value = `已授权 ${count} 个任务`; void load() }
+function authorized(count: number, _notificationStatus?: string, _recordId?: number, skippedCount = 0) { notice.value = `已授权 ${count} 个任务${skippedCount ? `，跳过 ${skippedCount} 个无原处理人任务` : ''}`; void load() }
 function revoke(row: ProjectCalibrationAuthorization) { if (saving.value || !row.authorizations.length) return; revokeTarget.value = row; confirmOpen.value = true }
 async function confirmRevoke() {
   const row = revokeTarget.value

@@ -605,6 +605,56 @@ it('renders the 其他 group with a 人员组管理 card whose 查看 does not n
 
 
 describe('authorization workspaces', () => {
+  it('navigates after a real authorization and stays on members when every task was skipped', async () => {
+    const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+    pinia = createPinia(); setActivePinia(pinia)
+    usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const wrapper = mountView()
+    await flushPromises()
+    push.mockClear()
+    wrapper.getComponent(Dialog).vm.$emit('completed', 0, '', undefined, 2)
+    await flushPromises()
+    expect(push).not.toHaveBeenCalled()
+    wrapper.getComponent(Dialog).vm.$emit('completed', 1, '', 21, 0)
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: '1', highlight_id: '21', highlight_tab: 'authorization' } })
+    wrapper.unmount()
+  })
+
+  it('locates the authorization ID on its page and scrolls the actual highlighted table row', async () => {
+    const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
+    routeQuery.cycle_id = '1'; routeQuery.highlight_id = '21'; routeQuery.highlight_tab = 'transfer'
+    const rows = Array.from({ length: 12 }, (_, index) => ({ id: String(100 + index), authorization_id: index === 11 ? 21 : 30 + index, initiator: '发起人', authorized_person: `接收人${index}`, status: '已转交', stages: ['上级评估'], reviewees: ['员工一'], submitted_at: '2026-11-01T00:00:00Z', can_revoke: false }))
+    rows[0].id = '21'
+    const records = vi.spyOn(projectManagementApi, 'authorizationRecords').mockResolvedValue({ cycle_id: 1, authorization_records: [], transfer_records: rows })
+    const scroll = vi.fn()
+    const previous = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = scroll
+    const wrapper = mount(Records, { attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+    expect(wrapper.get('.ui-table__row.is-highlighted').text()).toContain('接收人11')
+    expect(wrapper.text()).not.toContain('接收人0')
+    expect(scroll).toHaveBeenCalledWith({ block: 'nearest' })
+    wrapper.unmount(); records.mockRestore(); HTMLElement.prototype.scrollIntoView = previous
+    delete routeQuery.cycle_id; delete routeQuery.highlight_id; delete routeQuery.highlight_tab
+  })
+
+  it('splits delegation candidate requests into at most 200 distinct task IDs', async () => {
+    const { api } = await import('@/api/client')
+    const post = vi.spyOn(api, 'post').mockImplementation(async (_url, body: any) => ({ data: body.task_ids.map((task_id: number) => ({ project_id: 3, task_id, candidates: [] })) }))
+    const result = await projectManagementApi.delegationCandidatesBatch(3, [...Array.from({ length: 201 }, (_, index) => index + 1), 1])
+    expect(post).toHaveBeenCalledTimes(2)
+    expect(post.mock.calls[0][1]).toEqual({ project_id: 3, task_ids: Array.from({ length: 200 }, (_, index) => index + 1) })
+    expect(post.mock.calls[1][1]).toEqual({ project_id: 3, task_ids: [201] })
+    expect(result).toHaveLength(201)
+    post.mockClear()
+    expect(await projectManagementApi.delegationCandidatesBatch(3, [])).toEqual([])
+    expect(post).not.toHaveBeenCalled()
+    post.mockRestore()
+  })
+
   it('reads scoped authorization rows and revokes through the real API contract', async () => {
     const { default: Records } = await import('./ProjectAuthorizationRecords.vue')
     routeQuery.cycle_id = '1'

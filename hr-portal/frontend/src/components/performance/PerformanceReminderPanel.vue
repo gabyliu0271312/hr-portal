@@ -148,12 +148,13 @@ const delegationTasks = computed(() => {
       targets.set(targetKey, { ...task, can_authorize: true, task_map: [...(task.task_map || [])] })
       continue
     }
-    const taskIds = new Set((existing.task_map || []).map(option => option.task_id))
-    existing.task_map = [...(existing.task_map || []), ...(task.task_map || []).filter(option => !taskIds.has(option.task_id))]
+    const taskRoles = new Map((existing.task_map || []).map(option => [`${option.task_id}:${option.role_key}`, option]))
+    for (const option of task.task_map || []) taskRoles.set(`${option.task_id}:${option.role_key}`, option)
+    existing.task_map = [...taskRoles.values()]
   }
   return [...targets.values()]
 })
-function delegationCompleted(count: number, notificationStatus?: string) { selectedKeys.value = []; void load(); notice.value = `已处理 ${count} 个任务` }
+function delegationCompleted(count: number, _notificationStatus?: string, _recordId?: number, skippedCount = 0) { selectedKeys.value = []; void load(); notice.value = `已处理 ${count} 个任务${skippedCount ? `，跳过 ${skippedCount} 个无原处理人任务` : ''}` }
 const page = ref(1)
 const pageSize = ref(50)
 const sortKey = ref('')

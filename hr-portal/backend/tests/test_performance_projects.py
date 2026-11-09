@@ -7138,6 +7138,7 @@ async def test_cycle_reminder_hides_delegation_for_self_and_360_and_calibration_
                 "role_key": "DIRECT_SUPERVISOR",
                 "role_label": "直属上级",
                 "handler_ref": "M1",
+                "handler_name": "快照经理",
                 "can_authorize": True,
             }]
         else:
@@ -8129,7 +8130,12 @@ def task_delegation_backend(monkeypatch):
             if entity is routes.User: return SimpleNamespace(id=1, feishu_user_id="open-id")
             if entity is models.PerformanceNodeTaskAuthorization:
                 sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
-                return next((record for record in self.records if record.status == "ACTIVE" and (record.authorization_settings or {}).get("idempotency_key") and record.authorization_settings["idempotency_key"] in sql), None)
+                return next((record for record in self.records
+                             if f"performance_node_task_authorizations.task_id = {record.task_id}" in sql
+                             and f"performance_node_task_authorizations.grantor_employee_no = '{record.grantor_employee_no}'" in sql
+                             and f"performance_node_task_authorizations.authorization_type = '{record.authorization_type}'" in sql
+                             and (record.authorization_settings or {}).get("idempotency_key")
+                             and record.authorization_settings["idempotency_key"] in sql), None)
             return 10
         async def get(self, model, key):
             if model is models.PerformanceProject: return target
@@ -8446,3 +8452,212 @@ async def test_remove_project_member_guards_missing_member_and_root_mismatch(mon
     with pytest.raises(HTTPException) as mismatch:
         await routes.remove_project_member(1, "E1", context(), DbWithMember(), root_review_id=99)
     assert mismatch.value.status_code == 409 and mismatch.value.detail == "ROOT_REVIEW_ID_MISMATCH"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["AUTHORIZE", "TRANSFER"])
+@pytest.mark.parametrize("status", ["ACTIVE", "REPLACED", "REVOKED"])
+async def test_delegation_idempotency_survives_completion_and_lost_permission(task_delegation_backend, action, status):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action=action, recipient_employee_no="RECIPIENT", reason=" reason ", idempotency_key="lifecycle", notify_original=True)
+    first = await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    data.db.records[0].status = status
+    data.task.status = "completed"
+    data.scope.side_effect = HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    again = await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    assert again == {**first, "status": status, "idempotent": True}
+    assert len(data.db.records) == len(data.db.events) == data.db.commits == data.notices.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [{"recipient_employee_no": "OTHER"}, {"reason": "changed"}, {"notify_original": False}, {"scope_mode": "PARTIAL"}, {"no_origin_reviewer_authorize": True}])
+async def test_delegation_idempotency_rejects_changed_body_before_state_checks(task_delegation_backend, change):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    body = dict(action="TRANSFER", recipient_employee_no="RECIPIENT", reason="reason", idempotency_key="body", notify_original=True)
+    await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(**body), context(), data.db)
+    data.task.status = "completed"
+    data.scope.side_effect = HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(**{**body, **change}), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (409, "TASK_IDEMPOTENCY_CONFLICT")
+    assert len(data.db.records) == len(data.db.events) == data.db.commits == data.notices.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delegation_idempotency_does_not_restore_another_grantors_key(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action="TRANSFER", recipient_employee_no="RECIPIENT", idempotency_key="private")
+    await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    data.identity.actor_ref = "STRANGER"
+    data.scope.side_effect = HTTPException(403, "PROJECT_DATA_FORBIDDEN")
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (403, "TASK_AUTHORIZATION_FORBIDDEN")
+    assert len(data.db.records) == 1 and data.db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_delegation_same_active_transfer_recipient_new_key_is_conflict(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    body = dict(action="TRANSFER", recipient_employee_no="RECIPIENT", notify_original=True)
+    await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(**body, idempotency_key="one"), context(), data.db)
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(**body, idempotency_key="two"), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (409, "TASK_ALREADY_TRANSFERRED")
+    assert len(data.db.records) == len(data.db.events) == data.db.commits == data.notices.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["evaluation", "result_reconsideration"])
+@pytest.mark.parametrize("choice", [None, False, True])
+async def test_delegation_no_original_handler_confirmation_skip_or_write(task_delegation_backend, kind, choice):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.task.handler_ref = ""
+    data.task.task_kind = data.node.node_type = kind
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", no_origin_reviewer_authorize=choice, notify_original=True)
+    if choice is None:
+        with pytest.raises(HTTPException) as error:
+            await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+        assert (error.value.status_code, error.value.detail) == (422, "NO_ORIGIN_REVIEWER_CONFIRMATION_REQUIRED")
+    else:
+        result = await data.routes.create_task_delegation(3, 7, payload, context(), data.db)
+        assert result["status"] == ("ACTIVE" if choice else "SKIPPED")
+        if choice is False:
+            assert result == {"id": 0, "task_id": 7, "status": "SKIPPED", "notification_status": "not_requested", "idempotent": False, "skipped": True}
+    assert len(data.db.records) == data.db.commits == int(choice is True)
+    assert data.notices.await_count == 0
+    assert data.task.handler_ref == "" and data.task.answers == {"field": "history"}
+
+
+@pytest.mark.asyncio
+async def test_delegation_no_original_handler_cannot_transfer(task_delegation_backend):
+    from fastapi import HTTPException
+    data = task_delegation_backend
+    data.task.handler_ref = ""
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="TRANSFER", recipient_employee_no="RECIPIENT", no_origin_reviewer_authorize=True), context(), data.db)
+    assert (error.value.status_code, error.value.detail) == (422, "NO_ORIGIN_REVIEWER_TRANSFER_NOT_SUPPORTED")
+    assert not data.db.records and not data.db.events and not data.db.commits
+
+
+@pytest.mark.asyncio
+async def test_delegation_candidates_200_boundary_aggregates_shared_reads(task_delegation_backend):
+    from pydantic import ValidationError
+    from unittest.mock import AsyncMock
+    data = task_delegation_backend
+    original_execute = data.db.execute
+    original_get = data.db.get
+    data.db.execute = AsyncMock(side_effect=original_execute)
+    data.db.get = AsyncMock(side_effect=original_get)
+    payload = data.routes.DelegationCandidatesBatchPayload(project_id=3, task_ids=list(range(1, 201)))
+    result = await data.routes.delegation_candidates_batch(payload, context(), data.db)
+    assert len(result) == 2
+    assert data.db.get.await_count == 2
+    assert data.db.execute.await_count == 3
+    assert data.routes.resolve_trusted_performance_actor.await_count == 1
+    assert data.scope.await_count == 1
+    with pytest.raises(ValidationError):
+        data.routes.DelegationCandidatesBatchPayload(project_id=3, task_ids=list(range(1, 202)))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("config_kind", ["legacy", "multi"])
+async def test_delegation_manager_roles_follow_frozen_multilevel_chain(monkeypatch, config_kind):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    member = SimpleNamespace(snapshot_id=1, employee_no="E1", direct_supervisor_employee_no="M0", hrbp_employee_no=None)
+    people = {f"M{index}": SimpleNamespace(employee_no=f"M{index}", display_name=f"冻结上级{index}", direct_supervisor_employee_no=f"M{index + 1}" if index < 5 else "M0") for index in range(6)}
+    levels = ["DIRECT_MANAGER", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER", "LEVEL_3_MANAGER_PLUS"]
+    template = {"executor_role_code": "assessment.line_manager", "executor_types": levels} if config_kind == "legacy" else {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "REAL_LINE_MANAGER", "levels": levels}]}}
+    node = SimpleNamespace(node_type="evaluation", node_id="manager", name="评估", config={"template": template})
+    tasks = [SimpleNamespace(id=index, node_snapshot_id=10, handler_ref=handler) for index, handler in enumerate([*people, "OUTSIDE"], 1)]
+    monkeypatch.setattr(routes, "_authorize_task_delegation", AsyncMock(return_value=True))
+    stages = {10: {"key": "manager-review", "label": "上级评估", "node": node}}
+    options = await routes._member_task_options(member, tasks, stages, {}, None, project("STARTED"), context(), "ADMIN", object(), {1: people})
+    assert [item.role_key for item in options] == ["DIRECT_SUPERVISOR", "LEVEL_1_MANAGER", "LEVEL_2_MANAGER", "LEVEL_3_MANAGER_PLUS", "LEVEL_3_MANAGER_PLUS", "LEVEL_3_MANAGER_PLUS"]
+    assert [item.handler_name for item in options] == [f"冻结上级{index}" for index in range(6)]
+    assert "OUTSIDE" not in {item.handler_ref for item in options}
+
+
+@pytest.fixture
+def virtual_reconsideration_backend(task_delegation_backend):
+    from datetime import UTC, datetime
+    data = task_delegation_backend
+    data.node.node_type = "result_reconsideration"
+    data.node.config = {"template": {"executor_config": {"mode": "MULTI_ROLE", "roles": [{"type": "HRBP"}]}}}
+    member = SimpleNamespace(snapshot_id=10, employee_no="E1", hrbp_employee_no=None, direct_supervisor_employee_no=None)
+    appeal = data.models.PerformanceResultReconsideration(id=12, project_id=3, member_snapshot_id=10, node_snapshot_id=5, employee_no="E1", reason="已申请", submitted_at=datetime.now(UTC))
+    generated = []
+    original_execute, original_scalar, original_get, original_add, original_flush = data.db.execute, data.db.scalar, data.db.get, data.db.add, data.db.flush
+    async def execute(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        if entity is data.models.PerformanceResultReconsideration:
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [appeal] if data.appeal else []))
+        if entity is data.models.PerformanceNodeTask:
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: list(generated)), all=lambda: [])
+        return await original_execute(statement)
+    async def scalar(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        if entity is data.models.PerformanceResultReconsideration:
+            return data.appeal
+        if entity is data.models.PerformanceProjectMember:
+            return member
+        return await original_scalar(statement)
+    async def get(model, key):
+        if model is data.models.PerformanceProjectMemberSnapshot:
+            return SimpleNamespace(id=10, project_id=3, source_snapshot_id=20)
+        if model is data.models.PerformanceProjectNodeSnapshot:
+            return data.node
+        return await original_get(model, key)
+    def add(row):
+        if isinstance(row, data.models.PerformanceNodeTask): generated.append(row)
+        else: original_add(row)
+    async def flush():
+        for task in generated: task.id = 70
+        await original_flush()
+    data.db.execute, data.db.scalar, data.db.get, data.db.add, data.db.flush = execute, scalar, get, add, flush
+    data.member, data.appeal, data.generated = member, appeal, generated
+    return data
+
+
+@pytest.mark.asyncio
+async def test_delegation_virtual_reconsideration_discovery_skip_materialize_retry_and_batch_alias(virtual_reconsideration_backend):
+    data = virtual_reconsideration_backend
+    stages = {5: {"key": "result-reconsideration", "label": "复议", "node": data.node}}
+    options = await data.routes._member_task_options(data.member, [], stages, {}, None, data.project, context(), "ORIGINAL", data.db)
+    assert len(options) == 1 and options[0].task_id == -12 and options[0].handler_ref == "" and options[0].can_authorize
+    assert await data.routes.task_delegation_candidates(3, -12, context(), data.db)
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", idempotency_key="virtual", no_origin_reviewer_authorize=False)
+    skipped = await data.routes.create_task_delegation(3, -12, payload, context(), data.db)
+    assert skipped["id"] == 0 and skipped["status"] == "SKIPPED" and skipped["task_id"] == -12
+    assert not data.generated and not data.db.records and data.db.commits == 0
+    payload.no_origin_reviewer_authorize = True
+    first = await data.routes.create_task_delegation(3, -12, payload, context(), data.db)
+    assert first["task_id"] == 70 and len(data.generated) == len(data.db.records) == data.db.commits == 1
+    again = await data.routes.create_task_delegation(3, -12, payload, context(), data.db)
+    assert again == {**first, "idempotent": True} and len(data.generated) == len(data.db.records) == 1
+    batch = await data.routes.delegation_candidates_batch(data.routes.DelegationCandidatesBatchPayload(project_id=3, task_ids=[-12]), context(), data.db)
+    assert len(batch) == 1 and batch[0]["task_id"] == -12 and batch[0]["candidates"]
+
+
+@pytest.mark.asyncio
+async def test_delegation_virtual_reconsideration_rejects_missing_appeal_or_existing_handler(virtual_reconsideration_backend):
+    from fastapi import HTTPException
+    data = virtual_reconsideration_backend
+    payload = data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", no_origin_reviewer_authorize=True)
+    appeal = data.appeal
+    data.appeal = None
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, -12, payload, context(), data.db)
+    assert error.value.status_code == 404
+    data.appeal = appeal
+    data.generated.append(data.task)
+    with pytest.raises(HTTPException) as error:
+        await data.routes.create_task_delegation(3, -12, payload, context(), data.db)
+    assert error.value.status_code == 404
+    assert not data.db.records and not data.db.commits

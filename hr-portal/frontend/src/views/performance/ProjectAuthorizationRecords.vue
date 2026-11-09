@@ -1,5 +1,5 @@
 <template>
-  <div class="authorization-records">
+  <div ref="root" class="authorization-records">
     <UiPageHeader title="授权及转交记录" @back="goBack" />
     <PerformanceLineTabs v-model="activeTab" :tabs="tabs" flush class="record-tabs">
       <section class="records-surface">
@@ -49,6 +49,7 @@ import PerformanceConfirmDialog from '@/components/performance/PerformanceConfir
 
 const route = useRoute()
 const router = useRouter()
+const root = ref<HTMLElement | null>(null)
 const activeTab = ref('authorization')
 const tabs = [{ key: 'authorization', label: '授权记录' }, { key: 'transfer', label: '转交记录' }]
 const data = ref<{ authorization_records: ProjectAuthorizationRecord[]; transfer_records: ProjectAuthorizationRecord[] }>({ authorization_records: [], transfer_records: [] })
@@ -63,6 +64,7 @@ const cycleId = computed(() => Number(route.query.cycle_id || 0))
 const highlightTab = computed(() => route.query.highlight_tab === 'transfer' ? 'transfer' : route.query.highlight_tab === 'authorization' ? 'authorization' : '')
 const highlightId = computed(() => typeof route.query.highlight_id === 'string' && route.query.highlight_id ? route.query.highlight_id : '')
 const highlightKey = ref('')
+const highlightRow = computed(() => rows.value.find(row => String(row.authorization_id ?? '') === highlightId.value))
 const rows = computed(() => activeTab.value === 'authorization' ? data.value.authorization_records : data.value.transfer_records)
 const pageRows = computed(() => rows.value.slice((page.value - 1) * 10, page.value * 10))
 const columns = [
@@ -82,15 +84,17 @@ async function load() {
 }
 function locateHighlight() {
   if (!highlightId.value || loading.value) return
-  const target = rows.value.findIndex(row => row.id === highlightId.value)
+  const target = highlightRow.value ? rows.value.indexOf(highlightRow.value) : -1
+  highlightKey.value = target >= 0 ? rows.value[target].id : ''
   if (target >= 0) {
     page.value = Math.floor(target / 10) + 1
-    highlightKey.value = highlightId.value
-    void nextTick(() => { document.querySelector('.is-highlighted-row')?.scrollIntoView?.({ block: 'nearest' }) })
+    void nextTick(() => { root.value?.querySelector('.is-highlighted, .is-highlighted-row')?.scrollIntoView?.({ block: 'nearest' }) })
   }
 }
-watch(() => data.value, () => { if (highlightId.value) locateHighlight() })
-watch(pageRows, () => { if (highlightId.value && page.value === Math.floor(rows.value.findIndex(row => row.id === highlightId.value) / 10) + 1) highlightKey.value = highlightId.value })
+watch([highlightId, highlightTab], () => {
+  if (highlightTab.value) activeTab.value = highlightTab.value
+  locateHighlight()
+})
 function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value) } }) }
 function formatDate(value: string) { return value ? new Date(value).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--' }
 async function revoke(row: ProjectAuthorizationRecord) {
@@ -105,7 +109,7 @@ async function confirmRevoke() {
   loading.value = true
   try { await projectManagementApi.revokeTaskAuthorization(row.project_id, row.task_id, row.authorization_id); await load(); notice.value = '授权已撤销，已保存和提交内容保留' } catch { notice.value = '撤销失败，请刷新记录后重试' } finally { loading.value = false; revokeTarget.value = null }
 }
-watch(activeTab, () => { page.value = 1 })
+watch(activeTab, () => { page.value = 1; highlightKey.value = '' }, { flush: 'sync' })
 watch(cycleId, () => void load())
 onMounted(() => void load())
 </script>

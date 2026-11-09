@@ -73,7 +73,6 @@ PM-001-T01 -> PM-001-T03
 PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
 ```
 
-
 ## PM-001-T08 项目数据管理身份与真实来源统一
 
 - [x] PM-001-T08：项目只选PROJECT_ADMIN/HRBP。用户确认项目管理员来自项目编辑administrators，HRBP来自所属周期HRBP权限管理PerformanceHrbpPermission，不增加自定义角色选项。
@@ -108,6 +107,26 @@ PM-001-T02 + PM-001-T03 -> PM-001-T04 -> PM-001-T05
   - UI：既有页面及两字段弹窗增量，无新增页面/信息架构；指定用户真实列表/搜索/分页/添加/编辑/确认撤销/错误重试；规则Tab保持未接入。选人/角色多选复用SearchSelect；提交失败不关闭、不伪成功；关闭清理旧异步结果。用户本轮要求DOM/API为主证据，不以截图替代接口与授权验证。
   - 测试：Given自定义角色含一种权限，When授予有效用户/保存读回/撤销，Then另一权限不放行、撤销后403且快照/答案不变；无权/停用/伪造/重复/失效身份拒绝；前端保存payload/失败保留/重开回显/撤销刷新。真实PG/API、DOM、定向测试和build分别记，不运行不得勾选。
   - 不做：规则授权、系统角色改权、人员来源接管、生产、提交推送；不改数据库模型/旧迁移，不批量授权存量角色。停止方式仅撤销本卡局部差异，不整包回滚。
+
+## PM-001-T11 授权/转交采集对齐修复（2026-11-09 用户确认）
+
+- [ ] PM-001-T11 修复角色覆盖、原执行人选择、无原处理人决策、幂等恢复及记录定位
+  - Goal/type：现有授权/转交前后端闭环修复，不新增菜单、路由或批量写接口；以用户本轮评审后明确要求全部修复为依据。
+  - Reading/prerequisites：Spec002基线、PM001 T04/T09、ADR001、REA原始脚本及其评审纠正、Spec012 START_HERE/A01/A02/A05/N0001/N0002/N0004/N0005/N1102-N1104、execution-contract/task-card-template/acceptance-evidence、HR Portal设计规范。原REA报告对授权/转交载荷及no_origin_reviewer_users的误读不作为开发权威。
+  - Allowed：backend/app/performance/projects_router.py、project_service.py、backend/tests/test_performance_projects.py；frontend/src/api/performance.ts、PerformanceTaskDelegationDialog.vue、PerformanceDelegationStages.vue、PerformanceReminderPanel.vue/.spec.ts、ProjectAuthorizationRecords.vue、ProjectManagement.vue/.spec.ts、ProjectCalibrationAuthorization.vue；本目录atomic-tasks/ui-interaction及原REA报告纠正。允许组件目录新增PerformanceDelegationNoOriginChoice.vue、useTaskDelegationRequests.ts及对应代码测试，禁止创建独立脚本、报告或测试文档。
+  - Shared files：后端代理独占router/service/tests，前端代理独占Dialog/Stages/ReminderPanel.spec及其抽取组件；主线程持有API/记录页/调用方/文档，串行集成验证，不并行编辑同文件。
+  - Contract：task_map角色由实际冻结配置与处理人匹配动态返回，handler_name可选；单人同环节多处理人选择具体任务。AUTHORIZE空处理人要求no_origin_reviewer_authorize明确布尔，false返回skipped不建记录/不通知，未确认422；TRANSFER空处理人拒绝。真实接收人仍由现有快照候选与对象权限决定，不把被评估人作为候选。
+  - Idempotency：保持既有项目/任务锁；可信actor+task+action+key全生命周期识别原操作，在当前操作权限/完成状态检查前恢复原结果，仅同原grantor可恢复；同key不同body拒绝409，不重放已撤销/替换记录。前端冻结完整body/key并保留成功结果，不确定结果显式重试未知项，关闭重开不丢原请求；不声称浏览器刷新可恢复。重复有效转交同接收人不得再次建记录/通知。
+  - Records/batch：highlight_id为authorization_id，定位后使用audit row.id作为UI行键；实际UiTable高亮类滚动，正确页码/Tab。候选批量限制200，前端去重后按200拆请求；复用同快照候选读取，不重构逐任务提交。
+  - UI：既有弹窗内部增加执行人复选和无原处理人确认，沿现有壳/确认/checkbox/radio/token；原路由与信息架构不变，不需新增完整蓝图。独立PNG目标 ../../ui-blueprints/PM-001-T11-implemented-delegation.png；未取得真实运行截图须明确未验收，不以组件测试代替生产。
+  - API/database/permission：不迁移、不改历史人员快照/答案、无UCP；沿原对象权限和审计链，恢复幂等结果不增加写权限；不操作飞书生产/不生产部署。
+  - Given/When/Then：隔级上级合法任务可见而不匹配handler拒绝；P1/P2同环节仅转交选中P1；无原任务未选不能确认、授权/跳过分别执行且skip不记成功；响应丢失/关闭重开/原记录被撤销或替换/原处理人失权后同key恢复，无第二记录/通知；body冲突拒绝；记录audit ID与authorization ID不同且目标在第二页仍定位；200/201候选分段不丢失。
+  - Tests/commands：backend `.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py -q --tb=short`；frontend `npx vitest run src/views/performance/ProjectManagement.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/components/ui/UiTable.spec.ts`、新增composable代码测试、`npx vue-tsc --noEmit`、`npx vite build`；真实SQL/API与浏览器截图未运行记not-run，绝不假定通过。
+  - Non-scope/stop：不做BPM/单请求批量写/来源组织负责人猜测/菜单权限扩张/生产/提交推送；停止仅撤销本卡局部差异。代码、测试、UI与证据齐全主线程复核后才勾选。
+  - Historical no-origin contract：已发起复议且当前快照没有任何对应任务、冻结执行配置及fallback均无法解析处理人时，以`task_id=-appeal.id`只读投影目标；候选接口不写入，确认True才在项目锁内创建空handler placeholder并沿原授权事务提交。False/未确认不物化。创建/幂等恢复返回真实正数task ID，批量候选返回请求负数alias；不对未发起复议成员造任务，不改快照。
+  - Evidence（主线程复验）：后端`-k 'delegation or task_authorization or authorization_records'`48 passed/510 deselected；前端ProjectManagement34、ReminderPanel25、UiTable7，共66 passed；最终vue-tsc --noEmit通过；npm run build通过（Vite46.50s，保留第三方VueUse/Rollup警告）；git diff --check通过，仅LF/CRLF提示。
+  - Broader regression：projects/auth_context/role_configuration三文件587 passed、5 skipped、6 failed；6失败均为`_communication_progress_detail`查询新增IdentityLink后旧Db夹具缺`scalars()`，与本轮授权测试无关，未修改沟通实现或伪装成全部通过。此前整文件新复议fixture缺datetime导入的2个error已修正，负数专测和最终定向均通过。
+  - Not-run/limitations：未运行真实PG/API提交回读、真实并发或浏览器独立PNG；不声称生产生效。通知仍在commit前发送，同键已提交恢复不重发，但外部发送成功后数据库提交失败的跨系统exactly-once不在本卡保证范围。内存pending在浏览器刷新/组件销毁后不持久。整卡保持未勾选，待真实API/SQL/UI证据补齐；未提交、未推送、未部署。
 
 ## PM-001-T10 HRBP 不可见范围规则闭环（2026-11-06）
 

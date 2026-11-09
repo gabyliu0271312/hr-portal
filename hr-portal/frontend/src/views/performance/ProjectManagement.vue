@@ -278,13 +278,14 @@ async function removeDrawerMember(payload: { project_id: number; employee_no: st
   if (activeCycleId.value === cycleId) await loadOverview(cycleId)
 }
 
-function delegationCompleted(_count: number, _notificationStatus: string | undefined, recordId?: number) {
+function delegationCompleted(count: number, _notificationStatus: string | undefined, recordId?: number, skippedCount = 0) {
   delegationOpen.value = false
   delegationTasks.value = []
   selectedDelegationMembers.value = []
   void loadOverview(activeCycleId.value ?? undefined)
+  if (skippedCount) ElMessage.success(`已处理 ${count} 个任务，跳过 ${skippedCount} 个无原处理人任务`)
   const cycleId = activeCycleId.value
-  if (cycleId === null) return
+  if (cycleId === null || !count || !recordId) return
   void router.push({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: String(cycleId), highlight_id: recordId ? String(recordId) : undefined, highlight_tab: delegationAction.value === 'TRANSFER' ? 'transfer' : 'authorization' } })
 }
 

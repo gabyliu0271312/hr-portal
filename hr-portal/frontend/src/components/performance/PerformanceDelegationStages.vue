@@ -9,6 +9,10 @@
       <div class="delegation-stages__list">
         <div v-for="stage in stages" :key="stage.key" class="delegation-stages__task">
           <PerformanceCheckbox :model-value="selected.includes(stage.key)" :label="stage.label" :disabled="disabled || stage.disabled" @update:model-value="checked => $emit('toggle', stage.key, checked)" />
+          <div v-if="selected.includes(stage.key) && stage.handlers?.length" class="delegation-stages__handlers" role="group" aria-label="选择原执行人（至少一人）">
+            <p>选择原执行人（至少一人）</p>
+            <PerformanceCheckbox v-for="handler in stage.handlers" :key="handler.key" :model-value="selectedTasks.includes(handler.key)" :label="handler.label" :disabled="disabled || handler.disabled" @update:model-value="checked => $emit('toggle-task', handler.key, checked)" />
+          </div>
         </div>
         <span v-if="!stages.length" class="delegation-stages__empty">{{ emptyText }}</span>
       </div>
@@ -21,12 +25,13 @@ import PerformanceCheckbox from './PerformanceCheckbox.vue'
 withDefaults(defineProps<{
   modelValue: string
   roles: Array<{ key: string; label: string }>
-  stages: Array<{ key: string; label: string; disabled: boolean }>
+  stages: Array<{ key: string; label: string; disabled: boolean; handlers?: Array<{ key: string; label: string; disabled: boolean }> }>
   selected: string[]
+  selectedTasks: string[]
   disabled?: boolean
   emptyText?: string
 }>(), { emptyText: '暂无可处理的任务' })
-defineEmits<{ 'update:modelValue': [value: string]; toggle: [key: string, checked: boolean] }>()
+defineEmits<{ 'update:modelValue': [value: string]; toggle: [key: string, checked: boolean]; 'toggle-task': [key: string, checked: boolean] }>()
 </script>
 
 <style scoped>
@@ -42,5 +47,7 @@ defineEmits<{ 'update:modelValue': [value: string]; toggle: [key: string, checke
 .delegation-stages__list { max-height:var(--performance-delegation-list-max-height); overflow:auto; }
 .delegation-stages__task { margin-bottom:8px; }
 .delegation-stages__task:last-child { margin-bottom:0; }
+.delegation-stages__handlers { margin:8px 0 0 20px; display:grid; gap:8px; }
+.delegation-stages__handlers :deep(.performance-checkbox__label) { height:auto; white-space:normal; overflow-wrap:anywhere; flex:1; }
 .delegation-stages__empty { color:var(--color-text-secondary); font-size:var(--font-size-md); }
 </style>
