@@ -278,12 +278,14 @@ async function removeDrawerMember(payload: { project_id: number; employee_no: st
   if (activeCycleId.value === cycleId) await loadOverview(cycleId)
 }
 
-function delegationCompleted() {
-  viewRefreshKey.value++
+function delegationCompleted(_count: number, _notificationStatus: string | undefined, recordId?: number) {
   delegationOpen.value = false
   delegationTasks.value = []
   selectedDelegationMembers.value = []
   void loadOverview(activeCycleId.value ?? undefined)
+  const cycleId = activeCycleId.value
+  if (cycleId === null) return
+  void router.push({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: String(cycleId), highlight_id: recordId ? String(recordId) : undefined, highlight_tab: delegationAction.value === 'TRANSFER' ? 'transfer' : 'authorization' } })
 }
 
 function handleEvaluateRemind(payload: { member: ProjectMember; pendingCount: number }) {

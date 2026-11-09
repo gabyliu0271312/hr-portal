@@ -7,6 +7,8 @@
     :placeholder="placeholder"
     :multiple="multiple"
     :disabled="disabled"
+    :loading="loading"
+    :loading-text="loadingText"
     :hide-arrow="hideArrow"
     :remote-search="remoteSearch"
     :option-style="optionStyle"
@@ -26,6 +28,8 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   multiple?: boolean
   disabled?: boolean
+  loading?: boolean
+  loadingText?: string
   hideArrow?: boolean
   /** 员工搜索组件固有行为（REA 交互）：有搜索关键词才显示结果（输入→请求→列表）。
    *  默认开启，所有使用方一致；个别场景需点击即展开时传 false。 */
@@ -36,6 +40,8 @@ const props = withDefaults(defineProps<{
   placeholder: '请选择',
   multiple: false,
   disabled: false,
+  loading: false,
+  loadingText: undefined,
   hideArrow: false,
   remoteSearch: true,
   optionStyle: 'checkmark',

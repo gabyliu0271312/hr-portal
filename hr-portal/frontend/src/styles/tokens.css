@@ -273,6 +273,11 @@
   --performance-dialog-warning-icon: #ff811a;
   --performance-dialog-focus-ring: rgba(51, 112, 255, 0.45);
   --performance-confirm-z-index: 2300;
+
+  /* 授权/转交弹窗「按执行角色选择」区（REA 实采：选中角色底 rgba(20,86,240,.15)、字色 action-primary、左栏 180px、右栏任务区最高 240px） */
+  --performance-delegation-roles-width: 180px;
+  --performance-delegation-list-max-height: 240px;
+  --performance-delegation-role-selected-bg: rgba(20, 86, 240, 0.15);
   --drawer-width: 480px;
   --drawer-wide-width: 680px;
   --drawer-z-index: 2200;

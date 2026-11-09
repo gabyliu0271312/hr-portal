@@ -15,6 +15,7 @@
           :page="page"
           :page-size="10"
           :total="rows.length"
+          :highlight-row-key="highlightKey"
           scroll-mode="page"
           row-key="id"
           :show-pagination="true"
@@ -38,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { projectManagementApi, type ProjectAuthorizationRecord } from '@/api/performance'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
@@ -59,6 +60,9 @@ const revokeTarget = ref<ProjectAuthorizationRecord | null>(null)
 const page = ref(1)
 let sequence = 0
 const cycleId = computed(() => Number(route.query.cycle_id || 0))
+const highlightTab = computed(() => route.query.highlight_tab === 'transfer' ? 'transfer' : route.query.highlight_tab === 'authorization' ? 'authorization' : '')
+const highlightId = computed(() => typeof route.query.highlight_id === 'string' && route.query.highlight_id ? route.query.highlight_id : '')
+const highlightKey = ref('')
 const rows = computed(() => activeTab.value === 'authorization' ? data.value.authorization_records : data.value.transfer_records)
 const pageRows = computed(() => rows.value.slice((page.value - 1) * 10, page.value * 10))
 const columns = [
@@ -72,7 +76,21 @@ async function load() {
   loading.value = true; error.value = ''; page.value = 1
   data.value = { authorization_records: [], transfer_records: [] }
   try { const result = await projectManagementApi.authorizationRecords(cycleId.value); if (current === sequence) data.value = result } catch { if (current === sequence) error.value = '授权记录加载失败，请稍后重试' } finally { if (current === sequence) loading.value = false }
+  if (current !== sequence) return
+  if (highlightTab.value) activeTab.value = highlightTab.value
+  if (highlightId.value) locateHighlight()
 }
+function locateHighlight() {
+  if (!highlightId.value || loading.value) return
+  const target = rows.value.findIndex(row => row.id === highlightId.value)
+  if (target >= 0) {
+    page.value = Math.floor(target / 10) + 1
+    highlightKey.value = highlightId.value
+    void nextTick(() => { document.querySelector('.is-highlighted-row')?.scrollIntoView?.({ block: 'nearest' }) })
+  }
+}
+watch(() => data.value, () => { if (highlightId.value) locateHighlight() })
+watch(pageRows, () => { if (highlightId.value && page.value === Math.floor(rows.value.findIndex(row => row.id === highlightId.value) / 10) + 1) highlightKey.value = highlightId.value })
 function goBack() { void router.push({ name: 'PerformanceProjectManagement', query: { cycle_id: String(cycleId.value) } }) }
 function formatDate(value: string) { return value ? new Date(value).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }).slice(0, 16) + '（GMT+8）' : '--' }
 async function revoke(row: ProjectAuthorizationRecord) {

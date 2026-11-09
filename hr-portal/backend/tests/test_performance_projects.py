@@ -8060,6 +8060,7 @@ def task_delegation_backend(monkeypatch):
     from app.performance import projects_router as routes
     from app.performance import models
     task = models.PerformanceNodeTask(id=7, project_id=3, cycle_ref="C1", member_snapshot_id=10, node_snapshot_id=5, target_employee_no="E1", handler_ref="ORIGINAL", task_kind="evaluation", status="pending", answer_version=4, answers={"field": "history"}, draft_answers={"field": "draft"})
+    task2 = models.PerformanceNodeTask(id=9, project_id=3, cycle_ref="C1", member_snapshot_id=10, node_snapshot_id=5, target_employee_no="E1", handler_ref="ORIGINAL", task_kind="evaluation", status="pending", answer_version=4, answers={"field": "history"}, draft_answers={"field": "draft"})
     node = models.PerformanceProjectNodeSnapshot(id=5, project_id=3, node_id="review", node_type="evaluation", name="评估", config={"template": {"executor_role_code": "assessment.line_manager"}})
     target = SimpleNamespace(id=3, cycle_ref="C1", status="STARTED", settings={}, name="测试项目")
     recipient = SimpleNamespace(employee_no="RECIPIENT", display_name="被授权人", employment_status="在职", direct_supervisor_employee_no="ORIGINAL")
@@ -8077,12 +8078,15 @@ def task_delegation_backend(monkeypatch):
         async def execute(self, statement):
             entity = statement.column_descriptions[0]["entity"]
             active = [record for record in self.records if record.status == "ACTIVE"]
-            return SimpleNamespace(first=lambda: (task, node, target), scalars=lambda: SimpleNamespace(all=lambda: active if entity is models.PerformanceNodeTaskAuthorization else [recipient]))
+            return SimpleNamespace(first=lambda: (task, node, target), scalars=lambda: SimpleNamespace(all=lambda: active if entity is models.PerformanceNodeTaskAuthorization else [recipient]), all=lambda: [(task, node, target), (task2, node, target)])
         async def scalar(self, statement):
             entity = statement.column_descriptions[0]["entity"]
             if entity is models.PerformanceProject: return target
             if entity is models.PerformanceAuthorizationSnapshotPerson: return recipient
             if entity is routes.User: return SimpleNamespace(id=1, feishu_user_id="open-id")
+            if entity is models.PerformanceNodeTaskAuthorization:
+                sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+                return next((record for record in self.records if record.status == "ACTIVE" and (record.authorization_settings or {}).get("idempotency_key") and record.authorization_settings["idempotency_key"] in sql), None)
             return 10
         async def get(self, model, key):
             if model is models.PerformanceProject: return target
@@ -8224,6 +8228,37 @@ async def test_delegation_recipient_scope_preserves_identity_denial(task_delegat
         await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT"), context(), data.db)
     assert error.value.detail == "PROJECT_ADMIN_IDENTITY_AMBIGUOUS"
     assert not data.db.records
+
+
+@pytest.mark.asyncio
+async def test_delegation_candidates_batch_returns_intersection_for_both_tasks(task_delegation_backend):
+    data = task_delegation_backend
+    data.recipient.employee_no = "CANDIDATE"
+    result = await data.routes.delegation_candidates_batch(data.routes.DelegationCandidatesBatchPayload(project_id=3, task_ids=[7, 9]), context(), data.db)
+    assert [{"project_id": row["project_id"], "task_id": row["task_id"], "candidates": [person["employee_no"] for person in row["candidates"]]} for row in result] == [
+        {"project_id": 3, "task_id": 7, "candidates": ["CANDIDATE"]},
+        {"project_id": 3, "task_id": 9, "candidates": ["CANDIDATE"]},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delegation_candidates_batch_empty_ids_returns_no_rows(task_delegation_backend):
+    data = task_delegation_backend
+    assert await data.routes.delegation_candidates_batch(data.routes.DelegationCandidatesBatchPayload(project_id=3, task_ids=[]), context(), data.db) == []
+
+
+@pytest.mark.asyncio
+async def test_task_delegation_idempotency_key_returns_existing_without_new_record(task_delegation_backend):
+    data = task_delegation_backend
+    first = await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", reason="", idempotency_key="idem-1"), context(), data.db)
+    assert first["idempotent"] is not True and first["status"] == "ACTIVE" and first["id"] == 1
+    second = await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT", reason="", idempotency_key="idem-1"), context(), data.db)
+    assert second["idempotent"] is True and second["id"] == 1
+    assert len(data.db.records) == 1 and len(data.db.events) == 1 and data.db.commits == 1
+    other = await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="TRANSFER", recipient_employee_no="RECIPIENT", reason="", idempotency_key="idem-2"), context(), data.db)
+    assert other["idempotent"] is not True and other["id"] == 2 and len(data.db.records) == 2 and len(data.db.events) == 2 and data.db.commits == 2
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scenario", ["active", "report_only", "last_member", "denied", "archived", "repeated"])
 async def test_remove_project_member_deletes_member_tasks_and_maintains_snapshot(monkeypatch, scenario):

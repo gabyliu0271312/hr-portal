@@ -336,8 +336,8 @@ describe('shared task delegation dialog', () => {
     expect(wrapper.get('[role="alertdialog"]').text()).toContain('确定授权吗?')
     await wrapper.get('.performance-confirm-dialog__button--danger').trigger('click')
     await flushPromises()
-    expect(authorizing).toHaveBeenCalledWith(3, 11, 'AUTHORIZE', 'R1', '', { notify_original: true })
-    expect(wrapper.emitted('completed')).toEqual([[1, '']])
+    expect(authorizing).toHaveBeenCalledWith(3, 11, 'AUTHORIZE', 'R1', '', expect.objectContaining({ notify_original: true, idempotency_key: expect.any(String) }))
+    expect(wrapper.emitted('completed')).toEqual([[1, '', 1]])
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
     wrapper.unmount(); candidates.mockRestore(); authorizing.mockRestore()
   })
@@ -346,7 +346,10 @@ describe('shared task delegation dialog', () => {
     const { default: Dialog } = await import('./PerformanceTaskDelegationDialog.vue')
     const { default: Select } = await import('./PerformanceSearchSelect.vue')
     const api = await import('@/api/performance')
-    const candidates = vi.spyOn(api.projectManagementApi, 'delegationCandidates').mockResolvedValue([{ employee_no: 'R1', display_name: '接收人一' }])
+    const candidates = vi.spyOn(api.projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([
+      { project_id: 3, task_id: 11, candidates: [{ employee_no: 'R1', display_name: '接收人一' }] },
+      { project_id: 3, task_id: 12, candidates: [{ employee_no: 'R1', display_name: '接收人一' }] },
+    ])
     const authorizing = vi.spyOn(api.projectManagementApi, 'authorizeTask').mockResolvedValueOnce({ id: 1, task_id: 11, status: 'ACTIVE' }).mockRejectedValueOnce(new Error('unconfirmed'))
     const wrapper = mount(Dialog, { props: { modelValue: false, action: 'TRANSFER', tasks: [{ task_id: 11, project_id: 3 }, { task_id: 12, project_id: 3 }] }, global: { stubs: { teleport: true } } })
     await wrapper.setProps({ modelValue: true }); await flushPromises()
@@ -420,7 +423,7 @@ describe('shared task delegation dialog', () => {
     expect(authorizing).not.toHaveBeenCalled()
     await wrapper.get('.performance-dialog__footer .performance-button--primary').trigger('click'); await flushPromises()
     await wrapper.get('.performance-confirm-dialog__button--danger').trigger('click'); await flushPromises()
-    expect(authorizing).toHaveBeenCalledWith(3, 11, 'TRANSFER', 'R1', '', { notify_original: false })
+    expect(authorizing).toHaveBeenCalledWith(3, 11, 'TRANSFER', 'R1', '', expect.objectContaining({ notify_original: false, idempotency_key: expect.any(String) }))
     wrapper.unmount(); candidates.mockRestore(); authorizing.mockRestore()
   })
 

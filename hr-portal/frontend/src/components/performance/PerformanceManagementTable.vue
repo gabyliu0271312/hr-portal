@@ -37,6 +37,7 @@ const props = withDefaults(defineProps<{
   isRowSelectable?: (row: any) => boolean
   selectionKey?: string
   selectedKeys?: string[]
+  highlightRowKey?: string | number
 }>(), {
   page: 1,
   pageSize: 10,
@@ -58,6 +59,7 @@ const props = withDefaults(defineProps<{
   selectable: false,
   selectionKey: 'id',
   selectedKeys: undefined,
+  highlightRowKey: undefined,
 })
 
 const emit = defineEmits<{
@@ -259,6 +261,7 @@ function rowClassName({ row }: { row: any }) {
   const classes: string[] = []
   if (props.clickableRows) classes.push('is-clickable-row')
   if (props.showSelectionBar && elSelectedRows.value.includes(row)) classes.push('is-selected-row')
+  if (props.highlightRowKey !== undefined && String(row?.[props.rowKey] ?? '') === String(props.highlightRowKey)) classes.push('is-highlighted-row')
   return classes.join(' ') || undefined
 }
 </script>
@@ -281,6 +284,7 @@ function rowClassName({ row }: { row: any }) {
         :selection-key="selectionKey"
         :is-row-selectable="isRowSelectable"
         :selected-keys="selectedKeyList"
+        :highlight-row-key="highlightRowKey"
         :sort-key="sortKey"
         :sort-order="sortOrder"
         :sticky-header-top="0"
@@ -412,6 +416,7 @@ function rowClassName({ row }: { row: any }) {
 :deep(.el-table__cell) { height: 48px; padding-top: 0; padding-bottom: 0; }
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
 :deep(.is-clickable-row) { cursor: pointer; }
+:deep(.is-highlighted-row > .el-table__cell) { background: var(--ui-table-highlight-background, #e8f3ff); }
 .table-pagination { min-height: 28px; display: flex; align-items: center; justify-content: flex-end; margin: 16px 0; }
 .selection-bar { position: fixed; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #fff; box-shadow: 0 -1px 0 rgba(31, 35, 41, 0.1); }
 .selection-bar--viewport { left: 0; right: 0; z-index: var(--performance-drawer-z-index); height: 60px; padding: 0 20px; box-sizing: border-box; }

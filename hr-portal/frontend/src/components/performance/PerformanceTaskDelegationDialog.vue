@@ -9,8 +9,9 @@
       <PerformanceSearchSelect v-model="recipient" :options="options" placeholder="搜索成员" aria-label="选择授权接收人" :disabled="locked || loading" :loading="loading" />
     </PerformanceFormItem>
     <PerformanceFormItem v-if="!calibration && mapped" :label="`${verb}环节`" class="stage-field">
-      <PerformancePromptNotice class="stage-notice" type="warning">请确保{{ verb }}对象有所选环节的操作资格，避免错误授权泄露敏感数据。</PerformancePromptNotice>
-      <PerformanceDelegationStages :model-value="activeRole" :roles="roles" :stages="visibleStages" :selected="selectedStages" :disabled="locked" @update:model-value="selectRole" @toggle="toggleStage" />
+      <PerformancePromptNotice v-if="hasNoOriginReviewer" class="stage-notice" type="warning">该任务无原处理人，请选择「指定人员」并指定接收人以授权处理。</PerformancePromptNotice>
+      <PerformancePromptNotice v-else class="stage-notice" type="warning">请确保{{ verb }}对象有所选环节的操作资格，避免错误授权泄露敏感数据。</PerformancePromptNotice>
+      <PerformanceDelegationStages :model-value="activeRole" :roles="roles" :stages="visibleStages" :selected="selectedStages" :disabled="locked" :empty-text="hasNoOriginReviewer && activeRole === 'SPECIFIED_PERSON' ? '暂无可处理的任务，请选择其他接收人' : undefined" @update:model-value="selectRole" @toggle="toggleStage" />
     </PerformanceFormItem>
     <div v-if="!calibration" class="notification-setting"><span>通知原评估人任务将{{ verb }}他人处理</span><UiSwitch v-model="notifyOriginal" :disabled="locked" :aria-label="`通知原评估人任务将${verb}他人处理`" /></div>
     <template v-if="calibration">
@@ -50,7 +51,7 @@ import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import UiSwitch from '../ui/UiSwitch.vue'
 
 const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & { direct_supervisor_employee_no?: string; department_path?: string }>; calibration?: boolean; readOnly?: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; completed: [count: number, notificationStatus?: string]; refresh: [] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; completed: [count: number, notificationStatus?: string, recordId?: number]; refresh: [] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const verb = computed(() => props.action === 'TRANSFER' ? '转交' : '授权')
 const recipient = ref<string | string[] | null>(null)
@@ -68,6 +69,7 @@ const departmentOptions = computed(() => [...new Set(props.tasks.map(person => p
 const personOptions = computed(() => props.tasks.filter(task => task.employee_no).map(task => ({ value: task.employee_no!, label: task.display_name || task.employee_no! })))
 const reviewees = computed(() => [...new Map(props.tasks.filter(task => task.employee_no).map(task => [`${task.project_id}:${task.employee_no}`, task])).values()])
 const mapped = computed(() => props.tasks.some(task => task.task_map !== undefined))
+const hasNoOriginReviewer = computed(() => stageOptions.value.some(option => !option.handler_ref))
 const stageOptions = computed(() => props.tasks.flatMap(task => (task.task_map || []).map(option => ({ ...option, project_id: task.project_id }))))
 function stageKey(option: typeof stageOptions.value[number]) { return `${option.role_key}:${option.stage_id || option.stage_key}` }
 const visibleStages = computed(() => {
@@ -102,10 +104,13 @@ const filteredTasks = computed(() => {
 const candidateTasks = computed(() => props.calibration ? props.tasks : selectedStages.value.length || !mapped.value ? filteredTasks.value : stageOptions.value.filter(option => option.role_key === activeRole.value && option.can_authorize))
 const canSubmit = computed(() => typeof recipient.value === 'string' && options.value.some(option => option.value === recipient.value) && filteredTasks.value.length > 0 && !loading.value && !error.value && !uncertain.value)
 let version = 0
+const idempotencyKey = ref('')
+function newIdempotencyKey() { idempotencyKey.value = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}` }
 watch(() => [props.modelValue, props.action, props.tasks, props.calibration], () => {
   if (props.modelValue && uncertain.value) return
   ++version; confirmationOpen.value = false; recipient.value = null; people.value = []; error.value = ''; uncertain.value = false
   scopeMode.value = 'PARTIAL'; scopeKind.value = 'DIRECT_SUBORDINATES'; departments.value = []; employees.value = []; distribution.value = 'INHERIT'; allowReauthorize.value = false; notifyOriginal.value = true; selectedStages.value = []; activeRole.value = 'DIRECT_SUPERVISOR'
+  newIdempotencyKey()
 }, { immediate: true, deep: true })
 watch(() => JSON.stringify([props.modelValue, props.action, props.tasks, candidateTasks.value.map(task => [task.project_id, task.task_id])]), async () => {
   const current = ++version
@@ -117,7 +122,13 @@ watch(() => JSON.stringify([props.modelValue, props.action, props.tasks, candida
   if (!tasks.length) { recipient.value = null; return }
   loading.value = true
   try {
-    const lists = await Promise.all(tasks.map(task => projectManagementApi.delegationCandidates(task.project_id, task.task_id)))
+    let lists: Array<Array<Person>>
+    if (tasks.length > 1 && tasks.every(task => task.project_id === tasks[0].project_id)) {
+      const groups = await projectManagementApi.delegationCandidatesBatch(tasks[0].project_id, tasks.map(task => task.task_id))
+      lists = tasks.map(task => groups.find(group => group.task_id === task.task_id)?.candidates ?? [])
+    } else {
+      lists = await Promise.all(tasks.map(task => projectManagementApi.delegationCandidates(task.project_id, task.task_id)))
+    }
     if (current !== version) return
     people.value = lists[0].filter(person => lists.every(list => list.some(item => item.employee_no === person.employee_no)))
     if (!people.value.some(person => person.employee_no === recipient.value)) recipient.value = null
@@ -133,13 +144,14 @@ async function submit() {
   if (!canSubmit.value || saving.value || (!props.calibration && !confirmationOpen.value) || typeof recipient.value !== 'string') return
   saving.value = true
   const remaining = [...filteredTasks.value], recipientNo = recipient.value, action = props.action
-  let completed = 0, notificationStatus = ''
+  let completed = 0, notificationStatus = '', recordId: number | undefined
   try {
     for (const task of remaining) {
-      const result = await projectManagementApi.authorizeTask(task.project_id, task.task_id, action, recipientNo, '', props.calibration ? { scope_mode: scopeMode.value as 'PARTIAL' | 'ALL', scope_kind: scopeKind.value, selected_employee_nos: Array.isArray(employees.value) ? employees.value : [], department_paths: Array.isArray(departments.value) ? departments.value : [], distribution_mode: distribution.value, allow_reauthorize: allowReauthorize.value, notify_original: notifyOriginal.value } : { notify_original: notifyOriginal.value })
+      const result = await projectManagementApi.authorizeTask(task.project_id, task.task_id, action, recipientNo, '', { idempotency_key: idempotencyKey.value, ...(props.calibration ? { scope_mode: scopeMode.value as 'PARTIAL' | 'ALL', scope_kind: scopeKind.value, selected_employee_nos: Array.isArray(employees.value) ? employees.value : [], department_paths: Array.isArray(departments.value) ? departments.value : [], distribution_mode: distribution.value, allow_reauthorize: allowReauthorize.value, notify_original: notifyOriginal.value } : { notify_original: notifyOriginal.value }) })
       notificationStatus = result.notification_status || ''; completed++
+      if (recordId === undefined) recordId = result.id
     }
-    confirmationOpen.value = false; emit('completed', completed, notificationStatus); open.value = false
+    confirmationOpen.value = false; emit('completed', completed, notificationStatus, recordId); open.value = false
   } catch {
     uncertain.value = true; confirmationOpen.value = false
     error.value = `已处理 ${completed} 项，其余结果未确认。请关闭并刷新名单后核对，勿重复提交。`

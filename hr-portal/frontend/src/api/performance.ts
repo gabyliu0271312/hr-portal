@@ -1072,7 +1072,11 @@ export const projectManagementApi = {
     const { data } = await api.get(`/performance/projects/${projectId}/tasks/${taskId}/delegation-candidates`)
     return data
   },
-  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean }): Promise<{ id: number; task_id: number; status: string; notification_status?: 'preview_only' | string }> {
+  async delegationCandidatesBatch(projectId: number, taskIds: number[]): Promise<Array<{ project_id: number; task_id: number; candidates: Array<{ employee_no: string; display_name: string; department_path?: string; direct_supervisor_employee_no?: string }> }>> {
+    const { data } = await api.post('/performance/projects/delegation-candidates/batch', { project_id: projectId, task_ids: taskIds })
+    return data
+  },
+  async authorizeTask(projectId: number, taskId: number, action: 'AUTHORIZE' | 'TRANSFER', recipientEmployeeNo: string, reason: string, options?: { scope_mode?: 'PARTIAL' | 'ALL'; scope_kind?: string; selected_employee_nos?: string[]; department_paths?: string[]; distribution_mode?: string; allow_reauthorize?: boolean; notify_original: boolean; idempotency_key?: string }): Promise<{ id: number; task_id: number; status: string; notification_status?: 'preview_only' | string; idempotent?: boolean }> {
     const { data } = await api.post(`/performance/projects/${projectId}/tasks/${taskId}/delegations`, { action, recipient_employee_no: recipientEmployeeNo, reason, ...options })
     return data
   },

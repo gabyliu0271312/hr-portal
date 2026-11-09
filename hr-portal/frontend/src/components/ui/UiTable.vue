@@ -66,7 +66,7 @@
             v-for="(row, rowIndex) in rows"
             :key="rowKeyOf(row, rowIndex)"
             class="ui-table__row"
-            :class="{ 'is-clickable': clickableRows, 'is-selected': selectable && isRowSelected(row) }"
+            :class="{ 'is-clickable': clickableRows, 'is-selected': selectable && isRowSelected(row), 'is-highlighted': highlightRowKey !== undefined && rowKeyOf(row, rowIndex) === String(highlightRowKey) }"
             @click="emit('row-click', row)"
           >
             <td
@@ -150,6 +150,8 @@ const props = withDefaults(defineProps<{
   isRowSelectable?: (row: any) => boolean
   /** 受控选中键集合；不传则组件内部托管 */
   selectedKeys?: string[]
+  /** 高亮行键（受控，如授权记录页跳转定位刚提交记录） */
+  highlightRowKey?: string | number
   /** 多选行 checkbox 的 aria-label 取值字段 */
   selectionLabelKey?: string
   /** 列排序（受控）：sortKey + sortOrder('asc'|'desc'|'') */
@@ -169,6 +171,7 @@ const props = withDefaults(defineProps<{
   selectionKey: 'id',
   isRowSelectable: undefined,
   selectedKeys: undefined,
+  highlightRowKey: undefined,
   selectionLabelKey: 'display_name',
   sortKey: '',
   sortOrder: '',
@@ -424,6 +427,7 @@ function onSort(key: string) {
 .ui-table__row:not(.ui-table__row--state):hover > .ui-table__cell { background: var(--ui-table-row-hover-background); }
 .ui-table__row.is-clickable { cursor: pointer; }
 .ui-table__row.is-selected > .ui-table__cell { background: var(--ui-pagination-hover-background); }
+.ui-table__row.is-highlighted > .ui-table__cell { background: var(--ui-table-highlight-background, #e8f3ff); }
 .ui-table__state {
   height: var(--ui-table-empty-height);
   color: var(--ui-table-header-color);

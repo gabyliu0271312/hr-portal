@@ -643,15 +643,17 @@ it('opens the shared delegation dialog from calibration authorization with real 
   usePerformanceProjectContextStore().setNavigation(navigationOf(1))
   routeQuery.cycle_id = '1'
   const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '2026上半年', items: [{ id: 'cal:1', project_id: 3, task_ids: [11, 12], authorizations: [], calibrator: '校准人', status: '待校准', scope: '全部下级', authorized_count: 2, unauthorized_count: 2, allow_authorize: true, distribution_rule: null, authorized_by: null, authorized_at: null }] })
-  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidates').mockResolvedValue([{ employee_no: 'R1', display_name: '接收人' }])
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([
+    { project_id: 3, task_id: 11, candidates: [{ employee_no: 'R1', display_name: '接收人' }] },
+    { project_id: 3, task_id: 12, candidates: [{ employee_no: 'R1', display_name: '接收人' }] },
+  ])
   const wrapper = mount(Calibration, { attachTo: document.body, global: { plugins: [pinia] } })
   await flushPromises()
   expect(wrapper.text()).toContain('校准人')
   const action = wrapper.findAll('.actions button').find(button => button.text() === '协助授权')!
   await action.trigger('click'); await flushPromises()
   expect(wrapper.getComponent(Dialog).props('tasks')).toEqual([{ project_id: 3, task_id: 11 }, { project_id: 3, task_id: 12 }])
-  expect(candidates).toHaveBeenCalledWith(3, 11)
-  expect(candidates).toHaveBeenCalledWith(3, 12)
+  expect(candidates).toHaveBeenCalledWith(3, [11, 12])
   expect(document.querySelector<HTMLInputElement>('input[name="authorization-distribution"][value="NONE"]')?.disabled).toBe(true)
   wrapper.getComponent(Dialog).vm.$emit('completed', 2, 'preview_only')
   await flushPromises()

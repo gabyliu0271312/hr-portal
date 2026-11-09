@@ -123,6 +123,7 @@ class PerformanceTaskAuthorizationPayload(BaseModel):
     action: Literal["AUTHORIZE", "TRANSFER"]
     recipient_employee_no: str = Field(min_length=1, max_length=64)
     reason: str = Field(default="", max_length=1000)
+    idempotency_key: str | None = Field(default=None, max_length=64)
     scope_mode: Literal["PARTIAL", "ALL"] = "ALL"
     scope_kind: Literal["DIRECT_SUBORDINATES", "DEPARTMENT", "PEOPLE"] = "PEOPLE"
     selected_employee_nos: list[str] = Field(default_factory=list, max_length=1000)
@@ -1685,6 +1686,8 @@ async def _member_task_options(
                 role_candidates.append(("DIRECT_SUPERVISOR", "直属上级"))
             if role_code is None and "HRBP" in types and hrbp and str(task.handler_ref) == str(hrbp):
                 role_candidates.append(("HRBP", "HRBP"))
+        if not role_candidates and not str(task.handler_ref) and node.node_type != "result_reconsideration":
+            role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
         can_authorize = bool(role_candidates) and not _task_completed(task) and await _authorize_task_delegation(task, node, project, context, actor_ref, db, active_by_task, progress_scope)
         for role_key, role_label in role_candidates:
             options.append(ProjectMemberTaskOption(
@@ -1694,7 +1697,7 @@ async def _member_task_options(
                 stage_label=str(getattr(node, "name", None) or stage["label"]),
                 role_key=role_key,
                 role_label=role_label,
-                handler_ref=str(task.handler_ref),
+                handler_ref="" if role_key == "SPECIFIED_PERSON" and not str(task.handler_ref) else str(task.handler_ref),
                 can_authorize=can_authorize,
             ))
     return options
@@ -3308,6 +3311,20 @@ async def _task_recipient_scope(context, project, node, db):
         return None
 
 
+async def _delegation_candidates_for_task(task, node, project, context, actor_ref, db):
+    snapshot = await db.get(PerformanceProjectMemberSnapshot, task.member_snapshot_id)
+    people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+    ))).scalars().all())
+    setting = await db.get(PerformanceOtherSetting, 1)
+    restrict_subordinates = node.node_type == "calibration" and setting and not setting.calibration_authorization_outside_direct_reports_enabled
+    scope = await _task_recipient_scope(context, project, node, db)
+    return [{"employee_no": person.employee_no, "display_name": person.display_name, "department_path": "/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)), "direct_supervisor_employee_no": person.direct_supervisor_employee_no} for person in people
+            if person.employee_no != task.handler_ref and person.employment_status not in {"离职", "已离职"}
+            and (scope is None or person.employee_no in scope)
+            and (not restrict_subordinates or person.direct_supervisor_employee_no == task.handler_ref)]
+
+
 @router.get("/projects/{project_id}/tasks/{task_id}/delegation-candidates")
 async def task_delegation_candidates(
     project_id: int,
@@ -3326,17 +3343,38 @@ async def task_delegation_candidates(
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
     if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
         raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_FORBIDDEN")
-    snapshot = await db.get(PerformanceProjectMemberSnapshot, task.member_snapshot_id)
-    people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
-        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
-    ))).scalars().all())
-    setting = await db.get(PerformanceOtherSetting, 1)
-    restrict_subordinates = node.node_type == "calibration" and setting and not setting.calibration_authorization_outside_direct_reports_enabled
-    scope = await _task_recipient_scope(context, project, node, db)
-    return [{"employee_no": person.employee_no, "display_name": person.display_name, "department_path": "/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)), "direct_supervisor_employee_no": person.direct_supervisor_employee_no} for person in people
-            if person.employee_no != task.handler_ref and person.employment_status not in {"离职", "已离职"}
-            and (scope is None or person.employee_no in scope)
-            and (not restrict_subordinates or person.direct_supervisor_employee_no == task.handler_ref)]
+    return await _delegation_candidates_for_task(task, node, project, context, actor.actor_ref, db)
+
+
+class DelegationCandidatesBatchPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    project_id: int
+    task_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/projects/delegation-candidates/batch")
+async def delegation_candidates_batch(
+    payload: DelegationCandidatesBatchPayload,
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    if not payload.task_ids:
+        return []
+    rows = (await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceProject).join(
+        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).join(PerformanceProject, PerformanceProject.id == PerformanceNodeTask.project_id).where(
+        PerformanceNodeTask.id.in_(payload.task_ids), PerformanceProject.id == payload.project_id,
+    ))).all()
+    result = []
+    for task, node, project in rows:
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+        if not await _authorize_task_delegation(task, node, project, context, actor.actor_ref, db):
+            continue
+        result.append({
+            "project_id": project.id, "task_id": task.id,
+            "candidates": await _delegation_candidates_for_task(task, node, project, context, actor.actor_ref, db),
+        })
+    return result
 
 
 @router.post("/projects/{project_id}/tasks/{task_id}/delegations")
@@ -3399,6 +3437,16 @@ async def create_task_delegation(
         if not in_scope:
             raise HTTPException(status_code=422, detail="CALIBRATION_AUTHORIZATION_SCOPE_MISMATCH")
     active = await _task_delegations(db, task.id)
+    if payload.idempotency_key:
+        existing = await db.scalar(select(PerformanceNodeTaskAuthorization).where(
+            PerformanceNodeTaskAuthorization.task_id == task.id,
+            PerformanceNodeTaskAuthorization.grantor_employee_no == actor.actor_ref,
+            PerformanceNodeTaskAuthorization.authorization_type == payload.action,
+            PerformanceNodeTaskAuthorization.authorization_settings["idempotency_key"].astext == payload.idempotency_key,
+            PerformanceNodeTaskAuthorization.status == "ACTIVE",
+        ))
+        if existing is not None:
+            return {"id": existing.id, "task_id": task.id, "authorization_type": existing.authorization_type, "status": existing.status, "read_only": existing.read_only, "notification_status": (existing.authorization_settings or {}).get("notification_status", "not_requested"), "idempotent": True}
     if payload.action == "TRANSFER":
         for item in active:
             item.status = "REPLACED"
@@ -3406,6 +3454,8 @@ async def create_task_delegation(
         raise HTTPException(status_code=409, detail="TASK_ALREADY_AUTHORIZED")
     parent = next((item for item in active if item.recipient_employee_no == actor.actor_ref and (item.authorization_settings or {}).get("allow_reauthorize")), None) if actor.actor_ref != str(task.handler_ref) else None
     authorization_settings = payload.model_dump(exclude={"action", "recipient_employee_no", "reason"})
+    if payload.idempotency_key:
+        authorization_settings["idempotency_key"] = payload.idempotency_key
     if parent:
         authorization_settings["parent_authorization_id"] = parent.id
     record = PerformanceNodeTaskAuthorization(
@@ -3442,7 +3492,7 @@ async def create_task_delegation(
             notification_status = "recipient_unmapped"
     record.authorization_settings = {**record.authorization_settings, "notification_status": notification_status}
     await db.commit()
-    return {"id": record.id, "task_id": task.id, "authorization_type": record.authorization_type, "status": record.status, "read_only": record.read_only, "notification_status": notification_status}
+    return {"id": record.id, "task_id": task.id, "authorization_type": record.authorization_type, "status": record.status, "read_only": record.read_only, "notification_status": notification_status, "idempotent": False}
 
 
 @router.get("/projects/{project_id}/tasks/{task_id}/delegations")
@@ -4935,6 +4985,8 @@ async def add_project_reviewee(
         department=person.organization_ref or person.department,
         is_permitted=True, reason=None,
     )
+
+
 @router.delete("/projects/{project_id}/members/{employee_no}")
 async def remove_project_member(
     project_id: int,
