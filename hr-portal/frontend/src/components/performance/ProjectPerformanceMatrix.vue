@@ -212,12 +212,17 @@ function ratio(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
   return `${((count / total) * 100).toFixed(1)}%`
 }
 
-/* 数字块分档：占比越高底色越深。档位阈值与色值为 REA 证据初步约定，待真实采集校准。
-   浅档(≤20%)：浅蓝底+深蓝字；中档(20~40%)：中蓝底+深蓝字；深档(>40%)：深蓝实底+白字。 */
+/* 数字块分档：占比越高底色越深。
+   [有证据] 档位边界：REA 10-matrix-cells.json 24 格 cls(level1/2/3)+占比——
+     level1 含 27.0%、上限≈30%；level2 为 27~40%（40.0% 仍是 level2）；level3 自 40.5% 起。
+   [有证据] 背景色：REA 实时采集（bg-real.json，2026-11-09，28 格 getComputedStyle）——
+     level1=rgb(225,234,255)、level2=rgb(186,206,253)、level3=rgb(130,167,252)。
+   [有证据] 文字色：level1/2=rgb(19,60,154)、level3=rgb(255,255,255)。
+   三档均为实采值，非推断。 */
 const COUNT_TIER_OPTIONS = [
-  { max: 20, background: 'rgb(186, 206, 253)', foreground: 'rgb(19, 60, 154)' },
-  { max: 40, background: 'rgb(150, 185, 250)', foreground: 'rgb(19, 60, 154)' },
-  { max: Infinity, background: 'rgb(19, 60, 154)', foreground: 'rgb(255, 255, 255)' },
+  { max: 30, background: 'rgb(225, 234, 255)', foreground: 'rgb(19, 60, 154)' },
+  { max: 40, background: 'rgb(186, 206, 253)', foreground: 'rgb(19, 60, 154)' },
+  { max: Infinity, background: 'rgb(130, 167, 252)', foreground: 'rgb(255, 255, 255)' },
 ]
 
 function countTier(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
@@ -228,9 +233,8 @@ function countTier(row: ProjectMatrixRow, rating: ProjectMatrixRating) {
 }
 
 function countHover(tier: { background: string; foreground: string }) {
-  // hover 统一加深：浅/中档转深蓝实底白字，深档保持深蓝实底白字
-  if (tier.foreground === 'rgb(19, 60, 154)') return { background: 'rgb(19, 60, 154)', foreground: 'rgb(255, 255, 255)' }
-  return tier
+  // hover 统一：三档背景都变 rgb(186,206,253)（REA 实采 bg-hover.json，2026-11-09），文字色保持不变
+  return { background: 'rgb(186, 206, 253)', foreground: tier.foreground }
 }
 
 function countStyle(row: ProjectMatrixRow, rating: ProjectMatrixRating) {

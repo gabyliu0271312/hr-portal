@@ -139,6 +139,37 @@ describe('ProjectPerformanceMatrix', () => {
     expect(wrapper.find('button[aria-label*="0人"]').exists()).toBe(false)
   })
 
+  it('tiers count cells by percentage thresholds recovered from the Feishu capture', async () => {
+    // 证据反推阈值：27.0% 是 level1、29.7% 是 level2（下限≈30%）、40.0% 是 level2、40.5%+ 是 level3
+    vi.mocked(mockedApi.matrix).mockResolvedValue(matrixOf({
+      total: 1,
+      completed_count: 1,
+      pending_count: 0,
+      pending_rows: [],
+      completed_rows: [
+        { level: 'L29', total: 100, cells: { one: { count: 29, people: [{ employee_no: 'E1', display_name: '一', employment_status: '在职' }] } } }, // 29.0% 浅档
+        { level: 'L40', total: 100, cells: { one: { count: 40, people: [{ employee_no: 'E2', display_name: '二', employment_status: '在职' }] } } }, // 40.0% 中档
+        { level: 'L41', total: 100, cells: { one: { count: 41, people: [{ employee_no: 'E3', display_name: '三', employment_status: '在职' }] } } }, // 41.0% 深档
+      ],
+    }))
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7 } })
+    await flushPromises()
+    wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+    await wrapper.vm.$nextTick()
+
+    const blocks = wrapper.findAll('.count-value')
+    const elements = blocks.map(item => item.element as HTMLElement)
+    expect(blocks[0].text()).toBe('29.0%29')
+    expect(elements[0].style.getPropertyValue('--count-bg')).toBe('rgb(225, 234, 255)')
+    expect(elements[0].style.getPropertyValue('--count-bg-hover')).toBe('rgb(186, 206, 253)')
+    expect(blocks[1].text()).toBe('40.0%40')
+    expect(elements[1].style.getPropertyValue('--count-bg')).toBe('rgb(186, 206, 253)')
+    expect(blocks[2].text()).toBe('41.0%41')
+    expect(elements[2].style.getPropertyValue('--count-bg')).toBe('rgb(130, 167, 252)')
+    expect(elements[2].style.getPropertyValue('--count-fg')).toBe('rgb(255, 255, 255)')
+    wrapper.unmount()
+  })
+
   it('forwards a dialog row click as open-member when the row can view detail', async () => {
     vi.mocked(mockedApi.matrix).mockResolvedValue(matrixOf())
     const DialogStub = { name: 'MatrixPeopleDialog', props: ['modelValue'], emits: ['select-member'], template: '<div v-if="modelValue" class="matrix-people-dialog-stub" />' }

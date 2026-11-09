@@ -427,6 +427,36 @@ describe('ProjectManagement', () => {
     reopened.unmount()
   })
 
+  it('keeps the main matrix tab active when the matrix opens a member drawer', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    vi.mocked(mockedApi.memberDetail).mockResolvedValue({ task_id: 41, task_kind: 'result_communication', entry_mode: 'template_task', node_name: '绩效沟通', editable: false, submit_allowed: false, person: { employee_no: 'E1', display_name: '管理可见员工' }, form_schema: [], answers: {}, reference_tabs: [], management_tabs: [] })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.line-tab')[2].trigger('click')
+    await flushPromises()
+    const matrix = wrapper.getComponent({ name: 'ProjectPerformanceMatrix' })
+    matrix.vm.$emit('open-member', { project_id: 3, employee_no: 'E1', root_review_id: 71, can_view_detail: true })
+    await flushPromises()
+    expect(mockedApi.memberDetail).toHaveBeenCalledWith(3, 'E1', 71)
+    expect(replace).toHaveBeenLastCalledWith({ query: expect.objectContaining({ rootReviewId: '71', member_project_id: '3' }) })
+    expect(document.body.querySelector('.performance-drawer__panel')).not.toBeNull()
+    const activeTab = wrapper.findAll('.line-tab').find(tab => tab.classes().includes('active'))
+    expect(activeTab?.text()).toBe('矩阵分析')
+    expect(wrapper.findComponent({ name: 'ProjectPerformanceMatrix' }).exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('restores the main tab to 成员列表 for a shared deep link without an origin tab', async () => {
+    Object.assign(routeQuery, { cycle_id: '1', rootReviewId: '71', member_project_id: '3', employee_no: 'E1' })
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    vi.mocked(mockedApi.memberDetail).mockResolvedValue({ task_id: 41, task_kind: 'result_communication', entry_mode: 'template_task', node_name: '绩效沟通', editable: false, submit_allowed: false, person: { employee_no: 'E1', display_name: '管理可见员工' }, form_schema: [], answers: {}, reference_tabs: [], management_tabs: [] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.findAll('.line-tab').find(tab => tab.classes().includes('active'))?.text()).toBe('成员列表')
+    expect(mockedApi.memberDetail).toHaveBeenCalledWith(3, 'E1', 71)
+    wrapper.unmount()
+  })
+
   it('does not open member details without the server-provided capability', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     const wrapper = mountView()

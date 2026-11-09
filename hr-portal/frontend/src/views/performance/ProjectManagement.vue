@@ -130,6 +130,7 @@ const activeTab = ref(route.query.rootReviewId ? 'members' : 'overview')
 const drawerMember = ref<{ project_id: number; employee_no: string; root_review_id?: number } | null>(null)
 const drawerOpen = ref(false)
 const drawerActiveTab = ref(String(route.query.activeTab || ''))
+const drawerSourceTab = ref('')
 const memberDetailLoader = computed(() => {
   const member = drawerMember.value
   return member ? () => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id) : undefined
@@ -141,6 +142,7 @@ async function openMember(member: ProjectMember) {
   if (!member.can_view_detail) return
   drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id }
   drawerActiveTab.value = ''
+  drawerSourceTab.value = activeTab.value
   drawerOpen.value = true
   await router.replace({ query: memberQuery() })
 }
@@ -148,6 +150,7 @@ function openMatrixMember(member: { project_id?: number; employee_no: string; ro
   if (!member.can_view_detail) return
   drawerMember.value = { project_id: member.project_id || memberProjectId.value, employee_no: member.employee_no, root_review_id: member.root_review_id }
   drawerActiveTab.value = ''
+  drawerSourceTab.value = activeTab.value
   drawerOpen.value = true
   void router.replace({ query: memberQuery() })
 }
@@ -157,6 +160,7 @@ async function updateMemberTab(tab: string) {
 }
 async function closeMember() {
   drawerOpen.value = false
+  drawerSourceTab.value = ''
   const { rootReviewId: _root, activeTab: _tab, employee_no: _employee, member_project_id: _project, ...query } = route.query
   await router.replace({ query })
 }
@@ -188,7 +192,7 @@ function restoreMember() {
   const rootId = Number(route.query.rootReviewId)
   const employeeNo = String(route.query.employee_no || '')
   if (!Number.isSafeInteger(projectId) || projectId <= 0 || !Number.isSafeInteger(rootId) || rootId <= 0 || !employeeNo) return
-  activeTab.value = 'members'
+  activeTab.value = drawerSourceTab.value || 'members'
   if (drawerMember.value?.project_id !== projectId || drawerMember.value?.root_review_id !== rootId || drawerMember.value?.employee_no !== employeeNo) {
     drawerMember.value = { project_id: projectId, employee_no: employeeNo, root_review_id: rootId }
   }
@@ -370,6 +374,7 @@ async function selectCycle(rawCycleId: number | string) {
   selectedKey.value = OVERVIEW_NODE_ID
   drawerOpen.value = false
   drawerMember.value = null
+  drawerSourceTab.value = ''
   loading.value = true
   try {
     const navigation = await projectContext.selectCycle(cycleId)
