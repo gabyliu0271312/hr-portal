@@ -295,6 +295,142 @@ def test_cycle_list_does_not_run_lifecycle_side_effect():
     assert "process_due_locks" not in source
 
 
+def _summary_project(project_id=1, cycle_ref="cycle:1", settings=None, status="DRAFT"):
+    return SimpleNamespace(
+        id=project_id, project_ref=f"project:{project_id}", cycle_ref=cycle_ref,
+        name=f"项目{project_id}", description="项目描述", administrators=None,
+        status=status, evaluated_count=3, settings=settings,
+    )
+
+
+class _CycleSummaryDb:
+    def __init__(self, projects, workflows=()):
+        self.projects = projects
+        self.workflows = workflows
+        self.statements = []
+
+    async def execute(self, statement):
+        from app.performance.models import PerformanceProject, PerformanceTemplateWorkflow
+
+        self.statements.append(statement)
+        params = statement.compile().params
+        entity = statement.column_descriptions[0]["entity"]
+        if entity is PerformanceProject:
+            cycle_refs = params["cycle_ref_1"]
+            if isinstance(cycle_refs, str):
+                cycle_refs = [cycle_refs]
+            projects = [project for project in self.projects if project.cycle_ref in cycle_refs]
+            if "project_ref_1" in params:
+                projects = [project for project in projects if project.project_ref in params["project_ref_1"]]
+            return _PeopleResult(projects)
+        if entity is PerformanceTemplateWorkflow:
+            return _PeopleResult([workflow for workflow in self.workflows if workflow.template_id in params["template_id_1"]])
+        return SimpleNamespace(all=lambda: [(ref, 5, 2) for ref in params["cycle_ref_1"]])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("completed", [True, False, "missing", "no-settings"])
+async def test_cycle_list_and_detail_share_configuration_completed_and_project_fields(completed):
+    settings = {"configuration_completed": completed} if isinstance(completed, bool) else {}
+    if completed == "no-settings":
+        settings = None
+    project = _summary_project(settings=settings)
+    db = _CycleSummaryDb([project])
+    service = PerformanceCycleService(db)
+    cycle = SimpleNamespace(cycle_ref="cycle:1")
+
+    summaries = await service.list_summaries([cycle])
+    detail = await service.projects_for_cycle(cycle)
+
+    assert summaries[cycle.cycle_ref] == (5, 2, detail)
+    assert detail[0] == {
+        "id": 1, "project_ref": "project:1", "name": "项目1", "description": "项目描述",
+        "administrators": [], "status": "DRAFT", "evaluated_count": 3,
+        "configuration_completed": completed is True, "template_id": None,
+        "start_at": None, "end_at": None, "evaluator_rules": {"groups": []},
+        "flow_settings": {}, "node_meta": {},
+        **({} if completed is True else {"start_blocked_reason": "项目未配置完成，无法启动"}),
+    }
+    assert len(db.statements) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "node_type, node_time, blocked",
+    [
+        ("evaluation", {"end_at": "2026-11-08T00:00:00+00:00"}, True),
+        ("evaluation", {"end_at": "2026-11-10T00:00:00+00:00"}, False),
+        ("result_view", {"end_at": "2026-11-10T00:00:00+00:00", "appeal_deadline": "2026-11-08T00:00:00+00:00"}, True),
+        ("result_view", {"end_at": "2026-11-08T00:00:00+00:00", "appeal_deadline": "2026-11-10T00:00:00+00:00"}, False),
+        ("calibration", {"end_at": "2026-11-10T00:00:00+00:00", "phase_times": {"1": {"end_at": "2026-11-07T00:00:00+00:00"}, "2": {"end_at": "2026-11-08T00:00:00+00:00"}}}, True),
+        ("calibration", {"end_at": "2026-11-08T00:00:00+00:00", "phase_times": {"1": {"end_at": "2026-11-07T00:00:00+00:00"}, "2": {"end_at": "2026-11-10T00:00:00+00:00"}}}, False),
+    ],
+)
+async def test_cycle_list_and_detail_share_node_deadline_blocking(monkeypatch, node_type, node_time, blocked):
+    from app.performance import cycle_service
+
+    now = datetime(2026, 11, 9, tzinfo=timezone.utc)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(cycle_service, "datetime", Clock)
+    settings = {
+        "configuration_completed": True, "template_id": 7,
+        "start_at": "2026-11-01", "end_at": "2026-12-31",
+        "evaluator_rules": {"groups": [{"id": "group:1"}]},
+        "flow_settings": {"node_times": {"node:1": node_time}},
+    }
+    workflows = [SimpleNamespace(template_id=7, nodes=[{"node_id": "node:1", "name": "测试环节", "node_type": node_type}])]
+    projects = [_summary_project(settings=settings), _summary_project(2, settings=settings, status="STARTED")]
+    service = PerformanceCycleService(_CycleSummaryDb(projects, workflows))
+    cycle = SimpleNamespace(cycle_ref="cycle:1")
+
+    summaries = await service.list_summaries([cycle])
+    detail = await service.projects_for_cycle(cycle)
+
+    assert summaries[cycle.cycle_ref][2] == detail
+    assert detail[0].get("start_blocked_reason") == ("测试环节环节截止时间早于当前时间，无法启动" if blocked else None)
+    assert "start_blocked_reason" not in detail[1]
+    for key in ("start_at", "end_at", "evaluator_rules", "flow_settings"):
+        assert detail[0][key] == settings[key]
+    assert detail[0]["node_meta"] == {"node:1": {"name": "测试环节", "node_type": node_type}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("project_refs", [None, {"project:1", "project:3"}, set()])
+async def test_cycle_summaries_batch_queries_and_project_permissions(project_refs):
+    projects = [_summary_project(i, f"cycle:{(i + 1) // 2}", {"template_id": i, "configuration_completed": True}) for i in range(1, 7)]
+    workflows = [SimpleNamespace(template_id=i, nodes=[]) for i in range(1, 7)]
+    cycles = [SimpleNamespace(cycle_ref=f"cycle:{i}") for i in range(1, 4)]
+    db = _CycleSummaryDb(projects, workflows)
+    service = PerformanceCycleService(db)
+
+    summaries = await service.list_summaries(cycles, project_refs=project_refs)
+
+    assert len(db.statements) == (1 if project_refs == set() else 3)
+    if project_refs != set():
+        assert db.statements[1].compile().params["cycle_ref_1"] == [cycle.cycle_ref for cycle in cycles]
+        if project_refs is not None:
+            assert set(db.statements[1].compile().params["project_ref_1"]) == project_refs
+        visible_template_ids = {project.id for project in projects if project_refs is None or project.project_ref in project_refs}
+        assert set(db.statements[2].compile().params["template_id_1"]) == visible_template_ids
+    for cycle in cycles:
+        visible = [project.project_ref for project in projects if project.cycle_ref == cycle.cycle_ref and (project_refs is None or project.project_ref in project_refs)]
+        assert [project["project_ref"] for project in summaries[cycle.cycle_ref][2]] == visible
+        assert summaries[cycle.cycle_ref][:2] == (5, 2)
+        before = len(db.statements)
+        assert await service.projects_for_cycle(cycle, project_refs=project_refs) == summaries[cycle.cycle_ref][2]
+        assert len(db.statements) - before == (0 if project_refs == set() else 2 if visible else 1)
+        if project_refs:
+            assert set(db.statements[before].compile().params["project_ref_1"]) == project_refs
+    before = len(db.statements)
+    assert await service.list_summaries([], project_refs=project_refs) == {}
+    assert len(db.statements) == before
+
+
 def test_cycle_snapshot_model_tracks_manual_and_departure_state():
     from app.performance.models import PerformanceAuthorizationSnapshotPerson
 

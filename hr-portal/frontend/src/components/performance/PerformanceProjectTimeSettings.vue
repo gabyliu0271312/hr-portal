@@ -10,7 +10,7 @@
         <span v-if="hasPassed(node.node_type === 'result_view' ? timeFor(node).appeal_deadline : timeFor(node).end_at)" class="time-node-deadline">已截止</span>
       </header>
       <div v-if="node.node_type === 'result_view'" class="time-fields time-fields--result-view">
-        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="hasPassed(timeFor(node).start_at)" @update:model-value="timeFor(node).start_at = $event" /></label>
+        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="isStartLocked(timeFor(node).start_at)" @update:model-value="timeFor(node).start_at = $event" /></label>
         <p class="time-help">由管理员人员开通后，被评估人立即收到绩效结果</p>
         <label><span>发起复议截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).appeal_deadline || ''" :input-id="`${nodeKey(node)}-appeal-deadline`" time-role="end" required @update:model-value="timeFor(node).appeal_deadline = $event" /></label>
       </div>
@@ -21,14 +21,14 @@
         <section v-for="(phase, index) in phasesFor(node)" :key="calibrationPhaseKey(phase, index)" class="calibration-time-phase" :aria-label="`${node.name}第 ${index + 1} 阶段`">
           <h3>第 {{ index + 1 }} 阶段</h3>
           <div class="time-fields">
-            <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).start_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start`" :aria-label="`${node.name}第 ${index + 1} 阶段开始时间`" time-role="start" required :disabled="hasPassed(phaseTimeFor(node, phase, index).start_at)" @update:model-value="phaseTimeFor(node, phase, index).start_at = $event" /></label>
+            <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).start_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start`" :aria-label="`${node.name}第 ${index + 1} 阶段开始时间`" time-role="start" required :disabled="isStartLocked(phaseTimeFor(node, phase, index).start_at)" @update:model-value="phaseTimeFor(node, phase, index).start_at = $event" /></label>
             <label><span>截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).end_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-end`" :aria-label="`${node.name}第 ${index + 1} 阶段截止时间`" time-role="end" required :invalid="invalidPhaseRange(node, phase, index)" :described-by="invalidPhaseRange(node, phase, index) ? `${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error` : ''" @update:model-value="phaseTimeFor(node, phase, index).end_at = $event" /></label>
           </div>
           <p v-if="invalidPhaseRange(node, phase, index)" :id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error`" class="phase-time-error" role="alert">截止时间必须晚于开始时间</p>
         </section>
       </div>
       <div v-else class="time-fields">
-        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="hasPassed(timeFor(node).start_at)" @update:model-value="timeFor(node).start_at = $event" /></label>
+        <label><span>开始时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="isStartLocked(timeFor(node).start_at)" @update:model-value="timeFor(node).start_at = $event" /></label>
         <label><span>截止时间 <i>*</i></span><PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required @update:model-value="timeFor(node).end_at = $event" /></label>
       </div>
     </article>
@@ -47,9 +47,10 @@ const props = withDefaults(defineProps<{
   nodes: PerformanceWorkflowNode[]
   nodeSettings?: PerformanceProjectFlowSettings['node_settings']
   modelValue?: Record<string, PerformanceProjectNodeTime>
+  projectStatus?: string
   loading?: boolean
   error?: string
-}>(), { modelValue: () => ({}), nodeSettings: () => ({}), loading: false, error: '' })
+}>(), { modelValue: () => ({}), nodeSettings: () => ({}), projectStatus: 'DRAFT', loading: false, error: '' })
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, PerformanceProjectNodeTime>] }>()
 const draft = ref<Record<string, PerformanceProjectNodeTime>>(cloneTimes(props.modelValue))
 props.nodes.forEach(ensureNode)
@@ -64,6 +65,8 @@ function hasPassed(value?: string) {
   const timestamp = Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : shanghaiLocalToUtcIso(value.replace(' ', 'T')) || '')
   return timestamp <= clock.value
 }
+
+function isStartLocked(value?: string) { return props.projectStatus === 'STARTED' && hasPassed(value) }
 
 function cloneTimes(value?: Record<string, PerformanceProjectNodeTime>) { return JSON.parse(JSON.stringify(value || {})) as Record<string, PerformanceProjectNodeTime> }
 function nodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }

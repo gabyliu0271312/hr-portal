@@ -98,6 +98,7 @@
         <p class="hint">针对每个环节，可以自定义设置各环节内任务开展与完成的起止时间</p>
         <PerformanceProjectTimeSettings
           v-model="form.flow_settings.node_times"
+          :project-status="projectStatus"
           :node-settings="form.flow_settings.node_settings"
           :nodes="workflowNodes"
           :loading="flowLoading"

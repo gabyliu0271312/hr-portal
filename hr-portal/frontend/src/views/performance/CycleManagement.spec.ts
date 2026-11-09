@@ -364,6 +364,20 @@ describe('CycleManagement', () => {
     mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [{ value: '集团/研发', label: '研发', level: 2, children: [] }], people: [{ value: 'E001', label: '员工（E001）' }], employee_types: [] })
   })
 
+  it.each([
+    { completed: true, blocked: '', label: '待启动', disabled: false },
+    { completed: false, blocked: '', label: '待完成配置', disabled: true },
+    { completed: undefined, blocked: '', label: '待完成配置', disabled: true },
+    { completed: true, blocked: '自评环节截止时间早于当前时间，无法启动', label: '待启动', disabled: true },
+  ])('renders list project configuration $completed and blocking "$blocked"', async ({ completed, blocked, label, disabled }) => {
+    mocks.list.mockResolvedValue({ items: [{ ...cycle, projects: [{ ...project, configuration_completed: completed, start_blocked_reason: blocked }] }], total: 1, page: 1, page_size: 20 })
+    const wrapper = await mountView()
+    expect(wrapper.get('.project-status').text()).toBe(label)
+    expect((wrapper.get('[aria-label="启动dee"]').element as HTMLButtonElement).disabled).toBe(disabled)
+    expect(mocks.get).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('reopens multiple cycle templates and saves the complete selection', async () => {
     const second = { template_id: 102, name: '第二模板', description: '第二描述', status: 'active' }
     mocks.templateList.mockResolvedValue([{ template_id: 101, name: '已启用模板', description: '模板说明', status: 'active' }, second])

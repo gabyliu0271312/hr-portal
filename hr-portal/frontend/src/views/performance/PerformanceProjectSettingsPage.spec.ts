@@ -302,6 +302,17 @@ describe('CR-013 project partial saves', () => {
     expect(mocks.update).toHaveBeenCalledWith(2, { evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }] } })
     wrapper.unmount()
   })
+  it.each(['DRAFT', 'STARTED', 'ARCHIVED'])('passes the saved project status %s to the time controls', async status => {
+    const project = { ...await started(), status }
+    mocks.get.mockResolvedValue(project)
+    const wrapper = page(); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(wrapper.getComponent(PerformanceProjectTimeSettings).props('projectStatus')).toBe(status)
+    expect(mocks.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('updates the parent baseline after immediate drawer saves', async () => {
     const project = await started()
     const wrapper = page(); await flushPromises()

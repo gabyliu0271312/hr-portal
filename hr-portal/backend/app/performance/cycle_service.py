@@ -166,23 +166,24 @@ class PerformanceCycleService:
         projects = (await self.db.execute(statement.order_by(PerformanceProject.created_at.asc()))).scalars().all()
         node_names_by_template = await self._workflow_node_names({(project.settings or {}).get("template_id") for project in projects})
         now = datetime.now(UTC)
-        result: list[dict[str, Any]] = []
-        for project in projects:
-            settings = project.settings or {}
-            flow_settings = settings.get("flow_settings") or {}
-            template_id = settings.get("template_id")
-            node_names = node_names_by_template.get(str(template_id)) if template_id is not None else {}
-            node_times = (flow_settings.get("node_times") or {}) if isinstance(flow_settings, dict) else {}
-            expired_nodes = _expired_flow_nodes(node_times, node_names, now)
-            base = {
-                "id": project.id, "project_ref": project.project_ref, "name": project.name, "description": project.description, "administrators": project.administrators or [], "status": project.status, "evaluated_count": project.evaluated_count, "configuration_completed": bool(settings.get("configuration_completed", False)), "template_id": template_id, "start_at": settings.get("start_at"), "end_at": settings.get("end_at"), "evaluator_rules": settings.get("evaluator_rules", {"groups": []}), "flow_settings": flow_settings, "node_meta": node_names,
-            }
-            if project.status == "DRAFT" and not bool(settings.get("configuration_completed", False)):
-                base["start_blocked_reason"] = "项目未配置完成，无法启动"
-            elif project.status == "DRAFT" and expired_nodes:
-                base["start_blocked_reason"] = "\n".join(f"{name}环节截止时间早于当前时间，无法启动" for name in expired_nodes)
-            result.append(base)
-        return result
+        return [self._serialize_project(project, node_names_by_template, now) for project in projects]
+
+    @staticmethod
+    def _serialize_project(project, node_names_by_template, now):
+        settings = project.settings or {}
+        flow_settings = settings.get("flow_settings") or {}
+        template_id = settings.get("template_id")
+        node_names = node_names_by_template.get(str(template_id), {})
+        node_times = (flow_settings.get("node_times") or {}) if isinstance(flow_settings, dict) else {}
+        expired_nodes = _expired_flow_nodes(node_times, node_names, now)
+        base = {
+            "id": project.id, "project_ref": project.project_ref, "name": project.name, "description": project.description, "administrators": project.administrators or [], "status": project.status, "evaluated_count": project.evaluated_count, "configuration_completed": bool(settings.get("configuration_completed", False)), "template_id": template_id, "start_at": settings.get("start_at"), "end_at": settings.get("end_at"), "evaluator_rules": settings.get("evaluator_rules", {"groups": []}), "flow_settings": flow_settings, "node_meta": node_names,
+        }
+        if project.status == "DRAFT" and not base["configuration_completed"]:
+            base["start_blocked_reason"] = "项目未配置完成，无法启动"
+        elif project.status == "DRAFT" and expired_nodes:
+            base["start_blocked_reason"] = "\n".join(f"{name}环节截止时间早于当前时间，无法启动" for name in expired_nodes)
+        return base
 
     async def _workflow_node_names(self, template_ids: set[Any]) -> dict[str, dict[str, dict[str, str]]]:
         """template_id -> {node_id: {name, node_type}}，供列表页启动禁用弹窗展示环节名。"""
@@ -299,28 +300,19 @@ class PerformanceCycleService:
         projects_by_cycle: dict[str, list[dict[str, Any]]] = {
             cycle_ref: [] for cycle_ref in cycle_refs
         }
-        for project in (
+        projects = (
             await self.db.execute(
                 projects_stmt.order_by(
                     PerformanceProject.cycle_ref,
                     PerformanceProject.created_at.asc(),
                 )
             )
-        ).scalars():
+        ).scalars().all()
+        node_names_by_template = await self._workflow_node_names({(project.settings or {}).get("template_id") for project in projects})
+        now = datetime.now(UTC)
+        for project in projects:
             projects_by_cycle[project.cycle_ref].append(
-                {
-                    "id": project.id,
-                    "project_ref": project.project_ref,
-                    "name": project.name,
-                    "description": project.description,
-                    "administrators": project.administrators or [],
-                    "status": project.status,
-                    "evaluated_count": project.evaluated_count,
-                    "template_id": (project.settings or {}).get("template_id"),
-                    "start_at": (project.settings or {}).get("start_at"),
-                    "end_at": (project.settings or {}).get("end_at"),
-                    "evaluator_rules": (project.settings or {}).get("evaluator_rules", {"groups": []}),
-                }
+                self._serialize_project(project, node_names_by_template, now)
             )
         for cycle_ref, (people, departments, _projects) in summaries.items():
             summaries[cycle_ref] = (

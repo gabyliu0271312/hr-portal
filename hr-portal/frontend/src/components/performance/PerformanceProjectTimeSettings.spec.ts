@@ -18,8 +18,8 @@ function settings(): PerformanceProjectFlowSettings {
     node_times: { calibration: { start_at: first.start_at, end_at: second.end_at, phase_times: { first: { ...first }, second: { ...second } } } },
   }
 }
-function timeComponent(value = settings()) {
-  return mount(PerformanceProjectTimeSettings, { props: { nodes: [node], nodeSettings: value.node_settings, modelValue: value.node_times } })
+function timeComponent(value = settings(), projectStatus = 'DRAFT') {
+  return mount(PerformanceProjectTimeSettings, { props: { nodes: [node], projectStatus, nodeSettings: value.node_settings, modelValue: value.node_times } })
 }
 
 describe('elapsed node time controls', () => {
@@ -30,10 +30,51 @@ describe('elapsed node time controls', () => {
     vi.setSystemTime(new Date('2026-11-06T04:00:00Z'))
   }
 
+  it.each([undefined, 'DRAFT', 'ARCHIVED'])('keeps elapsed starts editable for status %s without changing deadline badges', async projectStatus => {
+    freezeTime()
+    const nodes = [
+      { ...node, node_id: 'evaluation', node_type: 'evaluation' },
+      { ...node, node_id: 'result', node_type: 'result_view' },
+      node,
+    ] as PerformanceWorkflowNode[]
+    const value = settings()
+    value.node_times.evaluation = { start_at: '2026-11-05T09:00', end_at: '2026-11-06T11:59' }
+    value.node_times.result = { start_at: '2026-11-05T09:00', end_at: '', appeal_deadline: '2026-11-06T11:59' }
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, projectStatus, nodeSettings: value.node_settings, modelValue: value.node_times } })
+    expect(wrapper.findAll('input').every(field => !(field.element as HTMLInputElement).disabled)).toBe(true)
+    expect(wrapper.findAll('.performance-date-time-field__trigger').every(field => !(field.element as HTMLButtonElement).disabled)).toBe(true)
+    expect(wrapper.findAll('.time-node-deadline')).toHaveLength(3)
+    await wrapper.get('#evaluation-start').setValue('2026-11-04 09:00')
+    await wrapper.get('#result-start').setValue('2026-11-04 10:00')
+    await wrapper.get('#calibration-first-start').setValue('2026-09-30 09:00')
+    const emitted = wrapper.emitted('update:modelValue')!.at(-1)![0] as PerformanceProjectFlowSettings['node_times']
+    expect(emitted.evaluation.start_at).toBe('2026-11-04T09:00')
+    expect(emitted.result.start_at).toBe('2026-11-04T10:00')
+    expect(emitted.calibration.phase_times!.first.start_at).toBe('2026-09-30T09:00')
+    await wrapper.get('.performance-date-time-field__trigger').trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('[role=dialog]')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('reacts to project status changes without altering the configured time', async () => {
+    freezeTime()
+    const wrapper = timeComponent()
+    const starts = () => wrapper.findAllComponents(PerformanceDateTimeField).filter(field => field.props('timeRole') === 'start')
+    expect(starts().every(field => !field.props('disabled'))).toBe(true)
+    await wrapper.setProps({ projectStatus: 'STARTED' })
+    expect(starts().every(field => field.props('disabled'))).toBe(true)
+    await wrapper.setProps({ projectStatus: 'DRAFT' })
+    expect(starts().every(field => !field.props('disabled'))).toBe(true)
+    expect(wrapper.get('#calibration-first-start').element).toHaveProperty('value', '2026-10-01 09:00')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('disables elapsed starts in Beijing time, keeps future and empty starts editable, and refreshes at the boundary', async () => {
     freezeTime()
     const nodes = ['past', 'future', 'empty', 'invalid'].map((id, index) => ({ ...node, node_id: id, node_type: 'evaluation', order: index }))
-    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, modelValue: {
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, projectStatus: 'STARTED', modelValue: {
       past: { start_at: '2026-11-06T11:59', end_at: '2026-11-07T18:00' },
       future: { start_at: '2026-11-06T12:01', end_at: '2026-11-07T18:00' },
       empty: { start_at: '', end_at: '' },
@@ -54,7 +95,7 @@ describe('elapsed node time controls', () => {
 
   it('marks expired nodes and allows extending the deadline to remove the badge without unlocking the start', async () => {
     freezeTime()
-    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [{ ...node, node_id: 'evaluation', node_type: 'evaluation' }], modelValue: {
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [{ ...node, node_id: 'evaluation', node_type: 'evaluation' }], projectStatus: 'STARTED', modelValue: {
       evaluation: { start_at: '2026-11-05T09:00', end_at: '2026-11-06T11:59' },
     } } })
     expect(wrapper.get('.time-node-header .time-node-deadline').text()).toBe('已截止')
@@ -70,7 +111,7 @@ describe('elapsed node time controls', () => {
   it('uses appeal and reconsideration deadlines and respects explicit timestamp offsets', () => {
     freezeTime()
     const nodes = ['result_view', 'result_reconsideration'].map((type, index) => ({ ...node, node_id: type, node_type: type, order: index }))
-    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, modelValue: {
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, projectStatus: 'STARTED', modelValue: {
       result_view: { start_at: '2026-11-06T03:00:00Z', end_at: '', appeal_deadline: '2026-11-06T11:59:00+08:00' },
       result_reconsideration: { start_at: '', end_at: '2026-11-06T03:59:00Z' },
     } } })
@@ -88,7 +129,7 @@ describe('elapsed node time controls', () => {
       first: { start_at: '2026-11-05T09:00', end_at: '2026-11-06T11:00' },
       second: { start_at: '2026-11-06T13:00', end_at: '2026-11-07T18:00' },
     }
-    const wrapper = timeComponent(value)
+    const wrapper = timeComponent(value, 'STARTED')
     const fields = wrapper.findAllComponents(PerformanceDateTimeField)
     expect(fields.map(field => field.props('disabled'))).toEqual([true, false, false, false])
     expect(wrapper.find('.time-node-deadline').exists()).toBe(false)
