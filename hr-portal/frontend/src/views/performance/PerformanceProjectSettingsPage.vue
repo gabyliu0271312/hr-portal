@@ -98,13 +98,13 @@
         <p class="hint">针对每个环节，可以自定义设置各环节内任务开展与完成的起止时间</p>
         <PerformanceProjectTimeSettings
           v-model="form.flow_settings.node_times"
+          :show-validation="timeValidationSubmitted"
           :project-status="projectStatus"
           :node-settings="form.flow_settings.node_settings"
           :nodes="workflowNodes"
           :loading="flowLoading"
           :error="flowError"
         />
-        <p v-if="nodeTimeError" class="error" role="alert">{{ nodeTimeError }}</p>
       </section>
     </PerformanceContentSurface>
     </main>
@@ -182,7 +182,7 @@ function workflowNodeKey(node: PerformanceWorkflowNode) { return node.node_id ||
 watch(() => form.flow_settings, settings => { ensureCalibrationPhaseIds(settings.node_settings); syncCalibrationPhaseTimes(settings.node_settings, settings.node_times) }, { deep: true })
 let previewTimer: ReturnType<typeof setTimeout> | undefined
 watch(() => form.evaluator_rules, () => { if (previewTimer) clearTimeout(previewTimer); previewTimer = setTimeout(() => { void loadAudiencePreview() }, 200) }, { deep: true })
-const nodeTimeError = computed(() => projectNodeTimeError(workflowNodes.value, form.flow_settings))
+const timeValidationSubmitted = ref(false)
 function openBasicEditor() { if (!projectId.value) return; basicDialogProject.value = { ...basicDialogProject.value, id: projectId.value, project_ref: basicDialogProject.value?.project_ref || '', name: form.name, description: form.description || null, administrators: [...form.administrators], status: projectStatus.value, evaluated_count: evaluatedCount.value }; basicDialogOpen.value = true }
 async function saveBasicInfo(value: PerformanceProjectPayload) {
   if (!projectId.value || !basicDialogProject.value) return
@@ -395,8 +395,9 @@ async function nextStep() {
     if (await saveDraft()) currentStep.value += 1
     return
   }
+  timeValidationSubmitted.value = true
   const timeError = projectNodeTimeError(workflowNodes.value, form.flow_settings)
-  if (timeError) { validationError.value = timeError; return }
+  if (timeError) return
   validationError.value = ''
   if (!validate() || saving.value) return
   if (await saveDraft(true)) { savedView.value = true; notice.value = '项目设置已保存' }

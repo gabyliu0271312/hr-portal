@@ -257,6 +257,8 @@ PM-T003-I01 + PM-T003-I03 -> PM-T003-I05
   - Evidence（2026-11-09，截止时间字段校验）：用户授权继续完成截止不得早于当前时间/开始时间及全局错误 token 提醒。修改 PerformanceProjectTimeSettings.vue、performanceProjectCalibration.ts、PerformanceProjectSettingsPage.vue 及既有前两者对应组件/页面 spec、本功能任务与交互；不新增文件、不改后端/迁移/权限/共享控件/生产。共用 projectDeadlineError，按北京时间/显式时区真实时间戳判断；保留既有结束必须严格晚于开始；覆盖普通/结果查看/复议处理/每个校准阶段，错误显示在对应结束字段正下方，复用 PerformanceFormItem 全局 token 和日期框 invalid/describedBy；开始锁定及已截止标识不变。完成点击实时重新计算，不受 computed 缓存时刻影响。
     - 定向 `npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceProjectTimeSettings.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts src/components/performance/PerformanceDateTimeField.spec.ts src/components/performance/PerformanceProjectFlowSettings.spec.ts src/views/performance/CycleManagement.spec.ts src/utils/datetime.spec.ts`：6 文件 156 passed。新增6个组件/工具用例及1个页面阻断→纠正→PATCH用例；覆盖字段级错误、修正清除、开始变更、到点刷新、当前时间相等、显式时区。初跑新断言错取共享表单 DOM 父层，修正 closest 后复跑全部通过；首次构建暴露测试夹具联合类型推断，显式使用现有 DTO 类型修复后 vue-tsc+Vite 构建通过，仅既有 VueUse PURE 注释警告。
     - UI 合规沿用 N000/N00/N11 和现有局部交互，无新蓝图必要；本轮未执行实际浏览器/独立PNG、真实API/SQL及生产验收，不以组件测试冒充；父卡仍 [ ]。未 commit/push/deploy。
+  - Evidence（2026-11-09，提示统一收敛）：删除 PerformanceProjectSettingsPage 起止时间卡片底部 `nodeTimeError` 汇总提示，不再把字段级截止错误复写到页面底部；时间校验仍由 `projectNodeTimeError` 在“完成”点击时执行并阻止 PATCH，组件通过 `showValidation` 将空值/格式错误同样渲染到对应字段下。补页面回归断言：过期/缺失字段仅有字段下 alert，无 `.time-card > .error`，修正后全部清除并成功 PATCH。
+    - 定向前端回归最终 6 文件 157 passed；生产构建 `vue-tsc + Vite` 通过，仅既有 VueUse PURE 注释警告；git diff --check 通过。未执行生产验收、未 commit/push/deploy。
   - Definition of done: 代码、联动/拒绝/旧数据测试、真实保存回读、UI 截图及构建均验证后才勾选；缺证据保持未完成并注明原因。
 
 ## PM-T003-I11 周期多模板与项目模板选择
