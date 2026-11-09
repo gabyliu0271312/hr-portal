@@ -65,7 +65,7 @@
         </template>
         <template #selection-actions>
           <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通所选成员</UiButton>
-          <UiButton v-else variant="text" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')"><BellOutlinedIcon />催办</UiButton>
+          <UiButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')"><BellOutlinedIcon />催办</UiButton>
           <UiButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</UiButton>
           <UiButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</UiButton>
         </template>
@@ -402,7 +402,7 @@ onMounted(() => void initialize())
 
 .cell-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .completion-text { color: var(--color-primary); }
-.performance-reminder-panel .performance-button--text :deep(svg), .performance-reminder-panel :deep(.performance-button--text svg) { display:inline-block; width:14px; height:14px; margin-right:4px; flex:none; }
+.performance-reminder-panel :deep(.performance-button svg) { display:inline-block; width:14px; height:14px; margin-right:4px; flex:none; }
 .reminder-target { display:inline-flex; max-width:100%; padding:2px 8px; border-radius:16px; background:#eff0f1; }
 .table-state { display:grid; min-height:220px; place-content:center; gap:8px; color:#646a73; }
 .table-state--error { color:#d14343; }
