@@ -7,7 +7,7 @@
     :aria-expanded="expanded === undefined ? undefined : expanded"
     :disabled="disabled"
     :data-icon="icon"
-    @click="$emit('click', $event)"
+    @click="!disabled && $emit('click', $event)"
   >
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" :data-icon="icon">
       <path :d="paths[icon] || paths.more" fill="currentColor" />
@@ -40,11 +40,12 @@ const paths: Record<string, string> = {
 .performance-icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--performance-icon-button-size, var(--performance-button-icon-size)); height: var(--performance-icon-button-size, var(--performance-button-icon-size)); padding: var(--spacing-1); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
 .performance-icon-button:hover, .performance-icon-button:focus-visible, .performance-icon-button.is-active { background: var(--color-surface-disabled); color: var(--color-action-primary-hover); outline: 0; }
 .performance-icon-button:focus-visible { box-shadow: var(--performance-button-focus-ring); }
-.performance-icon-button:disabled, .performance-icon-button.is-disabled { opacity: .5; cursor: default; }
+.performance-icon-button:disabled, .performance-icon-button.is-disabled { background: transparent; color: var(--performance-button-link-disabled-color); cursor: not-allowed; box-shadow: none; }
 .performance-icon-button.is-static { cursor: default; pointer-events: none; }
 .performance-icon-button.is-outlined { width: var(--performance-button-min-width); height: var(--performance-button-height); border: 1px solid var(--performance-button-secondary-border); background: var(--performance-button-secondary-background); color: var(--color-text-primary); }
 .performance-icon-button.is-outlined svg { width: 14px; height: 14px; }
 .performance-icon-button__text { margin-left: var(--spacing-2); font: var(--performance-button-font-weight) var(--performance-button-font-size)/var(--performance-button-line-height) var(--font-sans); white-space: nowrap; }
-.performance-icon-button.is-outlined:hover { background: var(--performance-button-secondary-hover-background); }
+.performance-icon-button.is-outlined:hover:not(:disabled) { background: var(--performance-button-secondary-hover-background); }
+.performance-icon-button.is-outlined:disabled { background: var(--performance-button-secondary-background); border-color: var(--performance-button-secondary-border); color: var(--performance-button-link-disabled-color); }
 </style>
 

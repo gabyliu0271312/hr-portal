@@ -37,15 +37,17 @@
           <h3>符合条件的员工，共计 {{ previewSummary.matched_count }}人</h3>
           <p><button type="button" :disabled="previewLoading" @click="openAudiencePreview('task')">{{ previewSummary.task_generation_count }}</button>名人员生成评估任务，并纳入报表统计<span v-if="previewSummary.report_only_count">；<button type="button" :disabled="previewLoading" @click="openAudiencePreview('report_only')">{{ previewSummary.report_only_count }}</button>名离职人员不生成评估任务，仅纳入报表统计</span></p>
         </div>
+        <p v-if="audienceLocked" class="hint" role="status">项目已启动，被评估人条件不可修改。如需调整人员，请前往前台「项目管理」。</p>
         <PerformanceAudienceRuleEditor
-          v-model="form.evaluator_rules.groups"
+          :model-value="form.evaluator_rules.groups"
+          @update:model-value="updateAudienceGroups"
           :allowed-fields="[...REVIEWEE_CONDITION_FIELDS]"
           :snapshot-options="evaluatorOptions"
           :organization-tree="evaluatorOptions.organization_tree"
           :person-options="evaluatorOptions.people"
           :employee-type-options="evaluatorOptions.employee_types"
           :hire-date-range="evaluatorOptions.hire_date_range"
-          :disabled="saving"
+          :disabled="saving || audienceLocked"
           group-delete-outside
           @open-options="loadEvaluatorOptions"
         >
@@ -173,6 +175,10 @@ const form = reactive<{ name: string; description: string; administrators: strin
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
 const dataManagerTags = computed(() => (basicDialogProject.value?.data_managers ?? []).map(value => ({ value, label: value === 'PROJECT_ADMIN' ? '项目管理员' : 'HRBP' })))
 const projectName = computed(() => form.name)
+const audienceLocked = computed(() => projectStatus.value === 'STARTED' || projectStatus.value === 'ARCHIVED')
+function updateAudienceGroups(groups: typeof form.evaluator_rules.groups) {
+  if (!saving.value && !audienceLocked.value) form.evaluator_rules.groups = groups
+}
 const savedStatusLabel = computed(() => projectStatus.value === 'STARTED' ? '已启动' : projectStatus.value === 'ARCHIVED' ? '已结束' : '待启动')
 const audiencePreviewTitle = computed(() => audiencePreviewGroup.value == null ? '符合条件的员工' : `范围 ${audiencePreviewGroup.value + 1} 符合条件的员工`)
 const audiencePreviewDescription = computed(() => `${audiencePreviewKind.value === 'task' ? '生成评估任务并纳入报表统计' : audiencePreviewKind.value === 'report_only' ? '不生成评估任务，仅纳入报表统计' : '符合当前筛选条件'}，共计 ${audiencePreviewTotal.value} 人`)
@@ -187,7 +193,7 @@ function openBasicEditor() { if (!projectId.value) return; basicDialogProject.va
 async function saveBasicInfo(value: PerformanceProjectPayload) {
   if (!projectId.value || !basicDialogProject.value) return
   const oldBasic = { scope_limited: false, scope_rules: { groups: [] }, ...basicDialogProject.value }
-  const patch = Object.fromEntries(Object.entries(value).filter(([key, next]) => !projectSettingsEqual((oldBasic as any)[key], next))) as ProjectSettingsPatch
+  const patch = Object.fromEntries(Object.entries(value).filter(([key, next]) => !(audienceLocked.value && ['evaluator_rules', 'scope_rules', 'scope_limited', 'scope_employee_nos'].includes(key)) && !projectSettingsEqual((oldBasic as any)[key], next))) as ProjectSettingsPatch
   if (!Object.keys(patch).length) { basicDialogOpen.value = false; return }
   basicDialogSaving.value = true
   try {
@@ -240,12 +246,12 @@ function toUtcNodeTimes(times: Record<string, any>) {
   }
   return result
 }
-function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length || (isDateConditionField(condition.field) && !validHireDateCondition(condition.operator, condition.values))))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
-function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? shanghaiLocalToUtcIso(form.start_at) : null, end_at: form.end_at ? shanghaiLocalToUtcIso(form.end_at) : null, evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) }, flow_settings: { ...form.flow_settings, node_times: toUtcNodeTimes(form.flow_settings.node_times) } } }
+function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!audienceLocked.value && (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length || (isDateConditionField(condition.field) && !validHireDateCondition(condition.operator, condition.values)))))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
+function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? shanghaiLocalToUtcIso(form.start_at) : null, end_at: form.end_at ? shanghaiLocalToUtcIso(form.end_at) : null, ...(audienceLocked.value ? {} : { evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) } }), flow_settings: { ...form.flow_settings, node_times: toUtcNodeTimes(form.flow_settings.node_times) } } }
 function previewPayload(kind: 'matched' | 'task' | 'report_only' = 'matched', groupIndex: number | null = null): PerformanceEvaluatorPreviewPayload {
   return {
     project_id: projectId.value,
-    evaluator_rules: payload().evaluator_rules || { groups: [] },
+    evaluator_rules: form.evaluator_rules,
     scope_rules: basicDialogProject.value?.scope_rules || { groups: [] },
     group_index: groupIndex,
     list_kind: kind,
@@ -255,7 +261,7 @@ function previewRulesValid() {
   return Boolean(cycleId.value && form.evaluator_rules.groups.length && form.evaluator_rules.groups.every(group => group.conditions.length && group.conditions.every(condition => condition.field && condition.values.length && (!isDateConditionField(condition.field) || validHireDateCondition(condition.operator, condition.values)))))
 }
 async function loadAudiencePreview() {
-  if (!cycleId.value || !previewRulesValid()) { previewSummary.value = { matched_count: 0, task_generation_count: 0, report_count: 0, report_only_count: 0, group_counts: [] }; return }
+  if (!cycleId.value || (!audienceLocked.value && !previewRulesValid())) { previewSummary.value = { matched_count: 0, task_generation_count: 0, report_count: 0, report_only_count: 0, group_counts: [] }; return }
   previewLoading.value = true
   try { previewSummary.value = await performanceProjectApi.previewEvaluators(cycleId.value, previewPayload()) }
   catch (error: any) { notice.value = error?.response?.data?.detail || '被评估人人数加载失败，请稍后重试' }

@@ -152,6 +152,24 @@
   - 校准范围筛选增强（2026-10-28）：既有“按指定规则校准”范围新增部门、人员、入职日期三类条件，分别复用 `PerformanceOrganizationSelect`、`PerformancePersonSelect`、`PerformanceDateTimeField`；字段值沿用周期冻结快照，支持 `INCLUDE/EXCLUDE` 及日期 `before/not_before/after/not_after`，后端保存/回读并在校准任务范围解析时按部门、人员、入职日期求交。前端校准组件与项目设置回归 37 项通过，后端项目校准聚焦 66 项通过，前端生产构建通过；完整项目测试 256 passed、1 failed（并行工作树既有锁定快照测试在花名册契约错误处失败），未勾选 I07。
 
 
+- [ ] PM-T003-I07-F05 启动后被评估人一致性（2026-11-09 用户确认）
+  - Goal/Type：既有添加闭环、实际成员读源与启动锁定；不新增系统调整区块。
+  - Prerequisites/reading：Spec002 基线、PM-T003 spec/ui-interaction、I07/F02/F03、执行/验收契约；Spec012 通用 UI 门禁。
+  - Allowed modifications：backend/app/performance/{projects_router,project_service,calibration_service}.py、backend/tests/test_performance_projects.py；frontend/src/api/performance.ts、views/performance/{PerformanceProjectSettingsPage,ProjectManagement}.vue及既有测试、components/performance/{RevieweeAddDialog,PerformanceAudienceRuleEditor,PerformanceTextButton,PerformanceIconButton}.vue及定向测试、styles/tokens.css；本功能 spec/ui-interaction/atomic-tasks。
+  - Shared files：保留原工作区修改；后端与前端按文件分工，串行整合。
+  - Input/output contract：沿用 reviewees 添加与 evaluator-preview 接口；加人通过独立 employee/include OR 组更新现有条件；限定范围和周期资格仍生效。启动后预览人数/名单来自项目实际成员及冻结任务成员分类，忽略客户端模拟规则。PATCH 禁止改变 evaluator_rules/scope_rules/scope_limited/scope_employee_nos；相同原值可幂等回传。
+  - Transaction：统一周期→项目→成员快照锁，锁后刷新；成员、条件、任务成员名单、校准增量、人数和审计同事务，任一步失败不留部分写入；重复加入拒绝且不改人数。不重算旧人员任务。
+  - UI：原设置页所有条件修改入口禁用，保留人数/名单查看；共享禁用 token，不叠加整块透明度。沿用现有交互，无新完整蓝图。独立 PNG 目标 ../../ui-blueprints/PM-T003-I07-F05-implemented-reviewee-lock.png。
+  - API/database/permission：沿用现有项目管理权限及周期快照，无迁移、无生产变更、无新增外部投递。仅报表人员不生成任务、不增加任务人数；缺项目上级拒绝。
+  - Test contract：Given 已启动项目，When 前台加入合格/仅报表/越界/重复人员，Then 条件、实际成员、任务分类、校准来源与人数一致；Given 已启动/结束项目，When PATCH 范围，Then 拒绝；Given 多选部分成功，Then 刷新成功成员且只保留失败项重试。既有 backend/tests/test_performance_projects.py 与前端定向 spec、构建、真实页面、SQL回读分别记录；未运行不得称通过。
+  - Acceptance：覆盖正常/拒绝/空态/历史成员/重复/并发锁/失败回滚与刷新回读，保留冻结人员关系及既有任务。
+  - Non-scope：删除 UI/API/业务、成员软删除迁移、未确认已提交人员移出策略、历史批量修复、commit/push/deploy。
+  - 删除预留：共用人员规则变换支持集合加减（移除须作用所有 OR 分支），不启用移除写入口；未来删除事务须撤销任务/授权并保留历史，不得只改条件。
+  - Evidence（2026-11-09，本地）：后端新增定向21 passed，覆盖规则集合变换、STARTED/ARCHIVED范围锁定、启动后实际成员预览、添加成功/仅报表/越界/周期资格/重复/跨项目/缺项目上级/无权/锁后状态变化及校准多处理人增量。命令：backend/.venv/Scripts/python.exe -m pytest backend/tests/test_performance_projects.py -q --tb=short -k 'audience_adjustment or started_audience or started_preview or reviewee_add_syncs or calibration_member_increment'（路径按hr-portal解析）。后端全模块较早一次498 passed / 6 failed / 5 skipped，6项集中既有工作台/360成员夹具缺scalars，非全绿；随后扩充7个拒绝用例，仅复跑定向21项，不将较早全量计数充作最终全量。
+  - Frontend evidence：主会话最终运行 npm.cmd --prefix hr-portal/frontend run test -- src/components/performance/PerformanceAudienceRuleEditor.spec.ts src/components/performance/RevieweeAddDialog.spec.ts src/views/performance/PerformanceProjectSettingsPage.spec.ts --pool=threads --poolOptions.threads.singleThread=true --silent → 3文件77 passed。npm.cmd --prefix hr-portal/frontend run build → vue-tsc + Vite exit 0，built in 52.05s，仅既有VueUse PURE注释警告。范围内git diff --check通过，仅CRLF提示。新增RevieweeAddDialog.spec.ts；前端另含最小PerformanceProjectDialog.vue限定范围锁定，其他基本信息仍可改。
+  - Not-run/blockers：本地5173可访问，但8000/8080 API未运行、Docker守护进程不可用；未完成真实登录UI→API→SQL→新连接回读、并发真库/回滚、独立PNG，不能据单测宣布端到端或生产通过。本轮不创建迁移、不commit/push/deploy、不外发消息；工作区另一会话删除交付eab7c07d不计为本卡实现。后续接入删除仍须独立确认业务与验收，不改其已提交行为。
+  - Definition of done：本地代码/定向测试/构建已完成；整卡保留未勾选，待真实数据库和浏览器证据齐全后由主会话验收。
+
 - [ ] PM-T003-I07-F03 被评估人人数统计与人员预览
   - Goal/Type：在项目信息被评估人区域展示真实总人数、任务人数、仅报表离职人数及每组人数，并复用去催办人员弹层查看明细；既有 UI/API/快照增强。
   - Prerequisites/reading：PM-T003-I07/F01/F02、Spec002 基线、本功能交互、execution-contract/migration-coordination/acceptance-evidence；Spec012 A01/A02/A05/N0001/N0002/N0004/N0005/N1101-N1106。

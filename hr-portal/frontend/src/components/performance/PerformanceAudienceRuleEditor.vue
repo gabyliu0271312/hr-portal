@@ -28,18 +28,18 @@
                 <PerformanceConditionLogicGroup :count="group.conditions.length" operator="且">
                   <template #default="{ index: conditionIndex }">
                     <div class="performance-audience-rule-editor__condition" :class="{ 'has-delete': scopeMode || group.conditions.length > 1, 'is-invalid': invalidConditionKeys.has(`${groupIndex}-${conditionIndex}`) }">
-                      <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].field || null" :options="fieldOptions" selection-style="plain" disabled-surface="white" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
-                      <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].operator" :options="isDateConditionField(group.conditions[conditionIndex].field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" disabled-surface="white" aria-label="范围操作" :disabled="disabled || operatorDisabled || !group.conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
+                      <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].field || null" :options="fieldOptions" selection-style="plain" :disabled-surface="disabled ? 'muted' : 'white'" aria-label="范围字段" placeholder="请选择范围" :disabled="disabled" @update:model-value="updateField(groupIndex, conditionIndex, String($event || ''))" />
+                      <PerformanceSearchSelect :model-value="group.conditions[conditionIndex].operator" :options="isDateConditionField(group.conditions[conditionIndex].field) ? HIRE_DATE_OPERATOR_OPTIONS : operatorOptions" selection-style="plain" :disabled-surface="disabled ? 'muted' : 'white'" aria-label="范围操作" :disabled="disabled || operatorDisabled || !group.conditions[conditionIndex].field" @update:model-value="updateOperator(groupIndex, conditionIndex, String($event || 'include'))" />
                       <div class="performance-audience-rule-editor__value">
-                        <PerformanceOrganizationSelect v-if="group.conditions[conditionIndex].field === 'department'" :model-value="group.conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
-                        <component :is="customField(group.conditions[conditionIndex].field)?.component" v-else-if="customField(group.conditions[conditionIndex].field)" :model-value="group.conditions[conditionIndex].values" :options="customField(group.conditions[conditionIndex].field)?.options" :multiple="true" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                        <PerformancePersonSelect v-else-if="['employee', 'directLeader', 'superior'].includes(group.conditions[conditionIndex].field)" :model-value="group.conditions[conditionIndex].values" :options="personOptions" multiple :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" placeholder="搜索成员" :disabled="disabled" option-style="checkmark" @open="emit('open-options')" @search="emit('search-people', $event)" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                        <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field === 'employee_type'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                        <PerformanceDepartureDateSelect v-else-if="group.conditions[conditionIndex].field === 'departure_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" :date-range="snapshotOptions?.departure_date_range ?? { min: null, max: null }" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
-                        <PerformanceDateTimeField v-else-if="group.conditions[conditionIndex].field === 'hire_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(group.conditions[conditionIndex].field)" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
-                        <component :is="snapshotFieldComponents[group.conditions[conditionIndex].field]" v-else-if="snapshotFieldComponents[group.conditions[conditionIndex].field]" :model-value="group.conditions[conditionIndex].values" :options="valueOptions(group.conditions[conditionIndex].field)" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                        <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field" :model-value="group.conditions[conditionIndex].values" :options="valueOptions(group.conditions[conditionIndex].field)" multiple :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :placeholder="`请选择${fieldLabel(group.conditions[conditionIndex].field)}`" :disabled="disabled" @open="emit('open-options')" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
-                        <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled disabled-surface="white" />
+                        <PerformanceOrganizationSelect v-if="group.conditions[conditionIndex].field === 'department'" :model-value="group.conditions[conditionIndex].values" :nodes="organizationTree" aria-label="部门范围" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, $event)" />
+                        <component :is="customField(group.conditions[conditionIndex].field)?.component" v-else-if="customField(group.conditions[conditionIndex].field)" :model-value="group.conditions[conditionIndex].values" :options="customField(group.conditions[conditionIndex].field)?.options" :multiple="true" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                        <PerformancePersonSelect v-else-if="['employee', 'directLeader', 'superior'].includes(group.conditions[conditionIndex].field)" :model-value="group.conditions[conditionIndex].values" :options="personOptions" multiple :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" placeholder="搜索成员" :disabled="disabled" option-style="checkmark" @open="openOptions" @search="searchPeople" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                        <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field === 'employee_type'" :model-value="group.conditions[conditionIndex].values" :options="conditionValueOptions('employee_type', { employeeTypes: employeeTypeOptions })" multiple aria-label="人员类型范围" placeholder="请选择人员类型" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                        <PerformanceDepartureDateSelect v-else-if="group.conditions[conditionIndex].field === 'departure_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" :date-range="snapshotOptions?.departure_date_range ?? { min: null, max: null }" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                        <PerformanceDateTimeField v-else-if="group.conditions[conditionIndex].field === 'hire_date'" :model-value="group.conditions[conditionIndex].values.length === 1 ? group.conditions[conditionIndex].values[0] : ''" date-only :initial-date="initialDate(group.conditions[conditionIndex].field)" aria-label="入职日期" placeholder="请选择日期" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, $event ? [$event] : [])" />
+                        <component :is="snapshotFieldComponents[group.conditions[conditionIndex].field]" v-else-if="snapshotFieldComponents[group.conditions[conditionIndex].field]" :model-value="group.conditions[conditionIndex].values" :options="valueOptions(group.conditions[conditionIndex].field)" :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                        <PerformanceSearchSelect v-else-if="group.conditions[conditionIndex].field" :model-value="group.conditions[conditionIndex].values" :options="valueOptions(group.conditions[conditionIndex].field)" multiple :aria-label="`${fieldLabel(group.conditions[conditionIndex].field)}范围`" :placeholder="`请选择${fieldLabel(group.conditions[conditionIndex].field)}`" :disabled="disabled" @open="openOptions" @update:model-value="updateValues(groupIndex, conditionIndex, normalizeValues($event))" />
+                        <PerformanceSearchSelect v-else :model-value="[]" :options="[]" multiple aria-label="范围条件值" placeholder="请选择" disabled :disabled-surface="disabled ? 'muted' : 'white'" />
                         <span v-if="invalidConditionKeys.has(`${groupIndex}-${conditionIndex}`)" class="performance-audience-rule-editor__required" role="alert">必填</span>
                       </div>
                       <PerformanceIconButton v-if="scopeMode || group.conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除范围 ${groupIndex + 1} 条件 ${conditionIndex + 1}`" :disabled="disabled || group.conditions.length <= 1" @click="removeCondition(groupIndex, conditionIndex)" />
@@ -191,7 +191,14 @@ function normalizeValues(value: string | string[] | null) {
 function cloneGroups() {
   return props.modelValue.map(group => ({ conditions: group.conditions.map(condition => ({ ...condition, values: [...condition.values] })) }))
 }
+function openOptions() {
+  if (!props.disabled) emit('open-options')
+}
+function searchPeople(value: string) {
+  if (!props.disabled) emit('search-people', value)
+}
 function updateCondition(groupIndex: number, conditionIndex: number, patch: Partial<PerformanceAudienceCondition>) {
+  if (props.disabled) return
   const groups = cloneGroups()
   groups[groupIndex].conditions[conditionIndex] = { ...groups[groupIndex].conditions[conditionIndex], ...patch }
   emit('update:modelValue', groups)
@@ -210,6 +217,7 @@ function updateValues(groupIndex: number, conditionIndex: number, values: string
   updateCondition(groupIndex, conditionIndex, { values })
 }
 function addGroup() {
+  if (props.disabled) return
   const field = props.allowedFields.includes(props.defaultField as PerformanceAudienceField) || customField(props.defaultField) ? props.defaultField as PerformanceAudienceField : ''
   emit('update:modelValue', [...cloneGroups(), { conditions: [{ field, operator: 'include', values: [] }] }])
 }
@@ -220,6 +228,7 @@ function removeGroup(index: number) {
   emit('update:modelValue', groups)
 }
 function addCondition(groupIndex: number) {
+  if (props.disabled) return
   const groups = cloneGroups()
   const field = props.allowedFields.includes(props.defaultField as PerformanceAudienceField) ? props.defaultField as PerformanceAudienceField : ''
   groups[groupIndex].conditions.push({ field, operator: isDateConditionField(field) ? 'before' : 'include', values: [] })
@@ -290,6 +299,5 @@ function removeCondition(groupIndex: number, conditionIndex: number) {
 .performance-audience-rule-editor__or { margin: var(--spacing-2) 0; padding: 0; border: 0; color: var(--color-text-secondary); line-height: 22px; }
 .performance-audience-rule-editor__state { padding: var(--spacing-4); color: var(--color-text-secondary); text-align: center; }
 .performance-audience-rule-editor__error { margin: var(--spacing-2) 0 0; color: var(--performance-field-error-color); font-size: var(--performance-field-error-font-size); line-height: var(--performance-field-error-line-height); }
-.performance-audience-rule-editor.is-disabled { opacity: .65; }
 @media (max-width: 720px) { .performance-audience-rule-editor__condition { grid-template-columns: 1fr 1fr 24px; }.performance-audience-rule-editor__condition > :deep(.performance-search-select) { min-width: 0; }.performance-audience-rule-editor__condition > :deep(.performance-select-shell) { grid-column: 1 / -1; }.performance-audience-rule-editor__condition > :deep(.performance-icon-button) { grid-column: 3; grid-row: 1; } }
 </style>

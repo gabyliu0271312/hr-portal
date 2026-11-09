@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { projectManagementApi, type ProjectManagementProject, type RevieweeSearchOption } from '@/api/performance'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
@@ -22,7 +22,7 @@ const emit = defineEmits<{
   added: []
 }>()
 
-const open = computed(() => props.modelValue)
+const open = computed({ get: () => props.modelValue, set: value => { if (!saving.value) emit('update:modelValue', value) } })
 const projectValue = ref<string | null>(null)
 const selected = ref<string[]>([])
 const options = ref<PerformanceSearchSelectOption[]>([])
@@ -39,27 +39,33 @@ const projectOptions = computed<PerformanceSearchSelectOption[]>(() =>
 /** 必填项校验：点击确定时未选被评估人则该项进入 invalid 态（该项下方提示 + 输入框红边框），选人后自动消除 */
 const invalidReviewee = computed(() => revieweeTouched.value && !selected.value.length)
 
+function invalidateSearch() {
+  searchVersion++
+  searching.value = false
+  options.value = []
+}
 watch(() => props.modelValue, visible => {
+  invalidateSearch()
   if (!visible) return
   projectValue.value = props.projectId ? String(props.projectId) : projectOptions.value[0]?.value ?? null
   selected.value = []
-  options.value = []
   error.value = ''
   revieweeTouched.value = false
-})
+}, { immediate: true, flush: 'sync' })
 
 watch(projectValue, () => {
+  invalidateSearch()
   selected.value = []
-  options.value = []
   error.value = ''
   revieweeTouched.value = false
-})
+}, { flush: 'sync' })
+onBeforeUnmount(invalidateSearch)
 
 async function search(keyword: string) {
   const query = keyword.trim()
   const projectId = Number(projectValue.value)
-  if (!query || !projectId) { options.value = []; return }
   const version = ++searchVersion
+  if (!query || !projectId || !props.modelValue) { searching.value = false; options.value = []; return }
   searching.value = true
   try {
     const result = await projectManagementApi.revieweeSearch(projectId, query)
@@ -85,30 +91,39 @@ async function submit() {
   if (!selected.value.length) { revieweeTouched.value = true; return }
   saving.value = true
   error.value = ''
-  const addedPeople = new Set<string>()
+  const pending = [...selected.value]
+  const succeeded = new Set<string>()
+  const messages: string[] = []
   try {
-    for (const employeeNo of selected.value) {
-      const conflict = await projectManagementApi.revieweeConflictCheck(projectId, employeeNo)
-      if (conflict.conflicts.length) {
-        error.value = `「${employeeNo}」${conflict.conflicts.map(item => item.stage_label).join('、')}，无法添加`
+    for (const employeeNo of pending) {
+      try {
+        const conflict = await projectManagementApi.revieweeConflictCheck(projectId, employeeNo)
+        if (conflict.conflicts.length) {
+          messages.push(`「${employeeNo}」${conflict.conflicts.map(item => item.stage_label).join('、')}，无法添加`)
+          return
+        }
+        await projectManagementApi.addReviewee(projectId, employeeNo)
+        succeeded.add(employeeNo)
+      } catch (e: any) {
+        const detail = e?.response?.data?.detail
+        messages.push(typeof detail === 'string' ? detail : detail?.message || `「${employeeNo}」添加失败，请重试`)
         return
       }
-      await projectManagementApi.addReviewee(projectId, employeeNo)
-      addedPeople.add(employeeNo)
     }
-    emit('added')
     emit('update:modelValue', false)
-    ElMessage.success(`已添加 ${addedPeople.size} 位被评估人`)
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail || '添加失败，请稍后重试'
+    ElMessage.success(`已添加 ${succeeded.size} 位被评估人`)
   } finally {
+    selected.value = pending.filter(employeeNo => !succeeded.has(employeeNo))
+    options.value = options.value.filter(option => !succeeded.has(option.value))
+    if (messages.length) error.value = `${succeeded.size ? `已添加 ${succeeded.size} 位被评估人，部分成功；剩余人员可重试。` : ''}${messages.join('；')}`
+    if (succeeded.size) emit('added')
     saving.value = false
   }
 }
 </script>
 
 <template>
-  <PerformanceDialogShell v-model="open" title="添加被评估人" :loading="saving" @close="emit('update:modelValue', false)">
+  <PerformanceDialogShell v-model="open" title="添加被评估人" :loading="saving">
     <div class="reviewee-add-notice" role="alert">
       <InfoFilledIcon class="reviewee-add-notice__icon" />
       <div class="reviewee-add-notice__text">
@@ -138,6 +153,7 @@ async function submit() {
         :disabled="saving || !projectValue"
         :loading="searching"
         @search="search"
+        @update:query="!String($event || '').trim() && search('')"
       />
     </PerformanceFormItem>
     <template #footer>

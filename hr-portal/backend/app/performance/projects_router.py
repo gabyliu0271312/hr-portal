@@ -16,7 +16,7 @@ from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
-from app.performance.calibration_service import calibration_task_scope, CalibrationConflict
+from app.performance.calibration_service import calibration_task_scope, CalibrationConflict, extend_calibration_member
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
@@ -2581,10 +2581,18 @@ async def evaluator_preview(
         scope_rules = PerformanceProjectService._validate_scope_rules(payload.scope_rules)
         service = PerformanceProjectService(db)
         settings = {"evaluator_rules": rules, "scope_rules": scope_rules}
-        matched, task_people, report_only = await service.preview_people(cycle, settings, project_id=payload.project_id)
+        actual_project = project if payload.project_id is not None and project.status != "DRAFT" else None
+        if actual_project is not None:
+            matched, task_people, report_only = await service.project_audience(actual_project)
+            rules = (actual_project.settings or {}).get("evaluator_rules") or {"groups": []}
+        else:
+            matched, task_people, report_only = await service.preview_people(cycle, settings, project_id=payload.project_id)
         group_counts = []
         for index in range(len(rules.get("groups") or [])):
-            group_matched, _group_tasks, _group_report_only = await service.preview_people(cycle, settings, group_index=index, project_id=payload.project_id)
+            if actual_project is not None:
+                group_matched, _group_tasks, _group_report_only = await service.project_audience(actual_project, group_index=index)
+            else:
+                group_matched, _group_tasks, _group_report_only = await service.preview_people(cycle, settings, group_index=index, project_id=payload.project_id)
             group_counts.append(len(group_matched))
     except ProjectValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2635,12 +2643,16 @@ async def evaluator_preview_people(
     try:
         rules = PerformanceProjectService._validate_rules(payload.evaluator_rules)
         scope_rules = PerformanceProjectService._validate_scope_rules(payload.scope_rules)
-        matched, task_people, report_only = await PerformanceProjectService(db).preview_people(
-            cycle,
-            {"evaluator_rules": rules, "scope_rules": scope_rules},
-            group_index=payload.group_index,
-            project_id=payload.project_id,
-        )
+        service = PerformanceProjectService(db)
+        if payload.project_id is not None and project.status != "DRAFT":
+            matched, task_people, report_only = await service.project_audience(project, group_index=payload.group_index)
+        else:
+            matched, task_people, report_only = await service.preview_people(
+                cycle,
+                {"evaluator_rules": rules, "scope_rules": scope_rules},
+                group_index=payload.group_index,
+                project_id=payload.project_id,
+            )
     except ProjectValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     selected = matched if payload.list_kind == "matched" else task_people if payload.list_kind == "task" else report_only
@@ -2703,9 +2715,10 @@ async def update_project(
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     data = payload.model_dump(exclude_unset=True)
     try:
+        PerformanceProjectService.validate_audience_change(project, data)
         if data.get("evaluator_rules") is not None:
             data["evaluator_rules"] = PerformanceProjectService._validate_rules(data.get("evaluator_rules"))
-        if data.get("evaluator_rules") is not None or data.get("scope_rules") is not None:
+        if project.status == "DRAFT" and (data.get("evaluator_rules") is not None or data.get("scope_rules") is not None):
             preview_settings = {**(project.settings or {}), **data}
             _matched, task_people, _report_only = await PerformanceProjectService(db).preview_people(cycle, preview_settings, project_id=project.id)
             data["evaluated_count"] = len(task_people)
@@ -4651,12 +4664,19 @@ async def search_project_reviewees(
     occupied = set((await db.execute(
         select(PerformanceProjectMember.employee_no)
         .join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id)
+        .join(PerformanceProject, PerformanceProject.id == PerformanceProjectMemberSnapshot.project_id)
         .where(
             PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+            PerformanceProject.status == PROJECT_STATUS_STARTED,
             PerformanceProjectMemberSnapshot.project_id != project_id,
             PerformanceProjectMember.employee_no.not_in(current_members) if current_members else True,
         )
     )).scalars().all())
+    service = PerformanceProjectService(db)
+    eligible_nos = {person.employee_no for person in service._cycle_eligible_people(people, cycle)}
+    scope_groups = (project.settings or {}).get("scope_rules") or {"groups": []}
+    scope_settings = {"scope_rules": scope_groups, "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": [person.employee_no for person in people]}]}]}}
+    permitted_nos = {person.employee_no for person in service._matching_people(people, scope_settings)} & eligible_nos
     items = []
     keyword_cf = keyword.strip().casefold()
     for person in people:
@@ -4675,8 +4695,8 @@ async def search_project_reviewees(
             value=person.employee_no, label=person.display_name,
             sub_label=" · ".join(value for value in (person.employee_no, person.organization_ref or person.department) if value),
             department=person.organization_ref or person.department,
-            is_permitted=person.employee_no not in occupied,
-            reason="已在其他项目中" if person.employee_no in occupied else None,
+            is_permitted=person.employee_no not in occupied and person.employee_no in permitted_nos,
+            reason="已在其他项目中" if person.employee_no in occupied else "不符合周期资格或项目限定范围" if person.employee_no not in permitted_nos else None,
         ))
     items.sort(key=lambda item: (item.label, item.value))
     return RevieweeSearchResult(items=items[:50])
@@ -4735,6 +4755,11 @@ async def add_project_reviewee(
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
     if cycle is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="周期不存在")
+    await db.refresh(project, with_for_update=True)
+    if project.status != PROJECT_STATUS_STARTED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PROJECT_NOT_STARTED")
+    if not await _can_manage_project_like_overview(context, project, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权管理当前项目")
     try:
         snapshot, people = await PerformanceProjectService(db)._cycle_snapshot_people(cycle)
     except ProjectValidationError as exc:
@@ -4744,6 +4769,14 @@ async def add_project_reviewee(
     person = next((item for item in people if item.employee_no == payload.employee_no), None)
     if person is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="被评估人不在当前周期人员快照中")
+    service = PerformanceProjectService(db)
+    added_rules = service.adjust_evaluator_rules((project.settings or {}).get("evaluator_rules"), include=[payload.employee_no])
+    added_task_people, added_report_people = service._classify_people([person], {
+        **(project.settings or {}), "evaluator_rules": {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": [payload.employee_no]}]}]},
+    }, cycle)
+    if not added_task_people and not added_report_people:
+        raise HTTPException(status_code=422, detail="被评估人不符合周期资格或项目限定范围")
+    creates_tasks = bool(added_task_people)
     member_snapshot = await db.scalar(select(PerformanceProjectMemberSnapshot).where(
         PerformanceProjectMemberSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1).with_for_update())
@@ -4790,28 +4823,46 @@ async def add_project_reviewee(
         position_level=person.position_level,
         hire_date=person.hire_date,
     )
-    db.add(member)
     people_by_employee = {item.employee_no: item for item in people}
     nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
         PerformanceProjectNodeSnapshot.project_id == project.id,
-    ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceProjectNodeSnapshot.id))).scalars().all())
+    ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceProjectNodeSnapshot.id).with_for_update())).scalars().all())
+    if creates_tasks and any(node_role_code((node.config or {}).get("template") or {}) == ROLE_PROJECT_MANAGER for node in nodes) and not project_managers.get(person.employee_no):
+        raise HTTPException(status_code=422, detail="被评估人未导入直属项目上级")
+    try:
+        _current, current_task_people, _report = await service.project_audience(project)
+    except ProjectValidationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    generation_nos = {item.employee_no for item in current_task_people}
     flow_settings = (project.settings or {}).get("flow_settings") or {}
     node_times = flow_settings.get("node_times") or {}
-    for node in nodes:
+    calibration_updates = {}
+    try:
+        if creates_tasks:
+            for node in nodes:
+                if node.node_type == "calibration":
+                    calibration_updates[node.id] = extend_calibration_member(node, flow_settings, people_by_employee, sorted(generation_nos), person.employee_no)
+                    for phase in calibration_updates[node.id][1]:
+                        window = ((node_times.get(node.node_id) or {}).get("phase_times") or {}).get(phase["phase_id"]) or {}
+                        if not window.get("start_at") or not window.get("end_at"):
+                            raise CalibrationConflict("CALIBRATION_PHASE_TIME_REQUIRED", "校准阶段缺少起止时间")
+    except (CalibrationConflict, ValueError) as exc:
+        raise HTTPException(status_code=409, detail={"code": getattr(exc, "code", "CALIBRATION_RULE_INVALID"), "message": str(exc)}) from exc
+    db.add(member)
+    for node in nodes if creates_tasks else []:
         if node.node_type == "result_view" or node.node_type == "result_reconsideration":
             continue
         timing = node_times.get(node.node_id) or {}
         if node.node_type == "calibration":
-            calibration = (node.config or {}).get("calibration") or {}
-            for phase in calibration.get("phases") or []:
+            calibration, delta_phases = calibration_updates[node.id]
+            node.config = {**(node.config or {}), "calibration": calibration}
+            for phase in delta_phases:
                 window = (timing.get("phase_times") or {}).get(phase["phase_id"]) or {}
-                assignments = phase.get("assignments") or []
-                matched = [assignment for assignment in assignments if assignment.get("employee_no") == payload.employee_no]
-                if matched:
+                for assignment in phase["assignments"]:
                     db.add(PerformanceNodeTask(
                         project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id,
                         node_snapshot_id=node.id, target_employee_no=payload.employee_no,
-                        handler_ref=matched[0]["handler_ref"], task_kind="calibration",
+                        handler_ref=assignment["handler_ref"], task_kind="calibration",
                         phase_id=phase["phase_id"],
                         available_at=_parse_time(window.get("start_at")), due_at=_parse_time(window.get("end_at")),
                         status="pending",
@@ -4866,7 +4917,11 @@ async def add_project_reviewee(
                             "assigned_by_ref": None,
                         },
                     ))
-    project.evaluated_count += 1
+    if creates_tasks:
+        generation_nos.add(person.employee_no)
+    member_snapshot.source_filter = {**(member_snapshot.source_filter or {}), "task_generation_employee_nos": sorted(generation_nos)}
+    project.settings = {**(project.settings or {}), "evaluator_rules": added_rules}
+    project.evaluated_count = len(generation_nos)
     PerformanceAuditService(db).append_event(AuditEventInput(
         event_type="PROJECT_REVIEWEE_ADDED", cycle_ref=project.cycle_ref, employee_no=payload.employee_no,
         actor_type=context.subject_type, actor_ref=str(context.subject_id),

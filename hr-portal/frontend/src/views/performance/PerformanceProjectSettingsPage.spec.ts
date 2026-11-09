@@ -19,6 +19,8 @@ import PerformanceAudienceRuleEditor from '@/components/performance/PerformanceA
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
+import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
 
 function page(realDialog = false, realFlow = false) {
   return mount(PerformanceProjectSettingsPage, {
@@ -29,7 +31,7 @@ function page(realDialog = false, realFlow = false) {
       ElSelect: true,
       ElOption: true,
       UiPageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
-      PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions'], template: '<div data-testid="audience-editor" />' },
+      PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions', 'disabled'], template: '<div data-testid="audience-editor"><slot name="group-heading-extra" :index="0" /></div>' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
       PerformanceProjectFlowSettings: !realFlow,
@@ -124,6 +126,43 @@ describe('project audience visibility', () => {
 
 
 describe('project audience preview', () => {
+  it.each(['STARTED', 'ARCHIVED'])('locks reviewee conditions and omits evaluator_rules for %s projects', async status => {
+    const project = { ...await mocks.get(), template_id: 11, status, evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }] }] } }
+    mocks.get.mockResolvedValue(project)
+    mocks.update.mockResolvedValue(project)
+    const wrapper = page()
+    await flushPromises()
+    const editor = wrapper.getComponent(PerformanceAudienceRuleEditor)
+    expect(editor.props('disabled')).toBe(true)
+    editor.vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
+    await flushPromises()
+    expect(mocks.previewEvaluators).toHaveBeenCalledWith(1, expect.objectContaining({ project_id: 2 }))
+    expect(wrapper.text()).toContain('前台「项目管理」')
+    await wrapper.get('.audience-summary p button').trigger('click')
+    await flushPromises()
+    expect(mocks.previewEvaluatorPeople).toHaveBeenCalledWith(1, expect.objectContaining({ project_id: 2, list_kind: 'task' }), '', 1, 50)
+    expect(wrapper.get('.performance-audience-rule-editor__count-link').attributes('disabled')).toBeUndefined()
+    expect(editor.props('modelValue')).toEqual(project.evaluator_rules.groups)
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps evaluator rules in draft saves', async () => {
+    const project = { ...await mocks.get(), template_id: 11, status: 'DRAFT' }
+    mocks.get.mockResolvedValue(project)
+    mocks.update.mockResolvedValue(project)
+    const wrapper = page()
+    await flushPromises()
+    wrapper.getComponent(PerformanceAudienceRuleEditor).vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
+    await button(wrapper, '下一步').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, expect.objectContaining({ evaluator_rules: expect.anything() }))
+    wrapper.unmount()
+  })
+
+
   it.each([
     { snapshot: '在职', live: '离职', displayed: '离职' },
     { snapshot: '离职', live: '在职', displayed: '在职' },
@@ -342,12 +381,21 @@ describe('CR-013 project partial saves', () => {
     expect(mocks.update.mock.calls[0][1].flow_settings.node_settings.calibration.calibration.phases[0].rules[0].rule_id).toBe('rule-canonical-second')
     wrapper.unmount()
   })
-  it('omits flow settings for unrelated edits', async () => {
+  it('omits stale audience rules from flow payloads after people are added elsewhere', async () => {
     await started()
     const wrapper = page(); await flushPromises()
     wrapper.getComponent(PerformanceAudienceRuleEditor).vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
-    expect(mocks.update).toHaveBeenCalledWith(2, { evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }] } })
+    expect(mocks.update).not.toHaveBeenCalled()
+    const flow = wrapper.getComponent(PerformanceProjectFlowSettings)
+    expect(flow.props('projectPayload')).not.toHaveProperty('evaluator_rules')
+    const changed = JSON.parse(JSON.stringify(flow.props('modelValue')))
+    changed.node_settings.result.result_view.manual_enabled = true
+    flow.vm.$emit('update:modelValue', changed)
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledOnce()
+    expect(mocks.update.mock.calls[0][1]).not.toHaveProperty('evaluator_rules')
+    expect(mocks.update.mock.calls[0][1]).toHaveProperty('flow_settings')
     wrapper.unmount()
   })
   it.each(['DRAFT', 'STARTED', 'ARCHIVED'])('passes the saved project status %s to the time controls', async status => {
@@ -483,6 +531,34 @@ describe('project administrator person picker', () => {
 })
 
 describe('project data manager display and editor', () => {
+  it.each(['STARTED', 'ARCHIVED'])('locks only audience scope in the %s basic dialog and omits stale scope on save', async status => {
+    const project = { ...await mocks.get(), status, scope_limited: true, scope_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }] }] } }
+    mocks.get.mockResolvedValue(project)
+    mocks.update.mockImplementation(async (_id, patch) => { mocks.get.mockResolvedValue({ ...project, ...patch }); return { ...project, ...patch } })
+    const wrapper = page(true)
+    await flushPromises()
+    await wrapper.get('[aria-label="编辑基本信息"]').trigger('click')
+    const dialog = wrapper.getComponent(PerformanceProjectDialog)
+    const scopeSwitch = dialog.getComponent(UiSwitch)
+    const scopeEditor = dialog.getComponent(PerformanceAudienceRuleEditor)
+    expect(scopeSwitch.props('disabled')).toBe(true)
+    expect(scopeEditor.props('disabled')).toBe(true)
+    scopeSwitch.vm.$emit('update:modelValue', false)
+    scopeEditor.vm.$emit('update:modelValue', [{ conditions: [{ field: 'employee', operator: 'include', values: ['E2'] }] }])
+    await flushPromises()
+    expect(scopeSwitch.props('modelValue')).toBe(true)
+    expect(scopeEditor.props('modelValue')).toEqual(project.scope_rules.groups)
+    expect(dialog.get('#project-name').attributes('disabled')).toBeUndefined()
+    expect(dialog.get('input[aria-label="HRBP"]').attributes('disabled')).toBeUndefined()
+    await dialog.get('#project-name').setValue('修改名称')
+    await button(wrapper, '确定').trigger('click')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(2, { name: '修改名称' })
+    expect(dialog.emitted('submit')?.[0]?.[0]).not.toHaveProperty('scope_rules')
+    expect(dialog.emitted('submit')?.[0]?.[0]).not.toHaveProperty('scope_limited')
+    wrapper.unmount()
+  })
+
   it.each([
     { selected: ['HRBP'], labels: ['HRBP'] },
     { selected: ['PROJECT_ADMIN'], labels: ['项目管理员'] },

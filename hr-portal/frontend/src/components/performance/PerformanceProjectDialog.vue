@@ -36,7 +36,10 @@ const form = reactive({ name: '', description: '', administrators: [] as string[
 const submitted = ref(false)
 const error = computed(() => submitted.value && !form.name.trim() ? '请输入项目名称' : '')
 const dataManagersError = computed(() => !form.dataManagers.length ? '请选择谁可管理人员绩效数据' : '')
-const scopeError = computed(() => submitted.value && form.scopeLimited && (!form.scopeRules.length || form.scopeRules.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length))) ? '请完善限定考核范围条件' : '')
+const scopeLocked = computed(() => props.mode === 'edit' && ['STARTED', 'ARCHIVED'].includes(props.project?.status || ''))
+function updateScopeLimited(value: boolean) { if (!props.saving && !scopeLocked.value) form.scopeLimited = value }
+function updateScopeRules(value: PerformanceAudienceGroup[]) { if (!props.saving && !scopeLocked.value) form.scopeRules = value }
+const scopeError = computed(() => submitted.value && !scopeLocked.value && form.scopeLimited && (!form.scopeRules.length || form.scopeRules.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length))) ? '请完善限定考核范围条件' : '')
 const dataManagerOptions = [{ value: 'PROJECT_ADMIN' as const, label: '项目管理员' }, { value: 'HRBP' as const, label: 'HRBP' }]
 // 管理员名单保存 display_name，选项来自周期人员快照的「姓名（工号）」，按姓名去重
 const administratorOptions = computed<PerformanceSearchSelectOption[]>(() => {
@@ -74,8 +77,7 @@ function submit() {
     description: form.description.trim() || null,
     administrators: [...form.administrators],
     data_managers: form.dataManagers,
-    scope_limited: form.scopeLimited,
-    scope_rules: form.scopeLimited ? { groups: form.scopeRules } : { groups: [] },
+    ...(scopeLocked.value ? {} : { scope_limited: form.scopeLimited, scope_rules: form.scopeLimited ? { groups: form.scopeRules } : { groups: [] } }),
   })
 }
 watch(() => [props.modelValue, props.project], () => {
@@ -137,16 +139,18 @@ watch(() => [props.modelValue, props.project], () => {
         </div>
       </PerformanceFormItem>
       <div class="project-scope-limit__field" :class="{ 'project-scope-limit__field--invalid': Boolean(scopeError) }">
-        <div class="project-scope-limit__label-row"><span class="project-scope-limit__label">限定考核范围</span><UiSwitch v-model="form.scopeLimited" aria-label="限定考核范围" :disabled="saving" /></div>
+        <div class="project-scope-limit__label-row"><span class="project-scope-limit__label">限定考核范围</span><UiSwitch :model-value="form.scopeLimited" aria-label="限定考核范围" :disabled="saving || scopeLocked" @update:model-value="updateScopeLimited" /></div>
         <p class="project-scope-limit__description">开启后，只能在限定范围内圈选被评估人</p>
+        <p v-if="scopeLocked" class="project-scope-limit__description" role="status">项目已启动，限定考核范围不可修改。如需调整人员，请前往前台「项目管理」。</p>
         <PerformanceAudienceRuleEditor
           v-if="form.scopeLimited"
-          v-model="form.scopeRules"
+          :model-value="form.scopeRules"
+          @update:model-value="updateScopeRules"
           :allowed-fields="['department', 'employee']"
           scope-mode
           :organization-tree="evaluatorOptions.organization_tree"
           :person-options="evaluatorOptions.people"
-          :disabled="saving"
+          :disabled="saving || scopeLocked"
           @open-options="$emit('open-options')"
         />
       </div>

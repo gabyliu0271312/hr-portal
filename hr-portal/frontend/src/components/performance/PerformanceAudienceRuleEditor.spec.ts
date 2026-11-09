@@ -4,6 +4,8 @@ import PerformanceAudienceRuleEditor, { type PerformanceAudienceGroup } from './
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
+import PerformanceTextButton from './PerformanceTextButton.vue'
+import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceEmploymentStatusSelect from './PerformanceEmploymentStatusSelect.vue'
 import PerformanceJobFamilySelect from './PerformanceJobFamilySelect.vue'
 import PerformanceJobCategorySelect from './PerformanceJobCategorySelect.vue'
@@ -105,6 +107,45 @@ describe('independent snapshot selectors', () => {
 })
 
 describe('PerformanceAudienceRuleEditor', () => {
+  it('locks every editing handler without disabling the heading preview slot', async () => {
+    const groups: PerformanceAudienceGroup[] = [
+      { conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }, { field: 'hire_date', operator: 'before', values: ['2026-01-01'] }] },
+      { conditions: [{ field: '', operator: 'include', values: [] }] },
+    ]
+    const wrapper = mount(PerformanceAudienceRuleEditor, {
+      props: { modelValue: groups, allowedFields: ['employee', 'hire_date'], disabled: true },
+      slots: { 'group-heading-extra': '<button class="preview-link">查看人数</button>' },
+    })
+    expect(wrapper.findAll('input').every(input => input.attributes('disabled') !== undefined)).toBe(true)
+    expect(wrapper.findAll('.performance-select-shell__selector').every(select => !select.classes().includes('disabled-white'))).toBe(true)
+    expect(wrapper.get('.preview-link').attributes('disabled')).toBeUndefined()
+    for (const select of wrapper.findAllComponents(PerformanceSearchSelect)) {
+      select.vm.$emit('update:modelValue', 'hire_date')
+      select.vm.$emit('open')
+    }
+    const people = wrapper.getComponent(PerformancePersonSelect)
+    people.vm.$emit('update:modelValue', ['E2'])
+    people.vm.$emit('open')
+    people.vm.$emit('search', '员工')
+    wrapper.getComponent(PerformanceDateTimeField).vm.$emit('update:modelValue', '2027-01-01')
+    for (const action of [...wrapper.findAllComponents(PerformanceTextButton), ...wrapper.findAllComponents(PerformanceIconButton)]) action.vm.$emit('click')
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('open-options')).toBeUndefined()
+    expect(wrapper.emitted('search-people')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each([PerformanceTextButton, PerformanceIconButton])('does not emit disabled shared-button clicks dispatched programmatically', async component => {
+    const wrapper = mount(component, { props: { label: '删除', icon: 'DeleteTrashOutlined', disabled: true } })
+    wrapper.get('button').element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(wrapper.emitted('click')).toBeUndefined()
+    await wrapper.setProps({ disabled: false })
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.emitted('click')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it.each([
     ['employment_status', '在职状态', 'employment_statuses'],
     ['job_family', '职位族', 'job_families'],
@@ -207,7 +248,7 @@ describe('PerformanceAudienceRuleEditor', () => {
     expect(operator.props('disabled')).toBe(true)
     wrapper.findAllComponents(PerformanceSearchSelect)[0].vm.$emit('update:modelValue', 'employee_type')
     await flushPromises()
-    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])[0].conditions[0]).toEqual({ field: 'employee_type', operator: 'include', values: [] })
+    expect((wrapper.emitted('update:modelValue')?.at(-1)?.[0] as PerformanceAudienceGroup[])[0].conditions[0]).toEqual({ field: 'hire_date', operator: 'not_after', values: ['2026-10-20'] })
     wrapper.unmount()
   })
   it('does not preselect a field or load options until a value selector opens', async () => {

@@ -297,6 +297,71 @@ class PerformanceProjectService:
         matched = sorted([*task_people, *report_only], key=lambda person: (person.display_name, person.employee_no))
         return matched, task_people, report_only
 
+    @classmethod
+    def adjust_evaluator_rules(cls, rules, *, include=(), exclude=()):
+        result = deepcopy(cls._validate_rules(rules))
+        included = list(dict.fromkeys(include))
+        excluded = list(dict.fromkeys(exclude))
+        if included:
+            result["groups"].append({"conditions": [{"field": "employee", "operator": "include", "values": included}]})
+        if excluded:
+            for group in result["groups"]:
+                group["conditions"].append({"field": "employee", "operator": "exclude", "values": excluded})
+        return result
+
+    @staticmethod
+    def validate_audience_change(project, payload):
+        if project.status == PROJECT_STATUS_DRAFT:
+            return
+        settings = project.settings or {}
+        defaults = {"evaluator_rules": {"groups": []}, "scope_rules": {"groups": []}, "scope_limited": False, "scope_employee_nos": []}
+        if any(key in payload and payload[key] != settings.get(key, default) for key, default in defaults.items()):
+            raise CalibrationConflict("PROJECT_AUDIENCE_LOCKED", "项目已启动，被评估人范围只能通过前台项目管理调整")
+
+    async def project_audience(self, project, *, group_index=None):
+        from types import SimpleNamespace
+
+        snapshot = await self.db.scalar(select(PerformanceProjectMemberSnapshot).where(
+            PerformanceProjectMemberSnapshot.project_id == project.id,
+        ).order_by(PerformanceProjectMemberSnapshot.id.desc()).limit(1))
+        if snapshot is None:
+            raise ProjectValidationError("项目成员快照不存在")
+        members = list((await self.db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == snapshot.id,
+        ))).scalars().all())
+        source_people = list((await self.db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+        ))).scalars().all())
+        source_by_no = {person.employee_no: person for person in source_people}
+        member_nos = {member.employee_no for member in members}
+        task_nos = set((snapshot.source_filter or {}).get("task_generation_employee_nos") or [])
+        task_nos.update((await self.db.execute(select(PerformanceNodeTask.target_employee_no).where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.member_snapshot_id == snapshot.id,
+            PerformanceNodeTask.revoked_at.is_(None),
+        ))).scalars().all())
+        if task_nos - member_nos:
+            raise ProjectValidationError("项目任务成员范围与成员快照不一致，请先核对历史成员")
+        if "task_generation_employee_nos" not in (snapshot.source_filter or {}) and len(task_nos) != int(project.evaluated_count):
+            raise ProjectValidationError("历史任务成员分类无法确认，请先核对历史成员")
+        people = []
+        fields = ["employee_no", "display_name", *ORGANIZATION_FIELDS, "organization_ref", "direct_supervisor_employee_no", "project_manager_employee_no", "hrbp_employee_no", "employee_type", "employment_status", "job_family", "job_category", "standard_position", "position_level", "hire_date"]
+        for member in members:
+            source = source_by_no.get(member.employee_no)
+            values = {field: getattr(member, field, None) for field in fields}
+            values.update({"departure_date": getattr(source, "departure_date", None),
+                           "direct_supervisor_source_value": getattr(source, "direct_supervisor_source_value", None),
+                           "live_employment_status": getattr(source, "live_employment_status", None)})
+            people.append(SimpleNamespace(**values))
+        if group_index is not None:
+            groups = ((project.settings or {}).get("evaluator_rules") or {}).get("groups") or []
+            selected_group = groups[group_index:group_index + 1]
+            people_map = {person.employee_no: person for person in source_people}
+            people_map.update({person.employee_no: person for person in people})
+            people = [person for person in people if any(all(_matches_start_project_condition(self._person_values(person, people_map), condition) for condition in group.get("conditions", [])) for group in selected_group)]
+        people.sort(key=lambda person: (person.display_name, person.employee_no))
+        return people, [person for person in people if person.employee_no in task_nos], [person for person in people if person.employee_no not in task_nos]
+
     async def evaluator_count(self, cycle: PerformanceCycle, rules: dict[str, Any]) -> int:
         matched, _task_people, _report_only = await self.preview_people(
             cycle,
@@ -958,6 +1023,7 @@ class PerformanceProjectService:
             await self.db.refresh(project, with_for_update=True)
             if (project.settings or {}).get("template_id") != original_template:
                 raise CalibrationConflict("PROJECT_TEMPLATE_CONFLICT", "项目模板已变更，请刷新后重试")
+        self.validate_audience_change(project, payload)
         before = self.serialize(project)
         values = {**before, **payload}
         name, description, administrators, settings = self._validate_payload(values, project.settings or {})
@@ -980,7 +1046,7 @@ class PerformanceProjectService:
         project.description = description
         project.administrators = administrators
         project.settings = settings
-        if "evaluated_count" in payload:
+        if project.status == PROJECT_STATUS_DRAFT and "evaluated_count" in payload:
             project.evaluated_count = int(payload.get("evaluated_count") or 0)
         if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload and not payload.get("calibration_operations"):
             node_times = settings["flow_settings"].get("node_times") or {}

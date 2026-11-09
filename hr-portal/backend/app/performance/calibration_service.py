@@ -352,6 +352,39 @@ def resolve_calibration(node, settings, people, member_nos, *, require_complete=
     return {"role_code": CALIBRATOR_ROLE_CODE, "evaluated_count": len(member_nos), "assigned_count": len(assigned), "unassigned_count": len(set(member_nos) - assigned), "phases": result}
 
 
+def extend_calibration_member(node, flow, people, old_member_nos, employee_no):
+    frozen = deepcopy((node.config or {}).get("calibration") or {})
+    configured = ((flow.get("node_settings") or {}).get(node.node_id) or {}).get("calibration") or {}
+    configured_phases = {phase["phase_id"]: phase for phase in configured.get("phases") or []}
+    phases = frozen.get("phases") or []
+    if not phases or set(configured_phases) != {phase["phase_id"] for phase in phases}:
+        raise CalibrationConflict("CALIBRATION_HISTORY_CONFLICT", "校准阶段与冻结来源不一致")
+    delta_phases = []
+    for phase in phases:
+        sources = phase.get("rule_sources")
+        rules = configured_phases[phase["phase_id"]].get("rules") or []
+        if sources is None:
+            recovered = resolve_calibration({"node_id": node.node_id}, {"node_settings": {node.node_id: {"calibration": {"phases": [configured_phases[phase["phase_id"]]]}}}}, people, old_member_nos)
+            sources = recovered["phases"][0]["rule_sources"]
+        if [source["rule_id"] for source in sources] != [rule["rule_id"] for rule in rules]:
+            raise CalibrationConflict("CALIBRATION_HISTORY_CONFLICT", "校准规则与冻结来源不一致")
+        expected = {(item["handler_ref"], item["employee_no"], bool(item.get("allow_authorize"))) for item in aggregate_sources(sources)}
+        actual = {(item["handler_ref"], item["employee_no"], bool(item.get("allow_authorize"))) for item in phase.get("assignments") or []}
+        if expected != actual:
+            raise CalibrationConflict("CALIBRATION_HISTORY_CONFLICT", "校准分配与冻结来源不一致")
+        delta_flow = {"node_settings": {node.node_id: {"calibration": {"phases": [{"phase_id": phase["phase_id"], "rules": [source["rule"] for source in sources]}]}}}}
+        delta = resolve_calibration({"node_id": node.node_id}, delta_flow, people, [employee_no], require_complete=True)["phases"][0]
+        for source, added in zip(sources, delta["rule_sources"]):
+            source["assignments"].extend(added["assignments"])
+        phase["rule_sources"] = sources
+        phase["assignments"] = aggregate_sources(sources)
+        delta_phases.append(delta)
+    member_nos = set(old_member_nos) | {employee_no}
+    assigned = {item["employee_no"] for phase in phases for item in phase["assignments"]}
+    frozen.update({"phases": phases, "evaluated_count": len(member_nos), "assigned_count": len(assigned), "unassigned_count": len(member_nos - assigned)})
+    return frozen, delta_phases
+
+
 def calibration_task_scope(task, node):
     calibration = (node.config or {}).get("calibration") or {}
     if getattr(task, "revoked_at", None) is not None or task.project_id != node.project_id or node.node_type != "calibration" or task.task_kind != "calibration" or calibration.get("role_code") != CALIBRATOR_ROLE_CODE:

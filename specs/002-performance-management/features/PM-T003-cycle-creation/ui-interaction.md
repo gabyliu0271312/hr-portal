@@ -193,6 +193,16 @@
 - API：POST `/performance/cycles/{cycle_id}/evaluator-preview` 返回总人数、任务人数、仅报表人数和各组人数；POST `/performance/cycles/{cycle_id}/evaluator-preview/people` 按 `matched|task|report_only`、可选 `group_index`、keyword 和分页返回人员。沿用周期/项目查看权限，无权 403，非法规则 422。
 - UI 使用已有 design token，不复制采集 CSS；属于现有复杂表单的局部增强，无新路由或完整页面蓝图。独立 PNG 计划为 `../../ui-blueprints/PM-T003-I07-F03-implemented-evaluator-preview.png`。
 
+### PM-T003-I07-F05 启动后被评估人一致性（2026-11-09 用户确认）
+
+- 不新增“系统人员调整”区块。前台添加成功，在现有被评估人条件列表追加独立员工包含 OR 组；组内且、组间或保持不变。
+- STARTED/ARCHIVED后，字段、操作符、值、移除标签、清空、添加条件、添加人员范围、条件/组删除全部禁用；既有基本信息弹窗的限定范围开关与条件同步锁定，其他基本信息不锁。人数及名单查看保留。
+- 展示提示“项目已启动，被评估人条件不可修改。如需调整人员，请前往前台「项目管理」。”复用共享字段/文字按钮/图标按钮禁用语义token，去掉编辑器整块opacity；草稿未选字段的白色禁用占位不变。事件处理也阻断禁用更新；启动后保存不回传旧人员范围。
+- 草稿人数仍按周期快照规则预览；启动后同一preview API读取当前项目成员和任务成员分类，所有总人数、仅报表人数和名单按实际成员去重，范围组人数只在实际成员中匹配保存规则，不因客户端旧规则重新增删成员。
+- 多人添加保持既有逐人接口；任意成功均通知父页面刷新，遇失败/冲突保留失败和未处理人员，只移除成功人员，显示错误后可重试；切项目、关闭、清空搜索使旧响应失效。
+- 删除本轮只预留统一规则变换，不新增删除入口或调整已提交删除实现；移除须对所有OR组生效，不能另加独立exclude OR组扩大范围。
+- 77项定向测试与生产构建通过；真实登录/SQL回读/浏览器PNG仍未完成，见atomic-tasks中F05证据。现有页面局部增强，无新完整蓝图。
+
 ## PM-T003-I07-F04 六项独立业务筛选组件（2026-10-28）
 
 - 用户要求每项具有独立具名入口：`PerformanceEmploymentStatusSelect`、`PerformanceDepartureDateSelect`、`PerformanceJobFamilySelect`、`PerformanceJobCategorySelect`、`PerformancePositionLevelSelect`、`PerformanceStandardPositionSelect`，均位于 `frontend/src/components/performance/`。

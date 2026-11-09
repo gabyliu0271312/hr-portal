@@ -157,6 +157,122 @@ def project(status="DRAFT", project_ref="project:one"):
     )
 
 
+def test_audience_adjustment_uses_union_and_excludes_every_branch():
+    rules = {"groups": [{"conditions": [{"field": "department", "operator": "include", "values": ["研发"]}]}, {"conditions": [{"field": "employee", "operator": "include", "values": ["E2"]}]}]}
+    people = [SimpleNamespace(employee_no=no, department=department) for no, department in [("E1", "研发"), ("E2", "销售"), ("E3", "销售"), ("E4", "其他")]]
+    added = PerformanceProjectService.adjust_evaluator_rules(rules, include=["E3"])
+    removed = PerformanceProjectService.adjust_evaluator_rules(added, exclude=["E1", "E3"])
+    assert len(rules["groups"]) == 2
+    assert {p.employee_no for p in PerformanceProjectService._matching_people(people, {"evaluator_rules": added})} == {"E1", "E2", "E3"}
+    assert {p.employee_no for p in PerformanceProjectService._matching_people(people, {"evaluator_rules": removed})} == {"E2"}
+
+
+@pytest.mark.parametrize("state", ["STARTED", "ARCHIVED"])
+@pytest.mark.parametrize("field,value", [("evaluator_rules", {"groups": []}), ("scope_rules", {"groups": [{"conditions": []}]}), ("scope_limited", True), ("scope_employee_nos", ["E2"])])
+def test_started_audience_patch_locked(state, field, value):
+    from app.performance.calibration_service import CalibrationConflict
+    target = project(state)
+    target.settings["evaluator_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]}
+    with pytest.raises(CalibrationConflict) as exc:
+        PerformanceProjectService.validate_audience_change(target, {field: value})
+    assert exc.value.code == "PROJECT_AUDIENCE_LOCKED"
+    PerformanceProjectService.validate_audience_change(target, {"evaluator_rules": target.settings["evaluator_rules"]})
+    PerformanceProjectService.validate_audience_change(target, {"name": "新名称"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["STARTED", "ARCHIVED"])
+async def test_started_preview_uses_actual_members_not_posted_rules(monkeypatch, state):
+    from app.performance import projects_router as routes
+    target = project(state)
+    target.settings["evaluator_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]}
+    person = SimpleNamespace(employee_no="E1", display_name="员工一", direct_supervisor_source_value=None, company_org=None, department=None, department_2=None, department_3=None, job_family=None, job_category=None, standard_position=None, employment_status="在职")
+    async def audience(self, project, *, group_index=None): return [person], [person], []
+    async def unexpected(*args, **kwargs): raise AssertionError("启动后不得按客户端规则重算成员")
+    monkeypatch.setattr(routes, "_get_cycle", lambda *args: _resolved(SimpleNamespace(cycle_ref=target.cycle_ref)))
+    monkeypatch.setattr(routes, "_get_project", lambda *args: _resolved(target))
+    monkeypatch.setattr(routes, "_assert_cycle_project_view", lambda *args: _resolved(None))
+    monkeypatch.setattr(PerformanceProjectService, "project_audience", audience)
+    monkeypatch.setattr(PerformanceProjectService, "preview_people", unexpected)
+    payload = routes.EvaluatorPreviewPayload(project_id=1)
+    result = await routes.evaluator_preview(1, payload, context("performance.cycles.manage"), object())
+    assert result.task_generation_count == 1 and result.group_counts == [1]
+    page = await routes.evaluator_preview_people(1, payload, 1, 50, None, context("performance.cycles.manage"), object())
+    assert page.total == 1 and page.items[0].employee_no == "E1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["active", "report_only", "outside_scope", "ineligible", "duplicate", "other_project", "missing_manager", "denied", "archived"])
+async def test_reviewee_add_syncs_rules_members_tasks_and_classification(monkeypatch, scenario):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceCycle, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask
+    report_only = scenario == "report_only"
+    target = project("STARTED")
+    target.evaluated_count = 1
+    target.settings["evaluator_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]}
+    if scenario == "outside_scope":
+        target.settings["scope_rules"] = {"groups": [{"conditions": [{"field": "employee", "operator": "include", "values": ["E1"]}]}]}
+    cycle = SimpleNamespace(cycle_ref=target.cycle_ref, leaver_enabled=scenario != "ineligible", leaver_start_date=date(2026, 1, 1), leaver_end_date=date(2026, 12, 31), leaver_participation_mode="REPORT_ONLY")
+    person = SimpleNamespace(employee_no="E2", portal_user_id=None, display_name="员工二", company_org="集团", department="研发", department_2=None, department_3=None, department_4=None, department_5=None, organization_ref="集团/研发", direct_supervisor_employee_no=None, hrbp_employee_no=None, employee_type="正式", employment_status="离职" if report_only else "在职", departure_date=date(2026, 5, 1) if report_only else None, job_family=None, job_category=None, standard_position=None, position_level=None, hire_date=None)
+    if scenario == "ineligible":
+        person.employment_status = "离职"
+    snapshot = SimpleNamespace(id=7, source_filter={"task_generation_employee_nos": ["E1"]})
+    nodes = [SimpleNamespace(id=10, node_id="self", node_type="evaluation", config={"template": {"executor_role_code": "assessment.project_manager" if scenario == "missing_manager" else "assessment.reviewee"}})]
+    class Db:
+        def __init__(self): self.rows = []; self.refreshed = False; self.commits = 0
+        async def refresh(self, row, **kwargs):
+            assert row is target and kwargs["with_for_update"] is True
+            self.refreshed = True
+            if scenario == "archived": target.status = "ARCHIVED"
+        async def scalar(self, stmt):
+            entity = stmt.column_descriptions[0]["entity"]
+            if entity is PerformanceCycle: return cycle
+            if entity is PerformanceProjectMemberSnapshot:
+                assert self.refreshed
+                return snapshot
+            if entity is PerformanceProjectMember:
+                return 99 if scenario == "duplicate" else "E2" if scenario == "other_project" and "JOIN performance_projects" in str(stmt) else None
+            return None
+        async def execute(self, stmt):
+            values = nodes if stmt.column_descriptions[0]["entity"] is PerformanceProjectNodeSnapshot else []
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+        def add(self, row): self.rows.append(row)
+        async def commit(self): self.commits += 1
+    db = Db()
+    monkeypatch.setattr(routes, "_project_started", lambda *args: _resolved(target))
+    monkeypatch.setattr(routes, "_can_manage_project_like_overview", lambda *args: _resolved(scenario != "denied"))
+    monkeypatch.setattr(PerformanceProjectService, "_cycle_snapshot_people", lambda *args: _resolved((SimpleNamespace(status="LOCKED"), [person])))
+    monkeypatch.setattr(PerformanceProjectService, "project_audience", lambda *args: _resolved(([SimpleNamespace(employee_no="E1")], [SimpleNamespace(employee_no="E1")], [])))
+    if scenario not in {"active", "report_only"}:
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException):
+            await routes.add_project_reviewee(1, routes.RevieweeAddPayload(employee_no="E2"), context("performance.cycles.manage"), db)
+        assert not db.rows and db.commits == 0 and target.evaluated_count == 1
+        assert len(target.settings["evaluator_rules"]["groups"]) == 1
+        return
+    result = await routes.add_project_reviewee(1, routes.RevieweeAddPayload(employee_no="E2"), context("performance.cycles.manage"), db)
+    assert result.value == "E2" and db.commits == 1
+    assert any(isinstance(row, PerformanceProjectMember) for row in db.rows)
+    assert len([row for row in db.rows if isinstance(row, PerformanceNodeTask)]) == (0 if report_only else 1)
+    assert target.evaluated_count == (1 if report_only else 2)
+    assert snapshot.source_filter["task_generation_employee_nos"] == (["E1"] if report_only else ["E1", "E2"])
+    assert target.settings["evaluator_rules"]["groups"][-1]["conditions"] == [{"field": "employee", "operator": "include", "values": ["E2"]}]
+
+
+def test_calibration_member_increment_keeps_old_assignments_and_adds_all_handlers():
+    from app.performance.calibration_service import resolve_calibration, extend_calibration_member
+    people = {no: SimpleNamespace(employee_no=no, direct_supervisor_employee_no=None) for no in ["E1", "E2", "M1", "M2"]}
+    rule = {"rule_id": "r1", "subject_groups": [{"conditions": [{"operator": "INCLUDE", "values": ["M1", "M2"]}]}], "scope": "PROJECT_ALL", "allow_authorize": True}
+    flow = {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "p1", "rules": [rule]}]}}}}
+    frozen = resolve_calibration({"node_id": "cal"}, flow, people, ["E1"], require_complete=True)
+    result, delta = extend_calibration_member(SimpleNamespace(node_id="cal", config={"calibration": frozen}), flow, people, ["E1"], "E2")
+    assert frozen["evaluated_count"] == 1
+    assert result["evaluated_count"] == result["assigned_count"] == 2
+    assert len(result["phases"][0]["assignments"]) == 4
+    assert {(item["handler_ref"], item["employee_no"]) for item in delta[0]["assignments"]} == {("M1", "E2"), ("M2", "E2")}
+    assert len(result["phases"][0]["rule_sources"][0]["assignments"]) == 4
+
+
 def test_admin_preview_requires_dev_debug_and_admin_permission(monkeypatch):
     admin = context("performance.cycles.manage")
     portal_admin = context(portal_entry_permissions=("performance.admin",))
