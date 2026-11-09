@@ -315,7 +315,7 @@ function formatDateTime(value: string | null | undefined) {
 .front-fg-dialog__hint-title { font-weight: 500; }
 .front-fg-dialog__hint-desc { color: #646a73; font-size: 12px; line-height: 18px; }
 .front-fg-dialog__table-wrap { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; padding: 16px 24px 0; }
-.front-fg-dialog__toolbar { display: flex; flex: none; align-items: center; justify-content: space-between; min-height: 32px; }
+.front-fg-dialog__toolbar { display: flex; flex: none; align-items: center; justify-content: space-between; min-height: 32px; margin-bottom: var(--page-gap-toolbar-table); }
 .front-fg-dialog__tools { display: flex; align-items: center; gap: 8px; }
 .front-fg-dialog__tools :deep(.performance-search-input) { flex: 0 0 292px; width: 292px !important; }
 .front-fg-dialog__filter { min-width: var(--performance-button-min-width); }
