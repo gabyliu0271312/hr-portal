@@ -1,11 +1,11 @@
 import { defineComponent, h, ref } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PerformanceProjectFlowSettings, PerformanceWorkflowNode } from '@/api/performance'
 import PerformanceProjectFlowSettingsComponent from './PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from './PerformanceProjectTimeSettings.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
-import { createCalibrationPhaseId, initializeCalibrationNodes, ensureCalibrationPhaseIds, projectNodeTimeError, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
+import { createCalibrationPhaseId, initializeCalibrationNodes, ensureCalibrationPhaseIds, projectDeadlineError, projectNodeTimeError, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 
 const node = { node_id: 'calibration', node_type: 'calibration', name: '校准环节', order: 1 } as PerformanceWorkflowNode
 const first = { start_at: '2026-10-01T09:00', end_at: '2026-10-05T18:00' }
@@ -141,6 +141,49 @@ describe('elapsed node time controls', () => {
   })
 })
 
+describe('deadline validation', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-06T04:00:00Z')) })
+  afterEach(() => vi.useRealTimers())
+
+  it.each(['evaluation', 'result_view', 'result_reconsideration', 'calibration'])('shows a shared field error directly below the %s deadline and clears it when corrected', async type => {
+    const field = type === 'result_view' ? 'appeal_deadline' : 'end_at'
+    const timing = { start_at: '2026-11-05T09:00', end_at: '', [field]: '2026-11-06T11:59' }
+    const value: PerformanceProjectFlowSettings = type === 'calibration' ? { node_times: { target: { ...timing, phase_times: { first: { ...timing } } } }, node_settings: { target: { calibration: { phases: [{ phase_id: 'first', rules: [] }], force_distribution_enabled: false } } } } : { node_times: { target: timing }, node_settings: {} }
+    const nodes = [{ ...node, node_id: 'target', node_type: type }] as PerformanceWorkflowNode[]
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, modelValue: value.node_times, nodeSettings: value.node_settings } })
+    const end = wrapper.findAllComponents(PerformanceDateTimeField).find(item => item.props('timeRole') === 'end')!
+    const errorId = end.props('describedBy')!
+    expect(end.props('invalid')).toBe(true)
+    expect(wrapper.get(`#${errorId}`).text()).toContain('不能早于当前时间')
+    expect(end.get('input').attributes('aria-invalid')).toBe('true')
+    expect(end.element.closest('.performance-form-item')?.querySelector('.performance-form-item__error')?.id).toBe(errorId)
+    expect(projectNodeTimeError(nodes, value as PerformanceProjectFlowSettings)).toContain('不能早于当前时间')
+    await end.get('input').setValue('2026-11-07 18:00')
+    expect(end.props('invalid')).toBe(false)
+    expect(wrapper.find(`#${errorId}`).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('revalidates the end when the start changes and at the current-time boundary', async () => {
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [{ ...node, node_id: 'evaluation', node_type: 'evaluation' }], modelValue: { evaluation: { start_at: '2026-11-05T09:00', end_at: '2026-11-06T12:00' } } } })
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.get('#evaluation-deadline-error').text()).toBe('截止时间不能早于当前时间')
+    await wrapper.get('#evaluation-end').setValue('2026-11-07 18:00')
+    await wrapper.get('#evaluation-start').setValue('2026-11-08 09:00')
+    expect(wrapper.get('#evaluation-deadline-error').text()).toBe('截止时间必须晚于开始时间')
+    await wrapper.get('#evaluation-start').setValue('2026-11-05 09:00')
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('uses Beijing timestamps, accepts now exactly and preserves strict start/end ordering', () => {
+    expect(projectDeadlineError('2026-11-05T09:00', '2026-11-06T12:00')).toBe('')
+    expect(projectDeadlineError('2026-11-05T09:00', '2026-11-06T03:59:00Z')).toBe('截止时间不能早于当前时间')
+    expect(projectDeadlineError('2026-11-06T12:01', '2026-11-06T04:01:00Z')).toBe('截止时间必须晚于开始时间')
+  })
+})
+
 describe('calibration phase time linkage', () => {
   it('creates stable IDs without requiring crypto.randomUUID', () => {
     expect(createCalibrationPhaseId(() => 'native-id')).toBe('native-id')
@@ -263,13 +306,13 @@ describe('calibration phase time linkage', () => {
 
   it('rejects incomplete or reversed phases and labels the offending phase', () => {
     const value = settings()
-    expect(projectNodeTimeError([node], value)).toBe('')
+    expect(projectNodeTimeError([node], value, Date.parse('2026-09-01T00:00:00Z'))).toBe('')
     value.node_times.calibration.phase_times!.second.end_at = ''
-    expect(projectNodeTimeError([node], value)).toContain('第 2 阶段')
+    expect(projectNodeTimeError([node], value, Date.parse('2026-09-01T00:00:00Z'))).toContain('第 2 阶段')
     value.node_times.calibration.phase_times!.second.end_at = second.start_at
-    expect(projectNodeTimeError([node], value)).toContain('截止时间必须晚于开始时间')
+    expect(projectNodeTimeError([node], value, Date.parse('2026-09-01T00:00:00Z'))).toContain('截止时间必须晚于开始时间')
     const wrapper = timeComponent(value)
-    expect(wrapper.get('.phase-time-error').text()).toBe('截止时间必须晚于开始时间')
+    expect(wrapper.get('#calibration-second-error').text()).toBe('截止时间必须晚于开始时间')
     expect(wrapper.findAllComponents(PerformanceDateTimeField)[3].props('invalid')).toBe(true)
     wrapper.unmount()
   })
@@ -277,7 +320,7 @@ describe('calibration phase time linkage', () => {
   it('compares timestamps instead of mixing local and UTC string order', () => {
     const value = settings()
     value.node_times.calibration.phase_times!.second = { start_at: '2026-10-06T09:00+08:00', end_at: '2026-10-06T02:00Z' }
-    expect(projectNodeTimeError([node], value)).toBe('')
+    expect(projectNodeTimeError([node], value, Date.parse('2026-09-01T00:00:00Z'))).toBe('')
     syncCalibrationPhaseTimes(value.node_settings, value.node_times)
     expect(value.node_times.calibration.end_at).toBe('2026-10-06T02:00Z')
   })

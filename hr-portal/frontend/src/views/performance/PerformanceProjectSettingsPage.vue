@@ -395,7 +395,9 @@ async function nextStep() {
     if (await saveDraft()) currentStep.value += 1
     return
   }
-  if (nodeTimeError.value) { validationError.value = nodeTimeError.value; return }
+  const timeError = projectNodeTimeError(workflowNodes.value, form.flow_settings)
+  if (timeError) { validationError.value = timeError; return }
+  validationError.value = ''
   if (!validate() || saving.value) return
   if (await saveDraft(true)) { savedView.value = true; notice.value = '项目设置已保存' }
 }

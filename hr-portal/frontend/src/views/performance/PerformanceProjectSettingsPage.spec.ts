@@ -258,6 +258,26 @@ describe('CR-013 project partial saves', () => {
     mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'calibration', node_type: 'calibration', name: '校准', order: 1 }, { node_id: 'result', node_type: 'result_view', name: '结果', order: 2 }] })
     return project
   }
+  it('blocks completion with an elapsed deadline and saves after correcting it', async () => {
+    const project = await started()
+    project.flow_settings.node_times.result.appeal_deadline = '2000-01-04T01:00:00Z'
+    project.flow_settings.node_times.result.start_at = '2000-01-03T01:00:00Z'
+    mocks.get.mockResolvedValue(project)
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.get('#result-appeal-deadline').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#result-deadline-error').text()).toBe('发起复议截止时间不能早于当前时间')
+    await wrapper.get('#result-appeal-deadline').setValue('2099-01-04 09:00')
+    await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.update).toHaveBeenCalledOnce()
+    expect(mocks.update.mock.calls[0][1].flow_settings.node_times.result.appeal_deadline).toBe('2099-01-04T01:00:00.000Z')
+    wrapper.unmount()
+  })
+
   it('does not PATCH historical started projects across every unchanged step', async () => {
     await started()
     const wrapper = page(); await flushPromises()
