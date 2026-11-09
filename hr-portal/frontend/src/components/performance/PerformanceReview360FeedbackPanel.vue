@@ -121,7 +121,8 @@ const selectedTarget = ref<string | null>(null)
 const submitting = ref(false)
 const candidateOptions = computed(() => candidates.value.map(candidate => ({
   value: candidate.employee_no,
-  label: `${candidate.display_name} · ${candidate.employee_no}${candidate.department ? ' · ' + candidate.department : ''}`,
+  label: candidate.display_name,
+  subLabel: candidate.department || undefined,
 })))
 async function loadCandidates() {
   candidateLoading.value = true

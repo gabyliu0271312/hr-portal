@@ -202,7 +202,7 @@ async def test_started_preview_uses_actual_members_not_posted_rules(monkeypatch,
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scenario", ["active", "report_only", "outside_scope", "ineligible", "duplicate", "other_project", "missing_manager", "denied", "archived"])
+@pytest.mark.parametrize("scenario", ["active", "report_only", "outside_scope", "ineligible", "duplicate", "other_project", "missing_manager", "denied", "archived", "calibration_legacy", "calibration_override", "calibration_missing", "calibration_explicit_empty"])
 async def test_reviewee_add_syncs_rules_members_tasks_and_classification(monkeypatch, scenario):
     from app.performance import projects_router as routes
     from app.performance.models import PerformanceCycle, PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask
@@ -218,6 +218,19 @@ async def test_reviewee_add_syncs_rules_members_tasks_and_classification(monkeyp
         person.employment_status = "离职"
     snapshot = SimpleNamespace(id=7, source_filter={"task_generation_employee_nos": ["E1"]})
     nodes = [SimpleNamespace(id=10, node_id="self", node_type="evaluation", config={"template": {"executor_role_code": "assessment.project_manager" if scenario == "missing_manager" else "assessment.reviewee"}})]
+    if scenario.startswith("calibration_"):
+        from app.performance.calibration_service import resolve_calibration
+        phase_window = {"start_at": "2026-11-06T16:00:00.000Z", "end_at": "2026-11-08T15:59:00.000Z"}
+        rule = {"rule_id": "r1", "subject_groups": [{"conditions": [{"operator": "INCLUDE", "values": ["E2"]}]}], "scope": "PROJECT_ALL", "allow_authorize": False}
+        flow = {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "phase-1", "rules": [rule]}]}}}, "node_times": {"cal": dict(phase_window)}}
+        if scenario == "calibration_override":
+            flow["node_times"]["cal"]["phase_times"] = {"phase-1": {"start_at": "2026-11-07T16:00:00.000Z", "end_at": "2026-11-08T16:59:00.000Z"}}
+        if scenario == "calibration_explicit_empty":
+            flow["node_times"]["cal"]["phase_times"] = {"phase-1": {"start_at": "", "end_at": ""}}
+        frozen = resolve_calibration({"node_id": "cal"}, flow, {"E2": person}, ["E1"])
+        snapshot_time = dict(phase_window) if scenario == "calibration_missing" else {**phase_window, "phase_times": {"phase-1": dict(phase_window)}}
+        nodes.append(SimpleNamespace(id=11, node_id="cal", node_type="calibration", config={"template": {}, "time": snapshot_time, "calibration": frozen}))
+        target.settings["flow_settings"] = flow
     class Db:
         def __init__(self): self.rows = []; self.refreshed = False; self.commits = 0
         async def refresh(self, row, **kwargs):
@@ -243,20 +256,49 @@ async def test_reviewee_add_syncs_rules_members_tasks_and_classification(monkeyp
     monkeypatch.setattr(routes, "_can_manage_project_like_overview", lambda *args: _resolved(scenario != "denied"))
     monkeypatch.setattr(PerformanceProjectService, "_cycle_snapshot_people", lambda *args: _resolved((SimpleNamespace(status="LOCKED"), [person])))
     monkeypatch.setattr(PerformanceProjectService, "project_audience", lambda *args: _resolved(([SimpleNamespace(employee_no="E1")], [SimpleNamespace(employee_no="E1")], [])))
-    if scenario not in {"active", "report_only"}:
+    if scenario not in {"active", "report_only", "calibration_legacy", "calibration_override"}:
         from fastapi import HTTPException
-        with pytest.raises(HTTPException):
+        with pytest.raises(HTTPException) as rejected:
             await routes.add_project_reviewee(1, routes.RevieweeAddPayload(employee_no="E2"), context("performance.cycles.manage"), db)
+        if scenario in {"calibration_missing", "calibration_explicit_empty"}:
+            assert rejected.value.detail["code"] == "CALIBRATION_PHASE_TIME_REQUIRED"
         assert not db.rows and db.commits == 0 and target.evaluated_count == 1
         assert len(target.settings["evaluator_rules"]["groups"]) == 1
         return
     result = await routes.add_project_reviewee(1, routes.RevieweeAddPayload(employee_no="E2"), context("performance.cycles.manage"), db)
     assert result.value == "E2" and db.commits == 1
     assert any(isinstance(row, PerformanceProjectMember) for row in db.rows)
-    assert len([row for row in db.rows if isinstance(row, PerformanceNodeTask)]) == (0 if report_only else 1)
+    assert len([row for row in db.rows if isinstance(row, PerformanceNodeTask)]) == (0 if report_only else 2 if scenario.startswith("calibration_") else 1)
+    if scenario in {"calibration_legacy", "calibration_override"}:
+        from datetime import UTC, datetime
+        task = next(row for row in db.rows if isinstance(row, PerformanceNodeTask) and row.task_kind == "calibration")
+        expected_window = flow["node_times"]["cal"].get("phase_times", {"phase-1": phase_window})["phase-1"]
+        assert task.available_at == _parse_time(expected_window["start_at"])
+        assert task.due_at == _parse_time(expected_window["end_at"])
+        start, end = routes._task_window(task, nodes[-1], target)
+        assert routes._review_task_status(task, start.isoformat(), end.isoformat(), datetime(2026, 11, 9, tzinfo=UTC)) == "overdue"
+        assert task.status == "pending"
+        assert flow["node_times"]["cal"].get("phase_times") == (None if scenario == "calibration_legacy" else {"phase-1": expected_window})
     assert target.evaluated_count == (1 if report_only else 2)
     assert snapshot.source_filter["task_generation_employee_nos"] == (["E1"] if report_only else ["E1", "E2"])
     assert target.settings["evaluator_rules"]["groups"][-1]["conditions"] == [{"field": "employee", "operator": "include", "values": ["E2"]}]
+
+
+@pytest.mark.parametrize("configured,expected", [
+    ({}, "snapshot"),
+    ({"start_at": "legacy", "end_at": "legacy"}, "snapshot"),
+    ({"phase_times": {"p1": {"start_at": "new-start", "end_at": "new-end"}}}, "project"),
+    ({"phase_times": {"p1": {"start_at": "", "end_at": ""}}}, "empty"),
+    ({"phase_times": {"other": {"start_at": "other", "end_at": "other"}}}, "missing"),
+])
+def test_calibration_phase_window_falls_back_only_for_legacy_shape(configured, expected):
+    from app.performance.calibration_service import calibration_phase_window
+    snapshot = {"start_at": "old-start", "end_at": "old-end"}
+    node = SimpleNamespace(node_id="cal", config={"time": {"phase_times": {"p1": snapshot}}})
+    flow = {"node_times": {"cal": configured}}
+    window = calibration_phase_window(flow, node, "p1")
+    assert window == {"snapshot": snapshot, "project": {"start_at": "new-start", "end_at": "new-end"}, "empty": {"start_at": "", "end_at": ""}, "missing": None}[expected]
+    assert calibration_phase_window(flow, node, "unrelated") is None
 
 
 def test_calibration_member_increment_keeps_old_assignments_and_adds_all_handlers():
@@ -3710,6 +3752,7 @@ async def test_evaluator_options_and_counts_use_existing_draft_or_locked_snapsho
     service = PerformanceProjectService(Db())
     cycle = SimpleNamespace(cycle_ref="cycle:one", leaver_enabled=False)
     options = await service.evaluator_options(cycle)
+    assert options["people"] == [{"value": row["employee_no"], "label": row["display_name"]} for row in rows]
     assert {item["value"] for item in options["employee_types"]} == {"正式员工", "实习生"}
     assert options["hire_date_range"] == {"min": "2026-01-01", "max": "2026-02-01"}
     condition = {"field": "hire_date", "operator": "include", "values": ["2026-01-01", "2026-01-31"]}

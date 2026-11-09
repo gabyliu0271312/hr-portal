@@ -50,8 +50,10 @@ const administratorOptions = computed<PerformanceSearchSelectOption[]>(() => {
     const name = person.label.endsWith(suffix) ? person.label.slice(0, -suffix.length) : person.label
     if (!name || seen.has(name)) continue
     seen.add(name)
-    options.push({ value: name, label: person.label })
+    options.push({ value: name, label: name })
   }
+  const saved = form.administrators.filter(value => !options.some(option => option.value === value))
+  for (const value of saved) options.push({ value, label: value })
   return options
 })
 

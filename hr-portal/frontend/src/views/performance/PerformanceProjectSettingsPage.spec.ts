@@ -22,7 +22,7 @@ import PerformanceDateTimeField from '@/components/performance/PerformanceDateTi
 import PerformanceProjectDialog from '@/components/performance/PerformanceProjectDialog.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 
-function page(realDialog = false, realFlow = false) {
+function page(realDialog = false, realFlow = false, realAudience = false) {
   return mount(PerformanceProjectSettingsPage, {
     global: { stubs: {
       teleport: { template: '<div><slot /></div>' },
@@ -31,7 +31,7 @@ function page(realDialog = false, realFlow = false) {
       ElSelect: true,
       ElOption: true,
       UiPageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
-      PerformanceAudienceRuleEditor: { props: ['modelValue', 'allowedFields', 'snapshotOptions', 'disabled'], template: '<div data-testid="audience-editor"><slot name="group-heading-extra" :index="0" /></div>' },
+      PerformanceAudienceRuleEditor: realAudience ? false : { props: ['modelValue', 'allowedFields', 'snapshotOptions', 'disabled'], template: '<div data-testid="audience-editor"><slot name="group-heading-extra" :index="0" /></div>' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
       PerformanceProjectFlowSettings: !realFlow,
@@ -112,7 +112,7 @@ describe('project audience visibility', () => {
     expect(wrapper.find('#people-title').exists()).toBe(true)
     expect(wrapper.get('[aria-label="切换模板"]').text()).toBe('切换模板')
     expect(wrapper.get('.template-preview button').text()).toBe('预览')
-    expect(mocks.listEvaluatorOptions).not.toHaveBeenCalled()
+    expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(1)
     await wrapper.get('[aria-label="切换模板"]').trigger('click')
     await wrapper.findAll('input[type="radio"]')[1].setValue()
     await button(wrapper, '确定').trigger('click')
@@ -126,6 +126,22 @@ describe('project audience visibility', () => {
 
 
 describe('project audience preview', () => {
+  it('resolves saved employee rules to display names in the real disabled person selector', async () => {
+    const rules = { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['900162'] }] }] }
+    mocks.get.mockResolvedValue({ ...await mocks.get(), template_id: 11, status: 'STARTED', evaluator_rules: rules })
+    mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [], employee_types: [], people: [{ value: '900162', label: 'judy.zhu朱君兰（900162）' }] })
+    const wrapper = page(false, false, true)
+    await flushPromises()
+    const labels = wrapper.findAll('.performance-select-shell__tag-content').map(item => item.text())
+    expect(labels).toContain('judy.zhu朱君兰')
+    expect(labels).not.toContain('900162')
+    expect(labels).not.toContain('judy.zhu朱君兰（900162）')
+    expect(wrapper.getComponent(PerformanceAudienceRuleEditor).props('modelValue')).toEqual(rules.groups)
+    expect(wrapper.get('input[aria-label="员工范围"]').attributes('disabled')).toBeDefined()
+    expect(mocks.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it.each(['STARTED', 'ARCHIVED'])('locks reviewee conditions and omits evaluator_rules for %s projects', async status => {
     const project = { ...await mocks.get(), template_id: 11, status, evaluator_rules: { groups: [{ conditions: [{ field: 'employee', operator: 'include', values: ['E1'] }] }] } }
     mocks.get.mockResolvedValue(project)
@@ -552,7 +568,7 @@ describe('project administrator person picker', () => {
     await flushPromises()
     expect(mocks.listEvaluatorOptions).toHaveBeenCalledWith(1)
     const options = wrapper.findAll('[role="option"]')
-    expect(options.map(option => option.text())).toEqual(['张三（E001）', '李四（E002）'])
+    expect(options.map(option => option.text())).toEqual(['张三', '李四'])
     await options[0].trigger('click')
     await button(wrapper, '确定').trigger('click')
     await flushPromises()

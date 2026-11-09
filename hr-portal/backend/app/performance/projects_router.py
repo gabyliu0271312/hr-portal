@@ -16,7 +16,7 @@ from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
-from app.performance.calibration_service import calibration_task_scope, CalibrationConflict, extend_calibration_member
+from app.performance.calibration_service import calibration_task_scope, calibration_phase_window, CalibrationConflict, extend_calibration_member
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
@@ -214,8 +214,8 @@ def _task_window(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot
     if getattr(task, "task_kind", None) == "result_reconsideration":
         return task.available_at, task.due_at
     if getattr(task, "task_kind", None) == "calibration":
-        timing = _node_timing(project, node) or {}
-        phase = (timing.get("phase_times") or {}).get(task.phase_id)
+        flow = ((project.settings or {}).get("flow_settings") or {}) if project else {}
+        phase = calibration_phase_window(flow, node, task.phase_id)
         if phase is not None:
             return _parse_time(phase.get("start_at")), _parse_time(phase.get("end_at"))
         return task.available_at, task.due_at
@@ -4893,7 +4893,7 @@ async def add_project_reviewee(
                 if node.node_type == "calibration":
                     calibration_updates[node.id] = extend_calibration_member(node, flow_settings, people_by_employee, sorted(generation_nos), person.employee_no)
                     for phase in calibration_updates[node.id][1]:
-                        window = ((node_times.get(node.node_id) or {}).get("phase_times") or {}).get(phase["phase_id"]) or {}
+                        window = calibration_phase_window(flow_settings, node, phase["phase_id"]) or {}
                         if not window.get("start_at") or not window.get("end_at"):
                             raise CalibrationConflict("CALIBRATION_PHASE_TIME_REQUIRED", "校准阶段缺少起止时间")
     except (CalibrationConflict, ValueError) as exc:
@@ -4907,7 +4907,7 @@ async def add_project_reviewee(
             calibration, delta_phases = calibration_updates[node.id]
             node.config = {**(node.config or {}), "calibration": calibration}
             for phase in delta_phases:
-                window = (timing.get("phase_times") or {}).get(phase["phase_id"]) or {}
+                window = calibration_phase_window(flow_settings, node, phase["phase_id"]) or {}
                 for assignment in phase["assignments"]:
                     db.add(PerformanceNodeTask(
                         project_id=project.id, cycle_ref=project.cycle_ref, member_snapshot_id=member_snapshot.id,

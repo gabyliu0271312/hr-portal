@@ -15,6 +15,14 @@ class CalibrationConflict(ValueError):
         self.code = code
 
 
+def calibration_phase_window(flow, node, phase_id):
+    timing = ((flow or {}).get("node_times") or {}).get(node.node_id) or {}
+    if "phase_times" in timing:
+        return (timing.get("phase_times") or {}).get(phase_id)
+    snapshot_timing = (node.config or {}).get("time") or {}
+    return (snapshot_timing.get("phase_times") or {}).get(phase_id)
+
+
 def canonical_flow(flow, project_id):
     result = deepcopy(flow or {})
     for node_id, setting in (result.get("node_settings") or {}).items():

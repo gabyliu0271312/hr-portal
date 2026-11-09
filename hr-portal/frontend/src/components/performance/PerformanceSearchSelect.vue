@@ -53,6 +53,8 @@ import { computed } from 'vue'
 import PerformanceSelectShell, { type PerformanceSelectItem } from './PerformanceSelectShell.vue'
 
 export type PerformanceSearchSelectOption = PerformanceSelectItem & {
+  display_name?: string
+  searchText?: string
   disabled?: boolean
   /** 选项头像 URL（REA 员工搜索项 32 圆头像） */
   avatarUrl?: string
@@ -112,9 +114,9 @@ function filteredOptions(query: string) {
     // 远程搜索：未输入关键词不显示结果（REA 实测行为）；
     // 输入关键词后先按本地 options 过滤（未接远程搜索的使用方仍可输入过滤；
     // 接远程搜索的使用方外部更新 options 后此处二次过滤结果一致）
-    result = !keyword ? [] : props.options.filter(option => option.label.toLowerCase().includes(keyword))
+    result = !keyword ? [] : props.options.filter(option => (option.searchText || option.label).toLowerCase().includes(keyword))
   } else {
-    result = !keyword ? props.options : props.options.filter(option => option.label.toLowerCase().includes(keyword))
+    result = !keyword ? props.options : props.options.filter(option => (option.searchText || option.label).toLowerCase().includes(keyword))
   }
   return result
 }

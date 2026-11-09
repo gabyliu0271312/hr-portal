@@ -184,7 +184,20 @@
   - Frontend evidence：ProjectManagement.spec.ts新增4项删除状态用例通过；成员菜单/详情抽屉/项目管理页首次3文件45 passed。最终扩大到5文件得85 passed / 1 failed（总86），失败来自并行会话新加PerformanceMemberMoreMenu的hover hint popovers用例，不修改其在途功能，已通知负责会话。npm.cmd --prefix hr-portal/frontend run build → vue-tsc+Vite exit0，仅既有VueUse注释警告；本卡文件git diff --check通过。
   - Not-run/blockers：localhost:8000/docs连接失败，前轮Docker守护进程不可用；本轮无真实API→SQL→新连接回读、并发/回滚真库与浏览器PNG。单测的事务及级联断言为受控夹具，不等价真实数据库约束验收。无迁移、无外部投递、未commit/push/deploy。
   - 提交前复验：后端上述增删定向28 passed；前端ProjectManagement.spec.ts、PerformanceMemberMoreMenu.spec.ts、PerformanceReviewEvaluationDrawer.spec.ts共3文件46 passed，菜单hover修正已由并行会话完成，本卡不纳入该菜单改动。用户另行授权在main提交并推送本卡，不含部署。
+  - Historical calibration-time fix（本次用户现场2026-11-09确认）：当项目 `flow_settings.node_times[node_id]` 为历史节点级时间且缺少 `phase_times` 时，新增校准人员回退读取同一冻结校准节点 `config.time.phase_times[phase_id]`；项目显式存在 `phase_times` 时不回退覆盖，空值/错键仍明确拒绝。阶段已截止不阻止添加，新增任务保留历史 `available_at/due_at`，由既有任务状态展示为 `overdue`；不放开校准逾期提交权限，不执行生产JSONB回填。
+  - Historical-time evidence：新增校准时间回退、项目覆盖优先、显式空/错键拒绝及已截止任务窗口用例，与添加回归合计18 passed；代码构建/真实生产API SQL回读尚未在本轮执行。
   - Definition of done：本地实现/定向回归/构建完成，整卡保持未勾选；待真实API/SQL/浏览器验收完成后独立验收。
+
+- [ ] PM-T003-I07-F07 人员选择统一展示display_name（2026-11-09 用户确认）
+  - Goal：被评估人条件及共享人员选择器展示display_name，工号仅用于身份值与搜索，不用Token掩盖数据标签问题。
+  - Required reading：Spec002基线、本功能spec/ui-interaction、F05、Spec012 UI门禁及现有PersonSelect/SearchSelect契约。
+  - Allowed modifications：backend/app/performance/project_service.py、既有项目测试；frontend/components/performance/PerformancePersonSelect.vue、PerformanceSearchSelect.vue及既有PerformanceSearchSelect.spec.ts、PerformanceProjectDialog.vue、PerformanceReview360FeedbackPanel.vue；PerformanceProjectSettingsPage.vue/spec.ts；本功能既有文档。保护其他并行修改，不新增脚本/报告。
+  - Contract：evaluator-options保持value=工号、label=display_name；共享人员控件优先显示显式display_name，兼容剥除精确匹配value的旧括号工号后缀，保留选项副标签和工号搜索；已选人员在搜索结果替换/清空后仍保留本实例已解析姓名，不做跨周期全局缓存。无可信姓名时展示信息不可用提示，不虚构姓名或显示裸工号。
+  - UI：现有信息架构和Token不变；已保存人员条件（含启动后禁用态）加载周期快照姓名以回显，不改变规则值，不自动选值；空白新建条件继续按需加载。
+  - Acceptance/tests：已有姓名只显示姓名、旧标签兼容、工号搜索/提交不变、远程候选变更后已选标签保留、禁用及保存重开、接口失败不丢规则；SearchSelect/PersonSelect及项目页/弹窗回归、后端选项契约与前端build分别记录。
+  - Non-scope：人员身份/权限/历史快照变更、全系统其他业务重构、生产回填、commit/push/deploy。
+  - Evidence（2026-11-09本地）：共享SearchSelect/PersonSelect、AudienceRuleEditor、RevieweeAddDialog、ProjectSettingsPage、ProjectFlowSettings、HRBP、IdentitySwitch、MultiExecutor、CalibrationConditionGroup及人员组相关11文件169 passed。包含真实条件编辑器STARTED只读姓名回显、旧姓名（工号）兼容、工号搜索/提交、重复姓名不同value、候选替换后保留姓名及历史管理员姓名回显。后端evaluator_options与历史校准时间/添加回归20 passed，1项python_multipart弃用警告。npm.cmd --prefix hr-portal/frontend run build → vue-tsc+Vite exit0，仅既有VueUse PURE注释警告。
+  - Not-run/Definition of done：尚未完成真实登录API/数据库/浏览器PNG验收，整卡保持未勾选；无生产写入/迁移，未commit/push/deploy。
 
 - [ ] PM-T003-I07-F03 被评估人人数统计与人员预览
   - Goal/Type：在项目信息被评估人区域展示真实总人数、任务人数、仅报表离职人数及每组人数，并复用去催办人员弹层查看明细；既有 UI/API/快照增强。

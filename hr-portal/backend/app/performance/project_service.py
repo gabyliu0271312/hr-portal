@@ -252,7 +252,7 @@ class PerformanceProjectService:
         options = {
             "organization_tree": build_organization_tree(rows),
             "people": sorted([
-                {"value": person.employee_no, "label": f"{person.display_name}（{person.employee_no}）"}
+                {"value": person.employee_no, "label": person.display_name}
                 for person in people
             ], key=lambda item: item["value"]),
         }

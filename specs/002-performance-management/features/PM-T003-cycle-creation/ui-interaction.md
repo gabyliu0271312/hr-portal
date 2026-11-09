@@ -211,6 +211,12 @@
 - 删除请求中重复确认不重复发请求；失败保留详情并显示接口错误。成功即关闭被删除人详情/清理URL并刷新成员和概览，导航失败单独提示，不误报删除失败。切周期时不刷新旧周期，旧概览响应不覆盖新周期。
 - 本地新增4项删除状态用例通过，成员菜单/详情/项目页3文件45项通过，构建通过。未取得原入口真实API/SQL回读或独立PNG，不以单测宣称整体验收通过。
 
+### PM-T003-I07-F07 人员选择统一展示display_name（2026-11-09 用户确认）
+
+- 被评估人条件与共享人员选择器展示 `display_name`，不拼接工号标签；工号仍作为内部 value 和搜索关键词，规则提交不变。
+- 兼容旧接口“姓名（工号）”标签，精确剥离与value相同的后缀；远程搜索候选替换或清空后保留当前已选人员的已解析姓名。已有人员条件保存重开及STARTED/ARCHIVED禁用状态均加载周期人员选项回显姓名。
+- 人员姓名缺失显示“人员信息不可用”，不把未解析的裸工号当作姓名；沿用现有选择器和Token，无新增页面或完整蓝图。
+
 ## PM-T003-I07-F04 六项独立业务筛选组件（2026-10-28）
 
 - 用户要求每项具有独立具名入口：`PerformanceEmploymentStatusSelect`、`PerformanceDepartureDateSelect`、`PerformanceJobFamilySelect`、`PerformanceJobCategorySelect`、`PerformancePositionLevelSelect`、`PerformanceStandardPositionSelect`，均位于 `frontend/src/components/performance/`。

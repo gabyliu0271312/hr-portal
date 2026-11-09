@@ -341,7 +341,9 @@ async function loadProject() {
     rawBaseline.value = { ...payload(), flow_settings: savedFlow }
     displayBaseline.value = JSON.parse(JSON.stringify(payload()))
     editingPolicy.value = project.editing_policy; calibrationBaseDigest.value = project.calibration_base_digest
-    if (Object.values(form.flow_settings.node_settings).some(setting => Boolean((setting as any).result_reconsideration?.handler_employee_nos?.length || (setting as any).result_reconsideration?.handler))) await loadEvaluatorOptions()
+    const hasSavedPeople = form.evaluator_rules.groups.some(group => group.conditions.some(condition => ['employee', 'directLeader', 'superior'].includes(condition.field) && condition.values.length))
+      || (project.scope_rules?.groups || []).some(group => group.conditions.some(condition => condition.field === 'employee' && condition.values.length))
+    if (project.template_id && (hasSavedPeople || Object.values(form.flow_settings.node_settings).some(setting => Boolean((setting as any).result_reconsideration?.handler_employee_nos?.length || (setting as any).result_reconsideration?.handler)))) await loadEvaluatorOptions()
     savedView.value = true
     await loadAudiencePreview()
   } catch (error: any) { notice.value = error?.response?.data?.detail?.message || error?.response?.data?.detail || '项目加载失败' }

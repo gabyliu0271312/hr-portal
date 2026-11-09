@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
+import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceMultiSelect from './PerformanceMultiSelect.vue'
 import PerformanceRoleMultiSelect from './PerformanceRoleMultiSelect.vue'
 import PerformanceSelectShell from './PerformanceSelectShell.vue'
@@ -30,6 +31,43 @@ function create(values: string[], width = 160) {
 const visibleLabels = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('.performance-select-shell__content > .performance-select-shell__tag > .performance-select-shell__tag-content').map(tag => tag.text())
 
 describe('shared performance selectors', () => {
+  it('shows person display names, searches employee numbers and preserves names when remote options change', async () => {
+    const wrapper = mount(PerformancePersonSelect, { props: {
+      modelValue: ['900162'], multiple: true,
+      options: [{ value: '900162', label: 'judy.zhu朱君兰（900162）', subLabel: '研发' }],
+    }, global: { stubs } })
+    await flushPromises()
+    expect(visibleLabels(wrapper)).toEqual(['judy.zhu朱君兰'])
+    await wrapper.get('input').setValue('900162')
+    await flushPromises()
+    expect(wrapper.get('[role="option"]').text()).toContain('judy.zhu朱君兰')
+    expect(wrapper.get('[role="option"]').text()).not.toContain('900162')
+    await wrapper.setProps({ options: [] })
+    await flushPromises()
+    expect(visibleLabels(wrapper)).toEqual(['judy.zhu朱君兰'])
+    await wrapper.setProps({ options: [{ value: '900162', label: '旧标签', display_name: '更新姓名' }], disabled: true })
+    await flushPromises()
+    expect(visibleLabels(wrapper)).toEqual(['更新姓名'])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps person identities distinct for duplicate names and submits employee numbers', async () => {
+    const wrapper = mount(PerformancePersonSelect, { props: {
+      modelValue: [], multiple: true, remoteSearch: false,
+      options: [{ value: 'E1', label: '同名(E1)' }, { value: 'E2', label: '同名（E2）' }],
+    }, global: { stubs } })
+    await wrapper.get('.performance-select-shell__selector').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[role="option"]').map(option => option.text())).toEqual(['同名', '同名'])
+    await wrapper.findAll('[role="option"]')[1].trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['E2']])
+    await wrapper.setProps({ modelValue: ['unresolved'], options: [] })
+    await flushPromises()
+    expect(visibleLabels(wrapper)).toEqual(['人员信息不可用'])
+    wrapper.unmount()
+  })
+
   it('supports detailed single options and a shared footer without changing ordinary selectors', async () => {
     const wrapper = mount(PerformanceSearchSelect, {
       props: { modelValue: '1', selectionStyle: 'plain', optionLayout: 'detailed', ariaLabel: '目标周期', options: [{ value: '1', label: '全年', subLabel: '2026-01-01 - 2026-12-31' }] },

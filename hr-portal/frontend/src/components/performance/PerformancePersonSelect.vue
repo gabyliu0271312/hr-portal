@@ -2,7 +2,7 @@
   <PerformanceSearchSelect
     v-bind="$attrs"
     :model-value="modelValue"
-    :options="options"
+    :options="personOptions"
     :aria-label="ariaLabel"
     :placeholder="placeholder"
     :multiple="multiple"
@@ -19,6 +19,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, shallowRef, watch } from 'vue'
 import PerformanceSearchSelect, { type PerformanceSearchSelectOption } from './PerformanceSearchSelect.vue'
 
 const props = withDefaults(defineProps<{
@@ -46,5 +47,17 @@ const props = withDefaults(defineProps<{
   remoteSearch: true,
   optionStyle: 'checkmark',
 })
+const selectedPeople = shallowRef<PerformanceSearchSelectOption[]>([])
+const selectedValues = computed(() => Array.isArray(props.modelValue) ? props.modelValue : props.modelValue ? [props.modelValue] : [])
+const normalizedOptions = computed(() => props.options.map(person => {
+  const suffix = `（${person.value}）`
+  const asciiSuffix = `(${person.value})`
+  const label = person.display_name || (person.label.endsWith(suffix) ? person.label.slice(0, -suffix.length) : person.label.endsWith(asciiSuffix) ? person.label.slice(0, -asciiSuffix.length).trimEnd() : person.label)
+  return { ...person, label: label || '人员信息不可用', searchText: person.searchText || `${person.value} ${person.label} ${person.subLabel || ''}` }
+}))
+watch([normalizedOptions, selectedValues], () => {
+  selectedPeople.value = selectedValues.value.map(value => normalizedOptions.value.find(person => person.value === value) || selectedPeople.value.find(person => person.value === value) || { value, label: '人员信息不可用', searchText: value })
+}, { immediate: true })
+const personOptions = computed(() => [...normalizedOptions.value, ...selectedPeople.value.filter(person => !normalizedOptions.value.some(option => option.value === person.value))])
 defineEmits<{ 'update:modelValue': [value: string | string[] | null]; open: []; search: [value: string] }>()
 </script>
