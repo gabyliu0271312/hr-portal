@@ -102,6 +102,65 @@ def test_cross_application_header_is_rejected():
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("path,status", [
+    ("/api/v1/performance/identity-switch/session", 200),
+    ("/api/v1/performance/identity-switch/session", 410),
+    ("/api/v1/performance/identity-switch/session", 403),
+    ("/api/v1/performance/identity-switch/session", 422),
+    ("/api/v1/performance/auth/context", 200),
+    ("/api/v1/performance/auth/context", 410),
+    ("/api/v1/performance/workbench/projects", 200),
+    ("/api/v1/identity-switch/control", 200),
+    ("/api/v1/identity-switch/control", 403),
+    ("/api/v1/performance/identity-switch/sessions", 201),
+])
+def test_identity_responses_are_not_cacheable(path, status):
+    from starlette.responses import JSONResponse
+
+    async def scenario():
+        app = FastAPI()
+        app.add_middleware(IdentitySwitchMiddleware)
+
+        @app.api_route(path, methods=["GET", "POST"])
+        async def endpoint():
+            if status >= 400:
+                raise HTTPException(status, detail={"code": "SWITCH_SESSION_EXPIRED"})
+            return JSONResponse({"ok": True}, status_code=status, headers={"Vary": "Origin", "Cache-Control": "public, max-age=600"})
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            response = await client.request("POST" if status == 201 else "GET", path)
+            assert response.status_code == status
+            assert response.headers["cache-control"] == "no-store"
+            assert response.headers["pragma"] == "no-cache"
+            vary = {item.strip().lower() for item in response.headers["vary"].split(",")}
+            assert {"authorization", "x-app-switch-session"} <= vary
+            if status < 400:
+                assert "origin" in vary
+
+    asyncio.run(scenario())
+
+
+def test_unrelated_responses_keep_their_cache_policy():
+    from starlette.responses import JSONResponse
+
+    async def scenario():
+        app = FastAPI()
+        app.add_middleware(IdentitySwitchMiddleware)
+
+        @app.get("/api/v1/users")
+        async def endpoint():
+            return JSONResponse({"ok": True}, headers={"Cache-Control": "private, max-age=60"})
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            response = await client.get("/api/v1/users")
+            assert response.headers["cache-control"] == "private, max-age=60"
+            rejected = await client.get("/api/v1/users", headers={"X-App-Switch-Session": "forged"})
+            assert rejected.status_code == 403
+            assert rejected.headers["cache-control"] == "no-store"
+
+    asyncio.run(scenario())
+
+
 def test_postgres_identity_switch_closed_loop(monkeypatch):
     if settings.APP_ENV.lower() == "prod" or settings.DB_HOST not in ("127.0.0.1", "localhost", "::1"):
         pytest.skip("requires a local non-production PostgreSQL")

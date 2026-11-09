@@ -38,6 +38,11 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
       employeeSwitchRequests.add(tracked.switchAbort)
     }
   }
+  if (config.url?.startsWith('/performance/') || config.url?.startsWith('/identity-switch/')) {
+    config.headers = config.headers || {}
+    config.headers.set('Cache-Control', 'no-cache')
+    config.headers.set('Pragma', 'no-cache')
+  }
   return config
 })
 
