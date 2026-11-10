@@ -12,6 +12,7 @@ export const communicationColumns = [
   { key: 'name', label: '姓名', locked: true },
   { key: 'status', label: '状态' },
   { key: 'due_at', label: '截止时间' },
+  { key: 'rating', label: '绩效评级' },
   { key: 'completion', label: '360°评估率' },
   { key: 'job_sequence', label: '序列' },
   { key: 'position_level', label: '职级' },

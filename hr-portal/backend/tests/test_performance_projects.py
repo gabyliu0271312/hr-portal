@@ -2701,6 +2701,39 @@ async def test_task_people_returns_dynamic_ratings_from_the_current_task(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_calibration_people_returns_inherited_rating_before_calibration_submission(monkeypatch):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject
+
+    project = SimpleNamespace(id=1, cycle_ref="C1", settings={})
+    node = SimpleNamespace(id=10, project_id=1, node_id="calibration", node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": "E1"}]}]}, "template": {"content": [{
+        "content_id": "assessment", "type": "rating", "name": "综合评估", "items": [
+            {"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "good", "code": "A", "label": "优秀", "color": "#d9f5d6"}]},
+        ],
+    }]}})
+    member = SimpleNamespace(snapshot_id=7, employee_no="E1", display_name="员工")
+    task = SimpleNamespace(id=20, project_id=1, task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no="E1", available_at=None, due_at=None, answers={})
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
+    async def rules(*args): return {"leader": []}
+    async def role(*args): return "leader"
+    async def progress(*args): return {}
+    async def inherited(*args): return {"grade": "good"}
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(routes, "load_subject_visibility_rules", rules)
+    monkeypatch.setattr(routes, "resolve_subject_visibility_role", role)
+    monkeypatch.setattr(routes, "_communication_progress", progress)
+    monkeypatch.setattr(routes, "_communication_progress_detail", progress)
+    monkeypatch.setattr(routes, "_calibration_answers", inherited)
+    class Db:
+        async def get(self, model, key): return project if model is PerformanceProject else None
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, member)])
+    row = (await routes.workbench_task_people("calibration", 1, "all", context(), Db(), None))[0]
+    assert row["rating_columns"] == [{"key": "rating:grade", "label": "绩效评级"}]
+    assert row["ratings"]["rating:grade"] == {"label": "A", "color": "#d9f5d6", "foreground": None}
+    assert row["rating"] == "A"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("admin_preview", [True, False])
 async def test_task_people_preserves_project_node_and_target_scope(monkeypatch, admin_preview):
     from app.performance import projects_router

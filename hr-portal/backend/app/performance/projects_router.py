@@ -1213,10 +1213,7 @@ def _task_rating_metadata(schema: list[dict]) -> list[dict]:
     return metadata
 
 
-def _task_rating_values(task: PerformanceNodeTask, metadata: list[dict]) -> dict[str, dict | None]:
-    if getattr(task, "submitted_at", None) is None:
-        return {item["key"]: None for item in metadata}
-    answers = getattr(task, "answers", None) or {}
+def _rating_values_from_answers(answers: dict, metadata: list[dict]) -> dict[str, dict | None]:
     values = {}
     for item in metadata:
         option = _matrix_rating_value(answers.get(item["answer_key"]), item["options"])
@@ -1226,6 +1223,12 @@ def _task_rating_values(task: PerformanceNodeTask, metadata: list[dict]) -> dict
             "foreground": option.get("foreground"),
         }
     return values
+
+
+def _task_rating_values(task: PerformanceNodeTask, metadata: list[dict]) -> dict[str, dict | None]:
+    if task is None or getattr(task, "submitted_at", None) is None:
+        return {item["key"]: None for item in metadata}
+    return _rating_values_from_answers(getattr(task, "answers", None) or {}, metadata)
 
 
 def _tenure_bucket(value: object, today: date | None = None) -> str:
@@ -4978,9 +4981,18 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         visible_fields = visibility_rules[visibility_role]
         if node.id not in rating_metadata:
             schema = build_self_summary_schema(await _self_summary_template(task, node, db))
-            rating_metadata[node.id] = _task_rating_metadata(schema)
-        metadata = rating_metadata[node.id]
-        ratings = _task_rating_values(task, metadata)
+            rating_metadata[node.id] = (schema, _task_rating_metadata(schema))
+        schema, metadata = rating_metadata[node.id]
+        if node.node_type == "calibration":
+            try:
+                rating_answers = await _calibration_answers(task, node, schema, db)
+            except HTTPException as error:
+                if error.status_code != 409 or error.detail not in {"CALIBRATION_SOURCE_NOT_READY", "CALIBRATION_SOURCE_CONFLICT"}:
+                    raise
+                rating_answers = task.answers or {}
+            ratings = _rating_values_from_answers(rating_answers, metadata)
+        else:
+            ratings = _task_rating_values(task, metadata)
         single_rating = ratings[metadata[0]["key"]] if len(metadata) == 1 else None
         values = {
             "task_id": task.id,

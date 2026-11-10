@@ -16,6 +16,7 @@ import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
 import ProjectMemberColumnDrawer, { type MemberColumnOption } from './ProjectMemberColumnDrawer.vue'
@@ -43,6 +44,13 @@ const allowVoluntary = ref(false)
 const voluntaryEnabled = ref(false)
 const voluntaryDisabledReason = ref('')
 const communicationMode = computed(() => props.mode === 'communication')
+const ratingColumns = ref<MemberColumnOption[]>([])
+function updateRatingColumns(next: MemberColumnOption[]) {
+  const previousKeys = new Set(activeColumns.value.map(column => column.key))
+  const selected = new Set(selectedColumnKeys.value)
+  ratingColumns.value = next
+  selectedColumnKeys.value = activeColumns.value.filter(column => selected.has(column.key) || !previousKeys.has(column.key)).map(column => column.key)
+}
 
 const columns: MemberColumnOption[] = [
   { key: 'name', label: '姓名', locked: true },
@@ -69,9 +77,9 @@ const profileFields: Record<string, string> = {
 const activeColumns = computed(() => {
   if (!communicationMode.value) return columns
   const configuredRows = items.value.filter(item => Array.isArray(item.visible_profile_fields))
-  if (!configuredRows.length) return communicationColumns
+  if (!configuredRows.length) return communicationColumns.flatMap(column => column.key === 'rating' && ratingColumns.value.length ? ratingColumns.value : [column])
   const allowed = new Set(configuredRows.flatMap(item => item.visible_profile_fields || []))
-  return communicationColumns.filter(column => !profileFields[column.key] || allowed.has(profileFields[column.key]))
+  return communicationColumns.filter(column => !profileFields[column.key] || allowed.has(profileFields[column.key])).flatMap(column => column.key === 'rating' && ratingColumns.value.length ? ratingColumns.value : [column])
 })
 watch(activeColumns, (available, previous) => {
   const previousKeys = new Set(previous.map(column => column.key))
@@ -93,6 +101,9 @@ async function load() {
   try {
     if (communicationMode.value) {
       const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.nodeId, 'all', keyword.value.trim() || undefined)
+      if (result.some(item => Array.isArray(item.rating_columns))) {
+        updateRatingColumns(Array.from(new Map(result.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
+      }
       items.value = result.map(item => ({ ...item, source_label: '', relationship: '' }))
       total.value = items.value.length
       allowVoluntary.value = false
@@ -180,6 +191,7 @@ function openItem(item: FeedbackRow) {
 }
 
 function cellValue(item: FeedbackRow, key: string) {
+  if (key.startsWith('rating:')) return item.ratings?.[key]?.label || '--'
   if (!canViewProfile(item, key)) return '--'
   switch (key) {
     case 'name': return item.display_name
@@ -190,6 +202,7 @@ function cellValue(item: FeedbackRow, key: string) {
     case 'job_sequence': return item.job_sequence || '--'
     case 'department': return item.department || '--'
     case 'completion': return item.completion || '0/0'
+    case 'rating': return item.rating || '--'
     case 'position_level': return item.position_level || '--'
     case 'hire_date': return item.hire_date || '--'
     case 'employee_type': return item.employee_type || '--'
@@ -215,6 +228,7 @@ function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder
   page.value = 1
 }
 function sortValue(item: FeedbackRow, key: string) {
+  if (key.startsWith('rating:')) return item.ratings?.[key]?.label || ''
   if (!canViewProfile(item, key)) return null
   switch (key) {
     case 'name': return item.display_name
@@ -228,6 +242,7 @@ function sortValue(item: FeedbackRow, key: string) {
       const [completed, total] = (item.completion || '').split('/').map(Number)
       return total ? completed / total : 0
     }
+    case 'rating': return item.rating || ''
     case 'position_level': return item.position_level || ''
     case 'hire_date': return item.hire_date || ''
     case 'employee_type': return item.employee_type || ''
@@ -282,6 +297,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
       <template #cell="{ row, column }">
         <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
+        <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">{{ cellValue(row, column.key) }}</span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
       </template>
