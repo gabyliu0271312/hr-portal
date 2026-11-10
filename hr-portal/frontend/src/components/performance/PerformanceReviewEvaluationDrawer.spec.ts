@@ -114,7 +114,42 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
-  it('loads management periods through the supplied loader and switches OKR without using handler task APIs', async () => {
+  it('allows the submitted current management tab to re-enter editing before its deadline', async () => {
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task),
+      deadline_at: '2026-12-03T15:59:00Z',
+      management_tabs: [{
+        key: 'management-manager-review',
+        node_id: 'manager-review',
+        node_name: '上级评估',
+        kind: 'node',
+        task_id: 145,
+        task_kind: 'evaluation',
+        employee_no: 'E001',
+        status: 'completed',
+        submitted_at: '2026-11-09T07:29:00Z',
+        deadline_at: '2026-12-03T15:59:00Z',
+        can_remind: false,
+        form_schema: task.form_schema,
+        answers: task.answers,
+      }],
+      default_active_tab: 'management-manager-review',
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, {
+      props: { modelValue: true, taskId: 145, employeeNo: 'E001', detailLoader },
+      global: { stubs: { PerformanceTemplateRenderer: true } },
+    })
+    await flushPromises()
+
+    const edit = document.body.querySelector<HTMLButtonElement>('.performance-review-completion-notice__edit')
+    expect(edit).not.toBeNull()
+    edit!.click()
+    await flushPromises()
+    expect(wrapper.emitted('edit')).toEqual([[{ task_id: 145, employee_no: 'E001', draft_choice: undefined }]])
+    wrapper.unmount()
+  })
+
+  it('keeps management-only completed results readonly', async () => {
     const fetchOkr = vi.spyOn(performanceOkrApi, 'taskOkr')
     const periods = ['本期', '上期'].map((label, index) => ({ source: 'feishu', okr_id: `okr-${index}`, period_id: `period-${index}`, period_label: label, objectives: [{ id: `o-${index}`, content: `${label}管理目标`, key_results: [] }] }))
     const detailLoader = vi.fn().mockResolvedValue({ ...task, task_id: null, editable: false, submit_allowed: false, opened_at: '2026-09-22T07:29:00Z', management_tabs: [

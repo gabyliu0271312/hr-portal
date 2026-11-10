@@ -8,7 +8,7 @@
         <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
-            <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at" :editable="false" variant="evaluation-drawer" :message="managementCompletionMessage" />
+            <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at" :task-id="managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="props.employeeNo" :editable="managementTabEditable" variant="evaluation-drawer" :message="managementCompletionMessage" @edit="edit" />
             <PerformanceReferenceContent v-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
@@ -123,6 +123,11 @@ const resolveProjectId = computed(() => props.projectId ?? task.value?.project_i
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
 const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.key === activeTab.value) || referenceTabs.value.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value) || null)
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
+const managementTabEditable = computed(() => Boolean(
+  !props.readonly
+  && task.value?.editable
+  && managementTab.value?.task_id === task.value.task_id,
+))
 const stageView = computed(() => {
   const tab = managementTab.value
   if (!tab || tab.status === 'completed') return null
