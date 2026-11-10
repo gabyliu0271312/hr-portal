@@ -178,6 +178,8 @@
 - 局部修正（2026-11-10 用户最新要求）：提交后隐藏更多入口，撤回后截止前恢复；以采集 SVG 替换字符图标，不变更页面信息架构/API/迁移。聚焦 `PerformanceResultReconsideration.spec.ts` + `Review.spec.ts` 共87 tests通过（11+76，仍有既有360 jsdom XHR stderr）；`git diff --check` 通过。原V1“已发起仍显示菜单”行为被本条最新规则替代，原截图仅保留为历史证据。
 - 复议处理结果覆盖、最终反馈和处理页重构不属于本次范围；正式开发共享 DTO、版本、任务关联和迁移事务契约见本功能 atomic-tasks F39，按项目锁→申请/任务锁顺序执行。F38 中一次性/不可编辑条款被本次用户明确规则替代，而非扩大 F36 的后台提示配置范围。
 
+- 结果查看未开通补充（2026-11-10）：结果查看节点不显示待完成/未开始/已逾期状态标签，其他节点不变。收到404 RESULT_NOT_FOUND时，复用 `performance-not-started.svg`（120×121）及原流程节点review-panel居中布局，文案“暂未开通结果”，不出现复议入口或去完成按钮；网络/服务异常独立错误+重试，成功无内容不当作未开通。详情及93项聚焦测试见CR-010-F13后续记录。此为小范围原位调整，无新蓝图/API/迁移。
+
 ## Result-reconsideration appeal prompt (PM-T004-T02-F36)
 
 - Only `result_reconsideration` nodes render “发起复议提示” after the shared executor field. The helper copy is “此提示内容将在被评估人填写复议理由时展示”; the full-width `263.333×32px` edit button uses the captured `14×14px` edit icon.

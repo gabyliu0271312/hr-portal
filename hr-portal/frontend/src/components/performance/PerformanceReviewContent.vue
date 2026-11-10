@@ -26,9 +26,13 @@
           </PerformanceDisabledReason>
         </div>
       </div>
-      <div class="review-body" :class="{ 'review-body--completed': node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace }">
-        <div class="review-panel" :class="{ completed: node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
-        <slot v-if="node.node_type === 'result_view'" />
+      <div class="review-body" :class="{ 'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace) }">
+        <div class="review-panel" :class="{ completed: !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace), evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
+        <template v-if="node.node_type === 'result_view' && resultUnavailable">
+          <div class="state-illustration" aria-hidden="true"><img src="/performance-not-started.svg" alt="" width="120" height="121"></div>
+          <p>暂未开通结果</p>
+        </template>
+        <slot v-else-if="node.node_type === 'result_view'" />
         <PerformanceReview360InvitePanel
           v-else-if="node.node_type === 'reviewer_360_invite' && props.projectId"
           :project-id="props.projectId"
@@ -108,6 +112,7 @@ const props = defineProps<{
   node: PerformanceReviewNode | null
   projectId?: number | null
   contentTitle?: string
+  resultUnavailable?: boolean
 }>()
 
 const displayConfig = computed(() => props.node ? performanceReviewDisplay(props.node.node_type) : null)

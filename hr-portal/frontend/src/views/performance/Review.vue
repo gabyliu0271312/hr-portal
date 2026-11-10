@@ -19,6 +19,7 @@
       :template-name="overview?.template_name || ''"
       :node="selectedNode"
       :project-id="activeProjectId"
+      :result-unavailable="resultUnavailable"
       :content-title="selectedNode?.node_type === 'result_view' ? resultPageTitle : undefined"
       @retry="loadOverview(activeProjectId)"
       @open-node="openNode"
@@ -101,6 +102,7 @@ const resultPageTitle = ref('')
 const hasResultContent = computed(() => resultRegions.value.some(region => region.reference_kind === 'okr' || region.contents.some(content => content.form_schema.length > 0)))
 const resultLoading = ref(false)
 const resultError = ref('')
+const resultUnavailable = ref(false)
 const reconsideration = ref<Awaited<ReturnType<typeof projectManagementApi.resultReconsideration>> | null>(null)
 const reconsiderationPanel = ref<InstanceType<typeof PerformanceResultReconsideration> | null>(null)
 const reconsiderationBusy = ref(false)
@@ -137,6 +139,7 @@ async function loadMyResults() {
   const projectId = activeProjectId.value
   const request = ++resultRequest
   resultRegions.value = []
+  resultUnavailable.value = false
   resultPageTitle.value = ''
   reconsideration.value = null
   ++reconsiderationRequest
@@ -153,8 +156,11 @@ async function loadMyResults() {
     resultPageTitle.value = response.content_page_name || selectedNode.value?.node_name || ''
     resultRegions.value = response.regions ?? [{ key: 'result', kind: 'result', title: resultPageTitle.value, contents: response.contents || [] }]
     void loadReconsideration(request)
-  } catch {
-    if (request === resultRequest) resultError.value = '当前结果尚未开通或不可查看'
+  } catch (cause: any) {
+    if (request === resultRequest) {
+      if (cause?.response?.status === 404 && cause?.response?.data?.detail === 'RESULT_NOT_FOUND') resultUnavailable.value = true
+      else resultError.value = '绩效结果加载失败，请重试'
+    }
   } finally {
     if (request === resultRequest) resultLoading.value = false
   }

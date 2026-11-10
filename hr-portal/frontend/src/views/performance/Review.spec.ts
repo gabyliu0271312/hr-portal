@@ -91,7 +91,7 @@ function mountView() {
 
 describe('PerformanceReview', () => {
   it('lets completed cards grow with content instead of shrinking inside the scroll viewport', () => {
-    expect(reviewContentSource).toContain("'review-body--completed': node.node_type === 'result_view' || node.status === 'completed'")
+    expect(reviewContentSource).toContain("'review-body--completed': !resultUnavailable && (node.node_type === 'result_view' || node.status === 'completed'")
     expect(reviewContentSource).toMatch(/\.review-body--completed\s*\{[^}]*flex:\s*1 0 auto/)
     expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0/)
     expect(reviewContentSource).toMatch(/\.completed-content\s*\{[^}]*flex:\s*none/)
@@ -259,9 +259,62 @@ describe('PerformanceReview', () => {
     api.mockRejectedValue(new Error('RESULT_NOT_FOUND'))
     const denied = mountView()
     await flushPromises()
-    expect(denied.get('[role="alert"]').text()).toContain('当前结果尚未开通或不可查看')
+    expect(denied.get('[role="alert"]').text()).toContain('绩效结果加载失败，请重试')
     expect(denied.find('.performance-template-renderer').exists()).toBe(false)
     denied.unmount()
+  })
+
+  it.each(['pending', 'not_started', 'overdue', 'completed'] as const)('hides only the result-view sidebar status for %s', async status => {
+    Object.assign(routeQuery, { project_id: '1', node: 'view-result' })
+    const loaded = resultOverview()
+    loaded.categories[0].nodes.find(node => node.node_type === 'result_view')!.status = status
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(loaded)
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
+    const wrapper = mountView()
+    await flushPromises()
+    const resultNode = wrapper.findAll('.review-node').find(node => node.text().includes('查看绩效结果'))!
+    expect(resultNode.find('em').exists()).toBe(false)
+    expect(wrapper.findAll('.review-node').find(node => node.text().includes('工作总结环节'))!.find('em').text()).toBe('待完成')
+    wrapper.unmount()
+  })
+
+  it('uses the shared centered node illustration for unopened results and clears it on reopening', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'view-result' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    const api = vi.spyOn(projectManagementApi, 'myResults').mockRejectedValue({ response: { status: 404, data: { detail: 'RESULT_NOT_FOUND' } } })
+    const wrapper = mountView()
+    await flushPromises()
+    const panel = wrapper.get('.review-panel')
+    expect(panel.text()).toBe('暂未开通结果')
+    expect(panel.classes()).not.toContain('completed')
+    expect(wrapper.get('.review-body').classes()).not.toContain('review-body--completed')
+    expect(panel.get('.state-illustration img').attributes()).toMatchObject({ src: '/performance-not-started.svg', width: '120', height: '121' })
+    expect(wrapper.find('.reconsideration-menu').exists()).toBe(false)
+    expect(wrapper.find('.primary-button').exists()).toBe(false)
+    api.mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
+    usePerformanceProjectContextStore().setActiveProjectId(2)
+    await flushPromises()
+    usePerformanceProjectContextStore().setActiveProjectId(1)
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('暂未开通结果')
+    expect(wrapper.find('.review-panel.completed').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps transport failures distinct from unopened results and supports retry', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'view-result' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    const api = vi.spyOn(projectManagementApi, 'myResults').mockRejectedValue({ response: { status: 500 } })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('绩效结果加载失败，请重试')
+    expect(wrapper.text()).not.toContain('暂未开通结果')
+    api.mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
+    await wrapper.get('[role="alert"] button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('绩效结果加载失败，请重试')
+    expect(wrapper.text()).toContain('暂无可查看的绩效结果')
+    wrapper.unmount()
   })
 
   it('restores the linked project after loading a different cycle navigation', async () => {
