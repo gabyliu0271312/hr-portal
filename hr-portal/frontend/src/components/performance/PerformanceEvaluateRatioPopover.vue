@@ -21,9 +21,7 @@
             <div class="evaluate-ratio-group-head">
               <span class="evaluate-ratio-group-label">未评估：{{ pending.length }}</span>
               <span v-if="canRemindVisible" class="evaluate-ratio-remind">
-                <button type="button" class="evaluate-ratio-remind-btn" :aria-label="`催办 ${pending.length} 名未评估人`" @click="remind">
-                  <BellOutlinedIcon />催办
-                </button>
+                <PerformanceReminderButton variant="text" :aria-label="`催办 ${pending.length} 名未评估人`" @click="remind" />
               </span>
             </div>
             <div class="evaluate-ratio-people">
@@ -44,7 +42,7 @@ import { computed, ref } from 'vue'
 import type { PerformanceEvaluateRatio } from '@/api/performance'
 import PerformancePopover from './PerformancePopover.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
-import BellOutlinedIcon from './BellOutlinedIcon.vue'
+import PerformanceReminderButton from './PerformanceReminderButton.vue'
 
 const props = withDefaults(defineProps<{
   completion: string
@@ -95,7 +93,4 @@ function remind() { emit('remind', pending.value.length) }
 .evaluate-ratio-empty { color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
 .evaluate-ratio-dimission { padding-top: 12px; color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
 .evaluate-ratio-remind { margin-left: 12px; }
-.evaluate-ratio-remind-btn { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 4px; border: 0; border-radius: 6px; background: transparent; color: var(--color-primary-hover); font-size: 14px; line-height: 18px; cursor: pointer; }
-.evaluate-ratio-remind-btn:hover:not(:disabled) { background: rgba(20, 86, 240, 0.2); }
-.evaluate-ratio-remind-btn svg { display: inline-block; width: 14px; height: 14px; }
 </style>

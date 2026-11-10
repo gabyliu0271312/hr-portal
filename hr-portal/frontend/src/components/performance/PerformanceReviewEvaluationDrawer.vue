@@ -15,7 +15,7 @@
               <p>暂未提交</p>
               <div class="performance-stage-empty__actions">
                 <button v-if="stageView.can_fill" type="button" class="performance-stage-empty__fill" @click="fillStage">填写评估</button>
-                <button v-else-if="stageView.reminder_target" type="button" class="performance-stage-empty__remind" @click="openRemind"><BellOutlinedIcon />催办</button>
+                <PerformanceReminderButton v-else-if="stageView.reminder_target" @click="openRemind" />
               </div>
             </div>
           </div>
@@ -76,7 +76,7 @@ import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import PerformancePopover from './PerformancePopover.vue'
 import PerformanceReminderPreviewCard from './PerformanceReminderPreviewCard.vue'
 import PerformanceMemberMoreMenu, { type PerformanceMemberContext } from './PerformanceMemberMoreMenu.vue'
-import BellOutlinedIcon from './BellOutlinedIcon.vue'
+import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import InfoFilledIcon from './InfoFilledIcon.vue'
 
 type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
