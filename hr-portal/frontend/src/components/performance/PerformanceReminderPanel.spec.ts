@@ -88,7 +88,7 @@ describe('PerformanceReminderPanel', () => {
     expect(wrapper.find('.performance-export-button').exists()).toBe(true)
     expect(wrapper.get('.performance-export-button').attributes('disabled')).toBeDefined()
     expect(wrapper.find('.performance-reminder-panel__heading').exists()).toBe(false)
-    expect(wrapper.get('.performance-search-input').attributes('style')).toContain('224px')
+    expect(wrapper.get('.performance-search-input').attributes('style')).toContain('var(--search-input-width)')
     expect(wrapper.findAll('thead th').map(cell => cell.text())).toEqual(['姓名', '标准职位'])
   })
 

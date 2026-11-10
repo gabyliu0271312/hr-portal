@@ -38,6 +38,8 @@ const props = withDefaults(defineProps<{
   selectionKey?: string
   selectedKeys?: string[]
   highlightRowKey?: string | number
+  stickyHeaderTop?: number | string
+  stickyHeader?: boolean
 }>(), {
   page: 1,
   pageSize: 10,
@@ -60,6 +62,8 @@ const props = withDefaults(defineProps<{
   selectionKey: 'id',
   selectedKeys: undefined,
   highlightRowKey: undefined,
+  stickyHeaderTop: undefined,
+  stickyHeader: false,
 })
 
 const emit = defineEmits<{
@@ -80,11 +84,10 @@ const tableRows = computed(() => {
 })
 
 /**
- * 渲染内核：统一交给 UiTable（REA 单内核架构）。
- * - inner 模式（存量 el-table 分支）：待后续迁移，见治理方案 S2
- * - page 模式：UiTable 外层滚动 + 可选吸顶 + 多选/排序（REA 绩效 v2 线形态）
+ * 配置列统一使用 UiTable；存量 el-table-column 插槽保留 Element Plus 的业务契约。
+ * 纵向滚动由 scrollMode 决定，表头吸顶独立配置。
  */
-const useNativeTable = computed(() => props.scrollMode === 'page' && Boolean(props.columns?.length))
+const useNativeTable = computed(() => Boolean(props.columns?.length))
 const nativeColumns = computed(() => props.columns ?? [])
 const uiColumns = computed<UiTableColumn[]>(() => nativeColumns.value.map(column => ({
   key: column.key,
@@ -94,7 +97,9 @@ const uiColumns = computed<UiTableColumn[]>(() => nativeColumns.value.map(column
   sortable: column.sortable,
   align: column.align,
 })))
-const selectionWidth = 40
+const nativeStickyTop = computed(() => props.stickyHeader || props.stickyHeaderTop !== undefined
+  ? props.stickyHeaderTop ?? 'var(--performance-table-sticky-top, 0px)'
+  : undefined)
 function columnWidth(column: PerformanceTableColumn) {
   return column.width ?? performanceColumnWidth(column.key)
 }
@@ -267,7 +272,7 @@ function rowClassName({ row }: { row: any }) {
 </script>
 
 <template>
-  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'table-surface': viewportSurface && !useNativeTable, 'table-surface-fill': viewportSurface && viewportFill && !useNativeTable }" :aria-label="tableAriaLabel">
+  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-sticky-header': stickyHeader || stickyHeaderTop !== undefined, 'table-surface': viewportSurface && !useNativeTable, 'table-surface-fill': viewportSurface && viewportFill && !useNativeTable }" :aria-label="tableAriaLabel">
     <div v-if="$slots.toolbar" ref="toolbarRef" class="table-toolbar"><slot name="toolbar" /></div>
     <template v-if="useNativeTable">
       <!-- 渲染内核：UiTable（REA 单内核；外层滚动、无投影、可选吸顶） -->
@@ -287,7 +292,8 @@ function rowClassName({ row }: { row: any }) {
         :highlight-row-key="highlightRowKey"
         :sort-key="sortKey"
         :sort-order="sortOrder"
-        :sticky-header-top="0"
+        :sticky-header-top="nativeStickyTop"
+        :max-height="tableMaxHeight"
         @update:selected-keys="onNativeSelectedKeys"
         @selection-change="emit('selection-change', $event)"
         @sort-change="emit('sort-change', $event)"
@@ -348,6 +354,7 @@ function rowClassName({ row }: { row: any }) {
 .performance-management-table {
   --ui-table-header-background: #ffffff;
   --ui-table-header-height: 47px;
+  --ui-table-header-hover-background: var(--ui-table-row-hover-background);
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -403,10 +410,10 @@ function rowClassName({ row }: { row: any }) {
   --performance-select-height: var(--performance-table-pagination-height);
   margin: var(--performance-table-fill-pagination-gap) 0;
 }
-:deep(.el-table) { --el-table-header-bg-color: #fff; border-top: 1px solid rgba(31, 35, 41, 0.15); }
-:deep(.el-table th.el-table__cell) { height: 46.6667px; padding: 12px 0; background: #fff; color: #1f2329; font-size: 14px; font-weight: 400; line-height: 22px; }
-:deep(.el-table th.el-table__cell:hover) { background: #f5f6f7; }
-:deep(.el-table th.el-table__cell > .cell) { padding: 0 12px; line-height: 22px; }
+:deep(.el-table) { --el-table-header-bg-color: var(--ui-table-header-background); border-top: 1px solid var(--ui-table-border-color); }
+:deep(.el-table th.el-table__cell) { height: var(--ui-table-header-height); padding: 12px 0; background: var(--ui-table-header-background); color: var(--ui-table-header-color); font-size: var(--ui-table-font-size); font-weight: 400; line-height: var(--ui-table-line-height); }
+:deep(.el-table th.el-table__cell:hover) { background: var(--ui-table-header-hover-background); }
+:deep(.el-table th.el-table__cell > .cell) { padding: 0 var(--ui-table-cell-padding-inline); line-height: var(--ui-table-line-height); }
 :deep(.el-table th.el-table-column--selection),
 :deep(.el-table td.el-table-column--selection) { padding-left: 0 !important; padding-right: 0 !important; }
 :deep(.el-table th.el-table-column--selection > .cell),
@@ -417,8 +424,9 @@ function rowClassName({ row }: { row: any }) {
 .table-state { display: grid; min-height: 96px; place-items: center; color: var(--color-text-secondary); }
 :deep(.is-clickable-row) { cursor: pointer; }
 :deep(.is-highlighted-row > .el-table__cell) { background: var(--ui-table-highlight-background, #e8f3ff); }
-.table-pagination { min-height: 28px; display: flex; align-items: center; justify-content: flex-end; margin: 16px 0; }
-.selection-bar { position: fixed; bottom: 0; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: #fff; box-shadow: 0 -1px 0 rgba(31, 35, 41, 0.1); }
+.performance-management-table :deep(.ui-table) { width: 100%; }
+.table-pagination { min-width: 0; min-height: var(--ui-pagination-height); display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--page-gap-toolbar-items); margin: var(--page-gap-toolbar-table) 0; }
+.selection-bar { position: fixed; bottom: 0; z-index: 30; display: flex; align-items: center; gap: var(--page-gap-toolbar-items); padding: 12px 20px; background: #fff; box-shadow: 0 -1px 0 rgba(31, 35, 41, 0.1); }
 .selection-bar--viewport { left: 0; right: 0; z-index: var(--performance-drawer-z-index); height: 60px; padding: 0 20px; box-sizing: border-box; }
 .selection-bar-spacer { height: 30px; }
 .selection-bar__count { margin-left: 12px; color: #646a73; font-size: 14px; line-height: 22px; }

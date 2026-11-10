@@ -272,8 +272,6 @@ onMounted(() => void loadMembers())
       search-placeholder="搜索成员"
       search-aria-label="搜索成员"
       search-fill
-      search-width="100%"
-      :gap="12"
       @search="page = 1; loadMembers()"
       @clear="page = 1; loadMembers()"
       @filter="emit('filter')"
@@ -298,6 +296,7 @@ onMounted(() => void loadMembers())
       :sort-order="sortOrder"
       scroll-mode="page"
       :columns="tableColumns"
+      sticky-header-top="var(--performance-table-sticky-top, 0px)"
       :selectable="!reviewContext"
       :selection-key="cycleId ? 'root_review_id' : 'employee_no'"
       :show-selection-bar="!reviewContext"
@@ -337,7 +336,7 @@ onMounted(() => void loadMembers())
 <style scoped>
 .member-list-panel { min-width:0; border-radius:8px; background:#fff; box-shadow:rgba(31,35,41,.03) 0 4px 16px 4px,rgba(31,35,41,.02) 0 4px 8px,rgba(31,35,41,.02) 0 2px 4px -4px; padding:0 20px 20px; color:#1f2329; --performance-table-container-padding: var(--performance-review-surface-inset); --performance-table-sticky-top: calc(var(--performance-tab-area-height) - 28px); }
 .card-sticky-mask { position: sticky; top: calc(var(--performance-table-sticky-top, 0px) - 20px); z-index: 19; flex: none; height: 20px; margin: 0 -20px; border-radius: 8px 8px 0 0; background: var(--color-bg-card, #fff); }
-.member-list-toolbar{display:flex;align-items:center;gap:12px;height:32px;margin-bottom:16px}
+.member-list-toolbar{height:var(--control-height)}
 .rating-badge{display:inline-flex;align-items:center;justify-content:center;min-width:44px;height:24px;padding:0 10px;box-sizing:border-box;border-radius:9999px;font-size:14px;line-height:24px}.rating-badge--teal{background:#d5f6f2;color:#024b41}.rating-badge--blue{background:#e1eaff;color:#0c296e}.rating-badge--green{background:#d9f5d6;color:#124b0c}
 .table-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .completion-text{color:var(--color-primary)}

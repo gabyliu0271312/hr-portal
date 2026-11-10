@@ -203,6 +203,9 @@
   --page-gap-toolbar-items: 12px;
   --page-gap-toolbar-table: 16px;
   --page-gap-table-pagination: 12px;
+  --search-input-width: 224px;
+  --search-input-width-compact: 222px;
+  --search-input-width-wide: 292px;
   --performance-switch-width: 28px;
   --performance-switch-height: 16px;
   --performance-switch-handler-size: 12px;
@@ -670,6 +673,9 @@
   --ui-table-empty-height: 220px;
   --ui-table-fixed-cell-background: #ffffff;
   --ui-table-selection-width: 40px;
+  --ui-table-header-z-index: 20;
+  --ui-table-fixed-z-index: 2;
+  --ui-table-fixed-header-z-index: 4;
 
   /* 分页（REA 绩效线 ud__pagination 实测：h28 / 页码 28×28 r6 / 激活 #1456f0 白底 / 箭头 #bbbfc4） */
   --ui-pagination-height: 28px;

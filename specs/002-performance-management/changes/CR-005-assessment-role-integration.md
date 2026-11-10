@@ -341,3 +341,16 @@ REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登�
 本地表头直接锁 60px（Tab 区底），相比飞书 76px/84px 的 8px 漏出直接消除灰色间隙。
 
 验证：LineTabs 8、ProjectManagement 21（含新增 sticky 基准断言）、ReminderPanel 16、Review 59、AuthorizationConfiguration 5 项通过；`vite build` 通过。工作区 5 个 settings/模板 spec 的 ElSelect 递归失败为改动前基线（stash 验证一致），与本次无关。
+
+### 2026-11-10：公共表格滚动、工具栏与分页回归修复
+
+- 用户授权：根据5个飞书网址实测结果统一调整全局组件；不涉及接口、权限、数据库、提交、发布或生产操作。
+- 新实测修正旧结论：组织架构页有独立sticky表头和左右固定列；管理角色有右固定操作列；人员组有数据/空态采用单表内部横滚且不纵向吸顶。搜索框存在成员页剩余空间填充与后台定宽两种真实形态，不将所有页面强制改为填充。
+- UiTable：默认单表横滚；显式stickyHeaderTop或maxHeight时共用同一模板生成独立头体；按表体可用宽度统一两表宽度和横向scrollLeft；左右固定列按实际列宽计算，修复选择列造成的测量索引错位及右固定列多加40px；空态内容按可视宽度居中。
+- PerformanceManagementTable：配置列在page/inner模式均复用UiTable，现有el-table-column插槽继续保持业务契约；吸顶不再由page隐式开启，不再写死top=0；成员/360/催办显式传业务偏移，组织树显式启用吸顶。分页与工具栏、表格viewport共用容器宽度。其余人员组/授权记录等page消费者默认不额外吸顶。
+- Toolbar：search-fill采用flex:1 1 0、min-width:0、width:auto；固定模式仍定宽；left/actions分组继承统一gap并防止操作按钮收缩。调用点去除重复100%宽度和12px参数；默认/紧凑/人员组搜索宽度token化，控件间距使用page-gap-toolbar-items。
+- 分页：旧PerformancePagination改为UiPagination适配，保留原page-change契约且不重复容量选择；UiPagination支持隐藏容量及窄容器换行。Element Plus全局样式消费相同表格/分页token，保留各业务原有滚动、树形、排序与编辑契约；移除全局强制cell内容可见溢出规则，恢复截断。未逐页迁移165处el-table实例或矩阵/报表专用HTML表格。
+- 自动化：最终扩大回归20文件239项通过（UiTable14、Toolbar8及组织树、周期、Review、人员组、指标字段、角色、授权和工作台等）。更宽回归另有模板页既有断言要求line-tabs-ink为字面#1456f0，而HEAD已为var(--color-primary)；未修改该业务配色。ProjectManagement单跑33通过/1失败：校准授权NONE选项禁用断言与并行业务变更不符，未改业务规则或隐藏失败；新增成员表sticky传递断言通过。
+- 浏览器：本地Vite实际Vue组件+隔离60行数据，700/980/1600px容器均验证头体列对齐、scrollLeft同步、左选择/姓名及右操作固定、工具栏/viewport/分页同宽、外层无横向溢出，三段控件间距均12px；内滚maxHeight=200、scrollHeight=3060、scrollTop=160，头体clientWidth均1510；超宽空态居中；隐藏列后定宽搜索224px。实际ProjectManagement.vue+隔离API数据：50行、viewport/toolbar/pager宽930px，外层scrollTop=400后表头y=108、top=32px，Tab y=56/h60、mask y=88/h20，表头命中可见且列对齐、页面无横向溢出。
+- 已查看本地截图：hr-portal/.tmp/table-unification-page-20261110.png、hr-portal/.tmp/table-unification-project-members-20261110.png；仅本地组件验收，不是生产业务数据或生产验收。
+- 构建：npm --prefix hr-portal/frontend run build 的vue-tsc及Vite通过，保留第三方VueUse PURE注释警告；git diff --check通过（仅行尾转换警告）。未做全仓全量测试、全部业务页真实浏览器遍历或生产部署验收，不据此声称全部业务入口已逐页通过。

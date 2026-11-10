@@ -42,7 +42,7 @@
           v-model:keyword="keyword"
           search-placeholder="通过名称搜索"
           search-aria-label="通过名称搜索指标字段"
-          search-width="222px"
+          search-width="var(--search-input-width-compact)"
           search-variant="compact"
           @filter="emit('filter')"
         >

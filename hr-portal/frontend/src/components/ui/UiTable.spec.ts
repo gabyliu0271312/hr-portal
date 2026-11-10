@@ -2,6 +2,9 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import UiTable from './UiTable.vue'
+import PerformanceManagementTable from '../performance/PerformanceManagementTable.vue'
+import UiPagination from './UiPagination.vue'
+import PerformancePagination from '../performance/PerformancePagination.vue'
 
 const columns = [
   { key: 'name', label: '名称', width: 220, fixed: 'left' as const },
@@ -74,13 +77,94 @@ describe('UiTable', () => {
     measure.mockRestore()
   })
 
-  it('never sticks the header or scrolls internally (REA model)', () => {
+  it('does not stick the header or constrain body height unless explicitly requested', () => {
     const wrapper = mount(UiTable, { props: { columns, rows: [] } })
     expect(wrapper.find('.ui-table').classes()).toEqual(['ui-table'])
     expect(wrapper.find('thead').exists()).toBe(true)
-    // 表头吸顶/内滚曾被误加过，这里锁死：组件只保留外层滚动一种模型
+    expect(wrapper.find('.ui-table__body').exists()).toBe(false)
     expect(wrapper.html()).not.toContain('is-sticky-header')
     expect(wrapper.html()).not.toContain('is-container-scroll')
+    wrapper.unmount()
+  })
+
+  it('splits header and body when sticky header is requested and accepts CSS offsets', () => {
+    const wrapper = mount(UiTable, { props: { columns, rows: [], stickyHeaderTop: 'calc(60px - 28px)' } })
+    expect(wrapper.findAll('.ui-table__viewport')).toHaveLength(2)
+    expect(wrapper.find('.ui-table__header thead').exists()).toBe(true)
+    expect(wrapper.find('.ui-table__body tbody').exists()).toBe(true)
+    expect(wrapper.find('.ui-table').attributes('style')).toContain('--ui-table-sticky-top: calc(60px - 28px)')
+    wrapper.unmount()
+  })
+
+  it('supports inner vertical scrolling only when maxHeight is supplied', () => {
+    const wrapper = mount(UiTable, { props: { columns, rows: [], maxHeight: 320 } })
+    expect(wrapper.find('.ui-table').classes()).toContain('is-inner-scroll')
+    expect(wrapper.find('.ui-table__body').attributes('style')).toContain('max-height: 320px')
+    wrapper.unmount()
+  })
+
+  it('keeps single-table mode when no sticky header or body height is requested', () => {
+    const wrapper = mount(UiTable, { props: { columns, rows: [] } })
+    expect(wrapper.findAll('.ui-table__viewport')).toHaveLength(1)
+    expect(wrapper.find('.ui-table__header').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps a page header opt-in and uses the same kernel for inner scroll', async () => {
+    const wrapper = mount(PerformanceManagementTable, {
+      props: { columns, rows: [{ name: '组织甲' }], loading: false, loadingText: '加载中', emptyText: '暂无', tableAriaLabel: '表格', paginationAriaLabel: '分页', showPagination: false, scrollMode: 'page' },
+    })
+    const table = wrapper.getComponent(UiTable)
+    expect(table.props('maxHeight')).toBeUndefined()
+    expect(table.props('stickyHeaderTop')).toBeUndefined()
+    await wrapper.setProps({ stickyHeaderTop: 'var(--performance-table-sticky-top)' })
+    expect(table.props('stickyHeaderTop')).toBe('var(--performance-table-sticky-top)')
+    await wrapper.setProps({ scrollMode: 'inner', stickyHeaderTop: undefined, maxHeight: 240 })
+    expect(table.props('maxHeight')).toBe(240)
+    wrapper.unmount()
+  })
+
+  it('synchronizes horizontal scroll in both directions without changing vertical position', async () => {
+    const wrapper = mount(UiTable, { props: { columns, rows: [{ name: '组织甲' }], stickyHeaderTop: 0 } })
+    const header = wrapper.get('.ui-table__header')
+    const body = wrapper.get('.ui-table__body')
+    body.element.scrollTop = 80
+    body.element.scrollLeft = 140
+    await body.trigger('scroll')
+    expect(header.element.scrollLeft).toBe(140)
+    header.element.scrollLeft = 60
+    await header.trigger('scroll')
+    expect(body.element.scrollLeft).toBe(60)
+    expect(body.element.scrollTop).toBe(80)
+    wrapper.unmount()
+  })
+
+  it('does not add the selection width to right fixed columns or shift measured indices', async () => {
+    const widths = [48, 270, 175, 125, 210]
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const cell = this
+      const index = Array.from(cell.parentElement?.children ?? []).indexOf(cell)
+      return { width: widths[index] ?? 0 } as DOMRect
+    })
+    const wrapper = mount(UiTable, { props: { columns: columns.map(column => column.key === 'manager' ? { ...column, fixed: 'left' as const } : column), rows: [{}], selectable: true } })
+    await nextTick()
+    await nextTick()
+    const headers = wrapper.findAll('thead th')
+    expect(headers[1].attributes('style')).toContain('left: 48px')
+    expect(headers[2].attributes('style')).toContain('left: 318px')
+    expect(headers[4].attributes('style')).toContain('right: 0px')
+    wrapper.unmount()
+    spy.mockRestore()
+  })
+
+  it('keeps legacy pagination on the shared pagination kernel without a second size selector', async () => {
+    const wrapper = mount(PerformancePagination, { props: { page: 1, pageSize: 10, total: 100 } })
+    const pager = wrapper.getComponent(UiPagination)
+    expect(pager.props('showSize')).toBe(false)
+    expect(pager.props('showJump')).toBe(false)
+    expect(wrapper.findAll('.page-number').map(page => page.text())).toEqual(['1', '2', '3', '4', '5', '10'])
+    await wrapper.get('[aria-label="下一页"]').trigger('click')
+    expect(wrapper.emitted('page-change')).toEqual([[2]])
     wrapper.unmount()
   })
 

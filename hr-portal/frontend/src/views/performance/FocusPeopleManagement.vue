@@ -235,6 +235,7 @@ onMounted(async () => {
                 v-model="keyword"
                 placeholder="搜索"
                 aria-label="搜索人员组"
+                width="var(--search-input-width-wide)"
                 @search="search"
                 @clear="clearSearch"
               />
@@ -349,17 +350,18 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--page-gap-toolbar-items);
   min-height: 48px;
   margin-bottom: 8px;
+}
+.focus-people-toolbar > *,
+.focus-people-tools > * {
+  flex-shrink: 0;
 }
 .focus-people-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-.focus-people-tools :deep(.performance-search-input) {
-  flex: 0 0 292px;
-  width: 292px !important;
+  gap: var(--page-gap-toolbar-items);
 }
 .filter-button {
   width: 80px;

@@ -18,7 +18,7 @@
         </button>
       </li>
     </ul>
-    <el-select popper-class="ui-pagination-size-popper" class="page-size-select" :model-value="pageSize" :suffix-icon="ArrowDown" size="small" aria-label="每页条数" @change="emit('page-size-change', $event)">
+    <el-select v-if="showSize" popper-class="ui-pagination-size-popper" class="page-size-select" :model-value="pageSize" :suffix-icon="ArrowDown" size="small" aria-label="每页条数" @change="emit('page-size-change', $event)">
       <el-option v-for="size in sizes" :key="size" :label="`${size} 条/页`" :value="size" />
     </el-select>
     <span v-if="showJump" class="pagination-jump">跳至 <input v-model="jumpText" class="pagination-jump-input" type="text" inputmode="numeric" aria-label="跳至页码" @keyup.enter="jumpToPage" @blur="jumpToPage" /> 页</span>
@@ -44,11 +44,13 @@ const props = withDefaults(defineProps<{
   ariaLabel?: string
   sizes?: number[]
   showJump?: boolean
+  showSize?: boolean
 }>(), {
   total: 0,
   ariaLabel: '分页',
   sizes: () => [10, 20, 50, 100],
   showJump: true,
+  showSize: true,
 })
 
 const emit = defineEmits<{
@@ -98,13 +100,15 @@ function jumpToPage() {
 <style scoped>
 .ui-pagination {
   display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   justify-content: flex-end;
   gap: var(--ui-pagination-group-gap);
   color: var(--ui-pagination-color);
   font-size: var(--font-size-md);
 }
-.pagination-list { display: flex; align-items: center; gap: var(--ui-pagination-item-gap); margin: 0; padding: 0; list-style: none; }
+.pagination-list { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: var(--ui-pagination-item-gap); margin: 0; padding: 0; list-style: none; }
 .pagination-arrow, .page-number, .pagination-ellipsis {
   min-width: var(--ui-pagination-item-size);
   height: var(--ui-pagination-height);

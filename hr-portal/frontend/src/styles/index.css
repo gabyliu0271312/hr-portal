@@ -4,6 +4,6 @@
 
 .el-table .cell {
   white-space: nowrap !important;
-  overflow: visible !important;
-  text-overflow: unset !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }

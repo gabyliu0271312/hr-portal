@@ -3,6 +3,7 @@
     :columns="columns"
     :rows="rows"
     :row-key="rowKeyOf"
+    sticky-header-top="0px"
     aria-label="组织架构"
   >
     <template #cell="{ row, column }">

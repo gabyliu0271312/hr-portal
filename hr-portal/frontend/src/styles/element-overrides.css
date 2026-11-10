@@ -121,22 +121,41 @@
 }
 
 .el-table {
-  --el-table-header-bg-color: var(--color-bg-subtle);
-  --el-table-header-text-color: var(--color-text-secondary);
-  --el-table-border-color: var(--color-border-light);
-  --el-table-row-hover-bg-color: var(--color-bg-hover);
+  --el-table-header-bg-color: var(--ui-table-header-background);
+  --el-table-header-text-color: var(--ui-table-header-color);
+  --el-table-border-color: var(--ui-table-border-color);
+  --el-table-row-hover-bg-color: var(--ui-table-row-hover-background);
+  --el-table-fixed-box-shadow: none;
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--ui-table-font-size);
 }
 
 .el-table th.el-table__cell {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
+  height: var(--ui-table-header-height);
+  color: var(--ui-table-header-color);
+  font-size: var(--ui-table-font-size);
+  font-weight: 400;
   letter-spacing: 0;
-  padding: 8px 12px;
+  padding: 0;
 }
 
 .el-table td.el-table__cell {
-  padding: 8px 12px;
+  height: var(--ui-table-row-height);
+  padding: 0;
+}
+
+.el-table .cell {
+  padding-inline: var(--ui-table-cell-padding-inline);
+  line-height: var(--ui-table-line-height);
+}
+.el-pagination {
+  --el-pagination-button-height: var(--ui-pagination-height);
+  --el-pagination-button-width: var(--ui-pagination-item-size);
+  --el-pagination-button-color: var(--ui-pagination-color);
+  --el-pagination-button-disabled-color: var(--ui-pagination-disabled-color);
+  --el-pagination-hover-color: var(--ui-pagination-active-color);
+  flex-wrap: wrap;
 }
 
 .el-input__wrapper {

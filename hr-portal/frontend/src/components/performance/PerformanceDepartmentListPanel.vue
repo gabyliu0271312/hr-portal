@@ -117,14 +117,14 @@ watch(() => props.cycleId, () => {
   align-items: center;
   justify-content: space-between;
   min-height: 32px;
-  margin-bottom: 16px;
+  margin-bottom: var(--page-gap-toolbar-table);
 }
 .department-action-placeholder { color: var(--ui-table-placeholder-color); }
 .department-footer {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--ui-pagination-group-gap);
   min-height: 28px;
   padding-bottom: 4px;
 }

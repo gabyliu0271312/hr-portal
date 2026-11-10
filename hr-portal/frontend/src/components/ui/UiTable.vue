@@ -2,16 +2,24 @@
   <div
     ref="rootRef"
     class="ui-table"
-    :class="{ 'is-sticky-header': stickyHeaderTop !== undefined }"
-    :style="stickyHeaderTop !== undefined ? { '--ui-table-sticky-top': `${stickyHeaderTop}px` } : undefined"
+    :class="{ 'is-sticky-header': stickyHeaderTop !== undefined, 'is-inner-scroll': maxHeight !== undefined }"
+    :style="stickyHeaderTop !== undefined ? { '--ui-table-sticky-top': stickyTopValue } : undefined"
     :aria-label="ariaLabel"
   >
-    <table class="ui-table__grid" :style="{ minWidth: tableMinWidth }">
-      <colgroup>
-        <col v-if="selectable" :style="{ width: 'var(--ui-table-selection-width)' }">
-        <col v-for="column in columns" :key="column.key" :style="{ width: `${declaredWidth(column)}px` }">
-      </colgroup>
-      <thead>
+    <div
+      v-for="section in sections"
+      :key="section"
+      class="ui-table__viewport"
+      :class="{ 'ui-table__header': section === 'header', 'ui-table__body': section === 'body' }"
+      :style="section === 'body' ? bodyStyle : section === 'header' && viewportWidth ? { width: `${viewportWidth}px` } : undefined"
+      @scroll="syncScroll"
+    >
+      <table class="ui-table__grid" :style="{ minWidth: tableMinWidth, width: splitTable ? `${gridWidth}px` : undefined }">
+        <colgroup>
+          <col v-if="selectable" :style="{ width: 'var(--ui-table-selection-width)' }">
+          <col v-for="column in columns" :key="column.key" :style="{ width: `${declaredWidth(column)}px` }">
+        </colgroup>
+      <thead v-if="section !== 'body'">
         <tr>
           <th
             v-if="selectable"
@@ -53,12 +61,14 @@
           </th>
         </tr>
       </thead>
-      <tbody>
+      <tbody v-if="section !== 'header'">
         <tr v-if="loading || !rows.length" class="ui-table__row ui-table__row--state">
           <td class="ui-table__cell ui-table__state" :colspan="columns.length + (selectable ? 1 : 0)">
-            <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
-              <span :role="loading ? 'status' : undefined">{{ loading ? loadingText : emptyText }}</span>
-            </slot>
+            <div class="ui-table__state-content" :style="viewportWidth ? { width: `${viewportWidth}px` } : undefined">
+              <slot name="empty" :loading="loading" :text="loading ? loadingText : emptyText">
+                <span :role="loading ? 'status' : undefined">{{ loading ? loadingText : emptyText }}</span>
+              </slot>
+            </div>
           </td>
         </tr>
         <template v-else>
@@ -100,6 +110,7 @@
         </template>
       </tbody>
     </table>
+    </div>
   </div>
 </template>
 
@@ -112,10 +123,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
  * 规格基准：REA 实测（飞书人事 smb 线 + 飞书绩效 ud__table 线）。
  * - 表头 #f2f3f5（token 可覆盖，绩效线白底）、行高 51、分隔线 rgba(31,35,41,.15)
  * - 固定列 sticky、无投影（REA 全线无投影）；偏移按表头实测宽度累加
- * - 表格自身永不纵向滚动：数据量由外层滚动或分页承载（REA 两线一致，无内滚）
- * - 表头吸顶：可选（stickyHeaderTop），对齐 REA 绩效 v2 线「头体分离 + 业务 sticky top」
- *   的能力形态；smb 线不传即完全不吸顶
- * - 多选列 / 列排序：对齐 REA 绩效成员列表（p4）的表格能力
+ * - 表头吸顶通过独立表头容器完成，横向滚动与表体同步
+ * - maxHeight 显式启用表体内滚；多选与排序保持原有事件契约
  *
  * 分页 / 工具栏 / 搜索属能力壳（UiPagination 或业务层），不在内核内。
  */
@@ -140,10 +149,11 @@ const props = withDefaults(defineProps<{
   clickableRows?: boolean
   /** 空值占位符 */
   placeholder?: string
-  /** 表格最小宽度；低于该宽度由外层容器横向滚动 */
+  /** 表格最小宽度；低于该宽度由表体横向滚动 */
   minWidth?: number
-  /** 表头吸顶偏移；不传 = 不吸顶（smb 线），传数字 = 吸顶（绩效 v2 线 sticky top:N） */
-  stickyHeaderTop?: number
+  /** 不传则表头不吸顶；支持数字像素或 CSS token */
+  stickyHeaderTop?: number | string
+  maxHeight?: number | string
   /** 多选列（REA 绩效成员列表形态） */
   selectable?: boolean
   selectionKey?: string
@@ -167,6 +177,7 @@ const props = withDefaults(defineProps<{
   placeholder: '--',
   minWidth: 0,
   stickyHeaderTop: undefined,
+  maxHeight: undefined,
   selectable: false,
   selectionKey: 'id',
   isRowSelectable: undefined,
@@ -192,16 +203,30 @@ defineSlots<{
 }>()
 
 const rootRef = ref<HTMLElement>()
-/** 表头实测宽度，用于固定列偏移；未测量到（SSR/测试）时回退到声明宽度 */
 const measuredWidths = ref<number[]>([])
+const viewportWidth = ref(0)
+const splitTable = computed(() => props.stickyHeaderTop !== undefined || props.maxHeight !== undefined)
+const sections = computed(() => splitTable.value ? ['header', 'body'] : ['all'])
+const stickyTopValue = computed(() => typeof props.stickyHeaderTop === 'number' ? `${props.stickyHeaderTop}px` : props.stickyHeaderTop)
+const bodyStyle = computed(() => props.maxHeight === undefined ? undefined : {
+  maxHeight: typeof props.maxHeight === 'number' ? `${props.maxHeight}px` : props.maxHeight,
+})
+const gridWidth = computed(() => Math.max(viewportWidth.value, parseFloat(tableMinWidth.value)))
 let observer: ResizeObserver | undefined
+
+function syncScroll(event: Event) {
+  const source = event.currentTarget as HTMLElement
+  rootRef.value?.querySelectorAll<HTMLElement>('.ui-table__viewport').forEach(viewport => {
+    if (viewport !== source && viewport.scrollLeft !== source.scrollLeft) viewport.scrollLeft = source.scrollLeft
+  })
+}
 
 function declaredWidth(column: UiTableColumn) {
   return column.width ?? column.minWidth ?? 160
 }
 
 function offsetWidth(index: number, column: UiTableColumn) {
-  const measured = measuredWidths.value[index]
+  const measured = measuredWidths.value[index + (props.selectable ? 1 : 0)]
   return measured && measured > 0 ? measured : declaredWidth(column)
 }
 
@@ -211,6 +236,9 @@ const tableMinWidth = computed(() => {
 })
 
 function measure() {
+  const viewport = rootRef.value?.querySelector<HTMLElement>('.ui-table__body')
+    ?? rootRef.value?.querySelector<HTMLElement>('.ui-table__viewport')
+  viewportWidth.value = viewport?.clientWidth ?? 0
   measuredWidths.value = Array.from(
     rootRef.value?.querySelectorAll('thead th') ?? [],
     cell => cell.getBoundingClientRect().width,
@@ -222,7 +250,8 @@ function observeColumns() {
   observer?.disconnect()
   void nextTick(() => {
     measure()
-    rootRef.value?.querySelectorAll('thead th').forEach(cell => observer?.observe(cell))
+    rootRef.value?.querySelectorAll('thead th, .ui-table__viewport').forEach(cell => observer?.observe(cell))
+    if (rootRef.value) observer?.observe(rootRef.value)
   })
 }
 
@@ -231,7 +260,7 @@ onMounted(() => {
   observer = new ResizeObserver(measure)
   observeColumns()
 })
-watch(() => [props.columns, props.selectable], observeColumns, { deep: true })
+watch(() => [props.columns, props.selectable, props.stickyHeaderTop, props.maxHeight], observeColumns, { deep: true })
 onBeforeUnmount(() => observer?.disconnect())
 
 function rowKeyOf(row: any, index: number) {
@@ -258,7 +287,7 @@ function fixedStyle(index: number) {
   const column = props.columns[index]
   if (!column?.fixed) return undefined
   const side = column.fixed
-  let offset = props.selectable ? 40 : 0
+  let offset = props.selectable && side === 'left' ? (measuredWidths.value[0] || 40) : 0
   for (let position = 0; position < props.columns.length; position += 1) {
     const other = props.columns[position]
     if (other.fixed !== side) continue
@@ -316,6 +345,29 @@ function onSort(key: string) {
 .ui-table {
   min-width: 0;
 }
+.ui-table__viewport {
+  min-width: 0;
+  scrollbar-width: thin;
+}
+.ui-table.is-sticky-header > .ui-table__header {
+  position: sticky;
+  top: var(--ui-table-sticky-top, 0px);
+  z-index: var(--ui-table-header-z-index, 20);
+  background: var(--ui-table-header-background);
+}
+.ui-table__body > .ui-table__grid { border-top: 0; }
+.ui-table:not(.is-sticky-header):not(.is-inner-scroll) > .ui-table__viewport {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.ui-table__header {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+}
+.ui-table__body {
+  overflow: auto;
+}
 .ui-table__grid {
   width: 100%;
   table-layout: fixed;
@@ -363,18 +415,10 @@ function onSort(key: string) {
   opacity: 0.4;
 }
 .ui-table__cell.is-align-right { text-align: right; }
-.ui-table__cell.is-fixed-left { position: sticky; z-index: 2; }
-.ui-table__cell.is-fixed-right { position: sticky; z-index: 2; }
+.ui-table__cell.is-fixed-left { position: sticky; z-index: var(--ui-table-fixed-z-index); }
+.ui-table__cell.is-fixed-right { position: sticky; z-index: var(--ui-table-fixed-z-index); }
 .ui-table__cell--head.is-fixed-left,
-.ui-table__cell--head.is-fixed-right { z-index: 4; }
-/* 表头吸顶（可选能力，对齐 REA 绩效 v2 线）：单表 + th sticky，与固定列 z-index 分层 */
-.ui-table.is-sticky-header thead .ui-table__cell--head {
-  position: sticky;
-  top: var(--ui-table-sticky-top, 0px);
-  z-index: 3;
-}
-.ui-table.is-sticky-header thead .ui-table__cell--head.is-fixed-left,
-.ui-table.is-sticky-header thead .ui-table__cell--head.is-fixed-right { z-index: 5; }
+.ui-table__cell--head.is-fixed-right { z-index: var(--ui-table-fixed-header-z-index); }
 .ui-table__sort-header {
   display: inline-flex;
   align-items: center;
@@ -430,7 +474,13 @@ function onSort(key: string) {
 .ui-table__row.is-highlighted > .ui-table__cell { background: var(--ui-table-highlight-background, #e8f3ff); }
 .ui-table__state {
   height: var(--ui-table-empty-height);
+  padding: 0;
   color: var(--ui-table-header-color);
   text-align: center;
+}
+.ui-table__state-content {
+  position: sticky;
+  left: 0;
+  max-width: 100%;
 }
 </style>

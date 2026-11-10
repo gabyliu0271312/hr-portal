@@ -252,8 +252,6 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
       search-placeholder="搜索成员"
       search-aria-label="搜索成员"
       search-fill
-      search-width="100%"
-      :gap="12"
       @search="page = 1; load()"
       @clear="page = 1; load()"
       @filter="ElMessage.info('筛选功能暂未开放')"
@@ -275,6 +273,7 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
       clickable-rows
       :sort-key="sortKey"
       :sort-order="sortOrder"
+      sticky-header-top="var(--performance-table-sticky-top, 0px)"
       @sort-change="onSortChange"
       @page-change="page = $event"
       @page-size-change="pageSize = $event; page = 1"

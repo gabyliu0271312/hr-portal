@@ -24,7 +24,7 @@ withDefaults(defineProps<{
   ariaLabel?: string
   disabled?: boolean
 }>(), {
-  width: '224px',
+  width: 'var(--search-input-width)',
   ariaLabel: '搜索',
   disabled: false,
   variant: 'default',
@@ -38,7 +38,7 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-.search-input { display: inline-flex; align-items: center; box-sizing: border-box; height: var(--control-height); padding: 4px 8px 4px var(--input-padding-x); background: var(--color-bg-card); border: 1px solid var(--control-border); border-radius: var(--control-radius); color: var(--color-text-primary); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
+.search-input { display: inline-flex; align-items: center; box-sizing: border-box; min-width: 0; height: var(--control-height); padding: 4px 8px 4px var(--input-padding-x); background: var(--color-bg-card); border: 1px solid var(--control-border); border-radius: var(--control-radius); color: var(--color-text-primary); transition: border-color var(--duration-fast) var(--ease-standard), box-shadow var(--duration-fast) var(--ease-standard); }
 .search-input.is-compact { height: var(--input-compact-height); }
 .search-input:focus-within { border-color: var(--control-focus-border); outline: 0; box-shadow: none; }
 .search-input__icon { flex: 0 0 var(--icon-size); width: var(--icon-size); height: var(--icon-size); color: var(--color-text-secondary); }

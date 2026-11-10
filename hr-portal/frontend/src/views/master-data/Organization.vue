@@ -82,15 +82,15 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
 </template>
 
 <style scoped>
-/* REA 滚动模型：本页不设高度约束、自身不滚，内容自然生长，
-   纵向/横向滚动都交给布局层 .people-main（唯一滚动容器，对应 REA #smb-content-container）。
-   表头高度对齐 REA 部门页实测 51px（序列页为 46，故在页级覆盖而非改全局 token）。 */
+/* 纵向由 people-main 承载，表头独立吸顶，横向由共享表体承载。 */
 .organization {
   --ui-table-header-height: 51px;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   min-height: 100%;
+  width: 100%;
+  flex: 1 0 auto;
   min-width: 0;
   padding: var(--ui-page-padding);
   background: var(--ui-page-background);

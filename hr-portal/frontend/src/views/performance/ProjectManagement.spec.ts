@@ -345,6 +345,9 @@ describe('ProjectManagement', () => {
     // Tab 恢复 sticky（采集：ud__tabs pt-6 sticky z-30），表头/遮罩相对 Tab 区底减 8px 锁定（采集：header top 76px、mask top 56px）
     expect(wrapper.find('.line-tabs').classes()).toContain('sticky')
     expect(memberListPanelSource).toMatch(/--performance-table-sticky-top:\s*calc\(var\(--performance-tab-area-height\) - 28px\)/)
+    const table = wrapper.findComponent({ name: 'UiTable' })
+    expect(table.props('stickyHeaderTop')).toBe('var(--performance-table-sticky-top, 0px)')
+    expect(wrapper.find('.ui-table__header').exists()).toBe(true)
     expect(memberListPanelSource).toMatch(/\.card-sticky-mask\s*\{[^}]*top:\s*calc\(var\(--performance-table-sticky-top, 0px\) - 20px\)/)
   })
 
