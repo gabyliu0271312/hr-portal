@@ -27,7 +27,7 @@
           <span v-else-if="column.key === 'scope'" class="scope-tag">{{ row.scope }}</span>
           <span v-else-if="column.key === 'authorized_count'" class="count-link">{{ row.authorized_count }}</span>
           <span v-else-if="column.key === 'unauthorized_count'" class="count-link">{{ row.unauthorized_count ?? '--' }}</span>
-          <span v-else-if="column.key === 'action'" class="actions"><button type="button" :disabled="!row.allow_authorize || !row.task_ids.length || loading" @click="openAuthorization(row)">协助授权</button><button type="button" :disabled="!row.authorizations.length || loading" @click="revoke(row)">撤销授权</button></span>
+          <span v-else-if="column.key === 'action'" class="actions"><button type="button" :disabled="!row.can_authorize || !row.allow_authorize || !row.task_ids.length || loading || saving" @click="openAuthorization(row)">协助授权</button><button type="button" :disabled="!row.can_revoke || !row.authorizations.length || loading || saving" @click="revoke(row)">撤销授权</button></span>
           <span v-else-if="column.key === 'authorized_at'">{{ formatDate(row.authorized_at) }}</span>
           <span v-else>{{ row[column.key] || '--' }}</span>
         </template>
@@ -90,9 +90,9 @@ async function load() {
     rows.value = result.items.filter(item => !keyword.value.trim() || item.calibrator.toLowerCase().includes(keyword.value.trim().toLowerCase())).map(item => ({ ...item, allow: item.allow_authorize ? '是' : '否' }))
   } catch { if (current === sequence) error.value = '校准授权加载失败，请稍后重试' } finally { if (current === sequence) loading.value = false }
 }
-function openAuthorization(row: ProjectCalibrationAuthorization) { target.value = row; dialogOpen.value = true }
+function openAuthorization(row: ProjectCalibrationAuthorization) { if (!row.can_authorize || !row.allow_authorize || !row.task_ids.length || loading.value || saving.value) return; target.value = row; dialogOpen.value = true }
 function authorized(count: number, _notificationStatus?: string, _recordId?: number, skippedCount = 0) { notice.value = `已授权 ${count} 个任务${skippedCount ? `，跳过 ${skippedCount} 个无原处理人任务` : ''}`; void load() }
-function revoke(row: ProjectCalibrationAuthorization) { if (saving.value || !row.authorizations.length) return; revokeTarget.value = row; confirmOpen.value = true }
+function revoke(row: ProjectCalibrationAuthorization) { if (!row.can_revoke || loading.value || saving.value || !row.authorizations.length) return; revokeTarget.value = row; confirmOpen.value = true }
 async function confirmRevoke() {
   const row = revokeTarget.value
   if (!row || saving.value) return

@@ -169,6 +169,8 @@ export interface ProjectCalibrationAuthorization {
   authorizations: Array<{ id: number; task_id: number; recipient: string }>
   id: string
   allow_authorize: boolean
+  can_authorize: boolean
+  can_revoke: boolean
   calibrator: string
   status: string
   scope: string

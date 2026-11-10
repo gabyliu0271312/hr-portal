@@ -233,3 +233,39 @@ def test_actual_task_delegation_endpoints_consume_assigned_keys_and_revoke_immed
     assert task.handler_ref == 'OWNER' and task.answer_version == 3
     assert task.answers == {'historical': 'unchanged'} and task.draft_answers == {'draft': 'unchanged'}
     assert len(session.scalars(select(PerformanceNodeTaskAuthorization)).all()) == 2
+
+    from dataclasses import replace
+    from datetime import timedelta
+    from app.performance.models import PerformanceCycle
+    PerformanceCycle.__table__.create(session.get_bind())
+    session.add(PerformanceCycle(id=1, cycle_ref='C1', name='周期', period_year=2026, period_type='YEAR', start_at=now, end_at=now + timedelta(days=365), lock_rule='IMMEDIATE', created_by_type='PORTAL_USER', created_by_ref='8'))
+    target_project = session.get(PerformanceProject, 1)
+    target_project.administrators = ['授权管理员']
+    target_project.settings = {'data_managers': ['PROJECT_ADMIN']}
+    session.add(PerformanceRole(id=16, code='performance.project_admin', name='项目管理员', role_type='MANAGEMENT', is_active=True, function_permission_keys=['performance.frontend.progress', 'performance.frontend.data-view']))
+    session.commit()
+    session.delete(session.get(PerformanceIdentityLink, 1))
+    session.commit()
+    async def switched_employee_context():
+        return replace(await employee_context(), subject_type='EMPLOYEE', subject_id=0, effective_employee_no='E8', operator_user_id=99)
+    app.dependency_overrides[get_performance_access_context] = switched_employee_context
+    records = client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1')
+    assert records.status_code == 200, records.text
+    assert len(records.json()['authorization_records']) == 2
+    assert all(not row['can_revoke'] for row in records.json()['authorization_records'])
+    calibration_rows = client.get('/api/v1/performance/project-management/calibration-authorization?cycle_id=1')
+    assert calibration_rows.status_code == 200, calibration_rows.text
+    row, = calibration_rows.json()['items']
+    assert row['allow_authorize'] is True
+    assert row['can_authorize'] is False and row['can_revoke'] is False
+    assert client.post(evaluation + '/delegations', json=payload).status_code == 403
+    assert client.post(calibration + '/delegations', json=payload).status_code == 403
+    authorization = session.scalar(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id == 2))
+    authorization.grantor_employee_no = 'OWNER'
+    session.commit()
+    assert client.delete(calibration + f'/delegations/{authorization.id}').status_code == 403
+    assert session.get(PerformanceNodeTaskAuthorization, authorization.id).status == 'ACTIVE'
+    target_project.administrators = []
+    session.commit()
+    assert client.get('/api/v1/performance/project-management/authorization-records?cycle_id=1').status_code == 403
+    assert client.get('/api/v1/performance/project-management/calibration-authorization?cycle_id=1').status_code == 403

@@ -7332,6 +7332,87 @@ async def test_cycle_reminder_department_filter_matches_path_prefix_and_unassign
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("function_key", ["performance.frontend.authorize-evaluation-tasks", "performance.frontend.authorize-calibration-tasks"])
+async def test_task_authorization_view_without_operation_permission(statistics_db, function_key):
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    db = statistics_db
+    target = db.projects[0]
+    original_get = db.get
+
+    async def get(model, key):
+        return db.cycle if model is routes.PerformanceCycle else await original_get(model, key)
+    db.get = get
+    assert await routes._task_authorization_projects(1, context(), db, function_key) == [(target, None)]
+    with pytest.raises(HTTPException) as denied:
+        await routes._task_management_scope(context(), target, db, function_key)
+    assert denied.value.detail == "PROJECT_DATA_FORBIDDEN"
+    target.administrators = []
+    with pytest.raises(HTTPException) as denied:
+        await routes._task_authorization_projects(1, context(), db, function_key)
+    assert denied.value.detail == "TASK_AUTHORIZATION_FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_task_authorization_view_unions_scopes_without_expanding_operations(monkeypatch):
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    async def scope(_context, _project, _db, key):
+        return {"performance.frontend.progress": {"A"}, "performance.frontend.data-view": {"B"}, routes.TASK_EVALUATION_AUTHORIZATION_KEY: {"C"}}[key]
+    monkeypatch.setattr(routes, "_task_management_scope", scope)
+    assert await routes._task_authorization_view_scope(None, None, None, routes.TASK_EVALUATION_AUTHORIZATION_KEY) == {"A", "B", "C"}
+    assert await routes._task_management_scope_or_empty(None, None, None, routes.TASK_EVALUATION_AUTHORIZATION_KEY) == {"C"}
+    async def ambiguous(*args):
+        raise HTTPException(403, "PROJECT_ADMIN_IDENTITY_AMBIGUOUS")
+    monkeypatch.setattr(routes, "_task_management_scope", ambiguous)
+    with pytest.raises(HTTPException, match="PROJECT_ADMIN_IDENTITY_AMBIGUOUS"):
+        await routes._task_authorization_view_scope(None, None, None, routes.TASK_EVALUATION_AUTHORIZATION_KEY)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allowed", [False, True])
+async def test_calibration_authorization_view_separates_operation_capabilities(monkeypatch, allowed):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    project_row = SimpleNamespace(id=3, settings={})
+    node = SimpleNamespace(id=4, node_id="cal", project_id=3, config={"calibration": {"phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "H", "employee_no": "E", "allow_authorize": True}]}]}})
+    task = SimpleNamespace(id=7, phase_id="p1", handler_ref="H", target_employee_no="E", status="pending")
+    record = SimpleNamespace(id=8, task_id=7, grantor_employee_no="H", recipient_employee_no="R", created_at=None)
+    monkeypatch.setattr(routes, "_task_authorization_projects", AsyncMock(return_value=[(project_row, {"E"})]))
+    monkeypatch.setattr(routes, "_task_management_scope_or_empty", AsyncMock(return_value=None if allowed else set()))
+    monkeypatch.setattr(routes, "_get_cycle", AsyncMock(return_value=SimpleNamespace(name="周期")))
+    monkeypatch.setattr(routes, "calibration_task_scope", lambda *args: True)
+    monkeypatch.setattr(routes, "calibration_phase_window", lambda *args: {})
+    monkeypatch.setattr(routes, "distribution_summary", lambda *args: {})
+    class Db:
+        async def scalar(self, statement): return 1
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=2)
+        async def execute(self, statement):
+            model = statement.column_descriptions[0]["entity"]
+            rows = {routes.PerformanceAuthorizationSnapshotPerson: [], routes.PerformanceProjectNodeSnapshot: [node], routes.PerformanceNodeTask: [task], routes.PerformanceNodeTaskAuthorization: [record]}[model]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    result = await routes.project_management_calibration_authorization(1, context(), Db())
+    row, = result["items"]
+    assert row["task_ids"] == [7] and row["allow_authorize"] is True
+    assert row["can_authorize"] is allowed and row["can_revoke"] is allowed
+    assert len(row["authorizations"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_member_task_options_disable_management_buttons_even_for_original_handler(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    node = SimpleNamespace(node_id="manager", node_type="evaluation", config={"template": {"executor_role_code": "assessment.line_manager", "executor_types": ["DIRECT_MANAGER"]}})
+    member = SimpleNamespace(employee_no="E", direct_supervisor_employee_no="H", hrbp_employee_no=None)
+    task = SimpleNamespace(id=7, node_snapshot_id=4, handler_ref="H", target_employee_no="E")
+    authorize = AsyncMock(return_value=True)
+    monkeypatch.setattr(routes, "_authorize_task_delegation", authorize)
+    options = await routes._member_task_options(member, [task], {4: {"node": node, "key": "manager", "label": "上级评估"}}, {}, set(), project("STARTED"), context(), "H", object(), management_only=True)
+    assert len(options) == 1 and options[0].can_authorize is False
+    authorize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_authorization_records_reject_user_without_management_permission(monkeypatch):
     from app.performance import projects_router as router
     from fastapi import HTTPException

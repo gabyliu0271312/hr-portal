@@ -109,6 +109,22 @@ describe('ProjectManagement', () => {
     replace.mockReset()
   })
 
+  it.each([false, true])('keeps member selection delegation buttons visible with capability=%s', async allowed => {
+    const { default: MemberList } = await import('@/components/performance/ProjectMemberListPanel.vue')
+    vi.mocked(mockedApi.members).mockResolvedValue({ items: [{ id: 1, root_review_id: 1, project_id: 3, employee_no: 'E1', display_name: '被评估人', avatar_url: null, rating: null, rating_tone: null, completion: '0/0', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null, can_authorize: allowed, task_id: 11, task_map: [{ task_id: 11, stage_key: 'manager', stage_label: '上级评估', role_key: 'DIRECT_SUPERVISOR', role_label: '直属上级', handler_ref: 'M1', can_authorize: allowed }] }], total: 1, page: 1, page_size: 50 })
+    const wrapper = mount(MemberList, { props: { projectId: 3 } })
+    await flushPromises()
+    await wrapper.get('tbody input[type="checkbox"]').setValue(true)
+    const authorize = wrapper.get('[aria-label="授权他人处理"]')
+    const transfer = wrapper.get('[aria-label="转交他人处理"]')
+    expect((authorize.element as HTMLButtonElement).disabled).toBe(!allowed)
+    expect((transfer.element as HTMLButtonElement).disabled).toBe(!allowed)
+    await authorize.trigger('click'); await transfer.trigger('click')
+    expect(Boolean(wrapper.emitted('authorize-selected'))).toBe(allowed)
+    expect(Boolean(wrapper.emitted('transfer-selected'))).toBe(allowed)
+    wrapper.unmount()
+  })
+
   it.each(['success', 'failure', 'navigation-failure', 'cycle-change'] as const)('keeps member deletion consistent on %s', async scenario => {
     const { ElMessage } = await import('element-plus')
     const success = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: () => {} } as any))
@@ -689,13 +705,36 @@ describe('authorization workspaces', () => {
 })
 
 
+it('keeps calibration rows readable while both unauthorized operations stay disabled', async () => {
+  const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
+  const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
+  pinia = createPinia(); setActivePinia(pinia)
+  usePerformanceProjectContextStore().setNavigation(navigationOf(1))
+  routeQuery.cycle_id = '1'
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '2026上半年', items: [{ id: 'cal:1', project_id: 3, task_ids: [11], authorizations: [{ id: 21, task_id: 11, recipient: '接收人' }], calibrator: '校准人', status: '待校准', scope: '全部下级', authorized_count: 1, unauthorized_count: 0, allow_authorize: true, can_authorize: false, can_revoke: false, distribution_rule: null, authorized_by: '原授权人', authorized_at: null }] })
+  const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([])
+  const revoking = vi.spyOn(projectManagementApi, 'revokeTaskAuthorization').mockResolvedValue(undefined)
+  const wrapper = mount(Calibration, { global: { plugins: [pinia] } })
+  await flushPromises()
+  expect(loaded).toHaveBeenCalledWith(1)
+  expect(wrapper.text()).toContain('校准人')
+  const actions = wrapper.findAll('.actions button')
+  expect(actions.map(action => action.text())).toEqual(['协助授权', '撤销授权'])
+  expect(actions.every(action => (action.element as HTMLButtonElement).disabled)).toBe(true)
+  for (const action of actions) await action.trigger('click')
+  expect(wrapper.getComponent(Dialog).props('modelValue')).toBe(false)
+  expect(candidates).not.toHaveBeenCalled()
+  expect(revoking).not.toHaveBeenCalled()
+  wrapper.unmount(); loaded.mockRestore(); candidates.mockRestore(); revoking.mockRestore(); delete routeQuery.cycle_id
+})
+
 it('opens the shared delegation dialog from calibration authorization with real task references', async () => {
   const { default: Calibration } = await import('./ProjectCalibrationAuthorization.vue')
   const { default: Dialog } = await import('@/components/performance/PerformanceTaskDelegationDialog.vue')
   pinia = createPinia(); setActivePinia(pinia)
   usePerformanceProjectContextStore().setNavigation(navigationOf(1))
   routeQuery.cycle_id = '1'
-  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '2026上半年', items: [{ id: 'cal:1', project_id: 3, task_ids: [11, 12], authorizations: [], calibrator: '校准人', status: '待校准', scope: '全部下级', authorized_count: 2, unauthorized_count: 2, allow_authorize: true, distribution_rule: null, authorized_by: null, authorized_at: null }] })
+  const loaded = vi.spyOn(projectManagementApi, 'calibrationAuthorization').mockResolvedValue({ cycle_id: 1, cycle_name: '2026上半年', items: [{ id: 'cal:1', project_id: 3, task_ids: [11, 12], authorizations: [], calibrator: '校准人', status: '待校准', scope: '全部下级', authorized_count: 2, unauthorized_count: 2, allow_authorize: true, can_authorize: true, can_revoke: false, distribution_rule: null, authorized_by: null, authorized_at: null }] })
   const candidates = vi.spyOn(projectManagementApi, 'delegationCandidatesBatch').mockResolvedValue([
     { project_id: 3, task_id: 11, candidates: [{ employee_no: 'R1', display_name: '接收人' }] },
     { project_id: 3, task_id: 12, candidates: [{ employee_no: 'R1', display_name: '接收人' }] },
@@ -707,7 +746,7 @@ it('opens the shared delegation dialog from calibration authorization with real 
   await action.trigger('click'); await flushPromises()
   expect(wrapper.getComponent(Dialog).props('tasks')).toEqual([{ project_id: 3, task_id: 11 }, { project_id: 3, task_id: 12 }])
   expect(candidates).toHaveBeenCalledWith(3, [11, 12])
-  expect(document.querySelector<HTMLInputElement>('input[name="authorization-distribution"][value="NONE"]')?.disabled).toBe(true)
+  expect(document.querySelector<HTMLInputElement>('input[name="authorization-distribution"][value="NONE"]')?.disabled).toBe(false)
   wrapper.getComponent(Dialog).vm.$emit('completed', 2, 'preview_only')
   await flushPromises()
   expect(wrapper.text()).toContain('已授权 2 个任务')

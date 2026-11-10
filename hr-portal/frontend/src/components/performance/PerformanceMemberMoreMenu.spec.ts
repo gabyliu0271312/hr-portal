@@ -12,6 +12,22 @@ const member = {
 }
 
 describe('PerformanceMemberMoreMenu', () => {
+  it('keeps unauthorized actions visible but disabled and emits no delegation', async () => {
+    const wrapper = mount(PerformanceMemberMoreMenu, { props: { member: { ...member, task_map: member.task_map.map(option => ({ ...option, can_authorize: false })) } } })
+    await wrapper.get('[aria-label="更多成员操作"]').trigger('click')
+    const items = [...document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(items[0].textContent).toBe('授权他人处理')
+    expect(items[1].textContent).toBe('转交他人处理')
+    expect(items[0].disabled).toBe(true)
+    expect(items[1].disabled).toBe(true)
+    items[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    items[1].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(wrapper.emitted('authorize')).toBeUndefined()
+    expect(wrapper.emitted('transfer')).toBeUndefined()
+    expect(items[3].disabled).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renders no trigger without member context', () => {
     const wrapper = mount(PerformanceMemberMoreMenu, { props: { member: null } })
     expect(wrapper.find('[aria-label="更多成员操作"]').exists()).toBe(false)

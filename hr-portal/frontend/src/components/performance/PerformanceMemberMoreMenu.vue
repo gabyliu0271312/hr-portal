@@ -13,11 +13,11 @@
     </button>
     <Teleport to="body">
       <div v-if="expanded" ref="menuRef" class="performance-member-more-menu__menu" :style="menuStyle" role="menu" @keydown="handleMenuKeydown">
-        <button ref="firstItemRef" type="button" class="performance-member-more-menu__item" role="menuitem" @mouseenter="openPopover('authorize')" @mouseleave="scheduleClosePopover" @click="select('authorize')">
+        <button ref="firstItemRef" type="button" class="performance-member-more-menu__item" role="menuitem" :disabled="!canAuthorize" @mouseenter="openPopover('authorize')" @mouseleave="scheduleClosePopover" @click="select('authorize')">
           <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="TeamAddOutlined"><path d="M15 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Zm2.5 4.5a2.5 2.5 0 1 0-5.001.001A2.5 2.5 0 0 0 17.5 6.5ZM12.335 12H14.5v2h-2.165C10.515 14 9 15.498 9 17.4V19h5.5v2H9c-1.1 0-2-.9-2-2v-1.6c0-2.982 2.39-5.4 5.335-5.4ZM1 20h4.135v-2H2v-.6c0-1.002.845-1.9 2-1.9h1.31a5.46 5.46 0 0 1 .985-2H4c-2.21 0-4 1.746-4 3.9V19c0 .55.45 1 1 1ZM9 9a3.001 3.001 0 0 0-6 0 3.001 3.001 0 0 0 6 0ZM6 8a1.001 1.001 0 0 1 0 2 1.001 1.001 0 0 1 0-2Zm13.5 13a1 1 0 0 1-1-1v-2h-2a1 1 0 1 1 0-2h2v-2a1 1 0 1 1 2 0v2h2a1 1 0 1 1 0 2h-2v2a1 1 0 0 1-1 1Z" fill="currentColor"/></svg>
           <span>授权他人处理</span>
         </button>
-        <button data-action="transfer" type="button" class="performance-member-more-menu__item" role="menuitem" @mouseenter="openPopover('transfer')" @mouseleave="scheduleClosePopover" @click="select('transfer')">
+        <button data-action="transfer" type="button" class="performance-member-more-menu__item" role="menuitem" :disabled="!canTransfer" @mouseenter="openPopover('transfer')" @mouseleave="scheduleClosePopover" @click="select('transfer')">
           <svg class="performance-member-more-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-icon="UserSwitchOutlined"><path d="M8.687 4.022a.6.6 0 01.424-.735l.585-.157a3.334 3.334 0 00-4.053.513A.667.667 0 114.7 2.7a4.667 4.667 0 015.482-.825l-.08-.303a.6.6 0 011.158-.31l.345 1.288c.181.675-.22 1.37-.895 1.551l-1.288.345a.6.6 0 01-.735-.424zm-2.02 3.311a2.667 2.667 0 11-5.334 0 2.667 2.667 0 015.334 0zm-4 0a1.333 1.333 0 102.666 0 1.333 1.333 0 00-2.666 0zm.666 3.334a2.667 2.667 0 00-2.666 2.666V14c0 .733.6 1.333 1.333 1.333h4c.733 0 1.333-.6 1.333-1.333v-.667a2.667 2.667 0 00-2.666-2.666H3.333zM2 13.333C2 12.597 2.597 12 3.333 12h1.334C5.403 12 6 12.597 6 13.333V14H2v-.667zm6.667 0a2.667 2.667 0 012.666-2.666h1.334a2.667 2.667 0 012.666 2.666V14c0 .733-.6 1.333-1.333 1.333h-4c-.733 0-1.333-.6-1.333-1.333v-.667zm1.333 0V14h4v-.667c0-.736-.597-1.333-1.333-1.333h-1.334c-.736 0-1.333.597-1.333 1.333zm2-8.666A2.667 2.667 0 1112 10a2.667 2.667 0 010-5.333zm0 4A1.333 1.333 0 1012 6a1.333 1.333 0 000 2.667z" fill="currentColor"/></svg>
           <span>转交他人处理</span>
         </button>
@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { ProjectMemberTaskOption } from '@/api/performance'
 import PerformancePopover from './PerformancePopover.vue'
 
@@ -51,6 +51,8 @@ export type PerformanceMemberContext = {
   task_map?: ProjectMemberTaskOption[]
 }
 const props = defineProps<{ member?: PerformanceMemberContext | null }>()
+const canAuthorize = computed(() => props.member?.task_map?.some(option => option.can_authorize) === true)
+const canTransfer = computed(() => props.member?.task_map?.some(option => option.can_authorize && Boolean(option.handler_ref)) === true)
 const emit = defineEmits<{
   authorize: [payload: PerformanceMemberContext]
   transfer: [payload: PerformanceMemberContext]
@@ -107,7 +109,7 @@ function positionMenu() {
 }
 function open() {
   expanded.value = true
-  void nextTick(() => { positionMenu(); firstItemRef.value?.focus() })
+  void nextTick(() => { positionMenu(); menuRef.value?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus() })
 }
 function close(restoreFocus = false) {
   if (!expanded.value) return
@@ -117,7 +119,7 @@ function close(restoreFocus = false) {
 }
 function toggle() { if (expanded.value) close(); else open() }
 function select(action: 'authorize' | 'transfer' | 'delete') {
-  if (!props.member) return
+  if (!props.member || (action === 'authorize' && !canAuthorize.value) || (action === 'transfer' && !canTransfer.value)) return
   const payload = { ...props.member }
   if (action === 'authorize') emit('authorize', payload)
   else if (action === 'transfer') emit('transfer', payload)
@@ -128,7 +130,7 @@ function handlePointerDown(event: PointerEvent) {
   if (!rootRef.value?.contains(event.target as Node) && !menuRef.value?.contains(event.target as Node)) close()
 }
 function handleMenuKeydown(event: KeyboardEvent) {
-  const items = Array.from(menuRef.value?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') || [])
+  const items = Array.from(menuRef.value?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') || [])
   const index = items.indexOf(document.activeElement as HTMLButtonElement)
   if (event.key === 'Escape') { event.stopPropagation(); event.preventDefault(); close(true); return }
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

@@ -1668,6 +1668,8 @@ async def _member_task_options(
     actor_ref: str,
     db: AsyncSession,
     people_cache: dict | None = None,
+    *,
+    management_only: bool = False,
 ) -> list[ProjectMemberTaskOption]:
     cache = people_cache if people_cache is not None else {}
     people = await _delegation_snapshot_people(db, getattr(member, "snapshot_id", None), cache)
@@ -1742,7 +1744,7 @@ async def _member_task_options(
                 role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
         if not role_candidates and not str(task.handler_ref or "").strip():
             role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
-        can_authorize = bool(role_candidates) and await _authorize_task_delegation(task, node, project, context, actor_ref, db, active_by_task, progress_scope)
+        can_authorize = bool(role_candidates) and (not management_only or progress_scope is None or task.target_employee_no in progress_scope) and await _authorize_task_delegation(task, node, project, context, actor_ref, db, active_by_task, progress_scope)
         for role_key, role_label in role_candidates:
             handler_name = getattr(people.get(str(task.handler_ref)), "display_name", None)
             if not handler_name:
@@ -1983,13 +1985,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
                 PerformanceNodeTaskAuthorization.status == "ACTIVE",
             ))).scalars().all()):
                 active_by_task.setdefault(record.task_id, []).append(record)
-        try:
-            progress_scope = await _project_data_scope(context, project, db, "performance.frontend.progress")
-        except HTTPException as exc:
-            if exc.status_code == 403:
-                progress_scope = set()
-            else:
-                raise
+        progress_scope = await _task_management_scope_or_empty(context, project, db, TASK_EVALUATION_AUTHORIZATION_KEY)
     else:
         active_by_task = {}
         progress_scope = None
@@ -2030,7 +2026,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
             "employee_type": item.get("employee_type"),
         }
         item.update(mask_profile_values(profile_values, visible_fields))
-        options = await _member_task_options(member, by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, actor_ref, db, people_cache)
+        options = await _member_task_options(member, by_employee.get(member.employee_no, []), stages, active_by_task, progress_scope, project, context, actor_ref, db, people_cache, management_only=True)
         item["task_id"] = options[0].task_id if options and options[0].can_authorize else None
         item["can_authorize"] = bool(options) and any(option.can_authorize for option in options)
         item["task_map"] = [option.model_dump() for option in options]
@@ -3335,6 +3331,27 @@ async def _task_management_scope(context: PerformanceAccessContext, project: Per
     return await _project_data_scope(context, project, db, function_key)
 
 
+async def _task_management_scope_or_empty(context, project, db, function_key):
+    try:
+        return await _task_management_scope(context, project, db, function_key)
+    except HTTPException as exc:
+        if exc.status_code != 403 or exc.detail != "PROJECT_DATA_FORBIDDEN":
+            raise
+        return set()
+
+
+async def _task_authorization_view_scope(context, project, db, function_key):
+    scope = set()
+    for key in ("performance.frontend.progress", "performance.frontend.data-view", function_key):
+        permitted = await _task_management_scope_or_empty(context, project, db, key)
+        if permitted is None:
+            return None
+        scope.update(permitted)
+    if not scope:
+        raise HTTPException(status_code=403, detail="PROJECT_DATA_FORBIDDEN")
+    return scope
+
+
 async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession, active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None = None, progress_scope: set[str] | None | object = _SCOPE_NOT_PROVIDED) -> bool:
     if getattr(task, "revoked_at", None) is not None:
         return False
@@ -3973,7 +3990,7 @@ async def _task_authorization_projects(cycle_id, context, db, function_key):
     result = []
     for project in projects:
         try:
-            scope = await _task_management_scope(context, project, db, function_key)
+            scope = await _task_authorization_view_scope(context, project, db, function_key)
         except HTTPException as exc:
             if exc.status_code == 403:
                 continue
@@ -4041,7 +4058,7 @@ async def project_management_authorization_records(
             if task_node is None:
                 continue
             try:
-                event_scope = await _task_management_scope(context, project, db, _task_authorization_key(task_node))
+                event_scope = await _task_authorization_view_scope(context, project, db, _task_authorization_key(task_node))
             except HTTPException as exc:
                 if exc.status_code == 403:
                     continue
@@ -4085,6 +4102,7 @@ async def project_management_calibration_authorization(
             options = distribution_assessment_options(list(workflow.nodes or []), list(workflow.content_library or []))
             assessment_names_by_template[str(workflow.template_id)] = {option["id"]: option["label"] for option in options}
     for project, scope in projects:
+        operation_scope = await _task_management_scope_or_empty(context, project, db, TASK_CALIBRATION_AUTHORIZATION_KEY)
         flow = ((project.settings or {}).get("flow_settings") or {}) if project else {}
         assessment_names = assessment_names_by_template.get(str((project.settings or {}).get("template_id") or ""), {})
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
@@ -4132,6 +4150,14 @@ async def project_management_calibration_authorization(
                     "status": "已校准" if all(_task_completed(task) for task in group) else "待校准",
                     "scope": "已冻结的校准范围", "authorized_count": len(group),
                     "allow_authorize": any(assignment.get("allow_authorize") for assignment in assignments),
+                    "can_authorize": bool(group) and all(
+                        (operation_scope is None or task.target_employee_no in operation_scope)
+                        and any(assignment.get("allow_authorize") and assignment.get("employee_no") == task.target_employee_no for assignment in assignments)
+                        for task in group
+                    ),
+                    "can_revoke": bool(active_records) and all(
+                        operation_scope is None or task.target_employee_no in operation_scope for task in group
+                    ),
                     "unauthorized_count": sum(task.id not in authorized_task_ids for task in group), "distribution_rule": None,
                     "authorized_by": names.get(active_records[-1].grantor_employee_no, active_records[-1].grantor_employee_no) if active_records else None, "authorized_at": max((record.created_at for record in active_records), default=None),
                     "task_ids": [task.id for task in group],
