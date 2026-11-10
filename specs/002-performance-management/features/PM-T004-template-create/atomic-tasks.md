@@ -1,12 +1,31 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T02-F39 员工结果复议发起、编辑、撤回与再次发起（2026-11-10 用户要求完成修复，沿 V1 继续实施）
+  - Goal: 在既有员工结果页完成提交、截止前编辑、截止前后撤回和截止前重新发起，并同步本轮处理待办及通知有效性。
+  - Type: contract/backend/frontend/API/migration/test；承接 F36 提示配置、F38 派发与 CR-010-F13 结果只读架构。
+  - Prerequisites: 用户明确截止后仍可撤回；V1 展示后用户要求完成修复，沿 V1 实施；共享生命周期契约已冻结如下。
+  - Required reading: Spec 002 基线、本功能 spec/ui-interaction、CR-010-F13；performance-spec-development execution-contract/task-card-template/acceptance-evidence/migration-coordination；Spec 012 UI gate；附件 `D:/乐逗/Desktop/绩效复议逻辑.txt`。
+  - Allowed modifications: 本 spec/task/ui-interaction；`hr-portal/frontend/src/views/performance/Review.vue` 与对应 spec、`frontend/src/api/performance.ts` 及必要镜像；`frontend/src/components/performance/PerformanceResultReconsideration*.vue` 与对应测试；`backend/app/performance/reconsideration_service.py`、`projects_router.py`、`models.py` 与现有相关测试；必要新线性 migration；本任务专属蓝图及 PNG。
+  - Forbidden modifications: 既有 migration、021/UCP、无关流程/通用调度引擎、生产环境和数据；不得删历史申请/处理答案来恢复发起资格，不改已开通结果版本。
+  - Shared files and merge rule: 主线程串行管理 API/types、projects_router、models、迁移头和 Review；不与他人同时改同一共享文件。
+  - Input/output contract: 保留项目+员工唯一主记录，新增 `version` 默认1及 `withdrawn_at`；有效申请为未撤回记录。GET 既有资源返回 `id/version/node_id/window_open/can_submit/can_edit/can_withdraw/deadline_at/withdrawn_at/reason/submitted_at/prompt/instruction/handler_label`；POST 同路径接受 `reason,version?`（首次兼容无版本，撤回重发必须匹配版本），PATCH 同路径接受 `reason,version`，POST 同路径 `/withdraw` 接受 `version`，mutation 返回最新状态。编辑/撤回/重发递增版本；理由正文最多1500字，HTML wire最多30000，后端净化。404无身份/无结果/非本人；409窗口/重复/版本冲突或 VERSION_REQUIRED；422非法内容。撤回不受提交截止时间限制。
+  - Transaction contract: mutation先锁项目再锁申请及任务；处理任务保存/丢弃同序并刷新撤销状态；复议读取关联要求申请有效且任务未撤销。撤回active任务写revoked_at，未发通知skipped，保留历史答案。重新发起创建新有效任务，原revoked任务永不复活；通知worker避免与项目锁反序等待，拿不到项目锁跳过稍后处理。主记录、任务、通知与审计同事务。
+  - UI: `/performance/review` 员工结果子菜单；更多菜单、840px 富文本填写/编辑、顶部复议框、截止后编辑 disabled、420px 撤回确认、成功/失败/重试。蓝图 `../../ui-blueprints/PM-T004-T02-F39-employee-reconsideration-v1.html` V1；设计 PNG `../../ui-blueprints/PM-T004-T02-F39-blueprint-v1.png`；正式验收须另产 `PM-T004-T02-F39-implemented-reconsideration.png`。
+  - API/database/permission/external-system impact: 申请版本及撤回历史、任务/通知有效性可能需要新迁移；本人权限沿用现有绩效身份，按冻结处理人配置派发，复用既有通知队列与 scheduler，全局投递三态不变；不真实发消息验收或部署。
+  - Test contract: Given 本人/他人、结果未开通、截止前/后及跨截止时间、无申请/有效/已撤回/再次发起、并发旧版本；When 发起/编辑/撤回/读取/处理旧待办；Then 权限、内容、状态、任务有效性、通知去重/停止重试、历史不丢失与重开一致。扩展 `frontend/src/views/performance/Review.spec.ts`、专属组件测试和 `backend/tests/test_performance_projects.py`；执行聚焦 Vitest/pytest、前端类型检查/build、迁移 upgrade/downgrade、UI→API→DB→重开及独立实现 PNG；未运行/环境失败分别记 not-run/blocked。
+  - Acceptance: 截止前更多入口持续存在；两处提示读取模板；提交顶部复议框及按配置待办；截止前编辑、截止后置灰；撤回取消不改变数据，确认后框消失；截止前可再发起、截止后不可；旧任务失效且通知不再重试；不暴露其他员工信息、不重写历史绩效结果。
+  - Evidence: 员工侧前后端代码已落地：新增生命周期专项31 passed，合并既有复议专项50 passed；后端 compileall 通过；Alembic 单头 `0300_pm_reconsideration_lifecycle`（接0299），offline upgrade/downgrade SQL 通过。完整项目专项648 passed/5 skipped/6 failed，6失败用git HEAD原projects_router重复验证为既有 `_communication_progress_detail` mock缺scalars。前端命令 `npm --prefix hr-portal/frontend run test -- src/components/performance/PerformanceResultReconsideration.spec.ts src/views/performance/Review.spec.ts` 最新85 passed（10新组件+75结果页，补重新发起版本、后端权限拒绝、状态失败重试；有既有360测试XHR stderr，不影响通过）；`npm --prefix hr-portal/frontend run build` 类型检查及Vite打包通过（依赖PURE注解提示）。真实Review组件+受控示例数据浏览器验证鼠标发起→填写→提交→顶部复议框→模拟截止后→撤回确认全部通过，0 page-errors；初次菜单鼠标移动过早关闭已修正并重测通过。独立实现图 `PM-T004-T02-F39-implemented-reconsideration.png`、`PM-T004-T02-F39-implemented-expired-withdraw.png`，均为真实组件而非蓝图；结果区域示例字段的unsupported提示不代表真实业务数据验收。未运行真实数据库迁移/双事务并发/UI→实际API→DB重开、真实通知或生产部署，当前不勾选。
+  - Blockers: 本地Docker引擎未运行且无5432/8000服务，真实数据库upgrade/downgrade、并发和持久化重开仍blocked；真实飞书投递/生产未授权执行。另一个会话正在扩展处理人关闭/结果生效能力，后端共享文件与API已串行交还；该会话报告其用户最新选择“处理后全部锁定”，这属于协同线程转述，非本会话直接用户确认。员工UI不自建closed规则，遵循后端can_edit/can_withdraw/can_submit，并已测试全部false时拒绝操作；关闭规则的确认来源及后端验收由该会话写入对应任务，整合后需再核对。
+  - Non-scope: 新菜单、独立申诉系统、处理页重构、最终等级/分数反馈覆盖、通知接收人独立配置、无关执行人能力、生产部署。
+  - Definition of done: 代码、迁移、真实往返/UI、测试与证据齐备后仅主线程勾选；蓝图截图不冒充实现验收。
+
 - [ ] PM-T004-T02-F38 指定人员选择与复议派发（2026-11-03 用户确认）
   - Goal: 指定人员使用 PerformancePersonSelect 多选；员工成功提交复议后，每名处理人各一条站内任务及飞书通知，共同处理同一份复议结果。
   - Type: frontend/backend/API/migration；承接 F34，不改变其历史证据。
   - Required reading: Spec 002 基线、本功能 spec/ui-interaction/acceptance、execution-contract、migration-coordination、Spec 012 A05/N000/N00/N11。
   - Allowed modifications: 绩效 executor/workflow/result/review/task 前端与 API；performance models/project_service/projects_router/navigation、复议 service/router；统一 scheduler 注册；新线性迁移及对应现有测试；本任务与 ui-interaction。
   - Forbidden: 021、无关节点、既有迁移、生产数据/部署；不创建平行任务引擎或发送服务。
-  - Contract: employee_no 为人员标识；模板候选来自在职实时花名册，运行规则使用项目启动冻结配置及关系；每项目每员工一次，提交后不可更改理由；仅结果开通且复议提交窗口内允许发起。模板处理人解析出至少一人时直接使用；仅当模板处理人一个都未解析出时，读取项目流程设置 `result_reconsideration.handler_employee_nos` 作为兜底，并按周期快照过滤、去重；模板与兜底均无有效人员返回 `RECONSIDERATION_FALLBACK_NOT_CONFIGURED`。旧项目单值 `handler` 只做读取兼容，新写入使用人员编号数组。POST /performance/projects/{id}/result-reconsiderations；GET 同路径返回状态；任务通过现有 template-task 入口处理。无结果/无身份/非处理人返回404，窗口/重复/版本冲突409，参数422。
+  - Contract: employee_no 为人员标识；模板候选来自在职实时花名册，运行规则使用项目启动冻结配置及关系；每项目每员工保持唯一复议主记录；F39 用户最新规则覆盖此前“提交后不可更改理由/只能发起一次”：截止前可编辑，截止前后均可撤回，撤回后截止前可重新发起；仅结果开通且复议提交窗口内允许发起。模板处理人解析出至少一人时直接使用；仅当模板处理人一个都未解析出时，读取项目流程设置 `result_reconsideration.handler_employee_nos` 作为兜底，并按周期快照过滤、去重；模板与兜底均无有效人员返回 `RECONSIDERATION_FALLBACK_NOT_CONFIGURED`。旧项目单值 `handler` 只做读取兼容，新写入使用人员编号数组。POST /performance/projects/{id}/result-reconsiderations；GET 同路径返回状态；任务通过现有 template-task 入口处理。无结果/无身份/非处理人返回404，窗口/重复/版本冲突409，参数422。
   - Transaction: 复议主记录、去重任务及通知待发送状态同事务；提交后统一 scheduler 调 send_notification；失败不回滚复议、不重复建任务，退避重试；沿用全局投递三态及绩效通知开关。
   - UI: 模板字段沿用既有 F34 面板；流程设置、内容设置和模板预览统一消费 `performanceExecutorDisplayLabel`，所有环节的执行人展示以稳定角色码和执行人类型为输入，实线上级展开所选层级，结果复议显示业务文案“复议处理人”，不允许三处各自拼接兼容摘要；周期与项目 > 流程设置 > 结果复议处理的兜底人员真实使用 PerformancePersonSelect 多选，候选复用当前周期快照人员；结果页复用已有 F36 发起复议预览交互（提示、理由、确定/取消）；处理页复用既有 SelfSummaryTask/TemplateRenderer，展示复议理由；多人共享版本，过期版本409。无新增顶级页面或菜单。截图目标 PM-T004-T02-F38-implemented-specified-people.png。
   - Migration: 新增共享复议记录和业务通知待发送表；不删旧预生成任务，查询要求有效复议关联，启动/回填停止预生成；旧未处理任务在实际发起时复用。保持历史快照，部门关系无冻结来源时拒绝，不用实时组织猜测。

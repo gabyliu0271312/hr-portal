@@ -1,5 +1,8 @@
 """Result reconsideration submission and notification delivery."""
 from datetime import UTC, datetime, timedelta
+from html.parser import HTMLParser
+
+from app.performance.self_summary_service import sanitize_rich_text
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -22,16 +25,22 @@ def valid_reconsideration_task():
         PerformanceResultReconsideration.member_snapshot_id == PerformanceNodeTask.member_snapshot_id,
         PerformanceResultReconsideration.node_snapshot_id == PerformanceNodeTask.node_snapshot_id,
         PerformanceResultReconsideration.employee_no == PerformanceNodeTask.target_employee_no,
+        PerformanceResultReconsideration.withdrawn_at.is_(None),
+        PerformanceNodeTask.revoked_at.is_(None),
     ).exists()
 
 
 async def reconsideration_for_task(db, task, *, lock=False):
+    if task.task_kind != "result_reconsideration" or task.revoked_at is not None:
+        raise HTTPException(404, "TASK_NOT_FOUND")
     statement = select(PerformanceResultReconsideration).where(
         PerformanceResultReconsideration.project_id == task.project_id,
         PerformanceResultReconsideration.member_snapshot_id == task.member_snapshot_id,
         PerformanceResultReconsideration.node_snapshot_id == task.node_snapshot_id,
         PerformanceResultReconsideration.employee_no == task.target_employee_no,
-    )
+        PerformanceResultReconsideration.withdrawn_at.is_(None),
+    ).execution_options(populate_existing=True)
+
     if lock:
         statement = statement.with_for_update()
     appeal = await db.scalar(statement)
@@ -40,14 +49,20 @@ async def reconsideration_for_task(db, task, *, lock=False):
     return appeal
 
 
-async def reconsideration_tasks(db, appeal):
-    return list((await db.execute(select(PerformanceNodeTask).where(
+async def reconsideration_tasks(db, appeal, *, lock=False):
+    if appeal.withdrawn_at is not None:
+        return []
+    statement = select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == appeal.project_id,
         PerformanceNodeTask.member_snapshot_id == appeal.member_snapshot_id,
         PerformanceNodeTask.node_snapshot_id == appeal.node_snapshot_id,
         PerformanceNodeTask.target_employee_no == appeal.employee_no,
         PerformanceNodeTask.task_kind == "result_reconsideration",
-    ).order_by(PerformanceNodeTask.id).execution_options(populate_existing=True))).scalars().all())
+        PerformanceNodeTask.revoked_at.is_(None),
+    ).order_by(PerformanceNodeTask.id).execution_options(populate_existing=True)
+    if lock:
+        statement = statement.with_for_update()
+    return list((await db.execute(statement)).scalars().all())
 
 
 def _fallback_employee_nos(project, node) -> list[str]:
@@ -93,7 +108,7 @@ def resolve_handlers(template, member, people, fallback_employee_nos=None):
 async def submission_context(db, project_id, employee_no, *, lock=False):
     statement = select(PerformanceProject).where(PerformanceProject.id == project_id)
     if lock:
-        statement = statement.with_for_update()
+        statement = statement.with_for_update().execution_options(populate_existing=True)
     project = await db.scalar(statement)
     if project is None or project.status != PROJECT_STATUS_STARTED:
         raise HTTPException(404, "RESULT_NOT_FOUND")
@@ -117,10 +132,11 @@ async def submission_context(db, project_id, employee_no, *, lock=False):
                  and index > 0 and nodes[index - 1].node_type == "result_view"), None)
     if node is None:
         raise HTTPException(404, "RECONSIDERATION_NOT_CONFIGURED")
-    appeal = await db.scalar(select(PerformanceResultReconsideration).where(
+    statement = select(PerformanceResultReconsideration).where(
         PerformanceResultReconsideration.project_id == project_id,
         PerformanceResultReconsideration.employee_no == employee_no,
-    ))
+    ).execution_options(populate_existing=True)
+    appeal = await db.scalar(statement.with_for_update() if lock else statement)
     return project, snapshot, member, opening, node, appeal
 
 
@@ -130,44 +146,117 @@ def submission_window(project, node):
     return _parse_time(timing.get("start_at")), _parse_time(timing.get("appeal_deadline") or timing.get("end_at")), timing
 
 
-async def read_status(db, project_id, employee_no):
-    project, _, _, _, node, appeal = await submission_context(db, project_id, employee_no)
+class _VisibleReason(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def validate_reason(reason):
+    if not reason or len(reason) > 30000:
+        raise HTTPException(422, "RECONSIDERATION_REASON_INVALID")
+    sanitized = sanitize_rich_text(reason)
+    parser = _VisibleReason()
+    parser.feed(sanitized)
+    parser.close()
+    visible = "".join(parser.parts).replace("​", "").replace("﻿", "").strip()
+    if not visible or len(visible) > 1500:
+        raise HTTPException(422, "RECONSIDERATION_REASON_INVALID")
+    return sanitized
+
+
+def _window_open(project, node):
     start, end, _ = submission_window(project, node)
     now = datetime.now(UTC)
+    return end is not None and (start is None or now >= start) and now <= end
+
+
+def _appeal_state(appeal):
+    if appeal is None:
+        return None
+    return {"reason": appeal.reason, "withdrawn": appeal.withdrawn_at is not None,
+            "withdrawn_at": appeal.withdrawn_at.isoformat() if appeal.withdrawn_at else None,
+            "version": appeal.version, "submitted_at": appeal.submitted_at.isoformat(),
+            "result_version": appeal.result_version}
+
+
+def _audit(db, project, node, appeal, actor, event_type, before, **extra):
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type=event_type, cycle_ref=project.cycle_ref,
+        employee_no=appeal.employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
+        subject_type="PERFORMANCE_RECONSIDERATION", subject_ref=str(appeal.id),
+        before_state=before,
+        after_state={**_appeal_state(appeal), "project_id": project.id, "node_id": node.node_id, **extra},
+    ))
+
+
+def _status(project, node, appeal):
+    _, end, _ = submission_window(project, node)
+    window_open = _window_open(project, node)
+    active = appeal is not None and appeal.withdrawn_at is None
     template = (node.config or {}).get("template") or {}
     return {
-        "node_id": node.node_id, "can_submit": appeal is None and end is not None and (start is None or now >= start) and now <= end,
-        "deadline_at": end, "reason": appeal.reason if appeal else None,
-        "submitted_at": appeal.submitted_at if appeal else None,
+        "id": appeal.id if appeal else None, "version": appeal.version if appeal else None,
+        "node_id": node.node_id, "can_submit": not active and window_open,
+        "can_edit": active and window_open, "can_withdraw": active, "window_open": window_open,
+        "withdrawn_at": appeal.withdrawn_at if appeal else None,
+        "deadline_at": end, "reason": appeal.reason if active else None,
+        "submitted_at": appeal.submitted_at if active else None,
+        "handler_label": "复议处理人",
         "prompt": template.get("appeal_prompt_content") or "请详细说明复议原因并提供事实依据",
         "instruction": template.get("appeal_reason_instruction") or "请输入复议理由",
     }
 
 
-async def submit_reconsideration(db, project_id, employee_no, reason, actor):
+async def read_status(db, project_id, employee_no):
+    project, _, _, _, node, appeal = await submission_context(db, project_id, employee_no)
+    return _status(project, node, appeal)
+
+
+def _check_version(appeal, version):
+    if version is None:
+        raise HTTPException(409, "VERSION_REQUIRED")
+    if version != appeal.version:
+        raise HTTPException(409, "VERSION_CONFLICT")
+
+
+async def submit_reconsideration(db, project_id, employee_no, reason, actor, version=None):
     project, snapshot, member, opening, node, appeal = await submission_context(db, project_id, employee_no, lock=True)
-    if appeal is not None:
+    if appeal is not None and appeal.withdrawn_at is None:
         raise HTTPException(409, "RECONSIDERATION_ALREADY_SUBMITTED")
-    start, end, timing = submission_window(project, node)
-    now = datetime.now(UTC)
-    if end is None or (start is not None and now < start) or now > end:
+    if appeal is not None:
+        _check_version(appeal, version)
+    if not _window_open(project, node):
         raise HTTPException(409, "RECONSIDERATION_WINDOW_CLOSED")
+    reason = validate_reason(reason)
+    _, _, timing = submission_window(project, node)
+    now = datetime.now(UTC)
     people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
         PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
     ))).scalars().all())
     handlers = resolve_handlers(
-        (node.config or {}).get("template") or {},
-        member,
-        {person.employee_no: person for person in people},
-        _fallback_employee_nos(project, node),
+        (node.config or {}).get("template") or {}, member,
+        {person.employee_no: person for person in people}, _fallback_employee_nos(project, node),
     )
-    appeal = PerformanceResultReconsideration(
-        project_id=project_id, member_snapshot_id=snapshot.id, node_snapshot_id=node.id,
-        employee_no=employee_no, reason=reason, result_version=opening.result_version or {}, submitted_at=now,
-    )
-    db.add(appeal)
+    before = _appeal_state(appeal)
+    resubmitting = appeal is not None
+    if appeal is None:
+        appeal = PerformanceResultReconsideration(
+            project_id=project_id, member_snapshot_id=snapshot.id, node_snapshot_id=node.id,
+            employee_no=employee_no, reason=reason, result_version=opening.result_version or {},
+            submitted_at=now, withdrawn_at=None, version=1,
+        )
+        db.add(appeal)
+    else:
+        appeal.reason, appeal.submitted_at, appeal.withdrawn_at = reason, now, None
+        appeal.version += 1
     await db.flush()
-    old_tasks = {task.handler_ref: task for task in await reconsideration_tasks(db, appeal)}
+    old_tasks = {} if resubmitting else {task.handler_ref: task for task in await reconsideration_tasks(db, appeal)}
+    from app.identity_switch.service import current_switch
+    switched = current_switch.get() is not None
     for handler in handlers:
         task = old_tasks.get(handler)
         if task is None:
@@ -182,21 +271,61 @@ async def submit_reconsideration(db, project_id, employee_no, reason, actor):
             if task.submitted_at is not None:
                 raise HTTPException(409, "RECONSIDERATION_LEGACY_TASK_CONFLICT")
             task.available_at, task.due_at = now, _parse_time(timing.get("end_at"))
-        from app.identity_switch.service import current_switch
-        switched = current_switch.get() is not None
         db.add(PerformanceReconsiderationNotification(task_id=task.id, status="skipped" if switched else "pending", attempts=0, next_retry_at=now,
             last_error="IDENTITY_SWITCH_NOTIFICATION_INTERCEPTED" if switched else None))
-    for handler, task in old_tasks.items():
+    for handler in old_tasks:
         if handler not in handlers:
             raise HTTPException(409, "RECONSIDERATION_LEGACY_HANDLER_CONFLICT")
-    PerformanceAuditService(db).append_event(AuditEventInput(
-        event_type="PERFORMANCE_RECONSIDERATION_SUBMITTED", cycle_ref=project.cycle_ref,
-        employee_no=employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
-        subject_type="PERFORMANCE_RECONSIDERATION", subject_ref=str(appeal.id),
-        after_state={"project_id": project_id, "node_id": node.node_id, "handlers": handlers},
-    ))
+    _audit(db, project, node, appeal, actor,
+           "PERFORMANCE_RECONSIDERATION_RESUBMITTED" if resubmitting else "PERFORMANCE_RECONSIDERATION_SUBMITTED",
+           before, handlers=handlers)
+    response = {**_status(project, node, appeal), "task_count": len(handlers),
+                "notification_status": "skipped" if switched else "pending"}
     await db.commit()
-    return {"id": appeal.id, "task_count": len(handlers), "notification_status": "pending"}
+    return response
+
+
+async def edit_reconsideration(db, project_id, employee_no, reason, version, actor):
+    project, _, _, _, node, appeal = await submission_context(db, project_id, employee_no, lock=True)
+    if appeal is None or appeal.withdrawn_at is not None:
+        raise HTTPException(404, "RECONSIDERATION_NOT_FOUND")
+    _check_version(appeal, version)
+    if not _window_open(project, node):
+        raise HTTPException(409, "RECONSIDERATION_WINDOW_CLOSED")
+    reason = validate_reason(reason)
+    before = _appeal_state(appeal)
+    appeal.reason = reason
+    appeal.version += 1
+    _audit(db, project, node, appeal, actor, "PERFORMANCE_RECONSIDERATION_EDITED", before)
+    response = _status(project, node, appeal)
+    await db.commit()
+    return response
+
+
+async def withdraw_reconsideration(db, project_id, employee_no, version, actor):
+    project, _, _, _, node, appeal = await submission_context(db, project_id, employee_no, lock=True)
+    if appeal is None or appeal.withdrawn_at is not None:
+        raise HTTPException(404, "RECONSIDERATION_NOT_FOUND")
+    _check_version(appeal, version)
+    before = _appeal_state(appeal)
+    tasks = await reconsideration_tasks(db, appeal, lock=True)
+    appeal.withdrawn_at = datetime.now(UTC)
+    appeal.version += 1
+    for task in tasks:
+        task.revoked_at = appeal.withdrawn_at
+    if tasks:
+        notifications = list((await db.execute(select(PerformanceReconsiderationNotification).where(
+            PerformanceReconsiderationNotification.task_id.in_([task.id for task in tasks]),
+            PerformanceReconsiderationNotification.status.in_(["pending", "retrying"]),
+        ).with_for_update().execution_options(populate_existing=True))).scalars().all())
+        for notification in notifications:
+            notification.status = "skipped"
+            notification.last_error = "RECONSIDERATION_WITHDRAWN"
+    _audit(db, project, node, appeal, actor, "PERFORMANCE_RECONSIDERATION_WITHDRAWN", before,
+           revoked_task_ids=[task.id for task in tasks])
+    response = _status(project, node, appeal)
+    await db.commit()
+    return response
 
 
 async def dispatch_notifications(db):
@@ -209,21 +338,46 @@ async def dispatch_notifications(db):
     rows = list((await db.execute(select(PerformanceReconsiderationNotification).where(
         PerformanceReconsiderationNotification.status.in_(["pending", "retrying"]),
         PerformanceReconsiderationNotification.next_retry_at <= now,
-    ).order_by(PerformanceReconsiderationNotification.id).limit(20).with_for_update(skip_locked=True))).scalars().all())
+    ).order_by(PerformanceReconsiderationNotification.id).limit(20))).scalars().all())
     notification_settings = await db.get(PerformanceNotificationSetting, 1) if rows else None
-    for row in rows:
-        row.attempts += 1
+    processed = 0
+    for candidate in rows:
+        row = candidate
+        attempts = row.attempts
         try:
             async with db.begin_nested():
                 task = await db.get(PerformanceNodeTask, row.task_id)
-                project = await db.get(PerformanceProject, task.project_id)
-                if notification_settings is not None and not notification_settings.feishu_push_enabled:
+                if task is None:
+                    row.status, row.last_error = "skipped", "TASK_NOT_FOUND"
+                    processed += 1
+                    continue
+                project = await db.scalar(select(PerformanceProject).where(
+                    PerformanceProject.id == task.project_id,
+                ).with_for_update(skip_locked=True).execution_options(populate_existing=True))
+                if project is None:
+                    continue
+                locked_rows = list((await db.execute(select(PerformanceReconsiderationNotification).where(
+                    PerformanceReconsiderationNotification.id == row.id,
+                    PerformanceReconsiderationNotification.status.in_(["pending", "retrying"]),
+                ).with_for_update(skip_locked=True).execution_options(populate_existing=True))).scalars().all())
+                if not locked_rows:
+                    continue
+                row = locked_rows[0]
+                await db.refresh(task)
+                processed += 1
+                if (task.revoked_at is not None or task.status == "completed"
+                        or project.status != PROJECT_STATUS_STARTED
+                        or notification_settings is not None and not notification_settings.feishu_push_enabled):
                     row.status = "skipped"
                     continue
-                if task.status == "completed" or project.status != PROJECT_STATUS_STARTED:
-                    row.status = "skipped"
+                try:
+                    await reconsideration_for_task(db, task)
+                except HTTPException as exc:
+                    if exc.status_code != 404:
+                        raise
+                    row.status, row.last_error = "skipped", "TASK_NOT_FOUND"
                     continue
-                await reconsideration_for_task(db, task)
+                row.attempts += 1
                 user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).where(
                     PerformanceIdentityLink.employee_no == task.handler_ref,
                     PerformanceIdentityLink.is_active.is_(True), User.is_active.is_(True),
@@ -241,7 +395,8 @@ async def dispatch_notifications(db):
                     raise ValueError("; ".join(result.errors) or result.status)
             row.status, row.sent_at, row.last_error = "sent", now, None
         except Exception as exc:
+            row.attempts = attempts + 1
             row.status = "retrying"
             row.last_error = str(exc)[:1000]
             row.next_retry_at = now + timedelta(minutes=min(2 ** min(row.attempts, 10), 1440))
-    return len(rows), f"result reconsideration notifications processed: {len(rows)}"
+    return processed, f"result reconsideration notifications processed: {processed}"

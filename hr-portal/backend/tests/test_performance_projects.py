@@ -92,7 +92,7 @@ async def test_reconsideration_notification_failure_retries_same_task(monkeypatc
     from app.performance.models import PerformanceNodeTask, PerformanceProject
     from app.integrations.feishu import notification_service
     row = SimpleNamespace(id=1, task_id=5, status="pending", attempts=0, last_error=None, next_retry_at=datetime.now(UTC))
-    task = SimpleNamespace(id=5, project_id=1, handler_ref="P1", status="pending")
+    task = SimpleNamespace(id=5, project_id=1, handler_ref="P1", status="pending", revoked_at=None)
     class Savepoint:
         async def __aenter__(self):
             return self
@@ -109,7 +109,11 @@ async def test_reconsideration_notification_failure_retries_same_task(monkeypatc
             if model is PerformanceProject:
                 return SimpleNamespace(id=1, name="项目", status="STARTED")
             return None
+        async def refresh(self, row):
+            pass
         async def scalar(self, query):
+            if "performance_projects" in str(query):
+                return SimpleNamespace(id=1, name="项目", status="STARTED")
             return SimpleNamespace(id=9, feishu_user_id="ou_1")
     async def appeal(*args):
         return SimpleNamespace(id=2)
@@ -2208,7 +2212,7 @@ async def test_reconsideration_submit_persists_keep_result(monkeypatch):
     async def fake_reconsideration(db, t, **kwargs):
         return SimpleNamespace(id=1, reason="对评级有异议")
     monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", fake_reconsideration)
-    async def fake_reconsideration_tasks(db, appeal):
+    async def fake_reconsideration_tasks(db, appeal, **kwargs):
         return []
     monkeypatch.setattr(reconsideration_service, "reconsideration_tasks", fake_reconsideration_tasks)
     result = await projects_router._save_self_summary(

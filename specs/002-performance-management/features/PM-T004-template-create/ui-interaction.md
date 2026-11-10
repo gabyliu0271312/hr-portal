@@ -153,6 +153,20 @@
 - Turning the reason switch off hides the checkbox and clears `calibration_reason_required`; turning it back on restores the canonical unchecked state. Locked workflow fields disable both controls through the existing lock rule.
 - The existing workflow GET/PATCH JSONB contract adds `calibration_reason_enabled` and `calibration_reason_required`. Only calibration nodes may retain these flags; disabled and non-calibration nodes normalize required to `false`. No database migration, endpoint, permission, UCP, external-system, or runtime-calibration behavior is introduced.
 
+## 员工结果复议生命周期（PM-T004-T02-F39）
+
+- 状态：业务规则来自用户本轮描述及 2026-11-10 明确答复“截止后仍然可以撤回”；V1 展示后用户要求“完成修复”，沿此版本实施；尚未完成验收，不标记完成。
+- 角色与入口：员工本人；绩效评估 → 我的绩效 → 查看绩效结果；沿用 `/performance/review` 结果子菜单，不增加菜单或路由。
+- 蓝图 V1：[PM-T004-T02-F39-employee-reconsideration-v1.html](../../ui-blueprints/PM-T004-T02-F39-employee-reconsideration-v1.html)；独立蓝图截图：[PM-T004-T02-F39-blueprint-v1.png](../../ui-blueprints/PM-T004-T02-F39-blueprint-v1.png)。截图仅为设计证据，不是实现验收。
+- 截止前右上角持续显示 32×32 更多按钮；hover / 键盘聚焦打开约 243×58 菜单，显示“发起复议”和北京时间截止时间。已存在有效复议时不允许重复提交，菜单发起项禁用；截止后整个更多入口隐藏。菜单 hover 复用全局 token。
+- 点击发起或编辑打开 840px 自适应弹窗，复用 PerformanceDialogShell、PerformancePromptNotice、PerformanceRichTextEditor（task-entry）；提示条取 `appeal_prompt_content`，富文本占位取 `appeal_reason_instruction`，编辑回填原理由。确定/取消和关闭遵循已有弹窗组件；空理由不可提交，保存失败保留输入并展示错误。
+- 发起成功在结果内容最上方展示浅蓝“复议中”框，带编辑、撤回；其他结果与参考区域排序、内容来源及历史结果版本保持不变。截止前可编辑；截止后编辑仍显示但 disabled。不得自行增加处理人已打开、保存草稿或提交后不可编辑/撤回的限制。
+- 撤回使用 420px PerformanceConfirmDialog，警告图标，标题“是否确定撤回？”，取消/确定。取消不改变页面或数据；成功隐藏复议框；失败保留原框并可重试。截止前撤回后可再次发起，截止后撤回后不可再次发起。撤回资格不复用首次提交时间窗口。
+- 编辑沿用本轮待办，不重复派发；撤回使本轮处理任务失效并停止尚未投递通知，保留历史和审计；再次发起产生新一轮有效任务，旧任务不可重新处理。已发出的外部消息不承诺物理撤回；通知失败仍沿既有重试及全局投递控制。文案不得将通知入队伪称为已送达。
+- 加载中不显示可操作入口；复议状态读取失败展示重试，不能静默当作未发起。保存中防重复操作；跨过截止时间的发起/编辑由后端拒绝并刷新权限，撤回仍可用；并发旧版本冲突保留用户输入并提示刷新。无结果、无身份或非本人不得读取/操作，沿用绩效内部鉴权，不接 Portal 菜单 CRUD 权限。
+- 实现验证（2026-11-10）：复用真实 Review/共享组件和受控示例数据，鼠标更多菜单→发起→富文本输入→提交显示复议中→模拟截止后→打开撤回确认均通过，无page-errors；菜单鼠标移动关闭过早问题已修复。截图 [填写弹窗](../../ui-blueprints/PM-T004-T02-F39-implemented-reconsideration.png)、[截止后撤回确认](../../ui-blueprints/PM-T004-T02-F39-implemented-expired-withdraw.png)。前端85 tests、build通过；后端50复议专项通过。此证据不连接真实DB/API/通知，不证明部署；数据库upgrade/downgrade与持久化闭环仍blocked，详见atomic-tasks F39。
+- 复议处理结果覆盖、最终反馈和处理页重构不属于本次范围；正式开发共享 DTO、版本、任务关联和迁移事务契约见本功能 atomic-tasks F39，按项目锁→申请/任务锁顺序执行。F38 中一次性/不可编辑条款被本次用户明确规则替代，而非扩大 F36 的后台提示配置范围。
+
 ## Result-reconsideration appeal prompt (PM-T004-T02-F36)
 
 - Only `result_reconsideration` nodes render “发起复议提示” after the shared executor field. The helper copy is “此提示内容将在被评估人填写复议理由时展示”; the full-width `263.333×32px` edit button uses the captured `14×14px` edit icon.

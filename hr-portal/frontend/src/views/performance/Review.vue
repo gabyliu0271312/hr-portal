@@ -24,10 +24,12 @@
       @open-node="openNode"
       @open-member="openMember"
     >
+      <template #heading-actions><PerformanceResultReconsiderationMenu v-if="selectedNode?.node_type === 'result_view' && !resultLoading && !resultError && !reconsiderationError" :status="reconsideration" :expired="reconsiderationExpired" :busy="reconsiderationBusy" @start="reconsiderationPanel?.open()" /></template>
       <div v-if="selectedNode?.node_type === 'result_view'" class="completed-content review-results" aria-label="我的绩效结果">
         <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
         <div v-else-if="resultError" role="alert">{{ resultError }} <button type="button" @click="loadMyResults">重新加载</button></div>
         <template v-else>
+          <PerformanceResultReconsideration v-if="activeProjectId" :key="`${activeProjectId}-${selectedNodeId}`" ref="reconsiderationPanel" :project-id="activeProjectId" :status="reconsideration" :expired="reconsiderationExpired" :loading="reconsiderationLoading" :load-error="reconsiderationError" @retry="loadReconsideration()" @updated="reconsideration = $event" @busy="reconsiderationBusy = $event" />
           <div v-if="!hasResultContent">暂无可查看的绩效结果</div>
           <section v-for="region in resultRegions" :key="region.key" class="result-region" :data-region-id="region.key" :aria-label="region.title">
             <h3 v-if="region.kind === 'reference'">{{ region.title }}</h3>
@@ -37,11 +39,6 @@
               <p v-if="region.kind === 'reference' && !region.contents.some(content => content.form_schema.length)">暂无可查看内容</p>
             </template>
           </section>
-          <div v-if="reconsideration" class="result-reconsideration-action">
-            <p>{{ reconsideration.prompt }}</p>
-            <UiButton v-if="reconsideration.can_submit" variant="primary" @click="reconsiderationOpen = true">发起复议</UiButton>
-            <span v-else-if="reconsideration.submitted_at">已发起复议</span>
-          </div>
         </template>
       </div>
     </PerformanceReviewContent>
@@ -61,9 +58,6 @@
       @edit="editDrawerTask"
       @remind="openReminderPlaceholder"
     />
-    <PerformanceConfirmDialog v-model="reconsiderationOpen" appearance="submit" confirm-variant="primary" message="发起复议" description="确定发起复议后，配置的处理人会收到通知并负责跟进。" confirm-text="确定" cancel-text="取消" :loading="reconsiderationSaving" :confirm-disabled="!reconsiderationReason.trim()" :error-message="reconsiderationError" @confirm="submitReconsideration">
-      <template #check><PerformanceFormField v-model="reconsiderationReason" label="复议理由" textarea required :maxlength="1500" show-count :placeholder="reconsideration?.instruction || '请输入复议理由'" /></template>
-    </PerformanceConfirmDialog>
   </div>
 </template>
 
@@ -80,11 +74,10 @@ import {
   type PerformanceReviewOverview,
   type PerformanceResultRegion,
 } from '@/api/performance'
-import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
-import PerformanceFormField from '@/components/performance/PerformanceFormField.vue'
+import PerformanceResultReconsideration from '@/components/performance/PerformanceResultReconsideration.vue'
+import PerformanceResultReconsiderationMenu from '@/components/performance/PerformanceResultReconsiderationMenu.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
-import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
@@ -109,24 +102,36 @@ const hasResultContent = computed(() => resultRegions.value.some(region => regio
 const resultLoading = ref(false)
 const resultError = ref('')
 const reconsideration = ref<Awaited<ReturnType<typeof projectManagementApi.resultReconsideration>> | null>(null)
-const reconsiderationOpen = ref(false)
-const reconsiderationReason = ref('')
-const reconsiderationSaving = ref(false)
+const reconsiderationPanel = ref<InstanceType<typeof PerformanceResultReconsideration> | null>(null)
+const reconsiderationBusy = ref(false)
+const reconsiderationLoading = ref(false)
 const reconsiderationError = ref('')
+const clock = ref(Date.now())
+const clockTimer = window.setInterval(() => { clock.value = Date.now() }, 1000)
+const reconsiderationExpired = computed(() => {
+  const value = reconsideration.value?.deadline_at
+  if (!value) return true
+  const normalized = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value}Z`
+  return !Number.isFinite(Date.parse(normalized)) || clock.value > Date.parse(normalized)
+})
 const resultsEntry = ref(route.query.entry === 'results')
 let resultRequest = 0
-onBeforeUnmount(() => { ++resultRequest })
-async function submitReconsideration() {
-  if (!activeProjectId.value || !reconsiderationReason.value.trim()) return
-  reconsiderationSaving.value = true
+let reconsiderationRequest = 0
+onBeforeUnmount(() => { ++resultRequest; ++reconsiderationRequest; clearInterval(clockTimer) })
+async function loadReconsideration(resultEpoch = resultRequest) {
+  const projectId = activeProjectId.value
+  if (!projectId || selectedNode.value?.node_type !== 'result_view') return
+  const request = ++reconsiderationRequest
+  reconsiderationLoading.value = true
   reconsiderationError.value = ''
   try {
-    await projectManagementApi.submitResultReconsideration(activeProjectId.value, reconsiderationReason.value.trim())
-    reconsiderationOpen.value = false
-    await loadMyResults()
-    ElMessage.success('复议已提交')
-  } catch { reconsiderationError.value = '复议提交失败，请确认提交时间和复议状态后重试' }
-  finally { reconsiderationSaving.value = false }
+    const value = await projectManagementApi.resultReconsideration(projectId)
+    if (resultEpoch === resultRequest && request === reconsiderationRequest) reconsideration.value = value
+  } catch (cause: any) {
+    if (resultEpoch === resultRequest && request === reconsiderationRequest && cause?.response?.data?.detail !== 'RECONSIDERATION_NOT_CONFIGURED') reconsiderationError.value = '复议状态加载失败，请重试'
+  } finally {
+    if (resultEpoch === resultRequest && request === reconsiderationRequest) reconsiderationLoading.value = false
+  }
 }
 async function loadMyResults() {
   const projectId = activeProjectId.value
@@ -134,7 +139,10 @@ async function loadMyResults() {
   resultRegions.value = []
   resultPageTitle.value = ''
   reconsideration.value = null
-  reconsiderationOpen.value = false
+  ++reconsiderationRequest
+  reconsiderationBusy.value = false
+  reconsiderationLoading.value = false
+  reconsiderationError.value = ''
   resultError.value = ''
   resultLoading.value = false
   if (!projectId || selectedNode.value?.node_type !== 'result_view') return
@@ -144,7 +152,7 @@ async function loadMyResults() {
     if (request !== resultRequest) return
     resultPageTitle.value = response.content_page_name || selectedNode.value?.node_name || ''
     resultRegions.value = response.regions ?? [{ key: 'result', kind: 'result', title: resultPageTitle.value, contents: response.contents || [] }]
-    void projectManagementApi.resultReconsideration(projectId).then(value => { if (request === resultRequest) reconsideration.value = value }).catch(() => { if (request === resultRequest) reconsideration.value = null })
+    void loadReconsideration(request)
   } catch {
     if (request === resultRequest) resultError.value = '当前结果尚未开通或不可查看'
   } finally {

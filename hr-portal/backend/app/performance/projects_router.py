@@ -40,7 +40,17 @@ def _is_admin_preview(context: PerformanceAccessContext) -> bool:
 
 class ReconsiderationPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    reason: str = Field(min_length=1, max_length=1500)
+    reason: str = Field(min_length=1, max_length=30000)
+    version: int | None = Field(default=None, ge=1)
+
+
+class ReconsiderationEditPayload(ReconsiderationPayload):
+    version: int = Field(ge=1)
+
+
+class ReconsiderationWithdrawPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
 
 
 async def _reconsideration_actor(db, context, project_id):
@@ -65,7 +75,21 @@ async def get_reconsideration(project_id: int, context: PerformanceAccessContext
 async def create_reconsideration(project_id: int, payload: ReconsiderationPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
     from app.performance.reconsideration_service import submit_reconsideration
     actor = await _reconsideration_actor(db, context, project_id)
-    return await submit_reconsideration(db, project_id, actor.actor_ref, payload.reason, actor)
+    return await submit_reconsideration(db, project_id, actor.actor_ref, payload.reason, actor, payload.version)
+
+
+@router.patch("/projects/{project_id}/result-reconsiderations")
+async def update_reconsideration(project_id: int, payload: ReconsiderationEditPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.reconsideration_service import edit_reconsideration
+    actor = await _reconsideration_actor(db, context, project_id)
+    return await edit_reconsideration(db, project_id, actor.actor_ref, payload.reason, payload.version, actor)
+
+
+@router.post("/projects/{project_id}/result-reconsiderations/withdraw")
+async def withdraw_reconsideration(project_id: int, payload: ReconsiderationWithdrawPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.reconsideration_service import withdraw_reconsideration as withdraw
+    actor = await _reconsideration_actor(db, context, project_id)
+    return await withdraw(db, project_id, actor.actor_ref, payload.version, actor)
 
 
 class SelfSummaryAnswersPayload(BaseModel):
@@ -691,6 +715,10 @@ async def get_template_task(task_id: int, context: PerformanceAccessContext = De
 async def _lock_task_context(db, task, node, *, validate: bool = True):
     project = await db.scalar(select(PerformanceProject).where(PerformanceProject.id == task.project_id).with_for_update().execution_options(populate_existing=True))
     await db.refresh(node)
+    if task.task_kind == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task
+        await db.refresh(task)
+        await reconsideration_for_task(db, task, lock=True)
     await db.refresh(task, with_for_update=True)
     if validate and (getattr(task, "revoked_at", None) is not None or task.task_kind == "calibration" and not calibration_task_scope(task, node)):
         raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
@@ -700,10 +728,6 @@ async def _lock_task_context(db, task, node, *, validate: bool = True):
 async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, submit: bool, context: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
     shared_tasks = []
-    if getattr(task, "task_kind", None) == "result_reconsideration":
-        from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
-        appeal = await reconsideration_for_task(db, task, lock=True)
-        shared_tasks = await reconsideration_tasks(db, appeal)
     actor = SimpleNamespace(actor_type="EMPLOYEE" if context.effective_employee_no else context.subject_type, actor_ref=context.effective_employee_no or str(context.subject_id))
     if isinstance(task, PerformanceNodeTask):
         trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref, require_employee_identity=True)
@@ -711,6 +735,10 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         await _lock_task_context(db, task, node)
         if not await _task_edit_allowed(db, task, trusted.actor_ref):
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
+    if getattr(task, "task_kind", None) == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
+        appeal = await reconsideration_for_task(db, task, lock=True)
+        shared_tasks = await reconsideration_tasks(db, appeal, lock=True)
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
@@ -815,10 +843,6 @@ async def discard_template_task_draft(task_id: int, payload: TaskDraftVersionPay
 async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, context: PerformanceAccessContext, db: AsyncSession, task_kind: str, employee_no: str | None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, employee_no)
     shared_tasks = []
-    if getattr(task, "task_kind", None) == "result_reconsideration":
-        from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
-        appeal = await reconsideration_for_task(db, task, lock=True)
-        shared_tasks = await reconsideration_tasks(db, appeal)
     actor = SimpleNamespace(actor_type="EMPLOYEE" if context.effective_employee_no else context.subject_type, actor_ref=context.effective_employee_no or str(context.subject_id))
     if isinstance(task, PerformanceNodeTask):
         trusted = await resolve_trusted_performance_actor(db, context, cycle_ref=None if task.task_kind == "result_reconsideration" else task.cycle_ref, require_employee_identity=True)
@@ -826,6 +850,10 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
         await _lock_task_context(db, task, node)
         if not await _task_edit_allowed(db, task, trusted.actor_ref):
             raise HTTPException(status_code=403, detail="TASK_AUTHORIZATION_READ_ONLY")
+    if getattr(task, "task_kind", None) == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
+        appeal = await reconsideration_for_task(db, task, lock=True)
+        shared_tasks = await reconsideration_tasks(db, appeal, lock=True)
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if task.task_kind in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
@@ -1850,6 +1878,7 @@ async def _member_task_options(
                 PerformanceResultReconsideration.project_id == project.id,
                 PerformanceResultReconsideration.member_snapshot_id == member.snapshot_id,
                 PerformanceResultReconsideration.node_snapshot_id.in_(reconsideration_nodes),
+                PerformanceResultReconsideration.withdrawn_at.is_(None),
             ))).scalars().all())
             cache[appeal_key] = {appeal.employee_no: appeal for appeal in appeals if isinstance(appeal, PerformanceResultReconsideration)}
         appeal = cache[appeal_key].get(getattr(member, "employee_no", None))
@@ -3642,10 +3671,15 @@ async def delegation_candidates_batch(
 async def _virtual_reconsideration_task(db, project_id: int, virtual_task_id: int, *, lock=False):
     from app.performance.reconsideration_service import _fallback_employee_nos, resolve_handlers
     appeal_id = -virtual_task_id
+    if lock:
+        await db.scalar(select(PerformanceProject).where(
+            PerformanceProject.id == project_id,
+        ).with_for_update().execution_options(populate_existing=True))
     appeal = await db.scalar(select(PerformanceResultReconsideration).where(
         PerformanceResultReconsideration.id == appeal_id,
         PerformanceResultReconsideration.project_id == project_id,
-    ))
+        PerformanceResultReconsideration.withdrawn_at.is_(None),
+    ).execution_options(populate_existing=True))
     if appeal is None:
         return None
     statement = select(PerformanceProject).where(

@@ -1018,6 +1018,8 @@ class PerformanceResultReconsideration(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     result_version: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
 
 class PerformanceReconsiderationNotification(Base):

@@ -19,6 +19,7 @@
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
           </template>
         </div>
+        <slot name="heading-actions" />
         <div v-if="shows360Feedback && feedbackPanel?.voluntaryEnabled" class="review-heading-actions">
           <PerformanceDisabledReason :disabled="!feedbackPanel?.allowVoluntary" :reason="feedbackPanel?.voluntaryDisabledReason">
             <UiButton variant="primary" aria-label="自愿评估" :disabled="!feedbackPanel?.allowVoluntary" @click="feedbackPanel?.openVoluntaryDialog()">自愿评估</UiButton>

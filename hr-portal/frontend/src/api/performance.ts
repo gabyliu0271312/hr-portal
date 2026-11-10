@@ -1,5 +1,22 @@
 import { api } from './client'
 
+export interface PerformanceReconsiderationStatus {
+  id: number | null
+  version: number | null
+  node_id: string
+  window_open: boolean
+  can_submit: boolean
+  can_edit: boolean
+  can_withdraw: boolean
+  deadline_at: string | null
+  withdrawn_at: string | null
+  prompt: string
+  instruction: string
+  handler_label: string
+  reason: string | null
+  submitted_at: string | null
+}
+
 export interface PerformanceRoleGrant {
   code: string
   scope_type: string
@@ -1152,12 +1169,20 @@ export const projectManagementApi = {
     const { data } = await api.get(`/performance/workbench/projects/${projectId}/results`)
     return data
   },
-  async resultReconsideration(projectId: number | string): Promise<{ node_id: string; can_submit: boolean; deadline_at: string | null; prompt: string; instruction: string; reason: string | null; submitted_at: string | null }> {
+  async resultReconsideration(projectId: number | string): Promise<PerformanceReconsiderationStatus> {
     const { data } = await api.get(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations`)
     return data
   },
-  async submitResultReconsideration(projectId: number | string, reason: string): Promise<{ id: number; task_count: number; notification_status: string }> {
-    const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations`, { reason })
+  async submitResultReconsideration(projectId: number | string, reason: string, version?: number | null): Promise<PerformanceReconsiderationStatus> {
+    const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations`, { reason, ...(version == null ? {} : { version }) })
+    return data
+  },
+  async editResultReconsideration(projectId: number | string, reason: string, version: number): Promise<PerformanceReconsiderationStatus> {
+    const { data } = await api.patch(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations`, { reason, version })
+    return data
+  },
+  async withdrawResultReconsideration(projectId: number | string, version: number): Promise<PerformanceReconsiderationStatus> {
+    const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations/withdraw`, { version })
     return data
   },
   async levelStatistics(cycleId: number, dimension: 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
