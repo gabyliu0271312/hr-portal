@@ -345,7 +345,11 @@ async function submit(overdueConfirmed = false) {
     }
     if (employeeNo) query.employee_no = employeeNo
     try {
-      if (task.value.return_view === 'page' || !nodeId) await router.push({ path: route.path || (props.taskKind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'), query: { ...query, view: '1' } })
+      if (isReconsiderationTask.value) {
+        const listQuery: Record<string, string> = { project_id: projectId, node: nodeId }
+        if (route.query.cycle_id) listQuery.cycle_id = String(route.query.cycle_id)
+        await router.push({ path: '/performance/review', query: listQuery })
+      } else if (task.value.return_view === 'page' || !nodeId) await router.push({ path: route.path || (props.taskKind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'), query: { ...query, view: '1' } })
       else await router.push({ path: '/performance/review', query })
     } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }
   } catch (error) {

@@ -7,6 +7,7 @@
 - 复议局部设置保存到复议节点自身calibration_settings，复用校准投影算法但不借校准节点配置；已使用模板结构/写权限锁继续生效。必填、隐藏、只读、标题、提示和字段顺序由同一模板规则控制，不注入固定反馈说明。
 - 申请时冻结员工实际已开通正式结果，不改历史终评/开通规则；keep继续用冻结值，change仅覆盖允许调整字段。选择变化自动保存，草稿/版本/失败保留沿现有机制；关闭后选择及结果均只读，无继续编辑入口。
 - 用户明确选择“提交即关闭”和整合澄清“处理后全部锁定”：首个处理人成功提交后全部协作任务完成，员工edit/withdraw/resubmit也禁止；F39截止后可撤回仅限处理未关闭。前端消费服务端can_edit/can_withdraw/can_submit，不建立另一套状态规则。
+- 提交成功返回 `/performance/review?project_id=...&node=...&cycle_id=...` 的复议人员表格页，清除详情任务/员工/抽屉/view参数并沿原缓存失效刷新列表；不再按return_view=page留在任务只读详情。保持/变更均相同，提交失败保留输入不跳转；校准和其他节点返回行为不变。
 - 复用错误态：版本冲突409保留输入；RECONSIDERATION_CLOSED停止写入并提示刷新；来源不可用/冲突409明确拒绝，不猜历史基底；加载错误不显示提交栏。
 - 实现PNG：`../../ui-blueprints/PM-T004-T02-F40-implemented-keep.png`、`PM-T004-T02-F40-implemented-change.png`、`PM-T004-T02-F40-implemented-mobile.png`；1440×900/390×844真实Vite路由+受控API已检查理由在白卡、按钮可用、keep/change联动、提交刷新只读，无横向溢出、pageerror=0。非真实数据库/生产证据；迁移和持久化验收仍阻塞，详见F40任务。
 

@@ -299,6 +299,33 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.text()).not.toContain('继续编辑')
     expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
     expect(wrapper.findAll('.reconsideration-choice input').every(input => input.element.disabled)).toBe(true)
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review', query: { project_id: '', node: '' } })
+    wrapper.unmount()
+  })
+
+  it.each(['keep', 'change'])('returns submitted reconsideration to its project/cycle members list, decision=%s', async decision => {
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '8', project_id: '3', node: 'appeal', cycle_id: '2', employee_no: 'E001', view: undefined } })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, project_id: 3, node_id: 'appeal', task_kind: 'result_reconsideration', return_view: 'page', reconsideration_reason: '理由', keep_result: decision, form_schema: [], answers: {} })
+    vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: decision }, submitted_at: '2026-11-10T00:00:00Z', editable: false, submit_allowed: false })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review', query: { project_id: '3', node: 'appeal', cycle_id: '2' } })
+    wrapper.unmount()
+  })
+
+  it('keeps failed reconsideration in the editing workspace without navigating', async () => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', return_view: 'page', reconsideration_reason: '理由', keep_result: 'keep', form_schema: [], answers: {} })
+    vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockRejectedValue(new Error('offline'))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.get('.self-summary-footer').text()).toContain('提交失败')
+    expect(wrapper.get('.reconsideration-choice input[value="keep"]').element.checked).toBe(true)
     wrapper.unmount()
   })
 
