@@ -24,6 +24,7 @@ import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import { ASSESSMENT_ROLE_CODES, performanceExecutorDisplayLabel } from './performanceExecutorOptions'
 import { performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
 import { performanceContentKey, contentToSections } from './performanceContentToSections'
+import { resolveCalibrationContents } from './performanceContentSettingsRules'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -140,9 +141,12 @@ const finalNode = computed(() => {
 const rightContents = computed<PerformanceTemplateContent[]>(() => {
   const node = selectedNode.value
   if (!node) return []
-  /* 校准与复议同构（内容设置侧均为 final 内容 + calibration settings 投影，不落 node.content）：
-     优先读 adjustment（供调整内容），否则回退 final 环节的 fill 内容。 */
-  if (isCalibration.value || isResultReconsideration.value) {
+  /* 校准按唯一终评内容及独立设置投影；复议保留既有 adjustment 回退。 */
+  if (isCalibration.value) {
+    return resolveCalibrationContents(slotContents(finalNode.value, 'fill'), node.calibration_settings)
+      .filter(content => content.type === 'prompt' || (content.items || []).some(item => item.kind === 'prompt' || item.settings?.mode !== 'hidden'))
+  }
+  if (isResultReconsideration.value) {
     const adjustment = slotContents(node, 'adjustment')
     if (adjustment.length) return adjustment
     return visibleFillContents(finalNode.value)

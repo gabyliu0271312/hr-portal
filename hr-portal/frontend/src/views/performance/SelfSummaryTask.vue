@@ -40,13 +40,12 @@
                 @update:model-value="(value: string) => keepResultChoice = value as 'keep' | 'change'"
               />
             </section>
-            <div v-if="task.calibration_notice" class="task-notices"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
             <section v-if="!task.form_schema.length || (isReconsiderationTask && keepResultChoice === 'keep')" class="state">{{ isReconsiderationTask && keepResultChoice === 'keep' ? '已保持复议前结果，不展示下方绩效结果' : '暂无填写内容' }}</section>
-            <div v-else ref="draftAnchor" class="task-form-shell"><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
+            <div v-else ref="draftAnchor" class="task-form-shell"><div v-if="task.calibration_notice" class="task-notices task-notices--calibration"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
@@ -98,7 +97,7 @@ const answers = reactive<Record<string, unknown>>({})
 const errors = reactive<Record<string, string>>({})
 const formRef = ref<{ focusField: (id: string) => void } | null>(null)
 const activeTab = ref('current')
-const tabs = computed(() => [{ key: 'current', label: task.value.node_name || '加载中…' }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
+const tabs = computed(() => [{ key: 'current', label: task.value.node_name || (loadError.value ? '加载失败' : '加载中…') }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
 const activeReference = computed<PerformanceReferenceTab | null>(() => task.value.reference_tabs?.find(reference => reference.key === activeTab.value) || null)
 const { mode } = usePerformanceWriteMode()
 const splitAvailable = ref(false)
@@ -125,7 +124,13 @@ let savedAnswers = ''
 
 function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
-  if (typeof detail === 'string') return detail
+  if (typeof detail === 'string') {
+    const calibrationErrors: Record<string, string> = {
+      CALIBRATION_SOURCE_NOT_READY: '终评或前一校准阶段尚未全部提交，请完成后重试',
+      CALIBRATION_SOURCE_CONFLICT: '终评或前一校准阶段存在不一致的结果，请先核对后重试',
+    }
+    return calibrationErrors[detail] || detail
+  }
   if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message
   return fallback
 }
@@ -283,6 +288,7 @@ async function submit(overdueConfirmed = false) {
     task.value.editable = result.editable ?? task.value.editable
     task.value.submit_allowed = result.submit_allowed ?? task.value.submit_allowed
     task.value.version = result.version ?? task.value.version
+    task.value.answers = task.value.task_kind === 'calibration' ? result.answers : { ...task.value.answers, ...result.answers, ...payload }
     overdueConfirmOpen.value = false
     overdueConfirmError.value = ''
     ElMessage.success({
@@ -299,7 +305,7 @@ async function submit(overdueConfirmed = false) {
     saveMessage.value = '提交成功'
     viewing.value = true
     Object.keys(answers).forEach(key => delete answers[key])
-    Object.assign(answers, { ...task.value.answers, ...payload })
+    Object.assign(answers, task.value.answers)
     const projectId = String(task.value.project_id || route.query.project_id || '')
     if (getActivePinia()) usePerformanceProjectContextStore().invalidateReviewOverview(Number(projectId))
     const nodeId = task.value.node_id || String(route.query.node || '')
@@ -328,7 +334,9 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 <style scoped>
 .task-content{display:flex;flex-direction:column;min-width:0;gap:12px}
 .performance-split-workspace.is-split .task-template-renderer{padding:16px 20px 12px;background:transparent}
-.task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column}
+.task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column;border-radius:8px;background:var(--color-bg-card)}
+.task-notices--calibration{padding:12px 30px 0}
+.performance-split-workspace.is-split .task-notices--calibration{padding:16px 20px 0}
 .task-template-renderer,.task-content > .state{flex:1 0 auto;min-height:0}
 .task-template-renderer{padding:12px 30px;border-radius:8px;background:var(--color-bg-card)}
 .task-reference-content{display:flex;flex-direction:column;min-height:0;padding:20px;border-radius:8px;background:var(--color-bg-card)}
@@ -353,5 +361,5 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .reference-scroll > .state{padding:20px}
 .reference-scroll > *{flex:1 0 auto;min-width:0}
 .narrow-mode-notice{padding:8px 16px 0;color:var(--color-text-secondary);font-size:12px;margin:0}
-@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer{padding-inline:16px}}
+@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer,.task-notices--calibration{padding-inline:16px}}
 </style>

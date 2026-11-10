@@ -448,9 +448,83 @@ async def _node_reference_tabs(
     return result
 
 
+def _calibration_source_projection(schema, source_schema, answers):
+    source_sections = {section["id"]: section for section in source_schema}
+    for section in schema:
+        source = source_sections.get(section["id"])
+        if source is None or bool(section.get("allow_multiple")) != bool(source.get("allow_multiple")):
+            if section["fields"]:
+                raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
+            continue
+        source_fields = {field["id"]: field for field in source["fields"]}
+        for field in section["fields"]:
+            other = source_fields.get(field["id"])
+            if other is None or any(field.get(key) != other.get(key) for key in ("type", "allow_unknown")) or {str(option["id"]) for option in field.get("options") or []} != {str(option["id"]) for option in other.get("options") or []}:
+                raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
+    projected = project_self_summary_answers(schema, answers, include_readonly=True)
+    if not projected or not any(not self_summary_value_empty(field, value) for section, field, index, value in iter_self_summary_field_instances(schema, projected)):
+        raise HTTPException(409, "CALIBRATION_SOURCE_NOT_READY")
+    return projected
+
+
+async def _calibration_answers(task, node, schema, db):
+    current = project_self_summary_answers(schema, task.answers or {}, include_readonly=True)
+    for section in schema:
+        for field in section["fields"]:
+            if field["id"] in (task.answers or {}) and (task.answers[field["id"]] is None or task.answers[field["id"]] == ""):
+                current[field["id"]] = task.answers[field["id"]]
+    saved = current and (task.submitted_at is not None or task.answer_version > 1) and any(not self_summary_value_empty(field, value) for section, field, index, value in iter_self_summary_field_instances(schema, current))
+    missing_readonly = {field["id"] for section in schema for field in section["fields"] if field.get("readonly") and field["id"] not in (task.answers or {})}
+    if saved and not missing_readonly:
+        return current
+    phases = ((node.config or {}).get("calibration") or {}).get("phases") or []
+    phase_ids = [phase["phase_id"] for phase in phases]
+    if task.phase_id not in phase_ids:
+        raise HTTPException(409, "CALIBRATION_SOURCE_NOT_READY")
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == task.project_id,
+        PerformanceNodeTask.cycle_ref == task.cycle_ref,
+        PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+        PerformanceNodeTask.target_employee_no == task.target_employee_no,
+        PerformanceNodeTask.revoked_at.is_(None),
+    ).order_by(PerformanceNodeTask.id))).scalars().all())
+    source_node = node
+    sources = []
+    for phase_id in reversed(phase_ids[:phase_ids.index(task.phase_id)]):
+        sources = [candidate for candidate in tasks if candidate.node_snapshot_id == node.id and candidate.task_kind == "calibration" and candidate.phase_id == phase_id and calibration_task_scope(candidate, node)]
+        if sources:
+            break
+    if not sources:
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == task.project_id,
+        ))).scalars().all())
+        final_nodes = [candidate for candidate in nodes if bool(((candidate.config or {}).get("template") or {}).get("include_final_result"))]
+        if len(final_nodes) != 1:
+            raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
+        source_node = final_nodes[0]
+        sources = [candidate for candidate in tasks if candidate.node_snapshot_id == source_node.id and candidate.task_kind == source_node.node_type]
+    if not sources or any(candidate.status != "completed" or candidate.submitted_at is None for candidate in sources):
+        raise HTTPException(409, "CALIBRATION_SOURCE_NOT_READY")
+    source_schema = build_self_summary_schema(await _self_summary_template(sources[0], source_node, db))
+    projected = []
+    for source in sources:
+        if source_node.node_type == "calibration":
+            source_answers = source.answers or {}
+        else:
+            _, source_answers = await _task_visible_content(source, source_node, db)
+        projected.append(_calibration_source_projection(schema, source_schema, source_answers))
+    if any(answers != projected[0] for answers in projected[1:]):
+        raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
+    if saved:
+        return {**{key: value for key, value in projected[0].items() if key in missing_readonly}, **current}
+    return {**projected[0], **current}
+
+
 async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False) -> tuple[list[dict], dict]:
     template = await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
+    if getattr(node, "node_type", None) == "calibration":
+        return schema, await _calibration_answers(task, node, schema, db)
     answers = project_self_summary_answers(schema, task.answers or {})
     readonly_sections = [section for section in schema if any(field.get("readonly") for field in section["fields"])]
     if not readonly_sections or node.node_type != "evaluation":
@@ -650,8 +724,12 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     template = await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template)
     current_draft = getattr(task, "draft_answers", None)
-    incoming_answers = payload.answers if submit else {**(current_draft if current_draft is not None else task.answers or {}), **payload.answers}
+    calibration = getattr(task, "task_kind", None) == "calibration"
+    trusted_answers = await _calibration_answers(task, node, schema, db) if calibration else task.answers or {}
+    incoming_answers = ({**trusted_answers, **payload.answers} if calibration else payload.answers) if submit else {**(current_draft if current_draft is not None else trusted_answers), **payload.answers}
     answers = sanitize_self_summary_answers(schema, incoming_answers)
+    if calibration:
+        answers = project_self_summary_answers(schema, answers)
     if submit:
         # 复议处理人「是否保持复议前结果」选择：不属填写 schema，独立持久化（默认变更结果）
         if getattr(task, "task_kind", None) == "result_reconsideration" and payload.answers.get("keep_result") in {"keep", "change"}:
@@ -662,11 +740,15 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
             if self_summary_field_requires_value(field, value) and self_summary_value_empty(field, value):
                 raise HTTPException(status_code=400, detail={"code": "VALIDATION_FAILED", "field_id": field["id"]})
     writable_ids = {field["id"] for section in schema for field in section["fields"] if not field.get("readonly")}
+    if submit and calibration:
+        _calibration_source_projection(schema, schema, {**{key: value for key, value in trusted_answers.items() if key not in writable_ids}, **answers})
     before_answers = dict((task.answers if submit else current_draft) or {})
     if submit:
-        task.answers = {**{key: value for key, value in (task.answers or {}).items() if key not in writable_ids}, **answers}
+        task.answers = {**{key: value for key, value in trusted_answers.items() if key not in writable_ids}, **answers}
         task.draft_answers = None
     else:
+        if calibration:
+            task.answers = trusted_answers
         task.draft_answers = answers if answers != project_self_summary_answers(schema, task.answers or {}) else None
     if getattr(task, "task_kind", None) == "calibration":
         PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"answers": before_answers}, after_state={"answers": task.answers if submit else task.draft_answers, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
@@ -697,7 +779,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         shared.status = task.status
     await db.commit()
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    return {"answers": project_self_summary_answers(schema, task.answers), "has_draft": task.draft_answers is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
+    return {"answers": project_self_summary_answers(schema, task.answers, include_readonly=calibration), "has_draft": task.draft_answers is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed}
 
 
 @router.patch("/tasks/{task_id}/self-summary/draft")

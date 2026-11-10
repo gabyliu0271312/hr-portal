@@ -259,6 +259,43 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(right.text()).toContain('综合评级')
   })
 
+  it('projects calibration display overrides from the unique final node without showing hidden items or stale adjustment copies', async () => {
+    const summary = structuredClone(fillSummary)
+    summary.items.push({ id: 'hidden-item', kind: 'fill', label: '隐藏题', settings: { mode: 'hidden' } })
+    const nodes = [
+      node({ node_id: 'final', name: '最终评估', include_final_result: true, content: [promptContent, summary] }),
+      node({ node_id: 'calibration', node_type: 'calibration', name: '校准', calibration_settings: {
+        'c-summary': { settings: { hideDescription: true }, items: { 'i-keywork': { hideName: true, allowModify: false } } },
+      }, content: [{ ...fillRating, name: '过时调整副本', content_slot: 'adjustment' }] }),
+    ]
+    const wrapper = mountStep(nodes)
+    await flushPromises()
+    await wrapper.findAll('.ptp-stage-card')[1].trigger('click')
+    const right = wrapper.find('.ptp-panel:last-of-type')
+    expect(right.text()).toContain('工作总结')
+    expect(right.text()).toContain('222')
+    expect(right.text()).not.toContain('请填写周期内的重点工作有效产出。')
+    expect(right.text()).not.toContain('重点工作 1')
+    expect(right.text()).not.toContain('隐藏题')
+    expect(right.text()).not.toContain('过时调整副本')
+    expect(nodes[0].content![1].items[0].settings).not.toHaveProperty('allowModify')
+    wrapper.unmount()
+  })
+
+  it('does not invent a calibration source when the final node is ambiguous', async () => {
+    const wrapper = mountStep([
+      node({ node_id: 'one', name: '终评一', include_final_result: true, content: [fillSummary] }),
+      node({ node_id: 'two', name: '终评二', include_final_result: true, content: [fillRating] }),
+      node({ node_id: 'calibration', node_type: 'calibration', name: '校准' }),
+    ])
+    await flushPromises()
+    await wrapper.findAll('.ptp-stage-card')[2].trigger('click')
+    const right = wrapper.find('.ptp-panel:last-of-type')
+    expect(right.text()).toContain('暂未配置供参考内容')
+    expect(right.find('.performance-template-renderer').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('renders invite form for reviewer_360_invite as single panel', async () => {
     const nodes = [node({ node_id: 'n2', node_type: 'reviewer_360_invite', name: '360°邀请环节' })]
     const wrapper = mountStep(nodes)

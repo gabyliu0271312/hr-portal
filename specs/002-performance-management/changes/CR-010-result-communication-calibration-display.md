@@ -291,3 +291,17 @@
 - 回归：`python -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short` → **434 passed / 5 skipped**；只读/隐藏题边界追加后定向测试 **1 passed**。`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts` → **158 passed**；搜索空结果及导出断言追加后动态列定向测试 **1 passed**。后端既有第三方multipart弃用警告；Review沟通入口测试有jsdom请求stderr，但测试通过，未将日志当成无告警。
 - 构建：最终`npm --prefix hr-portal/frontend run build` → **vue-tsc + Vite通过，built in 41.18s**；既有VueUse PURE注释提示。最终后端全套仍为 **434 passed / 5 skipped**，前端4文件仍为 **158 passed**；本轮文件`git diff --check`通过。
 - 未执行：真实业务库保存—重开、生产验收、迁移（不涉及）、部署、commit、push；未修改飞书配置或提交飞书评估。保留其他会话的模板、人员范围和项目设置改动。
+
+## 18. CR-010-F12 校准答案继承与提示白卡修复（2026-11-10）
+
+- 用户确认：修复终评答案带入、按后台允许修改配置控制填写、提示位于白色容器内；多阶段采用“承接前阶段，冲突阻断”，不采用最后提交者优先。
+- 范围：现有 `projects_router.py`、`test_performance_projects.py`、`SelfSummaryTask.vue/.spec.js`、`PerformanceTemplatePreviewStep.vue/.spec.ts`。保留授权管理、全局表格、人员组等并发改动；不增加接口、数据表、迁移、生产回填或平行渲染器，不修改终评正式答案和既有角色权限。
+- 来源契约：冻结唯一终评节点；同项目/周期/成员快照/被评估人，排除撤销任务；按冻结阶段顺序取最近存在该员工有效任务的前阶段，否则取终评。来源任务全部完成且可见投影一致才能使用；未提交/整份可见结果为空返回409 `CALIBRATION_SOURCE_NOT_READY`，多人不一致或schema不兼容返回409 `CALIBRATION_SOURCE_CONFLICT`。选填缺值允许，不按任意任务ID/提交时间决胜。
+- 保存契约：GET仅投影不写库；首次成功保存建立可信正式基底，草稿独立；客户端只读/隐藏伪造值不生效，来源按schema白名单裁剪。当前已保存校准值优先，完整基底重开不依赖上游；历史已提交部分答案仅补缺失readonly key，不补缺失writable、不覆盖已有值（包括空串/None），下一次成功保存才持久化补齐。原项目锁、任务刷新、版本校验、授权、截止及审计保留。
+- 前端：校准系统提示与表单同属白色 `task-form-shell`，保留模板提示在schema中的顺序；单屏/双屏/窄屏使用原公共填写组件。提交后使用服务端可信答案回显；来源未就绪/冲突提供中文错误态。校准模板预览复用 `resolveCalibrationContents` 应用终评内容及当前节点显示覆盖，不使用过时adjustment副本；不改复议业务规则或既有预览整体只读约定。
+- UI门禁：既有任务填写页小范围回归修复，无信息架构变化、无新完整蓝图。真实本地Vite＋隔离Chromium受控API夹具验证1440px单屏/双屏、390px、只读原值、可改原值、草稿/提交仅发送可写字段、提交后刷新及来源冲突；白卡背景实测rgb(255,255,255)，提示矩形完全处于白卡内，无页面横向溢出，pageerror=0。临时截图 `C:/Users/gaby.liu/AppData/Local/Temp/calibration-fixture-{single,split,mobile,reopen,conflict}.png`，single/split/mobile已读取；非真实数据库或生产证据。
+- 前端回归：`npm --prefix hr-portal/frontend test -- --run src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceTemplatePreviewStep.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/performanceContentSettingsResolver.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts` → 7文件319 passed；Review既有jsdom XHR stderr仍存在，未声称无告警。
+- 后端回归：校准专项 `124 passed, 2 skipped`；项目/模板/授权三文件 `895 passed, 6 skipped, 6 failed`。六个失败已在内存加载HEAD原路由时复现，均为 `_communication_progress_detail` 既有fixture缺少 `scalars()`，无新增失败；隔离PostgreSQL验收未执行。新增测试包括ASGI HTTP读→提交→重开、项目锁/刷新版本冲突、同员工/快照来源范围、多阶段/多人一致性、schema不兼容、只读伪造/隐藏/非法选项、空值及历史部分结果。
+- 构建：最终 `npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，仅既有VueUse PURE annotation告警；此前并发 `UiTable.spec.ts:145` 类型错误经其他工作修正，本卡未修改该文件。`git diff --check`通过。
+- 错误态收尾：来源失败后页签显示“加载失败”，隐藏不可使用的提交栏；重新加载沿原入口。390px本地浏览器断言及 `calibration-fixture-conflict-final.png` 已生成，初版conflict/reopen截图已读取；没有将提示冲突当作成功带入。
+- 验收状态：本地代码、组件、ASGI夹具及受控页面证据已具备；真实PostgreSQL/真实项目API及生产部署未执行，不勾选整项验收完成。未commit/push，不修改生产数据。

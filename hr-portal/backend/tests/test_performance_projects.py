@@ -5442,6 +5442,351 @@ async def test_cr013_calibration_delta_overlap_revoke_and_readd_preserves_histor
     assert task.revoked_at is not None and delegation.status == "REVOKED"
 
 
+@pytest.fixture
+def calibration_content_data(monkeypatch):
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    from app.performance import projects_router
+    from app.performance.calibration_service import calibration_template
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+
+    content = {"content_id": "content", "type": "custom", "items": [
+        {"id": "locked", "kind": "fill", "questionType": "text"},
+        {"id": "editable", "kind": "fill", "questionType": "text"},
+        {"id": "grade", "kind": "rating", "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]},
+        {"id": "hidden", "kind": "fill", "settings": {"mode": "hidden"}},
+    ]}
+    final = SimpleNamespace(id=11, project_id=3, node_id="final", node_type="evaluation", config={"template": {"include_final_result": True, "content": [content]}})
+    raw = {"node_id": "cal", "calibration_settings": {"content": {"items": {"locked": {"allowModify": False}}}}}
+    calibration = SimpleNamespace(id=12, project_id=3, node_id="cal", node_type="calibration", config={
+        "template": calibration_template(raw, final.config["template"], []),
+        "calibration": {"role_code": "assessment.calibrator", "phases": [
+            {"phase_id": phase, "assignments": [{"handler_ref": "C1", "employee_no": "E1"}, {"handler_ref": "C2", "employee_no": "E1"}]}
+            for phase in ("first", "second", "third")
+        ]},
+    })
+    now = datetime.now(UTC)
+    def make_task(task_id, node_id=11, **values):
+        return SimpleNamespace(**{**dict(id=task_id, project_id=3, cycle_ref="cycle:one", member_snapshot_id=7,
+            node_snapshot_id=node_id, target_employee_no="E1", handler_ref="M1" if node_id == 11 else "C1",
+            task_kind="evaluation" if node_id == 11 else "calibration", phase_id="" if node_id == 11 else "first",
+            revoked_at=None, status="completed", submitted_at=now, completed_at=now, available_at=None, due_at=None,
+            answers={"locked": "trusted", "editable": "original", "grade": "a", "hidden": "secret", "unknown": "secret"},
+            draft_answers=None, answer_version=1), **values})
+    task = make_task(20, 12, answers={}, status="pending", submitted_at=None)
+    class Db:
+        def __init__(self):
+            self.tasks = [make_task(10), task]
+            self.nodes = [final, calibration]
+            self.queries = []
+            self.added = []
+            self.commits = 0
+        async def execute(self, query):
+            self.queries.append(query)
+            params = query.compile().params
+            model = query.column_descriptions[0]["entity"]
+            if model is PerformanceNodeTask:
+                rows = [candidate for candidate in self.tasks if all(getattr(candidate, key[:-2]) == value for key, value in params.items()) and candidate.revoked_at is None]
+            elif model is PerformanceProjectNodeSnapshot:
+                rows = [candidate for candidate in self.nodes if candidate.project_id == params["project_id_1"]]
+            else:
+                raise AssertionError(model)
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+        async def get(self, *_args):
+            return None
+        async def commit(self):
+            self.commits += 1
+        def add(self, value):
+            self.added.append(value)
+    async def fake_task(*_args):
+        return task, calibration
+    async def sync(*_args):
+        pass
+    monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    monkeypatch.setattr(projects_router, "_sync_automatic_openings", sync)
+    return SimpleNamespace(routes=projects_router, db=Db(), task=task, node=calibration, final=final, make_task=make_task, deepcopy=deepcopy)
+
+
+@pytest.mark.asyncio
+async def test_calibration_reads_final_answers_without_writing_and_filters_source_scope(calibration_content_data):
+    data = calibration_content_data
+    for values in ({"project_id": 9}, {"cycle_ref": "other"}, {"member_snapshot_id": 8}, {"target_employee_no": "E2"}, {"revoked_at": data.make_task(1).submitted_at}):
+        data.db.tasks.append(data.make_task(30 + len(data.db.tasks), answers={"locked": "wrong"}, **values))
+    schema, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert answers == {"locked": "trusted", "editable": "original", "grade": "a"}
+    assert schema[0]["fields"][0]["readonly"] is True
+    assert data.task.answers == {} and not data.db.added and data.db.commits == 0
+    sql = str(data.db.queries[0])
+    for name in ("project_id", "cycle_ref", "member_snapshot_id", "target_employee_no", "revoked_at"):
+        assert name in sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("submit", [False, True])
+async def test_calibration_save_preserves_trusted_readonly_and_reopens_without_source(calibration_content_data, submit):
+    data = calibration_content_data
+    payload = data.routes.SelfSummaryAnswersPayload(answers={"locked": "forged", "editable": "changed", "hidden": "forged", "unknown": "forged"}, version=1)
+    result = await data.routes._save_self_summary(data.task.id, payload, submit, context(), data.db, "evaluation")
+    assert data.task.answers == {"locked": "trusted", "editable": "changed" if submit else "original", "grade": "a"}
+    assert result["answers"] == data.task.answers
+    assert data.task.draft_answers == (None if submit else {"editable": "changed", "grade": "a"})
+    assert data.task.answer_version == 2
+    assert data.db.added[-1].event_type == ("CALIBRATION_ADJUSTED" if submit else "CALIBRATION_DRAFT_SAVED")
+    data.db.tasks.clear()
+    _, reopened = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert reopened == data.task.answers
+    if not submit:
+        await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "submitted", "locked": "forged"}, version=2), True, context(), data.db, "evaluation")
+        assert data.task.answers == {"locked": "trusted", "editable": "submitted", "grade": "a"}
+        assert data.task.draft_answers is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,code", [("missing", "CALIBRATION_SOURCE_NOT_READY"), ("pending", "CALIBRATION_SOURCE_NOT_READY"), ("draft", "CALIBRATION_SOURCE_NOT_READY"), ("empty", "CALIBRATION_SOURCE_NOT_READY"), ("different", "CALIBRATION_SOURCE_CONFLICT"), ("missing-value", "CALIBRATION_SOURCE_CONFLICT"), ("ambiguous-final", "CALIBRATION_SOURCE_CONFLICT")])
+async def test_calibration_source_blocks_unready_or_conflicting_results(calibration_content_data, case, code):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    if case == "missing":
+        data.db.tasks = [data.task]
+    elif case in {"pending", "draft"}:
+        data.db.tasks[0].status = "pending"
+        data.db.tasks[0].submitted_at = None
+        data.db.tasks[0].draft_answers = {"editable": "not submitted"}
+    elif case == "empty":
+        data.db.tasks[0].answers = {}
+    elif case in {"different", "missing-value"}:
+        answers = {**data.db.tasks[0].answers, "editable": "different"}
+        if case == "missing-value":
+            answers.pop("editable")
+        data.db.tasks.append(data.make_task(13, answers=answers))
+    else:
+        other = data.deepcopy(data.final)
+        other.id = 99
+        data.db.nodes.append(other)
+    with pytest.raises(HTTPException) as error:
+        await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert (error.value.status_code, error.value.detail) == (409, code)
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "forged replacement"}, version=1), True, context(), data.db, "evaluation")
+    assert error.value.detail == code
+    assert data.task.answers == {} and data.task.answer_version == 1 and data.db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_calibration_multiple_final_reviewers_must_agree_on_visible_projection(calibration_content_data):
+    data = calibration_content_data
+    data.db.tasks.append(data.make_task(13, answers={**data.db.tasks[0].answers, "hidden": "other hidden", "unknown": "ignored"}))
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert answers == {"locked": "trusted", "editable": "original", "grade": "a"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,expected", [("nearest", "previous"), ("skip-empty", "previous"), ("pending", "CALIBRATION_SOURCE_NOT_READY"), ("conflict", "CALIBRATION_SOURCE_CONFLICT"), ("agree", "previous"), ("revoked", "original")])
+async def test_calibration_phase_inherits_nearest_valid_completed_phase(calibration_content_data, case, expected):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    data.task.phase_id = "third"
+    first = data.make_task(21, 12, answers={"locked": "trusted", "editable": "previous", "grade": "b"})
+    first.phase_id = "second" if case != "skip-empty" else "first"
+    data.db.tasks.append(first)
+    if case == "pending":
+        first.submitted_at = None
+        first.status = "pending"
+        first.draft_answers = {"editable": "draft"}
+    if case in {"conflict", "agree"}:
+        data.db.tasks.append(data.make_task(22, 12, phase_id="second", handler_ref="C2", answers={**first.answers, "editable": "different" if case == "conflict" else "previous"}))
+    if case == "revoked":
+        first.revoked_at = first.submitted_at
+    if expected.startswith("CALIBRATION_"):
+        with pytest.raises(HTTPException) as error:
+            await data.routes._task_visible_content(data.task, data.node, data.db)
+        assert error.value.detail == expected
+    else:
+        _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+        assert answers["editable"] == expected
+        assert answers["grade"] == ("a" if case == "revoked" else "b")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["type", "options", "repeatable", "hidden"])
+async def test_calibration_source_schema_mismatch_fails_closed(calibration_content_data, change):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    content = data.final.config["template"]["content"][0]
+    if change == "type":
+        content["items"][1]["kind"] = "rating"
+    elif change == "options":
+        content["items"][2]["options"] = [{"id": "other"}]
+    elif change == "repeatable":
+        content["settings"] = {"allowMultiple": True}
+    else:
+        content["items"][0]["settings"] = {"mode": "hidden"}
+    with pytest.raises(HTTPException) as error:
+        await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert error.value.detail == "CALIBRATION_SOURCE_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_calibration_http_detail_submit_and_reopen(calibration_content_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from app.core.db import get_session
+    from app.performance.auth_context import get_performance_access_context
+    data = calibration_content_data
+    data.node.name = "Calibration"
+    monkeypatch.setattr(data.db, "scalar", AsyncMock(return_value=None), raising=False)
+    monkeypatch.setattr(data.routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="C1", actor_type="EMPLOYEE")))
+    monkeypatch.setattr(data.routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value={"other": []}))
+    app = FastAPI()
+    app.include_router(data.routes.router, prefix="/api/v1")
+    app.dependency_overrides[get_session] = lambda: data.db
+    app.dependency_overrides[get_performance_access_context] = lambda: context()
+    path = f"/api/v1/performance/tasks/{data.task.id}/template-task"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(path)
+        assert response.status_code == 200, response.text
+        assert response.json()["answers"] == {"locked": "trusted", "editable": "original", "grade": "a"}
+        assert response.json()["phase_id"] == "first"
+        assert data.task.answers == {}
+        response = await client.post(path + "/submit", json={"answers": {"locked": "forged", "editable": "submitted", "grade": "b"}, "version": 1})
+        assert response.status_code == 200, response.text
+        assert response.json()["answers"] == {"locked": "trusted", "editable": "submitted", "grade": "b"}
+        data.db.tasks[0].answers = {"editable": "upstream changed"}
+        response = await client.get(path)
+        assert response.status_code == 200, response.text
+        assert response.json()["answers"] == {"locked": "trusted", "editable": "submitted", "grade": "b"}
+
+
+@pytest.mark.asyncio
+async def test_calibration_keeps_optional_missing_fields_and_validates_required_payload(calibration_content_data):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    data.db.tasks[0].answers = {"locked": "trusted"}
+    data.node.config["template"]["content"][0]["items"][1]["settings"] = {"required": True}
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert answers == {"locked": "trusted"}
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={}, version=1), True, context(), data.db, "evaluation")
+    assert error.value.detail == {"code": "VALIDATION_FAILED", "field_id": "editable"}
+    assert data.task.answers == {} and data.task.answer_version == 1
+    result = await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "completed", "grade": "forged-option"}, version=1), True, context(), data.db, "evaluation")
+    assert result["answers"] == {"locked": "trusted", "editable": "completed"}
+
+
+@pytest.mark.asyncio
+async def test_calibration_version_conflict_prevents_source_read_and_write(calibration_content_data):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "bad"}, version=2), True, context(), data.db, "evaluation")
+    assert error.value.detail == "VERSION_CONFLICT"
+    assert not data.db.queries and not data.db.commits and data.task.answers == {}
+
+
+@pytest.mark.asyncio
+async def test_calibration_source_uses_real_project_lock_and_refreshes_before_read(calibration_content_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance.models import PerformanceNodeTask
+    from app.performance.authorization_service import PerformanceAuditService
+    from fastapi import HTTPException
+    data = calibration_content_data
+    real = PerformanceNodeTask(**vars(data.task))
+    events = []
+    async def task_for_actor(*_args):
+        return real, data.node
+    async def scalar(query):
+        assert query._for_update_arg is not None
+        events.append("project-lock")
+        return None
+    async def refresh(row, **kwargs):
+        events.append("task-refresh" if row is real else "node-refresh")
+        if row is real:
+            assert kwargs["with_for_update"] is True
+            real.answer_version = 2
+    monkeypatch.setattr(data.routes, "_self_summary_task", task_for_actor)
+    monkeypatch.setattr(data.routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="C1", actor_type="EMPLOYEE")))
+    monkeypatch.setattr(data.routes, "_task_edit_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(data.db, "scalar", scalar, raising=False)
+    monkeypatch.setattr(data.db, "refresh", refresh, raising=False)
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(real.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "stale"}, version=1), True, context(), data.db, "evaluation")
+    assert error.value.detail == "VERSION_CONFLICT"
+    assert events == ["project-lock", "node-refresh", "task-refresh"]
+    assert not data.db.queries and not data.db.commits
+    monkeypatch.setattr(PerformanceAuditService, "append_event", lambda self, event: data.db.added.append(event))
+    result = await data.routes._save_self_summary(real.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "saved"}, version=2), True, context(), data.db, "evaluation")
+    assert result["answers"] == {"locked": "trusted", "editable": "saved", "grade": "a"}
+    assert real.answer_version == 3 and data.db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_calibration_refuses_submission_of_entirely_empty_result(calibration_content_data):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    data.db.tasks[0].answers = {"editable": "original"}
+    with pytest.raises(HTTPException) as error:
+        await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": ""}, version=1), True, context(), data.db, "evaluation")
+    assert error.value.detail == "CALIBRATION_SOURCE_NOT_READY"
+    assert data.task.answers == {} and not data.db.commits
+
+
+@pytest.mark.asyncio
+async def test_calibration_legacy_partial_result_backfills_only_missing_readonly_on_save(calibration_content_data):
+    data = calibration_content_data
+    data.task.answers = {"editable": "historical-adjustment"}
+    data.task.status = "completed"
+    data.task.submitted_at = data.make_task(1).submitted_at
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert answers == {"locked": "trusted", "editable": "historical-adjustment"}
+    assert data.task.answers == {"editable": "historical-adjustment"}
+    result = await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"locked": "forged", "editable": "updated"}, version=1), True, context(), data.db, "evaluation")
+    assert result["answers"] == {"locked": "trusted", "editable": "updated"}
+    assert data.task.answers == result["answers"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing", ["", "kept", None])
+async def test_calibration_legacy_existing_readonly_key_never_reverts_to_source(calibration_content_data, existing):
+    data = calibration_content_data
+    data.task.answers = {"locked": existing, "editable": "historical-adjustment"}
+    data.task.answer_version = 2
+    data.db.tasks.clear()
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert "locked" in answers and answers["locked"] == existing
+    assert answers["editable"] == "historical-adjustment"
+    assert "grade" not in answers and not data.db.queries
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,code", [("missing", "CALIBRATION_SOURCE_NOT_READY"), ("conflict", "CALIBRATION_SOURCE_CONFLICT")])
+async def test_calibration_legacy_missing_readonly_requires_trustworthy_source(calibration_content_data, case, code):
+    from fastapi import HTTPException
+    data = calibration_content_data
+    data.task.answers = {"editable": "historical-adjustment"}
+    data.task.answer_version = 2
+    if case == "missing":
+        data.db.tasks = [data.task]
+    else:
+        data.db.tasks.append(data.make_task(30, answers={**data.db.tasks[0].answers, "locked": "different"}))
+    with pytest.raises(HTTPException) as error:
+        await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert error.value.detail == code
+    assert data.task.answers == {"editable": "historical-adjustment"} and not data.db.commits
+
+
+@pytest.mark.asyncio
+async def test_calibration_legacy_optional_readonly_absent_in_source_stays_absent(calibration_content_data):
+    data = calibration_content_data
+    data.task.answers = {"editable": "historical-adjustment"}
+    data.task.answer_version = 2
+    data.db.tasks[0].answers.pop("locked")
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert answers == {"editable": "historical-adjustment"}
+    assert data.task.answers == answers
+
+
 def test_calibration_template_inherits_final_content_and_respects_readonly_fields():
     from app.performance.calibration_service import calibration_template
     from app.performance.self_summary_service import build_self_summary_schema, sanitize_self_summary_answers

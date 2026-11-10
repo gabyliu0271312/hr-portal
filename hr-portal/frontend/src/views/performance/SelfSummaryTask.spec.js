@@ -139,6 +139,52 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.get('.summary-tabs .active').text()).toBe('上级评估')
   })
 
+  it('carries calibration source answers through editing, submits only writable fields and shows trusted saved values', async () => {
+    const loaded = {
+      ...structuredClone(task), task_kind: 'calibration', node_name: '校准', project_id: 1, node_id: 'calibration', return_view: 'page',
+      calibration_notice: '绩效校准人修改评估内容后会产生修改记录',
+      form_schema: [{ id: 'result', name: '终评内容', fields: [
+        { id: 'locked', type: 'rich_text', label: '不可调整', readonly: true },
+        { id: 'editable', type: 'rich_text', label: '可调整' },
+      ] }],
+      answers: { locked: '<p>终评只读原值</p>', editable: '<p>终评可调原值</p>' },
+    }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded)
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { locked: '<p>服务器保留的可信值</p>', editable: '<p>校准调整</p>' }, version: 2, submitted_at: '2026-11-10T00:00:00Z', editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.get('[data-field-id="locked"]').text()).toContain('终评只读原值')
+    expect(wrapper.find('[data-field-id="locked"] [contenteditable="true"]').exists()).toBe(false)
+    const input = wrapper.get('[data-field-id="editable"] .rich-input')
+    expect(input.element.innerHTML).toContain('终评可调原值')
+    input.element.innerHTML = '<p>校准调整</p>'
+    await input.trigger('input')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith('task-1', { editable: expect.stringContaining('校准调整') }, 1)
+    expect(wrapper.text()).toContain('服务器保留的可信值')
+    expect(wrapper.text()).toContain('校准调整')
+    expect(wrapper.get('.task-form-shell .task-notices--calibration').text()).toContain('修改记录')
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ view: '1', node: 'calibration' }) }))
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['CALIBRATION_SOURCE_CONFLICT', '存在不一致的结果'],
+    ['CALIBRATION_SOURCE_NOT_READY', '尚未全部提交'],
+  ])('blocks calibration editing with a readable source failure: %s', async (code, message) => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockRejectedValue({ response: { data: { detail: code } } })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask')
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.get('.state.error').text()).toContain(message)
+    expect(wrapper.get('.summary-tabs .active').text()).toBe('加载失败')
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(submit).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('reconsideration task shows keep/change radio and hides result content on keep, submitting keep_result (REA 联动)', async () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({
       ...structuredClone(task), task_kind: 'result_reconsideration', entry_mode: 'template_task', node_name: '结果复议处理',
@@ -389,7 +435,7 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
     expect(wrapper.get('.task-content > .task-form-shell > .task-template-renderer').exists()).toBe(true)
     const source = readFileSync(resolve(process.cwd(), 'src/views/performance/SelfSummaryTask.vue'), 'utf8')
-    expect(source).toContain('.task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column}')
+    expect(source).toContain('.task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column;border-radius:8px;background:var(--color-bg-card)}')
     expect(source).toContain('.task-template-renderer,.task-content > .state{flex:1 0 auto;min-height:0}')
     expect(source).toContain('.reference-scroll > *{flex:1 0 auto;min-width:0}')
     expect(source).toContain('.reference-scroll{display:flex;flex:1;min-height:0;flex-direction:column;overflow:auto;')
@@ -449,7 +495,7 @@ describe('SelfSummaryTask', () => {
     await flushPromises()
     expect(wrapper.find('.performance-task-workspace').exists()).toBe(true)
     expect(wrapper.text()).toContain('自我总结加载失败')
-    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(true)
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
     await wrapper.get('.state.error button').trigger('click')
     await flushPromises()
     expect(wrapper.find('.self-summary-form').exists()).toBe(true)
@@ -519,7 +565,7 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
-  it('renders 360 template prompts inside the white form while system notices stay separate', async () => {
+  it('renders template prompts and the calibration notice inside the same white form shell', async () => {
     const prompt = { title: '360°评估说明', content: '请客观反馈', color: '#3370ff', scope: 'all' }
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({
       ...structuredClone(task), task_kind: 'evaluation', node_name: '360°评估', calibration_notice: '系统通知', prompts: [],
@@ -530,6 +576,9 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.get('.self-summary-form [data-prompt-id="page-prompt"]').text()).toContain('请客观反馈')
     expect(wrapper.find('.task-notices .performance-prompt-display').exists()).toBe(false)
     expect(wrapper.get('.task-notices').text()).toBe('系统通知')
+    expect(wrapper.get('.task-form-shell .task-notices--calibration').text()).toBe('系统通知')
+    expect(wrapper.get('.task-form-shell').element.contains(wrapper.get('.self-summary-form').element)).toBe(true)
+    expect(wrapper.find('.task-content > .task-notices').exists()).toBe(false)
     wrapper.unmount()
   })
 
