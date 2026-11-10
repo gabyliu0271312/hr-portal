@@ -317,6 +317,8 @@
 - 浏览器：真实本地Vite＋隔离API夹具，完成点人先read→编辑→原填写页→提交→侧栏、逾期无编辑、390px无横向溢出、pageerror=0。侧栏动画结束后1440px实测x440/width1000；已读取calibration-read-drawer-pending-stable.png及expired-stable.png，提示全文及编辑按钮完整显示。截图在本机Temp，属于受控夹具而非真实后端/生产验收。
 - 后端验证：`tests/test_performance_projects.py -k 'calibration and (submission_metadata or http_detail or source or phase_inherits or save_preserves or multiple_final or legacy) or calibration_deadline_extension or sync_node_task_times or task_authorization or template_task_rejects or calibration_authorization' -q --disable-warnings` →75 passed、605 deselected、1既有warning；覆盖ASGI GET→提交→GET、审计实际身份/身份切换、冻结姓名、多来源、缺名与异常，以及期限/只读授权边界，原延期保存与时间同步通过。相关diff check通过。
 - 验收边界：无真实PostgreSQL、生产API或部署验收，不标记整体生产完成。未commit/push，不回滚并发工作。
+- 上级评估提示增量（2026-11-10用户确认）：manager evaluation详情复用既有提交元数据查询，按当前任务的提交审计/冻结姓名返回answer_submissions；本节点submitted_at和有效deadline_at不被管理页签的另一代表任务替代。当前任务对应管理页签按node_id识别，提示与编辑指向当前获授权task_id；其他参考页签不扩权。截止前文案为“以下内容由 {display_name} 在 {submitted_at} 提交，你可在 {deadline_at} 前继续编辑”，截止后为“以下内容由 {display_name} 在 {submitted_at} 提交，该环节已在 {deadline_at} 截止”，全部Asia/Shanghai展示；保留原共享提示图标、编辑按钮及权限。无可靠姓名时保留中性评估人兜底，不用当前登录用户/被评估人伪造提交者。
+- 本增量验证：抽屉与Review前端106 passed；后端manager_detail_uses_actual_submitter/submission_metadata/self_summary_detail_keeps_template_title/calibration_http_detail定向24 passed，覆盖真实审计提交者/legacy/缺名及旧task.due_at被本节点有效延期配置替代。vue-tsc＋Vite build通过；既有Review 360 XHR stderr、VueUse PURE/multipart警告保留。真实本地页面受控API验证用户两段文案、代表task错人错时间不参与提示、截止前有编辑/截止后无编辑，pageerror=0；Temp截图manager-submission-notice-before.png/after.png已读取。git diff --check通过，真实数据库/生产未执行，不commit/push，保留另一会话沟通评级改动。
 
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 

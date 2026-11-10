@@ -5883,6 +5883,39 @@ async def test_calibration_source_schema_mismatch_fails_closed(calibration_conte
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("actor", ["employee", "legacy", "missing-name"])
+async def test_manager_detail_uses_actual_submitter_and_its_own_node_times(calibration_content_data, monkeypatch, actor):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance.models import PerformanceAuditEvent
+    data = calibration_content_data
+    task = data.db.tasks[0]
+    task.submitted_at = datetime(2026, 11, 10, 8, 37, tzinfo=UTC)
+    task.due_at = datetime(2026, 11, 1, tzinfo=UTC)
+    data.final.name = "上级评估"
+    data.final.config["template"]["executor_role_code"] = "assessment.line_manager"
+    data.db.people["A1"] = "gaby.liu刘琦"
+    if actor != "legacy":
+        data.db.added.append(PerformanceAuditEvent(event_type="PERFORMANCE_TASK_SUBMITTED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), actor_type="EMPLOYEE", actor_ref="A1", after_state={"project_id": task.project_id}))
+    if actor == "missing-name":
+        data.db.people.pop("A1")
+    target = SimpleNamespace(settings={"flow_settings": {"node_times": {"final": {"start_at": "2026-01-01T00:00:00Z", "end_at": "2026-11-30T15:59:00Z"}}}})
+    monkeypatch.setattr(data.db, "get", AsyncMock(return_value=target))
+    monkeypatch.setattr(data.db, "scalar", AsyncMock(return_value=None), raising=False)
+    monkeypatch.setattr(data.routes, "_overdue_submission_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(data.routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="M1")))
+    monkeypatch.setattr(data.routes, "resolve_subject_visibility_role", AsyncMock(return_value="leader"))
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value={"leader": []}))
+    result = await data.routes._template_task_detail(task, data.final, context(), data.db)
+    expected = [] if actor == "missing-name" else [{"display_name": "gaby.liu刘琦" if actor == "employee" else "冻结上级", "submitted_at": task.submitted_at}]
+    assert result["answer_submissions"] == expected
+    assert result["submitted_at"] == task.submitted_at
+    assert result["deadline_at"] == datetime(2026, 11, 30, 15, 59, tzinfo=UTC)
+    assert task.due_at == datetime(2026, 11, 1, tzinfo=UTC)
+    assert not data.db.commits
+
+
+@pytest.mark.asyncio
 async def test_calibration_http_detail_submit_and_reopen(calibration_content_data, monkeypatch):
     from unittest.mock import AsyncMock
     from fastapi import FastAPI

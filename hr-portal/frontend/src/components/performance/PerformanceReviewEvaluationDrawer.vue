@@ -8,7 +8,7 @@
         <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
-            <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at" :task-id="managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="props.employeeNo" :editable="managementTabEditable" variant="evaluation-drawer" :message="managementCompletionMessage" @edit="edit" />
+            <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at || currentManagementTab && task?.submitted_at" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable" variant="evaluation-drawer" :message="currentManagementTab ? completionMessages[0] : managementCompletionMessage" @edit="edit" />
             <PerformanceReferenceContent v-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
@@ -123,11 +123,8 @@ const resolveProjectId = computed(() => props.projectId ?? task.value?.project_i
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
 const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.key === activeTab.value) || referenceTabs.value.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value) || null)
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
-const managementTabEditable = computed(() => Boolean(
-  !props.readonly
-  && task.value?.editable
-  && managementTab.value?.task_id === task.value.task_id,
-))
+const currentManagementTab = computed(() => Boolean(task.value?.task_id != null && managementTab.value && (task.value.node_id ? managementTab.value.node_id === task.value.node_id : managementTab.value.task_id === task.value.task_id)))
+const managementTabEditable = computed(() => currentManagementTab.value && taskEditable.value)
 const stageView = computed(() => {
   const tab = managementTab.value
   if (!tab || tab.status === 'completed') return null
@@ -156,9 +153,11 @@ const completionMessages = computed(() => {
   if (current?.task_kind !== 'calibration') {
     const submittedAt = formatDate(current?.submitted_at)
     const deadline = formatDate(current?.deadline_at)
-    if (submittedAt && deadline && current?.editable && !props.readonly) return [`以下内容由 评估人 在 ${submittedAt} 提交，你可在 ${deadline} 前继续编辑`]
-    if (submittedAt && deadline && Date.parse(current?.deadline_at || '') < Date.now()) return [`以下内容由 评估人 在 ${submittedAt} 提交，该环节已在 ${deadline} 截止`]
-    return [submittedAt ? `以下内容由 评估人 在 ${submittedAt} 提交` : '该评估内容已提交']
+    const submitter = current?.answer_submissions?.[0]?.display_name
+    const prefix = submittedAt ? `以下内容由 ${submitter || '评估人'} 在 ${submittedAt} 提交` : '该评估内容已提交'
+    if (submittedAt && deadline && Date.parse(current?.deadline_at || '') < Date.now()) return [`${prefix}，该环节已在 ${deadline} 截止`]
+    if (submittedAt && deadline && taskEditable.value) return [`${prefix}，你可在 ${deadline} 前继续编辑`]
+    return [prefix]
   }
   const deadline = formatDate(current.deadline_at)
   const suffix = deadline && Date.parse(current.deadline_at || '') < Date.now()

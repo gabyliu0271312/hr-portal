@@ -19,11 +19,13 @@ const task = {
   answers: { good: '11' },
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('PerformanceReviewEvaluationDrawer', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-23T00:00:00Z'))
     localStorage.clear()
     vi.stubGlobal('innerWidth', 1280)
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
@@ -43,6 +45,32 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(document.body.querySelector('.performance-drawer__panel')?.getAttribute('style')).toContain('width: 1000px')
     expect(document.body.querySelector('[role="separator"]')).not.toBeNull()
     wrapper.unmount()
+  })
+
+  it.each([
+    [false, '2026-07-27T07:11:00Z', '2026-07-17T15:59:00Z', '以下内容由 gaby.liu刘琦 在 2026-07-27 15:11（GMT+8） 提交，该环节已在 2026-07-17 23:59（GMT+8） 截止'],
+    [true, '2026-11-10T08:37:00Z', '2026-11-30T15:59:00Z', '以下内容由 gaby.liu刘琦 在 2026-11-10 16:37（GMT+8） 提交，你可在 2026-11-30 23:59（GMT+8） 前继续编辑'],
+  ])('uses the current manager task submitter and times instead of the aggregate representative: editable=%s', async (editable, submittedAt, deadlineAt, message) => {
+    vi.setSystemTime(new Date('2026-11-11T00:00:00Z'))
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
+      ...structuredClone(task), node_id: 'manager', submitted_at: submittedAt, deadline_at: deadlineAt, editable, submit_allowed: editable,
+      answer_submissions: [{ display_name: 'gaby.liu刘琦', submitted_at: submittedAt }],
+      management_tabs: [{ key: 'management-manager', node_id: 'manager', node_name: '上级评估', task_id: 999, task_kind: 'evaluation', employee_no: 'E001', status: 'completed', submitted_by: '错误的代表人', submitted_at: '2026-01-01T00:00:00Z', deadline_at: '2026-02-01T00:00:00Z', form_schema: task.form_schema, answers: task.answers, can_remind: false }],
+      default_active_tab: 'management-manager',
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
+    try {
+      await flushPromises()
+      expect(document.body.textContent).toContain(message)
+      expect(document.body.textContent).not.toContain('错误的代表人')
+      const edit = document.body.querySelector<HTMLButtonElement>('.performance-review-completion-notice__edit')
+      expect(Boolean(edit)).toBe(editable)
+      if (edit) {
+        edit.click()
+        await flushPromises()
+        expect(wrapper.emitted('edit')?.[0]?.[0]).toMatchObject({ task_id: 145, employee_no: 'E001' })
+      }
+    } finally { wrapper.unmount() }
   })
 
   it.each([

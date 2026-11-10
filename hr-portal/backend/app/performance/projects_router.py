@@ -717,7 +717,10 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "node_type": getattr(node, "node_type", task.task_kind),
         **((node.config or {}).get("template") or {}),
     })
-    if task.task_kind == "evaluation" and member is not None and current_role_code in MANAGER_ROLE_CODES:
+    manager_evaluation = task.task_kind == "evaluation" and current_role_code in MANAGER_ROLE_CODES
+    if manager_evaluation and task.submitted_at is not None:
+        answer_submissions = await _calibration_answer_submissions(task, [task], db)
+    if manager_evaluation and member is not None:
         # 评估人（handler）视角：复用被评估人管理详情（management_tabs/stage_views），
         # 成员已由 _self_summary_task 的 handler 授权保证可见，跳过管理范围检查；
         # 可见性沿用本环节 resolve_subject_visibility_role 的结果（leader 等）。
@@ -761,7 +764,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
-        **({"answer_submissions": answer_submissions} if task.task_kind == "calibration" else {}),
+        **({"answer_submissions": answer_submissions} if task.task_kind == "calibration" or manager_evaluation else {}),
         "has_draft": getattr(task, "draft_answers", None) is not None,
         "draft_answers": {**project_self_summary_answers(schema, getattr(task, "draft_answers", None) or {}), **({"keep_result": task.draft_answers["keep_result"]} if getattr(task, "draft_answers", None) and task.task_kind == "result_reconsideration" and "keep_result" in task.draft_answers else {})},
         "prompts": [],
