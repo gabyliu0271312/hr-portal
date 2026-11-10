@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
   maxHeight?: number | string
   viewportSurface?: boolean
   viewportFill?: boolean
+  fitAvailableHeight?: boolean
   showPagination?: boolean
   rowKey?: string
   clickableRows?: boolean
@@ -46,6 +47,7 @@ const props = withDefaults(defineProps<{
   maxHeight: 600,
   viewportSurface: false,
   viewportFill: false,
+  fitAvailableHeight: false,
   showPagination: true,
   rowKey: 'id',
   clickableRows: false,
@@ -217,6 +219,7 @@ const paginationRef = ref<HTMLElement | null>(null)
 const viewportTableHeight = ref<number>()
 const tableMaxHeight = computed(() => {
   if (props.scrollMode !== 'inner') return undefined
+  if (props.fitAvailableHeight) return viewportTableHeight.value ?? 1
   if (props.viewportFill) return props.maxHeight
   if (!props.viewportSurface || viewportTableHeight.value === undefined) return props.maxHeight
   return typeof props.maxHeight === 'number'
@@ -226,14 +229,18 @@ const tableMaxHeight = computed(() => {
 function measureViewport() {
   const root = rootRef.value
   const parent = root?.parentElement
-  if (!props.viewportSurface || !root || !parent?.clientHeight) return
+  if ((!props.viewportSurface && !props.fitAvailableHeight) || !root || !parent?.clientHeight) return
   const style = getComputedStyle(root)
   const occupiedHeight = [toolbarRef.value, paginationRef.value].reduce((sum, element) => {
     if (!element) return sum
     const elementStyle = getComputedStyle(element)
     return sum + element.offsetHeight + (parseFloat(elementStyle.marginTop) || 0) + (parseFloat(elementStyle.marginBottom) || 0)
   }, 0)
-  viewportTableHeight.value = Math.max(1, Math.floor(parent.clientHeight - occupiedHeight
+  const headerHeight = props.fitAvailableHeight
+    ? root.querySelector<HTMLElement>('.ui-table__header')?.offsetHeight ?? 0
+    : 0
+  const availableHeight = props.fitAvailableHeight ? root.clientHeight : parent.clientHeight
+  viewportTableHeight.value = Math.max(1, Math.floor(availableHeight - occupiedHeight - headerHeight
     - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0)))
 }
 
@@ -242,10 +249,11 @@ watch(() => [selectedCount.value, useNativeTable.value], () => {
   if (selectedCount.value) void nextTick(updateBarPosition)
 })
 watch(() => [props.rows, props.loading], hideCellTooltip)
-watch(() => [props.rows, props.showPagination, props.viewportSurface], () => { void nextTick(measureViewport) })
+watch(() => [props.rows, props.columns, props.showPagination, props.viewportSurface, props.fitAvailableHeight, props.scrollMode], () => { void nextTick(measureViewport) })
 onMounted(() => {
   updateBarPosition()
   void nextTick(() => { measureViewport(); measureColumnWidths() })
+  window.addEventListener('resize', measureViewport)
   window.addEventListener('resize', updateBarPosition)
   window.addEventListener('scroll', hideCellTooltip, { capture: true })
   if (rootRef.value && typeof ResizeObserver !== 'undefined') {
@@ -258,6 +266,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   hideCellTooltip()
+  window.removeEventListener('resize', measureViewport)
   window.removeEventListener('resize', updateBarPosition)
   window.removeEventListener('scroll', hideCellTooltip, { capture: true } as EventListenerOptions)
   resizeObserver?.disconnect()
@@ -272,7 +281,7 @@ function rowClassName({ row }: { row: any }) {
 </script>
 
 <template>
-  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-sticky-header': stickyHeader || stickyHeaderTop !== undefined, 'table-surface': viewportSurface && !useNativeTable, 'table-surface-fill': viewportSurface && viewportFill && !useNativeTable }" :aria-label="tableAriaLabel">
+  <div ref="rootRef" class="performance-management-table" :class="{ 'is-page-scroll': scrollMode === 'page', 'is-fit-height': fitAvailableHeight && scrollMode === 'inner', 'is-sticky-header': stickyHeader || stickyHeaderTop !== undefined, 'table-surface': viewportSurface && !useNativeTable, 'table-surface-fill': viewportSurface && viewportFill && !useNativeTable }" :aria-label="tableAriaLabel">
     <div v-if="$slots.toolbar" ref="toolbarRef" class="table-toolbar"><slot name="toolbar" /></div>
     <template v-if="useNativeTable">
       <!-- 渲染内核：UiTable（REA 单内核；外层滚动、无投影、可选吸顶） -->
@@ -360,6 +369,11 @@ function rowClassName({ row }: { row: any }) {
   display: flex;
   flex-direction: column;
 }
+.is-fit-height { flex: 1 1 0; overflow: hidden; }
+.is-fit-height > :deep(.ui-table),
+.is-fit-height > .table-scroll,
+.is-fit-height > .table-pagination { flex: none; }
+.is-fit-height .table-toolbar :deep(.list-toolbar) { margin-bottom: 0; }
 .table-toolbar { flex-shrink: 0; margin-bottom: var(--page-gap-toolbar-table); }
 .table-scroll { overflow: visible; }
 .table-scroll.has-column-width-probe { position: relative; }

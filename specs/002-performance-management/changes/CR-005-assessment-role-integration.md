@@ -354,3 +354,11 @@ REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登�
 - 浏览器：本地Vite实际Vue组件+隔离60行数据，700/980/1600px容器均验证头体列对齐、scrollLeft同步、左选择/姓名及右操作固定、工具栏/viewport/分页同宽、外层无横向溢出，三段控件间距均12px；内滚maxHeight=200、scrollHeight=3060、scrollTop=160，头体clientWidth均1510；超宽空态居中；隐藏列后定宽搜索224px。实际ProjectManagement.vue+隔离API数据：50行、viewport/toolbar/pager宽930px，外层scrollTop=400后表头y=108、top=32px，Tab y=56/h60、mask y=88/h20，表头命中可见且列对齐、页面无横向溢出。
 - 已查看本地截图：hr-portal/.tmp/table-unification-page-20261110.png、hr-portal/.tmp/table-unification-project-members-20261110.png；仅本地组件验收，不是生产业务数据或生产验收。
 - 构建：npm --prefix hr-portal/frontend run build 的vue-tsc及Vite通过，保留第三方VueUse PURE注释警告；git diff --check通过（仅行尾转换警告）。未做全仓全量测试、全部业务页真实浏览器遍历或生产部署验收，不据此声称全部业务入口已逐页通过。
+
+### 2026-11-10：前端项目管理人员组弹窗专项接入
+
+- REA 专项 URL：`/perf/management/v2/7654423719619710195/7340285661313974274/all-projects/focus-people-group`；实测模型为全屏弹窗内「工具栏 + 独立表头 + 表体内部横纵滚动 + 外置分页」，不是 page 模式自然增长。
+- 共享组件优化：`PerformanceManagementTable` 新增 `fitAvailableHeight`，在不套白卡 surface 的情况下按弹窗剩余高度测量表体，监听窗口尺寸和数据/列变化；保留 `scroll-mode=inner` 的固定高度内滚契约。
+- 前端人员组弹窗：改用 `PerformanceListToolbar`，搜索宽度使用 `--search-input-width-wide`（292px），控件间距走全局 token；表格改为 `scroll-mode=inner` + `fit-available-height`；姓名195px和操作102px继续通过既有fixed配置冻结。本轮不新增序号/虚线上级列，不改变成员业务数据契约。
+- 真实隔离数据浏览器验收：1280×720、1280×600、1680×950、900×600 均通过；表体独立滚动、分页可见、横滚后操作列固定、头体列对齐；末页少量数据自然收缩，空组 total 重置为0；搜索/翻页/每页20条均重新请求并保持分页可达。
+- 测试：`FrontFocusGroupManagementDialog.spec.ts` 6项、`UiTable.spec.ts` 15项、Toolbar/周期/催办/人员组聚焦回归通过；专项回归4文件74项通过，最终扩大回归7文件106项通过。20文件239项为上一轮共享组件统一的验证记录，非本轮结果。最终vue-tsc与Vite构建通过；实现验收时未提交、未推送、未部署。

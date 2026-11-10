@@ -124,6 +124,38 @@ describe('UiTable', () => {
     wrapper.unmount()
   })
 
+  it('fits the body into the shell without enabling visual surface and responds to resize', async () => {
+    const wrapper = mount(PerformanceManagementTable, {
+      props: { columns, rows: [{}], loading: false, loadingText: '加载中', emptyText: '暂无', tableAriaLabel: '表格', paginationAriaLabel: '分页', scrollMode: 'inner', fitAvailableHeight: true },
+      slots: { toolbar: '<div>工具栏</div>' },
+    })
+    const root = wrapper.element as HTMLElement
+    let height = 500
+    Object.defineProperty(root, 'clientHeight', { get: () => height })
+    Object.defineProperty(root.parentElement!, 'clientHeight', { value: 500, configurable: true })
+    Object.defineProperty(wrapper.get('.table-toolbar').element, 'offsetHeight', { value: 32 })
+    Object.defineProperty(wrapper.get('.table-pagination').element, 'offsetHeight', { value: 28 })
+    Object.defineProperty(wrapper.get('.ui-table__header').element, 'offsetHeight', { value: 47 })
+    const table = wrapper.getComponent(UiTable)
+    try {
+      window.dispatchEvent(new Event('resize'))
+      await nextTick()
+      expect(table.props('maxHeight')).toBe(393)
+      expect(wrapper.classes()).not.toContain('table-surface')
+      expect(wrapper.find('.table-toolbar').exists()).toBe(true)
+      height = 280
+      window.dispatchEvent(new Event('resize'))
+      await nextTick()
+      expect(table.props('maxHeight')).toBe(173)
+      await wrapper.setProps({ scrollMode: 'page' })
+      expect(table.props('maxHeight')).toBeUndefined()
+      await wrapper.setProps({ scrollMode: 'inner', fitAvailableHeight: false })
+      expect(table.props('maxHeight')).toBe(600)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('synchronizes horizontal scroll in both directions without changing vertical position', async () => {
     const wrapper = mount(UiTable, { props: { columns, rows: [{ name: '组织甲' }], stickyHeaderTop: 0 } })
     const header = wrapper.get('.ui-table__header')

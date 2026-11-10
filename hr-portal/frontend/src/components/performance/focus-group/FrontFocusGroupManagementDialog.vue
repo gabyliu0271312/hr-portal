@@ -8,7 +8,7 @@ import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import type { PerformanceTableColumn } from '@/components/performance/performanceTableColumns'
-import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
 import FocusGroupFrontMemberAddDialog from './FocusGroupFrontMemberAddDialog.vue'
@@ -189,14 +189,6 @@ function formatDateTime(value: string | null | undefined) {
               </div>
 
               <div class="front-fg-dialog__table-wrap">
-                <div class="front-fg-dialog__toolbar">
-                  <UiButton v-if="maintainable" variant="primary" :disabled="!cycleId" @click="addOpen = true">添加</UiButton>
-                  <div v-else class="front-fg-dialog__toolbar-placeholder" />
-                  <div class="front-fg-dialog__tools">
-                    <PerformanceSearchInput v-model="keyword" placeholder="搜索成员" aria-label="搜索成员" @search="search" @clear="clearSearch" />
-                    <UiButton variant="secondary" class="front-fg-dialog__filter" @click="search">筛选</UiButton>
-                  </div>
-                </div>
                 <PerformanceManagementTable
                   :rows="rows"
                   :columns="columns"
@@ -205,7 +197,8 @@ function formatDateTime(value: string | null | undefined) {
                   :empty-text="memberError || '暂无人员'"
                   table-aria-label="人员组成员表格"
                   pagination-aria-label="人员组成员分页"
-                  scroll-mode="page"
+                  scroll-mode="inner"
+                  fit-available-height
                   row-key="value"
                   :page="page"
                   :page-size="pageSize"
@@ -215,6 +208,13 @@ function formatDateTime(value: string | null | undefined) {
                   @page-change="changePage"
                   @page-size-change="changePageSize"
                 >
+                  <template #toolbar>
+                    <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-width="var(--search-input-width-wide)" @search="search" @clear="clearSearch" @filter="search">
+                      <template v-if="maintainable" #left>
+                        <UiButton variant="primary" :disabled="!cycleId" @click="addOpen = true">添加</UiButton>
+                      </template>
+                    </PerformanceListToolbar>
+                  </template>
                   <template #pagination-prefix><span class="front-fg-dialog__total">共 {{ total }} 条</span></template>
                   <template #cell="{ row, column }">
                     <template v-if="column.key === 'action'">
@@ -277,6 +277,7 @@ function formatDateTime(value: string | null | undefined) {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -314,13 +315,10 @@ function formatDateTime(value: string | null | undefined) {
 .front-fg-dialog__hint--project { display: flex; flex-direction: column; gap: 2px; }
 .front-fg-dialog__hint-title { font-weight: 500; }
 .front-fg-dialog__hint-desc { color: #646a73; font-size: 12px; line-height: 18px; }
-.front-fg-dialog__table-wrap { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; padding: 16px 24px 0; }
-.front-fg-dialog__toolbar { display: flex; flex: none; align-items: center; justify-content: space-between; min-height: 32px; margin-bottom: var(--page-gap-toolbar-table); }
-.front-fg-dialog__tools { display: flex; align-items: center; gap: 8px; }
-.front-fg-dialog__tools :deep(.performance-search-input) { flex: 0 0 292px; width: 292px !important; }
-.front-fg-dialog__filter { min-width: var(--performance-button-min-width); }
+.front-fg-dialog__table-wrap { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 0; padding: var(--page-gap-toolbar-table) var(--spacing-6) 0; }
+.front-fg-dialog__hint { flex-shrink: 0; }
 .front-fg-dialog__table {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   --ui-table-header-background: #ffffff;
   --ui-table-header-height: 47px;

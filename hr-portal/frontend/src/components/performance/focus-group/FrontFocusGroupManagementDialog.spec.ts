@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FrontFocusGroupManagementDialog from './FrontFocusGroupManagementDialog.vue'
 import { performanceFocusGroupApi, type PerformanceFocusGroupMember, type PerformanceFocusGroupOverview } from '@/api/performance'
 
-vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
+import PerformanceManagementTable from '../PerformanceManagementTable.vue'
+import UiTable from '../../ui/UiTable.vue'
+import PerformanceListToolbar from '../PerformanceListToolbar.vue'
+
+vi.mock('element-plus', async () => {
+  const actual = await vi.importActual<typeof import('element-plus')>('element-plus')
+  return { ...actual, ElMessage: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }
+})
 
 const lineTabsStub = {
   props: ['modelValue', 'tabs'],
@@ -19,6 +26,7 @@ const managementTableStub = {
   emits: ['page-change', 'page-size-change'],
   template: `
     <div class="management-table-stub">
+      <slot name="toolbar" />
       <template v-for="row in rows" :key="row.value">
         <template v-for="column in columns" :key="column.key">
           <slot name="cell" :row="row" :column="column" :value="row[column.key]" />
@@ -137,6 +145,42 @@ describe('FrontFocusGroupManagementDialog', () => {
     await flushPromises()
     expect(wrapper.find('.empty-illustration').exists()).toBe(true)
     expect(wrapper.text()).toContain('暂无人员')
+  })
+
+  it('uses the real shared inner table and toolbar, keeps fixed actions and paginates groups', async () => {
+    vi.spyOn(performanceFocusGroupApi, 'overview').mockResolvedValue(overview)
+    const members = vi.spyOn(performanceFocusGroupApi, 'members').mockImplementation(async (_cycle, groupId, params) => ({
+      group_id: groupId, employee_nos: [], total: groupId === 2 ? 0 : 21,
+      people: groupId === 2 ? [] : [member({ display_name: `第${params?.current || 1}页成员` })],
+    }))
+    const wrapper = mount(FrontFocusGroupManagementDialog, {
+      props: { modelValue: true, cycleId: 7, teleport: false },
+      global: { stubs: { PerformanceConfirmDialog: confirmDialogStub, FocusGroupFrontMemberAddDialog: addDialogStub } },
+    })
+    await flushPromises()
+    const table = wrapper.getComponent(PerformanceManagementTable)
+    const uiTable = wrapper.getComponent(UiTable)
+    expect(table.props('scrollMode')).toBe('inner')
+    expect(table.props('fitAvailableHeight')).toBe(true)
+    expect(table.props('viewportSurface')).toBe(false)
+    expect(uiTable.find('.ui-table__header').exists()).toBe(true)
+    expect(uiTable.find('.ui-table__body').exists()).toBe(true)
+    expect(uiTable.find('thead th.is-fixed-right').attributes('style')).toContain('right: 0px')
+    expect(uiTable.find('tbody td.is-fixed-right').attributes('style')).toContain('right: 0px')
+    expect(wrapper.getComponent(PerformanceListToolbar).props('searchWidth')).toBe('var(--search-input-width-wide)')
+    expect(wrapper.find('.table-toolbar .list-toolbar').exists()).toBe(true)
+    await wrapper.get('[aria-label="下一页"]').trigger('click')
+    await flushPromises()
+    expect(members).toHaveBeenLastCalledWith(7, 1, { current: 2, size: 10, keyword: undefined })
+    table.vm.$emit('page-size-change', 20)
+    await flushPromises()
+    expect(members).toHaveBeenLastCalledWith(7, 1, { current: 1, size: 20, keyword: undefined })
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('共 0 条')
+    expect(wrapper.text()).toContain('暂无人员')
+    expect(table.props('page')).toBe(1)
+    wrapper.unmount()
   })
 
   it('adds member via add dialog and reloads', async () => {
