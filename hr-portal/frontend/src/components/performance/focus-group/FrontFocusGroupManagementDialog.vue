@@ -4,7 +4,9 @@ import { ElMessage } from 'element-plus'
 import { performanceFocusGroupApi, type PerformanceFocusGroupMember } from '@/api/performance'
 import type { PerformanceFocusGroupOverviewItem } from '@/api/performance'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiSurface from '@/components/ui/UiSurface.vue'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
+import PerformancePromptNotice from '@/components/performance/PerformancePromptNotice.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from '@/components/performance/PerformanceLineTabs.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import type { PerformanceTableColumn } from '@/components/performance/performanceTableColumns'
@@ -178,15 +180,15 @@ function formatDateTime(value: string | null | undefined) {
         <div class="front-fg-dialog__body">
           <p v-if="overviewError" class="front-fg-dialog__error" role="alert">{{ overviewError }}</p>
           <template v-else-if="groups.length">
-            <PerformanceLineTabs :model-value="String(activeGroupId ?? '')" :tabs="tabs" fill class="front-fg-dialog__tabs" @update:model-value="selectGroup">
-              <!-- 提示条：周期版 / 关联项目版（REA 差异化呈现） -->
-              <div class="front-fg-dialog__hint" :class="{ 'front-fg-dialog__hint--project': isProject }">
+            <PerformanceLineTabs :model-value="String(activeGroupId ?? '')" :tabs="tabs" fill flush class="front-fg-dialog__tabs" @update:model-value="selectGroup">
+              <UiSurface class="front-fg-dialog__surface" radius="all" min-width="0" padding="var(--ui-surface-padding-spacious)">
+              <PerformancePromptNotice type="info" multiline class="front-fg-dialog__hint" :class="{ 'front-fg-dialog__hint--project': isProject }">
                 <template v-if="isProject">
                   <p class="front-fg-dialog__hint-title">关联评估项目：{{ activeGroup?.activity_names?.join('、') || '--' }}</p>
                   <p class="front-fg-dialog__hint-desc">人员组仅可圈入关联评估项目的被评估人，你可对权限范围内的人员进行添加和移除。</p>
                 </template>
                 <p v-else>仅可查看你有权限的人员组成员。你可将权限范围内的人员添加/移出人员组。</p>
-              </div>
+              </PerformancePromptNotice>
 
               <div class="front-fg-dialog__table-wrap">
                 <PerformanceManagementTable
@@ -218,7 +220,7 @@ function formatDateTime(value: string | null | undefined) {
                   <template #pagination-prefix><span class="front-fg-dialog__total">共 {{ total }} 条</span></template>
                   <template #cell="{ row, column }">
                     <template v-if="column.key === 'action'">
-                      <button v-if="removable" class="front-fg-dialog__row-action" type="button" :disabled="loading" @click="removeOpen = true; removeTarget = row as PerformanceFocusGroupMember">移除</button>
+                      <UiButton v-if="removable" variant="link" :disabled="loading" @click="removeOpen = true; removeTarget = row as PerformanceFocusGroupMember">移除</UiButton>
                     </template>
                     <span v-else-if="column.key === 'added_at'">{{ formatDateTime((row as PerformanceFocusGroupMember).added_at) }}</span>
                     <span v-else-if="column.key === 'added_by'">{{ (row as PerformanceFocusGroupMember).added_by || '--' }}</span>
@@ -232,6 +234,7 @@ function formatDateTime(value: string | null | undefined) {
                   </template>
                 </PerformanceManagementTable>
               </div>
+              </UiSurface>
             </PerformanceLineTabs>
 
             <FocusGroupFrontMemberAddDialog
@@ -269,9 +272,9 @@ function formatDateTime(value: string | null | undefined) {
   z-index: var(--performance-confirm-z-index);
   background: var(--performance-dialog-overlay);
 }
-/* UiFullScreenModal 页壳：覆盖头部下边框为飞书前端 1px rgba(31,35,41,0.15) */
-.front-fg-dialog :deep(.full-screen-modal-header) {
-  border-bottom: 1px solid rgba(31, 35, 41, 0.15);
+.front-fg-dialog {
+  --ui-fullscreen-background: var(--ui-page-background);
+  --ui-header-border-bottom: var(--ui-header-divider);
 }
 .front-fg-dialog__body {
   display: flex;
@@ -279,64 +282,42 @@ function formatDateTime(value: string | null | undefined) {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  padding: var(--ui-page-tabs-top-gap) var(--ui-page-content-inset) var(--ui-page-content-inset);
   overflow: hidden;
 }
-.front-fg-dialog__error { margin: 0; padding: 16px 24px; color: var(--performance-field-error-color); font-size: 14px; line-height: 22px; }
+.front-fg-dialog__error { margin: 0; padding: var(--spacing-4) var(--ui-page-content-inset); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 /* tab：14px/500 激活（前端 v2 端覆盖 PerformanceLineTabs 16px 默认） */
 .front-fg-dialog__tabs {
   flex: 1 1 auto;
   min-height: 0;
-  --performance-line-tabs-surface: #fff;
-  --performance-line-tabs-text: #1f2329;
+  --performance-line-tabs-surface: transparent;
+  --performance-line-tabs-text: var(--color-text-primary);
+  --performance-table-tabs-gap: var(--ui-page-tabs-content-gap);
+  --ui-tabs-holder-padding-top: 0px;
+  --ui-tabs-overflow-bottom-gap: 0px;
+  --ui-tabs-font-size: var(--ui-tabs-compact-font-size);
+  --ui-tabs-line-height: var(--ui-tabs-compact-line-height);
+  --ui-tabs-tab-padding: var(--ui-tabs-compact-padding);
+  --ui-tabs-active-weight: var(--ui-tabs-compact-active-weight);
+  --ui-tabs-ink-top: var(--ui-tabs-compact-ink-top);
+  --ui-tabs-divider-top: var(--ui-tabs-compact-divider-top);
 }
-/* 去掉 flush：其 .line-tabs.flush .line-tabs-holder 特异性(0,4,0) 会压掉本覆盖。
-   这里直接对齐内容区 24px：清掉负 margin（-20px）与默认 padding，补 24px 左内边距。
-   双 class 前缀把特异性抬到 (0,4,0)，与子组件 flush 平手且源码靠后，稳定生效。 */
-.front-fg-dialog__tabs.front-fg-dialog__tabs :deep(.line-tabs-holder) {
-  margin-right: 0;
-  margin-left: 0;
-  padding-right: 0;
-  padding-left: 24px;
+.front-fg-dialog__surface {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
 }
-.front-fg-dialog__tabs :deep(.line-tab) { font-size: 14px; line-height: 22px; }
-.front-fg-dialog__tabs :deep(.line-tab.active) { font-weight: 500; }
-/* 提示条：40px #F0F4FF */
-.front-fg-dialog__hint {
-  margin: 0 24px;
-  padding: 9px 16px;
-  box-sizing: border-box;
-  border-radius: 6px;
-  background: #f0f4ff;
-  color: #1f2329;
-  font-size: 14px;
-  line-height: 22px;
-}
+.front-fg-dialog__hint { --ui-notice-text-bottom-gap: 0px; flex-shrink: 0; margin-bottom: var(--page-gap-toolbar-table); }
 .front-fg-dialog__hint p { margin: 0; }
-.front-fg-dialog__hint--project { display: flex; flex-direction: column; gap: 2px; }
-.front-fg-dialog__hint-title { font-weight: 500; }
-.front-fg-dialog__hint-desc { color: #646a73; font-size: 12px; line-height: 18px; }
-.front-fg-dialog__table-wrap { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 0; padding: var(--page-gap-toolbar-table) var(--spacing-6) 0; }
-.front-fg-dialog__hint { flex-shrink: 0; }
+.front-fg-dialog__hint-title { font-weight: var(--ui-tabs-compact-active-weight); }
+.front-fg-dialog__hint-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 18px; }
+.front-fg-dialog__table-wrap { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; min-height: 0; }
 .front-fg-dialog__table {
   flex: 1 1 0;
   min-height: 0;
-  --ui-table-header-background: #ffffff;
-  --ui-table-header-height: 47px;
 }
-.front-fg-dialog__table :deep(.ui-table__cell--head) { color: #646a73; font-weight: 500; }
-.front-fg-dialog__total { color: var(--color-text-secondary); font-size: 14px; line-height: 22px; }
-.front-fg-dialog__row-action {
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #1456f0;
-  font: inherit;
-  font-size: 14px;
-  line-height: 22px;
-  cursor: pointer;
-}
-.front-fg-dialog__row-action:hover { background: #eff0f1; }
-.front-fg-dialog__empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px 0; }
-.front-fg-dialog__empty-text { color: #646a73; font-size: 14px; line-height: 22px; }
+.front-fg-dialog__total { color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
+.front-fg-dialog__empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; }
+.front-fg-dialog__empty-text { color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 </style>

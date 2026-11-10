@@ -101,17 +101,17 @@ watch(() => [props.modelValue, props.tabs], async () => {
 .line-tabs { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .line-tabs.sticky .line-tabs-holder { position: sticky; top: calc(-1 * var(--performance-review-surface-inset)); z-index: 30; }
 .line-tabs.sticky .line-tabs-overflow { flex-wrap: nowrap; overflow: hidden; }
-.line-tabs-holder { display: flex; position: relative; margin: 0 calc(-1 * var(--performance-review-surface-inset)); padding-top: 12px; padding-right: var(--performance-review-surface-inset); padding-left: var(--performance-review-surface-inset); background: var(--performance-line-tabs-surface); }
+.line-tabs-holder { display: flex; position: relative; margin: 0 calc(-1 * var(--performance-review-surface-inset)); padding-top: var(--ui-tabs-holder-padding-top); padding-right: var(--performance-review-surface-inset); padding-left: var(--performance-review-surface-inset); background: var(--performance-line-tabs-surface); }
 .line-tabs.flush .line-tabs-holder { margin-right: 0; margin-left: 0; padding-right: 0; padding-left: 0; }
 .line-tabs-wrap { position: relative; flex: 1; min-width: 0; }
-.line-tabs-overflow { display: flex; position: relative; flex-wrap: wrap; min-width: 0; min-height: 0; margin-bottom: 12px; }
+.line-tabs-overflow { display: flex; position: relative; flex-wrap: wrap; min-width: 0; min-height: 0; margin-bottom: var(--ui-tabs-overflow-bottom-gap); }
 .line-tabs-item { min-width: 0; min-height: 0; }
-.line-tab { display: inline-flex; position: relative; align-items: center; max-width: 240px; margin-right: 28px; padding: 0 0 12px; overflow: hidden; border: 0; background: transparent; color: var(--performance-line-tabs-text); cursor: pointer; font-family: inherit; font-size: 16px; font-weight: 400; line-height: 24px; text-overflow: ellipsis; transition: color 0.1s linear, background-color 0.1s linear, border-color 0.1s linear; white-space: nowrap; }
+.line-tab { display: inline-flex; position: relative; align-items: center; max-width: 240px; margin-right: 28px; padding: var(--ui-tabs-tab-padding); overflow: hidden; border: 0; background: transparent; color: var(--performance-line-tabs-text); cursor: pointer; font-family: inherit; font-size: var(--ui-tabs-font-size); font-weight: 400; line-height: var(--ui-tabs-line-height); text-overflow: ellipsis; transition: color 0.1s linear, background-color 0.1s linear, border-color 0.1s linear; white-space: nowrap; }
 .line-tab:hover { color: var(--performance-line-tabs-ink); }
-.line-tab.active { color: var(--performance-line-tabs-ink); font-weight: 600; }
+.line-tab.active { color: var(--performance-line-tabs-ink); font-weight: var(--ui-tabs-active-weight); }
 .line-tab.disabled { color: var(--performance-line-tabs-text); cursor: not-allowed; opacity: 0.55; }
-.line-tabs-ink { position: absolute; top: 33px; bottom: 0; left: 0; z-index: 1; overflow: hidden; width: 0; height: 3px; min-width: 0; min-height: 0; background: var(--performance-line-tabs-ink); transition: width 0.3s cubic-bezier(0.34, 0.69, 0.1, 1), left 0.3s cubic-bezier(0.34, 0.69, 0.1, 1), top 0.3s cubic-bezier(0.34, 0.69, 0.1, 1); }
-.line-tabs-divider { position: absolute; top: 35px; right: 0; bottom: 0; left: 0; z-index: 0; height: 1px; background: var(--performance-line-tabs-divider); }
+.line-tabs-ink { position: absolute; top: var(--ui-tabs-ink-top); bottom: 0; left: 0; z-index: 1; overflow: hidden; width: 0; height: 3px; min-width: 0; min-height: 0; background: var(--performance-line-tabs-ink); transition: width 0.3s cubic-bezier(0.34, 0.69, 0.1, 1), left 0.3s cubic-bezier(0.34, 0.69, 0.1, 1), top 0.3s cubic-bezier(0.34, 0.69, 0.1, 1); }
+.line-tabs-divider { position: absolute; top: var(--ui-tabs-divider-top); right: 0; bottom: 0; left: 0; z-index: 0; height: 1px; background: var(--performance-line-tabs-divider); }
 .line-tabs-content { min-height: 0; padding-top: 0; background: var(--performance-line-tabs-surface); }
 .line-tabs-pane { min-width: 0; min-height: 0; }
 .line-tabs.fill { flex: 1 1 auto; overflow: hidden; }

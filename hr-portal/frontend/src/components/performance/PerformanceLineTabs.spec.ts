@@ -2,6 +2,9 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import PerformanceLineTabs from './PerformanceLineTabs.vue'
 import performanceLineTabsSource from './PerformanceLineTabs.vue?raw'
+import { readFileSync } from 'node:fs'
+
+const tokensSource = readFileSync('src/styles/tokens.css', 'utf8')
 
 const tabs = [
   { key: 'overview', label: '总览' },
@@ -29,8 +32,9 @@ describe('PerformanceLineTabs', () => {
 
   it('uses the captured ink geometry tokens (3px height, top 33px, divider top 35px)', () => {
     const wrapper = mountTabs()
-    expect(performanceLineTabsSource).toMatch(/\.line-tabs-ink\s*\{[^}]*top:\s*33px;[^}]*height:\s*3px/s)
-    expect(performanceLineTabsSource).toMatch(/\.line-tabs-divider\s*\{[^}]*top:\s*35px;[^}]*height:\s*1px/s)
+    expect(performanceLineTabsSource).toMatch(/\.line-tabs-ink\s*\{[^}]*top:\s*var\(--ui-tabs-ink-top\);[^}]*height:\s*3px/s)
+    expect(tokensSource).toMatch(/--ui-tabs-ink-top:\s*33px/)
+    expect(tokensSource).toMatch(/--ui-tabs-divider-top:\s*35px/)
     expect(performanceLineTabsSource).toMatch(/cubic-bezier\(0\.34, 0\.69, 0\.1, 1\)/)
     expect(performanceLineTabsSource).toMatch(/var\(--performance-line-tabs-ink\)/)
     // 容器节奏：负 margin 对齐内容区 token，保证 tabs 条撑满全宽

@@ -6,6 +6,9 @@ import { performanceFocusGroupApi, type PerformanceFocusGroupMember, type Perfor
 import PerformanceManagementTable from '../PerformanceManagementTable.vue'
 import UiTable from '../../ui/UiTable.vue'
 import PerformanceListToolbar from '../PerformanceListToolbar.vue'
+import UiSurface from '../../ui/UiSurface.vue'
+import UiPageHeader from '../../ui/UiPageHeader.vue'
+import dialogSource from './FrontFocusGroupManagementDialog.vue?raw'
 
 vi.mock('element-plus', async () => {
   const actual = await vi.importActual<typeof import('element-plus')>('element-plus')
@@ -160,6 +163,15 @@ describe('FrontFocusGroupManagementDialog', () => {
     await flushPromises()
     const table = wrapper.getComponent(PerformanceManagementTable)
     const uiTable = wrapper.getComponent(UiTable)
+    const surface = wrapper.getComponent(UiSurface)
+    expect(wrapper.findComponent(UiPageHeader).exists()).toBe(true)
+    expect(surface.props('radius')).toBe('all')
+    expect(surface.props('padding')).toBe('var(--ui-surface-padding-spacious)')
+    expect(surface.find('.front-fg-dialog__hint').exists()).toBe(true)
+    expect(surface.findComponent(PerformanceManagementTable).exists()).toBe(true)
+    expect(wrapper.get('.line-tabs-holder').element.closest('.ui-surface')).toBeNull()
+    expect(dialogSource).not.toContain('--performance-line-tabs-surface: #fff')
+    expect(dialogSource).toContain('--ui-header-border-bottom: var(--ui-header-divider)')
     expect(table.props('scrollMode')).toBe('inner')
     expect(table.props('fitAvailableHeight')).toBe(true)
     expect(table.props('viewportSurface')).toBe(false)

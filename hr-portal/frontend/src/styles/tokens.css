@@ -643,6 +643,28 @@
   /* 页面壳（REA 实测：内容区灰底 #f5f6f7，padding 上/左/右 20，底边距由滚动容器承接） */
   --ui-page-background: #f5f6f7;
   --ui-page-padding: 20px 20px 0;
+  --ui-page-content-inset: var(--spacing-6);
+  --ui-page-tabs-top-gap: var(--spacing-2);
+  --ui-page-tabs-content-gap: var(--spacing-3);
+  --ui-surface-padding-spacious: var(--spacing-6);
+  --ui-header-divider: 1px solid var(--color-line-divider);
+  --ui-header-border-bottom: .666667px solid var(--color-line-header);
+  --ui-fullscreen-background: var(--color-surface-page);
+  --ui-tabs-holder-padding-top: var(--spacing-3);
+  --ui-tabs-overflow-bottom-gap: var(--spacing-3);
+  --ui-tabs-tab-padding: 0 0 var(--spacing-3);
+  --ui-tabs-font-size: 16px;
+  --ui-tabs-line-height: 24px;
+  --ui-tabs-active-weight: 600;
+  --ui-tabs-ink-top: 33px;
+  --ui-tabs-divider-top: 35px;
+  --ui-tabs-compact-font-size: var(--font-size-md);
+  --ui-tabs-compact-line-height: 22px;
+  --ui-tabs-compact-padding: var(--spacing-3) 0;
+  --ui-tabs-compact-active-weight: 500;
+  --ui-tabs-compact-ink-top: 43px;
+  --ui-tabs-compact-divider-top: 45px;
+  --ui-notice-text-bottom-gap: var(--spacing-1);
   /* 树形表格（REA 实测：展开钮 18×18 r4 图标 12px #646a73，每级缩进 14px，行内容高 26） */
   --ui-tree-indent: 14px;
   --ui-tree-name-height: 26px;

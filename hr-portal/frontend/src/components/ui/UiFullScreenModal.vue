@@ -50,7 +50,7 @@ const emit = defineEmits<{
   padding-top: var(--layout-topbar-height);
   box-sizing: border-box;
   overflow: clip;
-  background: var(--color-surface-page);
+  background: var(--ui-fullscreen-background);
   color: var(--color-text-primary);
   font-family: var(--font-sans);
 }
@@ -62,7 +62,7 @@ const emit = defineEmits<{
   overflow: auto;
   padding-bottom: var(--performance-fullscreen-content-bottom-space);
   box-sizing: border-box;
-  background: var(--color-surface-page);
+  background: var(--ui-fullscreen-background);
 }
 .full-screen-modal-content--inner {
   min-width: 0;

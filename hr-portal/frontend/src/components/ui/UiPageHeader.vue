@@ -35,7 +35,7 @@ const emit = defineEmits<{ back: [] }>()
   padding: 0 var(--spacing-5) 0 var(--spacing-4);
   box-sizing: border-box;
   background: var(--color-surface-card);
-  border-bottom: .666667px solid var(--color-line-header);
+  border-bottom: var(--ui-header-border-bottom);
 }
 .full-screen-modal-header-left {
   display: flex;

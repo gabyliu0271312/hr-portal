@@ -362,3 +362,11 @@ REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登�
 - 前端人员组弹窗：改用 `PerformanceListToolbar`，搜索宽度使用 `--search-input-width-wide`（292px），控件间距走全局 token；表格改为 `scroll-mode=inner` + `fit-available-height`；姓名195px和操作102px继续通过既有fixed配置冻结。本轮不新增序号/虚线上级列，不改变成员业务数据契约。
 - 真实隔离数据浏览器验收：1280×720、1280×600、1680×950、900×600 均通过；表体独立滚动、分页可见、横滚后操作列固定、头体列对齐；末页少量数据自然收缩，空组 total 重置为0；搜索/翻页/每页20条均重新请求并保持分页可达。
 - 测试：`FrontFocusGroupManagementDialog.spec.ts` 6项、`UiTable.spec.ts` 15项、Toolbar/周期/催办/人员组聚焦回归通过；专项回归4文件74项通过，最终扩大回归7文件106项通过。20文件239项为上一轮共享组件统一的验证记录，非本轮结果。最终vue-tsc与Vite构建通过；实现验收时未提交、未推送、未部署。
+
+### 2026-11-10：人员组弹窗容器层级与全局设计 token 复用
+
+- 不新增组件：继续复用 `UiFullScreenModal/UiPageHeader`、`PerformanceLineTabs`、`UiSurface`、`PerformancePromptNotice`、`UiButton` 和已有共享表格/分页。白卡由 UiSurface 的 all 圆角、0最小宽度和 spacious padding 参数表达，不再通过 Tabs 整体刷白模拟白卡。
+- 容器恢复为灰底页面→透明紧凑Tabs→12px间隔→独立圆角白卡；页面外层左右24px、白卡内部24px，提示条/工具栏/表格/分页左起点48px。提示条与工具栏、工具栏与表格各间隔16px。保留上一轮表体内滚、fitAvailableHeight及左右固定列，不改接口和权限。
+- token：复用既有 spacing、ui-page-background、ui-surface-*、color-line-divider；补充全局页面content inset、Tabs内容间距、spacious白卡padding、紧凑Tabs规格和页头边框入口。全局默认Tabs几何仍为ink top33/divider top35；页头默认旧分隔线不变。移除弹窗重复背景、圆角、提示条及操作链接硬编码样式。
+- 浏览器：实际弹窗组件+隔离分页数据，1280×720/1280×600/1680×950/900×600验证外24+内24、Tab高46且位于白卡外、卡片顶部y122、提示条y146/h40、工具栏y202、表头y250、灰底#f5f6f7、白卡r8；四视口分页可见、头体对齐、横滚同步。截图 `hr-portal/.tmp/focus-group-shared-surface-20261110.png` 已查看，仅本地组件证据，不是生产验收。
+- 验证：扩大回归10文件121项通过；最终聚焦5文件36项通过；最终 `npm --prefix hr-portal/frontend run build` 的vue-tsc与Vite通过（44.27s，既有VueUse PURE警告保留）。未提交、未推送、未部署；并行业务修改不纳入本轮范围。
