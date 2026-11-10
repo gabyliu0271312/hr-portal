@@ -10,17 +10,32 @@ const mountPanel = (status = state(), expired = false) => mount(Panel, { props: 
 afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = '' })
 
 describe('employee result reconsideration', () => {
-  it('keeps the hover menu until deadline, disallows duplicate submissions and uses Beijing time', async () => {
+  it('hides the menu after submission and restores it only after withdrawal before deadline', async () => {
     const wrapper = mount(Menu, { props: { status: state(), expired: false } })
     await wrapper.get('.reconsideration-menu').trigger('mouseenter')
     expect(wrapper.get('[role="menu"]').text()).toContain('2099-11-11 18:00（GMT+8）')
     await wrapper.get('[role="menuitem"]').trigger('click')
     expect(wrapper.emitted('start')).toHaveLength(1)
     await wrapper.setProps({ status: submitted() })
-    await wrapper.get('.reconsideration-menu').trigger('mouseenter')
-    expect(wrapper.get('[role="menuitem"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.reconsideration-menu').exists()).toBe(false)
+    await wrapper.setProps({ status: { ...submitted(), submitted_at: null, withdrawn_at: '2026-11-10T09:00:00Z', can_submit: true } })
+    expect(wrapper.find('.reconsideration-menu').exists()).toBe(true)
     await wrapper.setProps({ expired: true })
     expect(wrapper.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('uses the captured 12px EditOutlined and RedoOutlined SVGs with inherited colors', () => {
+    const wrapper = mountPanel(submitted())
+    for (const name of ['EditOutlined', 'RedoOutlined']) {
+      const icon = wrapper.get(`.reconsideration-banner__actions svg[data-icon="${name}"]`)
+      expect(icon.attributes('width')).toBe('12')
+      expect(icon.attributes('height')).toBe('12')
+      expect(icon.attributes('viewBox')).toBe('0 0 24 24')
+      expect(icon.get('path').attributes('fill')).toBe('currentColor')
+      expect(icon.get('path').attributes('d')).toContain(name === 'EditOutlined' ? 'm17.57 7.244' : 'M15.293 2.293')
+    }
+    expect(wrapper.text()).not.toMatch(/[✎↶]/)
     wrapper.unmount()
   })
 

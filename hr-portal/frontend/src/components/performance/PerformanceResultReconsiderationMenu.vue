@@ -1,5 +1,5 @@
 <template>
-  <div v-if="status && status.window_open && !expired" class="reconsideration-menu" @mouseenter="show" @mouseleave="hideSoon" @focusout="leave" @keydown.esc="open = false">
+  <div v-if="status && status.window_open && !expired && (!status.submitted_at || status.withdrawn_at)" class="reconsideration-menu" @mouseenter="show" @mouseleave="hideSoon" @focusout="leave" @keydown.esc="open = false">
     <UiButton class="reconsideration-more" aria-label="复议更多操作" :aria-expanded="open" @focus="show" @click="show"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="3.75" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="20.25" cy="12" r="1.75" /></svg></UiButton>
     <div v-if="open" class="reconsideration-menu__panel" role="menu" aria-label="复议操作">
       <button type="button" role="menuitem" :disabled="!status.can_submit || busy" @click="start"><span>发起复议</span><span class="reconsideration-menu__deadline">截止时间：{{ formatDisplayDateTime(status.deadline_at) }}（GMT+8）</span></button>
