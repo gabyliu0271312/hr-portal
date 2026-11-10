@@ -25,6 +25,7 @@ import { ASSESSMENT_ROLE_CODES, performanceExecutorDisplayLabel } from './perfor
 import { performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
 import { performanceContentKey, contentToSections } from './performanceContentToSections'
 import { resolveCalibrationContents } from './performanceContentSettingsRules'
+import { isFieldRendered, isPromptVisible, resolveFieldSettings } from './performanceContentSettingsResolver'
 
 const props = defineProps<{ templateId?: number | null }>()
 
@@ -90,6 +91,7 @@ interface ReferenceGroup {
   value: string
   description: string
   contents: PerformanceTemplateContent[]
+  relation?: PerformanceTemplateContent
   /** 引用源是 360°反馈环节：渲染 360°评估详情视图（REA 实测与普通引用不同） */
   isReviewer360?: boolean
 }
@@ -109,12 +111,12 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
       return {
         id, kind: 'node' as const, value: relation.reference_value,
         label: relation.reference_settings?.page_name || source?.name || relation.name || '参考内容',
-        description: '', contents, isReviewer360,
+        description: '', contents, isReviewer360, relation,
       }
     }
     return {
       id, kind: 'more' as const, value: relation.reference_value || '',
-      label: relation.name || '更多参考', description: relation.description || '', contents: [],
+      label: (isResultView.value && relation.reference_settings?.page_name) || relation.name || '更多参考', description: relation.description || '', contents: [], relation,
     }
   })
   /* 填写工作总结环节固有展示 OKR（REA 实测该环节中栏只有 OKR 一个页签）：
@@ -167,12 +169,46 @@ const rightTitle = computed(() => selectedNode.value?.content_page_name || selec
 const showFooter = computed(() => !isResultView.value)
 const isSinglePanel = computed(() => !showReferencePanel.value)
 
-/* ---------- 查看绩效结果：360°反馈区块（REA 实测：单面板内独立区块） ---------- */
-/** result_view 环节的 360°反馈引用（reference 区域，源执行人为 360°评估人） */
-const resultReviewer360Groups = computed(() => {
-  const node = selectedNode.value
-  if (!node || !isResultView.value) return []
-  return referenceGroups.value.filter(group => group.isReviewer360)
+function resultPreviewBlocks(contents: PerformanceTemplateContent[], relation?: PerformanceTemplateContent) {
+  return contents.flatMap(content => {
+    const local = relation?.reference_settings?.content_settings?.[contentKeyOf(content)] || {}
+    const projected = relation ? {
+      ...content,
+      settings: { ...content.settings, ...(local.root || {}) },
+      prompt: content.prompt ? { ...content.prompt, ...(local.root || {}), ...(content.prompt.onlyWhenFilling === true ? { onlyWhenFilling: true } : {}) } : undefined,
+      items: (content.items || []).map(item => ({
+        ...item,
+        settings: { ...item.settings, ...(local.items?.[item.id] || {}) },
+        prompt: item.prompt ? { ...item.prompt, ...(local.items?.[item.id] || {}), ...(item.prompt.onlyWhenFilling === true ? { onlyWhenFilling: true } : {}) } : undefined,
+      })),
+    } : { ...content }
+    if (projected.settings?.allowView === false) return []
+    if (projected.type === 'prompt' && !isPromptVisible(projected.prompt, { filling: false })) return []
+    projected.items = (projected.items || []).filter(item => {
+      if (item.kind === 'prompt') return isPromptVisible(item.prompt, { filling: false })
+      const settings = resolveFieldSettings({ node: selectedNode.value, content: projected, item, readonly: true })
+      return settings.allowView && isFieldRendered(settings)
+    })
+    const sections = contentToSections(selectedNode.value, [projected], { readonly: true, filling: false })
+    return sections.length ? [{ content: projected, sections, hideName: (projected.settings as { hideName?: boolean })?.hideName === true }] : []
+  })
+}
+
+const resultRegions = computed(() => {
+  if (!isResultView.value) return []
+  const regions = [
+    { id: 'result', label: rightTitle.value, group: null as ReferenceGroup | null, blocks: resultPreviewBlocks(rightContents.value) },
+    ...referenceGroups.value.map(group => {
+      const source = nodes.value.find(node => node.node_id === group.value && node.node_id !== selectedNode.value?.node_id)
+      const contents = source?.node_type === 'calibration'
+        ? resolveCalibrationContents(slotContents(finalNode.value, 'fill'), source.calibration_settings)
+        : slotContents(source || null, 'fill')
+      return { id: `reference:${group.id}`, label: group.label, group, blocks: group.kind === 'node' && !group.isReviewer360 ? resultPreviewBlocks(contents, group.relation) : [] }
+    }),
+  ]
+  const order = selectedNode.value?.content_region_order || []
+  return [...new Set([...order, ...regions.map(region => region.id)])]
+    .flatMap(id => regions.filter(region => region.id === id))
 })
 
 /* ---------- 配置填写内容：作答草稿（纯前端预览动作，不落库） ---------- */
@@ -381,10 +417,40 @@ function contentDescription(content: PerformanceTemplateContent) {
                   </div>
                 </template>
 
-                <!-- 查看结果 / 校准 / 通用填写 -->
+                <template v-else-if="isResultView">
+                  <div v-for="region in resultRegions" :key="region.id" :data-region-id="region.id">
+                    <div v-if="region.group?.isReviewer360" class="ptp-result-360">
+                      <PerformanceResultReviewer360Block :title="region.label" />
+                    </div>
+                    <template v-else>
+                      <div class="ptp-page-title">{{ region.label }}</div>
+                      <PerformanceOkrPanel v-if="region.group?.kind === 'more' && region.group.value === 'okr'" placeholder />
+                      <PerformanceReferenceSkeleton
+                        v-else-if="region.group?.kind === 'more'"
+                        :kind="region.group.value"
+                        :label="region.label"
+                        :description="region.group.description"
+                      />
+                      <div v-else-if="region.blocks.length" class="ptp-blocks">
+                        <div v-for="block in region.blocks" :key="contentKeyOf(block.content)" class="ptp-block">
+                          <div v-if="block.content.type !== 'prompt'" class="ptp-block__header">
+                            <div v-if="!block.hideName" class="ptp-block__title">{{ block.content.name }}</div>
+                            <div v-if="contentDescription(block.content)" class="ptp-block__desc">{{ contentDescription(block.content) }}</div>
+                          </div>
+                          <PerformanceTemplateRenderer mode="readonly" :show-header="false" :sections="block.sections" :answers="{}" />
+                        </div>
+                      </div>
+                      <div v-else class="ptp-empty">
+                        <div class="ptp-empty__desc">暂未配置供参考内容</div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <!-- 校准 / 通用填写 -->
                 <template v-else>
                   <!-- REA：内容为空时只渲染空态，不渲染页标题 -->
-                  <div v-if="rightContents.length || isResultView" class="ptp-page-title">{{ isResultView ? '绩效结果' : rightTitle }}</div>
+                  <div v-if="rightContents.length" class="ptp-page-title">{{ rightTitle }}</div>
 
                   <!-- 结果复议处理：复议理由（分节标题 + 灰底只读引用）+ 是否保持复议前结果（单选组，可操作） -->
                   <div v-if="isResultReconsideration" class="ptp-recon">
@@ -441,15 +507,6 @@ function contentDescription(content: PerformanceTemplateContent) {
                         class="content-renderer-prompt"
                       />
                     </div>
-                  </div>
-
-                  <!-- 查看绩效结果：360°反馈区块（REA 实测：绩效结果内容后独立区块，标题+展开详情+时间戳+展开条目） -->
-                  <div v-if="isResultView && resultReviewer360Groups.length" class="ptp-result-360">
-                    <PerformanceResultReviewer360Block
-                      v-for="group in resultReviewer360Groups"
-                      :key="group.id"
-                      :title="group.label"
-                    />
                   </div>
                 </template>
               </div>

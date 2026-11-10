@@ -1148,7 +1148,7 @@ export const projectManagementApi = {
     const { data } = await api.post<PerformanceResultOpeningResponse>(`/performance/cycles/${cycleId}/result-opening/open`, { employee_nos: employeeNos })
     return data
   },
-  async myResults(projectId: number): Promise<{ project_id: number; employee_no: string; results: Array<{ task_id: number; field_id: string; option_id: string; label: string }>; contents?: Array<{ task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }> }> {
+  async myResults(projectId: number): Promise<{ project_id: number; employee_no: string; content_page_name?: string; results: Array<{ task_id: number; field_id: string; option_id: string; label: string }>; contents?: PerformanceResultContent[]; regions?: PerformanceResultRegion[] }> {
     const { data } = await api.get(`/performance/workbench/projects/${projectId}/results`)
     return data
   },
@@ -1250,6 +1250,17 @@ export type PerformanceReferenceTab = {
   answers: Record<string, unknown>
   can_remind: boolean
   /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
+  okr?: PerformanceOkrView | null
+  okrs?: PerformanceOkrView[]
+}
+export type PerformanceResultContent = { task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }
+export type PerformanceResultRegion = {
+  key: string
+  kind: 'result' | 'reference'
+  title: string
+  contents: PerformanceResultContent[]
+  reference_kind?: 'node' | 'okr'
+  status?: string
   okr?: PerformanceOkrView | null
   okrs?: PerformanceOkrView[]
 }

@@ -1847,6 +1847,30 @@ def test_reference_prompt_projection_preserves_order_and_filters_fill_only_overr
     assert all(element["kind"] != "prompt" for section in project_reference_content(source, relation, {})[0] for element in section["elements"])
 
 
+@pytest.mark.parametrize("source_only,local_only", [(False, False), (False, True), (True, False), (True, True)])
+def test_reference_prompt_only_when_filling_can_only_narrow_source(source_only, local_only):
+    from copy import deepcopy
+    from app.performance.self_summary_service import project_reference_content
+    source = {"content": [
+        {"content_id": "page", "type": "prompt", "prompt": {"content": "Page notice", "onlyWhenFilling": source_only}},
+        {"content_id": "mixed", "type": "custom", "items": [
+            {"id": "answer", "kind": "fill"},
+            {"id": "notice", "kind": "prompt", "prompt": {"content": "Inline notice", "onlyWhenFilling": source_only}},
+        ]},
+    ]}
+    relation = {"reference_settings": {"content_settings": {
+        "page": {"root": {"onlyWhenFilling": local_only}},
+        "mixed": {"items": {"notice": {"onlyWhenFilling": local_only}}},
+    }}}
+    original = deepcopy((source, relation))
+    schema, answers = project_reference_content(source, relation, {"answer": "Safe"})
+    visible = not (source_only or local_only)
+    assert ("Page notice" in str(schema)) is visible
+    assert ("Inline notice" in str(schema)) is visible
+    assert answers == {"answer": "Safe"}
+    assert (source, relation) == original
+
+
 def test_prompt_only_schema_has_no_answer_fields():
     from app.performance.self_summary_service import build_self_summary_schema
 
@@ -4452,18 +4476,19 @@ async def test_project_results_route_keeps_rating_results_and_adds_projected_con
 
     project = SimpleNamespace(id=7, cycle_ref="cycle:7")
     tags = {"content_id": "tags", "type": "custom", "name": "标签", "items": [{"id": "tag", "label": "标签题", "questionType": "tag", "options": [{"id": "a", "label": "协作"}]}]}
-    view = SimpleNamespace(config={"template": {"content": [{**tags, "content_slot": "view"}]}})
+    view = SimpleNamespace(name="结果查看", config={"template": {"content_page_name": "查看绩效结果", "content": [{**tags, "content_slot": "view"}]}})
     final = SimpleNamespace(id=31, config={"template": {"content": [
         {**tags, "content_slot": "fill"},
         {"content_id": "rating", "type": "rating", "content_slot": "fill", "name": "评级", "items": [{"id": "rating", "label": "评级"}], "options": [{"id": "A", "label": "优秀"}]},
     ]}})
-    task = SimpleNamespace(id=101, target_employee_no="E001", node_snapshot_id=31, status="completed", submitted_at=datetime(2026, 10, 1, tzinfo=timezone.utc), answers={"rating": "A", "tag": {"tags": ["a"], "notes": {"a": "<script>x</script><p>完成</p>"}}, "work": "不应返回"})
+    task = SimpleNamespace(id=101, project_id=7, cycle_ref="cycle:7", member_snapshot_id=91, target_employee_no="E001", node_snapshot_id=31, status="completed", submitted_at=datetime(2026, 10, 1, tzinfo=timezone.utc), answers={"rating": "A", "tag": {"tags": ["a"], "notes": {"a": "<script>x</script><p>完成</p>"}}, "work": "不应返回"})
     member = SimpleNamespace(employee_no="E001")
 
     async def actor(*_args, **_kwargs):
         return SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E001")
 
     async def opening_state(*_args, **_kwargs):
+        assert _kwargs["member_snapshot_id"] == 91
         return view, final, None, [member], [task], projects_router.build_self_summary_schema(final.config["template"])
 
     monkeypatch.setattr(projects_router, "_get_project", lambda *_args: _resolved(project))
@@ -4472,11 +4497,15 @@ async def test_project_results_route_keeps_rating_results_and_adds_projected_con
 
     class Db:
         async def scalar(self, _statement):
-            return SimpleNamespace(id=1)
+            return SimpleNamespace(id=1, result_version={"101": 1})
+        async def execute(self, _statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [task]))
 
     result = await projects_router.read_my_project_results(7, context(), Db())
 
-    assert result["results"] == [{"task_id": 101, "field_id": "rating", "option_id": "A", "label": "优秀"}]
+    assert result["results"] == []
+    assert result["content_page_name"] == "查看绩效结果"
+    assert result["regions"] == [{"key": "result", "kind": "result", "title": "查看绩效结果", "contents": result["contents"]}]
     assert result["contents"][0]["task_id"] == 101
     assert result["contents"][0]["answers"] == {"tag": {"tags": ["a"], "notes": {"a": "<p>完成</p>"}}}
 
@@ -4549,12 +4578,158 @@ async def test_result_tag_route_preserves_result_access_denials(monkeypatch, den
 
     class Db:
         async def scalar(self, _statement):
-            return None if denied == "opening" else SimpleNamespace(id=1)
+            return None if denied == "opening" else SimpleNamespace(id=1, result_version={})
+        async def execute(self, _statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
 
     with pytest.raises(HTTPException) as error:
         await projects_router.read_my_project_results(7, context(), Db())
     assert error.value.status_code == 404
     assert error.value.detail == "RESULT_NOT_FOUND"
+
+
+def test_result_view_orders_local_sections_items_and_independent_prompts():
+    from copy import deepcopy
+    from app.performance.self_summary_service import project_result_view_contents
+    a = {"content_id": "a", "type": "custom", "items": [{"id": "one", "kind": "fill"}, {"id": "notice", "kind": "prompt", "prompt": {"content": "Inline", "onlyWhenFilling": True}}, {"id": "two", "kind": "fill"}]}
+    b = {"content_id": "b", "type": "custom", "items": [{"id": "three", "kind": "fill"}]}
+    local_a = {**deepcopy(a), "content_slot": "view"}
+    local_a["items"].reverse()
+    local_a["items"][1]["prompt"]["onlyWhenFilling"] = False
+    notice = {"content_id": "page", "type": "prompt", "content_slot": "view", "prompt": {"content": "Page", "allowView": True}}
+    view = {"content": [{**b, "content_slot": "view"}, notice, local_a]}
+    source = {"content": [a, b]}
+    before = deepcopy((source, view))
+    task = {"id": 1, "status": "completed", "submitted_at": "now", "answers": {"one": "1", "two": "2", "three": "3"}}
+    result = project_result_view_contents(view, source, [task])[0]
+    assert [section["id"] for section in result["form_schema"]] == ["b", "page", "a"]
+    assert [item["id"] for item in result["form_schema"][2]["elements"]] == ["two", "notice", "one"]
+    assert "Inline" in str(result) and "Page" in str(result)
+    assert (source, view) == before
+    notice["prompt"]["allowView"] = False
+    local_a["items"][1]["prompt"]["onlyWhenFilling"] = True
+    result = project_result_view_contents(view, source, [task])[0]
+    assert "Page" not in str(result) and "Inline" not in str(result)
+    local_a["settings"] = {"allowView": False}
+    assert [section["id"] for section in project_result_view_contents(view, source, [task])[0]["form_schema"]] == ["b"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["allowed", "root_denied", "anonymous", "wrong_project", "wrong_cycle", "wrong_snapshot", "wrong_employee", "revoked", "pending", "missing_submitted"])
+async def test_employee_result_regions_reference_scope_and_configured_order(monkeypatch, scenario):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    source_template = {"content": [{"content_id": "source", "type": "custom", "name": "Source", "items": [{"id": "visible", "kind": "fill"}, {"id": "hidden", "kind": "fill", "settings": {"allowView": False}}]}]}
+    if scenario == "anonymous":
+        source_template["executor_role_code"] = "assessment.reviewer_360"
+    source = SimpleNamespace(id=2, node_id="source", name="来源", node_type="evaluation", config={"template": source_template})
+    relation = {"content_id": "ref", "content_slot": "reference", "reference_kind": "node", "reference_value": "source", "reference_settings": {"page_name": "参考页", "content_settings": {}}}
+    if scenario == "root_denied":
+        relation["reference_settings"]["content_settings"] = {"source": {"root": {"allowView": False}}}
+    unknown = {"content_id": "unknown", "content_slot": "reference", "reference_kind": "more", "reference_value": "team_stats"}
+    view = SimpleNamespace(name="结果", config={"template": {"content": [relation, unknown], "content_region_order": ["reference:unknown", "reference:ref", "result"]}})
+    task = SimpleNamespace(id=3, project_id=1, cycle_ref="cycle", member_snapshot_id=8, target_employee_no="E1", node_snapshot_id=2, status="completed", submitted_at="now", revoked_at=None, answers={"visible": "Allowed", "hidden": "Secret"})
+    for case, key, value in [("wrong_project", "project_id", 99), ("wrong_cycle", "cycle_ref", "other"), ("wrong_snapshot", "member_snapshot_id", 99), ("wrong_employee", "target_employee_no", "E2"), ("revoked", "revoked_at", "now"), ("pending", "status", "pending"), ("missing_submitted", "submitted_at", None)]:
+        if scenario == case:
+            setattr(task, key, value)
+    queries = []
+    class Db:
+        async def scalar(self, statement):
+            queries.append(statement)
+            return source
+        async def execute(self, statement):
+            queries.append(statement)
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [task]))
+    visible = AsyncMock(return_value=([], task.answers))
+    monkeypatch.setattr(routes, "_task_visible_content", visible)
+    monkeypatch.setattr(routes, "_self_summary_template", AsyncMock(return_value=source_template))
+    original = deepcopy(source_template)
+    regions = await routes._employee_result_regions(SimpleNamespace(id=1, cycle_ref="cycle"), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), Db())
+    assert [region["key"] for region in regions] == ["reference:unknown", "reference:ref", "result"]
+    assert regions[0]["status"] == "unavailable" and regions[0]["contents"] == []
+    reference = regions[1]
+    assert reference["title"] == "参考页"
+    if scenario == "allowed":
+        assert reference["contents"][0]["answers"] == {"visible": "Allowed"}
+        assert "Secret" not in str(regions)
+    else:
+        assert reference["contents"] == []
+    if scenario == "anonymous" or scenario not in {"allowed", "root_denied"}:
+        visible.assert_not_awaited()
+    assert source_template == original
+    if scenario != "anonymous":
+        sql = str(queries[-1])
+        for name in ("project_id", "cycle_ref", "member_snapshot_id", "target_employee_no", "revoked_at", "submitted_at"):
+            assert name in sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["allowed", "no_binding", "legacy_mixed_snapshot", "missing_task", "mixed_snapshot", "wrong_project", "wrong_cycle", "wrong_employee", "wrong_final", "missing_member", "published_revoked"])
+async def test_employee_results_bind_published_snapshot_and_visible_ratings(monkeypatch, scenario):
+    from unittest.mock import AsyncMock
+    from fastapi import HTTPException
+    from app.performance import projects_router as routes
+    rating = {"content_id": "rating", "type": "rating", "items": [{"id": "grade"}], "options": [{"id": "a", "label": "Label", "description": "Not label"}]}
+    final = SimpleNamespace(id=2, config={"template": {"content": [rating]}})
+    view = SimpleNamespace(name="结果", config={"template": {"content": [{**rating, "content_slot": "view"}]}})
+    task = SimpleNamespace(id=3, project_id=1, cycle_ref="cycle", member_snapshot_id=8, target_employee_no="E1", node_snapshot_id=2, status="completed", submitted_at="now", answers={"grade": "a"})
+    for case, key, value in [("wrong_project", "project_id", 99), ("wrong_cycle", "cycle_ref", "other"), ("wrong_employee", "target_employee_no", "E2"), ("wrong_final", "node_snapshot_id", 99)]:
+        if scenario == case:
+            setattr(task, key, value)
+    tasks = [] if scenario == "missing_task" else [task]
+    version = {} if scenario in {"no_binding", "legacy_mixed_snapshot"} else {"3": 1}
+    if scenario in {"mixed_snapshot", "legacy_mixed_snapshot"}:
+        tasks.append(SimpleNamespace(**{**vars(task), "id": 4, "member_snapshot_id": 9}))
+        if scenario == "mixed_snapshot":
+            version["4"] = 1
+    class Db:
+        async def scalar(self, statement):
+            return SimpleNamespace(result_version=version)
+        async def execute(self, statement):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: tasks))
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=SimpleNamespace(id=1, cycle_ref="cycle")))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1")))
+    if scenario == "published_revoked":
+        task.revoked_at = "later"
+    state = AsyncMock(return_value=(view, final, None, [] if scenario == "missing_member" else [SimpleNamespace(employee_no="E1")], tasks, []))
+    monkeypatch.setattr(routes, "_opening_state", state)
+    if scenario not in {"allowed", "no_binding", "published_revoked"}:
+        with pytest.raises(HTTPException) as error:
+            await routes.read_my_project_results(1, context(), Db())
+        assert error.value.status_code == 404
+        return
+    result = await routes.read_my_project_results(1, context(), Db())
+    assert result["results"] == [{"task_id": 3, "field_id": "grade", "option_id": "a", "label": "Label"}]
+    assert state.call_args.kwargs == {"include_history": True, "member_snapshot_id": 8}
+    view.config["template"]["content"][0]["settings"] = {"allowView": False}
+    result = await routes.read_my_project_results(1, context(), Db())
+    assert result["results"] == [] and result["contents"] == []
+
+
+@pytest.mark.asyncio
+async def test_employee_result_okr_only_reads_explicit_self_relation(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes, okr_provider
+    from app.integrations.feishu import feishu_client
+    from contextlib import contextmanager
+    reads = []
+    @contextmanager
+    def authorized(employee_no, actor_context):
+        reads.append(employee_no)
+        yield
+    monkeypatch.setattr(feishu_client, "authorized_okr_read", authorized)
+    fetch = AsyncMock(return_value=[{"period_id": "current"}])
+    monkeypatch.setattr(okr_provider, "fetch_employee_okrs", fetch)
+    relation = {"content_id": "okr", "content_slot": "reference", "reference_kind": "more", "reference_value": "okr"}
+    view = SimpleNamespace(name="结果", config={"template": {"content": []}})
+    args = (SimpleNamespace(id=1), view, [SimpleNamespace(member_snapshot_id=8)], [], "E1", context(), object())
+    assert len(await routes._employee_result_regions(*args)) == 1
+    fetch.assert_not_awaited()
+    view.config["template"]["content"] = [relation]
+    region = (await routes._employee_result_regions(*args))[1]
+    assert reads == ["E1"] and region["reference_kind"] == "okr"
+    assert region["okr"] == {"period_id": "current"} and region["okrs"] == [region["okr"]]
 
 
 def test_reference_projection_applies_relation_visibility_without_mutating_source():

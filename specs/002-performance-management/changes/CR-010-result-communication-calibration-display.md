@@ -305,3 +305,17 @@
 - 构建：最终 `npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，仅既有VueUse PURE annotation告警；此前并发 `UiTable.spec.ts:145` 类型错误经其他工作修正，本卡未修改该文件。`git diff --check`通过。
 - 错误态收尾：来源失败后页签显示“加载失败”，隐藏不可使用的提交栏；重新加载沿原入口。390px本地浏览器断言及 `calibration-fixture-conflict-final.png` 已生成，初版conflict/reopen截图已读取；没有将提示冲突当作成功带入。
 - 验收状态：本地代码、组件、ASGI夹具及受控页面证据已具备；真实PostgreSQL/真实项目API及生产部署未执行，不勾选整项验收完成。未commit/push，不修改生产数据。
+
+## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
+
+- 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。
+- 任务范围：后端 `projects_router.py`、`self_summary_service.py`、既有 `test_performance_projects.py`；前端 `api/performance.ts`、`PerformanceReviewContent.vue`、`Review.vue/.spec.ts`、`PerformanceTemplatePreviewStep.vue/.spec.ts`；仅更新本记录，不修改并发人员组、页签、全局tokens及提示组件。
+- DTO与来源：原GET结果接口保留 `results/contents`，增加 `content_page_name/regions`；regions包含result和显式reference区域，按冻结 `content_region_order` 排序，缺省result先、引用按配置顺序。主区按view内容及局部item顺序，独立/行内prompt按allowView/onlyWhenFilling裁剪；评级兼容字段也从可见schema生成，不绕过view配置。页面不再独立渲染results评级摘要。
+- 历史边界：opening.result_version非空时以绑定final任务确定同项目/周期/员工的单一冻结成员快照，不追最新roster；空历史version仅当final任务组的唯一成员快照、全部完成未撤销、成员归属及唯一final均可证明时兜底，多快照/无法证明沿404 RESULT_NOT_FOUND。不修改opening行，不改变最终发布值的final任务来源，不将校准结果自动写回终评。
+- 参考权限：仅配置关系、冻结来源模板及同项目/周期/成员快照/员工的已提交未撤销任务；复用 `project_reference_content` schema与答案白名单，匿名360及缺失模板安全空态，不回退当前模板。OKR仅显式配置时通过authorized_okr_read读取本人；未知内置参考返回unavailable，不捏造数据。引用提示仅填写时可见采用source OR local，local false不能解除来源true；主结果提示仍允许本地配置覆盖。
+- 组件复用：结果页直接复用 `PerformanceReviewContent` 的review-panel.completed白卡及completed-content尺寸链，正文继续 `PerformanceTemplateRenderer(mode=readonly)`，OKR复用 `PerformanceOkrPanel`。复议提示/按钮使用既有接口与确认弹窗、UiButton，在白卡底部展示，不纳入模板region排序，不伪造提交完成提示。预览保持原单面板，消费同一region key/order及可见设置，360只保留匿名外壳；非result_view行为不扩展。
+- Given/When/Then：配置reference在result前、B/A反序、独立prompt/隐藏item/自定义标题，打开结果→仅可见内容按配置顺序进入共享白卡；仅旧results无contents→不额外渲染评级；显式regions=[]→不回退旧内容。未开通/快照歧义/成员不符→拒绝；切换项目→丢弃旧响应。复议按钮继续打开原确认框。既有tests覆盖以上成功/拒绝/空态和模板配置/任务页回归。
+- 前端验证：`npm --prefix hr-portal/frontend test -- --run src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceTemplatePreviewStep.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/performanceContentSettingsResolver.spec.ts` → 7文件328 passed；其中预览最终28 passed。Review既有jsdom XHR AggregateError stderr仍存在，不宣称零告警。最终 `npm --prefix hr-portal/frontend run build`（vue-tsc＋Vite）通过，仅既有VueUse PURE annotation提示。
+- 后端验证：结果/引用等联合定向135 passed；引用提示四组合追加后定向30 passed。最终 `tests/test_performance_projects.py tests/test_performance_template_workflow.py tests/test_performance_user_authorization.py` → 922 passed、6 skipped、6 failed；失败均为前轮已在HEAD原路由复现的 `_communication_progress_detail` fixture缺scalars：workbench_tasks_and_people_return_live_due_date、evaluation_member_list_can_return_completed_and_pending_tasks及member_lists_keep_supervisor_name_visibility_and_zero_360_rate的True/False×review/communication，不修改无关夹具。
+- 浏览器证据：真实Vite路由＋隔离Chromium受控API，1440×900/390×844，验证同一白卡内参考先于主结果、独立提示/题序、配置标题、额外摘要不存在、无编辑器、复议弹窗打开/取消及404拒绝清空正文；白卡rgb(255,255,255)，无横向溢出，pageerror=0。临时截图 `C:/Users/gaby.liu/AppData/Local/Temp/result-view-fixture-{desktop,mobile,denied}.png`，desktop/mobile已读取确认；不冒充真实数据库或生产证据。
+- 完成边界：本地实现/定向回归/受控UI及构建已验证，git diff --check通过。无迁移、无写库、无外部通知、无生产部署、未commit/push；真实PostgreSQL/已开通真实项目API验收未执行，不勾选完整生产验收。

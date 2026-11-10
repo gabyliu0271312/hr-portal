@@ -142,6 +142,149 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.text()).toContain('这里展示用户填写的内容')
   })
 
+  it('orders result and ordinary reference regions in the existing single panel with configured page names', async () => {
+    const source = node({ node_id: 'source', name: '来源环节', content: [fillSummary] })
+    const reference = { content_id: 'ref-source', type: 'reference', content_slot: 'reference', reference_kind: 'node', reference_value: 'source', name: '参考', items: [], reference_settings: { page_name: '周期回顾' } } as any
+    const wrapper = mountStep([
+      node({ node_id: 'result', node_type: 'result_view', name: '查看结果', content_page_name: '本期综合结论', content_region_order: ['reference:ref-source', 'result'], content: [{ ...fillRating, content_slot: 'view' }, reference] }),
+      source,
+    ])
+    await flushPromises()
+    expect(wrapper.findAll('.ptp-panel')).toHaveLength(1)
+    expect(wrapper.findAll('[data-region-id]').map(region => region.attributes('data-region-id'))).toEqual(['reference:ref-source', 'result'])
+    expect(wrapper.findAll('.ptp-page-title').map(title => title.text())).toEqual(['周期回顾', '本期综合结论'])
+    expect(wrapper.findAll('.ptp-block__title').map(title => title.text())).toEqual(['工作总结', '综合评级'])
+    expect(wrapper.findAll('.performance-template-renderer--readonly')).toHaveLength(2)
+    expect(wrapper.find('.ptp-ref-tabs').exists()).toBe(false)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps view content and item order while hiding denied roots, denied fields and filling-only prompts', async () => {
+    const view = {
+      ...fillSummary, content_id: 'ordered', content_slot: 'view', name: '配置顺序',
+      items: [
+        { ...fillSummary.items[0], id: 'last', label: '先显示末项' },
+        { id: 'inline', kind: 'prompt', prompt: { ...promptContent.prompt, content: '行内公开说明' } },
+        { ...fillSummary.items[0], id: 'denied', label: '拒绝字段', settings: { allowView: false } },
+        { id: 'inline-fill', kind: 'prompt', prompt: { ...promptContent.prompt, content: '行内填写说明', onlyWhenFilling: true } },
+        { id: 'inline-denied', kind: 'prompt', prompt: { ...promptContent.prompt, content: '行内拒绝说明', allowView: false } },
+        { ...fillSummary.items[0], id: 'first', label: '后显示首项' },
+      ],
+    } as any
+    const wrapper = mountStep([node({ node_id: 'result', node_type: 'result_view', name: '查看结果', content: [
+      { ...fillRating, content_slot: 'view', name: '拒绝根内容', settings: { allowView: false } } as any,
+      { ...promptContent, content_slot: 'view', prompt: { ...promptContent.prompt, content: '独立公开说明', onlyWhenFilling: false } } as any,
+      view,
+      { ...promptContent, content_id: 'filling', content_slot: 'view', prompt: { ...promptContent.prompt, content: '独立填写说明', onlyWhenFilling: true } } as any,
+      { ...promptContent, content_id: 'denied-prompt', content_slot: 'view', prompt: { ...promptContent.prompt, content: '独立拒绝说明', allowView: false } } as any,
+      { ...fillSummary, content_id: 'all-denied', content_slot: 'view', name: '空内容不留标题', items: [{ ...fillSummary.items[0], settings: { allowView: false } }] } as any,
+    ] })])
+    await flushPromises()
+    const panel = wrapper.get('.ptp-panel')
+    expect(panel.findAll('.ptp-block__title').map(title => title.text())).toEqual(['配置顺序'])
+    expect(panel.findAll('[data-field-id], [data-prompt-id]').map(element => element.text())).toEqual([
+      '111独立公开说明', '先显示末项这里展示用户填写的内容', '111行内公开说明', '后显示首项这里展示用户填写的内容',
+    ])
+    for (const denied of ['拒绝根内容', '拒绝字段', '行内填写说明', '行内拒绝说明', '独立填写说明', '独立拒绝说明', '空内容不留标题']) expect(panel.text()).not.toContain(denied)
+    wrapper.unmount()
+  })
+
+  it('applies reference-local display settings without mutating sources or colliding with result contents', async () => {
+    const reference = {
+      content_id: 'ref-source', type: 'reference', content_slot: 'reference', reference_kind: 'node', reference_value: 'source', name: '参考', items: [],
+      reference_settings: { content_settings: {
+        'c-summary': { root: { hideDescription: true }, items: { 'i-keywork': { hideName: true } } },
+        'c-rating': { root: { allowView: false } },
+        'c-prompt': { root: { allowView: false } },
+        inline: { root: { hideName: true }, items: { denied: { allowView: false }, explanation: { allowView: false } } },
+        filling: { root: { allowView: true, onlyWhenFilling: false } },
+        localFilling: { root: { onlyWhenFilling: true } },
+        inlineFilling: { items: { sourceFilling: { onlyWhenFilling: false }, localFilling: { onlyWhenFilling: true } } },
+      } },
+    } as any
+    const source = node({ node_id: 'source', name: '来源环节', content: [fillSummary, fillRating, promptContent, {
+      ...fillSummary, content_id: 'inline', name: '引用隐藏根标题', description: '引用保留描述', items: [
+        { ...fillSummary.items[0], id: 'denied', label: '引用拒绝题' },
+        { id: 'explanation', kind: 'prompt', prompt: { ...promptContent.prompt, content: '引用拒绝行内说明' } },
+        { ...fillSummary.items[0], id: 'visible', label: '引用保留题' },
+      ],
+    }, { ...promptContent, content_id: 'filling', prompt: { ...promptContent.prompt, content: '来源仅填写说明', onlyWhenFilling: true } },
+    { ...promptContent, content_id: 'localFilling', prompt: { ...promptContent.prompt, content: '局部仅填写说明', onlyWhenFilling: false } },
+    { ...fillSummary, content_id: 'inlineFilling', description: '', items: [
+      { id: 'sourceFilling', kind: 'prompt', prompt: { ...promptContent.prompt, content: '来源行内仅填写', onlyWhenFilling: true } },
+      { id: 'localFilling', kind: 'prompt', prompt: { ...promptContent.prompt, content: '局部行内仅填写', onlyWhenFilling: false } },
+      { ...fillSummary.items[0], id: 'inline-field', label: '行内提示伴随题目' },
+    ] }] as any })
+    const original = structuredClone(source)
+    const wrapper = mountStep([node({ node_id: 'result', node_type: 'result_view', name: '查看结果', content: [{ ...fillSummary, content_slot: 'view' }, { ...promptContent, content_slot: 'view', prompt: { ...promptContent.prompt, content: '独立公开说明', onlyWhenFilling: false } }, reference] as any }), source])
+    await flushPromises()
+    const result = wrapper.get('[data-region-id="result"]')
+    const referenced = wrapper.get('[data-region-id="reference:ref-source"]')
+    expect(result.text()).toContain('重点工作 1')
+    expect(result.text()).toContain(fillSummary.description)
+    expect(result.text()).toContain('独立公开说明')
+    expect(referenced.text()).not.toContain('重点工作 1')
+    expect(referenced.text()).not.toContain(fillSummary.description)
+    expect(referenced.text()).not.toContain('综合评级')
+    expect(referenced.text()).not.toContain('222')
+    expect(referenced.text()).not.toContain('引用隐藏根标题')
+    expect(referenced.text()).toContain('引用保留描述')
+    expect(referenced.text()).toContain('引用保留题')
+    for (const denied of ['引用拒绝题', '引用拒绝行内说明', '来源仅填写说明', '局部仅填写说明', '来源行内仅填写', '局部行内仅填写']) expect(referenced.text()).not.toContain(denied)
+    expect(source).toEqual(original)
+    wrapper.unmount()
+  })
+
+  it('inherits source reference display restrictions when no local overrides exist', async () => {
+    const reference = { content_id: 'ref-source', type: 'reference', content_slot: 'reference', reference_kind: 'node', reference_value: 'source', name: '参考', items: [] } as any
+    const source = node({ node_id: 'source', name: '来源', content: [
+      { ...fillRating, settings: { allowView: false } },
+      { ...fillSummary, settings: { hideDescription: true }, items: [
+        { ...fillSummary.items[0], settings: { hideName: true } },
+        { ...fillSummary.items[0], id: 'hidden', label: '来源隐藏项', settings: { mode: 'hidden' } },
+        { ...fillSummary.items[0], id: 'denied', label: '来源拒绝项', settings: { allowView: false } },
+        { id: 'prompt', kind: 'prompt', prompt: { ...promptContent.prompt, content: '来源填写行内说明', onlyWhenFilling: true } },
+      ] },
+      { ...promptContent, prompt: { ...promptContent.prompt, content: '来源拒绝独立说明', allowView: false } },
+    ] as any })
+    const wrapper = mountStep([node({ node_id: 'result', node_type: 'result_view', name: '查看结果', content: [reference] }), source])
+    await flushPromises()
+    const region = wrapper.get('[data-region-id="reference:ref-source"]')
+    for (const denied of ['综合评级', '重点工作 1', fillSummary.description, '来源隐藏项', '来源拒绝项', '来源填写行内说明', '来源拒绝独立说明']) expect(region.text()).not.toContain(denied)
+    expect(region.text()).toContain('这里展示用户填写的内容')
+    wrapper.unmount()
+  })
+
+  it('defaults legacy result previews to result before references and retains built-in placeholders', async () => {
+    const references = ['okr', 'team_stats'].map(value => ({ content_id: `ref-${value}`, type: 'reference', content_slot: 'reference', reference_kind: 'more', reference_value: value, name: value === 'okr' ? 'OKR' : '团队统计', items: [] }))
+    const wrapper = mountStep([node({ node_id: 'result', node_type: 'result_view', name: '查看结果', content: [fillSummary, ...references] as any })])
+    await flushPromises()
+    expect(wrapper.findAll('[data-region-id]').map(region => region.attributes('data-region-id'))).toEqual(['result', 'reference:ref-okr', 'reference:ref-team_stats'])
+    expect(wrapper.findAll('.ptp-panel')).toHaveLength(1)
+    expect(wrapper.text()).toContain('OKR 内容')
+    expect(wrapper.text()).toContain('展示内容以实际数据为准')
+    expect(wrapper.findAll('.performance-template-renderer--readonly')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not apply result-only display rules or region ordering to evaluation preview', async () => {
+    const reference = { content_id: 'ref-source', type: 'reference', content_slot: 'reference', reference_kind: 'node', reference_value: 'source', name: '参考', items: [], reference_settings: { content_settings: { 'c-summary': { root: { allowView: false }, items: { 'i-keywork': { hideName: true } } } } } } as any
+    const wrapper = mountStep([
+      node({ node_id: 'evaluation', name: '评估', content_region_order: ['reference:ref-source', 'result'], content: [{ ...fillSummary, settings: { allowView: false } }, promptContent, reference] as any }),
+      node({ node_id: 'source', name: '参考来源', content: [fillSummary] }),
+    ])
+    await flushPromises()
+    const panels = wrapper.findAll('.ptp-panel')
+    expect(panels).toHaveLength(2)
+    expect(panels[0].text()).toContain('重点工作 1')
+    expect(panels[1].text()).toContain('重点工作 1')
+    expect(panels[1].text()).toContain('222')
+    expect(panels[1].find('[contenteditable="true"]').exists()).toBe(true)
+    expect(wrapper.find('[data-region-id]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('reconsideration preview shows result chain by default and hides it when show_result_and_modify is off (REA 联动)', async () => {
     // 复议环节内容链为投影（同校准）：不落节点 content，由 final 环节 fill 内容回退提供
     const reconContent = { ...fillSummary, content_id: 'c-recon', name: '复议结果内容' }
@@ -222,7 +365,7 @@ describe('PerformanceTemplatePreviewStep', () => {
 
   it('renders 360° feedback block in result view for 360°评估人 source references', async () => {
     // REA：查看绩效结果单面板内，360°反馈作为独立区块（标题 + 展开详情 + 时间戳 + 展开条目）
-    const reviewer360 = node({ node_id: 'n360', node_type: 'evaluation', name: '360°反馈（自愿评估）', executor_label: '360°评估人' })
+    const reviewer360 = node({ node_id: 'n360', node_type: 'evaluation', name: '360°反馈（自愿评估）', executor_label: '360°评估人', content: [{ ...fillSummary, name: '匿名来源根标题', description: '匿名来源原文说明', items: [{ ...fillSummary.items[0], label: '匿名来源原文题名' }] }] })
     const reference = {
       content_id: 'ref-360', type: 'reference', content_slot: 'reference', name: '360°反馈（自愿评估）',
       reference_kind: 'node', reference_value: 'n360', items: [],
@@ -243,6 +386,8 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(wrapper.findAll('.pr360-item')).toHaveLength(2)
     expect(wrapper.text()).toContain('360°反馈内容')
     expect(wrapper.text()).toContain('留言内容')
+    for (const privateText of ['匿名来源根标题', '匿名来源原文说明', '匿名来源原文题名']) expect(wrapper.find('.ptp-panel').text()).not.toContain(privateText)
+    wrapper.unmount()
   })
 
   it('renders calibration with adjustment tab and final-node contents', async () => {

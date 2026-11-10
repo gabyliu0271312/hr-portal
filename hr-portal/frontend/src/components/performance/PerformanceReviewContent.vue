@@ -12,10 +12,12 @@
     <template v-else>
       <div class="review-heading">
         <div class="review-heading-copy">
-          <h2>{{ node.node_name }}</h2>
+          <h2>{{ contentTitle || node.node_name }}</h2>
+          <template v-if="node.node_type !== 'result_view'">
           <span v-if="node.status === 'not_started' && node.start_at" class="review-deadline">启动时间：{{ formatStartTime(node.start_at) }}</span>
           <span v-else-if="node.status !== 'completed' && node.end_at" class="review-deadline">截止时间：{{ formatDeadline(node.end_at) }}</span>
           <span v-else-if="node.status !== 'completed' && templateName" class="review-deadline">{{ templateName }}</span>
+          </template>
         </div>
         <div v-if="shows360Feedback && feedbackPanel?.voluntaryEnabled" class="review-heading-actions">
           <PerformanceDisabledReason :disabled="!feedbackPanel?.allowVoluntary" :reason="feedbackPanel?.voluntaryDisabledReason">
@@ -23,10 +25,11 @@
           </PerformanceDisabledReason>
         </div>
       </div>
-      <div class="review-body" :class="{ 'review-body--completed': node.status === 'completed' && !showsEvaluationWorkspace }">
-        <div class="review-panel" :class="{ completed: node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
+      <div class="review-body" :class="{ 'review-body--completed': node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace }">
+        <div class="review-panel" :class="{ completed: node.node_type === 'result_view' || node.status === 'completed' && !showsEvaluationWorkspace, evaluation: showsEvaluationWorkspace, invite: node.node_type === 'reviewer_360_invite', feedback: showsFeedbackTable }">
+        <slot v-if="node.node_type === 'result_view'" />
         <PerformanceReview360InvitePanel
-          v-if="node.node_type === 'reviewer_360_invite' && props.projectId"
+          v-else-if="node.node_type === 'reviewer_360_invite' && props.projectId"
           :project-id="props.projectId"
           :node-id="node.node_id"
         />
@@ -95,6 +98,7 @@ const props = defineProps<{
   templateName: string
   node: PerformanceReviewNode | null
   projectId?: number | null
+  contentTitle?: string
 }>()
 
 const displayConfig = computed(() => props.node ? performanceReviewDisplay(props.node.node_type) : null)

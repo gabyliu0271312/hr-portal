@@ -13,32 +13,38 @@
       @select-node="selectNode"
     >
     </PerformanceReviewCategorySidebar>
-    <section v-if="!loading && !error && selectedNode?.node_type === 'result_view'" class="review-results" aria-label="我的绩效结果">
-      <h1>{{ selectedNode.node_name }}</h1>
-      <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
-      <div v-else-if="resultError" role="alert">{{ resultError }}</div>
-      <template v-else>
-        <div v-if="!myResults.length && !myResultContents.length">暂无可查看的绩效结果</div>
-        <ul v-if="myResults.length"><li v-for="item in myResults" :key="`${item.task_id}-${item.field_id}`">{{ item.label }}</li></ul>
-        <PerformanceTemplateRenderer v-for="content in myResultContents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
-        <div v-if="reconsideration" class="result-reconsideration-action">
-          <p>{{ reconsideration.prompt }}</p>
-          <button v-if="reconsideration.can_submit" type="button" class="primary-button" @click="reconsiderationOpen = true">发起复议</button>
-          <span v-else-if="reconsideration.submitted_at">已发起复议</span>
-        </div>
-      </template>
-    </section>
     <PerformanceReviewContent
-      v-else
       :loading="loading"
       :error="error"
       :template-name="overview?.template_name || ''"
       :node="selectedNode"
       :project-id="activeProjectId"
+      :content-title="selectedNode?.node_type === 'result_view' ? resultPageTitle : undefined"
       @retry="loadOverview(activeProjectId)"
       @open-node="openNode"
       @open-member="openMember"
-    />
+    >
+      <div v-if="selectedNode?.node_type === 'result_view'" class="completed-content review-results" aria-label="我的绩效结果">
+        <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
+        <div v-else-if="resultError" role="alert">{{ resultError }} <button type="button" @click="loadMyResults">重新加载</button></div>
+        <template v-else>
+          <div v-if="!hasResultContent">暂无可查看的绩效结果</div>
+          <section v-for="region in resultRegions" :key="region.key" class="result-region" :data-region-id="region.key" :aria-label="region.title">
+            <h3 v-if="region.kind === 'reference'">{{ region.title }}</h3>
+            <PerformanceOkrPanel v-if="region.reference_kind === 'okr'" :okr="region.okr || null" :okrs="region.okrs || []" />
+            <template v-else>
+              <PerformanceTemplateRenderer v-for="content in region.contents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
+              <p v-if="region.kind === 'reference' && !region.contents.some(content => content.form_schema.length)">暂无可查看内容</p>
+            </template>
+          </section>
+          <div v-if="reconsideration" class="result-reconsideration-action">
+            <p>{{ reconsideration.prompt }}</p>
+            <UiButton v-if="reconsideration.can_submit" variant="primary" @click="reconsiderationOpen = true">发起复议</UiButton>
+            <span v-else-if="reconsideration.submitted_at">已发起复议</span>
+          </div>
+        </template>
+      </div>
+    </PerformanceReviewContent>
     <PerformanceReviewEvaluationDrawer
       v-if="drawerMember"
       v-model="drawerOpen"
@@ -72,11 +78,13 @@ import {
   type PerformanceReviewMemberContext,
   type PerformanceReviewNode,
   type PerformanceReviewOverview,
-  type SelfSummarySection,
+  type PerformanceResultRegion,
 } from '@/api/performance'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceFormField from '@/components/performance/PerformanceFormField.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
+import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
@@ -95,8 +103,9 @@ const overview = ref<PerformanceReviewOverview | null>(null)
 const selectedNodeId = ref(String(route.query.node || projectContext.selectedReviewNode(activeProjectId.value) || ''))
 const loading = ref(true)
 const error = ref('')
-const myResults = ref<Array<{ task_id: number; field_id: string; option_id: string; label: string }>>([])
-const myResultContents = ref<Array<{ task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }>>([])
+const resultRegions = ref<PerformanceResultRegion[]>([])
+const resultPageTitle = ref('')
+const hasResultContent = computed(() => resultRegions.value.some(region => region.reference_kind === 'okr' || region.contents.some(content => content.form_schema.length > 0)))
 const resultLoading = ref(false)
 const resultError = ref('')
 const reconsideration = ref<Awaited<ReturnType<typeof projectManagementApi.resultReconsideration>> | null>(null)
@@ -122,8 +131,8 @@ async function submitReconsideration() {
 async function loadMyResults() {
   const projectId = activeProjectId.value
   const request = ++resultRequest
-  myResults.value = []
-  myResultContents.value = []
+  resultRegions.value = []
+  resultPageTitle.value = ''
   reconsideration.value = null
   reconsiderationOpen.value = false
   resultError.value = ''
@@ -133,8 +142,8 @@ async function loadMyResults() {
   try {
     const response = await projectManagementApi.myResults(projectId)
     if (request !== resultRequest) return
-    myResults.value = response.results
-    myResultContents.value = response.contents || []
+    resultPageTitle.value = response.content_page_name || selectedNode.value?.node_name || ''
+    resultRegions.value = response.regions ?? [{ key: 'result', kind: 'result', title: resultPageTitle.value, contents: response.contents || [] }]
     void projectManagementApi.resultReconsideration(projectId).then(value => { if (request === resultRequest) reconsideration.value = value }).catch(() => { if (request === resultRequest) reconsideration.value = null })
   } catch {
     if (request === resultRequest) resultError.value = '当前结果尚未开通或不可查看'
@@ -349,12 +358,14 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.review-results{width:100%;padding:var(--performance-review-surface-inset);overflow:auto;background:var(--performance-review-page-bg);color:var(--color-text-primary)}
-.review-results h1{margin:0 0 var(--spacing-5);font-size:var(--font-size-xl)}
-.result-reconsideration-action .primary-button{min-height:32px;padding:4px 16px;border:0;border-radius:6px;background:var(--color-primary);color:var(--color-bg-card);cursor:pointer}
-.result-reconsideration-action{margin-top:24px;padding:16px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-bg-card)}.result-reconsideration-action p{margin:0 0 12px;color:var(--color-text-secondary);line-height:22px}.result-reconsideration-action span{color:var(--color-text-secondary);font-size:14px}
-.review-results ul{margin:0;padding:0;list-style:none}
-.review-results li{padding:var(--spacing-4);border-bottom:1px solid var(--color-border);background:var(--color-bg-card)}
+.review-results{min-width:0;width:100%;color:var(--color-text-primary)}
+.result-region{min-width:0}.result-region + .result-region{margin-top:var(--spacing-4)}
+.result-region h3{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:600}
+.result-region > .performance-template-renderer + .performance-template-renderer{margin-top:var(--spacing-4)}
+.result-region p{color:var(--color-text-secondary)}
+.result-reconsideration-action{margin-top:24px;padding-top:16px;border-top:1px solid var(--color-border)}
+.result-reconsideration-action p{margin:0 0 12px;line-height:22px;color:var(--color-text-secondary)}
+.result-reconsideration-action span{color:var(--color-text-secondary);font-size:14px}
 :global(html:has(.review-page)) { scrollbar-gutter: auto; }
 .review-page { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--performance-page-surface); }
 @media (max-width: 720px) { .review-page { display: block; } }

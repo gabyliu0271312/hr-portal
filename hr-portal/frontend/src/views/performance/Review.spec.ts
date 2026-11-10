@@ -90,7 +90,7 @@ function mountView() {
 
 describe('PerformanceReview', () => {
   it('lets completed cards grow with content instead of shrinking inside the scroll viewport', () => {
-    expect(reviewContentSource).toContain("'review-body--completed': node.status === 'completed'")
+    expect(reviewContentSource).toContain("'review-body--completed': node.node_type === 'result_view' || node.status === 'completed'")
     expect(reviewContentSource).toMatch(/\.review-body--completed\s*\{[^}]*flex:\s*1 0 auto/)
     expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0/)
     expect(reviewContentSource).toMatch(/\.completed-content\s*\{[^}]*flex:\s*none/)
@@ -142,9 +142,59 @@ describe('PerformanceReview', () => {
     await flushPromises()
     expect(replace).toHaveBeenCalledWith({ query: { cycle_id: '1', project_id: '1', node: 'view-result' } })
     expect(projectManagementApi.myResults).toHaveBeenCalledWith(1)
-    expect(wrapper.get('.review-results h1').text()).toBe('查看绩效结果')
-    expect(wrapper.get('.review-results').text()).toContain('优秀')
+    expect(wrapper.get('.review-heading h2').text()).toBe('查看绩效结果')
+    expect(wrapper.find('.review-panel.completed .review-results').exists()).toBe(true)
+    expect(wrapper.get('.review-results').text()).not.toContain('优秀')
+    expect(wrapper.get('.review-results').text()).toContain('暂无可查看的绩效结果')
     expect(wrapper.find('.review-sidebar').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('renders server-ordered result and reference regions in the shared completed white card', async () => {
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    const content = (id: number, text: string) => ({ task_id: id, form_schema: [{ id: String(id), name: text, fields: [{ id: 'text', type: 'rich_text' as const, label: '内容' }] }], answers: { text } })
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({
+      project_id: 1, employee_no: 'E001', content_page_name: '配置的结果页名称',
+      results: [{ task_id: 11, field_id: 'rating', option_id: 'a', label: '不应额外展示的摘要' }],
+      regions: [
+        { key: 'reference:summary', kind: 'reference', title: '配置的工作总结标题', contents: [content(12, '参考内容先展示')] },
+        { key: 'result', kind: 'result', title: '配置的结果页名称', contents: [content(11, '主结果后展示')] },
+      ],
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('.review-heading h2').text()).toBe('配置的结果页名称')
+    expect(wrapper.findAll('[data-region-id]').map(region => region.attributes('data-region-id'))).toEqual(['reference:summary', 'result'])
+    const whiteCard = wrapper.get('.review-panel.completed')
+    expect(whiteCard.text()).toContain('参考内容先展示')
+    expect(whiteCard.text()).toContain('主结果后展示')
+    expect(wrapper.text()).not.toContain('不应额外展示的摘要')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders explicitly configured OKR regions through the existing readonly OKR panel', async () => {
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], regions: [
+      { key: 'reference:okr', kind: 'reference', title: '本期目标', reference_kind: 'okr', contents: [], okrs: [{ source: 'feishu', okr_id: 'fixture', period_label: '本期', objectives: [{ id: 'objective', content: '授权本人目标', key_results: [] }] }] },
+    ] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('.review-panel.completed .okr-card').text()).toContain('授权本人目标')
+    expect(wrapper.text()).not.toContain('暂无可查看的绩效结果')
+    wrapper.unmount()
+  })
+
+  it('honors explicit empty regions over compatibility contents without inventing visible content', async () => {
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], regions: [], contents: [{ task_id: 11, form_schema: [{ id: 'hidden', name: '不该回退的旧内容', fields: [] }], answers: {} }] })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.text()).toContain('暂无可查看的绩效结果')
+    expect(wrapper.text()).not.toContain('不该回退的旧内容')
     wrapper.unmount()
   })
 
@@ -178,13 +228,13 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
-  it('keeps legacy rating results and shows denied or empty result states without content', async () => {
+  it('does not render legacy rating summaries outside template content and keeps denied or empty states', async () => {
     Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
     vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
     const api = vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [{ task_id: 11, field_id: 'rating', option_id: 'a', label: '优秀' }] })
     const legacy = mountView()
     await flushPromises()
-    expect(legacy.get('.review-results').text()).toContain('优秀')
+    expect(legacy.get('.review-results').text()).not.toContain('优秀')
     legacy.unmount()
     api.mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], contents: [] })
     const empty = mountView()
@@ -194,7 +244,7 @@ describe('PerformanceReview', () => {
     api.mockRejectedValue(new Error('RESULT_NOT_FOUND'))
     const denied = mountView()
     await flushPromises()
-    expect(denied.get('[role="alert"]').text()).toBe('当前结果尚未开通或不可查看')
+    expect(denied.get('[role="alert"]').text()).toContain('当前结果尚未开通或不可查看')
     expect(denied.find('.performance-template-renderer').exists()).toBe(false)
     denied.unmount()
   })
@@ -251,6 +301,10 @@ describe('PerformanceReview', () => {
     await flushPromises()
     expect(api).toHaveBeenCalledWith(1)
     expect(wrapper.get('.result-reconsideration-action').text()).toContain('发起复议')
+    expect(wrapper.find('.review-panel.completed .result-reconsideration-action').exists()).toBe(true)
+    await wrapper.get('.result-reconsideration-action button').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('确定发起复议后')
     expect(wrapper.find('.review-sidebar').exists()).toBe(true)
     expect(wrapper.find('.review-results input').exists()).toBe(false)
     expect(push).not.toHaveBeenCalled()

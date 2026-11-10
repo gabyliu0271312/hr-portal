@@ -1409,7 +1409,7 @@ def _result_ready(tasks: list[PerformanceNodeTask], schema: list[dict]) -> bool:
     return True
 
 
-async def _opening_state(project: PerformanceProject, db: AsyncSession, *, include_history=False):
+async def _opening_state(project: PerformanceProject, db: AsyncSession, *, include_history=False, member_snapshot_id=None):
     nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
         PerformanceProjectNodeSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
@@ -1417,7 +1417,7 @@ async def _opening_state(project: PerformanceProject, db: AsyncSession, *, inclu
     final = _final_result_snapshot(nodes)
     if view is None or final is None:
         return None
-    snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+    snapshot_id = member_snapshot_id if member_snapshot_id is not None else await db.scalar(select(_latest_member_snapshot_statement(project.id)))
     if snapshot_id is None:
         return None
     members = list((await db.execute(select(PerformanceProjectMember).where(
@@ -1634,6 +1634,69 @@ async def open_cycle_results(
     return ResultOpeningBatchResponse(accepted_employee_nos=accepted, skipped_employee_nos=[employee_no for employee_no in selected if employee_no in skipped], skipped_reasons=skipped)
 
 
+async def _employee_result_regions(project, view, final_tasks, contents, employee_no, context, db):
+    template = (view.config or {}).get("template") or {}
+    title = _task_content_page_name(view)
+    regions = [{"key": "result", "kind": "result", "title": title, "contents": contents}]
+    snapshot_id = final_tasks[0].member_snapshot_id
+    relations = [content for content in template.get("content") or [] if content.get("content_slot") == "reference"]
+    for relation in relations:
+        relation_id = str(relation.get("content_id") or relation.get("id") or "")
+        if not relation_id or any(region["key"] == f"reference:{relation_id}" for region in regions):
+            continue
+        page_name = (relation.get("reference_settings") or {}).get("page_name")
+        region = {"key": f"reference:{relation_id}", "kind": "reference", "title": page_name or relation.get("name") or "参考内容", "contents": [], "status": "unavailable"}
+        regions.append(region)
+        if (relation.get("settings") or {}).get("allowView") is False:
+            region["title"] = "参考内容"
+            continue
+        if relation.get("reference_kind") == "more" and relation.get("reference_value") == "okr":
+            from app.performance.okr_provider import fetch_employee_okrs
+            from app.integrations.feishu.feishu_client import authorized_okr_read
+            with authorized_okr_read(employee_no, context):
+                okrs = await fetch_employee_okrs(db, employee_no)
+            region.update(reference_kind="okr", title=page_name or relation.get("name") or "OKR", okr=okrs[0] if okrs else None, okrs=okrs, status="completed" if okrs else "not_started")
+            continue
+        if relation.get("reference_kind") != "node":
+            continue
+        region["reference_kind"] = "node"
+        source = await db.scalar(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.node_id == str(relation.get("reference_value") or ""),
+        ))
+        if source is None or source.node_type not in {"work_summary", "evaluation", "calibration", "result_communication", "result_reconsideration"}:
+            continue
+        region["title"] = page_name or source.name
+        source_template = (source.config or {}).get("template") or {}
+        if "template" not in (source.config or {}) or node_role_code(source_template) == ROLE_REVIEWER_360 or source_template.get("executor_label") == "360°评估人":
+            region["status"] = "unavailable"
+            continue
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            PerformanceNodeTask.target_employee_no == employee_no,
+            PerformanceNodeTask.node_snapshot_id == source.id,
+            PerformanceNodeTask.status == "completed",
+            PerformanceNodeTask.submitted_at.is_not(None),
+            PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+        for task in tasks:
+            if (task.project_id != project.id or task.cycle_ref != project.cycle_ref or task.member_snapshot_id != snapshot_id
+                    or task.target_employee_no != employee_no or task.node_snapshot_id != source.id or task.status != "completed" or task.submitted_at is None
+                    or getattr(task, "revoked_at", None) is not None):
+                continue
+            _, answers = await _task_visible_content(task, source, db)
+            schema, answers = project_reference_content(await _self_summary_template(task, source, db), relation, answers)
+            if schema:
+                region["contents"].append({"task_id": task.id, "form_schema": schema, "answers": answers})
+        region["status"] = "completed" if region["contents"] else "not_started"
+    by_key = {region["key"]: region for region in regions}
+    order = list(dict.fromkeys(template.get("content_region_order") or []))
+    order.extend(region["key"] for region in regions if region["key"] not in order)
+    return [by_key[key] for key in order if key in by_key]
+
+
 @router.get("/workbench/projects/{project_id}/results")
 async def read_my_project_results(
     project_id: int,
@@ -1653,31 +1716,54 @@ async def read_my_project_results(
     ))
     if opening is None:
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
-    state = await _opening_state(project, db, include_history=True)
+    version = opening.result_version or {}
+    statement = select(PerformanceNodeTask).join(
+        PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceNodeTask.member_snapshot_id,
+    ).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.cycle_ref == project.cycle_ref,
+        PerformanceNodeTask.target_employee_no == actor.actor_ref,
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+        PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+    )
+    if version:
+        statement = statement.where(PerformanceNodeTask.id.in_([int(key) for key in version if str(key).isdigit()]))
+    else:
+        statement = statement.join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id).where(
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.config["template"]["include_final_result"].as_boolean().is_(True),
+        )
+    bound_tasks = list((await db.execute(statement.order_by(PerformanceNodeTask.id))).scalars().all())
+    snapshot_ids = {task.member_snapshot_id for task in bound_tasks}
+    if ((version and {str(task.id) for task in bound_tasks} != set(version)) or len(snapshot_ids) != 1 or None in snapshot_ids
+            or any(task.project_id != project.id or task.cycle_ref != project.cycle_ref or task.target_employee_no != actor.actor_ref for task in bound_tasks)):
+        raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
+    state = await _opening_state(project, db, include_history=True, member_snapshot_id=next(iter(snapshot_ids)))
     if state is None:
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
     view, final, _previous, members, tasks, schema = state
-    if not any(member.employee_no == actor.actor_ref for member in members):
+    if (not any(member.employee_no == actor.actor_ref for member in members)
+            or any(task.node_snapshot_id != final.id for task in bound_tasks)
+            or (not version and any(task.status != "completed" or task.submitted_at is None or getattr(task, "revoked_at", None) is not None for task in bound_tasks))):
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
-    fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
-    final_tasks = [
-        task for task in tasks
-        if task.target_employee_no == actor.actor_ref and task.node_snapshot_id == final.id
-        and (not getattr(opening, "result_version", None) or str(task.id) in opening.result_version)
-    ]
-    results = []
-    for task in final_tasks:
-        for field in fields:
-            option = _matrix_rating_value((task.answers or {}).get(field["id"]), field.get("options") or [])
-            if option is not None:
-                results.append({"task_id": task.id, "field_id": field["id"], "option_id": str(option["id"]), "label": str(option.get("label") or "")})
+    final_tasks = bound_tasks
     contents = project_result_view_contents(
         (view.config or {}).get("template") or {},
         (final.config or {}).get("template") or {},
         final_tasks,
         employee_no=actor.actor_ref,
     )
-    return {"project_id": project.id, "employee_no": actor.actor_ref, "results": results, "contents": contents}
+    results = []
+    for content in contents:
+        for section in content["form_schema"]:
+            for field in section.get("fields") or []:
+                if field.get("type") != "rating":
+                    continue
+                option = _matrix_rating_value(content["answers"].get(field["id"]), field.get("options") or [])
+                if option is not None:
+                    results.append({"task_id": content["task_id"], "field_id": field["id"], "option_id": str(option["id"]), "label": str(option.get("label") or "")})
+    regions = await _employee_result_regions(project, view, final_tasks, contents, actor.actor_ref, context, db)
+    return {"project_id": project.id, "employee_no": actor.actor_ref, "results": results, "contents": contents, "content_page_name": _task_content_page_name(view), "regions": regions}
 
 
 def _latest_member_snapshot_statement(project_id: int):

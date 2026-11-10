@@ -281,19 +281,34 @@ def _view_bool_setting(view_item: dict | None, source_item: dict | None, key: st
 
 
 def _project_result_view_schema(final_template: dict, view_contents: list[dict]) -> list[dict]:
-    source_contents = [
-        content for content in final_template.get("content") or []
+    final_by_id = {
+        _content_identity(content): content for content in final_template.get("content") or []
         if isinstance(content, dict) and (content.get("content_slot") or "fill") == "fill"
-        and _content_identity(content) in {_content_identity(item) for item in view_contents}
-    ]
-    source_contents = deepcopy(source_contents)
+    }
+    source_contents = []
+    for view in view_contents:
+        source = final_by_id.get(_content_identity(view))
+        if view.get("type") == "prompt":
+            source = view
+        if source is not None:
+            source_contents.append({**deepcopy(source), "content_slot": "fill"})
     view_by_id = {_content_identity(content): content for content in view_contents}
     for content in source_contents:
         view = view_by_id[_content_identity(content)]
         content["settings"] = {**(content.get("settings") or {}), **(view.get("settings") or {})}
         if content.get("type") == "prompt":
             prompt = content.get("prompt") or {}
-            content["prompt"] = {**prompt, **{key: view["settings"][key] for key in ("allowView",) if key in (view.get("settings") or {})}}
+            content["prompt"] = {**prompt, **{key: view["prompt"][key] for key in ("allowView", "onlyWhenFilling") if key in (view.get("prompt") or {})}, **{key: view["settings"][key] for key in ("allowView",) if key in (view.get("settings") or {})}}
+        remaining_items = list(content.get("items") or [])
+        ordered_items = []
+        for local_item in view.get("items") or []:
+            source_item = next((item for item in remaining_items if str(item.get("id") or "") == str(local_item.get("id") or "")), None)
+            if source_item is not None:
+                ordered_items.append(source_item)
+                remaining_items.remove(source_item)
+            elif local_item.get("kind") == "prompt":
+                ordered_items.append(deepcopy(local_item))
+        content["items"] = ordered_items + remaining_items
         for item in content.get("items") or []:
             override = _view_override_item(view, str(item.get("id") or ""))
             source_settings = item.get("settings") or {}
@@ -305,7 +320,8 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
             if item.get("kind") == "prompt":
                 item["prompt"] = {
                     **(item.get("prompt") or {}),
-                    **{key: override_settings[key] for key in ("allowView",) if key in override_settings},
+                    **{key: override["prompt"][key] for key in ("allowView", "onlyWhenFilling") if key in ((override or {}).get("prompt") or {})},
+                    **{key: override_settings[key] for key in ("allowView", "onlyWhenFilling") if key in override_settings},
                 }
             if override_settings.get("mode") == "hidden":
                 item["settings"]["mode"] = "hidden"
@@ -320,7 +336,7 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
             continue
         source_settings = source.get("settings") or {}
         view_settings = (view or {}).get("settings") or {}
-        if view_settings.get("allowView") is False:
+        if source_settings.get("allowView") is False:
             continue
         hide_name = bool(view_settings.get("hideName", source_settings.get("hideName", False)))
         hide_description = bool(view_settings.get("hideDescription", source_settings.get("hideDescription", False)))
@@ -386,6 +402,11 @@ def project_reference_content(source_template: dict, relation: dict, answers: di
             {**deepcopy(item), "settings": {**(item.get("settings") or {}), **items_by_id.get(str(item.get("id") or ""), {})}}
             for item in source.get("items") or []
         ]
+        if source.get("type") == "prompt":
+            view["prompt"] = {**(view.get("prompt") or {}), "onlyWhenFilling": (source.get("prompt") or {}).get("onlyWhenFilling") is True or (override.get("root") or {}).get("onlyWhenFilling") is True}
+        for item in view["items"]:
+            if item.get("kind") == "prompt":
+                item["settings"]["onlyWhenFilling"] = (item.get("prompt") or {}).get("onlyWhenFilling") is True or (item.get("settings") or {}).get("onlyWhenFilling") is True
         view_contents.append(view)
     schema = _project_result_view_schema({"content": source_contents}, view_contents)
     return schema, project_self_summary_answers(schema, answers, include_readonly=True)
@@ -444,7 +465,7 @@ def project_result_view_contents(
         if not isinstance(content, dict) or content.get("content_slot") != "view":
             continue
         content_id = _content_identity(content)
-        if content_id in source_ids and content_id not in seen_ids:
+        if (content_id in source_ids or content.get("type") == "prompt") and content_id not in seen_ids:
             view_contents.append(deepcopy(content))
             seen_ids.add(content_id)
     for content_id in (view_template.get("content_bindings") or {}).get("view") or []:
