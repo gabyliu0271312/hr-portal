@@ -4995,6 +4995,38 @@ async def _previous_published_position_levels(db, project, employee_nos):
     return {employee: next(iter(values)) if len(values) == 1 else None for employee, values in levels.items()}
 
 
+async def _communication_final_rating_values(project, rows, db):
+    communication_rows = [(task, member) for task, node, member in rows if node.node_type == "result_communication"]
+    if project is None or not communication_rows:
+        return [], {}
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    final_node = _final_result_snapshot(nodes)
+    if final_node is None:
+        return [], {}
+    metadata = _task_rating_metadata(await _matrix_node_schema(final_node, project, db))
+    if not metadata:
+        return [], {}
+    employee_nos = {task.target_employee_no for task, _member in communication_rows}
+    snapshot_ids = {task.member_snapshot_id for task, _member in communication_rows}
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.node_snapshot_id == final_node.id,
+        PerformanceNodeTask.member_snapshot_id.in_(snapshot_ids),
+        PerformanceNodeTask.target_employee_no.in_(employee_nos),
+        PerformanceNodeTask.revoked_at.is_(None),
+        PerformanceNodeTask.submitted_at.is_not(None),
+    ).order_by(PerformanceNodeTask.id))).scalars().all())
+    latest = {}
+    for task in tasks:
+        key = (task.member_snapshot_id, task.target_employee_no)
+        candidate = (task.submitted_at, task.id)
+        if key not in latest or candidate > (latest[key].submitted_at, latest[key].id):
+            latest[key] = task
+    return metadata, {key: _task_rating_values(task, metadata) for key, task in latest.items()}
+
+
 @router.get("/workbench/tasks/{node_id}/people")
 async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96)):
     actor = await resolve_trusted_performance_actor(db, context)
@@ -5033,6 +5065,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     progress_detail = await _communication_progress_detail(db, project, member_nos) if project and rows else {}
     supervisor_names = await _snapshot_supervisor_names(db, [member for _task, _node, member in rows if member])
     previous_levels = await _previous_published_position_levels(db, project, communication_people) if project and communication_people else {}
+    communication_metadata, communication_ratings = await _communication_final_rating_values(project, rows, db)
     if state == "pending":
         rows = [row for row in rows if _task_is_available(row[0], row[1], project)]
     aggregate_task_id = rows[0][0].id if rows else None
@@ -5046,7 +5079,10 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             schema = build_self_summary_schema(await _self_summary_template(task, node, db))
             rating_metadata[node.id] = (schema, _task_rating_metadata(schema))
         schema, metadata = rating_metadata[node.id]
-        if node.node_type == "calibration":
+        if node.node_type == "result_communication" and communication_metadata:
+            metadata = communication_metadata
+            ratings = communication_ratings.get((task.member_snapshot_id, task.target_employee_no), {item["key"]: None for item in metadata})
+        elif node.node_type == "calibration":
             try:
                 rating_answers = await _calibration_answers(task, node, schema, db)
             except HTTPException as error:

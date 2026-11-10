@@ -2734,6 +2734,38 @@ async def test_calibration_people_returns_inherited_rating_before_calibration_su
 
 
 @pytest.mark.asyncio
+async def test_result_communication_people_use_submitted_final_result_rating_without_calibration(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+
+    project = SimpleNamespace(id=1)
+    final_node = SimpleNamespace(id=10, node_type="evaluation", node_order=1, config={"template": {"include_final_result": True}})
+    communication_node = SimpleNamespace(id=20, node_type="result_communication", node_order=2, config={})
+    communication_task = SimpleNamespace(member_snapshot_id=7, target_employee_no="E1")
+    final_task = SimpleNamespace(id=11, member_snapshot_id=7, target_employee_no="E1", submitted_at=datetime(2026, 11, 10, tzinfo=UTC), answers={"grade": "good"})
+    schema = [{"id": "assessment", "fields": [{"id": "grade", "type": "rating", "label": "绩效评级", "options": [{"id": "good", "code": "A", "label": "优秀", "color": "#d9f5d6"}]}]}]
+    queries = []
+    class Db:
+        async def execute(self, query):
+            queries.append(query)
+            entity = query.column_descriptions[0]["entity"]
+            rows = [final_node, communication_node] if entity is PerformanceProjectNodeSnapshot else [final_task]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    monkeypatch.setattr(routes, "_matrix_node_schema", AsyncMock(return_value=schema))
+    metadata, values = await routes._communication_final_rating_values(project, [(communication_task, communication_node, SimpleNamespace())], Db())
+    assert metadata == [{"key": "rating:grade", "answer_key": "grade", "label": "绩效评级", "options": schema[0]["fields"][0]["options"]}]
+    assert values[(7, "E1")]["rating:grade"] == {"label": "A", "color": "#d9f5d6", "foreground": None}
+    task_sql = str(queries[1].compile(compile_kwargs={"literal_binds": True}))
+    assert "performance_node_tasks.node_snapshot_id = 10" in task_sql
+    assert "performance_node_tasks.member_snapshot_id IN (7)" in task_sql
+    assert "performance_node_tasks.target_employee_no IN ('E1')" in task_sql
+    assert "performance_node_tasks.revoked_at IS NULL" in task_sql
+    assert "performance_node_tasks.submitted_at IS NOT NULL" in task_sql
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("admin_preview", [True, False])
 async def test_task_people_preserves_project_node_and_target_scope(monkeypatch, admin_preview):
     from app.performance import projects_router
