@@ -301,6 +301,47 @@ def test_calibration_phase_window_falls_back_only_for_legacy_shape(configured, e
     assert calibration_phase_window(flow, node, "unrelated") is None
 
 
+def test_distribution_summary_prefers_phase_level_rules_over_node_level():
+    from app.performance.calibration_service import distribution_summary
+    node_level_rule = {"assessment_item_id": "node-item", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"}
+    phase_level_rule = {"assessment_item_id": "phase-item", "min_people_operator": "GTE", "min_people_count": 2, "conditions": [{"control_mode": "SOFT", "grade_codes": ["D"], "operator": "GTE", "value": 10, "unit": "PERCENT"}], "rounding_method": "FLOOR"}
+    node = SimpleNamespace(node_id="cal", config={})
+    flow = {"node_settings": {"cal": {"calibration": {
+        "force_distribution_enabled": True,
+        "distribution": {"mode": "UNIFIED", "rules": [node_level_rule], "scope_configured": False},
+        "phases": [
+            {"phase_id": "p1", "rules": [{"scope": "PROJECT_ALL", "allow_authorize": False, "distribution_rules": [phase_level_rule]}]},
+            {"phase_id": "p2", "rules": [{"scope": "PROJECT_ALL", "allow_authorize": False}]},
+        ],
+    }}}}
+    summary = distribution_summary(flow, node, "p1")
+    assert summary["force_distribution_enabled"] is True
+    assert summary["mode"] == "UNIFIED"
+    assert summary["rules"] == [phase_level_rule]
+    assert any("phase-item" in line and "适用人数大于等于2人时生效" in line for line in summary["lines"])
+    assert any("建议：D 大于等于 10%" in line for line in summary["lines"])
+    assert any("取整方式：向下取整" in line for line in summary["lines"])
+    # 未配置 phase 级 distribution_rules 时回退节点级
+    fallback = distribution_summary(flow, node, "p2")
+    assert fallback["rules"] == [node_level_rule]
+    # 未开启强制分布
+    flow["node_settings"]["cal"]["calibration"]["force_distribution_enabled"] = False
+    assert distribution_summary(flow, node, "p2")["force_distribution_enabled"] is False
+
+
+def test_distribution_summary_uses_assessment_names_when_provided():
+    from app.performance.calibration_service import distribution_summary
+    rule = {"assessment_item_id": "item-123", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"}
+    node = SimpleNamespace(node_id="cal", config={})
+    flow = {"node_settings": {"cal": {"calibration": {"force_distribution_enabled": True, "distribution": {"mode": "UNIFIED", "rules": [rule], "scope_configured": False}, "phases": []}}}}
+    summary = distribution_summary(flow, node, "p1", {"item-123": "绩效得分"})
+    assert any("绩效得分：适用人数大于等于3人时生效" in line for line in summary["lines"])
+    assert not any("item-123" in line for line in summary["lines"])
+    # 无映射时兜底 id
+    fallback = distribution_summary(flow, node, "p1", {})
+    assert any("item-123：适用人数大于等于3人时生效" in line for line in fallback["lines"])
+
+
 def test_calibration_member_increment_keeps_old_assignments_and_adds_all_handlers():
     from app.performance.calibration_service import resolve_calibration, extend_calibration_member
     people = {no: SimpleNamespace(employee_no=no, direct_supervisor_employee_no=None) for no in ["E1", "E2", "M1", "M2"]}

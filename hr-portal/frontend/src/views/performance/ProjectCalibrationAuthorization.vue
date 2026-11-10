@@ -5,8 +5,8 @@
       <PerformanceSearchSelect class="cycle-select" selection-style="plain" :model-value="String(cycleId)" :options="cycleOptions" aria-label="选择绩效周期" placeholder="选择绩效周期" @update:model-value="selectCycle" />
     </div>
     <section class="calibration-surface">
-      <div class="info-banner">以下校准任务均在你的管理范围内，你可协助校准人再将相应任务授权他人校准。校准任务阶段时间以当前周期流程配置为准。</div>
-      <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill search-width="100%" :gap="12" filter-disabled @search="load" @clear="load" />
+      <div class="info-banner">以下校准任务均在你的管理范围内，你可协助校准人再将相应任务授权他人校准。{{ stageWindow ? `本阶段起止时间：${stageWindow.start} – ${stageWindow.end}` : '校准任务阶段时间以当前周期流程配置为准。' }}</div>
+      <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill filter-disabled @search="load" @clear="load" />
       <PerformanceManagementTable
         :rows="pageRows"
         :columns="columns"
@@ -34,7 +34,7 @@
       </PerformanceManagementTable>
       <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     </section>
-    <PerformanceTaskDelegationDialog v-model="dialogOpen" action="AUTHORIZE" calibration :read-only="target?.status === '已校准'" :tasks="delegationTasks" @completed="authorized" />
+    <PerformanceTaskDelegationDialog v-model="dialogOpen" action="AUTHORIZE" calibration :read-only="target?.status === '已校准'" :tasks="delegationTasks" :distribution-lines="distributionLines" @completed="authorized" />
     <PerformanceConfirmDialog v-model="confirmOpen" :message="`确认撤销${revokeTarget?.calibrator || '该校准人'}的任务授权？`" description="本次将撤销该行全部有效授权，历史内容保留。" confirm-text="撤销授权" confirm-variant="primary" :loading="saving" @confirm="confirmRevoke" />
   </div>
 </template>
@@ -61,6 +61,7 @@ const rows = ref<Array<ProjectCalibrationAuthorization & { allow: string }>>([])
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
+const stageWindow = ref<{ start: string; end: string } | null>(null)
 const page = ref(1)
 const pageRows = computed(() => rows.value.slice((page.value - 1) * 50, page.value * 50))
 let sequence = 0
@@ -70,6 +71,7 @@ const confirmOpen = ref(false)
 const revokeTarget = ref<ProjectCalibrationAuthorization | null>(null)
 const target = ref<ProjectCalibrationAuthorization | null>(null)
 const delegationTasks = computed(() => target.value ? target.value.task_ids.map(task_id => ({ task_id, project_id: target.value!.project_id, ...target.value!.task_people?.find(person => person.task_id === task_id) })) : [])
+const distributionLines = computed(() => target.value?.distribution_info?.lines ?? [])
 const columns = [
   { key: 'calibrator', label: '被授权人', width: 224, fixed: true }, { key: 'status', label: '校准状态', width: 144 },
   { key: 'scope', label: '校准范围', width: 180 }, { key: 'authorized_count', label: '可校准人数', width: 144 },
@@ -84,6 +86,7 @@ async function load() {
   try {
     const result = await projectManagementApi.calibrationAuthorization(cycleId.value)
     if (current !== sequence) return
+    stageWindow.value = result.start_at && result.end_at ? { start: formatDate(result.start_at), end: formatDate(result.end_at) } : null
     rows.value = result.items.filter(item => !keyword.value.trim() || item.calibrator.toLowerCase().includes(keyword.value.trim().toLowerCase())).map(item => ({ ...item, allow: item.allow_authorize ? '是' : '否' }))
   } catch { if (current === sequence) error.value = '校准授权加载失败，请稍后重试' } finally { if (current === sequence) loading.value = false }
 }

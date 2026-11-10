@@ -16,7 +16,7 @@ from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingNotFound, get_performance_access_context, performance_admin_preview_enabled, resolve_trusted_performance_actor
 from app.performance.authorization_service import AuditEventInput, ObjectAuthorizationRequest, PerformanceAuditService, PerformanceObjectAuthorizationDenied, PerformanceObjectAuthorizationService
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_DOTTED_MANAGER, ROLE_LINE_MANAGER, ROLE_METRIC_EVALUATOR, ROLE_PROJECT_MANAGER, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
-from app.performance.calibration_service import calibration_task_scope, calibration_phase_window, CalibrationConflict, extend_calibration_member
+from app.performance.calibration_service import calibration_task_scope, calibration_phase_window, distribution_summary, CalibrationConflict, extend_calibration_member
 from app.performance.cycle_service import PerformanceCycleService
 from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshotPerson, PerformanceCycle, PerformanceCycleProjectManager, PerformanceHrbpPermission, PerformanceIdentityLink, PerformanceNodeTask, PerformanceNodeTaskAuthorization, PerformanceOtherPermissionSetting, PerformanceOtherSetting, PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration, PerformanceRole, PerformanceRoleAssignment, PerformanceTemplate, PerformanceTemplateWorkflow, AUTHORIZATION_SNAPSHOT_STATUS_LOCKED, PROJECT_STATUS_STARTED
 from app.integrations.feishu.models import FeishuNotificationLog
@@ -3592,8 +3592,6 @@ async def create_task_delegation(
     if node.node_type == "calibration" and payload.action == "TRANSFER":
         raise HTTPException(status_code=422, detail="CALIBRATION_TRANSFER_NOT_SUPPORTED")
     if node.node_type == "calibration" and payload.distribution_mode == "NONE":
-        raise HTTPException(status_code=422, detail="CALIBRATION_DISTRIBUTION_OVERRIDE_UNSUPPORTED")
-    if node.node_type == "calibration":
         calibration_settings = (((project.settings or {}).get("flow_settings") or {}).get("node_settings") or {}).get(node.node_id, {}).get("calibration") or {}
         if calibration_settings.get("force_distribution_enabled"):
             raise HTTPException(status_code=409, detail="CALIBRATION_DISTRIBUTION_AUTHORIZATION_UNSUPPORTED")
@@ -4076,7 +4074,19 @@ async def project_management_calibration_authorization(
 ):
     projects = await _task_authorization_projects(cycle_id, context, db, TASK_CALIBRATION_AUTHORIZATION_KEY)
     items = []
+    stage_start: datetime | None = None
+    stage_end: datetime | None = None
+    template_ids = {int(project.settings.get("template_id")) for project, _scope in projects if str((project.settings or {}).get("template_id") or "").isdigit()}
+    assessment_names_by_template = {}
+    if template_ids:
+        workflows = (await db.execute(select(PerformanceTemplateWorkflow).where(PerformanceTemplateWorkflow.template_id.in_(template_ids)))).scalars().all()
+        from app.performance.project_service import distribution_assessment_options
+        for workflow in workflows:
+            options = distribution_assessment_options(list(workflow.nodes or []), list(workflow.content_library or []))
+            assessment_names_by_template[str(workflow.template_id)] = {option["id"]: option["label"] for option in options}
     for project, scope in projects:
+        flow = ((project.settings or {}).get("flow_settings") or {}) if project else {}
+        assessment_names = assessment_names_by_template.get(str((project.settings or {}).get("template_id") or ""), {})
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
         if snapshot_id is None:
             continue
@@ -4104,9 +4114,17 @@ async def project_management_calibration_authorization(
                 grouped.setdefault((task.phase_id, task.handler_ref), []).append(task)
             for (phase_id, handler), group in grouped.items():
                 phase = next((phase for phase in ((node.config or {}).get("calibration") or {}).get("phases", []) if phase["phase_id"] == phase_id), {})
+                phase_window = calibration_phase_window(flow, node, phase_id) or {}
+                start = _parse_time(phase_window.get("start_at"))
+                end = _parse_time(phase_window.get("end_at") or phase_window.get("appeal_deadline"))
+                if start is not None and (stage_start is None or start < stage_start):
+                    stage_start = start
+                if end is not None and (stage_end is None or end > stage_end):
+                    stage_end = end
                 assignments = [assignment for assignment in phase.get("assignments", []) if assignment["handler_ref"] == handler]
                 active_records = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(PerformanceNodeTaskAuthorization.task_id.in_([task.id for task in group]), PerformanceNodeTaskAuthorization.status == "ACTIVE"))).scalars().all())
                 authorized_task_ids = {record.task_id for record in active_records}
+                distribution_info = distribution_summary(flow, node, phase_id, assessment_names)
                 items.append({
                     "id": f"{project.id}:{node.id}:{phase_id}:{handler}",
                     "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
@@ -4117,10 +4135,18 @@ async def project_management_calibration_authorization(
                     "unauthorized_count": sum(task.id not in authorized_task_ids for task in group), "distribution_rule": None,
                     "authorized_by": names.get(active_records[-1].grantor_employee_no, active_records[-1].grantor_employee_no) if active_records else None, "authorized_at": max((record.created_at for record in active_records), default=None),
                     "task_ids": [task.id for task in group],
+                    "distribution_info": distribution_info,
                     "task_people": [{"task_id": task.id, "employee_no": task.target_employee_no, "display_name": names.get(task.target_employee_no, task.target_employee_no), "direct_supervisor_employee_no": next((person.direct_supervisor_employee_no for person in people if person.employee_no == task.target_employee_no), None), "department_path": next(("/".join(str(getattr(person, key)) for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5") if getattr(person, key, None)) for person in people if person.employee_no == task.target_employee_no), None)} for task in group],
                     "authorizations": [{"id": record.id, "task_id": record.task_id, "recipient": names.get(record.recipient_employee_no, record.recipient_employee_no)} for record in active_records],
                 })
-    return {"cycle_id": cycle_id, "items": items}
+    cycle = await _get_cycle(db, cycle_id)
+    return {
+        "cycle_id": cycle_id,
+        "cycle_name": cycle.name if cycle else None,
+        "start_at": stage_start.isoformat() if stage_start else None,
+        "end_at": stage_end.isoformat() if stage_end else None,
+        "items": items,
+    }
 
 
 @router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)

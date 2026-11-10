@@ -23,6 +23,51 @@ def calibration_phase_window(flow, node, phase_id):
     return (snapshot_timing.get("phase_times") or {}).get(phase_id)
 
 
+_DISTRIBUTION_OPERATOR_LABELS = {"EQ": "等于", "LT": "小于", "LTE": "小于等于", "GT": "大于", "GTE": "大于等于"}
+_DISTRIBUTION_CONTROL_LABELS = {"HARD": "强制", "SOFT": "建议"}
+_DISTRIBUTION_ROUNDING_LABELS = {"ROUND": "四舍五入", "CEIL": "向上取整", "FLOOR": "向下取整", "NONE": "不强制取整"}
+
+
+def _distribution_rule_lines(rule, assessment_names=None) -> list[str]:
+    """将一条分布规则转成可读点列表（供前端 tooltip 渲染）。"""
+    names = assessment_names or {}
+    item_name = names.get(rule.get("assessment_item_id")) or rule.get("assessment_item_id") or "未命名评估项"
+    min_op = _DISTRIBUTION_OPERATOR_LABELS.get(rule.get("min_people_operator", "GTE"), rule.get("min_people_operator", ""))
+    lines = [f"{item_name}：适用人数{min_op}{rule.get('min_people_count', 0)}人时生效"]
+    for condition in rule.get("conditions") or []:
+        codes = "、".join(condition.get("grade_codes") or [])
+        operator = _DISTRIBUTION_OPERATOR_LABELS.get(condition.get("operator"), condition.get("operator", ""))
+        unit = "%" if condition.get("unit") == "PERCENT" else "人"
+        mode = _DISTRIBUTION_CONTROL_LABELS.get(condition.get("control_mode"), condition.get("control_mode", ""))
+        lines.append(f"{mode}：{codes} {operator} {condition.get('value')}{unit}")
+    rounding = _DISTRIBUTION_ROUNDING_LABELS.get(rule.get("rounding_method"), rule.get("rounding_method", ""))
+    lines.append(f"取整方式：{rounding}")
+    return lines
+
+
+def distribution_summary(flow, node, phase_id, assessment_names=None) -> dict:
+    """解析校准任务所属阶段当前生效的绩效结果分布规则（节点级 distribution + phase 级 distribution_rules 覆盖）。"""
+    calibration = (((flow or {}).get("node_settings") or {}).get(node.node_id) or {}).get("calibration") or {}
+    enabled = bool(calibration.get("force_distribution_enabled"))
+    distribution = calibration.get("distribution") or {}
+    rules = list(distribution.get("rules") or [])
+    for phase in calibration.get("phases") or []:
+        if phase.get("phase_id") != phase_id:
+            continue
+        for rule in phase.get("rules") or []:
+            phase_rules = rule.get("distribution_rules")
+            if phase_rules:
+                rules = list(phase_rules)
+                break
+        break
+    return {
+        "force_distribution_enabled": enabled,
+        "mode": distribution.get("mode", "UNIFIED"),
+        "rules": rules,
+        "lines": [line for rule in rules for line in _distribution_rule_lines(rule, assessment_names)],
+    }
+
+
 def canonical_flow(flow, project_id):
     result = deepcopy(flow or {})
     for node_id, setting in (result.get("node_settings") or {}).items():

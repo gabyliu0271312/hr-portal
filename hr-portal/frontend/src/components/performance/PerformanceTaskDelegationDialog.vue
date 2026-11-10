@@ -25,7 +25,7 @@
           </div></template>
         </PerformanceRadioGroup>
       </PerformanceFormItem>
-      <PerformanceFormItem label="强制 / 建议分布规则" required><PerformanceRadioGroup v-model="distribution" :options="[{value:'INHERIT',label:'沿用此任务的分布规则'},{value:'NONE',label:'无需满足分布规则',disabled:true,info:'后端拒绝此策略，本轮不可选择'}]" name="authorization-distribution" /></PerformanceFormItem>
+      <PerformanceFormItem label="强制 / 建议分布规则" required><PerformanceRadioGroup v-model="distribution" :options="distributionOptions" name="authorization-distribution" /></PerformanceFormItem>
       <div class="switch-setting"><span>允许继续授权他人校准</span><UiSwitch v-model="allowReauthorize" aria-label="允许继续授权他人校准" /></div>
       <p class="helper">开启后，被授权人和项目管理角色可以继续授权他人对校准范围内的人员进行校准</p>
       <div class="switch-setting"><span>通知原校准人任务将授权他人处理</span><UiSwitch v-model="notifyOriginal" aria-label="通知原校准人任务将授权他人处理" /></div>
@@ -57,7 +57,7 @@ import UiButton from '../ui/UiButton.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import UiSwitch from '../ui/UiSwitch.vue'
 
-const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & { direct_supervisor_employee_no?: string; department_path?: string }>; calibration?: boolean; readOnly?: boolean }>()
+const props = defineProps<{ modelValue: boolean; action: 'AUTHORIZE' | 'TRANSFER'; tasks: Array<PerformanceTaskDelegationTarget & { direct_supervisor_employee_no?: string; department_path?: string }>; calibration?: boolean; readOnly?: boolean; distributionLines?: string[] }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; completed: [count: number, notificationStatus?: string, recordId?: number, skippedCount?: number]; refresh: [] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const verb = computed(() => props.action === 'TRANSFER' ? '转交' : '授权')
@@ -66,6 +66,7 @@ type Person = { employee_no: string; display_name: string; department_path?: str
 const people = ref<Person[]>([])
 const options = computed(() => people.value.map(person => ({ value: person.employee_no, label: person.display_name, subLabel: person.department_path })))
 const scopeMode = ref('PARTIAL'), scopeKind = ref('DIRECT_SUBORDINATES'), distribution = ref('INHERIT')
+const distributionOptions = computed(() => [{ value: 'INHERIT', label: '沿用此任务的分布规则', showInfo: true, info: (props.distributionLines?.length ? props.distributionLines : ['该任务未配置分布规则']) } as const, { value: 'NONE', label: '无需满足分布规则' } as const])
 const departments = ref<string | string[] | null>([]), employees = ref<string | string[] | null>([])
 const allowReauthorize = ref(false), notifyOriginal = ref(true), confirmationOpen = ref(false)
 const selectedStages = ref<string[]>([]), selectedTasks = ref<string[]>([]), activeRole = ref(''), noOriginChoice = ref('')

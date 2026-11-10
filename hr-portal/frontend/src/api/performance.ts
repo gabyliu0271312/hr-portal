@@ -175,6 +175,7 @@ export interface ProjectCalibrationAuthorization {
   authorized_count: number
   unauthorized_count: number | null
   distribution_rule: string | null
+  distribution_info?: { force_distribution_enabled: boolean; mode: string; rules: PerformanceDistributionRule[]; lines: string[] }
   authorized_by: string | null
   authorized_at: string | null
 }
@@ -1093,7 +1094,7 @@ export const projectManagementApi = {
     const { data } = await api.get<ProjectAuthorizationRecords>('/performance/project-management/authorization-records', { params: { cycle_id: cycleId } })
     return data
   },
-  async calibrationAuthorization(cycleId: number): Promise<{ cycle_id: number; cycle_name: string; items: ProjectCalibrationAuthorization[] }> {
+  async calibrationAuthorization(cycleId: number): Promise<{ cycle_id: number; cycle_name: string; start_at?: string | null; end_at?: string | null; items: ProjectCalibrationAuthorization[] }> {
     const { data } = await api.get('/performance/project-management/calibration-authorization', { params: { cycle_id: cycleId } })
     return data
   },
