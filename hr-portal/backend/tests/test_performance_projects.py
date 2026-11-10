@@ -1921,17 +1921,21 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
             "items": [{"id": "work", "label": "填写题名称", "settings": {"required": True}}],
         }]
     }})
-    member = SimpleNamespace(display_name="刘琦", company_org="产品中心", organization_ref="产品中心", direct_supervisor_employee_no="M001")
+    member = SimpleNamespace(snapshot_id=21, display_name="刘琦", company_org="产品中心", organization_ref="产品中心", direct_supervisor_employee_no="M001")
 
     async def fake_task(*_args):
         return task, node
 
     class Db:
-        def __init__(self):
-            self.values = [member, "刘芝萍"]
-
         async def scalar(self, _statement):
-            return self.values.pop(0)
+            return member
+
+        async def execute(self, statement):
+            sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_authorization_snapshot_people.snapshot_id = performance_project_member_snapshots.source_snapshot_id" in sql
+            assert "performance_project_member_snapshots.id IN (21)" in sql
+            assert "performance_authorization_snapshot_people.employee_no IN ('M001')" in sql
+            return SimpleNamespace(all=lambda: [(21, "M001", "刘芝萍")])
 
         async def get(self, _model, _id):
             return SimpleNamespace(settings={"flow_settings": {"node_times": {"summary": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}})
@@ -2012,18 +2016,22 @@ async def test_reconsideration_template_task_passes_show_result_and_keep_result(
             "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}],
         }],
     }})
-    member = SimpleNamespace(display_name="刘琦", company_org="产品中心", organization_ref="产品中心", direct_supervisor_employee_no="M001")
+    member = SimpleNamespace(snapshot_id=21, display_name="刘琦", company_org="产品中心", organization_ref="产品中心", direct_supervisor_employee_no="M001")
     page_name = None
 
     async def fake_task(*_args):
         return task, node
 
     class Db:
-        def __init__(self):
-            self.values = [member, "刘芝萍"]
-
         async def scalar(self, _statement):
-            return self.values.pop(0)
+            return member
+
+        async def execute(self, statement):
+            sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_authorization_snapshot_people.snapshot_id = performance_project_member_snapshots.source_snapshot_id" in sql
+            assert "performance_project_member_snapshots.id IN (21)" in sql
+            assert "performance_authorization_snapshot_people.employee_no IN ('M001')" in sql
+            return SimpleNamespace(all=lambda: [(21, "M001", "刘芝萍")])
 
         async def get(self, _model, _id):
             return SimpleNamespace(settings={"flow_settings": {"node_times": {"recon": {"start_at": "2026-09-16T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}})
@@ -6174,6 +6182,99 @@ def test_published_position_migration_round_trip_and_history_guard():
             with pytest.raises(RuntimeError, match="历史结果证据"):
                 migration.downgrade()
             assert connection.scalar(text("SELECT published_position_level FROM performance_result_openings WHERE id=1")) == "P6"
+    engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,role", [
+    ("evaluation", "assessment.reviewer_360"),
+    ("evaluation", "assessment.line_manager"),
+    ("work_summary", "assessment.reviewee"),
+    ("result_communication", "assessment.line_manager"),
+    ("calibration", "assessment.calibrator"),
+    ("result_reconsideration", "assessment.line_manager"),
+])
+@pytest.mark.parametrize("scenario", ["visible", "hidden", "missing_name", "missing_member", "no_supervisor"])
+async def test_task_detail_uses_source_snapshot_supervisor_name(monkeypatch, kind, role, scenario):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance import reconsideration_service
+    from app.performance.models import PerformanceProject, PerformanceProjectMember
+
+    member = PerformanceProjectMember(
+        id=1, snapshot_id=7, employee_no="E1", display_name="员工",
+        direct_supervisor_employee_no=None if scenario == "no_supervisor" else "M1",
+    ) if scenario != "missing_member" else None
+    task = SimpleNamespace(
+        id=9, project_id=3, member_snapshot_id=7, target_employee_no="E1",
+        task_kind=kind, handler_ref="REVIEWER", submitted_at=None, status="pending",
+        answer_version=1, answers={}, available_at=None, due_at=None, phase_id="",
+    )
+    node = SimpleNamespace(node_id="node", node_type=kind, name="评估", config={"template": {"executor_role_code": role}})
+    project = SimpleNamespace(id=3, cycle_ref="C1", settings={})
+    visible = scenario != "hidden"
+    monkeypatch.setattr(routes, "_self_summary_task", AsyncMock(return_value=(task, node)))
+    monkeypatch.setattr(routes, "_overdue_submission_allowed", AsyncMock(return_value=False))
+    monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(return_value=([], {})))
+    monkeypatch.setattr(routes, "_reference_tabs", AsyncMock(return_value=[]))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="REVIEWER")))
+    monkeypatch.setattr(routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(routes, "load_subject_visibility_rules", AsyncMock(return_value={"other": ["direct_supervisor"] if visible else []}))
+    monkeypatch.setattr(routes, "_project_member_detail", AsyncMock(return_value={}))
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=SimpleNamespace(reason="复议")))
+
+    class Db:
+        async def get(self, model, key):
+            assert model is PerformanceProject and key == 3
+            return project
+
+        async def scalar(self, query):
+            assert query.column_descriptions[0]["entity"] is PerformanceProjectMember
+            assert query.column_descriptions[0]["name"] == "PerformanceProjectMember"
+            return member
+
+        async def execute(self, query):
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_authorization_snapshot_people.snapshot_id = performance_project_member_snapshots.source_snapshot_id" in sql
+            assert "performance_project_member_snapshots.id IN (7)" in sql
+            assert "performance_authorization_snapshot_people.employee_no IN ('M1')" in sql
+            return SimpleNamespace(all=lambda: [] if scenario == "missing_name" else [(7, "M1", "冻结上级姓名")])
+
+    for _ in range(2):
+        detail = await (routes.get_self_summary(9, context(), Db()) if kind == "work_summary" else routes.get_template_task(9, context(), Db()))
+        expected = "冻结上级姓名" if scenario == "visible" else None
+        assert detail["person"]["direct_supervisor_name"] == expected
+        assert detail["person"]["profile_fields"] == ([{"key": "direct_supervisor", "label": "直属上级", "value": expected}] if expected else [])
+        assert "M1" not in str(detail["person"])
+
+
+@pytest.mark.asyncio
+async def test_supervisor_names_query_keeps_source_snapshot_versions_isolated():
+    from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine
+    from app.performance.projects_router import _snapshot_supervisor_names
+
+    metadata = MetaData()
+    snapshots = Table("performance_project_member_snapshots", metadata,
+        Column("id", Integer, primary_key=True), Column("source_snapshot_id", Integer))
+    people = Table("performance_authorization_snapshot_people", metadata,
+        Column("snapshot_id", Integer), Column("employee_no", String), Column("display_name", String))
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        metadata.create_all(connection)
+        connection.execute(snapshots.insert(), [{"id": 7, "source_snapshot_id": 10}, {"id": 8, "source_snapshot_id": 20}])
+        connection.execute(people.insert(), [
+            {"snapshot_id": 10, "employee_no": "M1", "display_name": "历史上级姓名"},
+            {"snapshot_id": 20, "employee_no": "M1", "display_name": "另一周期姓名"},
+        ])
+
+        class Db:
+            async def execute(self, query):
+                return connection.execute(query)
+
+        members = [SimpleNamespace(snapshot_id=number, direct_supervisor_employee_no="M1") for number in (7, 8)]
+        assert await _snapshot_supervisor_names(Db(), members) == {
+            (7, "M1"): "历史上级姓名", (8, "M1"): "另一周期姓名",
+        }
     engine.dispose()
 
 

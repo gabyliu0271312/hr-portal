@@ -106,6 +106,18 @@
 - UI 门禁：沿 CR-010 v1 做字段映射及样式小修，不改变信息架构，无需新蓝图；遵循 Spec012 N00/N11 通用规范，不涉及 UCP/数仓专属任务。
 - 未执行：真实业务库/生产登录态验收、提交、推送、部署；保留并行填写工作区修改和既有文件删除、临时文件。
 
+### CR-010-F01 任务详情直属上级解析统一（2026-11-10）
+
+- 用户确认完成底层统一：360°反馈及其他模板任务详情复用列表既有 `_snapshot_supervisor_names()`，按项目成员快照 `source_snapshot_id` 关联当期授权人员快照读取 `display_name`，不再在仅含被评估人的项目成员表中查上级姓名。
+- 共享资料投影 `subject_profile_items()` 只输出已解析的上级姓名；源快照姓名缺失时省略该字段，不把工号当姓名、不查实时花名册。列表原有空值展示不变；`direct_supervisor_name` 与 `profile_fields` 同源且继续受字段可见性控制。无权限时不输出姓名。
+- 修改范围：`backend/app/performance/projects_router.py`、`subject_visibility_service.py`、既有 `tests/test_performance_projects.py`、`test_performance_subject_visibility.py`；没有前端业务代码、数据库迁移、权限配置或历史快照写入。原任务关系仍使用工号，不改变处理人和关系判断。
+- 后端：六类任务入口 × 姓名可见/隐藏/缺失、成员缺失、无上级共30项，逐项重复回读；另覆盖既有总结/复议详情和资料缺名。SQLite内存库执行真实关联SQL，验证同一上级工号在两个源快照中分别读取各自姓名；该证据不是业务PostgreSQL验收。
+- 验证命令（backend目录）：`.venv/Scripts/python.exe -m pytest tests/test_performance_projects.py tests/test_performance_subject_visibility.py -q --tb=short -k "not workbench_tasks_and_people_return_live_due_date and not evaluation_member_list_can_return_completed_and_pending_tasks and not member_lists_keep_supervisor_name_visibility_and_zero_360_rate"` → **587 passed、5 skipped、8 deselected**，1条既有 `python_multipart` 弃用提示。
+- 完整两文件测试未全绿：6项失败均为既有360评估率夹具缺少 `.scalars()`；在独立Python进程内从 `git show HEAD:hr-portal/backend/app/performance/projects_router.py` 加载修改前模块复核，同样 **6 failed、2 passed**。最终命令按测试名称排除这8项，未伪称全量通过；5项跳过依赖隔离PostgreSQL等显式验收条件。
+- 前端：`npm --prefix hr-portal/frontend test -- --run src/components/performance/PerformanceReviewPersonHeader.spec.ts src/components/performance/PerformanceSelfSummaryHeader.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts` → **3文件22 passed**。无布局或交互调整，不要求新蓝图。
+- 构建：已尝试 `npm --prefix hr-portal/frontend run build`，被本轮未修改的并行 `PerformanceManagementTable.vue` 语法错误阻断（首报11行 TS1011）；保留该文件及 `UiTable.vue` 的他人改动，没有顺带修复或覆盖。后端目标文件 `git diff --check` 通过。
+- 未完成：真实登录API/业务PostgreSQL/浏览器页面验收、生产部署、提交和推送。以上仅为本地实现与测试证据，不标记生产完成。
+
 ## 9. CR-010-F03 员工类型字段权限与列展示对齐（2026-11-01）
 
 - 目标：修复结果沟通表固定显示“员工类型”，但后端字段权限裁剪为 null 后仍呈现空列的问题。按现有字段可见性配置展示真实快照值，不更改默认角色授权、不绕过权限、不回填历史快照。

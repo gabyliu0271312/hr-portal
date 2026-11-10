@@ -146,7 +146,7 @@ def subject_profile_items(
         "department": organization_leaf(member),
         "position_level": getattr(member, "position_level", None),
         "job_sequence": format_job_sequence(getattr(member, "job_family", None), getattr(member, "job_category", None)),
-        "direct_supervisor": direct_supervisor_name or getattr(member, "direct_supervisor_employee_no", None),
+        "direct_supervisor": direct_supervisor_name,
         "hire_date": hire_date.isoformat() if hire_date else None,
         "employee_type": getattr(member, "employee_type", None),
     }

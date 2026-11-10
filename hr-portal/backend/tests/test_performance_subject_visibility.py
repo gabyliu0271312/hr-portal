@@ -171,3 +171,13 @@ def test_profile_displays_deepest_department_without_changing_organization_path(
     member = SimpleNamespace(company_org="集团", department="研发", department_2="平台", department_3="", department_4=None, department_5=None, organization_ref="集团/研发/平台")
     assert subject_profile_items(member, ["department"]) == [{"key": "department", "label": "部门", "value": "平台"}]
     assert member.organization_ref == "集团/研发/平台"
+
+
+def test_profile_does_not_fallback_to_supervisor_employee_no_when_name_missing():
+    from app.performance.subject_visibility_service import subject_profile_items
+
+    member = SimpleNamespace(
+        company_org="集团", department="研发", organization_ref="集团/研发",
+        direct_supervisor_employee_no="M001",
+    )
+    assert subject_profile_items(member, ["direct_supervisor"], direct_supervisor_name=None) == []

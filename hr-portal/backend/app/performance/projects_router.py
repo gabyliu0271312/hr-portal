@@ -503,12 +503,10 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
         PerformanceProjectMember.employee_no == task.target_employee_no,
     ))
-    direct_supervisor_name = None
-    if member and getattr(member, "direct_supervisor_employee_no", None):
-        direct_supervisor_name = await db.scalar(select(PerformanceProjectMember.display_name).where(
-            PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
-            PerformanceProjectMember.employee_no == member.direct_supervisor_employee_no,
-        ))
+    supervisor_names = await _snapshot_supervisor_names(db, [member]) if member else {}
+    direct_supervisor_name = supervisor_names.get(
+        (member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None))
+    ) if member else None
     try:
         actor = await resolve_trusted_performance_actor(db, context)
         actor_ref = str(actor.actor_ref)
