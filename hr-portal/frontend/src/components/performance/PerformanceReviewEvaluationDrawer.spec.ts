@@ -45,6 +45,73 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    ['pending', true, '2026-11-18T12:00:00Z', '以下内容由 gaby.liu刘琦在 2026-11-10 16:37（GMT+8） 提交，你可以在 2026-11-18 20:00（GMT+8） 前继续编辑'],
+    ['overdue', false, '2026-11-10T12:00:00Z', '以下内容由 gaby.liu刘琦在 2026-11-10 16:37（GMT+8） 提交，该环节已在 2026-11-10 20:00（GMT+8） 截止'],
+  ])('opens calibration in readonly mode with the shared notice and %s edit policy', async (_status, editable, deadline, message) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-11T00:00:00Z'))
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
+      ...structuredClone(task), task_kind: 'calibration', node_name: '绩效校准', submitted_at: null,
+      editable, submit_allowed: editable, deadline_at: deadline,
+      answer_submissions: [{ display_name: 'gaby.liu刘琦', submitted_at: '2026-11-10T08:37:00Z' }],
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
+    try {
+      await flushPromises()
+      expect(document.body.textContent).toContain(message)
+      expect(document.body.querySelector('[contenteditable="true"]')).toBeNull()
+      expect(document.body.querySelector('.performance-review-completion-notice__icon')).not.toBeNull()
+      const edit = document.body.querySelector<HTMLButtonElement>('.performance-review-completion-notice__edit')
+      expect(Boolean(edit)).toBe(editable)
+      if (edit) {
+        edit.click()
+        await flushPromises()
+        expect(wrapper.emitted('edit')).toEqual([[{ task_id: 145, employee_no: 'E001', draft_choice: undefined }]])
+      }
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not expose calibration editing after the effective deadline even if a stale response says editable', async () => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...structuredClone(task), task_kind: 'calibration', editable: true, submit_allowed: true, deadline_at: '2000-11-10T12:00:00Z', answer_submissions: [{ display_name: '终评人', submitted_at: '2000-11-10T08:37:00Z' }] })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
+    await flushPromises()
+    expect(document.body.textContent).toContain('该环节已在 2000-11-10 20:00（GMT+8） 截止')
+    expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('keeps each trusted source submitter and timestamp paired for calibration and offers one edit action', async () => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
+      ...structuredClone(task), task_kind: 'calibration', submitted_at: null, deadline_at: '2099-11-18T12:00:00Z',
+      answer_submissions: [
+        { display_name: '终评人甲', submitted_at: '2026-11-10T08:37:00Z' },
+        { display_name: '终评人乙', submitted_at: '2026-11-10T09:00:00Z' },
+      ],
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
+    await flushPromises()
+    const notices = document.body.querySelectorAll('.performance-review-completion-notice')
+    expect(notices).toHaveLength(2)
+    expect(notices[0].textContent).toContain('终评人甲在 2026-11-10 16:37')
+    expect(notices[1].textContent).toContain('终评人乙在 2026-11-10 17:00')
+    expect(document.body.querySelectorAll('.performance-review-completion-notice__edit')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not claim a calibration submission when metadata is unavailable or expose edit to readonly viewers', async () => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...structuredClone(task), task_kind: 'calibration', submitted_at: null, answer_submissions: [], deadline_at: '2099-11-18T12:00:00Z' })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001', readonly: true } })
+    await flushPromises()
+    expect(document.body.textContent).toContain('以下为当前绩效结果')
+    expect(document.body.textContent).not.toContain('该评估内容已提交')
+    expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('renders only configured reference tabs and shows unsubmitted reminder action', async () => {
     vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
       ...structuredClone(task),

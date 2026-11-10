@@ -58,3 +58,12 @@
 - 历史来源不能证明原生成资格或aggregate一致时返回 CALIBRATION_HISTORY_CONFLICT，不猜测、不全项目重算。并行项目复制/共享UI改动原样保留；未commit/push。
 
 后续应在获准的隔离数据库完成两项迁移升降级/触发器/并发回滚，以及真实应用验收，再按任务逐项勾选；不以本轮本地回归替代发布与生产验收。
+
+## 2026-11-10 校准延期保存修复（CR-013-T02 增量）
+
+- 用户确认：校准已过期时不可编辑符合规则；后台延长截止时间后，前台仍显示旧时间和截止状态属于缺陷。
+- 根因：已启动项目保存flow_settings会调用backfill_workflow_nodes；其以空node_settings校验共享node_times，孤儿phase_times清理直接pop输入对象，即使没有节点需要补建也会清除项目的新阶段时间；后续_sync_node_task_times无法同步，_task_window回退旧节点快照。
+- 修复：project_service.py校验每个节点时间时先deepcopy该节点输入，孤儿清理只作用本次校验副本；保留规范化输出的孤儿清理规则。不改已提交答案/版本、阶段身份、截止后禁止修改、授权或冻结来源。不重建任务、不迁移、不操作生产。
+- 测试：既有test_performance_projects.py补输入不变断言及两项完整update_project延期用例，分别覆盖无需补建/同时补建结果查看节点；断言phase_times保存、任务due_at更新、共享_task_window使用新时间、已提交校准从不可编辑恢复可编辑，答案/版本和旧快照不变。
+- 实跑：deadline_extension/drop_orphan_entries/sync_node_task_times定向4 passed；内存加载HEAD原_validate_flow_settings反跑新增场景3 failed，证明原问题可复现；修复后项目及模板两文件916 passed、6 skipped、6 failed，六项仍为此前已确认的communication_progress_detail fixture缺scalars，无新增失败；既有python_multipart弃用提示。
+- 边界：本次不承诺已打开页面跨标签自动推送刷新；后续重新请求应读取新保存阶段时间。此前被错误删除的phase_times不会从节点总截止时间猜测恢复，修复发布后须按正确阶段时间重新保存。真实数据库/API/生产验收未执行，未commit/push，保留SelfSummaryTask及规格的并发修改。

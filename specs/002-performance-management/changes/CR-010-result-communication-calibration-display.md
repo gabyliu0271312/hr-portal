@@ -306,6 +306,18 @@
 - 错误态收尾：来源失败后页签显示“加载失败”，隐藏不可使用的提交栏；重新加载沿原入口。390px本地浏览器断言及 `calibration-fixture-conflict-final.png` 已生成，初版conflict/reopen截图已读取；没有将提示冲突当作成功带入。
 - 验收状态：本地代码、组件、ASGI夹具及受控页面证据已具备；真实PostgreSQL/真实项目API及生产部署未执行，不勾选整项验收完成。未commit/push，不修改生产数据。
 
+## 20. CR-010-F14 校准先读侧栏与真实提交提示（2026-11-10）
+
+- 用户确认：校准人员先进入read侧栏，完整复用上级评估的侧栏、绿色提示图标、编辑及草稿选择；当前阶段已逾期显示真实display_name/提交时间与截止时间且不显示编辑，截止前按任务授权显示“你可以在……前继续编辑”，点击编辑进入原填写页。校准提交后返回相同人员侧栏，其他环节入口不改变。
+- 范围：原projects_router.py与test_performance_projects.py、performance API类型、PerformanceReviewEvaluationDrawer及既有spec、Review.vue及既有spec、performanceReviewDisplay的calibration入口、SelfSummaryTask既有提交返回测试。保留CR-013延期修复及沟通评级等并发修改，无新文件/迁移/权限扩展/生产操作。
+- DTO：仅校准详情增加answer_submissions:[{display_name,submitted_at}]，原submitted_at保持当前任务语义；来源选择与_calibration_answers共用同一冻结终评/前阶段可信链。当前校准已提交则使用自身真实提交；未提交从可信来源读取，不用draft更新时间冒充提交。姓名从当前成员快照关联授权人员快照获取；提交审计优先真实EMPLOYEE或identity_switch业务员工，无审计legacy才使用handler_ref且必须解析到快照姓名。无法证明提交者不编造工号或姓名。多人分别显示真实姓名/时间配对，不按最后提交时间拼接。
+- 安全边界：仅详情加载提交元数据，保存入口不增加名称/审计查询；已有完整基底可独立读取时仅预期缺源/冲突允许元数据空数组，不吞数据库异常或主答案冲突。原任务处理人授权、条目readonly、时间窗口/延期、锁及版本不变。前端taskEditable继续受editable/submit_allowed/只读props与校准截止时间限制。
+- 复用：PerformanceReviewEvaluationDrawer始终PerformanceTemplateRenderer(mode=readonly)，PerformanceReviewCompletionNotice原图标/UiButton/草稿检查保持；点击编辑使用当前校准任务，不修改参考源。多来源逐条复用提示且只有一个编辑入口；缺元数据使用“以下为当前绩效结果”，不假称已提交。共享链接rootReviewId/activeTab可恢复，calibration return_view改drawer，复议仍保持原行为。
+- 前端验证：抽屉/Review/SelfSummaryTask三文件196 passed，覆盖pending/completed/overdue入口、提示准确格式、北京时间、多人来源、无来源不假称、只读权限、过期旧editable响应拒绝、提交返回侧栏与原参考催办。既有Review 360测试XHR stderr保留；vue-tsc＋Vite build通过（既有VueUse PURE提示）。
+- 浏览器：真实本地Vite＋隔离API夹具，完成点人先read→编辑→原填写页→提交→侧栏、逾期无编辑、390px无横向溢出、pageerror=0。侧栏动画结束后1440px实测x440/width1000；已读取calibration-read-drawer-pending-stable.png及expired-stable.png，提示全文及编辑按钮完整显示。截图在本机Temp，属于受控夹具而非真实后端/生产验收。
+- 后端验证：`tests/test_performance_projects.py -k 'calibration and (submission_metadata or http_detail or source or phase_inherits or save_preserves or multiple_final or legacy) or calibration_deadline_extension or sync_node_task_times or task_authorization or template_task_rejects or calibration_authorization' -q --disable-warnings` →75 passed、605 deselected、1既有warning；覆盖ASGI GET→提交→GET、审计实际身份/身份切换、冻结姓名、多来源、缺名与异常，以及期限/只读授权边界，原延期保存与时间同步通过。相关diff check通过。
+- 验收边界：无真实PostgreSQL、生产API或部署验收，不标记整体生产完成。未commit/push，不回滚并发工作。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

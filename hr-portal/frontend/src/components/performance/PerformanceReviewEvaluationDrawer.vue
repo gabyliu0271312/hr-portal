@@ -28,7 +28,7 @@
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
-            <PerformanceReviewCompletionNotice :task-id="task?.task_id ?? undefined" :task-kind="task?.task_kind" :employee-no="props.employeeNo" variant="evaluation-drawer" :editable="!props.readonly && Boolean(task?.editable)" :message="completionMessage" @edit="edit" />
+            <PerformanceReviewCompletionNotice v-for="(message, index) in completionMessages" :key="index" :task-id="task?.task_id ?? undefined" :task-kind="task?.task_kind" :employee-no="displayPerson.employee_no" variant="evaluation-drawer" :editable="taskEditable && index === completionMessages.length - 1" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
           </div>
         </section>
@@ -150,14 +150,24 @@ const managementCompletionMessage = computed(() => {
   return `以下内容由 ${tab?.submitted_by || '评估人'} 在 ${formatDate(tab?.submitted_at)} 提交${deadline && Date.parse(tab?.deadline_at || '') < Date.now() ? `，该环节已在 ${deadline} 截止` : ''}`
 })
 const displayPerson = computed<DrawerPerson>(() => task.value ? task.value.person : { employee_no: props.employeeNo, display_name: '' })
-const completionMessage = computed(() => {
-  const submittedBy = '评估人'
-  const submittedAt = formatDate(task.value?.submitted_at)
-  const deadline = formatDate(task.value?.deadline_at)
-  if (submittedAt && deadline && task.value?.editable && !props.readonly) return `以下内容由 ${submittedBy} 在 ${submittedAt} 提交，你可在 ${deadline} 前继续编辑`
-  if (submittedAt && deadline && Date.parse(task.value?.deadline_at || '') < Date.now()) return `以下内容由 ${submittedBy} 在 ${submittedAt} 提交，该环节已在 ${deadline} 截止`
-  if (submittedAt) return `以下内容由 ${submittedBy} 在 ${submittedAt} 提交`
-  return '该评估内容已提交'
+const taskEditable = computed(() => Boolean(!props.readonly && task.value?.editable && task.value?.submit_allowed && (task.value.task_kind !== 'calibration' || !task.value.deadline_at || Date.parse(task.value.deadline_at) >= Date.now())))
+const completionMessages = computed(() => {
+  const current = task.value
+  if (current?.task_kind !== 'calibration') {
+    const submittedAt = formatDate(current?.submitted_at)
+    const deadline = formatDate(current?.deadline_at)
+    if (submittedAt && deadline && current?.editable && !props.readonly) return [`以下内容由 评估人 在 ${submittedAt} 提交，你可在 ${deadline} 前继续编辑`]
+    if (submittedAt && deadline && Date.parse(current?.deadline_at || '') < Date.now()) return [`以下内容由 评估人 在 ${submittedAt} 提交，该环节已在 ${deadline} 截止`]
+    return [submittedAt ? `以下内容由 评估人 在 ${submittedAt} 提交` : '该评估内容已提交']
+  }
+  const deadline = formatDate(current.deadline_at)
+  const suffix = deadline && Date.parse(current.deadline_at || '') < Date.now()
+    ? `，该环节已在 ${deadline} 截止`
+    : deadline && taskEditable.value ? `，你可以在 ${deadline} 前继续编辑` : ''
+  const submissions = current.answer_submissions || []
+  return submissions.length
+    ? submissions.map(item => `以下内容由 ${item.display_name}在 ${formatDate(item.submitted_at)} 提交${suffix}`)
+    : [`以下为当前绩效结果${suffix}`]
 })
 function formatDate(value?: string | null) {
   if (!value) return ''
@@ -187,14 +197,17 @@ async function load() {
         || loaded.reference_tabs?.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value)
       selectedTab.value = selected?.key || 'evaluation'
     }
-  } catch {
-    if (sequence === loadSequence) error.value = '评估内容加载失败，请稍后重试'
+  } catch (errorResponse) {
+    const detail = (errorResponse as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    if (sequence === loadSequence) error.value = detail === 'CALIBRATION_SOURCE_NOT_READY'
+      ? '终评或前一校准阶段尚未全部提交，请完成后重试'
+      : detail === 'CALIBRATION_SOURCE_CONFLICT' ? '终评或前一校准阶段存在不一致的结果，请先核对后重试' : '评估内容加载失败，请稍后重试'
   } finally {
     if (sequence === loadSequence) loading.value = false
   }
 }
 function edit(choice?: 'use' | 'discard') {
-  if (!task.value || task.value.task_id == null || props.readonly || !task.value.editable) return
+  if (!task.value || task.value.task_id == null || !taskEditable.value) return
   emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no, draft_choice: choice })
 }
 function fillStage() {

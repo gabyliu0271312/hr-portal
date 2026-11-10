@@ -799,6 +799,7 @@ class PerformanceProjectService:
         for node_id, raw in node_times.items():
             if not isinstance(node_id, str) or not node_id.strip() or len(node_id) > 96 or not isinstance(raw, dict):
                 raise ProjectValidationError("节点时间设置格式不正确")
+            raw = deepcopy(raw)
             values: dict[str, str] = {}
             for field in ("start_at", "end_at", "appeal_deadline"):
                 if field != "appeal_deadline" and "phase_times" in raw:

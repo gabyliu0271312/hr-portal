@@ -491,16 +491,7 @@ def _calibration_source_projection(schema, source_schema, answers):
     return projected
 
 
-async def _calibration_answers(task, node, schema, db):
-    current = project_self_summary_answers(schema, task.answers or {}, include_readonly=True)
-    for section in schema:
-        for field in section["fields"]:
-            if field["id"] in (task.answers or {}) and (task.answers[field["id"]] is None or task.answers[field["id"]] == ""):
-                current[field["id"]] = task.answers[field["id"]]
-    saved = current and (task.submitted_at is not None or task.answer_version > 1) and any(not self_summary_value_empty(field, value) for section, field, index, value in iter_self_summary_field_instances(schema, current))
-    missing_readonly = {field["id"] for section in schema for field in section["fields"] if field.get("readonly") and field["id"] not in (task.answers or {})}
-    if saved and not missing_readonly:
-        return current
+async def _calibration_source_answers(task, node, schema, db):
     phases = ((node.config or {}).get("calibration") or {}).get("phases") or []
     phase_ids = [phase["phase_id"] for phase in phases]
     if task.phase_id not in phase_ids:
@@ -539,12 +530,80 @@ async def _calibration_answers(task, node, schema, db):
         projected.append(_calibration_source_projection(schema, source_schema, source_answers))
     if any(answers != projected[0] for answers in projected[1:]):
         raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
-    if saved:
-        return {**{key: value for key, value in projected[0].items() if key in missing_readonly}, **current}
-    return {**projected[0], **current}
+    return sources, projected[0]
 
 
-async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False) -> tuple[list[dict], dict]:
+async def _calibration_answers(task, node, schema, db, *, submission_sources=None):
+    current = project_self_summary_answers(schema, task.answers or {}, include_readonly=True)
+    for section in schema:
+        for field in section["fields"]:
+            if field["id"] in (task.answers or {}) and (task.answers[field["id"]] is None or task.answers[field["id"]] == ""):
+                current[field["id"]] = task.answers[field["id"]]
+    saved = current and (task.submitted_at is not None or task.answer_version > 1) and any(not self_summary_value_empty(field, value) for section, field, index, value in iter_self_summary_field_instances(schema, current))
+    missing_readonly = {field["id"] for section in schema for field in section["fields"] if field.get("readonly") and field["id"] not in (task.answers or {})}
+    if saved and not missing_readonly:
+        if submission_sources is not None:
+            if task.status == "completed" and task.submitted_at is not None:
+                submission_sources.append(task)
+            else:
+                try:
+                    sources, _ = await _calibration_source_answers(task, node, schema, db)
+                except HTTPException as error:
+                    if error.status_code != 409 or error.detail not in {"CALIBRATION_SOURCE_NOT_READY", "CALIBRATION_SOURCE_CONFLICT"}:
+                        raise
+                else:
+                    submission_sources.extend(sources)
+        return current
+    sources, sourced = await _calibration_source_answers(task, node, schema, db)
+    if submission_sources is not None:
+        submission_sources.extend([task] if task.status == "completed" and task.submitted_at is not None else sources)
+    return {**{key: value for key, value in sourced.items() if key in missing_readonly}, **current} if saved else {**sourced, **current}
+
+
+async def _calibration_answer_submissions(task, sources, db):
+    sources = sorted({candidate.id: candidate for candidate in sources}.values(), key=lambda candidate: candidate.id)
+    if not sources or any(candidate.status != "completed" or candidate.submitted_at is None for candidate in sources):
+        return []
+    events = list((await db.execute(select(PerformanceAuditEvent).where(
+        PerformanceAuditEvent.cycle_ref == task.cycle_ref,
+        PerformanceAuditEvent.employee_no == task.target_employee_no,
+        PerformanceAuditEvent.subject_type == "PERFORMANCE_NODE_TASK",
+        PerformanceAuditEvent.subject_ref.in_([str(candidate.id) for candidate in sources]),
+        PerformanceAuditEvent.event_type.in_(["PERFORMANCE_TASK_SUBMITTED", "CALIBRATION_ADJUSTED"]),
+    ).order_by(PerformanceAuditEvent.event_at.desc(), PerformanceAuditEvent.id.desc()))).scalars().all())
+    by_task = {}
+    for event in events:
+        by_task.setdefault(str(event.subject_ref), event)
+    actors = []
+    for source in sources:
+        event = by_task.get(str(source.id))
+        actor_ref = source.handler_ref if event is None else None
+        if event is not None:
+            expected = "CALIBRATION_ADJUSTED" if source.task_kind == "calibration" else "PERFORMANCE_TASK_SUBMITTED"
+            after = event.after_state or {}
+            if event.event_type != expected or after.get("project_id", task.project_id) != task.project_id:
+                continue
+            switch = after.get("identity_switch") or {}
+            if event.actor_type == "EMPLOYEE":
+                actor_ref = event.actor_ref
+            elif switch.get("business_actor_type") == "EMPLOYEE":
+                actor_ref = switch.get("business_actor_ref")
+        if actor_ref:
+            actors.append((str(actor_ref), source.submitted_at))
+    if not actors:
+        return []
+    people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
+        PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    ).where(
+        PerformanceProjectMemberSnapshot.id == task.member_snapshot_id,
+        PerformanceProjectMemberSnapshot.project_id == task.project_id,
+        PerformanceAuthorizationSnapshotPerson.employee_no.in_([actor_ref for actor_ref, _ in actors]),
+    ))).scalars().all())
+    names = {person.employee_no: person.display_name for person in people if person.display_name and person.display_name.strip()}
+    return [{"display_name": names[actor_ref], "submitted_at": submitted_at} for actor_ref, submitted_at in dict.fromkeys(actors) if actor_ref in names]
+
+
+async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False, submission_sources=None) -> tuple[list[dict], dict]:
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task
         from app.performance.reconsideration_result_service import task_result
@@ -561,7 +620,7 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
     template = await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
     if getattr(node, "node_type", None) == "calibration":
-        return schema, await _calibration_answers(task, node, schema, db)
+        return schema, await _calibration_answers(task, node, schema, db, submission_sources=submission_sources)
     answers = project_self_summary_answers(schema, task.answers or {})
     readonly_sections = [section for section in schema if any(field.get("readonly") for field in section["fields"])]
     if not readonly_sections or node.node_type != "evaluation":
@@ -609,7 +668,10 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed)
+    submission_sources = []
+    content_options = {"submission_sources": submission_sources} if task.task_kind == "calibration" else {}
+    schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed, **content_options)
+    answer_submissions = await _calibration_answer_submissions(task, submission_sources, db) if task.task_kind == "calibration" else []
     member = await db.scalar(select(PerformanceProjectMember).where(
         PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
         PerformanceProjectMember.employee_no == task.target_employee_no,
@@ -671,7 +733,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "task_id": task.id,
         "project_id": task.project_id,
         "node_id": node.node_id,
-        "return_view": "page" if task.task_kind in {"calibration", "result_reconsideration"} else ("node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer"),
+        "return_view": "page" if task.task_kind == "result_reconsideration" else ("node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer"),
         "task_kind": task.task_kind,
         "executor_role_code": ((node.config or {}).get("template") or {}).get("executor_role_code"),
         "phase_id": getattr(task, "phase_id", "") or None,
@@ -699,6 +761,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
+        **({"answer_submissions": answer_submissions} if task.task_kind == "calibration" else {}),
         "has_draft": getattr(task, "draft_answers", None) is not None,
         "draft_answers": {**project_self_summary_answers(schema, getattr(task, "draft_answers", None) or {}), **({"keep_result": task.draft_answers["keep_result"]} if getattr(task, "draft_answers", None) and task.task_kind == "result_reconsideration" and "keep_result" in task.draft_answers else {})},
         "prompts": [],

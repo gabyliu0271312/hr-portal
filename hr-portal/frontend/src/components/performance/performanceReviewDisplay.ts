@@ -1,6 +1,6 @@
 const displays = {
   result_communication: { table: 'communication', completedView: 'drawer', completedReadonly: true },
-  calibration: { table: 'manager', completedView: 'page', completedReadonly: false },
+  calibration: { table: 'manager', completedView: 'drawer', completedReadonly: false },
   result_reconsideration: { table: 'members', completedView: 'page', completedReadonly: true },
 } as const
 

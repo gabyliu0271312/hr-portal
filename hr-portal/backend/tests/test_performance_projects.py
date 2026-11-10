@@ -4993,6 +4993,7 @@ def test_calibration_phase_times_drop_orphan_entries_without_calibration_config(
     flow["node_times"]["orphan-node"] = {"start_at": "", "end_at": "", "phase_times": {"phase-1": {"start_at": "2026-10-01T09:00+08:00", "end_at": "2026-10-05T18:00+08:00"}}}
     normalized = PerformanceProjectService._validate_flow_settings(flow)
     assert "phase_times" not in normalized["node_times"]["orphan-node"]
+    assert "phase_times" in flow["node_times"]["orphan-node"]
     # 节点存在于 node_settings 但 calibration 为空（无 phases）时同样收敛
     flow2 = calibration_phase_time_settings()
     flow2["node_settings"]["calibration-1"] = {}
@@ -5666,7 +5667,7 @@ def calibration_content_data(monkeypatch):
     from datetime import UTC, datetime
     from app.performance import projects_router
     from app.performance.calibration_service import calibration_template
-    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+    from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshotPerson, PerformanceNodeTask, PerformanceProjectNodeSnapshot
 
     content = {"content_id": "content", "type": "custom", "items": [
         {"id": "locked", "kind": "fill", "questionType": "text"},
@@ -5696,6 +5697,7 @@ def calibration_content_data(monkeypatch):
         def __init__(self):
             self.tasks = [make_task(10), task]
             self.nodes = [final, calibration]
+            self.people = {"M1": "冻结上级", "C1": "校准人", "C2": "另一校准人", "A1": "实际提交人"}
             self.queries = []
             self.added = []
             self.commits = 0
@@ -5707,6 +5709,10 @@ def calibration_content_data(monkeypatch):
                 rows = [candidate for candidate in self.tasks if all(getattr(candidate, key[:-2]) == value for key, value in params.items()) and candidate.revoked_at is None]
             elif model is PerformanceProjectNodeSnapshot:
                 rows = [candidate for candidate in self.nodes if candidate.project_id == params["project_id_1"]]
+            elif model is PerformanceAuditEvent:
+                rows = list(reversed([event for event in self.added if event.event_type in {"PERFORMANCE_TASK_SUBMITTED", "CALIBRATION_ADJUSTED"} and event.subject_ref in params["subject_ref_1"]]))
+            elif model is PerformanceAuthorizationSnapshotPerson:
+                rows = [SimpleNamespace(employee_no=employee_no, display_name=display_name) for employee_no, display_name in self.people.items() if employee_no in params["employee_no_1"]]
             else:
                 raise AssertionError(model)
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
@@ -5860,13 +5866,16 @@ async def test_calibration_http_detail_submit_and_reopen(calibration_content_dat
     app = FastAPI()
     app.include_router(data.routes.router, prefix="/api/v1")
     app.dependency_overrides[get_session] = lambda: data.db
-    app.dependency_overrides[get_performance_access_context] = lambda: context()
+    app.dependency_overrides[get_performance_access_context] = lambda: PerformanceAccessContext(subject_type="PORTAL_USER", subject_id=1, display_name="校准人", account_type=None, portal_entry_permissions=(), role_grants=(), permission_codes=(), effective_employee_no="C1")
     path = f"/api/v1/performance/tasks/{data.task.id}/template-task"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get(path)
         assert response.status_code == 200, response.text
         assert response.json()["answers"] == {"locked": "trusted", "editable": "original", "grade": "a"}
         assert response.json()["phase_id"] == "first"
+        assert response.json()["return_view"] == "drawer"
+        assert response.json()["submitted_at"] is None
+        assert response.json()["answer_submissions"] == [{"display_name": "冻结上级", "submitted_at": data.db.tasks[0].submitted_at.isoformat()}]
         assert data.task.answers == {}
         response = await client.post(path + "/submit", json={"answers": {"locked": "forged", "editable": "submitted", "grade": "b"}, "version": 1})
         assert response.status_code == 200, response.text
@@ -5875,6 +5884,132 @@ async def test_calibration_http_detail_submit_and_reopen(calibration_content_dat
         response = await client.get(path)
         assert response.status_code == 200, response.text
         assert response.json()["answers"] == {"locked": "trusted", "editable": "submitted", "grade": "b"}
+        assert response.json()["answer_submissions"] == [{"display_name": "校准人", "submitted_at": data.task.submitted_at.isoformat()}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["first", "third"])
+async def test_calibration_submission_metadata_tracks_each_selected_source_and_snapshot(calibration_content_data, phase):
+    from datetime import timedelta
+    from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshotPerson, PerformanceNodeTask
+    data = calibration_content_data
+    data.task.phase_id = phase
+    first = data.db.tasks[0]
+    second = data.make_task(13, handler_ref="C2", submitted_at=first.submitted_at + timedelta(minutes=5))
+    if phase == "third":
+        first = data.make_task(21, 12, phase_id="second")
+        second = data.make_task(22, 12, phase_id="second", handler_ref="C2", submitted_at=first.submitted_at + timedelta(minutes=5))
+        data.db.tasks.extend([first, second])
+        expected_name = "校准人"
+    else:
+        data.db.tasks.append(second)
+        expected_name = "冻结上级"
+    for values in ({"project_id": 9}, {"cycle_ref": "other"}, {"member_snapshot_id": 8}, {"target_employee_no": "E2"}, {"revoked_at": first.submitted_at}):
+        data.db.tasks.append(data.make_task(40 + len(data.db.tasks), answers={"locked": "wrong"}, **values))
+    sources = []
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=sources)
+    result = await data.routes._calibration_answer_submissions(data.task, sources + sources, data.db)
+    assert result == [{"display_name": expected_name, "submitted_at": first.submitted_at}, {"display_name": "另一校准人", "submitted_at": second.submitted_at}]
+    assert data.task.submitted_at is None and data.task.answers == {} and answers["locked"] == "trusted"
+    assert not data.db.commits and not data.db.added
+    assert sum(query.column_descriptions[0]["entity"] is PerformanceNodeTask for query in data.db.queries) == 1
+    people_query = next(query for query in data.db.queries if query.column_descriptions[0]["entity"] is PerformanceAuthorizationSnapshotPerson)
+    assert "source_snapshot_id = performance_authorization_snapshot_people.snapshot_id" in str(people_query)
+    assert people_query.compile().params["id_1"] == data.task.member_snapshot_id
+    audit_query = next(query for query in data.db.queries if query.column_descriptions[0]["entity"] is PerformanceAuditEvent)
+    for name in ("cycle_ref", "employee_no", "subject_type", "subject_ref", "event_type", "event_at DESC", "id DESC"):
+        assert name in str(audit_query)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("actor", ["employee", "switch", "portal", "missing-name", "wrong-project", "wrong-event", "legacy", "legacy-missing-name"])
+async def test_calibration_submission_metadata_uses_latest_trusted_actual_actor(calibration_content_data, actor):
+    from datetime import timedelta
+    from app.performance.models import PerformanceAuditEvent
+    data = calibration_content_data
+    data.task.answers = {"locked": "trusted", "editable": "calibrated", "grade": "b"}
+    data.task.status = "completed"
+    data.task.submitted_at = data.make_task(1).submitted_at
+    older = PerformanceAuditEvent(event_type="CALIBRATION_ADJUSTED", cycle_ref=data.task.cycle_ref, employee_no="E1", subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(data.task.id), actor_type="EMPLOYEE", actor_ref="C2", after_state={"project_id": 3}, event_at=data.task.submitted_at - timedelta(hours=1))
+    event = PerformanceAuditEvent(event_type="CALIBRATION_ADJUSTED", cycle_ref=data.task.cycle_ref, employee_no="E1", subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(data.task.id), actor_type="EMPLOYEE", actor_ref="A1", after_state={"project_id": 3}, event_at=data.task.submitted_at + timedelta(hours=1))
+    if actor in {"switch", "portal"}:
+        event.actor_type, event.actor_ref = "PORTAL_USER", "42"
+        if actor == "switch":
+            event.after_state["identity_switch"] = {"business_actor_type": "EMPLOYEE", "business_actor_ref": "A1", "effective_employee_no": "A1"}
+    if actor == "wrong-project":
+        event.after_state["project_id"] = 99
+    if actor == "wrong-event":
+        event.event_type = "PERFORMANCE_TASK_SUBMITTED"
+    if actor == "missing-name":
+        data.db.people["A1"] = ""
+    if actor == "legacy-missing-name":
+        data.db.people["C1"] = ""
+    if actor not in {"legacy", "legacy-missing-name"}:
+        data.db.added.extend([older, event])
+    sources = []
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=sources)
+    assert not data.db.queries and sources == [data.task] and answers == data.task.answers
+    result = await data.routes._calibration_answer_submissions(data.task, sources, data.db)
+    expected = [] if actor in {"portal", "missing-name", "wrong-project", "wrong-event", "legacy-missing-name"} else [{"display_name": "校准人" if actor == "legacy" else "实际提交人", "submitted_at": data.task.submitted_at}]
+    assert result == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["missing", "pending", "draft", "conflict", "db-error"])
+async def test_calibration_submission_metadata_cannot_break_saved_baseline_or_hide_db_errors(calibration_content_data, case, monkeypatch):
+    from fastapi import HTTPException
+    from unittest.mock import AsyncMock
+    data = calibration_content_data
+    data.task.answers = {"locked": "trusted", "editable": "saved"}
+    data.task.answer_version = 2
+    if case == "missing":
+        data.db.tasks = [data.task]
+    elif case in {"pending", "draft"}:
+        data.db.tasks[0].submitted_at = None
+        data.db.tasks[0].status = "pending"
+        data.db.tasks[0].draft_answers = {"editable": "draft"}
+    elif case == "conflict":
+        data.db.tasks.append(data.make_task(13, answers={"locked": "different"}))
+    else:
+        monkeypatch.setattr(data.db, "execute", AsyncMock(side_effect=RuntimeError("database unavailable")))
+    sources = []
+    if case == "db-error":
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=sources)
+        return
+    _, answers = await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=sources)
+    assert answers == data.task.answers and sources == []
+    assert await data.routes._calibration_answer_submissions(data.task, sources, data.db) == []
+    data.task.answers, data.task.answer_version = {}, 1
+    with pytest.raises(HTTPException) as error:
+        await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=[])
+    assert error.value.status_code == 409
+    assert not data.db.commits and not data.db.added
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked", ["expired", "not-started", "read-only"])
+async def test_calibration_submission_metadata_does_not_relax_detail_permissions_or_window(calibration_content_data, monkeypatch, blocked):
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import AsyncMock
+    from app.performance.models import PerformanceNodeTask
+    data = calibration_content_data
+    data.node.name = "Calibration"
+    data.task = PerformanceNodeTask(**vars(data.task))
+    if blocked == "expired":
+        data.task.due_at = datetime.now(UTC) - timedelta(days=1)
+    elif blocked == "not-started":
+        data.task.available_at = datetime.now(UTC) + timedelta(days=1)
+    monkeypatch.setattr(data.db, "scalar", AsyncMock(return_value=None), raising=False)
+    monkeypatch.setattr(data.routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="C1", actor_type="EMPLOYEE")))
+    monkeypatch.setattr(data.routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(data.routes, "load_subject_visibility_rules", AsyncMock(return_value={"other": []}))
+    monkeypatch.setattr(data.routes, "_task_edit_allowed", AsyncMock(return_value=blocked != "read-only"))
+    detail = await data.routes._template_task_detail(data.task, data.node, context(), data.db)
+    assert detail["answer_submissions"] == [{"display_name": "冻结上级", "submitted_at": data.db.tasks[0].submitted_at}]
+    assert detail["editable"] is False and detail["submit_allowed"] is False
+    assert detail["submitted_at"] is None and detail["submission_count"] == 0
+    assert not data.db.commits and not data.db.added
 
 
 @pytest.mark.asyncio
@@ -8727,6 +8862,66 @@ async def test_360_giveup_route_branches(monkeypatch, voluntary, submitted, expe
             await feedback.giveup_voluntary_evaluation(1, feedback.GiveUpPayload(task_id=101, node_id="feedback"), context=context(), db=db)
         assert (raised.value.status_code, raised.value.detail) == (status, detail)
         assert task.revoked_at is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backfill", [False, True])
+async def test_calibration_deadline_extension_survives_backfill_validation_and_reopens_task(monkeypatch, backfill):
+    from copy import deepcopy
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot, PerformanceTemplateWorkflow
+
+    now = datetime(2026, 11, 10, 12, tzinfo=UTC)
+    old_window = {"start_at": (now - timedelta(days=2)).isoformat(), "end_at": (now - timedelta(days=1)).isoformat()}
+    new_window = {**old_window, "end_at": (now + timedelta(days=1)).isoformat()}
+    flow = {"node_settings": {"calibration-1": {"calibration": {"phases": [{"phase_id": "first", "rules": []}]}}}, "node_times": {"calibration-1": {"phase_times": {"first": old_window}}}}
+    target = project("STARTED")
+    target.settings = {"template_id": 77, "flow_settings": deepcopy(flow)}
+    node = SimpleNamespace(id=10, node_id="calibration-1", node_type="calibration", config={"time": {"phase_times": {"first": old_window}}})
+    task = SimpleNamespace(node_snapshot_id=10, task_kind="calibration", phase_id="first", available_at=_parse_time(old_window["start_at"]), due_at=_parse_time(old_window["end_at"]), submitted_at=now - timedelta(days=1, hours=1), answers={"result": "保留已提交结果"}, answer_version=3)
+    workflow_nodes = [{"node_id": "calibration-1", "node_type": "calibration"}]
+    if backfill:
+        workflow_nodes.append({"node_id": "view", "node_type": "result_view", "name": "查看结果"})
+    class Rows(list):
+        def all(self):
+            return list(self)
+    class Db:
+        def add(self, row):
+            pass
+        async def get(self, model, identity):
+            return SimpleNamespace(nodes=workflow_nodes) if model is PerformanceTemplateWorkflow else None
+        async def execute(self, query):
+            model = query.column_descriptions[0]["entity"]
+            return SimpleNamespace(scalars=lambda: Rows([node] if model is PerformanceProjectNodeSnapshot else [task] if model is PerformanceNodeTask else []))
+        async def scalar(self, query):
+            return SimpleNamespace(id=7, source_snapshot_id=8)
+        async def flush(self):
+            pass
+        async def commit(self):
+            pass
+        async def refresh(self, row):
+            pass
+    service = PerformanceProjectService(Db())
+    monkeypatch.setattr(service, "_validate_distribution_template_options", AsyncMock())
+    monkeypatch.setattr(service, "_validate_manual_opening_policy", AsyncMock())
+    monkeypatch.setattr(projects_router, "datetime", SimpleNamespace(now=lambda tz: now))
+    assert projects_router._self_summary_state(task, *projects_router._task_window(task, node, target), False) == (False, False)
+    updated = deepcopy(flow)
+    updated["node_times"]["calibration-1"]["phase_times"]["first"] = new_window
+    if backfill:
+        updated["node_times"]["view"] = {"start_at": now.isoformat(), "end_at": (now + timedelta(days=2)).isoformat()}
+    payload = {"flow_settings": deepcopy(updated)}
+    await service.update_project(target, payload, actor_type="PORTAL_USER", actor_id=1)
+    saved = target.settings["flow_settings"]["node_times"]["calibration-1"]
+    assert saved["phase_times"]["first"] == new_window
+    assert payload["flow_settings"] == updated
+    assert task.due_at == _parse_time(new_window["end_at"])
+    assert projects_router._task_window(task, node, target) == (_parse_time(new_window["start_at"]), _parse_time(new_window["end_at"]))
+    assert projects_router._self_summary_state(task, *projects_router._task_window(task, node, target), False) == (True, True)
+    assert task.answers == {"result": "保留已提交结果"} and task.answer_version == 3
+    assert node.config["time"]["phase_times"]["first"] == old_window
 
 
 @pytest.mark.asyncio

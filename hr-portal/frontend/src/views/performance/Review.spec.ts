@@ -980,6 +980,38 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it.each(['pending', 'completed', 'overdue'])('opens a %s calibration member in the shared readonly drawer before editing', async status => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'calibration', node_name: '校准', node_type: 'calibration', task_kind: 'calibration', phase_id: 'phase-2', status: 'pending' as const }
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const detail = vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 81, node_id: 'calibration', task_kind: 'calibration', entry_mode: 'template_task', node_name: '校准', editable: status !== 'overdue', submit_allowed: status !== 'overdue', person: { employee_no: 'E3', display_name: '被校准人' }, form_schema: [], answers: {} })
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.getComponent(ProjectMemberListPanel).vm.$emit('select-member', { task_id: 81, employee_no: 'E3', display_name: '被校准人', status })
+    await flushPromises()
+    expect(push).not.toHaveBeenCalled()
+    expect(detail).toHaveBeenCalledWith(81, 'E3')
+    expect(wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' }).props('readonly')).toBe(false)
+    expect(replace).toHaveBeenLastCalledWith({ query: expect.objectContaining({ rootReviewId: '81', node: 'calibration' }) })
+    wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' }).vm.$emit('edit', { task_id: 81, employee_no: 'E3' })
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=81&project_id=1&node=calibration&employee_no=E3')
+    wrapper.unmount()
+  })
+
+  it('restores calibration source detail from a shared drawer link without navigating to edit', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'calibration', node_name: '校准', node_type: 'calibration', task_kind: 'calibration', phase_id: 'phase-2', status: 'pending' as const }
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration', rootReviewId: '81', activeTab: 'calibration' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const detail = vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 81, task_kind: 'calibration', entry_mode: 'template_task', node_name: '校准', editable: true, submit_allowed: true, person: { employee_no: 'E3', display_name: '被校准人' }, form_schema: [], answers: {} })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(detail).toHaveBeenCalledWith(81)
+    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' }).props('modelValue')).toBe(true)
+    wrapper.unmount()
+  })
+
   it('keeps unopened communication and calibration stages in the not-started state', async () => {
     for (const type of ['calibration', 'result_communication']) {
       const node = { ...overview.categories[0].nodes[0], node_id: type, node_type: type, task_kind: type, status: 'not_started' as const }

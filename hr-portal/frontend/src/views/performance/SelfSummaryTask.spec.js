@@ -141,7 +141,7 @@ describe('SelfSummaryTask', () => {
 
   it('carries calibration source answers through editing, submits only writable fields and shows trusted saved values', async () => {
     const loaded = {
-      ...structuredClone(task), task_kind: 'calibration', node_name: '校准', project_id: 1, node_id: 'calibration', return_view: 'page',
+      ...structuredClone(task), task_kind: 'calibration', node_name: '校准', project_id: 1, node_id: 'calibration', return_view: 'drawer',
       calibration_notice: '绩效校准人修改评估内容后会产生修改记录',
       form_schema: [{ id: 'result', name: '终评内容', fields: [
         { id: 'locked', type: 'rich_text', label: '不可调整', readonly: true },
@@ -165,7 +165,7 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.text()).toContain('服务器保留的可信值')
     expect(wrapper.text()).toContain('校准调整')
     expect(wrapper.get('.task-form-shell .task-notices--calibration').text()).toContain('修改记录')
-    expect(push).toHaveBeenCalledWith(expect.objectContaining({ query: expect.objectContaining({ view: '1', node: 'calibration' }) }))
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review', query: expect.objectContaining({ rootReviewId: 'task-1', activeTab: 'calibration', node: 'calibration' }) })
     wrapper.unmount()
   })
 

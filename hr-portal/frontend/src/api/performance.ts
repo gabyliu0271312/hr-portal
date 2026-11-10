@@ -1320,6 +1320,7 @@ export type PerformanceTemplateTask = {
   editable: boolean
   submit_allowed: boolean
   submitted_at?: string | null
+  answer_submissions?: Array<{ display_name: string; submitted_at: string }>
   version?: number
   can_giveup?: boolean
   person: SelfSummaryPerson
