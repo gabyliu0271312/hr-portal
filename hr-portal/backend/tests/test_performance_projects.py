@@ -8085,14 +8085,16 @@ async def test_delegation_stage_ids_distinguish_nodes_and_group_same_template_ac
 
 
 @pytest.mark.asyncio
-async def test_delegation_completed_and_revoked_tasks_disabled_without_changing_calibration(monkeypatch):
+async def test_delegation_completed_and_not_started_tasks_remain_delegatable_but_revoked_does_not(monkeypatch):
     from app.performance import projects_router as routes
     from unittest.mock import AsyncMock
     monkeypatch.setattr(routes, "_task_management_scope", AsyncMock(return_value=None))
     node = SimpleNamespace(node_type="evaluation")
-    for values in [{"status": "completed"}, {"submitted_at": "2026-01-01"}, {"revoked_at": "2026-01-01"}]:
+    for values in [{"status": "completed"}, {"submitted_at": "2026-01-01"}, {"available_at": "2099-01-01"}]:
         task = SimpleNamespace(id=1, handler_ref="M1", target_employee_no="E1", **values)
-        assert not await routes._authorize_task_delegation(task, node, project("STARTED"), context(), "M1", object(), {})
+        assert await routes._authorize_task_delegation(task, node, project("STARTED"), context(), "M1", object(), {})
+    revoked = SimpleNamespace(id=1, handler_ref="M1", target_employee_no="E1", revoked_at="2026-01-01")
+    assert not await routes._authorize_task_delegation(revoked, node, project("STARTED"), context(), "M1", object(), {})
     calibration = SimpleNamespace(project_id=1, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": "M1", "employee_no": "E1", "allow_authorize": True}]}]}})
     task = SimpleNamespace(id=1, project_id=1, task_kind="calibration", phase_id="p1", handler_ref="M1", target_employee_no="E1", status="completed")
     assert await routes._authorize_task_delegation(task, calibration, project("STARTED"), context(), "M1", object(), {})
@@ -8222,6 +8224,27 @@ async def test_reconsideration_effective_delegate_reads_and_submits_real_task(ta
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["AUTHORIZE", "TRANSFER"])
+async def test_delegation_create_ignores_completed_and_node_time_but_keeps_task_history(task_delegation_backend, action):
+    from datetime import UTC, datetime
+    data = task_delegation_backend
+    data.task.status = "completed"
+    data.task.submitted_at = datetime(2026, 1, 2, tzinfo=UTC)
+    data.task.completed_at = datetime(2026, 1, 2, tzinfo=UTC)
+    data.task.available_at = datetime(2099, 1, 1, tzinfo=UTC)
+    before = (data.task.status, data.task.submitted_at, data.task.completed_at, dict(data.task.answers))
+    result = await data.routes.create_task_delegation(
+        3,
+        7,
+        data.routes.PerformanceTaskAuthorizationPayload(action=action, recipient_employee_no="RECIPIENT"),
+        context(),
+        data.db,
+    )
+    assert result["status"] == "ACTIVE" and not data.db.records[0].read_only
+    assert (data.task.status, data.task.submitted_at, data.task.completed_at, data.task.answers) == before
+
+
+@pytest.mark.asyncio
 async def test_delegation_transfer_replaces_previous_authorizations(task_delegation_backend):
     data = task_delegation_backend
     await data.routes.create_task_delegation(3, 7, data.routes.PerformanceTaskAuthorizationPayload(action="AUTHORIZE", recipient_employee_no="RECIPIENT"), context(), data.db)
@@ -8254,7 +8277,7 @@ async def test_delegation_reconsideration_fallback_only_when_configured_roles_un
 
 
 @pytest.mark.asyncio
-async def test_delegation_task_map_omits_revoked_and_disables_completed(monkeypatch):
+async def test_delegation_task_map_omits_revoked_and_allows_completed(monkeypatch):
     from app.performance import projects_router as routes
     from unittest.mock import AsyncMock
     member = SimpleNamespace(direct_supervisor_employee_no="M1", hrbp_employee_no=None)
@@ -8264,8 +8287,8 @@ async def test_delegation_task_map_omits_revoked_and_disables_completed(monkeypa
     authorize = AsyncMock(return_value=True)
     monkeypatch.setattr(routes, "_authorize_task_delegation", authorize)
     options = await routes._member_task_options(member, tasks, stages, {}, None, project("STARTED"), context(), "ADMIN", object())
-    assert len(options) == 1 and options[0].task_id == 1 and not options[0].can_authorize
-    authorize.assert_not_awaited()
+    assert len(options) == 1 and options[0].task_id == 1 and options[0].can_authorize
+    authorize.assert_awaited_once()
 
 
 @pytest.mark.asyncio

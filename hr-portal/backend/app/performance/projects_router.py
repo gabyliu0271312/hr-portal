@@ -1744,7 +1744,7 @@ async def _member_task_options(
                 role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
         if not role_candidates and not str(task.handler_ref or "").strip():
             role_candidates.append(("SPECIFIED_PERSON", "指定人员"))
-        can_authorize = bool(role_candidates) and not _task_completed(task) and await _authorize_task_delegation(task, node, project, context, actor_ref, db, active_by_task, progress_scope)
+        can_authorize = bool(role_candidates) and await _authorize_task_delegation(task, node, project, context, actor_ref, db, active_by_task, progress_scope)
         for role_key, role_label in role_candidates:
             handler_name = getattr(people.get(str(task.handler_ref)), "display_name", None)
             if not handler_name:
@@ -3338,7 +3338,7 @@ async def _task_management_scope(context: PerformanceAccessContext, project: Per
 
 
 async def _authorize_task_delegation(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, project: PerformanceProject, context: PerformanceAccessContext, actor_ref: str, db: AsyncSession, active_by_task: dict[int, list[PerformanceNodeTaskAuthorization]] | None = None, progress_scope: set[str] | None | object = _SCOPE_NOT_PROVIDED) -> bool:
-    if getattr(task, "revoked_at", None) is not None or node.node_type != "calibration" and _task_completed(task):
+    if getattr(task, "revoked_at", None) is not None:
         return False
     if node.node_type == "calibration":
         if not calibration_task_scope(task, node):
@@ -3591,12 +3591,8 @@ async def create_task_delegation(
         setting = await db.get(PerformanceOtherSetting, 1)
         if setting and not setting.calibration_authorization_outside_direct_reports_enabled and recipient.direct_supervisor_employee_no != task.handler_ref:
             raise HTTPException(status_code=403, detail="CALIBRATION_RECIPIENT_OUTSIDE_SCOPE")
-    if not _task_is_available(task, node, project):
-        raise HTTPException(status_code=409, detail="TASK_NOT_STARTED")
     if node.node_type == "calibration" and payload.action == "TRANSFER":
         raise HTTPException(status_code=422, detail="CALIBRATION_TRANSFER_NOT_SUPPORTED")
-    if _task_completed(task) and node.node_type != "calibration":
-        raise HTTPException(status_code=409, detail="TASK_ALREADY_COMPLETED")
     if node.node_type == "calibration" and payload.distribution_mode == "NONE":
         raise HTTPException(status_code=422, detail="CALIBRATION_DISTRIBUTION_OVERRIDE_UNSUPPORTED")
     if node.node_type == "calibration":
@@ -3634,7 +3630,7 @@ async def create_task_delegation(
         task_id=task.id, project_id=project.id, cycle_ref=project.cycle_ref,
         authorization_type=payload.action, grantor_employee_no=actor.actor_ref,
         recipient_employee_no=recipient.employee_no, reason=payload.reason.strip(), status="ACTIVE",
-        read_only=_task_completed(task) or bool(parent and parent.read_only), authorization_settings=authorization_settings,
+        read_only=bool(parent and parent.read_only), authorization_settings=authorization_settings,
     )
     db.add(record)
     await db.flush()
