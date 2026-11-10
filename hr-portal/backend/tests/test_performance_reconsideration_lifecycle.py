@@ -65,6 +65,7 @@ def lifecycle(monkeypatch):
         return values
 
     monkeypatch.setattr(service, "submission_context", context)
+    monkeypatch.setattr(service, "freeze_published_result", AsyncMock(return_value=({"task_versions": {"original": 7}}, 2)))
     return SimpleNamespace(db=Db(), values=values, node=node,
                            actor=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1"))
 
@@ -335,7 +336,7 @@ async def test_router_mutations_return_same_status_and_use_current_employee(monk
         assert (await client.post(url + "/withdraw", json={"version": 2})).json() == output
         assert (await client.patch(url, json={"reason": "无版本"})).status_code == 422
         assert (await client.post(url + "/withdraw", json={})).status_code == 422
-    submit.assert_awaited_once_with(db, 1, "E1", "初次", actor, None)
+    submit.assert_awaited_once_with(db, 1, "E1", "初次", actor, None, context=context)
     edit.assert_awaited_once_with(db, 1, "E1", "修改", 1, actor)
     withdraw.assert_awaited_once_with(db, 1, "E1", 2, actor)
 

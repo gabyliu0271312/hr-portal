@@ -1,5 +1,24 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T02-F40 结果复议处理统一模板、冻结结果与提交闭环（2026-11-10）
+  - Goal: 在现有成员表格、template-task 工作区、Renderer 与版本机制内修复复议处理，并使保持/变更后的结果可稳定回读。
+  - Type: contract/backend/frontend/API/migration/test；承接 F38/F39、CR-008、CR-010-F13、CR-012/013。
+  - Prerequisites/确认来源: 本会话用户在完整修复前依次选择“员工已开通结果（推荐）”“提交即关闭（推荐）”“严格按模板（推荐）”；整合 F39 时再次明确选择“处理后全部锁定”，即处理人首个提交后，员工也不得编辑、撤回或重发。F39 的截止后撤回权仅适用于尚未处理关闭的申请。
+  - Required reading: Spec002 START_HERE/基线/本功能及相关 CR、Spec012 UI gate、execution-contract/task-card-template/acceptance-evidence/migration-coordination。
+  - Allowed modifications: performance models/projects_router/reconsideration_service/project_service/template_workflow_service；新增 reconsideration_result_service 和0301增量迁移；相关现有测试及 result 专项；前端 api/performance、Review.spec、PerformanceReviewContent/performanceReviewDisplay、SelfSummaryTask、模板预览/内容设置及resolver/对应测试；共享 PerformanceReconsiderationContent 组件；本任务/交互/spec及独立实现PNG。
+  - Forbidden: 既有迁移、F39员工组件及既有业务记录删除、021/UCP/独立消息或表单引擎、历史终评/原opening回写、生产/发布。
+  - Shared files: F39完成后串行接收models/router/service/API；保留其withdrawn_at/version/员工UI。F39被单独隔离提交，本F40仍保留工作区，不擅自提交或推送。
+  - Input/output: 现有template-task URL/方法保持，answers.keep_result显式keep/change，version必传；detail/提交新增reconsideration_closed。申请事务复用员工正式结果投影，冻结opening_id/member_snapshot_id/task_versions/source_result/form_schema/answers；主区字段与复议自身calibration_settings求交集，reference不进入可写集。result_version仍为任务版本映射，不冒充答案快照。
+  - Transaction/state: 项目→申请→有效任务同序锁后复验，草稿保留选择并同步协作者版本；首个成功提交写effective_result/closed_at/closed_by和审计，同事务完成全部协作任务。closed后草稿/提交/丢弃及员工edit/withdraw/resubmit返回409 RECONSIDERATION_CLOSED；GET可只读。保留只读授权403、资源404、旧版本409。keep不验证隐藏调整字段，change仅接受可信schema的可写字段，不新增固定feedback；非法字段/选项400 VALIDATION_FAILED。
+  - Historical/migration: 新增0301_pm_reconsideration_result接0300，5个可空列；历史行不猜补、不重分类、不删除。旧申请无result_snapshot处理返回409 RECONSIDERATION_BASELINE_UNAVAILABLE；不使普通员工已开通结果整体不可读。存在快照/有效结果/关闭记录时downgrade保护性拒绝。未改final答案或opening；关闭结果从独立effective_result读取。
+  - UI: 原路由/角色不变，复议列表直接ProjectMemberListPanel、无三页签；任务与预览复用PerformanceReconsiderationContent+TemplateRenderer。理由/选择/结果在同一白卡，keep无多余提示，change带可信原值；show=false隐藏选择/结果并按keep处理，零字段仍可授权完成；关闭全只读。沿已确认CR-008工作区v1和用户模板预览要求局部修复，不引入新页。
+  - Test contract: Given合法/越权/只读/旧版本/历史无快照/隐藏或非法字段/keep/change/协作任务/员工撤回重发；When申请冻结→草稿→HTTP提交→回读/关闭再写；Then基底不漂移、只覆盖许可字段、只读保留、主结果与评级摘要一致、引用不变、关闭后所有写拒绝、历史终评不变。现有项目/模板/lifecycle/result pytest及Review/任务/模板/Renderer Vitest，build/diff检查。
+  - Evidence（最终）: 命令 `DB_HOST=127.0.0.1 DB_PORT=1 DB_NAME=pm_reconsideration_unit_tests PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_template_workflow.py hr-portal/backend/tests/test_performance_reconsideration_lifecycle.py hr-portal/backend/tests/test_performance_reconsideration_results.py -q -k 'not test_workbench_tasks_and_people_return_live_due_date and not test_evaluation_member_list_can_return_completed_and_pending_tasks and not test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate' --tb=short` → **995 passed/6 skipped/8 deselected**（排除含6失败的8例，6失败已在HEAD基线复现；skip不是通过）。result专项52例通过（含ASGI HTTP草稿→提交→结果回读、关闭写拒绝、迁移保护替身），复议/结果/开通定向191例曾通过，组间重叠不累计。四文件未过滤联合此前989 passed/6 skipped/6 failed，6失败均为既有communication mock缺scalars，未改无关业务。前端命令 `npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceTemplatePreviewStep.spec.ts src/views/performance/PerformanceTemplateContentSettings.spec.ts src/components/performance/performanceContentSettingsResolver.spec.ts src/components/performance/PerformanceTemplateRenderer.spec.ts src/components/performance/PerformanceResultReconsideration.spec.ts` → **7文件350 passed**（有既有360 jsdom XHR stderr，不声称零告警）。vue-tsc+Vite构建通过（先前两处测试类型错误已修），既有VueUse PURE提示；git diff --check及py_compile通过，唯一head0301。
+  - UI evidence: 本地真实Vite路由+隔离Chromium受控API，1440×900/390×844，鼠标keep隐藏/无提示/按钮可用→change显示可信只读原值→提交仅writable+choice→刷新关闭只读，0 pageerrors、无横向溢出，理由矩形在白卡内；`../../ui-blueprints/PM-T004-T02-F40-implemented-keep.png`、`...-change.png`、`...-mobile.png`（change/mobile已读取）。截图/模拟API不是实际数据库或生产验收。
+  - Blockers/not-run: 本机无5432/8000服务，docker info确认引擎不可用；真实隔离PG升降级/独立事务并发/实际API→SQL→新连接回读未执行，不勾选完成或声称可发布。未实际发送通知、部署、commit/push。
+  - Acceptance/rollback: 数据库与真实链路证据齐全前保持未勾选。回退代码不能删除已冻结/生效的业务历史；迁移有数据拒绝降级，须另行获准处置。
+
+
 - [ ] PM-T004-T02-F39 员工结果复议发起、编辑、撤回与再次发起（2026-11-10 用户要求完成修复，沿 V1 继续实施）
   - Goal: 在既有员工结果页完成提交、截止前编辑、截止前后撤回和截止前重新发起，并同步本轮处理待办及通知有效性。
   - Type: contract/backend/frontend/API/migration/test；承接 F36 提示配置、F38 派发与 CR-010-F13 结果只读架构。

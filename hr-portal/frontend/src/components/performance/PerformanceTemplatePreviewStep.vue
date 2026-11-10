@@ -19,7 +19,7 @@ import PerformanceReferenceSkeleton from './PerformanceReferenceSkeleton.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceResultReviewer360Block from './PerformanceResultReviewer360Block.vue'
-import PerformanceSingleSelectControl from './PerformanceSingleSelectControl.vue'
+import PerformanceReconsiderationContent from './PerformanceReconsiderationContent.vue'
 import PerformancePromptDisplay from './PerformancePromptDisplay.vue'
 import { ASSESSMENT_ROLE_CODES, performanceExecutorDisplayLabel } from './performanceExecutorOptions'
 import { performanceTemplateInitialAnswers } from './performanceTemplateAnswers'
@@ -61,14 +61,8 @@ const isResultReconsideration = computed(() => selectedNode.value?.node_type ===
 /** REA 复议 final：显示绩效结果并允许修改（模板节点级配置，取消后右栏绩效结果内容链隐藏只剩复议理由） */
 const showResultAndModify = computed(() => selectedNode.value?.show_result_and_modify !== false)
 /* REA 实测：复议处理环节的「是否保持复议前结果」默认为「变更结果」（选中态 #1456f0） */
-const keepResultOptions = [
-  { id: 'keep', label: '保持原结果' },
-  { id: 'change', label: '变更结果' },
-]
 /** 复议环节右栏预览选择：默认「变更结果」，预览内可交互（与运行时 SelfSummaryTask 同一单选联动） */
 const keepResultValue = ref<'keep' | 'change'>('change')
-/** 复议环节右栏是否展示绩效结果内容链 = 节点配置开关 && 预览默认选择「变更结果」 */
-const showReconResultChain = computed(() => showResultAndModify.value && keepResultValue.value === 'change')
 
 function slotContents(node: PerformanceWorkflowNode | null, slot: 'fill' | 'reference' | 'adjustment' | 'view') {
   if (!node) return []
@@ -143,15 +137,10 @@ const finalNode = computed(() => {
 const rightContents = computed<PerformanceTemplateContent[]>(() => {
   const node = selectedNode.value
   if (!node) return []
-  /* 校准按唯一终评内容及独立设置投影；复议保留既有 adjustment 回退。 */
-  if (isCalibration.value) {
+  /* 校准和复议按唯一终评定义与各自节点设置投影。 */
+  if (isCalibration.value || isResultReconsideration.value) {
     return resolveCalibrationContents(slotContents(finalNode.value, 'fill'), node.calibration_settings)
       .filter(content => content.type === 'prompt' || (content.items || []).some(item => item.kind === 'prompt' || item.settings?.mode !== 'hidden'))
-  }
-  if (isResultReconsideration.value) {
-    const adjustment = slotContents(node, 'adjustment')
-    if (adjustment.length) return adjustment
-    return visibleFillContents(finalNode.value)
   }
   if (isResultView.value) {
     const view = slotContents(node, 'view')
@@ -222,9 +211,9 @@ const previewAnswers = reactive<Record<string, Record<string, unknown>>>({})
 function contentKeyOf(content: PerformanceTemplateContent) {
   return performanceContentKey(content)
 }
-/** 仅「配置填写内容」可操作：查看结果 / 校准 / 邀请 / 复议为只读或专用表单 */
+// 复议投影沿用字段级 allowModify；其他只读环节不变。
 function canEditContent(content: PerformanceTemplateContent) {
-  return !isResultView.value && !isCalibration.value && !isInvite.value && !isResultReconsideration.value && content.type !== 'prompt'
+  return !isResultView.value && !isCalibration.value && !isInvite.value && content.type !== 'prompt'
 }
 const editableSections = computed<Record<string, PerformanceTemplateSection[]>>(() => {
   const result: Record<string, PerformanceTemplateSection[]> = {}
@@ -447,23 +436,23 @@ function contentDescription(content: PerformanceTemplateContent) {
                   </div>
                 </template>
 
+                <PerformanceReconsiderationContent v-else-if="isResultReconsideration" :title="rightTitle" reason="这里展示被评估人发起复议时填写的内容" v-model="keepResultValue" :show-result-and-modify="showResultAndModify" interactive>
+                  <div class="ptp-blocks">
+                    <div v-for="content in rightContents" :key="contentKeyOf(content)" class="ptp-block">
+                      <div v-if="content.type !== 'prompt'" class="ptp-block__header">
+                        <div class="ptp-block__title">{{ content.name }}</div>
+                        <div v-if="contentDescription(content)" class="ptp-block__desc">{{ contentDescription(content) }}</div>
+                      </div>
+                      <PerformanceTemplateRenderer v-if="content.type !== 'prompt'" mode="edit" editable :show-header="false" placeholder-fallback="" :sections="sectionsFor(content)" :answers="answersFor(content)" @update-answer="(fieldId, value) => setPreviewAnswer(content, fieldId, value)" />
+                      <PerformancePromptDisplay v-else-if="content.prompt" :value="content.prompt" class="content-renderer-prompt" />
+                    </div>
+                  </div>
+                </PerformanceReconsiderationContent>
                 <!-- 校准 / 通用填写 -->
                 <template v-else>
                   <!-- REA：内容为空时只渲染空态，不渲染页标题 -->
                   <div v-if="rightContents.length" class="ptp-page-title">{{ rightTitle }}</div>
 
-                  <!-- 结果复议处理：复议理由（分节标题 + 灰底只读引用）+ 是否保持复议前结果（单选组，可操作） -->
-                  <div v-if="isResultReconsideration" class="ptp-recon">
-                    <div class="ptp-recon__head">复议理由</div>
-                    <div class="ptp-recon__value">这里展示被评估人发起复议时填写的内容</div>
-                    <!-- REA：取消「显示绩效结果并允许修改」后，是否保持复议前结果单选项与绩效结果区均不显示 -->
-                    <template v-if="showResultAndModify">
-                      <div class="ptp-recon__label">是否保持复议前结果</div>
-                      <PerformanceSingleSelectControl class="ptp-recon__radios" :model-value="keepResultValue" :options="keepResultOptions" interactive aria-label="是否保持复议前结果" @update:model-value="(value: string) => keepResultValue = value as 'keep' | 'change'" />
-                    </template>
-                  </div>
-                  <!-- 复议 final：仅当「显示绩效结果并允许修改」且预览选择「变更结果」时展示绩效结果区 -->
-                  <div v-if="isResultReconsideration && showReconResultChain" class="ptp-result-group__title">绩效结果</div>
 
                   <!-- 空态仅用于内容真正为空（与其他环节一致）；复议取消勾选 / 保持原结果为主动隐藏，下方不渲染 -->
                   <div v-if="!rightContents.length" class="ptp-empty">
@@ -473,7 +462,7 @@ function contentDescription(content: PerformanceTemplateContent) {
                     <div class="ptp-empty__desc">暂未配置供参考内容</div>
                   </div>
 
-                  <div v-else-if="!isResultReconsideration || showReconResultChain" class="ptp-blocks" :class="{ 'ptp-blocks--group': isResultReconsideration }">
+                  <div v-else class="ptp-blocks">
                     <div v-for="content in rightContents" :key="content.content_id || content.id || content.name" class="ptp-block">
                       <div v-if="content.type !== 'prompt'" class="ptp-block__header">
                         <div class="ptp-block__title">{{ content.name }}</div>
@@ -623,17 +612,6 @@ function contentDescription(content: PerformanceTemplateContent) {
 .ptp-blocks { margin-top: 16px; }
 /* 查看结果：REA 页标题与首个内容块之间无 16 间距（标题文字 y=133、综合评级 y=174） */
 .ptp-body--result .ptp-blocks { margin-top: 0; }
-/* 结果复议处理：组标题自身带 20 间距（REA mb-10=20），块列表紧随其后 */
-.ptp-blocks--group { margin-top: 20px; }
-
-/* ---------- 结果复议处理：复议理由（16/24 600 + 2×16 蓝条）+ 灰底只读引用 + 单选组 ----------
-   实测：标题盒 24 高、下方 16 到灰框；灰框 631×53 = padding 16/20 + 21、radius 4、bg #f8f9fa、下距 28；
-   单选标签 14/22 600、下距 8；单选行 22 高、选项间距 24。 */
-.ptp-recon__head { position: relative; padding-left: 10px; font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
-.ptp-recon__head::before { content: ''; position: absolute; left: 0; top: 4px; width: 2px; height: 16px; background: #3370ff; }
-.ptp-recon__value { margin-top: 16px; margin-bottom: 28px; padding: 16px 20px; border-radius: 4px; background: #f8f9fa; font-size: 14px; line-height: 21px; color: #1f2329; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ptp-recon__label { margin-bottom: 8px; font-size: 14px; font-weight: 600; line-height: 22px; color: #1f2329; }
-.ptp-result-group__title { margin-top: 20px; font-size: 16px; font-weight: 600; line-height: 24px; color: #1f2329; }
 .ptp-block { margin-bottom: 32px; }
 .ptp-block:last-child { margin-bottom: 0; }
 /* 查看绩效结果：360°反馈区块紧随绩效结果内容，间距与内容块一致（REA mb-8=16 距上一块，块间 32） */

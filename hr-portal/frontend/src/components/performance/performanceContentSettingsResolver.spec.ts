@@ -51,6 +51,15 @@ describe('resolveFieldSettings', () => {
     expect(settings.permission).toBe('read')
   })
 
+  it('allows only projected reconsideration adjustment fields to use local write settings', () => {
+    expect(isNodeReadonly(node('result_reconsideration'))).toBe(true)
+    expect(resolveFieldSettings({ node: node('result_reconsideration'), content: content(), item: item('i1') }).permission).toBe('read')
+    const projected = content({ content_slot: 'adjustment' })
+    expect(resolveFieldSettings({ node: node('result_reconsideration'), content: projected, item: item('i1', { settings: { allowModify: true } }) }).permission).toBe('write')
+    expect(resolveFieldSettings({ node: node('result_reconsideration'), content: projected, item: item('i1', { settings: { allowModify: false } }) }).permission).toBe('read')
+    expect(resolveFieldSettings({ node: node('result_reconsideration'), content: projected, item: item('i1'), readonly: true }).permission).toBe('read')
+  })
+
   it('derives readonly from content_slot=view (参考内容查看态)', () => {
     const settings = resolveFieldSettings({ content: content({ content_slot: 'view' }), item: item('i1') })
     expect(settings.permission).toBe('read')

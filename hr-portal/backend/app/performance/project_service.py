@@ -1325,7 +1325,7 @@ class PerformanceProjectService:
         node_times = flow_settings.get("node_times") or {}
         for index, source_node in enumerate(nodes):
             node_type = source_node.get("node_type")
-            if node_type == "calibration":
+            if node_type in {"calibration", "result_reconsideration"}:
                 final_node = next(node for node in nodes if node.get("include_final_result"))
                 raw_node = calibration_template(source_node, final_node, content_library)
             else:
@@ -1474,7 +1474,13 @@ class PerformanceProjectService:
         for index, source_node in enumerate(pending):
             node_id = str(source_node["node_id"])
             node_type = source_node.get("node_type")
-            raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else source_node
+            if node_type == "result_reconsideration":
+                finals = [item for item in existing if ((item.config or {}).get("template") or {}).get("include_final_result")]
+                if len(finals) != 1:
+                    raise ProjectValidationError("项目冻结终评来源不唯一，不能补建复议节点")
+                raw_node = calibration_template(source_node, (finals[0].config or {}).get("template") or {}, [])
+            else:
+                raw_node = resolve_self_summary_content(source_node, list(workflow.content_library or [])) if node_type in {"work_summary", "evaluation"} else source_node
             raw_node = await hydrate_self_summary_template(raw_node, self.db) if node_type in {"work_summary", "evaluation", "result_reconsideration"} else raw_node
             snapshot = PerformanceProjectNodeSnapshot(project_id=project.id, node_id=node_id, node_type=node_type, name=str(raw_node.get("name") or node_id), node_order=int(raw_node.get("order") or index + 1), config={"template": raw_node, "time": normalized_times[node_id]})
             self.db.add(snapshot)

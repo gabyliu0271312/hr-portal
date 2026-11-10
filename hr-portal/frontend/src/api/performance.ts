@@ -1328,6 +1328,7 @@ export type PerformanceTemplateTask = {
   prompts?: PerformancePromptValue[]
   calibration_notice?: string | null
   reconsideration_reason?: string | null
+  reconsideration_closed?: boolean
   /** 结果复议处理：模板节点「显示绩效结果并允许修改」开关透传 */
   show_result_and_modify?: boolean | null
   /** 结果复议处理：处理人「是否保持复议前结果」选择（keep=保持原结果 隐藏绩效结果 / change=变更结果 展示，默认 change） */
@@ -1370,7 +1371,7 @@ export type PerformanceReminderPreview = {
   assessee_name: string
 }
 export type SelfSummaryTask = PerformanceTemplateTask
-export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean }
+export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {

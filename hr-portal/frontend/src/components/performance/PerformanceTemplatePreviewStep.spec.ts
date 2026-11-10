@@ -295,8 +295,8 @@ describe('PerformanceTemplatePreviewStep', () => {
     await wrapper.findAll('.ptp-stage-card').find(card => card.text().includes('结果复议处理'))!.trigger('click')
     await flushPromises()
     // 默认（未配置/缺省 true）：复议理由 + 绩效结果标题 + 内容链均渲染（内容链来自 final 环节投影）
-    expect(wrapper.get('.ptp-recon__head').text()).toBe('复议理由')
-    expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
+    expect(wrapper.get('.reconsideration-reason-title').text()).toBe('复议理由')
+    expect(wrapper.get('.reconsideration-result-title').text()).toBe('绩效结果')
     expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
     wrapper.unmount()
   })
@@ -310,11 +310,11 @@ describe('PerformanceTemplatePreviewStep', () => {
     await wrapper.findAll('.ptp-stage-card').find(card => card.text().includes('结果复议处理'))!.trigger('click')
     await flushPromises()
     // 复议理由保留
-    expect(wrapper.get('.ptp-recon__head').text()).toBe('复议理由')
+    expect(wrapper.get('.reconsideration-reason-title').text()).toBe('复议理由')
     // 取消勾选：单选项不显示、绩效结果标题不显示、内容链不显示、空态也不显示（下方空白）
-    expect(wrapper.find('.ptp-recon__label').exists()).toBe(false)
-    expect(wrapper.find('.ptp-recon__radios').exists()).toBe(false)
-    expect(wrapper.find('.ptp-result-group__title').exists()).toBe(false)
+    expect(wrapper.find('.reconsideration-choice-label').exists()).toBe(false)
+    expect(wrapper.find('.reconsideration-choice').exists()).toBe(false)
+    expect(wrapper.find('.reconsideration-result-title').exists()).toBe(false)
     expect(wrapper.find('.ptp-block').exists()).toBe(false)
     expect(wrapper.find('.ptp-empty').exists()).toBe(false)
     wrapper.unmount()
@@ -329,21 +329,62 @@ describe('PerformanceTemplatePreviewStep', () => {
     await wrapper.findAll('.ptp-stage-card').find(card => card.text().includes('结果复议处理'))!.trigger('click')
     await flushPromises()
     // 默认「变更结果」→ 绩效结果区展示
-    expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
+    expect(wrapper.get('.reconsideration-result-title').text()).toBe('绩效结果')
     expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
     // 单选项可操作（非 disabled）
-    const radioInputs = wrapper.findAll('.ptp-recon__radios input')
+    const radioInputs = wrapper.findAll('.reconsideration-choice input')
     expect(radioInputs).toHaveLength(2)
     expect(radioInputs.every(input => !(input.element as HTMLInputElement).disabled)).toBe(true)
     // 选择「保持原结果」→ 内容链与标题隐藏、下方空白
     await radioInputs[0].setValue(true)
-    expect(wrapper.find('.ptp-result-group__title').exists()).toBe(false)
+    expect(wrapper.find('.reconsideration-result-title').exists()).toBe(false)
     expect(wrapper.find('.ptp-block').exists()).toBe(false)
     expect(wrapper.find('.ptp-empty').exists()).toBe(false)
     // 切回「变更结果」→ 内容链恢复
-    await wrapper.findAll('.ptp-recon__radios input')[1].setValue(true)
-    expect(wrapper.get('.ptp-result-group__title').text()).toBe('绩效结果')
+    await wrapper.findAll('.reconsideration-choice input')[1].setValue(true)
+    expect(wrapper.get('.reconsideration-result-title').text()).toBe('绩效结果')
     expect(wrapper.get('.ptp-block__title').text()).toBe('复议结果内容')
+    wrapper.unmount()
+  })
+
+  it('projects reconsideration local permissions into the shared editable renderer without using calibration or stale copies', async () => {
+    const content = { ...structuredClone(fillSummary), content_id: 'result', items: [
+      { id: 'editable', kind: 'fill', label: '允许修改', settings: { mode: 'fill', required: true } },
+      { id: 'locked', kind: 'fill', label: '不允许修改', settings: { mode: 'fill', required: true } },
+      { id: 'hidden', kind: 'fill', label: '隐藏题', settings: { mode: 'hidden' } },
+    ] } as any
+    const wrapper = mountStep([
+      node({ node_id: 'final', name: '上级评估', include_final_result: true, content: [content] }),
+      node({ node_id: 'calibration', node_type: 'calibration', name: '校准', calibration_settings: { result: { items: { editable: { allowModify: false } } } } }),
+      node({ node_id: 'recon', node_type: 'result_reconsideration', name: '结果复议处理', calibration_settings: { result: { settings: { hideDescription: true }, items: { editable: { allowModify: true }, locked: { allowModify: false } } } }, content: [{ ...fillRating, name: '过时复议副本', content_slot: 'adjustment' }] }),
+    ])
+    await flushPromises()
+    await wrapper.findAll('.ptp-stage-card')[2].trigger('click')
+    expect(wrapper.find('.performance-reconsideration-content [data-field-id="editable"] [contenteditable="true"]').exists()).toBe(true)
+    expect(wrapper.find('[data-field-id="locked"] [contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.find('[data-field-id="locked"] .readonly-answer').exists()).toBe(true)
+    expect(wrapper.find('[data-field-id="hidden"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('过时复议副本')
+    expect(wrapper.find('.performance-reconsideration-content .ptp-block__desc').exists()).toBe(false)
+    const input = wrapper.get('[data-field-id="editable"] .rich-input')
+    input.element.innerHTML = '预览输入'
+    await input.trigger('input')
+    await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+    expect(wrapper.find('.reconsideration-result').exists()).toBe(false)
+    expect(wrapper.find('.ptp-empty').exists()).toBe(false)
+    await wrapper.get('.reconsideration-choice input[value="change"]').setValue(true)
+    expect(wrapper.get('[data-field-id="editable"] .rich-input').text()).toContain('预览输入')
+    expect((wrapper.get('.ptp-footer button').element as HTMLButtonElement).disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps an empty reconsideration fixed region without inventing feedback or an empty-state hint', async () => {
+    const wrapper = mountStep([node({ node_id: 'r', node_type: 'result_reconsideration', name: '复议处理' })])
+    await flushPromises()
+    expect(wrapper.get('.reconsideration-reason').text()).toContain('这里展示被评估人')
+    expect(wrapper.find('.reconsideration-choice').exists()).toBe(true)
+    expect(wrapper.find('.ptp-empty').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('反馈说明')
     wrapper.unmount()
   })
 

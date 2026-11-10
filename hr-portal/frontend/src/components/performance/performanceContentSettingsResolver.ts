@@ -65,7 +65,7 @@ export function resolveFieldSettings({ node, content, item, readonly = false }: 
 
   /* 只读判定：飞书没有 view 态，只读 = 可渲染但不可写（permission.mode=read） */
   const locked = readonly
-    || isNodeReadonly(node)
+    || (isNodeReadonly(node) && !(node?.node_type === 'result_reconsideration' && content.content_slot === 'adjustment'))
     || content.content_slot === 'view'
     || itemSettings.mode === 'view'
     || itemSettings.allowModify === false

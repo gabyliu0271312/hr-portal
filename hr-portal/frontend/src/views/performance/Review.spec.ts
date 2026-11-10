@@ -16,6 +16,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import Review from './Review.vue'
+import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
 import PerformanceReview360InvitePanel from '@/components/performance/PerformanceReview360InvitePanel.vue'
@@ -95,6 +96,20 @@ describe('PerformanceReview', () => {
     expect(reviewContentSource).toMatch(/\.review-panel\.completed\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-height:\s*0/)
     expect(reviewContentSource).toMatch(/\.completed-content\s*\{[^}]*flex:\s*none/)
     expect(reviewContentSource).toContain('.review-panel > p, .review-state p')
+  })
+
+  it('renders reconsideration directly as a members table without manager tabs', async () => {
+    const node = { ...overview.categories[3].nodes[0], task_kind: 'result_reconsideration', entry_mode: 'template_task' as const }
+    const wrapper = mount(PerformanceReviewContent, {
+      props: { node, projectId: 1, loading: false, error: '', templateName: '模板' },
+      global: { stubs: { ProjectMemberListPanel: { template: '<div class="recon-member-table" />' } } },
+    })
+    await flushPromises()
+    expect(wrapper.find('.recon-member-table').exists()).toBe(true)
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('矩阵分析')
+    expect(wrapper.text()).not.toContain('统计报表')
+    wrapper.unmount()
   })
 
   it('uses the identity epoch as the view key without remounting on query navigation', () => {

@@ -1020,6 +1020,11 @@ class PerformanceResultReconsideration(Base):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    result_snapshot: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    effective_result: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    closed_by_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class PerformanceReconsiderationNotification(Base):

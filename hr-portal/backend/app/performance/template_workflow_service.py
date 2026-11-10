@@ -549,7 +549,7 @@ def normalize_workflow_nodes(nodes: list[dict]) -> list[dict]:
         )
         if node.get("content_region_order") is not None:
             normalized[-1]["content_region_order"] = deepcopy(node["content_region_order"])
-        if node_type == "calibration" and "calibration_settings" in node:
+        if node_type in {"calibration", "result_reconsideration"} and "calibration_settings" in node:
             normalized[-1]["calibration_settings"] = deepcopy(node["calibration_settings"])
         if node.get("content") is not None:
             normalized[-1]["content"] = [_normalize_content(content, node_id) for content in node["content"]]
@@ -824,7 +824,7 @@ class PerformanceTemplateWorkflowService:
             previous = old_by_id.get(snapshot.node_id)
             if source is None or previous is None:
                 continue
-            if source["node_type"] == "calibration" and final is not None and old_final is not None:
+            if source["node_type"] in {"calibration", "result_reconsideration"} and final is not None and old_final is not None:
                 source = calibration_template(source, final, library)
                 previous = calibration_template(previous, old_final, previous_library)
             config = deepcopy(snapshot.config or {})
@@ -892,7 +892,7 @@ class PerformanceTemplateWorkflowService:
             existing_node = existing_nodes.get(node["node_id"])
             if "content_page_name" not in raw_node and existing_node is not None:
                 node["content_page_name"] = _normalize_content_page_name(existing_node, node["node_id"])
-            if node["node_type"] == "calibration" and "calibration_settings" not in raw_node and existing_node is not None:
+            if node["node_type"] in {"calibration", "result_reconsideration"} and "calibration_settings" not in raw_node and existing_node is not None:
                 node["calibration_settings"] = deepcopy(existing_node.get("calibration_settings") or {})
         existing_library = getattr(record, "content_library", None) if record is not None else []
         incoming_library = normalize_content_library(content_library or [])

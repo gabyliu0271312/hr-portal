@@ -49,6 +49,21 @@ def _evaluation(
     }
 
 
+def test_reconsideration_settings_round_trip_independent_of_calibration():
+    nodes = default_workflow_nodes()
+    nodes.append({
+        "node_id": "appeal", "node_type": "result_reconsideration", "name": "结果复议处理",
+        "order": 3, "executor_types": ["HRBP"], "executor_label": "复议处理人",
+        "calibration_settings": {"rating": {"items": {"grade": {"allowModify": False, "hideName": True}}}},
+    })
+    normalized = normalize_workflow_nodes(nodes)
+    settings = normalized[-1]["calibration_settings"]
+    assert settings == nodes[-1]["calibration_settings"]
+    assert WorkflowNode.model_validate(normalized[-1]).calibration_settings["rating"].items["grade"].allowModify is False
+    settings["rating"]["items"]["grade"]["allowModify"] = True
+    assert nodes[-1]["calibration_settings"]["rating"]["items"]["grade"]["allowModify"] is False
+
+
 def test_workflow_contract_defaults_new_invitation_fields():
     payload = WorkflowNode.model_validate(default_workflow_nodes()[0])
     result_view = WorkflowNode.model_validate(default_workflow_nodes()[1])

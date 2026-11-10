@@ -195,19 +195,197 @@ describe('SelfSummaryTask', () => {
     const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
     await flushPromises()
     // 复议理由 + 单选项 + 绩效结果内容链均渲染
-    expect(wrapper.text()).toContain('复议理由：对评级有异议')
-    expect(wrapper.get('.recon-decision__label').text()).toBe('是否保持复议前结果')
-    expect(wrapper.findAll('.recon-decision__radios .performance-single-select__option')).toHaveLength(2)
+    expect(wrapper.get('.task-form-shell .reconsideration-reason').text()).toBe('对评级有异议')
+    expect(wrapper.get('.reconsideration-choice-label').text()).toBe('是否保持复议前结果')
+    expect(wrapper.findAll('.reconsideration-choice .performance-single-select__option')).toHaveLength(2)
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(true)
     // 切换到「保持原结果」→ 内容链隐藏，显示保持提示
-    await wrapper.get('.recon-decision__radios input[value="keep"]').setValue(true)
+    await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
     await flushPromises()
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
-    expect(wrapper.text()).toContain('已保持复议前结果')
+    expect(wrapper.text()).not.toContain('已保持复议前结果')
+    expect(wrapper.find('.task-content > .state').exists()).toBe(false)
     // 切回「变更结果」→ 内容链恢复；提交时携带 keep_result=change
-    await wrapper.get('.recon-decision__radios input[value="change"]').setValue(true)
+    await wrapper.get('.reconsideration-choice input[value="change"]').setValue(true)
     await flushPromises()
     expect(wrapper.find('[contenteditable="true"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('autosaves choice-only changes without sending hidden required results and restores draft choice on reopen', async () => {
+    vi.useFakeTimers()
+    const loaded = { ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '<p>有效理由</p><script>bad()</script><img src=x onerror=bad()>', keep_result: 'change', answers: {}, has_draft: false }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async () => structuredClone(loaded))
+    const save = vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockImplementation(async (_id, values) => { loaded.has_draft = true; loaded.draft_answers = values; loaded.keep_result = values.keep_result; return { version: 2 } })
+    let wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    try {
+      await flushPromises()
+      expect(wrapper.get('.reconsideration-reason').html()).not.toMatch(/script|onerror|<img/)
+      expect(wrapper.get('.reconsideration-reason').text()).toBe('有效理由')
+      await vi.advanceTimersByTimeAsync(400)
+      expect(save).not.toHaveBeenCalled()
+      await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+      await vi.advanceTimersByTimeAsync(350)
+      expect(save).toHaveBeenCalledWith('task-1', { keep_result: 'keep' }, 1)
+      wrapper.unmount()
+      wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+      await flushPromises()
+      expect(wrapper.get('.reconsideration-choice input[value="keep"]').element.checked).toBe(true)
+      expect(wrapper.find('.reconsideration-result').exists()).toBe(false)
+      await vi.advanceTimersByTimeAsync(400)
+      expect(save).toHaveBeenCalledTimes(1)
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+  it('retains a changed result draft while keep is selected and restores both on reopen', async () => {
+    vi.useFakeTimers()
+    const loaded = { ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', keep_result: 'change', has_draft: false, form_schema: [{ id: 'c', name: '结果', fields: [{ id: 'text', type: 'rich_text', label: '结果说明' }] }], answers: {} }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async () => structuredClone(loaded))
+    const save = vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockImplementation(async (_id, values) => { loaded.has_draft = true; loaded.draft_answers = values; loaded.keep_result = values.keep_result; return { version: 2 } })
+    let wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    try {
+      await flushPromises()
+      const input = wrapper.get('[data-field-id="text"] .rich-input')
+      input.element.innerHTML = '切换后保留的草稿'
+      await input.trigger('input')
+      await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+      await vi.advanceTimersByTimeAsync(350)
+      expect(save).toHaveBeenCalledWith('task-1', { text: expect.stringContaining('切换后保留的草稿'), keep_result: 'keep' }, 1)
+      wrapper.unmount()
+      wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+      await flushPromises()
+      await wrapper.get('.reconsideration-choice input[value="change"]').setValue(true)
+      expect(wrapper.get('[data-field-id="text"] .rich-input').text()).toContain('切换后保留的草稿')
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+  it('restores formal choice rather than the top-level draft choice when discarding draft', async () => {
+    const loaded = { ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', keep_result: 'keep', has_draft: true, draft_answers: { keep_result: 'keep', work: '弃用草稿' }, answers: { keep_result: 'change', work: '正式答案' } }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded)
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1', draft_choice: 'discard' } })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    try {
+      await flushPromises()
+      expect(wrapper.get('.reconsideration-choice input[value="change"]').element.checked).toBe(true)
+      expect(wrapper.get('[data-field-id="work"] .rich-input').text()).toContain('正式答案')
+      expect(wrapper.text()).not.toContain('弃用草稿')
+    } finally { wrapper.unmount(); vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } }) }
+  })
+
+  it.each(['rating', 'single_select', 'tag_with_followup'])('rejects out-of-template %s answers for reconsideration', async type => {
+    const value = type === 'tag_with_followup' ? { tags: ['forged'], notes: {} } : 'forged'
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', form_schema: [{ id: 'c', name: '结果', fields: [{ id: 'choice', type, label: '模板结果', options: [{ id: 'valid', label: '有效选项' }] }] }], answers: { choice: value } })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask')
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    expect(submit).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('请选择模板配置的有效')
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('submits keep without validating or sending hidden result fields, show=%s', async show => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', show_result_and_modify: show, keep_result: 'change', answers: { work: '不应回写的字段' } })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: 'keep' }, version: 2, submitted_at: '2026-11-10T00:00:00Z', editable: false, submit_allowed: false })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    if (show) await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+    else expect(wrapper.find('.reconsideration-choice').exists()).toBe(false)
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith('task-1', { keep_result: 'keep' }, 1)
+    expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="编辑已提交内容"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('继续编辑')
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+    expect(wrapper.findAll('.reconsideration-choice input').every(input => input.element.disabled)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('validates change results and after success renders only server answers without continuing edits', async () => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', keep_result: 'change', form_schema: [{ id: 'c', name: '模板终评结果', fields: [{ id: 'grade', type: 'single_select', label: '评级', required: true, options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] }] }], answers: {} })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: 'change', grade: 'b' }, version: 2, submitted_at: '2026-11-10T00:00:00Z', editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    expect(submit).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('评级为必填')
+    await wrapper.get('[data-field-id="grade"] input[value="a"]').setValue(true)
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith('task-1', { grade: 'a', keep_result: 'change' }, 1)
+    expect(wrapper.get('[data-field-id="grade"]').text()).toContain('B')
+    expect(wrapper.findAll('.reconsideration-choice input').every(input => input.element.disabled)).toBe(true)
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('继续编辑')
+    expect(wrapper.find('[aria-label="编辑已提交内容"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([{ reconsideration_closed: true }, { submitted_at: '2026-11-10T00:00:00Z' }])('opens a closed reconsideration entirely readonly without a draft chooser: %o', async closed => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', ...closed, reconsideration_reason: '理由', keep_result: 'keep', has_draft: true, draft_answers: { keep_result: 'keep', work: '草稿' }, answers: { keep_result: 'change', work: '正式结果' } })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.get('.reconsideration-choice input[value="change"]').element.checked).toBe(true)
+    expect(wrapper.findAll('.reconsideration-choice input').every(input => input.element.disabled)).toBe(true)
+    expect(wrapper.text()).toContain('正式结果')
+    expect(wrapper.text()).not.toContain('草稿')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(document.querySelector('.performance-draft-choice')).toBeNull()
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('继续编辑')
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('allows authorized zero-field reconsideration submission, show=%s', async show => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', show_result_and_modify: show, form_schema: [] })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: show ? 'change' : 'keep' }, submitted_at: '2026-11-10T00:00:00Z', editable: false, submit_allowed: false })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(false)
+    expect(wrapper.text()).not.toContain('暂无填写内容')
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith('task-1', { keep_result: show ? 'change' : 'keep' }, 1)
+    wrapper.unmount()
+  })
+
+  it.each(['save', 'submit'])('locks stale open reconsideration after a concurrent close returned by %s', async action => {
+    vi.useFakeTimers()
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', form_schema: [], answers: {} })
+    const closed = { response: { data: { detail: 'RECONSIDERATION_CLOSED' } } }
+    const save = vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockRejectedValue(closed)
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockRejectedValue(closed)
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    try {
+      await flushPromises()
+      if (action === 'save') {
+        await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+        await vi.advanceTimersByTimeAsync(350)
+        expect(save).toHaveBeenCalledTimes(1)
+      } else {
+        await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+        await flushPromises()
+        expect(submit).toHaveBeenCalledTimes(1)
+      }
+      expect(wrapper.get('.state.error').text()).toContain('复议已处理完成')
+      expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+      expect(wrapper.find('.reconsideration-choice').exists()).toBe(false)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(push).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+  it.each([
+    ['RECONSIDERATION_CLOSED', '复议已处理完成'],
+    ['RECONSIDERATION_BASELINE_UNAVAILABLE', '复议前绩效结果暂不可用'],
+    ['RECONSIDERATION_SOURCE_CONFLICT', '复议结果来源不一致'],
+  ])('translates reconsideration errors without allowing editing after load failure: %s', async (code, message) => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockRejectedValue({ response: { data: { detail: code } } })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.get('.state.error').text()).toContain(message)
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
     wrapper.unmount()
   })
 

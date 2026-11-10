@@ -49,6 +49,8 @@ async def test_reconsideration_submission_creates_tasks_and_durable_notification
     async def tasks(*args):
         return []
     monkeypatch.setattr(service, "submission_context", submission)
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(service, "freeze_published_result", AsyncMock(return_value=({"task_versions": {"v": 2}}, 2)))
     monkeypatch.setattr(service, "reconsideration_tasks", tasks)
     class Db:
         def __init__(self):
@@ -2107,7 +2109,7 @@ async def test_reconsideration_template_task_passes_show_result_and_keep_result(
 
     from app.performance import reconsideration_service
     async def fake_reconsideration(db, t, **kwargs):
-        return SimpleNamespace(reason="对评级有异议")
+        return SimpleNamespace(reason="对评级有异议", result_snapshot={"schema_version": 1, "source_result": {}, "form_schema": [], "answers": {}})
     monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
     monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", fake_reconsideration)
 
@@ -2198,6 +2200,9 @@ async def test_reconsideration_submit_persists_keep_result(monkeypatch):
         return task, node
 
     class Db:
+        def add(self, row):
+            pass
+
         async def get(self, _model, _id):
             return None
 
@@ -2210,7 +2215,7 @@ async def test_reconsideration_submit_persists_keep_result(monkeypatch):
     monkeypatch.setattr(projects_router, "_overdue_submission_allowed", allow_overdue)
     from app.performance import reconsideration_service
     async def fake_reconsideration(db, t, **kwargs):
-        return SimpleNamespace(id=1, reason="对评级有异议")
+        return SimpleNamespace(id=1, reason="对评级有异议", version=1, result_snapshot={"schema_version": 1, "source_result": {}, "form_schema": [], "answers": {}})
     monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", fake_reconsideration)
     async def fake_reconsideration_tasks(db, appeal, **kwargs):
         return []
@@ -2224,7 +2229,8 @@ async def test_reconsideration_submit_persists_keep_result(monkeypatch):
     )
 
     assert task.answers["keep_result"] == "keep"
-    assert task.answers["feedback"] == "<p>已变更</p>"
+    assert "feedback" not in task.answers
+    assert result["reconsideration_closed"] and not result["editable"]
 
 
 @pytest.mark.asyncio
@@ -8949,7 +8955,7 @@ async def test_reconsideration_effective_delegate_reads_and_submits_real_task(ta
     data.task.task_kind = data.node.node_type = "result_reconsideration"
     template = {"content": [{"content_id": "recon", "type": "work_summary", "name": "复议反馈", "items": [{"id": "feedback", "label": "反馈说明", "settings": {"required": True}}]}]}
     data.node.config = {"template": template}
-    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=SimpleNamespace(id=1)))
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=SimpleNamespace(id=1, version=1, result_snapshot={"schema_version": 1, "source_result": {}, "form_schema": [], "answers": {}})))
     monkeypatch.setattr(reconsideration_service, "reconsideration_tasks", AsyncMock(return_value=[data.task]))
     monkeypatch.setattr(data.routes, "_self_summary_template", AsyncMock(return_value=template))
     monkeypatch.setattr(data.routes, "_sync_automatic_openings", AsyncMock())
@@ -8965,7 +8971,7 @@ async def test_reconsideration_effective_delegate_reads_and_submits_real_task(ta
         data.identity.actor_ref = "RECIPIENT"
     result = await data.routes._save_self_summary(7, data.routes.SelfSummaryAnswersPayload(answers={"feedback": "<p>已复核</p>", "keep_result": "keep"}, version=4), True, context(), data.db, "evaluation")
     assert result["version"] == 5 and data.task.status == "completed"
-    assert data.task.answers["feedback"] == "<p>已复核</p>" and data.task.answers["keep_result"] == "keep"
+    assert "feedback" not in data.task.answers and data.task.answers["keep_result"] == "keep"
     assert data.task.handler_ref == "ORIGINAL"
     assert data.db.events[-1].actor_ref == "RECIPIENT"
 

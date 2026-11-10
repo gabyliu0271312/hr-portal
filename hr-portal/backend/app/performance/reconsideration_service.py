@@ -198,10 +198,12 @@ def _status(project, node, appeal):
     window_open = _window_open(project, node)
     active = appeal is not None and appeal.withdrawn_at is None
     template = (node.config or {}).get("template") or {}
+    closed = getattr(appeal, "closed_at", None) is not None if appeal else False
     return {
+        "closed_at": getattr(appeal, "closed_at", None) if appeal else None,
         "id": appeal.id if appeal else None, "version": appeal.version if appeal else None,
-        "node_id": node.node_id, "can_submit": not active and window_open,
-        "can_edit": active and window_open, "can_withdraw": active, "window_open": window_open,
+        "node_id": node.node_id, "can_submit": not active and window_open and not closed,
+        "can_edit": active and window_open and not closed, "can_withdraw": active and not closed, "window_open": window_open,
         "withdrawn_at": appeal.withdrawn_at if appeal else None,
         "deadline_at": end, "reason": appeal.reason if active else None,
         "submitted_at": appeal.submitted_at if active else None,
@@ -223,8 +225,21 @@ def _check_version(appeal, version):
         raise HTTPException(409, "VERSION_CONFLICT")
 
 
-async def submit_reconsideration(db, project_id, employee_no, reason, actor, version=None):
+async def freeze_published_result(db, project, employee_no, node, actor):
+    from app.performance.projects_router import _published_employee_result
+    from app.performance.reconsideration_result_service import freeze_result
+
+    result, opening, snapshot_id, final_template = await _published_employee_result(project, employee_no, actor, db, lock=True)
+    from fastapi.encoders import jsonable_encoder
+    snapshot = freeze_result(jsonable_encoder(result), snapshot_id, opening.id, opening.result_version or {},
+                             {"node": (node.config or {}).get("template") or {}, "final": final_template})
+    return snapshot, snapshot_id
+
+
+async def submit_reconsideration(db, project_id, employee_no, reason, actor, version=None, *, context=None):
     project, snapshot, member, opening, node, appeal = await submission_context(db, project_id, employee_no, lock=True)
+    if appeal is not None and getattr(appeal, "closed_at", None) is not None:
+        raise HTTPException(409, "RECONSIDERATION_CLOSED")
     if appeal is not None and appeal.withdrawn_at is None:
         raise HTTPException(409, "RECONSIDERATION_ALREADY_SUBMITTED")
     if appeal is not None:
@@ -232,6 +247,15 @@ async def submit_reconsideration(db, project_id, employee_no, reason, actor, ver
     if not _window_open(project, node):
         raise HTTPException(409, "RECONSIDERATION_WINDOW_CLOSED")
     reason = validate_reason(reason)
+    frozen_result, frozen_snapshot_id = await freeze_published_result(db, project, employee_no, node, context or actor)
+    if frozen_snapshot_id != snapshot.id:
+        snapshot = await db.get(PerformanceProjectMemberSnapshot, frozen_snapshot_id)
+        member = await db.scalar(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == frozen_snapshot_id,
+            PerformanceProjectMember.employee_no == employee_no,
+        ))
+        if snapshot is None or member is None:
+            raise HTTPException(409, "RECONSIDERATION_SOURCE_CONFLICT")
     _, _, timing = submission_window(project, node)
     now = datetime.now(UTC)
     people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
@@ -253,6 +277,10 @@ async def submit_reconsideration(db, project_id, employee_no, reason, actor, ver
     else:
         appeal.reason, appeal.submitted_at, appeal.withdrawn_at = reason, now, None
         appeal.version += 1
+    appeal.member_snapshot_id = snapshot.id
+    appeal.node_snapshot_id = node.id
+    appeal.result_snapshot = frozen_result
+    appeal.result_version = frozen_result["task_versions"]
     await db.flush()
     old_tasks = {} if resubmitting else {task.handler_ref: task for task in await reconsideration_tasks(db, appeal)}
     from app.identity_switch.service import current_switch
@@ -289,6 +317,8 @@ async def edit_reconsideration(db, project_id, employee_no, reason, version, act
     project, _, _, _, node, appeal = await submission_context(db, project_id, employee_no, lock=True)
     if appeal is None or appeal.withdrawn_at is not None:
         raise HTTPException(404, "RECONSIDERATION_NOT_FOUND")
+    if getattr(appeal, "closed_at", None) is not None:
+        raise HTTPException(409, "RECONSIDERATION_CLOSED")
     _check_version(appeal, version)
     if not _window_open(project, node):
         raise HTTPException(409, "RECONSIDERATION_WINDOW_CLOSED")
@@ -306,6 +336,8 @@ async def withdraw_reconsideration(db, project_id, employee_no, version, actor):
     project, _, _, _, node, appeal = await submission_context(db, project_id, employee_no, lock=True)
     if appeal is None or appeal.withdrawn_at is not None:
         raise HTTPException(404, "RECONSIDERATION_NOT_FOUND")
+    if getattr(appeal, "closed_at", None) is not None:
+        raise HTTPException(409, "RECONSIDERATION_CLOSED")
     _check_version(appeal, version)
     before = _appeal_state(appeal)
     tasks = await reconsideration_tasks(db, appeal, lock=True)

@@ -45,7 +45,15 @@
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
-            <PerformanceLineTabs v-model="evaluationTab" :tabs="evaluationTabs" flush>
+            <ProjectMemberListPanel
+              v-if="displayConfig?.table === 'members' && props.projectId && node.node_id"
+              :project-id="props.projectId"
+              :key="`${props.projectId}-${node.node_id}`"
+              :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
+              :show-export="false"
+              @select-member="emit('open-member', { node, member: $event })"
+            />
+            <PerformanceLineTabs v-else v-model="evaluationTab" :tabs="evaluationTabs" flush>
               <ProjectMemberListPanel
                 v-if="evaluationTab === 'members' && props.projectId && node.node_id"
                 :project-id="props.projectId"
@@ -106,7 +114,7 @@ const displayConfig = computed(() => props.node ? performanceReviewDisplay(props
 const showsFeedbackTable = computed(() => shows360Feedback.value || Boolean(displayConfig.value?.table === 'communication' && props.node?.status !== 'not_started'))
 const showsEvaluationWorkspace = computed(() => {
   const node = props.node
-  return Boolean(node && node.status !== 'not_started' && (displayConfig.value?.table === 'manager' || (node.task_kind === 'evaluation' && !isSelfEvaluationNode(node))))
+  return Boolean(node && node.status !== 'not_started' && (displayConfig.value?.table === 'manager' || displayConfig.value?.table === 'members' || (node.task_kind === 'evaluation' && !isSelfEvaluationNode(node))))
 })
 const shows360Feedback = computed(() => {
   const node = props.node

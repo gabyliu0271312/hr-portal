@@ -394,8 +394,6 @@ const finalNode = computed(() => {
   const nodes = workflowNodes.value.filter(node => node.include_final_result)
   return nodes.length === 1 ? nodes[0] : null
 })
-/** 绩效校准节点：结果复议的 final 内容设置与校准同源（REA appeal 与校准逐像素一致） */
-const calibrationNode = computed(() => workflowNodes.value.find(node => node.node_type === 'calibration') || null)
 const finalExecutorLabel = computed(() => {
   const node = finalNode.value
   if (!node) return '未配置'
@@ -417,9 +415,7 @@ const finalFillContents = computed(() => {
 const finalContents = computed(() => finalFillContents.value.filter(content => content.type !== 'prompt' && content.items.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')))
 const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
 const calibrationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
-/** 结果复议处理：与校准同构——默认添加上级评估（final 环节）内容为供调整内容
- *  （REA appeal 环节 modifyTemplates=上级评估，final 内容沿用校准节点的设置覆盖，显示与校准一致） */
-const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value, calibrationNode.value?.calibration_settings))
+const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
 /** REA 复议处理模块2 表头 = final 环节名（如「上级评估」，finalResult 指向的最终绩效结果环节） */
 const finalModuleTitle = computed(() => finalNode.value?.name || selectedStageData.value?.title || '上级评估')
 /** 结果复议处理：显示绩效结果并允许修改（REA 复议 final 面板勾选，默认 true；取消后 final 内容链隐藏只剩表头） */
@@ -694,7 +690,7 @@ function setRootSettingsForContent(contentId: string, settings: WorkSummaryRootS
   if (writeSettingsLocked.value) settings = { ...rootSettingFor(contentId), ...referenceDisplaySettings(settings) }
   rootSettings.value[contentId] = settings
   // 参考内容页签的查看设置随 reference_settings 持久化，不走校准环节的 calibration_settings 覆盖。
-  if (!isCalibration.value || isReferenceTab.value || !selectedWorkflowNode.value) return
+  if ((!isCalibration.value && !isResultReconsiderationFill.value) || isReferenceTab.value || !selectedWorkflowNode.value) return
   const overrides = selectedWorkflowNode.value.calibration_settings || {}
   selectedWorkflowNode.value.calibration_settings = {
     ...overrides,
@@ -711,7 +707,7 @@ function setItemSettingsForContent(contentId: string, settings: Record<string, W
     settings = Object.fromEntries(Object.entries(current).map(([id, value]) => [id, { ...value, ...referenceDisplaySettings(settings[id]) }]))
   }
   // 参考内容页签的条目设置为查看设置（allowView/hideName/hideDescription），不写入 calibration_settings。
-  if (isCalibration.value && !isReferenceTab.value) {
+  if ((isCalibration.value || isResultReconsiderationFill.value) && !isReferenceTab.value) {
     const node = selectedWorkflowNode.value
     const content = configuredContents.value.find(content => content.id === contentId)
     if (!node || !content) return
@@ -723,7 +719,7 @@ function setItemSettingsForContent(contentId: string, settings: Record<string, W
       const allowModify = next.allowModify !== false
       const override = { ...items[item.id], ...(!writeSettingsLocked.value ? { allowModify } : {}) }
       const variant = getItemSettingsVariant(content, item)
-      if (variant === 'custom-text' || variant === 'custom-tag') override.hideName = next.hideName === true
+      if (variant === 'custom-text' || variant === 'custom-tag' || (isResultReconsiderationFill.value && variant === 'rating')) override.hideName = next.hideName === true
       if (variant === 'custom-tag') override.hideDescription = next.hideDescription === true
       if (variant === 'rating' && !writeSettingsLocked.value) override.levelRulesEnabled = next.levelRulesEnabled === true
       items[item.id] = override

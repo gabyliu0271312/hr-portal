@@ -27,25 +27,20 @@
         <section v-else-if="loadError" class="state error"><p>{{ loadError }}</p><button type="button" @click="load()">重新加载</button></section>
         <template v-else>
           <div v-show="isSplit || activeTab === 'current'" class="task-content">
-            <div v-if="task.reconsideration_reason" class="task-notices"><PerformancePromptNotice type="info" multiline>复议理由：{{ task.reconsideration_reason }}</PerformancePromptNotice></div>
-            <!-- 复议处理：是否保持复议前结果（REA 单选项，保持原结果 → 隐藏下方绩效结果内容） -->
-            <section v-if="isReconsiderationTask" class="recon-decision">
-              <div class="recon-decision__label">是否保持复议前结果</div>
-              <PerformanceSingleSelectControl
-                class="recon-decision__radios"
-                :model-value="keepResultChoice"
-                :options="keepResultOptions"
-                interactive
-                aria-label="是否保持复议前结果"
-                @update:model-value="(value: string) => keepResultChoice = value as 'keep' | 'change'"
-              />
-            </section>
-            <section v-if="!task.form_schema.length || (isReconsiderationTask && keepResultChoice === 'keep')" class="state">{{ isReconsiderationTask && keepResultChoice === 'keep' ? '已保持复议前结果，不展示下方绩效结果' : '暂无填写内容' }}</section>
-            <div v-else ref="draftAnchor" class="task-form-shell"><div v-if="task.calibration_notice" class="task-notices task-notices--calibration"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div><PerformanceReviewCompletionNotice v-if="viewing" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" /><PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" /><PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" /></div>
+            <section v-if="!isReconsiderationTask && !task.form_schema.length" class="state">暂无填写内容</section>
+            <div v-else ref="draftAnchor" class="task-form-shell">
+              <div v-if="task.calibration_notice" class="task-notices task-notices--calibration"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
+              <PerformanceReviewCompletionNotice v-if="viewing && !isReconsiderationTask" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" />
+              <PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" />
+              <PerformanceReconsiderationContent v-if="isReconsiderationTask" class="task-reconsideration" :title="task.content_page_name || task.node_name" :reason="task.reconsideration_reason" :model-value="keepResultChoice" :show-result-and-modify="showResultAndModify" :interactive="canEdit && !submitting" @update:model-value="changeKeepResult">
+                <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
+              </PerformanceReconsiderationContent>
+              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
+            </div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
@@ -71,7 +66,7 @@ import PerformanceReferenceContent from '@/components/performance/PerformanceRef
 import PerformanceSelfSummaryFooter from '@/components/performance/PerformanceSelfSummaryFooter.vue'
 import PerformanceSelfSummaryHeader from '@/components/performance/PerformanceSelfSummaryHeader.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
-import PerformanceSingleSelectControl from '@/components/performance/PerformanceSingleSelectControl.vue'
+import PerformanceReconsiderationContent from '@/components/performance/PerformanceReconsiderationContent.vue'
 import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
@@ -92,7 +87,7 @@ const draftOpen = ref(false)
 const draftPending = ref(false)
 const draftAnchor = ref<HTMLElement | null>(null)
 const saveMessage = ref('草稿将实时保存到云端')
-const task = ref<SelfSummaryTask>({ task_id: String(route.query.task_id || ''), task_kind: props.taskKind, entry_mode: 'template_task', node_name: '', person: { employee_no: '', display_name: '当前用户' }, editable: false, submit_allowed: false, form_schema: [], answers: {} })
+const task = ref<SelfSummaryTask & { reconsideration_closed?: boolean }>({ task_id: String(route.query.task_id || ''), task_kind: props.taskKind, entry_mode: 'template_task', node_name: '', person: { employee_no: '', display_name: '当前用户' }, editable: false, submit_allowed: false, form_schema: [], answers: {} })
 const answers = reactive<Record<string, unknown>>({})
 const errors = reactive<Record<string, string>>({})
 const formRef = ref<{ focusField: (id: string) => void } | null>(null)
@@ -106,15 +101,24 @@ const selectedReference = computed(() => task.value.reference_tabs?.find(referen
 const displayMode = computed<PerformanceWriteMode>(() => mode.value === 'basicWriteMode' && splitAvailable.value ? 'basicWriteMode' : 'fullScreenMode')
 const isSplit = computed(() => displayMode.value === 'basicWriteMode')
 function changeMode(value: PerformanceWriteMode) { mode.value = value; activeTab.value = 'current' }
-/* 复议处理任务：单选项「是否保持复议前结果」联动隐藏/展示绩效结果内容（REA 运行时与模板预览一致） */
-const isReconsiderationTask = computed(() => (task.value.task_kind || props.taskKind) === 'result_reconsideration' || (task.value as any).reconsideration_reason != null)
-const keepResultOptions = [
-  { id: 'keep', label: '保持原结果' },
-  { id: 'change', label: '变更结果' },
-]
+const isReconsiderationTask = computed(() => task.value.task_kind === 'result_reconsideration')
+const showResultAndModify = computed(() => task.value.show_result_and_modify !== false)
+const reconsiderationClosed = computed(() => isReconsiderationTask.value && (task.value.reconsideration_closed === true || Boolean(task.value.submitted_at)))
 const keepResultChoice = ref<'keep' | 'change'>('change')
+const effectiveKeepResult = computed(() => showResultAndModify.value ? keepResultChoice.value : 'keep')
+function changeKeepResult(value: 'keep' | 'change') {
+  if (!canEdit.value || submitting.value) return
+  keepResultChoice.value = value
+  Object.keys(errors).forEach(key => delete errors[key])
+  queueSave()
+}
+function writableAnswers(includeHiddenResults = false) {
+  const writable: Record<string, unknown> = isReconsiderationTask.value && (!showResultAndModify.value || effectiveKeepResult.value === 'keep' && !includeHiddenResults) ? {} : performanceTemplateWritableAnswers(task.value.form_schema, answers)
+  if (isReconsiderationTask.value) writable.keep_result = effectiveKeepResult.value
+  return writable
+}
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
-const canEdit = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && task.value.form_schema.some(section => section.fields.length > 0) && task.value.editable && task.value.submit_allowed)
+const canEdit = computed(() => !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed)
 const canGiveup = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && Boolean(task.value.can_giveup) && !task.value.submitted_at)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
@@ -126,6 +130,9 @@ function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
   if (typeof detail === 'string') {
     const calibrationErrors: Record<string, string> = {
+      RECONSIDERATION_CLOSED: '复议已处理完成，无法继续编辑或提交，请刷新查看最新结果',
+      RECONSIDERATION_BASELINE_UNAVAILABLE: '复议前绩效结果暂不可用，请联系管理员核对后重试',
+      RECONSIDERATION_SOURCE_CONFLICT: '复议结果来源不一致，请联系管理员核对后重试',
       CALIBRATION_SOURCE_NOT_READY: '终评或前一校准阶段尚未全部提交，请完成后重试',
       CALIBRATION_SOURCE_CONFLICT: '终评或前一校准阶段存在不一致的结果，请先核对后重试',
     }
@@ -133,6 +140,13 @@ function errorMessage(error: unknown, fallback: string) {
   }
   if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') return detail.message
   return fallback
+}
+function closeReconsiderationOnConflict(error: unknown) {
+  if (!isReconsiderationTask.value || (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail !== 'RECONSIDERATION_CLOSED') return
+  task.value.reconsideration_closed = true
+  task.value.editable = false
+  task.value.submit_allowed = false
+  loadError.value = errorMessage(error, '')
 }
 async function load(choice?: 'use' | 'discard' | 'edit') {
   loading.value = true
@@ -145,9 +159,12 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
       : employeeNo ? await performanceReviewApi.templateTask(taskId, employeeNo) : await performanceReviewApi.templateTask(taskId)
     task.value = loaded
     activeTab.value = 'current'
-    keepResultChoice.value = loaded.keep_result === 'keep' ? 'keep' : 'change'
     Object.keys(answers).forEach(key => delete answers[key])
-    if (choice) {
+    if (reconsiderationClosed.value) {
+      viewing.value = true
+      draftOpen.value = false
+      draftPending.value = false
+    } else if (choice) {
       viewing.value = false
       if (route.query.view === '1') {
         const { view: _view, draft_choice: _choice, ...query } = route.query
@@ -157,10 +174,12 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
     const decision = choice || route.query.draft_choice
     draftPending.value = !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use')
     draftOpen.value = draftPending.value
-    const useDraft = !viewing.value && !draftPending.value && loaded.has_draft
+    const useDraft = !viewing.value && !draftPending.value && loaded.has_draft && decision !== 'discard'
     const values = useDraft ? { ...loaded.answers, ...loaded.draft_answers } : loaded.answers || {}
+    const restoredChoice = useDraft ? loaded.keep_result ?? values.keep_result : loaded.answers?.keep_result ?? (loaded.has_draft ? undefined : loaded.keep_result)
+    keepResultChoice.value = restoredChoice === 'keep' ? 'keep' : 'change'
     Object.assign(answers, loaded.editable && loaded.submit_allowed && !viewing.value && !draftPending.value ? performanceTemplateInitialAnswers(loaded.form_schema, values) : values)
-    savedAnswers = JSON.stringify(performanceTemplateWritableAnswers(loaded.form_schema, answers))
+    savedAnswers = JSON.stringify(writableAnswers(true))
   } catch (error) {
     loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
   } finally {
@@ -183,8 +202,7 @@ function saveDraft() {
     try {
       while (pendingSave && !disposed && !submitting.value && canEdit.value) {
         pendingSave = false
-        const writable = performanceTemplateWritableAnswers(task.value.form_schema, answers)
-        if (isReconsiderationTask.value) writable.keep_result = keepResultChoice.value
+        const writable = writableAnswers(true)
         const serialized = JSON.stringify(writable)
         if (serialized === savedAnswers) continue
         const snapshot = JSON.parse(serialized) as Record<string, unknown>
@@ -200,6 +218,7 @@ function saveDraft() {
     } catch (error) {
       pendingSave = false
       saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
+      closeReconsiderationOnConflict(error)
       throw error
     } finally {
       saving.value = false
@@ -217,6 +236,7 @@ function legacyTagNote(value: unknown) { return (value as { note?: string } | un
 function hasContent(value: unknown) { const element = document.createElement('div'); element.innerHTML = String(value || ''); return Boolean(element.textContent?.replace(/​/g, '').trim()) }
 function validate() {
   Object.keys(errors).forEach(key => delete errors[key])
+  if (isReconsiderationTask.value && effectiveKeepResult.value === 'keep') return true
   for (const section of task.value.form_schema) {
     for (let index = 0; index < performanceTemplateInstanceCount(section, answers); index += 1) {
       if (performanceTemplateInstanceUnknown(section, index, answers)) continue
@@ -226,12 +246,14 @@ function validate() {
         if (field.type === 'tag_with_followup') {
           const tags = selectedTags(value)
           if (field.required && !tags.length) errors[performanceTemplateFieldErrorKey(section, field, index)] = '请选择至少一个标签'
+          if (isReconsiderationTask.value && tags.some(tag => !(field.options || []).some(option => option.id === tag))) errors[performanceTemplateFieldErrorKey(section, field, index)] = '请选择模板配置的有效标签'
           const notes = tagNotes(value)
           const legacyNote = legacyTagNote(value)
           const missingRequiredTag = (field.options || []).find(option => tags.includes(option.id) && option.required && !hasContent(legacyNote || notes[option.id]))
           if (missingRequiredTag) errors[performanceTemplateFieldErrorKey(section, field, index)] = `请填写${missingRequiredTag.label}的补充说明`
           continue
         }
+        if (isReconsiderationTask.value && (field.type === 'rating' || field.type === 'single_select') && hasContent(value) && !(field.options || []).some(option => option.id === String(value)) && !(field.type === 'rating' && field.allow_unknown && value === '__unknown__')) errors[performanceTemplateFieldErrorKey(section, field, index)] = '请选择模板配置的有效选项'
         if (field.required && !hasContent(value)) errors[performanceTemplateFieldErrorKey(section, field, index)] = `${field.label}${section.allow_multiple ? index + 1 : ''}为必填`
       }
     }
@@ -278,8 +300,8 @@ async function submit(overdueConfirmed = false) {
   pendingSave = false
   try {
     await saveChain.catch(() => undefined)
-    const payload = JSON.parse(JSON.stringify(performanceTemplateWritableAnswers(task.value.form_schema, answers)))
-    if (isReconsiderationTask.value) payload.keep_result = keepResultChoice.value
+    if (reconsiderationClosed.value) return
+    const payload = JSON.parse(JSON.stringify(writableAnswers()))
     const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
     const result = props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
@@ -288,7 +310,13 @@ async function submit(overdueConfirmed = false) {
     task.value.editable = result.editable ?? task.value.editable
     task.value.submit_allowed = result.submit_allowed ?? task.value.submit_allowed
     task.value.version = result.version ?? task.value.version
-    task.value.answers = task.value.task_kind === 'calibration' ? result.answers : { ...task.value.answers, ...result.answers, ...payload }
+    task.value.answers = task.value.task_kind === 'calibration' || isReconsiderationTask.value ? result.answers : { ...task.value.answers, ...result.answers, ...payload }
+    if (isReconsiderationTask.value) {
+      task.value.reconsideration_closed = true
+      task.value.editable = false
+      task.value.submit_allowed = false
+      keepResultChoice.value = result.answers?.keep_result === 'keep' ? 'keep' : 'change'
+    }
     overdueConfirmOpen.value = false
     overdueConfirmError.value = ''
     ElMessage.success({
@@ -322,6 +350,7 @@ async function submit(overdueConfirmed = false) {
     } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }
   } catch (error) {
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
+    closeReconsiderationOnConflict(error)
     if (overdueConfirmOpen.value) overdueConfirmError.value = saveMessage.value
   } finally {
     submitting.value = false
@@ -343,10 +372,9 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .task-reference-content :deep(.performance-reference-empty){flex:1 0 auto;min-height:0}
 .task-notices{display:flex;flex:none;flex-direction:column;gap:8px}
 .task-notices :deep(.performance-prompt-display),.task-notices :deep(.prompt-notice){width:100%}
-/* REA 复议处理：是否保持复议前结果（单选项，保持原结果 → 隐藏绩效结果内容） */
-.recon-decision{display:flex;flex:none;flex-direction:column;gap:8px;padding:16px 20px;border-radius:8px;background:var(--color-bg-card)}
-.recon-decision__label{margin-bottom:8px;font-size:14px;font-weight:600;line-height:22px;color:var(--color-text-primary)}
-.recon-decision__radios :deep(.performance-single-select__label){color:var(--color-text-primary)}
+.task-reconsideration{padding:12px 30px}
+.task-reconsideration .task-template-renderer{min-height:0;padding:0}
+.performance-split-workspace.is-split .task-reconsideration{padding:16px 20px}
 .summary-tabs{display:flex;flex:none;min-width:0;min-height:48px;align-items:center;gap:28px;margin:12px 12px 0;padding:0 20px;box-sizing:border-box;border-radius:8px;background:var(--color-bg-card);overflow-x:auto}
 .summary-tabs button{position:relative;flex:none;min-height:48px;padding:0;border:0;background:transparent;color:var(--color-text-primary);font-size:16px;line-height:24px;white-space:nowrap;cursor:pointer}
 .summary-tabs button.active{color:var(--color-primary);font-weight:600}
@@ -361,5 +389,5 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .reference-scroll > .state{padding:20px}
 .reference-scroll > *{flex:1 0 auto;min-width:0}
 .narrow-mode-notice{padding:8px 16px 0;color:var(--color-text-secondary);font-size:12px;margin:0}
-@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer,.task-notices--calibration{padding-inline:16px}}
+@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer,.task-notices--calibration,.task-reconsideration{padding-inline:16px}}
 </style>

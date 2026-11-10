@@ -687,7 +687,7 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.find('.recon-module--reason [class*=operate-bar]').exists()).toBe(false)
     wrapper.unmount()
   })
-  it('reconsideration final projection mirrors the calibration node settings overrides (REA 复议与校准一致)', async () => {
+  it('reconsideration uses its own settings instead of the first calibration node overrides', async () => {
     const final = { ...mockNodes[6], include_final_result: true, content: [
       { content_id: 'f-rating', type: 'rating', name: '年度综合评级', content_slot: 'fill', items: [{ id: 'f-level', kind: 'rating', label: '综合评级' }] },
     ] }
@@ -704,10 +704,83 @@ describe('PerformanceTemplateContentSettings', () => {
     await flushPromises()
     const contents = wrapper.get('.recon-module--final .recon-module__contents')
     expect(contents.text()).toContain('年度综合评级')
-    // 校准节点设置的 hideName 应用到了复议投影（与校准环节渲染一致）
-    expect(contents.find('[data-content-item-id="f-level"] strong').exists()).toBe(false)
+    // 复议不继承校准节点的 hideName / allowModify。
+    expect(contents.find('[data-content-item-id="f-level"] strong').exists()).toBe(true)
     wrapper.unmount()
   })
+  it('persists reconsideration root/item overrides on its own node through switch, save and reopen', async () => {
+    const summary = { content_id: 'shared-result', type: 'custom', name: '终评内容', description: '说明', content_slot: 'fill', items: [{ id: 'note', kind: 'fill', label: '终评说明', settings: { mode: 'fill', required: true } }] }
+    const calibrationSettings = { 'shared-result': { settings: { hideDescription: false }, items: { note: { allowModify: true, hideName: false } } } }
+    const nodes = [{ ...mockNodes[6], include_final_result: true, content: [summary] }, { ...mockNodes[4], calibration_settings: calibrationSettings }, { ...mockNodes[8], content: [], content_bindings: {} }]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    let block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    block.vm.$emit('update:root-settings', { hideDescription: true, allowMultiple: false })
+    block.vm.$emit('update:item-settings', { note: { mode: 'fill', required: true, hideName: true, allowModify: false } })
+    await wrapper.vm.$nextTick()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('itemSettings').note.allowModify).toBe(true)
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    expect(block.props('rootSettings').hideDescription).toBe(true)
+    expect(block.props('itemSettings').note).toMatchObject({ hideName: true, allowModify: false })
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[2].calibration_settings).toEqual({ 'shared-result': { settings: { hideDescription: true }, items: { note: { allowModify: false, hideName: true } } } })
+    expect(saved.nodes[2].content).toEqual([])
+    expect(saved.nodes[2].content_bindings).toEqual({})
+    expect(saved.nodes[1].calibration_settings).toEqual(calibrationSettings)
+    expect(saved.nodes[0].content).toEqual([summary])
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(saved as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('itemSettings').note).toMatchObject({ hideName: true, allowModify: false })
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('rootSettings').hideDescription).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('persists reconsideration rating display and write overrides without rewriting the source rating', async () => {
+    const rating = { content_id: 'result-rating', type: 'rating', name: '综合评级', content_slot: 'fill', items: [{ id: 'grade', kind: 'rating', label: '评级', settings: { required: true } }], options: [{ id: 'A', label: 'A' }] }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[6], include_final_result: true, content: [rating] }, { ...mockNodes[8], content: [] }] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    wrapper.getComponent(PerformanceConfiguredContentBlock).vm.$emit('update:item-settings', { grade: { mode: 'fill', required: true, hideName: true, allowModify: false, levelRulesEnabled: true } })
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[1].calibration_settings).toEqual({ 'result-rating': { items: { grade: { hideName: true, allowModify: false, levelRulesEnabled: true } } } })
+    expect(saved.nodes[0].content![0].items[0].settings).toEqual({ required: true })
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('itemSettings').grade).toMatchObject({ hideName: true, allowModify: false, levelRulesEnabled: true })
+    wrapper.unmount()
+  })
+
+  it('keeps used-template reconsideration write switches locked while allowing display leaves', async () => {
+    const summary = { content_id: 'result', type: 'custom', name: '结果', content_slot: 'fill', items: [{ id: 'note', kind: 'fill', label: '说明', settings: { mode: 'fill', required: true } }] }
+    const settings = { result: { items: { note: { allowModify: false } } } }
+    const usage_summary = { project_count: 1 }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [{ ...mockNodes[6], include_final_result: true, content: [summary] }, { ...mockNodes[8], calibration_settings: settings }], usage_summary } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => ({ ...payload, usage_summary } as any))
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    const block = wrapper.getComponent(PerformanceConfiguredContentBlock)
+    block.vm.$emit('update:item-settings', { note: { mode: 'hidden', required: false, hideName: true, allowModify: true } })
+    await wrapper.vm.$nextTick()
+    expect(block.props('writeSettingsDisabled')).toBe(true)
+    await wrapper.get('.recon-module--final .recon-module__head').trigger('click')
+    expect((wrapper.get('.recon-result-settings__checkbox').element as HTMLInputElement).disabled).toBe(true)
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls.at(-1)![1].nodes[1].calibration_settings).toEqual({ result: { items: { note: { allowModify: false, hideName: true } } } })
+    wrapper.unmount()
+  })
+
   it('reconsideration final panel shows the result settings checkbox that hides the content chain when unchecked (REA)', async () => {
     const final = { ...mockNodes[6], include_final_result: true, content: [
       { content_id: 'f-summary', type: 'work_summary', name: '工作总结', content_slot: 'fill', items: [{ id: 'f-item', kind: 'fill', label: '重点工作', settings: { required: true } }] },
