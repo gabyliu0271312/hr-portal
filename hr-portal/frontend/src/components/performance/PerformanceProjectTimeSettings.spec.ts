@@ -5,7 +5,7 @@ import type { PerformanceProjectFlowSettings, PerformanceWorkflowNode } from '@/
 import PerformanceProjectFlowSettingsComponent from './PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from './PerformanceProjectTimeSettings.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
-import { createCalibrationPhaseId, initializeCalibrationNodes, ensureCalibrationPhaseIds, projectDeadlineError, projectNodeTimeError, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
+import { createCalibrationPhaseId, initializeCalibrationNodes, ensureCalibrationPhaseIds, projectCalibrationRangeError, projectDeadlineError, projectFlowWithUtcTimes, projectNodeTimeError, projectStartLocked, projectTimeTimestamp, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 
 const node = { node_id: 'calibration', node_type: 'calibration', name: '校准环节', order: 1 } as PerformanceWorkflowNode
 const first = { start_at: '2026-10-01T09:00', end_at: '2026-10-05T18:00' }
@@ -181,8 +181,9 @@ describe('deadline validation', () => {
     const value = settings()
     const nodes = ['evaluation', 'result_view', 'result_reconsideration'].map((type, index) => ({ ...node, node_id: type, node_type: type, order: index + 1 })) as PerformanceWorkflowNode[]
     for (const target of nodes) value.node_times[target.node_id!] = { start_at: '2026-11-05T09:00', end_at: '2026-11-06T11:59', appeal_deadline: '2026-11-06T11:59' }
+    value.node_times.result_reconsideration.end_at = '2026-11-06T11:59:30'
     nodes.push(node)
-    const baseline = JSON.parse(JSON.stringify(value))
+    const baseline = projectFlowWithUtcTimes(value)
     const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, projectStatus, baselineFlowSettings: baseline, modelValue: value.node_times, nodeSettings: value.node_settings } })
     expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
     expect(wrapper.findAll('.time-node-deadline')).toHaveLength(4)
@@ -222,6 +223,171 @@ describe('deadline validation', () => {
   })
 })
 
+describe('saved baseline and complete time rules', () => {
+  const evaluation = { ...node, node_id: 'evaluation', node_type: 'evaluation' } as PerformanceWorkflowNode
+  const view = { ...node, node_id: 'view', node_type: 'result_view' } as PerformanceWorkflowNode
+  const processing = { ...node, node_id: 'processing', node_type: 'result_reconsideration' } as PerformanceWorkflowNode
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-06T04:00:00Z')) })
+  afterEach(() => vi.useRealTimers())
+
+  it('does not self-lock unsaved past starts, locks only after saved baseline advances, and uses raw UTC baseline', async () => {
+    const value: PerformanceProjectFlowSettings = { node_settings: {}, node_times: { evaluation: { start_at: '2026-11-06T13:00', end_at: '2026-11-07T18:00' } } }
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [evaluation], projectStatus: 'STARTED', baselineFlowSettings: projectFlowWithUtcTimes(value), modelValue: value.node_times } })
+    await wrapper.get('#evaluation-start').setValue('2026-11-06 11:00')
+    expect(wrapper.get('#evaluation-start').element).toHaveProperty('disabled', false)
+    expect(wrapper.get('.performance-date-time-field__trigger').element).toHaveProperty('disabled', false)
+    await wrapper.get('#evaluation-start').setValue('2026-11-06 10:00')
+    value.node_times.evaluation.start_at = '2026-11-06T10:00'
+    await wrapper.setProps({ baselineFlowSettings: projectFlowWithUtcTimes(value) })
+    expect(wrapper.get('#evaluation-start').element).toHaveProperty('disabled', true)
+    expect(projectStartLocked('STARTED', '2026-11-07T09:00', Date.now(), { node_settings: {}, node_times: { evaluation: { start_at: '2026-11-06T03:00:00', end_at: '' } } }, 'evaluation')).toBe(true)
+    expect(projectStartLocked('ARCHIVED', value.node_times.evaluation.start_at, Date.now(), projectFlowWithUtcTimes(value), 'evaluation')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['evaluation', 'result_view', 'calibration'])('requires now for unstarted saved %s deadlines even when the draft start becomes past', async type => {
+    const target = { ...evaluation, node_type: type }
+    const value: PerformanceProjectFlowSettings = { node_settings: type === 'calibration' ? { evaluation: { calibration: { force_distribution_enabled: false, phases: [{ phase_id: 'future', rules: [] }] } } } : {}, node_times: { evaluation: { start_at: '2026-11-06T13:00', end_at: '2026-11-07T18:00', appeal_deadline: '2026-11-07T18:00', ...(type === 'calibration' ? { phase_times: { future: { start_at: '2026-11-06T13:00', end_at: '2026-11-07T18:00' } } } : {}) } } }
+    const baseline = projectFlowWithUtcTimes(value)
+    const time = type === 'calibration' ? value.node_times.evaluation.phase_times!.future : value.node_times.evaluation
+    time.start_at = '2026-11-06T10:00'
+    time.end_at = '2026-11-06T11:00'
+    value.node_times.evaluation.appeal_deadline = time.end_at
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [target], projectStatus: 'STARTED', nodeSettings: value.node_settings, baselineFlowSettings: baseline, modelValue: value.node_times } })
+    expect(wrapper.text()).toContain('不能早于当前时间')
+    expect(wrapper.findAllComponents(PerformanceDateTimeField)[0].props('disabled')).toBe(false)
+    expect(projectNodeTimeError([target], value, Date.now(), 'STARTED', baseline)).toContain('不能早于当前时间')
+    wrapper.unmount()
+  })
+
+  it('keeps new calibration starts editable, requires their future ends, and locks saved starts at their own boundary', async () => {
+    const value = settings()
+    value.node_times.calibration.phase_times!.second = { start_at: '2026-11-06T12:01', end_at: '2026-11-07T18:00' }
+    const baseline = projectFlowWithUtcTimes(value)
+    value.node_settings.calibration.calibration!.phases.push({ phase_id: 'new', rules: [] })
+    value.node_times.calibration.phase_times!.new = { start_at: '2026-11-06T10:00', end_at: '2026-11-06T11:00' }
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [node], nodeSettings: value.node_settings, modelValue: value.node_times, baselineFlowSettings: baseline, projectStatus: 'STARTED' } })
+    expect(wrapper.get('#calibration-new-start').element).toHaveProperty('disabled', false)
+    expect(wrapper.get('#calibration-new-error').text()).toContain('不能早于当前时间')
+    expect(wrapper.get('#calibration-second-start').element).toHaveProperty('disabled', false)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(wrapper.get('#calibration-second-start').element).toHaveProperty('disabled', true)
+    expect(wrapper.get('#calibration-new-start').element).toHaveProperty('disabled', false)
+    wrapper.unmount()
+  })
+
+  it('rejects overlap on both phase ends, allows touching ranges and ignores order and other nodes', async () => {
+    const value = settings()
+    value.node_times.calibration.phase_times!.second.start_at = first.end_at
+    expect(projectNodeTimeError([node], value, Date.now(), 'ARCHIVED')).toBe('')
+    value.node_times.calibration.phase_times!.second.start_at = '2026-10-05T17:59'
+    const wrapper = timeComponent(value, 'ARCHIVED')
+    expect(wrapper.get('#calibration-first-error').text()).toBe('校准阶段起止时间不能重叠')
+    expect(wrapper.get('#calibration-second-error').text()).toBe('校准阶段起止时间不能重叠')
+    expect(projectCalibrationRangeError([node], value)).toContain('不能重叠')
+    await wrapper.get('#calibration-second-start').setValue('2026-10-05 18:00')
+    expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
+    wrapper.unmount()
+    value.node_times.calibration.phase_times!.second.start_at = first.end_at
+    value.node_settings.calibration.calibration!.phases.reverse()
+    value.node_settings.other = structuredClone(value.node_settings.calibration)
+    value.node_times.other = structuredClone(value.node_times.calibration)
+    value.node_times.evaluation = { ...first }
+    expect(projectNodeTimeError([node, { ...node, node_id: 'other' }, evaluation], value, Date.now(), 'ARCHIVED')).toBe('')
+  })
+
+  it('skips blank phase dates before the time step but completion still requires them and checks filled invalid values', () => {
+    const value = settings()
+    value.node_times.calibration.phase_times!.second = { start_at: '', end_at: '' }
+    expect(projectCalibrationRangeError([node], value)).toBe('')
+    expect(projectNodeTimeError([node], value, Date.now(), 'ARCHIVED')).toContain('不能为空')
+    value.node_times.calibration.phase_times!.second = { start_at: 'invalid', end_at: '' }
+    expect(projectCalibrationRangeError([node], value)).toContain('格式不正确')
+    value.node_times.calibration.phase_times!.second = { start_at: second.start_at, end_at: second.start_at }
+    expect(projectCalibrationRangeError([node], value)).toContain('必须晚于开始时间')
+  })
+
+  it('validates processing after all appeal deadlines and not before every view start, without adding a processing start', async () => {
+    const otherView = { ...view, node_id: 'other-view' }
+    const value: PerformanceProjectFlowSettings = { node_settings: {}, node_times: {
+      view: { start_at: '2026-11-06T12:00', end_at: '', appeal_deadline: '2026-11-06T13:00' },
+      'other-view': { start_at: '2026-11-06T12:00', end_at: '', appeal_deadline: '2026-11-06T14:00' },
+      processing: { start_at: '', end_at: '2026-11-06T14:00' },
+    } }
+    const nodes = [view, otherView, processing]
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes, modelValue: value.node_times, projectStatus: 'ARCHIVED' } })
+    expect(wrapper.find('#processing-start').exists()).toBe(false)
+    expect(wrapper.get('#processing-deadline-error').text()).toBe('处理复议截止时间必须晚于发起复议截止时间')
+    expect(projectNodeTimeError(nodes, value, Date.now(), 'ARCHIVED')).toContain('必须晚于发起复议截止时间')
+    await wrapper.get('#processing-end').setValue('2026-11-06 14:01')
+    expect(wrapper.find('#processing-deadline-error').exists()).toBe(false)
+    value.node_times.processing.end_at = '2026-11-06T14:01'
+    value.node_times['other-view'].start_at = '2026-11-06T15:00'
+    value.node_times['other-view'].appeal_deadline = ''
+    await wrapper.setProps({ modelValue: structuredClone(value.node_times) })
+    expect(wrapper.get('#processing-deadline-error').text()).toBe('处理复议截止时间不能早于结果查看开始时间')
+    value.node_times['other-view'].start_at = '2026-11-06T14:01'
+    await wrapper.setProps({ modelValue: structuredClone(value.node_times) })
+    expect(wrapper.find('#processing-deadline-error').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('retains the no-start historical processing boundary when the saved node has no start', () => {
+    const value: PerformanceProjectFlowSettings = { node_settings: {}, node_times: { processing: { start_at: '', end_at: '2026-11-06T11:00' } } }
+    expect(projectNodeTimeError([processing], value, Date.now(), 'STARTED', projectFlowWithUtcTimes(value))).toBe('')
+    expect(projectNodeTimeError([processing], value, Date.now(), 'STARTED', { node_settings: {}, node_times: {} })).toContain('不能早于当前时间')
+  })
+
+  it.each(['2026-02-30T09:00', '2026-13-01T09:00', '2026-11-06T25:00', '2026-11-06T09:61', '2026-11-06'])('rejects invalid calendar/time values %s', value => {
+    expect(Number.isNaN(projectTimeTimestamp(value))).toBe(true)
+    expect(projectDeadlineError('', value)).toContain('格式不正确')
+  })
+
+  it('compares mixed timezone phase ranges consistently and accepts an adjacent boundary', () => {
+    const value = settings()
+    value.node_times.calibration.phase_times!.first = { start_at: '2026-11-06T09:00', end_at: '2026-11-06T02:00:00Z' }
+    value.node_times.calibration.phase_times!.second = { start_at: '2026-11-06T10:00+08:00', end_at: '2026-11-06T11:00' }
+    expect(projectCalibrationRangeError([node], value)).toBe('')
+    value.node_times.calibration.phase_times!.second.start_at = '2026-11-06T01:59:00Z'
+    expect(projectCalibrationRangeError([node], value)).toContain('不能重叠')
+    syncCalibrationPhaseTimes(value.node_settings, value.node_times)
+    expect(value.node_times.calibration.start_at).toBe('2026-11-06T09:00')
+    expect(value.node_times.calibration.end_at).toBe('2026-11-06T11:00')
+  })
+
+  it.each(['evaluation', 'result_view', 'result_reconsideration', 'calibration'])('locates required and malformed %s fields with shared error markup', async type => {
+    const target = { ...evaluation, node_type: type }
+    const value = { node_settings: type === 'calibration' ? { evaluation: { calibration: { force_distribution_enabled: false, phases: [{ phase_id: 'first', rules: [] }] } } } : {}, node_times: { evaluation: { start_at: '', end_at: '', appeal_deadline: '', ...(type === 'calibration' ? { phase_times: { first: { start_at: '', end_at: '' } } } : {}) } } } as PerformanceProjectFlowSettings
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [target], showValidation: true, nodeSettings: value.node_settings, modelValue: value.node_times } })
+    const fields = wrapper.findAllComponents(PerformanceDateTimeField)
+    expect(fields).toHaveLength(type === 'result_reconsideration' ? 1 : 2)
+    for (const field of fields) {
+      expect(field.props('invalid')).toBe(true)
+      expect(wrapper.get(`#${field.props('describedBy')}`).text()).toContain('不能为空')
+    }
+    expect(projectNodeTimeError([target], value)).toContain('不能为空')
+    const end = fields.at(-1)!
+    await end.get('input').setValue('2026-02-30 09:00')
+    expect(wrapper.get(`#${end.props('describedBy')}`).text()).toContain('格式不正确')
+    wrapper.unmount()
+  })
+
+  it('preserves invalid manually typed start and end values in the draft and marks the exact fields', async () => {
+    const wrapper = mount(PerformanceProjectTimeSettings, { props: { nodes: [evaluation], showValidation: true, modelValue: { evaluation: { start_at: '2026-11-07T09:00', end_at: '2026-11-08T18:00' } } } })
+    await wrapper.get('#evaluation-start').setValue('2026-02-30 09:00')
+    expect(wrapper.get('#evaluation-start-error').text()).toBe('开始时间格式不正确')
+    await wrapper.get('#evaluation-end').setValue('not a date')
+    expect(wrapper.get('#evaluation-deadline-error').text()).toBe('截止时间格式不正确')
+    const emitted = wrapper.emitted('update:modelValue')!.at(-1)![0] as PerformanceProjectFlowSettings['node_times']
+    expect(emitted.evaluation).toEqual({ start_at: '2026-02-30T09:00', end_at: 'not a date' })
+    await wrapper.get('#evaluation-start').setValue('')
+    await wrapper.get('#evaluation-end').setValue('')
+    expect(wrapper.get('#evaluation-start-error').text()).toBe('开始时间不能为空')
+    expect(wrapper.get('#evaluation-deadline-error').text()).toBe('截止时间不能为空')
+    wrapper.unmount()
+  })
+})
+
 describe('calibration phase time linkage', () => {
   it('creates stable IDs without requiring crypto.randomUUID', () => {
     expect(createCalibrationPhaseId(() => 'native-id')).toBe('native-id')
@@ -237,6 +403,15 @@ describe('calibration phase time linkage', () => {
     const wrapper = timeComponent(value)
     expect(wrapper.findAllComponents(PerformanceDateTimeField)).toHaveLength(2)
     wrapper.unmount()
+  })
+
+  it('preserves explicitly empty calibration phases and rules during display initialization', () => {
+    const value = settings()
+    initializeCalibrationNodes([node], value)
+    expect(value.node_settings.calibration.calibration!.phases.map(phase => phase.rules)).toEqual([[], []])
+    value.node_settings.calibration.calibration!.phases = []
+    initializeCalibrationNodes([node], value)
+    expect(value.node_settings.calibration.calibration!.phases).toEqual([])
   })
 
   it('does not mark legacy display initialization as a user edit', async () => {

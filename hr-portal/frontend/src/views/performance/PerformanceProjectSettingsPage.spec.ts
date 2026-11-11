@@ -2,13 +2,18 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  get: vi.fn(), listTemplates: vi.fn(), getTemplateWorkflow: vi.fn(),
+  get: vi.fn(), listTemplates: vi.fn(), getTemplateWorkflow: vi.fn(), push: vi.fn(), leaveGuard: vi.fn(), success: vi.fn(),
   listEvaluatorOptions: vi.fn(), previewEvaluators: vi.fn(), previewEvaluatorPeople: vi.fn(), update: vi.fn(), otherSettings: vi.fn(),
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { cycleId: '1', id: '2' } }),
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mocks.push }),
+  onBeforeRouteLeave: (guard: unknown) => mocks.leaveGuard(guard),
 }))
+vi.mock('element-plus', async () => {
+  const actual = await vi.importActual<typeof import('element-plus')>('element-plus')
+  return { ...actual, ElMessage: { ...actual.ElMessage, success: mocks.success } }
+})
 vi.mock('@/api/performance', async () => {
   const actual = await vi.importActual<typeof import('@/api/performance')>('@/api/performance')
   return { ...actual, performanceProjectApi: mocks, performanceOtherSettingsApi: { get: mocks.otherSettings } }
@@ -30,8 +35,8 @@ function page(realDialog = false, realFlow = false, realAudience = false) {
       // 这里只关心受众预览的人员列表与统计，下拉本身不做像素断言，故用桩替换。
       ElSelect: true,
       ElOption: true,
-      UiPageHeader: { props: ['title'], template: '<header><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
-      PerformanceAudienceRuleEditor: realAudience ? false : { props: ['modelValue', 'allowedFields', 'snapshotOptions', 'disabled'], template: '<div data-testid="audience-editor"><slot name="group-heading-extra" :index="0" /></div>' },
+      UiPageHeader: { props: ['title'], emits: ['back'], template: '<header><button @click="$emit(\'back\')">返回</button><span>{{ title }}</span><slot name="subtitle" /><slot name="actions" /></header>' },
+      PerformanceAudienceRuleEditor: realAudience ? false : { props: ['modelValue', 'allowedFields', 'snapshotOptions', 'disabled', 'error'], template: '<div data-testid="audience-editor"><slot name="group-heading-extra" :index="0" /><p v-if="error" role="alert">{{ error }}</p></div>' },
       PerformanceProjectDialog: !realDialog,
       PerformancePermissionButton: { props: ['allowed', 'disabled'], template: '<button v-if="allowed" :disabled="disabled"><slot /></button>' },
       PerformanceProjectFlowSettings: !realFlow,
@@ -192,7 +197,7 @@ describe('project audience preview', () => {
     await flushPromises()
     await wrapper.get('.audience-summary p button').trigger('click')
     await flushPromises()
-    const table = wrapper.get('.performance-management-table .ui-table__grid')
+    const table = wrapper.get('.performance-management-table')
     const statusIndex = table.findAll('thead th').findIndex(cell => cell.text().trim() === '当前在职状态')
     expect(statusIndex).toBeGreaterThan(-1)
     expect(table.findAll('tbody tr')[0].findAll('td')[statusIndex].text()).toBe(displayed)
@@ -373,7 +378,7 @@ describe('CR-013 project partial saves', () => {
     expect(mocks.update).not.toHaveBeenCalled()
     expect(wrapper.find('[aria-invalid="true"]').exists()).toBe(false)
     expect(wrapper.find('.time-card > .error').exists()).toBe(false)
-    expect(wrapper.text()).toContain('项目设置已保存')
+    expect(mocks.success).toHaveBeenLastCalledWith(expect.objectContaining({ message: '保存成功', customClass: 'performance-submit-toast' }))
     await wrapper.get('#result-appeal-deadline').setValue('2001-01-04 09:00')
     await flushPromises()
     await button(wrapper, '完成').trigger('click'); await flushPromises()
@@ -390,9 +395,9 @@ describe('CR-013 project partial saves', () => {
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     const flow = wrapper.getComponent(PerformanceProjectFlowSettings)
     const nodeSettings = JSON.parse(JSON.stringify(flow.props('modelValue')!.node_settings))
-    nodeSettings.calibration.calibration.phases.push({ phase_id: 'new-phase', rules: [] })
+    nodeSettings.calibration.calibration.phases.push({ phase_id: 'new-phase', rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] })
     const nodeTimes = JSON.parse(JSON.stringify(flow.props('modelValue')!.node_times))
-    nodeTimes.calibration.phase_times['new-phase'] = { start_at: '2000-01-01T01:00:00Z', end_at: '2000-01-02T01:00:00Z' }
+    nodeTimes.calibration.phase_times['new-phase'] = { start_at: '2000-01-03T01:00:00Z', end_at: '2000-01-04T01:00:00Z' }
     flow.vm.$emit('update:modelValue', { ...flow.props('modelValue'), node_settings: nodeSettings, node_times: nodeTimes })
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     await button(wrapper, '完成').trigger('click'); await flushPromises()
@@ -413,7 +418,7 @@ describe('CR-013 project partial saves', () => {
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     await button(wrapper, '完成').trigger('click'); await flushPromises()
     expect(mocks.update).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('项目设置已保存')
+    expect(mocks.success).toHaveBeenLastCalledWith(expect.objectContaining({ message: '保存成功', customClass: 'performance-submit-toast' }))
     wrapper.unmount()
   })
   it('preserves server canonical historical IDs in both baselines and explicit rule deletion', async () => {
@@ -552,6 +557,92 @@ describe('CR-013 project partial saves', () => {
     await button(wrapper, '下一步').trigger('click'); await flushPromises()
     expect(mocks.update).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('请先确认或取消当前流程配置')
+    wrapper.unmount()
+  })
+})
+
+describe('project save and leave feedback', () => {
+  async function configured() {
+    const project = { ...await mocks.get(), template_id: 11, status: 'STARTED', flow_settings: {
+      node_settings: { result: { result_view: { automatic_enabled: true, manual_enabled: false, automatic_rule: 'PREVIOUS_AND_START' } } },
+      node_times: { result: { start_at: '2099-01-01T01:00:00Z', end_at: '', appeal_deadline: '2099-01-02T01:00:00Z' } },
+    } }
+    mocks.get.mockResolvedValue(project)
+    mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'result', node_type: 'result_view', name: '结果查看', order: 1 }] })
+    mocks.update.mockImplementation(async (_id, patch) => ({ ...project, ...patch }))
+    return project
+  }
+  it('shows the global success toast on next and returns to cycles only after completion', async () => {
+    await configured()
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.success).toHaveBeenCalledWith(expect.objectContaining({ message: '保存成功', customClass: 'performance-submit-toast' }))
+    expect(mocks.push).not.toHaveBeenCalled()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    await button(wrapper, '完成').trigger('click'); await flushPromises()
+    expect(mocks.push).toHaveBeenCalledOnce()
+    expect(mocks.push).toHaveBeenCalledWith({ name: 'PerformanceCycles' })
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('does not navigate or show success if saving fails and preserves the draft', async () => {
+    await configured()
+    mocks.update.mockRejectedValue({ response: { data: { detail: '保存失败，请重试' } } })
+    const wrapper = page(); await flushPromises()
+    const vm = wrapper.vm as any
+    vm.form.flow_settings.node_settings.result.result_view.manual_enabled = true
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(mocks.success).not.toHaveBeenCalled()
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('保存失败，请重试')
+    expect(vm.form.flow_settings.node_settings.result.result_view.manual_enabled).toBe(true)
+    wrapper.unmount()
+  })
+  it('leaves unchanged pages directly and protects changed drafts with the shared dialog', async () => {
+    await configured()
+    const wrapper = page(); await flushPromises()
+    await button(wrapper, '返回').trigger('click'); await flushPromises()
+    expect(mocks.push).toHaveBeenCalledWith({ name: 'PerformanceCycles' })
+    mocks.push.mockClear()
+    const vm = wrapper.vm as any
+    vm.form.flow_settings.node_settings.result.result_view.manual_enabled = true
+    await button(wrapper, '返回').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('修改尚未保存，确定离开此页面吗？')
+    await button(wrapper, '继续编辑').trigger('click'); await flushPromises()
+    expect(mocks.push).not.toHaveBeenCalled()
+    expect(vm.form.flow_settings.node_settings.result.result_view.manual_enabled).toBe(true)
+    await button(wrapper, '返回').trigger('click'); await flushPromises()
+    await button(wrapper, '离开').trigger('click'); await flushPromises()
+    expect(mocks.push).toHaveBeenCalledWith({ name: 'PerformanceCycles' })
+    expect(mocks.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('guards router navigation without automatically saving', async () => {
+    await configured()
+    const wrapper = page(); await flushPromises()
+    ;(wrapper.vm as any).form.flow_settings.node_settings.result.result_view.manual_enabled = true
+    const guard = mocks.leaveGuard.mock.calls.at(-1)![0]
+    expect(guard({ path: '/performance/workbench' })).toBe(false)
+    await flushPromises()
+    await button(wrapper, '离开').trigger('click'); await flushPromises()
+    expect(mocks.push).toHaveBeenCalledWith({ path: '/performance/workbench' })
+    expect(mocks.update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('blocks next when a calibration phase is empty and clears the node error after a rule is added', async () => {
+    const project = await configured()
+    project.flow_settings.node_settings = { ...project.flow_settings.node_settings, calibration: { calibration: { force_distribution_enabled: false, phases: [{ phase_id: 'p1', rules: [] }] } } } as any
+    mocks.getTemplateWorkflow.mockResolvedValue({ nodes: [{ node_id: 'calibration', node_type: 'calibration', name: '校准', order: 1 }, { node_id: 'result', node_type: 'result_view', name: '结果查看', order: 2 }] })
+    const wrapper = page(false, true); await flushPromises()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    mocks.update.mockClear()
+    await button(wrapper, '下一步').trigger('click'); await flushPromises()
+    expect(wrapper.get('.add-phase').element.nextElementSibling?.textContent).toBe('请配置校准范围')
+    expect(button(wrapper, '完成')).toBeUndefined()
+    expect(mocks.update).not.toHaveBeenCalled()
+    ;(wrapper.vm as any).form.flow_settings.node_settings.calibration.calibration.phases[0].rules.push({ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false })
+    await flushPromises()
+    expect(wrapper.find('.calibration-range-error').exists()).toBe(false)
     wrapper.unmount()
   })
 })

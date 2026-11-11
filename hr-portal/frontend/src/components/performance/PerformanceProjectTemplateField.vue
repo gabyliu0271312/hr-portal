@@ -11,6 +11,7 @@ const props = defineProps<{
   templates: PerformanceProjectTemplate[]
   loading?: boolean
   error?: string
+  validationError?: string
   disabled?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: number]; retry: [] }>()
@@ -35,9 +36,10 @@ const selected = computed(() => props.templates.find(item => item.template_id ==
         </PerformanceTextButton>
       </div>
     </div>
-    <div v-else class="template-empty">
+    <div v-else class="template-empty" :class="{ 'template-empty--invalid': validationError }" :aria-invalid="Boolean(validationError)" :aria-describedby="validationError ? 'project-template-validation' : undefined">
       <PerformanceTextButton label="选择绩效模板" :disabled="disabled" @click="open = true"><template #icon><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg></template></PerformanceTextButton>
     </div>
+    <p v-if="validationError" id="project-template-validation" class="template-validation" role="alert">{{ validationError }}</p>
     <p v-if="error" class="template-error" role="alert">{{ error }} <PerformanceTextButton label="重试" @click="emit('retry')" /></p>
     <PerformanceTemplatePickerDialog v-model:open="open" :model-value="modelValue" :templates="templates" :loading="loading" :error="error" @update:model-value="emit('update:modelValue', $event)" @retry="emit('retry')" />
     <PerformanceTemplatePreviewDialog v-model:open="previewOpen" :template-id="modelValue" :name="selected?.name" />
@@ -57,5 +59,7 @@ h2 + .template-description { line-height: 22px; }
 .template-name { overflow: hidden; color: var(--color-text-primary); font-size: var(--font-size-md); font-weight: 600; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
 .template-tag { flex: 0 0 auto; padding: 0 var(--performance-template-tag-padding-x); border-radius: var(--radius-sm); background: var(--performance-template-tag-background); color: var(--performance-template-tag-text); font-size: var(--font-size-xs); line-height: 20px; }
 .template-actions { display: flex; flex: 0 0 auto; align-items: center; gap: var(--spacing-6); }
+.template-empty--invalid{border-color:var(--performance-field-border-invalid)}
+.template-validation{margin:var(--performance-field-error-gap) 0 0;color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
 .template-error { margin: var(--spacing-2) 0 0; color: var(--color-danger); font-size: var(--font-size-md); }
 </style>

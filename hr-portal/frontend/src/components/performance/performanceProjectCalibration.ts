@@ -119,10 +119,8 @@ export function initializeCalibrationNodes(nodes: PerformanceWorkflowNode[], set
     if (node.node_type !== 'calibration') continue
     const key = node.node_id || `${node.node_type}-${node.order}`
     const setting = settings.node_settings[key] ||= {}
-    setting.calibration ||= { force_distribution_enabled: false, distribution: { mode: 'UNIFIED', rules: [], scope_configured: false }, phases: [] }
+    setting.calibration ||= { force_distribution_enabled: false, distribution: { mode: 'UNIFIED', rules: [], scope_configured: false }, phases: [{ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] }] }
     setting.calibration.distribution ||= { mode: 'UNIFIED', rules: [], scope_configured: false }
-    if (!setting.calibration.phases.length) setting.calibration.phases.push({ rules: [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] })
-    setting.calibration.phases.forEach(phase => { if (!phase.rules?.length) phase.rules = [{ subject_type: 'PERSON', operator: 'INCLUDE', scope: 'PROJECT_ALL', allow_authorize: false }] })
   }
   ensureCalibrationPhaseIds(settings.node_settings)
   syncCalibrationPhaseTimes(settings.node_settings, settings.node_times)
@@ -158,57 +156,119 @@ export function syncCalibrationPhaseTimes(settings: NodeSettings, times: Record<
       phaseTimes[id] ||= { start_at: legacy && index === 0 ? time.start_at : '', end_at: legacy && index === 0 ? time.end_at : '' }
     })
     const ranges = ids.map(id => phaseTimes[id])
-    const complete = ranges.every(range => range.start_at && range.end_at && Number.isFinite(Date.parse(range.start_at)) && Number.isFinite(Date.parse(range.end_at)))
-    time.start_at = complete ? ranges.reduce((first, range) => Date.parse(range.start_at) < Date.parse(first) ? range.start_at : first, ranges[0].start_at) : ''
-    time.end_at = complete ? ranges.reduce((last, range) => Date.parse(range.end_at) > Date.parse(last) ? range.end_at : last, ranges[0].end_at) : ''
+    const complete = ranges.every(range => Number.isFinite(projectTimeTimestamp(range.start_at)) && Number.isFinite(projectTimeTimestamp(range.end_at)))
+    time.start_at = complete ? ranges.reduce((first, range) => projectTimeTimestamp(range.start_at) < projectTimeTimestamp(first) ? range.start_at : first, ranges[0].start_at) : ''
+    time.end_at = complete ? ranges.reduce((last, range) => projectTimeTimestamp(range.end_at) > projectTimeTimestamp(last) ? range.end_at : last, ranges[0].end_at) : ''
   }
 }
 
-export function requiresFutureDeadline(projectStatus = 'DRAFT', baseline?: PerformanceProjectFlowSettings, nodeId?: string, phaseId?: string) {
+export function projectTimeTimestamp(value?: string) {
+  if (!value) return NaN
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:[zZ]|[+-]\d{2}:?\d{2})?$/.exec(value)
+  if (!match || Number(match[1]) < 1 || Number(match[4]) > 23 || Number(match[5]) > 59 || Number(match[6] || 0) > 59) return NaN
+  const date = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`)
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== `${match[1]}-${match[2]}-${match[3]}`) return NaN
+  return Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value.replace(' ', 'T') : shanghaiLocalToUtcIso(value.replace(' ', 'T')) || '')
+}
+
+function savedRange(baseline: PerformanceProjectFlowSettings, nodeId: string, phaseId?: string) {
+  const time = baseline.node_times[nodeId]
+  if (!phaseId) return time
+  const phases = baseline.node_settings[nodeId]?.calibration?.phases || []
+  const index = phases.findIndex((phase, index) => calibrationPhaseKey(phase, index) === phaseId)
+  if (index < 0) return undefined
+  return time?.phase_times ? time.phase_times[phaseId] : index === 0 ? time : undefined
+}
+
+export function projectStartLocked(projectStatus: string, value: string | undefined, now = Date.now(), baseline?: PerformanceProjectFlowSettings, nodeId?: string, phaseId?: string) {
+  const start = baseline && nodeId ? calibrationSavedTimestamp(savedRange(baseline, nodeId, phaseId)?.start_at) : projectTimeTimestamp(value)
+  return projectStatus === 'STARTED' && start <= now
+}
+
+export function requiresFutureDeadline(projectStatus = 'DRAFT', baseline?: PerformanceProjectFlowSettings, nodeId?: string, phaseId?: string, now = Date.now()) {
   if (projectStatus === 'DRAFT') return true
-  return projectStatus === 'STARTED' && Boolean(baseline && nodeId && phaseId
-    && !baseline.node_settings[nodeId]?.calibration?.phases.some((phase, index) => calibrationPhaseKey(phase, index) === phaseId))
+  if (projectStatus !== 'STARTED' || !baseline || !nodeId) return false
+  return !projectStartLocked(projectStatus, undefined, now, baseline, nodeId, phaseId)
+}
+
+export function projectStartTimeError(value: string | undefined, required = true) {
+  if (!value) return required ? '开始时间不能为空' : ''
+  return Number.isFinite(projectTimeTimestamp(value)) ? '' : '开始时间格式不正确'
 }
 
 export function projectDeadlineError(start: string | undefined, end: string | undefined, now = Date.now(), endLabel = '截止时间', requireFuture = true) {
   if (!end) return ''
-  const timestamp = (value: string) => Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : shanghaiLocalToUtcIso(value.replace(' ', 'T')) || '')
-  const deadline = timestamp(end)
+  const deadline = projectTimeTimestamp(end)
   if (!Number.isFinite(deadline)) return `${endLabel}格式不正确`
-  if (start && deadline <= timestamp(start)) return `${endLabel}必须晚于开始时间`
+  if (start && deadline <= projectTimeTimestamp(start)) return `${endLabel}必须晚于开始时间`
   if (requireFuture && deadline < now) return `${endLabel}不能早于当前时间`
   return ''
+}
+
+function calibrationOverlapError(settings: PerformanceProjectFlowSettings, nodeId: string, phaseId: string) {
+  const phases = settings.node_settings[nodeId]?.calibration?.phases || []
+  const range = settings.node_times[nodeId]?.phase_times?.[phaseId]
+  const start = projectTimeTimestamp(range?.start_at)
+  const end = projectTimeTimestamp(range?.end_at)
+  if (!(end > start)) return ''
+  return phases.some((phase, index) => {
+    const id = calibrationPhaseKey(phase, index)
+    if (id === phaseId) return false
+    const other = settings.node_times[nodeId]?.phase_times?.[id]
+    const otherStart = projectTimeTimestamp(other?.start_at)
+    const otherEnd = projectTimeTimestamp(other?.end_at)
+    return otherEnd > otherStart && start < otherEnd && otherStart < end
+  }) ? '校准阶段起止时间不能重叠' : ''
+}
+
+export function projectTimeFieldErrors(nodes: PerformanceWorkflowNode[], settings: PerformanceProjectFlowSettings, node: PerformanceWorkflowNode, now = Date.now(), projectStatus = 'DRAFT', baseline?: PerformanceProjectFlowSettings, required = true, phaseId?: string) {
+  const key = node.node_id || `${node.node_type}-${node.order}`
+  const time = phaseId ? settings.node_times[key]?.phase_times?.[phaseId] : settings.node_times[key]
+  const processing = node.node_type === 'result_reconsideration'
+  const endLabel = node.node_type === 'result_view' ? '发起复议截止时间' : processing ? '处理复议截止时间' : '截止时间'
+  const end = node.node_type === 'result_view' ? (time as PerformanceProjectNodeTime | undefined)?.appeal_deadline : time?.end_at
+  const baselineTime = baseline && savedRange(baseline, key, phaseId)
+  const requireFuture = processing && baselineTime && !baselineTime.start_at && projectStatus === 'STARTED' ? false : requiresFutureDeadline(projectStatus, baseline, key, phaseId, now)
+  const errors = {
+    start: processing ? '' : projectStartTimeError(time?.start_at, required),
+    end: !end && required ? `${endLabel}不能为空` : projectDeadlineError(processing ? undefined : time?.start_at, end, now, endLabel, requireFuture),
+  }
+  if (!errors.end && phaseId) errors.end = calibrationOverlapError(settings, key, phaseId)
+  if (!errors.end && processing && Number.isFinite(projectTimeTimestamp(end))) {
+    const deadline = projectTimeTimestamp(end)
+    for (const view of nodes.filter(item => item.node_type === 'result_view')) {
+      const window = settings.node_times[view.node_id || `${view.node_type}-${view.order}`]
+      if (deadline <= projectTimeTimestamp(window?.appeal_deadline)) { errors.end = '处理复议截止时间必须晚于发起复议截止时间'; break }
+      if (deadline < projectTimeTimestamp(window?.start_at)) errors.end = '处理复议截止时间不能早于结果查看开始时间'
+    }
+  }
+  return errors
 }
 
 export function projectNodeTimeError(nodes: PerformanceWorkflowNode[], settings: PerformanceProjectFlowSettings, now = Date.now(), projectStatus = 'DRAFT', baseline?: PerformanceProjectFlowSettings) {
   for (const node of nodes) {
     const key = node.node_id || `${node.node_type}-${node.order}`
-    const time = settings.node_times[key]
-    const phases = settings.node_settings[key]?.calibration?.phases
-    if (node.node_type === 'calibration' && phases?.length) {
+    const phases = node.node_type === 'calibration' ? settings.node_settings[key]?.calibration?.phases : undefined
+    if (phases?.length) {
       for (const [index, phase] of phases.entries()) {
-        const range = time?.phase_times?.[calibrationPhaseKey(phase, index)]
-        const error = rangeError(range?.start_at, range?.end_at, `${node.name}第 ${index + 1} 阶段`, now, '截止时间', requiresFutureDeadline(projectStatus, baseline, key, calibrationPhaseKey(phase, index)))
-        if (error) return error
+        const errors = projectTimeFieldErrors(nodes, settings, node, now, projectStatus, baseline, true, calibrationPhaseKey(phase, index))
+        if (errors.start || errors.end) return `${node.name}第 ${index + 1} 阶段的${errors.start || errors.end}`
       }
-    } else if (node.node_type === 'result_view') {
-      const error = rangeError(time?.start_at, time?.appeal_deadline, node.name, now, '发起复议截止时间', requiresFutureDeadline(projectStatus))
-      if (error) return error
-    } else if (node.node_type === 'result_reconsideration') {
-      if (!time?.end_at) return `${node.name}的处理复议截止时间不能为空`
-      const error = projectDeadlineError(undefined, time.end_at, now, `${node.name}的处理复议截止时间`, requiresFutureDeadline(projectStatus))
-      if (error) return error
     } else {
-      const error = rangeError(time?.start_at, time?.end_at, node.name, now, '截止时间', requiresFutureDeadline(projectStatus))
-      if (error) return error
+      const errors = projectTimeFieldErrors(nodes, settings, node, now, projectStatus, baseline)
+      if (errors.start || errors.end) return `${node.name}的${errors.start || errors.end}`
     }
   }
   return ''
 }
 
-function rangeError(start: string | undefined, end: string | undefined, label: string, now: number, endLabel = '截止时间', requireFuture = true) {
-  if (!start || !end) return `${label}的开始时间和${endLabel}不能为空`
-  if (!Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return `${label}的时间格式不正确`
-  const error = projectDeadlineError(start, end, now, endLabel, requireFuture)
-  return error ? `${label}的${error}` : ''
+export function projectCalibrationRangeError(nodes: PerformanceWorkflowNode[], settings: PerformanceProjectFlowSettings) {
+  for (const node of nodes.filter(node => node.node_type === 'calibration')) {
+    const key = node.node_id || `${node.node_type}-${node.order}`
+    for (const [index, phase] of (settings.node_settings[key]?.calibration?.phases || []).entries()) {
+      const errors = projectTimeFieldErrors(nodes, settings, node, Date.now(), 'ARCHIVED', undefined, false, calibrationPhaseKey(phase, index))
+      if (errors.start || errors.end) return `${node.name}第 ${index + 1} 阶段的${errors.start || errors.end}`
+    }
+  }
+  return ''
 }

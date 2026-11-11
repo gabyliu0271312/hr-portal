@@ -812,7 +812,9 @@ class PerformanceProjectService:
                     values[field] = value
             start_at = _parse_time(values.get("start_at"))
             end_at = _parse_time(values.get("end_at") or values.get("appeal_deadline"))
-            if start_at and end_at and end_at <= start_at:
+            previous = ((existing_flow_settings or {}).get("node_times") or {}).get(node_id) or {}
+            changed = any(_parse_time(values.get(field)) != _parse_time(previous.get(field)) for field in ("start_at", "end_at", "appeal_deadline"))
+            if changed and start_at and end_at and end_at <= start_at:
                 raise ProjectValidationError("流程节点截止时间必须晚于开始时间")
             normalized_times[node_id] = values
             if "phase_times" in raw and not normalized_nodes.get(node_id, {}).get("calibration"):
@@ -852,7 +854,9 @@ class PerformanceProjectService:
                     _parse_time(timestamp)
                     timing[field] = timestamp
                 start, end = _parse_time(timing["start_at"]), _parse_time(timing["end_at"])
-                if start and end and end <= start:
+                old_timing = (previous.get("phase_times") or {}).get(phase_id) or {}
+                changed = any(_parse_time(timing[field]) != _parse_time(old_timing.get(field)) for field in ("start_at", "end_at"))
+                if changed and start and end and end <= start:
                     raise ProjectValidationError(f"校准第 {index + 1} 阶段截止时间必须晚于开始时间")
                 ranges[phase_id] = timing
             values = normalized_times.setdefault(node_id, {})
@@ -861,6 +865,94 @@ class PerformanceProjectService:
             values["start_at"] = min((timing["start_at"] for timing in ranges.values()), key=_parse_time) if complete else ""
             values["end_at"] = max((timing["end_at"] for timing in ranges.values()), key=_parse_time) if complete else ""
         return {"node_settings": normalized_nodes, "node_times": normalized_times}
+
+    @staticmethod
+    def _validate_schedule(status, old_flow, flow, *, complete=False, nodes=(), now=None):
+        now = now or datetime.now(UTC)
+        old_times = (old_flow or {}).get("node_times") or {}
+        times = flow.get("node_times") or {}
+        old_settings = (old_flow or {}).get("node_settings") or {}
+        settings = flow.get("node_settings") or {}
+        types = {str(node.get("node_id")): node.get("node_type") for node in nodes}
+        for node_id, setting in {**old_settings, **settings}.items():
+            for kind in ("calibration", "result_view", "result_reconsideration"):
+                if kind in setting:
+                    types[node_id] = kind
+
+        def validate_window(window, previous, *, processing=False, added=False, required=()):
+            fields = ("start_at", "end_at", "appeal_deadline")
+            current = {key: _parse_time(window.get(key)) for key in fields}
+            prior = {key: _parse_time(previous.get(key)) for key in fields}
+            changed = any(current[key] != prior[key] for key in fields)
+            if (complete or added and status == PROJECT_STATUS_STARTED) and any(current[key] is None for key in required):
+                raise ProjectValidationError("请配置全部流程节点及校准阶段的开始与截止时间")
+            if not complete and not changed and not added:
+                return False
+            start = current["start_at"]
+            for key in ("end_at", "appeal_deadline"):
+                end = current[key]
+                if start and end and end <= start:
+                    raise ProjectValidationError("流程节点截止时间必须晚于开始时间")
+                if end is None or not (complete or added or current[key] != prior[key]):
+                    continue
+                begun = prior["start_at"] is not None and prior["start_at"] <= now or processing and not added and prior["start_at"] is None
+                if status == PROJECT_STATUS_DRAFT or status == PROJECT_STATUS_STARTED and (added or not begun):
+                    if end < now:
+                        raise ProjectValidationError("流程节点截止时间不得早于当前时间")
+            if status == PROJECT_STATUS_STARTED and prior["start_at"] is not None and prior["start_at"] <= now and start != prior["start_at"]:
+                raise ProjectValidationError("已开始环节或阶段的开始时间不可修改")
+            return changed or added
+
+        for node_id in old_times.keys() | times.keys() | types.keys():
+            kind = types.get(node_id)
+            if kind in {"project_start", "project_end"}:
+                continue
+            window, previous = times.get(node_id) or {}, old_times.get(node_id) or {}
+            calibration = (settings.get(node_id) or {}).get("calibration")
+            if kind == "calibration" or calibration is not None:
+                phases = (calibration or {}).get("phases") or []
+                if complete and (not phases or any(not phase.get("rules") for phase in phases)):
+                    raise ProjectValidationError("请配置校准阶段与校准规则")
+                old_phases = {phase.get("phase_id", f"phase-{index + 1}") for index, phase in enumerate(((old_settings.get(node_id) or {}).get("calibration") or {}).get("phases") or [])}
+                ranges = []
+                for index, phase in enumerate(phases):
+                    phase_id = phase.get("phase_id", f"phase-{index + 1}")
+                    timing = (window.get("phase_times") or {}).get(phase_id) or {}
+                    prior = (previous.get("phase_times") or {}).get(phase_id) or {}
+                    added = phase_id not in old_phases
+                    changed = validate_window(timing, prior, added=added, required=("start_at", "end_at"))
+                    start, end = _parse_time(timing.get("start_at")), _parse_time(timing.get("end_at"))
+                    if start and end:
+                        ranges.append((start, end, changed))
+                for index, (start, end, changed) in enumerate(ranges):
+                    if any((complete or changed or other_changed) and start < other_end and other_start < end for other_start, other_end, other_changed in ranges[index + 1:]):
+                        raise ProjectValidationError("同一校准环节的阶段时间不得重叠")
+                continue
+            required = ("end_at",) if kind == "result_reconsideration" else ("start_at", "appeal_deadline") if kind == "result_view" else ("start_at", "end_at")
+            validate_window(window, previous, processing=kind == "result_reconsideration", added=node_id in times and node_id not in old_times, required=required)
+
+        views = [key for key, kind in types.items() if kind == "result_view"]
+        appeals = [key for key, kind in types.items() if kind == "result_reconsideration"]
+        for view_id in views:
+            view, old_view = times.get(view_id) or {}, old_times.get(view_id) or {}
+            start, appeal = _parse_time(view.get("start_at")), _parse_time(view.get("appeal_deadline"))
+            for appeal_id in appeals:
+                processing, old_processing = times.get(appeal_id) or {}, old_times.get(appeal_id) or {}
+                end = _parse_time(processing.get("end_at"))
+                changed = any(_parse_time(view.get(key)) != _parse_time(old_view.get(key)) for key in ("start_at", "appeal_deadline")) or end != _parse_time(old_processing.get("end_at"))
+                if complete or changed:
+                    if end and appeal and end <= appeal:
+                        raise ProjectValidationError("处理复议截止时间必须晚于发起复议截止时间")
+                    if end and start and end < start:
+                        raise ProjectValidationError("处理复议截止时间不得早于结果查看开始时间")
+
+    async def _validate_configuration(self, settings, status, old_flow):
+        template_id = settings.get("template_id")
+        workflow = await self.db.get(PerformanceTemplateWorkflow, int(template_id)) if template_id else None
+        nodes = list((workflow.nodes if workflow else []) or [])
+        flow = settings["flow_settings"]
+        self._validate_schedule(status, old_flow, flow, complete=True, nodes=nodes)
+        self._validate_distribution_start_readiness(flow, nodes)
 
     @classmethod
     def _validate_payload(cls, payload: dict[str, Any], existing_settings: dict[str, Any] | None = None) -> tuple[str, str | None, list[str], dict[str, Any]]:
@@ -990,6 +1082,9 @@ class PerformanceProjectService:
 
     async def create_project(self, cycle_ref: str, payload: dict[str, Any], *, actor_type: str, actor_id: int) -> PerformanceProject:
         name, description, administrators, settings = self._validate_payload(payload)
+        self._validate_schedule(PROJECT_STATUS_DRAFT, {}, settings["flow_settings"])
+        if payload.get("configuration_completed") is True:
+            await self._validate_configuration(settings, PROJECT_STATUS_DRAFT, {})
         await self.validate_template(cycle_ref, settings.get("template_id"))
         await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"])
@@ -1030,7 +1125,10 @@ class PerformanceProjectService:
                 raise CalibrationConflict("PROJECT_TEMPLATE_CONFLICT", "项目模板已变更，请刷新后重试")
         self.validate_audience_change(project, payload)
         before = self.serialize(project)
+        old_flow = (project.settings or {}).get("flow_settings") or {}
         values = {**before, **payload}
+        if "flow_settings" not in payload:
+            values.pop("flow_settings", None)
         name, description, administrators, settings = self._validate_payload(values, project.settings or {})
         if settings.get("template_id") != (project.settings or {}).get("template_id"):
             if project.status == PROJECT_STATUS_STARTED:
@@ -1038,6 +1136,9 @@ class PerformanceProjectService:
             await self.validate_template(project.cycle_ref, settings.get("template_id"))
         await self._validate_distribution_template_options(settings.get("template_id"), settings["flow_settings"])
         await self._validate_manual_opening_policy(settings["flow_settings"], project.settings or {})
+        self._validate_schedule(project.status, old_flow, settings["flow_settings"])
+        if payload.get("configuration_completed") is True:
+            await self._validate_configuration(settings, project.status, old_flow)
         if "flow_settings" in payload or payload.get("calibration_operations"):
             old_flow, new_flow, structural = validate_calibration_change(project, (project.settings or {}).get("flow_settings") or {}, settings["flow_settings"], payload.get("calibration_operations") or [], payload.get("calibration_base_digest"))
             settings["flow_settings"] = new_flow
@@ -1053,9 +1154,10 @@ class PerformanceProjectService:
         project.settings = settings
         if project.status == PROJECT_STATUS_DRAFT and "evaluated_count" in payload:
             project.evaluated_count = int(payload.get("evaluated_count") or 0)
-        if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload and not payload.get("calibration_operations"):
+        if project.status == PROJECT_STATUS_STARTED and "flow_settings" in payload:
             node_times = settings["flow_settings"].get("node_times") or {}
-            await self.backfill_workflow_nodes(project, node_times, actor_type=actor_type, actor_id=actor_id, commit=False)
+            if not payload.get("calibration_operations"):
+                await self.backfill_workflow_nodes(project, node_times, actor_type=actor_type, actor_id=actor_id, commit=False)
             await self._sync_node_task_times(project, node_times)
         self.audit.append_event(AuditEventInput(
             event_type="PERFORMANCE_PROJECT_UPDATED",
@@ -1286,6 +1388,7 @@ class PerformanceProjectService:
         expired_names = self._expired_node_names(nodes, flow)
         if expired_names:
             raise ProjectValidationError("、".join(expired_names) + "环节截止时间早于当前时间，无法启动")
+        self._validate_schedule(PROJECT_STATUS_DRAFT, flow, flow, complete=True, nodes=nodes)
         self._validate_distribution_start_readiness(flow, nodes)
         try:
             await validate_executor_roles(self.db, nodes)
@@ -1452,9 +1555,9 @@ class PerformanceProjectService:
         if any(node.get("node_type") == "calibration" for node in pending):
             raise ProjectValidationError("已启动项目不能补建校准范围，请为新项目配置校准阶段")
         pending_ids = {str(node.get("node_id")) for node in pending}
-        normalized_times = self._validate_flow_settings({"node_settings": {}, "node_times": node_times})["node_times"]
         if not pending:
             return []
+        normalized_times = self._validate_flow_settings({"node_settings": {}, "node_times": {key: value for key, value in node_times.items() if key in pending_ids}})["node_times"]
         if not pending_ids.issubset(normalized_times):
             raise ProjectValidationError("请配置全部待补建节点的起止时间")
         normalized_times = {node_id: normalized_times[node_id] for node_id in pending_ids}
@@ -1532,7 +1635,7 @@ class PerformanceProjectService:
                 continue
             if node.node_type == "result_reconsideration":
                 # 复议任务 available_at 是申请提交时刻（业务语义），仅同步截止时间
-                end_at = _parse_time(timing.get("appeal_deadline") or timing.get("end_at"))
+                end_at = _parse_time(timing.get("end_at") or timing.get("appeal_deadline"))
                 for task in tasks:
                     task.due_at = end_at
                 continue

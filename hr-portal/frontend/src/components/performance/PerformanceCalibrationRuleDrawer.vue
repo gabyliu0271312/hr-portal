@@ -24,6 +24,7 @@
           <template v-for="(group, groupIndex) in draft.subject_groups" :key="groupIndex">
             <PerformanceCalibrationConditionGroup
               v-model="draft.subject_groups[groupIndex]"
+              :submitted="validationSubmitted"
               :title="`条件组 ${groupIndex + 1}`"
               field-label="校准人"
               :field-options="subjectFieldOptions"
@@ -53,6 +54,7 @@
           <template v-for="(group, groupIndex) in draft.scope_groups" :key="groupIndex">
             <PerformanceCalibrationConditionGroup
               v-model="draft.scope_groups[groupIndex]"
+              :submitted="validationSubmitted"
               :title="`条件组 ${groupIndex + 1}`"
               field-label="校准范围"
               :field-options="scopeFieldOptions"
@@ -174,6 +176,7 @@ const scopeFieldOptions = ['department', 'employee', 'hire_date', 'calibrator_re
 const peopleOptions = computed(() => conditionValueOptions('employee', { people: props.peopleOptions }))
 const draft = ref<RuleDraft>(createDraft(props.rule))
 const validationError = ref('')
+const validationSubmitted = ref(false)
 const subjectDirty = ref(false)
 const step = ref(0)
 const distributionSubmitted = ref(false)
@@ -208,6 +211,7 @@ function validDistributionRule(rule: PerformanceDistributionRule) {
   return Boolean(rule.assessment_item_id && rule.min_people_count >= 0 && rule.conditions.length && rule.conditions.every(condition => condition.grade_codes.length && condition.value > 0 && (condition.unit !== 'PERCENT' || condition.value <= 100)) && scopeValid)
 }
 function nextStep() {
+  validationSubmitted.value = true
   if (!validGroups(draft.value.subject_groups) || (draft.value.scope_mode === 'RULE' && !validGroups(draft.value.scope_groups))) {
     validationError.value = !validGroups(draft.value.subject_groups) ? '请完善校准人条件组中的条件值' : '请完善校准范围条件组中的条件值'
     return
@@ -242,6 +246,7 @@ function cancel() {
 function confirm() {
   if (props.saving) return
   if (!isDistributionFlow.value) {
+    validationSubmitted.value = true
     if ((!props.rule || subjectDirty.value || props.rule.subject_groups) && !validGroups(draft.value.subject_groups)) {
       validationError.value = '请完善校准人条件组中的条件值'
       return
@@ -274,6 +279,7 @@ watch(() => [props.modelValue, props.rule, props.mode], () => {
   if (props.modelValue) {
     draft.value = createDraft(props.rule)
     subjectDirty.value = false
+    validationSubmitted.value = false
     validationError.value = ''
     step.value = 0
     distributionSubmitted.value = false
@@ -282,7 +288,7 @@ watch(() => [props.modelValue, props.rule, props.mode], () => {
 </script>
 
 <style scoped>
-.calibration-rule-error{margin:8px 0 0;color:#f54a45;font-size:14px;line-height:22px}
+.calibration-rule-error{margin:var(--performance-field-error-gap) 0 0;color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
 .calibration-rule-header{display:flex;align-items:center;gap:32px;min-width:0}.calibration-rule-header h2{margin:0;white-space:nowrap}.calibration-step-guide{display:flex;align-items:center;justify-content:center;gap:12px;color:#8f959e;font-size:14px;line-height:22px}.calibration-step-guide--body{margin:0 auto 20px}.calibration-step-guide span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.calibration-step-guide b{display:inline-flex;width:20px;height:20px;align-items:center;justify-content:center;border:1px solid #d0d3d6;border-radius:50%;font-size:12px;font-weight:400}.calibration-step-guide span.current,.calibration-step-guide span.done{color:#3370ff}.calibration-step-guide span.current b,.calibration-step-guide span.done b{border-color:#3370ff;background:#3370ff;color:#fff}.calibration-step-guide i{width:56px;border-top:1px solid #d0d3d6}
 .calibration-distribution-list{display:flex;flex-direction:column;gap:12px}.calibration-distribution-item{display:flex;flex-direction:column;gap:8px}.calibration-distribution-card{padding:16px 20px;border-radius:4px;background:#f5f6f7}.calibration-distribution-card__header{display:flex;align-items:center;justify-content:space-between;font-weight:600}.calibration-distribution-empty{display:flex;flex-direction:column;align-items:center;padding:32px 0;color:#646a73}.calibration-distribution-empty :deep(.metric-template-empty-illustration){display:block;width:250px;height:125px}.calibration-distribution-empty p{margin:12px 0}.calibration-distribution-add{margin-top:12px}
 .calibration-rule-group-or{margin:16px -20px 8px;padding:12px 20px 0;border-top:1px solid var(--color-line-divider);color:var(--color-text-secondary);font:400 14px/22px var(--font-sans)}

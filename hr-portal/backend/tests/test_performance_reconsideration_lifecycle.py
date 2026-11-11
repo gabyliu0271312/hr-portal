@@ -18,6 +18,33 @@ from app.performance.models import (
 )
 
 
+def test_schedule_existing_processing_without_start_allows_historical_deadline_only():
+    from copy import deepcopy
+    from app.performance.project_service import PerformanceProjectService, ProjectValidationError
+    now = datetime(2026, 11, 11, tzinfo=UTC)
+    flow = {"node_settings": {"appeal": {"result_reconsideration": {}}}, "node_times": {"appeal": {"end_at": (now - timedelta(days=1)).isoformat()}}}
+    updated = deepcopy(flow)
+    updated["node_times"]["appeal"]["end_at"] = (now - timedelta(hours=1)).isoformat()
+    PerformanceProjectService._validate_schedule("STARTED", flow, updated, now=now)
+    with pytest.raises(ProjectValidationError, match="当前时间"):
+        PerformanceProjectService._validate_schedule("DRAFT", flow, updated, now=now)
+    with pytest.raises(ProjectValidationError, match="当前时间"):
+        PerformanceProjectService._validate_schedule("STARTED", {}, updated, now=now)
+
+
+def test_schedule_new_phase_deadline_at_now_is_allowed_and_empty_rules_block_completion():
+    from app.performance.project_service import PerformanceProjectService, ProjectValidationError
+    from app.performance.calibration_service import resolve_calibration
+    now = datetime(2026, 11, 11, tzinfo=UTC)
+    flow = {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "new", "rules": []}]}}}, "node_times": {"cal": {"phase_times": {"new": {"start_at": (now - timedelta(days=1)).isoformat(), "end_at": now.isoformat()}}}}}
+    PerformanceProjectService._validate_schedule("STARTED", {}, flow, now=now)
+    for status in ("DRAFT", "STARTED"):
+        with pytest.raises(ProjectValidationError, match="校准规则"):
+            PerformanceProjectService._validate_schedule(status, flow, flow, complete=True, now=now)
+    with pytest.raises(ValueError, match="校准规则"):
+        resolve_calibration({"node_id": "cal"}, flow, {}, [], require_complete=True)
+
+
 def result(rows):
     return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
 
@@ -68,6 +95,53 @@ def lifecycle(monkeypatch):
     monkeypatch.setattr(service, "freeze_published_result", AsyncMock(return_value=({"task_versions": {"original": 7}}, 2)))
     return SimpleNamespace(db=Db(), values=values, node=node,
                            actor=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1"))
+
+
+@pytest.mark.parametrize("view", [
+    {"start_at": "2099-01-01T00:00:00Z", "appeal_deadline": "2099-01-02T00:00:00Z"},
+    {"start_at": "2099-01-01T00:00:00Z"},
+    {"appeal_deadline": "2099-01-02T00:00:00Z"},
+    {},
+    {"start_at": "", "appeal_deadline": ""},
+])
+@pytest.mark.parametrize("frozen", [False, True])
+def test_submission_window_prefers_result_view_field_by_field_with_legacy_fallback(view, frozen):
+    legacy = {"start_at": "2026-01-01T00:00:00Z", "appeal_deadline": "2099-02-01T00:00:00Z", "end_at": "2099-03-01T00:00:00Z"}
+    node = SimpleNamespace(node_id="appeal", config={"time": legacy})
+    flow = {"node_settings": {"view": {"result_view": {}}}, "node_times": {"appeal": legacy}}
+    if frozen:
+        node._result_view_node = SimpleNamespace(node_id="view", config={"time": view})
+    else:
+        flow["node_times"]["view"] = view
+    project = SimpleNamespace(settings={"flow_settings": flow})
+    start, end, processing = service.submission_window(project, node)
+    assert start == service._parse_time(view.get("start_at") if "start_at" in view else legacy["start_at"])
+    assert end == service._parse_time(view.get("appeal_deadline") if "appeal_deadline" in view else legacy["appeal_deadline"])
+    assert processing == legacy
+
+
+@pytest.mark.asyncio
+async def test_submission_result_view_window_blocks_early_and_late_without_using_processing_deadline(lifecycle):
+    data = lifecycle
+    now = datetime.now(UTC)
+    flow = {"node_settings": {"view": {"result_view": {}}}, "node_times": {
+        "view": {"start_at": (now + timedelta(days=1)).isoformat(), "appeal_deadline": (now + timedelta(days=2)).isoformat()},
+        "appeal": {"start_at": (now - timedelta(days=2)).isoformat(), "end_at": (now + timedelta(days=5)).isoformat()},
+    }}
+    data.values[0].settings = {"flow_settings": flow}
+    with pytest.raises(HTTPException, match="RECONSIDERATION_WINDOW_CLOSED"):
+        await service.submit_reconsideration(data.db, 1, "E1", "理由", data.actor)
+    flow["node_times"]["view"]["start_at"] = (now - timedelta(days=1)).isoformat()
+    response = await service.submit_reconsideration(data.db, 1, "E1", "理由", data.actor)
+    task = next(row for row in data.db.rows if isinstance(row, PerformanceNodeTask))
+    assert task.due_at == service._parse_time(flow["node_times"]["appeal"]["end_at"])
+    assert response["deadline_at"] == service._parse_time(flow["node_times"]["view"]["appeal_deadline"])
+    flow["node_times"]["view"]["appeal_deadline"] = (now - timedelta(hours=1)).isoformat()
+    status = await service.read_status(data.db, 1, "E1")
+    assert not status["window_open"] and not status["can_edit"]
+    with pytest.raises(HTTPException, match="RECONSIDERATION_WINDOW_CLOSED"):
+        await service.edit_reconsideration(data.db, 1, "E1", "更正", 1, data.actor)
+    assert task.due_at > now
 
 
 @pytest.mark.asyncio

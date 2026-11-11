@@ -760,6 +760,29 @@ describe('CR-013 calibration editing policy', () => {
     expect(update.mock.calls[0][1].flow_settings?.node_times['calibration-1'].phase_times).toEqual({ p2: initial().node_times['calibration-1'].phase_times.p2 })
     wrapper.unmount()
   })
+  it('persists deleting the last rule without restoring defaults and validates beneath the add-phase action', async () => {
+    const update = vi.spyOn(performanceProjectApi, 'update').mockImplementation(async (_id, patch) => ({ flow_settings: patch.flow_settings, editing_policy: policy() } as any))
+    const wrapper = started()
+    await wrapper.setProps({ showCalibrationError: true })
+    const deletion = wrapper.findAll('.rule-actions button').filter(button => button.text() === '删除').at(-1)!
+    expect(deletion.attributes('disabled')).toBeUndefined()
+    await deletion.trigger('click')
+    ;(document.body.querySelector('.performance-confirm-dialog__button--danger') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(update.mock.calls[0][1]).toMatchObject({ calibration_operations: [{ operation: 'delete_rule', node_id: 'calibration-1', phase_id: 'p2', rule_id: 'r3' }] })
+    expect(update.mock.calls[0][1].flow_settings!.node_settings['calibration-1'].calibration!.phases[1].rules).toEqual([])
+    expect(wrapper.findAll('.calibration-phase')[1].findAll('.rule-row')).toHaveLength(0)
+    expect(wrapper.get('.add-phase').element.nextElementSibling?.textContent).toBe('请配置校准范围')
+    await wrapper.setProps({ modelValue: update.mock.calls[0][1].flow_settings })
+    expect(wrapper.findAll('.calibration-phase')[1].findAll('.rule-row')).toHaveLength(0)
+    wrapper.unmount()
+  })
+  it('disables rule deletion for a closed phase without treating a single rule as the reason', async () => {
+    const wrapper = started(false)
+    expect(wrapper.findAll('.rule-actions button').filter(button => button.text() === '删除')[0].attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('.rule-actions button').filter(button => button.text() === '删除')[2].attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
   it('uses saved phase windows even when current draft dates were extended', async () => {
     const wrapper = started(false)
     const extended = initial(); extended.node_times['calibration-1'].phase_times.p1.end_at = '2030-01-02T00:00:00Z'

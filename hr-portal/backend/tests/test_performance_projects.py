@@ -194,6 +194,146 @@ async def test_reconsideration_reminder_list_filters_invalid_applications(monkey
     if expected: assert rows[0]["selectable"]
 
 
+@pytest.mark.parametrize("status,old_start,new_start,new_end,blocked", [
+    ("STARTED", -2, -1, 2, True),
+    ("STARTED", -2, None, 2, True),
+    ("STARTED", -2, -2, -1, False),
+    ("STARTED", 2, -2, -1, True),
+    ("STARTED", 2, -2, 3, False),
+    ("DRAFT", -2, -1, -1, True),
+    ("DRAFT", -2, -2, 2, False),
+    ("ARCHIVED", -2, -1, 2, False),
+])
+def test_project_schedule_uses_saved_start_baseline(status, old_start, new_start, new_end, blocked):
+    from datetime import UTC, datetime, timedelta
+    now = datetime(2026, 11, 11, tzinfo=UTC)
+    def stamp(days): return (now + timedelta(days=days)).isoformat() if days is not None else ""
+    old = {"node_times": {"review": {"start_at": stamp(old_start), "end_at": stamp(1)}}}
+    new = {"node_times": {"review": {"start_at": stamp(new_start), "end_at": stamp(new_end)}}}
+    if blocked:
+        with pytest.raises(ProjectValidationError):
+            PerformanceProjectService._validate_schedule(status, old, new, now=now)
+    else:
+        PerformanceProjectService._validate_schedule(status, old, new, now=now)
+
+
+def test_project_schedule_preserves_unchanged_historical_drafts_and_ordinary_overlap():
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    now = datetime(2026, 11, 11, tzinfo=UTC)
+    old = {"node_times": {"review": {"start_at": "2020-01-02T00:00:00Z", "end_at": "2020-01-01T00:00:00Z"}}}
+    PerformanceProjectService._validate_schedule("DRAFT", old, deepcopy(old), now=now)
+    assert PerformanceProjectService._validate_flow_settings({"node_settings": {}, **old}, old)["node_times"] == old["node_times"]
+    PerformanceProjectService._validate_schedule("DRAFT", {}, {"node_times": {"partial": {"start_at": "2020-01-01T00:00:00Z"}}}, now=now)
+    flow = {"node_times": {key: {"start_at": "2099-01-01T00:00:00Z", "end_at": "2099-01-02T00:00:00Z"} for key in ("self", "manager")}}
+    PerformanceProjectService._validate_schedule("DRAFT", {}, flow, now=now)
+    with pytest.raises(ProjectValidationError):
+        PerformanceProjectService._validate_schedule("DRAFT", old, old, complete=True, now=now)
+
+
+@pytest.mark.parametrize("second_start,blocked", [("2099-01-01T12:00:00Z", True), ("2099-01-02T00:00:00Z", False), ("2099-01-03T00:00:00Z", False)])
+def test_project_schedule_calibration_overlap_and_adjoining_boundaries(second_start, blocked):
+    from datetime import UTC, datetime
+    flow = {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": key, "rules": []} for key in ("first", "second")]}}}, "node_times": {"cal": {"phase_times": {
+        "first": {"start_at": "2099-01-01T00:00:00Z", "end_at": "2099-01-02T00:00:00Z"},
+        "second": {"start_at": second_start, "end_at": "2099-01-04T00:00:00Z"},
+    }}}}
+    if blocked:
+        with pytest.raises(ProjectValidationError, match="不得重叠"):
+            PerformanceProjectService._validate_schedule("DRAFT", {}, flow, now=datetime(2026, 11, 11, tzinfo=UTC))
+    else:
+        PerformanceProjectService._validate_schedule("DRAFT", {}, flow, now=datetime(2026, 11, 11, tzinfo=UTC))
+
+
+def test_project_schedule_existing_overlap_is_idempotent_but_new_past_phase_is_blocked():
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    now = datetime(2026, 11, 11, tzinfo=UTC)
+    flow = {"node_settings": {"cal": {"calibration": {"phases": [{"phase_id": "first", "rules": []}]}}}, "node_times": {"cal": {"phase_times": {
+        "first": {"start_at": "2020-01-01T00:00:00Z", "end_at": "2020-01-02T00:00:00Z"},
+    }}}}
+    PerformanceProjectService._validate_schedule("STARTED", flow, deepcopy(flow), now=now)
+    new = deepcopy(flow)
+    new["node_settings"]["cal"]["calibration"]["phases"].append({"phase_id": "second", "rules": []})
+    new["node_times"]["cal"]["phase_times"]["second"] = {"start_at": "2020-02-01T00:00:00Z", "end_at": "2020-02-02T00:00:00Z"}
+    with pytest.raises(ProjectValidationError, match="当前时间"):
+        PerformanceProjectService._validate_schedule("STARTED", flow, new, now=now)
+    new["node_times"]["cal"]["phase_times"]["second"]["end_at"] = now.isoformat()
+    PerformanceProjectService._validate_schedule("STARTED", flow, new, now=now)
+    PerformanceProjectService._validate_schedule("ARCHIVED", flow, new, now=now)
+    new["node_times"]["cal"]["phase_times"]["second"]["end_at"] = "2099-01-01T00:00:00Z"
+    PerformanceProjectService._validate_schedule("STARTED", flow, new, now=now)
+    overlapping = deepcopy(flow)
+    overlapping["node_settings"]["cal"]["calibration"]["phases"].append({"phase_id": "second", "rules": []})
+    overlapping["node_times"]["cal"]["phase_times"]["second"] = deepcopy(overlapping["node_times"]["cal"]["phase_times"]["first"])
+    PerformanceProjectService._validate_schedule("STARTED", overlapping, deepcopy(overlapping), now=now)
+    with pytest.raises(ProjectValidationError, match="开始时间不可修改"):
+        PerformanceProjectService._validate_schedule("STARTED", {"node_times": {"review": flow["node_times"]["cal"]["phase_times"]["first"]}}, {"node_times": {}}, now=now)
+
+
+@pytest.mark.parametrize("appeal,end,blocked", [
+    ("2099-01-01T00:00:00Z", "2099-01-03T00:00:00Z", True),
+    ("2099-01-02T00:00:00Z", "2099-01-02T00:00:00Z", True),
+    ("2099-01-03T00:00:00Z", "2099-01-02T00:00:00Z", True),
+    ("2099-01-02T00:00:00Z", "2099-01-03T00:00:00Z", False),
+])
+def test_project_schedule_reconsideration_submission_and_processing_order(appeal, end, blocked):
+    flow = {"node_settings": {"view": {"result_view": {}}, "appeal": {"result_reconsideration": {}}}, "node_times": {
+        "view": {"start_at": "2099-01-01T00:00:00Z", "appeal_deadline": appeal}, "appeal": {"end_at": end},
+    }}
+    if blocked:
+        with pytest.raises(ProjectValidationError):
+            PerformanceProjectService._validate_schedule("DRAFT", {}, flow)
+    else:
+        PerformanceProjectService._validate_schedule("DRAFT", {}, flow, complete=True)
+
+
+@pytest.mark.asyncio
+async def test_project_empty_calibration_rule_draft_saves_despite_previous_completion(monkeypatch):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    from app.performance.calibration_service import canonical_flow, resolve_calibration
+    flow = canonical_flow(_calibration_rules("PROJECT_ALL"), 1)
+    flow["node_times"] = {"calibration-1": {"phase_times": {"first": {"start_at": "2099-01-01T00:00:00Z", "end_at": "2099-01-02T00:00:00Z"}}}}
+    target = project("STARTED")
+    target.settings = {"configuration_completed": True, "flow_settings": flow}
+    updated = deepcopy(flow)
+    removed = updated["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"].pop()
+    db = SimpleNamespace(add=lambda row: None, commit=AsyncMock(), refresh=AsyncMock())
+    service = PerformanceProjectService(db)
+    monkeypatch.setattr(service, "_validate_manual_opening_policy", AsyncMock())
+    monkeypatch.setattr(service, "_sync_node_task_times", AsyncMock())
+    delta = AsyncMock(return_value=({"revoked_tasks": 1}, set()))
+    monkeypatch.setattr("app.performance.project_service.apply_calibration_delta", delta)
+    payload = {"flow_settings": updated, "calibration_operations": [{"operation": "delete_rule", "node_id": "calibration-1", "phase_id": "first", "rule_id": removed["rule_id"]}]}
+    await service.update_project(target, payload, actor_type="PORTAL_USER", actor_id=1)
+    assert target.settings["flow_settings"]["node_settings"]["calibration-1"]["calibration"]["phases"][0]["rules"] == []
+    assert target.settings["configuration_completed"] is True
+    db.commit.assert_awaited_once()
+    delta.assert_awaited_once()
+    with pytest.raises(ValueError, match="校准规则"):
+        resolve_calibration({"node_id": "calibration-1"}, updated, {}, [], require_complete=True)
+    with pytest.raises(ProjectValidationError, match="校准规则"):
+        await service.update_project(target, {"configuration_completed": True}, actor_type="PORTAL_USER", actor_id=1)
+    assert db.commit.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_project_unrelated_patch_does_not_revalidate_or_rewrite_historical_times(monkeypatch):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    target = project()
+    flow = {"node_settings": {}, "node_times": {"old": {"start_at": "2020-01-02T00:00:00Z", "end_at": "2020-01-01T00:00:00Z"}}}
+    target.settings = {"configuration_completed": True, "flow_settings": deepcopy(flow)}
+    db = SimpleNamespace(add=lambda row: None, commit=AsyncMock(), refresh=AsyncMock())
+    service = PerformanceProjectService(db)
+    monkeypatch.setattr(service, "_validate_manual_opening_policy", AsyncMock())
+    await service.update_project(target, {"description": "更新说明"}, actor_type="PORTAL_USER", actor_id=1)
+    assert target.description == "更新说明" and target.settings["flow_settings"] == flow
+    await service.update_project(target, {"flow_settings": deepcopy(flow)}, actor_type="PORTAL_USER", actor_id=1)
+    assert target.settings["flow_settings"] == flow and db.commit.await_count == 2
+
+
 def test_reconsideration_handlers_merge_roles_without_duplicate_tasks():
     from app.performance.reconsideration_service import resolve_handlers
     member = SimpleNamespace(employee_no="E1", direct_supervisor_employee_no="M1", hrbp_employee_no="H1")
@@ -2692,6 +2832,7 @@ async def test_rescheduled_project_overview_and_timeline_read_current_settings(m
             return cls(2026, 9, 17, 12, tzinfo=tz)
 
     monkeypatch.setattr(projects_router, "datetime", Clock)
+    monkeypatch.setattr("app.performance.project_service.datetime", Clock)
     async def actor(_db, _context):
         return SimpleNamespace(actor_ref="E001")
     monkeypatch.setattr(projects_router, "resolve_trusted_performance_actor", actor)
@@ -5427,7 +5568,10 @@ async def test_preview_and_actual_start_share_six_field_snapshot_filters(monkeyp
         ]},
         "scope_rules": {"groups": [{"conditions": [{"field": "department", "operator": "include", "values": ["集团/研发"]}]}]},
         "configuration_completed": True,
-        "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}},
+        "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}, "node_times": {
+            "summary": {"start_at": "2099-01-01T00:00:00Z", "end_at": "2099-01-02T00:00:00Z"},
+            "view": {"start_at": "2099-01-03T00:00:00Z", "appeal_deadline": "2099-01-04T00:00:00Z"},
+        }},
     }
     workflow = SimpleNamespace(content_library=[], nodes=[
         {"node_id": "summary", "node_type": "work_summary", "name": "总结", "include_final_result": True, "executor_types": ["SUBJECT"]},
@@ -8708,7 +8852,10 @@ async def test_reporting_filter_preview_start_share_unchanged_cycle_snapshot(mon
             {"field": field, "operator": "include", "values": [selected_manager]},
             {"field": "department", "operator": "include", "values": ["研发", "销售"]},
         ]}]}),
-        "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}},
+        "flow_settings": {"node_settings": {"view": {"result_view": {"automatic_enabled": True}}}, "node_times": {
+            "summary": {"start_at": "2099-01-01T00:00:00Z", "end_at": "2099-01-02T00:00:00Z"},
+            "view": {"start_at": "2099-01-03T00:00:00Z", "appeal_deadline": "2099-01-04T00:00:00Z"},
+        }},
         "configuration_completed": True,
     }
     workflow = SimpleNamespace(content_library=[], nodes=[
@@ -9215,7 +9362,7 @@ async def test_sync_node_task_times_updates_all_tasks_including_calibration_and_
     node_times = {
         "review-360": {"start_at": "2026-09-20T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"},
         "calibration-1": {"phase_times": {"first": {"start_at": "2026-09-21T00:00:00Z", "end_at": "2026-09-28T00:00:00Z"}}},
-        "result-reconsideration": {"appeal_deadline": "2026-10-05T00:00:00Z"},
+        "result-reconsideration": {"end_at": "2026-10-05T00:00:00Z", "appeal_deadline": "2026-10-04T00:00:00Z"},
     }
     await PerformanceProjectService(Db())._sync_node_task_times(SimpleNamespace(id=1), node_times)
     from datetime import datetime as _dt

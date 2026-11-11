@@ -372,6 +372,8 @@ def resolve_calibration(node, settings, people, member_nos, *, require_complete=
         raise ValueError("请配置校准阶段与校准人")
     result = []
     for index, phase in enumerate(phases):
+        if require_complete and not phase.get("rules"):
+            raise ValueError("请配置校准规则")
         phase_id = phase.get("phase_id") or f"phase-{index + 1}"
         assignments = {}
         sources = []

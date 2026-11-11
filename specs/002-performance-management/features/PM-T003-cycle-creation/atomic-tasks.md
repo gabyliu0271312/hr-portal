@@ -6,6 +6,20 @@
 
 ## 任务清单
 
+- [ ] PM-T003-I16 项目设置保存、离开保护及起止时间校验统一
+  - Goal/Type：已确认既有功能优化；2026-11-11用户授权全部开发，保留弹窗/抽屉即时保存，规则可删空但下一步阻断。无新页面/信息架构，沿用已确认界面与共享组件，小调整不新增完整HTML蓝图。
+  - Prerequisites/reading：Spec002基线、PM-T003 spec/ui-interaction、CR-013、执行合同/任务模板/验收证据、根及hr-portal规则、Spec012通用UI门禁。
+  - Allowed modifications：frontend项目SettingsPage/FlowSettings/TimeSettings/TemplateField/helper及既有spec，CalibrationConditionGroup/CalibrationRuleDrawer字段提示；backend project_service/calibration_service/reconsideration_service及既有projects/reconsideration_lifecycle测试；本功能既有交互/任务记录。允许独立实际PNG；不创建脚本、报告或测试文档。
+  - Shared files：前端时间/helper与后端服务按文件分工，主线程组装向导；projects_router及其旧夹具由并行CR-007负责，API/完成率/催办差异原样保留，最终统一build。禁止覆盖其它会话修改。
+  - Frozen contract：原PATCH/GET与start接口、DTO、权限不变。STARTED按保存前基线锁已开始start，既有已开始历史end可改，未开始/新增phase end>=now；end>start；同校准节点阶段不重叠且接续允许。空rules可保存草稿，下一步/完成和后端显式配置完成/start阻空；旧完成标记不阻删除。结果查看start/appeal优先控制员工发起窗口，处理end控制处理截止，缺历史字段逐字段回退；不新增确认结果节点或推断自指文案。配置/任务时间同步/软撤销/审计沿用原事务，不重算答案版本与人员快照。
+  - UI：下一步保存成功后推进并全局toast；完成保存后返回PerformanceCycles且不启动；未保存返回/路由离开共享确认，继续编辑/离开，不自动保存；浏览器关闭原生保护。空校准提示固定在添加校准阶段按钮下“请配置校准范围”，字段红框/下方文字全部复用既有token，非法手输不得提交旧值。保留新增阶段前两步暂缓整份提交例外，不误报保存成功。
+  - Test contract：Given草稿/STARTED/历史配置/空规则/多阶段/复议节点，When下一步/完成/删除/延期/返回/非法输入，Then正确阻断或一次保存、全局提示、草稿保留、保存前start锁、普通重叠允许/校准重叠拒绝/接续允许、复议截止关联、权限和原历史来源不变。真实API→SQL→GET新连接/并发与夹具验证分开；跳过不算通过。
+  - Frontend evidence：本轮主线程最终六文件联合170 passed（ProjectSettings46、FlowSettings45、TimeSettings53、TemplateField9、CalibrationConditionGroup10、DistributionRuleDrawer7），命令npm.cmd --prefix hr-portal/frontend test -- 对应六个既有spec --pool=threads --poolOptions.threads.singleThread=true --silent；npm.cmd --prefix hr-portal/frontend run build已通过vue-tsc+Vite3689模块（最终联合工作区构建），只有既有VueUse PURE注释警告。此前失败为旧表体选择器、Vitest2不支持matcher及新增校准时间重叠夹具，已纠正后联合通过。
+  - Backend evidence：原服务代理新增合同聚焦38 passed；末次无start处理兼容及end==now修正后复议生命周期44 passed、时间/校准聚焦37 passed/1 PostgreSQL opt-in skipped。较早三文件803 passed/10 failed/6 skipped中的router替身问题交由CR-007线程统一修复，不将较早失败宣称通过；最终联合结果：CR-007线程收敛router测试后报告projects/reconsideration_lifecycle/auth_context/role_configuration/subject_visibility五文件809 passed/5 skipped（其线程实跑）；本主线程另实跑reconsideration_lifecycle+cycles两文件117 passed/1 skipped，以及projects时间/校准聚焦37 passed/1 skipped/686 deselected，均exit0，既有python_multipart弃用warning，不将PG opt-in skipped计通过。
+  - Browser evidence：真实Vite路由5173+隔离模拟API，Chrome1440×1000验证唯一规则删除即时PATCH且保持空、下一步无第二次保存/不前进、添加阶段下方准确文案（rgb245,74,69/13px来自全局token）、未保存返回确认及继续编辑保留页面，pageerror0。PNG ../../ui-blueprints/PM-T003-I16-empty-calibration-validation.png 已查看；第二轮真实路由另验证已开始start禁用、未来start改过去不自锁、未开始截止历史值阻断、同节点阶段重叠阻断/边界接续允许、复议处理截止关联、非法手输零PATCH、修正后一次PATCH UTC载荷且完成跳转PerformanceCycles，pageerror0。独立PNG ../../ui-blueprints/PM-T003-I16-time-contract-validation.png 已查看。不伪称真实鉴权/API/数据库验收。
+  - Non-scope/stop：无迁移、外部通知、生产操作、commit/push/deploy；停止时仅撤销本卡未发布局部差异，不回滚并行工作或历史数据。现有第6条歧义及确认结果流程未扩展。
+  - Blockers/Definition of done：本地开发与自动化/部分浏览器验证完成；8000API不可连接，真实数据库回读/并发验收未做，整卡保持未勾选，不以构建/夹具代替生产验收。
+
 - [ ] PM-T003-I15 项目复制两步流程与共享组件/token校准
   - 授权/入口：2026-11-06 用户明确要求根据本轮 REA 采集完成开发，采用全局组件与设计 token 并修正差异；周期与项目 → 项目设置 → 更多 → 复制。交互依据为本功能 `ui-interaction.md` 的“项目复制两步流程”及本轮 REA 评估，取代早期项目复制仅展示入口的限制。
   - 范围：新增业务组合 `PerformanceProjectCopyDialog.vue`；复用/扩展共享 DialogShell、SearchSelect/SelectShell、ProjectDialog、UiButton 及全局 tokens；CycleManagement 两步草稿组装、API copy 可选 payload、后端复制事务与既有测试。不修改模型/迁移、权限配置、历史任务、生产数据或其他并行工作。

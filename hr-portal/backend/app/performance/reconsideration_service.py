@@ -132,6 +132,7 @@ async def submission_context(db, project_id, employee_no, *, lock=False):
                  and index > 0 and nodes[index - 1].node_type == "result_view"), None)
     if node is None:
         raise HTTPException(404, "RECONSIDERATION_NOT_CONFIGURED")
+    node._result_view_node = nodes[nodes.index(node) - 1]
     statement = select(PerformanceResultReconsideration).where(
         PerformanceResultReconsideration.project_id == project_id,
         PerformanceResultReconsideration.employee_no == employee_no,
@@ -141,9 +142,20 @@ async def submission_context(db, project_id, employee_no, *, lock=False):
 
 
 def submission_window(project, node):
-    timing = (((project.settings or {}).get("flow_settings") or {}).get("node_times") or {}).get(node.node_id)
+    flow = (project.settings or {}).get("flow_settings") or {}
+    times = flow.get("node_times") or {}
+    timing = times.get(node.node_id)
     timing = timing if timing is not None else (node.config or {}).get("time") or {}
-    return _parse_time(timing.get("start_at")), _parse_time(timing.get("appeal_deadline") or timing.get("end_at")), timing
+    view_node = getattr(node, "_result_view_node", None)
+    if view_node is not None:
+        view = times.get(view_node.node_id)
+        view = view if view is not None else (view_node.config or {}).get("time") or {}
+    else:
+        view_id = next((key for key, setting in (flow.get("node_settings") or {}).items() if "result_view" in setting), None)
+        view = times.get(view_id) or {}
+    start = view.get("start_at") if "start_at" in view else timing.get("start_at")
+    end = view.get("appeal_deadline") if "appeal_deadline" in view else timing.get("appeal_deadline") or timing.get("end_at")
+    return _parse_time(start), _parse_time(end), timing
 
 
 class _VisibleReason(HTMLParser):

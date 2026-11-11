@@ -12,6 +12,18 @@ const condition = (field: 'department' | 'employee' | 'hire_date' | 'calibrator_
 afterEach(() => { document.body.innerHTML = '' })
 
 describe('PerformanceCalibrationConditionGroup', () => {
+  it('shows field validation only after submission and clears it after the value is filled', async () => {
+    const wrapper = mount(PerformanceCalibrationConditionGroup, {
+      props: { modelValue: { conditions: [condition('employee')] }, title: '条件组 1', fieldLabel: '校准人', fieldOptions: [{ value: 'employee', label: '人员' }] },
+    })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    await wrapper.setProps({ submitted: true })
+    expect(wrapper.get('.calibration-value-select').classes()).toContain('is-invalid')
+    expect(wrapper.get('[role="alert"]').text()).toBe('校准人条件值为必填')
+    await wrapper.setProps({ modelValue: { conditions: [condition('employee', ['E1'])] } })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('adds conjunctive conditions, removes one, and keeps at least one', async () => {
     const wrapper = mount(PerformanceCalibrationConditionGroup, {
       props: { modelValue: { conditions: [condition('employee', ['E1'])] }, title: '条件组 1', fieldLabel: '校准人', fieldOptions: [{ value: 'employee', label: '人员' }] },

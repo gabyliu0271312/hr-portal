@@ -11,16 +11,16 @@
       </header>
       <div v-if="node.node_type === 'result_view'" class="time-fields time-fields--result-view">
         <PerformanceFormItem label="开始时间" required :invalid="Boolean(startError(timeFor(node).start_at))" :error-message="startError(timeFor(node).start_at)" :error-id="`${nodeKey(node)}-start-error`">
-          <PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="isStartLocked(timeFor(node).start_at)" :invalid="Boolean(startError(timeFor(node).start_at))" :described-by="startError(timeFor(node).start_at) ? `${nodeKey(node)}-start-error` : ''" @update:model-value="timeFor(node).start_at = $event" />
+          <PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="isStartLocked(node)" :invalid="Boolean(startError(timeFor(node).start_at))" :described-by="startError(timeFor(node).start_at) ? `${nodeKey(node)}-start-error` : ''" @input="timeFor(node).start_at = inputValue($event)" @update:model-value="timeFor(node).start_at = $event" />
         </PerformanceFormItem>
         <p class="time-help">由管理员人员开通后，被评估人立即收到绩效结果</p>
         <PerformanceFormItem label="发起复议截止时间" required :invalid="Boolean(deadlineError(node))" :error-message="deadlineError(node)" :error-id="`${nodeKey(node)}-deadline-error`">
-          <PerformanceDateTimeField :model-value="timeFor(node).appeal_deadline || ''" :input-id="`${nodeKey(node)}-appeal-deadline`" time-role="end" required :invalid="Boolean(deadlineError(node))" :described-by="deadlineError(node) ? `${nodeKey(node)}-deadline-error` : ''" @update:model-value="timeFor(node).appeal_deadline = $event" />
+          <PerformanceDateTimeField :model-value="timeFor(node).appeal_deadline || ''" :input-id="`${nodeKey(node)}-appeal-deadline`" time-role="end" required :invalid="Boolean(deadlineError(node))" :described-by="deadlineError(node) ? `${nodeKey(node)}-deadline-error` : ''" @input="timeFor(node).appeal_deadline = inputValue($event)" @update:model-value="timeFor(node).appeal_deadline = $event" />
         </PerformanceFormItem>
       </div>
       <div v-else-if="node.node_type === 'result_reconsideration'" class="time-fields time-fields--single">
         <PerformanceFormItem label="处理复议截止时间" required :invalid="Boolean(deadlineError(node))" :error-message="deadlineError(node)" :error-id="`${nodeKey(node)}-deadline-error`">
-          <PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required :invalid="Boolean(deadlineError(node))" :described-by="deadlineError(node) ? `${nodeKey(node)}-deadline-error` : ''" @update:model-value="timeFor(node).end_at = $event" />
+          <PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required :invalid="Boolean(deadlineError(node))" :described-by="deadlineError(node) ? `${nodeKey(node)}-deadline-error` : ''" @input="timeFor(node).end_at = inputValue($event)" @update:model-value="timeFor(node).end_at = $event" />
         </PerformanceFormItem>
       </div>
       <div v-else-if="node.node_type === 'calibration' && phasesFor(node).length" class="calibration-time-phases">
@@ -28,20 +28,20 @@
           <h3>第 {{ index + 1 }} 阶段</h3>
           <div class="time-fields">
             <PerformanceFormItem label="开始时间" required :invalid="Boolean(startError(phaseTimeFor(node, phase, index).start_at))" :error-message="startError(phaseTimeFor(node, phase, index).start_at)" :error-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start-error`">
-              <PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).start_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start`" :aria-label="`${node.name}第 ${index + 1} 阶段开始时间`" time-role="start" required :disabled="isStartLocked(phaseTimeFor(node, phase, index).start_at)" :invalid="Boolean(startError(phaseTimeFor(node, phase, index).start_at))" :described-by="startError(phaseTimeFor(node, phase, index).start_at) ? `${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start-error` : ''" @update:model-value="phaseTimeFor(node, phase, index).start_at = $event" />
+              <PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).start_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start`" :aria-label="`${node.name}第 ${index + 1} 阶段开始时间`" time-role="start" required :disabled="isStartLocked(node, calibrationPhaseKey(phase, index))" :invalid="Boolean(startError(phaseTimeFor(node, phase, index).start_at))" :described-by="startError(phaseTimeFor(node, phase, index).start_at) ? `${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-start-error` : ''" @input="phaseTimeFor(node, phase, index).start_at = inputValue($event)" @update:model-value="phaseTimeFor(node, phase, index).start_at = $event" />
             </PerformanceFormItem>
             <PerformanceFormItem label="截止时间" required :invalid="Boolean(phaseDeadlineError(node, phase, index))" :error-message="phaseDeadlineError(node, phase, index)" :error-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error`">
-              <PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).end_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-end`" :aria-label="`${node.name}第 ${index + 1} 阶段截止时间`" time-role="end" required :invalid="Boolean(phaseDeadlineError(node, phase, index))" :described-by="phaseDeadlineError(node, phase, index) ? `${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error` : ''" @update:model-value="phaseTimeFor(node, phase, index).end_at = $event" />
+              <PerformanceDateTimeField :model-value="phaseTimeFor(node, phase, index).end_at" :input-id="`${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-end`" :aria-label="`${node.name}第 ${index + 1} 阶段截止时间`" time-role="end" required :invalid="Boolean(phaseDeadlineError(node, phase, index))" :described-by="phaseDeadlineError(node, phase, index) ? `${nodeKey(node)}-${calibrationPhaseKey(phase, index)}-error` : ''" @input="phaseTimeFor(node, phase, index).end_at = inputValue($event)" @update:model-value="phaseTimeFor(node, phase, index).end_at = $event" />
             </PerformanceFormItem>
           </div>
         </section>
       </div>
       <div v-else class="time-fields">
         <PerformanceFormItem label="开始时间" required :invalid="Boolean(startError(timeFor(node).start_at))" :error-message="startError(timeFor(node).start_at)" :error-id="`${nodeKey(node)}-start-error`">
-          <PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="isStartLocked(timeFor(node).start_at)" :invalid="Boolean(startError(timeFor(node).start_at))" :described-by="startError(timeFor(node).start_at) ? `${nodeKey(node)}-start-error` : ''" @update:model-value="timeFor(node).start_at = $event" />
+          <PerformanceDateTimeField :model-value="timeFor(node).start_at" :input-id="`${nodeKey(node)}-start`" time-role="start" required :disabled="isStartLocked(node)" :invalid="Boolean(startError(timeFor(node).start_at))" :described-by="startError(timeFor(node).start_at) ? `${nodeKey(node)}-start-error` : ''" @input="timeFor(node).start_at = inputValue($event)" @update:model-value="timeFor(node).start_at = $event" />
         </PerformanceFormItem>
         <PerformanceFormItem label="截止时间" required :invalid="Boolean(deadlineError(node))" :error-message="deadlineError(node)" :error-id="`${nodeKey(node)}-deadline-error`">
-          <PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required :invalid="Boolean(deadlineError(node))" :described-by="deadlineError(node) ? `${nodeKey(node)}-deadline-error` : ''" @update:model-value="timeFor(node).end_at = $event" />
+          <PerformanceDateTimeField :model-value="timeFor(node).end_at" :input-id="`${nodeKey(node)}-end`" time-role="end" required :invalid="Boolean(deadlineError(node))" :described-by="deadlineError(node) ? `${nodeKey(node)}-deadline-error` : ''" @input="timeFor(node).end_at = inputValue($event)" @update:model-value="timeFor(node).end_at = $event" />
         </PerformanceFormItem>
       </div>
     </article>
@@ -52,7 +52,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { shanghaiLocalToUtcIso } from '@/utils/datetime'
 import type { PerformanceProjectFlowSettings, PerformanceProjectNodeTime, PerformanceWorkflowNode } from '@/api/performance'
-import { calibrationPhaseKey, projectDeadlineError, requiresFutureDeadline, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
+import { calibrationPhaseKey, projectStartLocked, projectStartTimeError, projectTimeFieldErrors, syncCalibrationPhaseTimes } from './performanceProjectCalibration'
 import PerformanceFormItem from './PerformanceFormItem.vue'
 import PerformanceDateTimeField from './PerformanceDateTimeField.vue'
 import PerformanceWorkflowStageIcon from '@/views/performance/PerformanceWorkflowStageIcon.vue'
@@ -82,7 +82,10 @@ function hasPassed(value?: string) {
   return timestamp <= clock.value
 }
 
-function isStartLocked(value?: string) { return props.projectStatus === 'STARTED' && hasPassed(value) }
+function isStartLocked(node: PerformanceWorkflowNode, phaseId?: string) {
+  const time = phaseId ? timeFor(node).phase_times?.[phaseId] : timeFor(node)
+  return projectStartLocked(props.projectStatus, time?.start_at, clock.value, props.baselineFlowSettings, nodeKey(node), phaseId)
+}
 
 function cloneTimes(value?: Record<string, PerformanceProjectNodeTime>) { return JSON.parse(JSON.stringify(value || {})) as Record<string, PerformanceProjectNodeTime> }
 function nodeKey(node: PerformanceWorkflowNode) { return node.node_id || `${node.node_type}-${node.order}` }
@@ -101,24 +104,15 @@ function phasesFor(node: PerformanceWorkflowNode) { return props.nodeSettings[no
 function phaseTimeFor(node: PerformanceWorkflowNode, phase: ReturnType<typeof phasesFor>[number], index: number) {
   return timeFor(node).phase_times![calibrationPhaseKey(phase, index)]
 }
-function startError(value?: string) {
-  if (!props.showValidation) return ''
-  if (!value) return '开始时间不能为空'
-  return Number.isFinite(Date.parse(value)) ? '' : '开始时间格式不正确'
-}
-function endError(start: string | undefined, end: string | undefined, label = '截止时间', requireFuture = true) {
-  if (props.showValidation && !end) return `${label}不能为空`
-  return projectDeadlineError(start, end, clock.value, label, requireFuture)
+function inputValue(event: Event) { return (event.target as HTMLInputElement).value.replace(/^(\d{4}-\d{2}-\d{2}) /, '$1T') }
+function startError(value?: string) { return projectStartTimeError(value, props.showValidation) }
+function fieldErrors(node: PerformanceWorkflowNode, phaseId?: string) {
+  return projectTimeFieldErrors(props.nodes, { node_settings: props.nodeSettings, node_times: draft.value }, node, clock.value, props.projectStatus, props.baselineFlowSettings, props.showValidation, phaseId)
 }
 function phaseDeadlineError(node: PerformanceWorkflowNode, phase: ReturnType<typeof phasesFor>[number], index: number) {
-  const time = phaseTimeFor(node, phase, index)
-  return endError(time.start_at, time.end_at, '截止时间', requiresFutureDeadline(props.projectStatus, props.baselineFlowSettings, nodeKey(node), calibrationPhaseKey(phase, index)))
+  return fieldErrors(node, calibrationPhaseKey(phase, index)).end
 }
-function deadlineError(node: PerformanceWorkflowNode) {
-  const time = timeFor(node)
-  const label = node.node_type === 'result_view' ? '发起复议截止时间' : node.node_type === 'result_reconsideration' ? '处理复议截止时间' : '截止时间'
-  return endError(node.node_type === 'result_reconsideration' ? undefined : time.start_at, node.node_type === 'result_view' ? time.appeal_deadline : time.end_at, label, requiresFutureDeadline(props.projectStatus))
-}
+function deadlineError(node: PerformanceWorkflowNode) { return fieldErrors(node).end }
 function ensureAllNodes() { props.nodes.forEach(ensureNode); syncCalibrationPhaseTimes(props.nodeSettings, draft.value) }
 function timeFor(node: PerformanceWorkflowNode) { ensureNode(node); return draft.value[nodeKey(node)] }
 watch(() => [props.nodes, props.nodeSettings], ensureAllNodes, { deep: true, immediate: true })

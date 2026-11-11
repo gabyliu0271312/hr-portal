@@ -4,8 +4,8 @@
       <template #subtitle><span v-if="savedView" class="project-status-badge">{{ savedStatusLabel }}</span></template>
       <template #actions>
         <UiStepFlow :steps="steps" :current-step="currentStep" aria-label="项目设置步骤" />
-        <UiButton v-if="currentStep > 0" variant="secondary" @click="currentStep--">上一步</UiButton>
-        <UiButton variant="primary" :disabled="saving" @click="nextStep">{{ currentStep === steps.length - 1 ? '完成' : '下一步' }}</UiButton>
+        <UiButton v-if="currentStep > 0" variant="secondary" :disabled="saving || basicDialogSaving || flowSaving" @click="currentStep--">上一步</UiButton>
+        <UiButton variant="primary" :disabled="saving || basicDialogSaving || flowSaving" @click="nextStep">{{ currentStep === steps.length - 1 ? '完成' : '下一步' }}</UiButton>
       </template>
     </UiPageHeader>
 
@@ -14,7 +14,7 @@
       <section v-if="currentStep === 0" class="settings-card" aria-labelledby="project-info-title">
         <div class="card-heading"><h1 id="project-info-title">基本信息</h1><PerformanceIconButton v-if="savedView" icon="EditOutlined" label="编辑基本信息" text="编辑" variant="outlined" @click="openBasicEditor" /></div>
         <div class="basic-grid">
-          <div class="basic-field"><span class="basic-label">项目名称</span><div v-if="savedView" class="basic-value project-name" :title="form.name">{{ form.name }}</div><input v-else v-model.trim="form.name" aria-label="项目名称" maxlength="128" /></div>
+          <PerformanceFormItem label="项目名称" :invalid="Boolean(infoErrors.name)" :error-message="infoErrors.name" error-id="project-settings-name-error"><div v-if="savedView" class="basic-value project-name" :title="form.name">{{ form.name }}</div><input v-else v-model.trim="form.name" aria-label="项目名称" maxlength="128" :aria-invalid="Boolean(infoErrors.name)" aria-describedby="project-settings-name-error" /></PerformanceFormItem>
           <div class="basic-field"><span class="basic-label">谁可管理人员绩效数据</span><div v-if="savedView" class="basic-value administrator-tags"><PerformanceSelectTag v-for="manager in dataManagerTags" :key="manager.value" :label="manager.label" :closable="false" /></div><input v-else v-model="administratorsText" aria-label="谁可管理人员绩效数据" placeholder="例如：HRBP" /></div>
         </div>
       </section>
@@ -25,6 +25,7 @@
         :templates="templates"
         :loading="templateLoading"
         :error="templateError"
+        :validation-error="infoErrors.template"
         :disabled="saving || projectStatus === 'STARTED'"
         @update:model-value="selectTemplate"
         @retry="loadTemplates"
@@ -48,6 +49,8 @@
           :employee-type-options="evaluatorOptions.employee_types"
           :hire-date-range="evaluatorOptions.hire_date_range"
           :disabled="saving || audienceLocked"
+          :highlight-invalid="infoSubmitted && !audienceLocked"
+          :error="infoErrors.audience"
           group-delete-outside
           @open-options="loadEvaluatorOptions"
         >
@@ -84,6 +87,8 @@
           :loading="flowLoading"
           :error="flowError"
           :show-opening-error="openingError"
+          :show-calibration-error="flowValidationSubmitted"
+          @saving-change="flowSaving = $event"
           :manual-result-opening-enabled="manualResultOpeningEnabled"
           :manual-opening-setting-loaded="manualOpeningSettingLoaded"
         />
@@ -111,6 +116,7 @@
       </section>
     </PerformanceContentSurface>
     </main>
+    <PerformanceConfirmDialog v-model="leaveConfirmOpen" message="修改尚未保存，确定离开此页面吗？" cancel-text="继续编辑" confirm-text="离开" confirm-variant="primary" @confirm="confirmLeave" />
     <p v-if="notice" class="page-notice" role="alert">{{ notice }}</p>
     <PerformanceTaskOverlay v-model="audiencePreviewOpen" :title="audiencePreviewTitle" :description="audiencePreviewDescription" @close="audiencePreviewOpen = false">
       <PerformanceReminderPanel v-if="audiencePreviewOpen" :context="audiencePreviewContext" :provider="audiencePreviewProvider" mode="preview" @loaded="audiencePreviewTotal = $event" />
@@ -130,7 +136,10 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
+import PerformanceFormItem from '@/components/performance/PerformanceFormItem.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceIconButton from '@/components/performance/PerformanceIconButton.vue'
@@ -147,7 +156,7 @@ import type { ReminderProvider } from '@/components/performance/performanceRemin
 import { performanceOtherSettingsApi, performanceProjectApi, type PerformanceCycleProjectShell, type PerformanceDistributionAssessmentOption, type PerformanceProjectFlowSettings as ProjectFlowSettings, type PerformanceProjectPayload, type PerformanceProjectTemplate, type PerformanceWorkflowNode, type PerformanceEvaluatorOptions, type PerformanceEvaluatorPreviewPayload, type PerformanceEvaluatorPreviewSummary } from '@/api/performance'
 import PerformanceProjectFlowSettings from '@/components/performance/PerformanceProjectFlowSettings.vue'
 import PerformanceProjectTimeSettings from '@/components/performance/PerformanceProjectTimeSettings.vue'
-import { initializeProjectFlow, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError, changedProjectSettings, projectSettingsEqual, projectFlowWithLocalTimes, calibrationOperations, calibrationHasNewPhases, type ProjectSettingsResponse, type ProjectSettingsPatch } from '@/components/performance/performanceProjectCalibration'
+import { initializeProjectFlow, ensureCalibrationPhaseIds, syncCalibrationPhaseTimes, projectNodeTimeError, projectCalibrationRangeError, changedProjectSettings, projectSettingsEqual, projectFlowWithLocalTimes, calibrationOperations, calibrationHasNewPhases, type ProjectSettingsResponse, type ProjectSettingsPatch } from '@/components/performance/performanceProjectCalibration'
 import PerformanceDateTimeField from '@/components/performance/PerformanceDateTimeField.vue'
 import { shanghaiLocalToUtcIso, utcToShanghaiLocal } from '@/utils/datetime'
 
@@ -171,6 +180,20 @@ const displayBaseline = ref<PerformanceProjectPayload | null>(null)
 const editingPolicy = ref<ProjectSettingsResponse['editing_policy']>()
 const calibrationBaseDigest = ref<string>()
 const flowPending = ref(false)
+const flowSaving = ref(false)
+const infoSubmitted = ref(false)
+const flowValidationSubmitted = ref(false)
+const leaveConfirmOpen = ref(false)
+let leaveTarget: Parameters<typeof router.push>[0] = { name: 'PerformanceCycles' }
+let leaving = false
+const infoErrors = computed(() => ({
+  name: infoSubmitted.value && !form.name.trim() ? '项目名称不能为空' : '',
+  template: infoSubmitted.value && !form.template_id ? '请选择绩效模板' : '',
+  audience: infoSubmitted.value && !audienceLocked.value && !previewRulesValid() ? '请完善被评估人筛选条件' : '',
+}))
+const dirty = computed(() => Boolean(displayBaseline.value && !projectSettingsEqual(displayBaseline.value, payload()) || flowPending.value || basicDialogOpen.value))
+function showSaved() { notice.value = ''; ElMessage.success({ message: '保存成功', customClass: 'performance-submit-toast', offset: 40, duration: 3000 }) }
+function calibrationMissing() { return workflowNodes.value.some(node => { if (node.node_type !== 'calibration') return false; const phases = form.flow_settings.node_settings[workflowNodeKey(node)]?.calibration?.phases; return !phases?.length || phases.some(phase => !phase.rules?.length) }) }
 const steps = [{ key: 'info', label: '项目信息' }, { key: 'flow', label: '流程设置' }, { key: 'time', label: '起止时间' }]
 const form = reactive<{ name: string; description: string; administrators: string[]; template_id: number | null; start_at: string; end_at: string; evaluator_rules: NonNullable<PerformanceProjectPayload['evaluator_rules']>; flow_settings: ProjectFlowSettings }>({ name: '', description: '', administrators: [], template_id: null, start_at: '', end_at: '', evaluator_rules: { groups: [{ conditions: [{ field: '', operator: 'include', values: [] }] }] }, flow_settings: { node_settings: {}, node_times: {} } })
 const administratorsText = computed({ get: () => form.administrators.join('、'), set: value => { form.administrators = value.split(/[、,，]/).map(item => item.trim()).filter(Boolean) } })
@@ -247,7 +270,11 @@ function toUtcNodeTimes(times: Record<string, any>) {
   }
   return result
 }
-function validate() { validationError.value = ''; if (!form.name.trim()) validationError.value = '项目名称不能为空'; else if (!form.template_id) validationError.value = '请选择绩效模板'; else if (!audienceLocked.value && (!form.evaluator_rules.groups.length || form.evaluator_rules.groups.some(group => !group.conditions.length || group.conditions.some(condition => !condition.field || !condition.values.length || (isDateConditionField(condition.field) && !validHireDateCondition(condition.operator, condition.values)))))) validationError.value = '请完善被评估人筛选条件'; else if (dateError.value) validationError.value = '项目截止时间必须晚于开始时间'; return !validationError.value }
+function validate() {
+  infoSubmitted.value = true
+  validationError.value = dateError.value ? '项目截止时间必须晚于开始时间' : ''
+  return !Object.values(infoErrors.value).some(Boolean) && !validationError.value
+}
 function payload(): PerformanceProjectPayload { return { name: form.name.trim(), description: form.description.trim() || null, administrators: form.administrators, template_id: form.template_id, start_at: form.start_at ? shanghaiLocalToUtcIso(form.start_at) : null, end_at: form.end_at ? shanghaiLocalToUtcIso(form.end_at) : null, ...(audienceLocked.value ? {} : { evaluator_rules: { groups: form.evaluator_rules.groups.map(group => ({ conditions: group.conditions.map(condition => { const values = Array.isArray(condition.values) ? condition.values : String(condition.values).split(/[、,，]/).map(value => value.trim()).filter(Boolean); return { ...condition, values } }) })) } }), flow_settings: { ...form.flow_settings, node_times: toUtcNodeTimes(form.flow_settings.node_times) } } }
 function previewPayload(kind: 'matched' | 'task' | 'report_only' = 'matched', groupIndex: number | null = null): PerformanceEvaluatorPreviewPayload {
   return {
@@ -387,8 +414,11 @@ async function saveDraft(finalize = false) {
 }
 async function nextStep() {
   if (currentStep.value === 0 && !validate()) return
-  if (saving.value) return
+  if (saving.value || basicDialogSaving.value || flowSaving.value) return
   if (currentStep.value === 1) {
+    flowValidationSubmitted.value = true
+    if (calibrationMissing()) return
+    if (projectCalibrationRangeError(workflowNodes.value, form.flow_settings)) return
     validationError.value = ''
     if (flowPending.value) { validationError.value = '请先确认或取消当前流程配置'; return }
     openingError.value = workflowNodes.value.some(node => node.node_type === 'result_view'
@@ -401,19 +431,36 @@ async function nextStep() {
     }
   }
   if (currentStep.value < steps.length - 1) {
-    if (await saveDraft()) currentStep.value += 1
+    const deferred = Boolean(displayBaseline.value && calibrationHasNewPhases(displayBaseline.value.flow_settings!, form.flow_settings))
+    if (await saveDraft()) { currentStep.value += 1; if (!deferred) showSaved() }
     return
   }
+  flowValidationSubmitted.value = true
+  if (calibrationMissing()) { currentStep.value = 1; return }
   timeValidationSubmitted.value = true
   const timeError = projectNodeTimeError(workflowNodes.value, form.flow_settings, Date.now(), projectStatus.value, rawBaseline.value?.flow_settings)
   if (timeError) return
   validationError.value = ''
   if (!validate() || saving.value) return
-  if (await saveDraft(true)) { savedView.value = true; notice.value = '项目设置已保存' }
+  if (await saveDraft(true)) { savedView.value = true; showSaved(); leaving = true; await router.push({ name: 'PerformanceCycles' }) }
 }
-function goBack() { void router.push({ name: 'PerformanceCycles' }) }
-onMounted(async () => { document.body.style.overflow = 'hidden'; await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow(); displayBaseline.value = JSON.parse(JSON.stringify(payload())) })
-onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); document.body.style.overflow = '' })
+function confirmLeave() { if (saving.value || basicDialogSaving.value || flowSaving.value) return; leaveConfirmOpen.value = false; leaving = true; void router.push(leaveTarget) }
+function warnUnsaved(event: BeforeUnloadEvent) { if (dirty.value || saving.value || basicDialogSaving.value || flowSaving.value) { event.preventDefault(); event.returnValue = '' } }
+function goBack() {
+  if (saving.value || basicDialogSaving.value || flowSaving.value) return
+  leaveTarget = { name: 'PerformanceCycles' }
+  if (dirty.value) { leaveConfirmOpen.value = true; return }
+  void router.push(leaveTarget)
+}
+onBeforeRouteLeave((to) => {
+  if (saving.value || basicDialogSaving.value || flowSaving.value) return false
+  if (leaving || !dirty.value) return true
+  leaveTarget = to
+  leaveConfirmOpen.value = true
+  return false
+})
+onMounted(async () => { document.body.style.overflow = 'hidden'; window.addEventListener('beforeunload', warnUnsaved); await Promise.all([loadManualOpeningSetting(), loadTemplates()]); await loadProject(); await loadTemplateWorkflow(); displayBaseline.value = JSON.parse(JSON.stringify(payload())) })
+onBeforeUnmount(() => { if (previewTimer) clearTimeout(previewTimer); window.removeEventListener('beforeunload', warnUnsaved); document.body.style.overflow = '' })
 </script>
 
 <style scoped>

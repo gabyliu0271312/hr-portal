@@ -11,7 +11,8 @@
         <div class="calibration-condition-group__fields">
         <div class="calibration-select"><PerformanceSearchSelect :model-value="modelValue.conditions[index].field" :options="optionFields" selection-style="plain" :aria-label="`${fieldLabel}类型`" @update:model-value="updateField(index, $event)" /></div>
         <div class="calibration-select calibration-select--operator"><PerformanceSearchSelect :model-value="modelValue.conditions[index].operator" :options="operatorOptions(modelValue.conditions[index].field)" selection-style="plain" aria-label="操作" @update:model-value="updateOperator(index, $event)" /></div>
-        <div class="calibration-value-select">
+        <div class="calibration-value-select" :class="{ 'is-invalid': conditionError(index) }">
+          <div class="calibration-condition-group__control">
           <PerformanceOrganizationSelect
             v-if="modelValue.conditions[index].field === 'department'"
             :model-value="modelValue.conditions[index].values"
@@ -50,6 +51,8 @@
             @open="emit('open-options')"
             @update:model-value="updateValues(index, $event)"
           />
+          </div>
+          <span v-if="conditionError(index)" class="calibration-condition-group__error" role="alert">{{ conditionError(index) }}</span>
         </div>
         </div>
         <PerformanceIconButton v-if="modelValue.conditions.length > 1" icon="DeleteTrashOutlined" :label="`删除${fieldLabel}条件 ${index + 1}`" @click="removeCondition(index)" />
@@ -72,7 +75,7 @@ import PerformanceIconButton from './PerformanceIconButton.vue'
 import PerformanceOrganizationSelect from './PerformanceOrganizationSelect.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import PerformanceSearchSelect from './PerformanceSearchSelect.vue'
-import { CALIBRATOR_RELATION_OPTIONS, HIRE_DATE_OPERATOR_OPTIONS, conditionValueOptions } from './performanceConditionFields'
+import { CALIBRATOR_RELATION_OPTIONS, HIRE_DATE_OPERATOR_OPTIONS, conditionValueOptions, validHireDateCondition } from './performanceConditionFields'
 
 type Option = { value: string; label: string }
 const props = withDefaults(defineProps<{
@@ -86,12 +89,19 @@ const props = withDefaults(defineProps<{
   count?: number
   countSuffix?: string
   removable?: boolean
+  submitted?: boolean
 }>(), { valueOptions: () => [], organizationTree: () => [], count: 0, countSuffix: '', removable: false })
 const emit = defineEmits<{ 'update:modelValue': [value: PerformanceCalibrationConditionGroup]; remove: []; 'open-options': [] }>()
 const includeOperatorOptions = [{ value: 'INCLUDE', label: '包含' }, { value: 'EXCLUDE', label: '不包含' }]
 const operatorOptions = (field: PerformanceCalibrationCondition['field']) => field === 'hire_date' ? HIRE_DATE_OPERATOR_OPTIONS : includeOperatorOptions
 const countText = computed(() => `共 ${props.count} 人${props.countSuffix}`)
 const optionFields = computed(() => props.fieldOptions)
+function conditionError(index: number) {
+  if (!props.submitted) return ''
+  const condition = props.modelValue.conditions[index]
+  if (!condition.values.length) return `${props.fieldLabel}条件值为必填`
+  return condition.field === 'hire_date' && !validHireDateCondition(condition.operator, condition.values) ? '日期格式不正确' : ''
+}
 function updateCondition(index: number, patch: Partial<PerformanceCalibrationCondition>) {
   const conditions = props.modelValue.conditions.map((condition, conditionIndex) => conditionIndex === index ? { ...condition, ...patch } : condition)
   emit('update:modelValue', { ...props.modelValue, conditions })
@@ -120,5 +130,9 @@ function addCondition() {
 </script>
 
 <style scoped>
+.calibration-condition-group__control{width:100%;min-width:0}
+.calibration-value-select.is-invalid :deep(.performance-select-shell__selector),.calibration-value-select.is-invalid :deep(.performance-search-select__trigger),.calibration-value-select.is-invalid :deep(.performance-organization-tree-select__trigger),.calibration-value-select.is-invalid :deep(.performance-date-time-field__input){border-color:var(--performance-field-border-invalid)}
+.calibration-value-select:has(.calibration-condition-group__error){height:auto;flex-direction:column;align-items:stretch;align-self:flex-start}
+.calibration-condition-group__error{margin-top:var(--performance-field-error-gap);color:var(--performance-field-error-color);font-size:var(--performance-field-error-font-size);line-height:var(--performance-field-error-line-height)}
 .calibration-condition-group{display:flex;flex-direction:column;min-width:0;padding:16px 20px;border-radius:8px;background:#f5f6f7;box-sizing:border-box;color:#1f2329}.calibration-condition-group__heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font:600 14px/22px var(--font-sans)}.calibration-condition-group__count{color:#646a73;font-weight:400}.calibration-condition-group__row>.performance-icon-button{flex:0 0 24px;margin-top:4px}.calibration-condition-group__row:first-child{margin-top:0}.calibration-condition-group__row{display:flex;align-items:flex-start;margin-top:8px}.calibration-condition-group__fields{display:flex;flex:1;min-width:0;align-items:center}.calibration-select,.calibration-value-select{position:relative;display:flex;align-items:center;min-width:0;height:32px;margin:0 8px;box-sizing:border-box}.calibration-select{flex:0 0 112px}.calibration-select--operator{flex:0 0 96px}.calibration-value-select{flex:1;margin-right:0}.calibration-value-select :deep(.performance-select-shell){width:100%}.calibration-condition-group__add{display:inline-flex;align-items:center;width:max-content;margin-top:8px;padding:0;border:0;background:transparent;color:#3370ff;font:400 14px/22px var(--font-sans);cursor:pointer}.calibration-condition-group__add svg{width:16px;height:16px;margin-right:4px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
