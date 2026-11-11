@@ -76,4 +76,11 @@ describe('PerformanceDistributionTips', () => {
     const wrapper = mount(PerformanceDistributionTips, { props: { tips: empty } })
     expect(wrapper.find('.distribution-tips__toggle').exists()).toBe(false)
   })
+
+  it('renders nothing when the backend switch is disabled', () => {
+    const data = tips()
+    data.enabled = false
+    const wrapper = mount(PerformanceDistributionTips, { props: { tips: data } })
+    expect(wrapper.find('.performance-distribution-tips').exists()).toBe(false)
+  })
 })

@@ -1,5 +1,5 @@
 <template>
-  <div v-if="tips" class="performance-distribution-tips" aria-label="绩效结果强制建议分布提示">
+  <div v-if="tips && tips.enabled" class="performance-distribution-tips" aria-label="绩效结果强制建议分布提示">
     <div class="distribution-tips__head">
       <span class="distribution-tips__title">绩效结果强制 / 建议分布</span>
       <button v-if="hasRules" type="button" class="distribution-tips__toggle" :aria-expanded="expanded" @click="expanded = !expanded">
