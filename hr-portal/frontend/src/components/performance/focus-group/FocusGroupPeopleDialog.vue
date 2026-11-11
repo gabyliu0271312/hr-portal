@@ -3,8 +3,8 @@ import { computed, ref, watch } from 'vue'
 import type { PerformanceFocusGroupChangePerson } from '@/api/performance'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceManagementTable from '../PerformanceManagementTable.vue'
-import PerformanceSearchInput from '../PerformanceSearchInput.vue'
-import PerformanceFilterButton from '../PerformanceFilterButton.vue'
+import UiSurface from '@/components/ui/UiSurface.vue'
+import PerformanceListToolbar from '../PerformanceListToolbar.vue'
 import MetricTemplateEmptyIllustration from '../MetricTemplateEmptyIllustration.vue'
 import type { PerformanceTableColumn } from '../performanceTableColumns'
 
@@ -106,20 +106,12 @@ function close() {
 </script>
 
 <template>
-  <UiFullScreenModal v-if="props.modelValue" :title="props.title" :show-footer="false" content-scroll="inner" @back="close">
+  <UiFullScreenModal v-if="props.modelValue" class="focus-group-people-dialog" :title="props.title" :show-footer="false" content-scroll="page" @back="close">
     <template #subtitle>{{ props.subtitle }}</template>
     <div class="focus-group-people-page">
+      <UiSurface class="focus-group-people-surface" radius="all" min-width="0" padding="var(--ui-surface-padding-spacious)">
       <p v-if="props.error" class="focus-group-people-error" role="alert">{{ props.error }}</p>
-      <div class="focus-group-people-toolbar">
-        <PerformanceSearchInput
-          v-model="keyword"
-          placeholder="搜索成员"
-          aria-label="搜索成员"
-          @search="onSearch"
-          @clear="onClear"
-        />
-        <PerformanceFilterButton :disabled="props.loading" @click="onFilter" />
-      </div>
+      <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill :filter-disabled="props.loading" @search="onSearch" @clear="onClear" @filter="onFilter" />
       <div class="focus-group-people-result" aria-live="polite">{{ resultCount }}个结果</div>
       <PerformanceManagementTable
         :rows="displayedRows"
@@ -153,72 +145,33 @@ function close() {
           </div>
         </template>
       </PerformanceManagementTable>
+      </UiSurface>
     </div>
   </UiFullScreenModal>
 </template>
 
 <style scoped>
+.focus-group-people-dialog {
+  --ui-fullscreen-background: var(--performance-page-surface);
+  --performance-fullscreen-content-bottom-space: 0px;
+}
 .focus-group-people-page {
   width: 100%;
   min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  padding: 16px 20px 20px;
+  min-height: 100%;
+  flex: 1 0 auto;
+  padding: var(--spacing-5) var(--ui-page-content-inset) var(--ui-page-content-inset);
   box-sizing: border-box;
-  background: #ffffff;
 }
-.focus-group-people-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: 22px; }
-.focus-group-people-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  min-height: 32px;
-}
-.focus-group-people-toolbar :deep(.performance-search-input) {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 32px;
-}
+.focus-group-people-surface { width: 100%; }
+.focus-group-people-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 .focus-group-people-result {
-  flex: none;
-  margin: 16px 0 0;
-  color: #1f2329;
-  font-size: 14px;
-  line-height: 22px;
+  margin-bottom: var(--spacing-2);
+  color: var(--ui-table-text-color);
+  font-size: var(--ui-table-font-size);
+  line-height: var(--ui-table-line-height);
 }
-.focus-group-people-table {
-  flex: 1 1 auto;
-  min-height: 0;
-  margin-top: 8px;
-  --ui-table-header-background: #ffffff;
-  --ui-table-header-height: 47px;
-  --ui-table-row-height: 55px;
-}
-.focus-group-people-table :deep(.ui-table__cell--head) {
-  color: #646a73;
-  font-weight: 500;
-}
-.focus-group-people-table :deep(.table-pagination) {
-  justify-content: flex-end;
-}
-.focus-group-people-total {
-  color: #1f2329;
-  font-size: 14px;
-  line-height: 22px;
-}
-.focus-group-people-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 0;
-}
-.focus-group-people-empty__text {
-  color: #646a73;
-  font-size: 14px;
-  line-height: 22px;
-}
+.focus-group-people-total { color: var(--ui-pagination-color); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
+.focus-group-people-empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; }
+.focus-group-people-empty__text { color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 </style>

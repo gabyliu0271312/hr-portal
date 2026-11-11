@@ -370,3 +370,11 @@ REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登�
 - token：复用既有 spacing、ui-page-background、ui-surface-*、color-line-divider；补充全局页面content inset、Tabs内容间距、spacious白卡padding、紧凑Tabs规格和页头边框入口。全局默认Tabs几何仍为ink top33/divider top35；页头默认旧分隔线不变。移除弹窗重复背景、圆角、提示条及操作链接硬编码样式。
 - 浏览器：实际弹窗组件+隔离分页数据，1280×720/1280×600/1680×950/900×600验证外24+内24、Tab高46且位于白卡外、卡片顶部y122、提示条y146/h40、工具栏y202、表头y250、灰底#f5f6f7、白卡r8；四视口分页可见、头体对齐、横滚同步。截图 `hr-portal/.tmp/focus-group-shared-surface-20261110.png` 已查看，仅本地组件证据，不是生产验收。
 - 验证：扩大回归10文件121项通过；最终聚焦5文件36项通过；最终 `npm --prefix hr-portal/frontend run build` 的vue-tsc与Vite通过（44.27s，既有VueUse PURE警告保留）。未提交、未推送、未部署；并行业务修改不纳入本轮范围。
+
+### 2026-11-11：后台人员组人数入口复用全局页面容器
+
+- 目标入口：绩效后台→人员组管理→人数→人员列表，对应 `FocusGroupPeopleDialog`；同组件的变更记录人员明细入口共同消费本轮修复。仅调整视觉容器与滚动归属，不改人数入口API、搜索/分页数据模式、权限或字段契约。
+- REA 实际点击给定后台周期级人员组22人按钮：人员列表使用灰底#f2f3f5、外层padding20px 24px 24px、独立白卡padding24px/r8；搜索框填充剩余空间、筛选80px/间距12px；表格单表横滚、姓名左固定、无操作列，表头不纵向吸顶。1280×600下页面外层scrollTop293可达分页，表格viewport纵向hidden；不能套用前端人员组弹窗的表体内滚模型。
+- 复用：继续UiFullScreenModal/UiPageHeader，启用既有page内容滚动；嵌入UiSurface（all圆角/min-width0/spacious padding），工具栏改用PerformanceListToolbar search-fill，保留PerformanceManagementTable page模式及UiPagination。颜色、字号、间距、圆角均消费现有全局token，无新增组件或独立设计体系；移除旧白底通铺、局部gap8、字号/行高/表头覆盖。
+- 真实组件浏览器验收（22人隔离数据）：1280×600、1280×720、1680×950、900×600均保持白卡x24/y76、表格x48/y178、内外各24px、搜索与筛选间距12px；页面无横向溢出，表格横滚300后姓名保持x48。小屏滚动页面可达分页，表头随页面滚走，表格没有独立纵滚。截图 `hr-portal/.tmp/admin-focus-count-shared-surface-20261111.png` 已查看，不代表生产验收。
+- 自动化：专项真实组件用例覆盖共享页头/白卡/填充搜索/page模式/姓名固定/翻页/搜索回第一页/清除/空态/加载禁用/错误/返回，原loadFn契约保留；8文件45项通过。`npm --prefix hr-portal/frontend run build` 的vue-tsc和Vite通过（54.81s，保留既有VueUse PURE警告）。本轮3文件diff-check通过；全工作区另有并行校准文件行尾空白，不修改。未commit、push或部署。

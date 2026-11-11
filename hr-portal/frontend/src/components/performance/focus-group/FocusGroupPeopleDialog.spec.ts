@@ -3,7 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import FocusGroupPeopleDialog from './FocusGroupPeopleDialog.vue'
 import type { PerformanceFocusGroupChangePerson } from '@/api/performance'
 
-vi.mock('element-plus', () => ({ ElMessage: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
+import UiSurface from '../../ui/UiSurface.vue'
+import UiFullScreenModal from '../../ui/UiFullScreenModal.vue'
+import UiPageHeader from '../../ui/UiPageHeader.vue'
+import UiTable from '../../ui/UiTable.vue'
+import PerformanceManagementTable from '../PerformanceManagementTable.vue'
+import PerformanceListToolbar from '../PerformanceListToolbar.vue'
+
+vi.mock('element-plus', async () => {
+  const actual = await vi.importActual<typeof import('element-plus')>('element-plus')
+  return { ...actual, ElMessage: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }
+})
 
 const fullScreenModalStub = {
   props: ['title', 'showFooter', 'contentScroll'],
@@ -108,6 +118,47 @@ describe('FocusGroupPeopleDialog', () => {
     await wrapper.find('.search-input').trigger('keyup.enter')
     expect(wrapper.text()).toContain('6个结果')
     expect((wrapper.findComponent(managementTableStub).props('rows') as unknown[]).length).toBe(6)
+  })
+
+  it('reuses the real page shell, white surface and fill toolbar without inner body scrolling', async () => {
+    const rows = Array.from({ length: 12 }, (_, index) => person({ employee_no: `E${index}`, display_name: `成员${index}` }))
+    const wrapper = mount(FocusGroupPeopleDialog, {
+      props: { modelValue: true, title: '人员列表', subtitle: '核心研发团队', rows, loading: false, error: '' },
+    })
+    await flushPromises()
+    expect(wrapper.getComponent(UiFullScreenModal).props('contentScroll')).toBe('page')
+    expect(wrapper.getComponent(UiPageHeader).props('title')).toBe('人员列表')
+    expect(wrapper.get('.full-screen-modal-header-subtitle').text()).toBe('核心研发团队')
+    const surface = wrapper.getComponent(UiSurface)
+    expect(surface.props('radius')).toBe('all')
+    expect(surface.props('minWidth')).toBe('0')
+    expect(surface.props('padding')).toBe('var(--ui-surface-padding-spacious)')
+    expect(surface.findComponent(PerformanceListToolbar).props('searchFill')).toBe(true)
+    const table = wrapper.getComponent(PerformanceManagementTable)
+    const uiTable = wrapper.getComponent(UiTable)
+    expect(table.props('scrollMode')).toBe('page')
+    expect(uiTable.props('maxHeight')).toBeUndefined()
+    expect(uiTable.props('stickyHeaderTop')).toBeUndefined()
+    expect(uiTable.find('thead th.is-fixed-left').attributes('style')).toContain('left: 0px')
+    expect(uiTable.findAll('tbody tr')).toHaveLength(10)
+    await wrapper.get('[aria-label="下一页"]').trigger('click')
+    expect(uiTable.findAll('tbody tr')).toHaveLength(2)
+    await wrapper.get('.search-input input').setValue('成员11')
+    await wrapper.get('.search-input input').trigger('keyup.enter')
+    expect(table.props('page')).toBe(1)
+    expect(uiTable.findAll('tbody tr')).toHaveLength(1)
+    await wrapper.get('[aria-label="清除搜索"]').trigger('click')
+    expect(table.props('total')).toBe(12)
+    await wrapper.setProps({ rows: [] })
+    expect(wrapper.text()).toContain('暂无人员')
+    expect(wrapper.text()).toContain('共 0 条')
+    await wrapper.setProps({ loading: true })
+    expect(wrapper.get('.filter-button').attributes('disabled')).toBeDefined()
+    await wrapper.setProps({ loading: false, error: '读取失败' })
+    expect(wrapper.get('[role="alert"]').text()).toBe('读取失败')
+    await wrapper.get('.full-screen-modal-header-back').trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    wrapper.unmount()
   })
 
   it('calls loadFn on search and page change when provided', async () => {
