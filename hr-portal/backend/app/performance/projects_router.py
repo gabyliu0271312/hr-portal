@@ -1228,6 +1228,7 @@ class ProjectStatisticsRowResponse(BaseModel):
     id: str
     name: str
     counts: dict[str, int]
+    children: list["ProjectStatisticsRowResponse"] = []
 
 
 class ProjectStatisticsReportResponse(BaseModel):
@@ -4766,13 +4767,12 @@ async def project_management_statistics(
     if not projects and not empty_cycle_allowed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
 
-    rows: dict[str, dict[str, int]] = {}
+    rows: dict[tuple[str, ...], dict[str, int]] = {}
     if dimension == "tenure":
-        rows = {bucket: {} for bucket in _TENURE_BUCKET_ORDER}
+        rows = {(bucket,): {} for bucket in _TENURE_BUCKET_ORDER}
     ratings: list[dict] = []
     rating_scale = None
     employee_nos = set()
-    supervisor_names: dict[str, str] = {}
     for project in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
         if snapshot_id is None:
@@ -4783,11 +4783,6 @@ async def project_management_statistics(
         scope = scopes[project.id]
         if scope is not None:
             members = [member for member in members if member.employee_no in scope]
-        if dimension == "team":
-            names = await _snapshot_supervisor_names(db, members)
-            for (_, supervisor_no), display in names.items():
-                if display and display.strip():
-                    supervisor_names[supervisor_no] = display
         project_employee_nos = {member.employee_no for member in members}
         if employee_nos.intersection(project_employee_nos):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_MEMBER_OVERLAP_UNRESOLVED")
@@ -4802,16 +4797,18 @@ async def project_management_statistics(
         if project_ratings and not ratings:
             ratings = project_ratings
         members_by_employee = {member.employee_no: member for member in members}
+        team_people: dict[tuple[int, str], tuple[str | None, str | None]] = {}
+        if dimension == "team":
+            team_people = await _snapshot_team_people(db, members)
         for employee_no in project_employee_nos:
             member = members_by_employee[employee_no]
-            bucket = _statistics_bucket(member, dimension)
-            if dimension == "team" and bucket != "--":
-                bucket = supervisor_names.get(bucket) or f"{bucket}（未录入）"
-            counts = rows.setdefault(bucket, {})
+            paths = _team_chain_paths(member, team_people) if dimension == "team" else _statistics_paths(member, dimension)
             selected = final_values.get(employee_no)
-            if selected is not None:
-                key = selected[3]["key"]
-                counts[key] = counts.get(key, 0) + 1
+            for path in paths:
+                counts = rows.setdefault(path, {})
+                if selected is not None:
+                    key = selected[3]["key"]
+                    counts[key] = counts.get(key, 0) + 1
 
     keys = [rating["key"] for rating in ratings]
     row_label = {
@@ -4819,12 +4816,26 @@ async def project_management_statistics(
         "team": "直属上级", "sequence": "序列（BU/职位族/职位）",
     }[dimension]
     row_sort = _statistics_sort_key(dimension)
-    report_rows = [{
-        "id": f"{dimension}:{bucket}",
-        "name": bucket,
-        "counts": {key: rows[bucket].get(key, 0) for key in keys},
-    } for bucket in sorted(rows, key=row_sort)]
-    distribution = {key: sum(row["counts"][key] for row in report_rows) for key in keys}
+    if dimension in ("department", "team", "sequence"):
+        paths = sorted(rows, key=lambda p: (row_sort(p[-1]), p))
+
+        def make_row(path):
+            own = rows.get(path, {})
+            children = [make_row(child) for child in paths if len(child) == len(path) + 1 and child[:-1] == path]
+            return {"id": f"{dimension}:" + "/".join(path), "name": path[-1], "counts": {key: own.get(key, 0) for key in keys}, "children": children}
+
+        report_rows = [make_row(path) for path in paths if len(path) == 1]
+    else:
+        report_rows = [{
+            "id": f"{dimension}:{bucket[0]}",
+            "name": bucket[0],
+            "counts": {key: rows[bucket].get(key, 0) for key in keys},
+        } for bucket in sorted(rows, key=lambda p: row_sort(p[0]))]
+    leaf_rows = []
+    for path in rows:
+        if not any(other for other in rows if len(other) == len(path) + 1 and other[:-1] == path):
+            leaf_rows.append((path, rows[path]))
+    distribution = {key: sum(counts.get(key, 0) for _path, counts in leaf_rows) for key in keys}
     return ProjectStatisticsReportResponse(
         source="api",
         dimension=dimension,
@@ -4927,17 +4938,19 @@ async def project_management_self_final_comparison(
     )
 
 
-def _statistics_bucket(member: PerformanceProjectMember, dimension: str) -> str:
+def _statistics_paths(member: PerformanceProjectMember, dimension: str) -> list[tuple[str, ...]]:
+    """返回该成员归属的逐级路径（从根到叶子）。department/sequence 为组织/序列路径树，level/tenure 为单级。team 走 _team_chain_paths。"""
     if dimension == "department":
-        return str(member.department_2 or "").strip() or "--"
-    if dimension == "team":
-        return str(getattr(member, "direct_supervisor_employee_no", None) or "").strip() or "--"
+        parts = [str(getattr(member, key, None) or "").strip() for key in ("company_org", "department", "department_2", "department_3", "department_4", "department_5")]
+        path = tuple(part for part in parts if part)
+        return [path[:depth] for depth in range(1, len(path) + 1)] if path else [("--",)]
     if dimension == "sequence":
         parts = [str(getattr(member, key) or "").strip() for key in ("company_org", "job_family", "standard_position")]
-        return "/".join(part for part in parts if part) or "--"
+        path = tuple(part for part in parts if part)
+        return [path[:depth] for depth in range(1, len(path) + 1)] if path else [("--",)]
     if dimension == "tenure":
-        return _tenure_bucket(member.hire_date)
-    return _matrix_level(member.position_level)
+        return [(_tenure_bucket(member.hire_date),)]
+    return [(_matrix_level(member.position_level),)]
 
 
 def _statistics_sort_key(dimension: str):
@@ -5226,6 +5239,40 @@ async def workbench_tasks(project_id: int | None = None, state: str = Query(defa
         available_at, due_at = _task_window(first_task, node, current_project)
         result.append({"node_id": node.node_id, "node_type": node.node_type, "node_name": template_names.get(node.node_id, node.name), "executor_role_code": node_role_code((node.config or {}).get("template") or {}), "pending_count": len(pending_tasks), "completed_count": len(tasks) - len(pending_tasks), "overdue_count": 0, "task_id": first_task.id, "available_at": available_at, "due_at": due_at, "action_url": f"/performance/review?node={node.node_id}"})
     return result
+
+
+async def _snapshot_team_people(db, members):
+    """返回成员快照对应的授权快照全量人员（含上级链），key=(snapshot_id, employee_no) → (display_name, direct_supervisor_employee_no)。"""
+    snapshot_ids = {member.snapshot_id for member in members}
+    if not snapshot_ids:
+        return {}
+    rows = (await db.execute(
+        select(
+            PerformanceProjectMemberSnapshot.id,
+            PerformanceAuthorizationSnapshotPerson.employee_no,
+            PerformanceAuthorizationSnapshotPerson.display_name,
+            PerformanceAuthorizationSnapshotPerson.direct_supervisor_employee_no,
+        )
+        .join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id)
+        .where(PerformanceProjectMemberSnapshot.id.in_(snapshot_ids))
+    )).all()
+    return {(snapshot_id, employee_no): (display_name, direct_supervisor_employee_no) for snapshot_id, employee_no, display_name, direct_supervisor_employee_no in rows}
+
+
+def _team_chain_paths(member: PerformanceProjectMember, team_people: dict[tuple[int, str], tuple[str | None, str | None]]) -> list[tuple[str, ...]]:
+    """沿 direct_supervisor_employee_no 向上追溯上级链，返回从最顶层上级到直属上级的各级路径。无上级/断链 → [("--",)]。"""
+    chain: list[str] = []
+    visited: set[str] = set()
+    current = getattr(member, "direct_supervisor_employee_no", None)
+    while current and current.strip() and current not in visited:
+        visited.add(current)
+        display, direct = team_people.get((member.snapshot_id, current), (None, None))
+        chain.append(display if display and display.strip() else f"{current}（未录入）")
+        current = direct if direct and direct.strip() and direct != current else None
+    if not chain:
+        return [("--",)]
+    full = tuple(reversed(chain))
+    return [full[:depth] for depth in range(1, len(full) + 1)]
 
 
 async def _snapshot_supervisor_names(db, members):

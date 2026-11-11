@@ -131,7 +131,7 @@ async function loadDimension(dimension: ProjectReportDimension) {
   errors.value = { ...errors.value, [dimension]: '' }
   try {
     const report = await (props.provider ?? defaultProvider)({ cycleId: props.cycleId, dimension })
-    if (report.source !== 'api' || report.dimension !== dimension || !report.showSummary || report.departments.some(row => row.children?.length)) {
+    if (report.source !== 'api' || report.dimension !== dimension || !report.showSummary) {
       throw new Error(`INVALID_${dimension.toUpperCase()}_REPORT`)
     }
     if (id === requestIds[dimension]) reports.value = { ...reports.value, [dimension]: report }

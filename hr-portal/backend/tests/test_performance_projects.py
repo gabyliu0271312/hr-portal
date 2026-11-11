@@ -3659,13 +3659,15 @@ def _self_summary_node(project_id=1, *, node_id=32, order=2, options=None):
     )
 
 
-def _statistics_member(employee_no, snapshot_id=21, *, display_name=None, position_level="J6", hire_date=None, department_2=None, direct_supervisor_employee_no=None, company_org=None, job_family=None, standard_position=None):
+def _statistics_member(employee_no, snapshot_id=21, *, display_name=None, position_level="J6", hire_date=None, department=None, department_2=None, department_3=None, department_4=None, department_5=None, company_org=None, job_family=None, standard_position=None, direct_supervisor_employee_no=None):
     return SimpleNamespace(
         employee_no=employee_no, snapshot_id=snapshot_id,
         display_name=display_name or f"员工{employee_no}", employment_status="在职",
         position_level=position_level, hire_date=hire_date,
-        department_2=department_2, direct_supervisor_employee_no=direct_supervisor_employee_no,
+        department=department, department_2=department_2, department_3=department_3,
+        department_4=department_4, department_5=department_5,
         company_org=company_org, job_family=job_family, standard_position=standard_position,
+        direct_supervisor_employee_no=direct_supervisor_employee_no,
     )
 
 
@@ -3720,13 +3722,23 @@ def statistics_db(monkeypatch):
                 params = statement.compile().params
                 ids = params.get("id_1", [])
                 supervisor_nos = params.get("employee_no_1", [])
+                if supervisor_nos:
+                    # _snapshot_supervisor_names：仅查指定上级的 display_name
+                    rows = []
+                    for snapshot_id in (ids if isinstance(ids, list) else [ids]):
+                        for employee_no in (supervisor_nos if isinstance(supervisor_nos, list) else [supervisor_nos]):
+                            display = next((member.display_name for member in self.members if member.employee_no == employee_no), None)
+                            if display is None:
+                                continue
+                            rows.append((snapshot_id, employee_no, display))
+                    return SimpleNamespace(all=lambda: rows)
+                # _snapshot_team_people：返回全量人员的 display_name + 直属上级
                 rows = []
                 for snapshot_id in (ids if isinstance(ids, list) else [ids]):
-                    for employee_no in (supervisor_nos if isinstance(supervisor_nos, list) else [supervisor_nos]):
-                        display = next((member.display_name for member in self.members if member.employee_no == employee_no), None)
-                        if display is None:
+                    for member in self.members:
+                        if member.snapshot_id != snapshot_id:
                             continue
-                        rows.append((snapshot_id, employee_no, display))
+                        rows.append((snapshot_id, member.employee_no, member.display_name, getattr(member, "direct_supervisor_employee_no", None)))
                 return SimpleNamespace(all=lambda: rows)
             elif model is PerformanceProjectMember:
                 snapshot_id = params.get("snapshot_id_1", self.snapshots.get(params.get("project_id_1")))
@@ -3781,25 +3793,25 @@ async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(stati
         "ratings": [{"key": "one", "label": "1星", "color": "#f54a45"}, {"key": "five", "label": "5星", "color": "#3370ff"}],
         "distribution": {"one": 1, "five": 1},
         "departments": [
-            {"id": "level:J6", "name": "J6", "counts": {"one": 0, "five": 1}},
-            {"id": "level:J3", "name": "J3", "counts": {"one": 0, "five": 0}},
-            {"id": "level:专家", "name": "专家", "counts": {"one": 0, "five": 0}},
-            {"id": "level:--", "name": "--", "counts": {"one": 1, "five": 0}},
+            {"id": "level:J6", "name": "J6", "counts": {"one": 0, "five": 1}, "children": []},
+            {"id": "level:J3", "name": "J3", "counts": {"one": 0, "five": 0}, "children": []},
+            {"id": "level:专家", "name": "专家", "counts": {"one": 0, "five": 0}, "children": []},
+            {"id": "level:--", "name": "--", "counts": {"one": 1, "five": 0}, "children": []},
         ],
     }
     assert sum(result.distribution.values()) == 2 < result.totalParticipants
 
 
 @pytest.mark.asyncio
-async def test_department_statistics_groups_by_department_2(statistics_db):
+async def test_department_statistics_builds_org_path_tree(statistics_db):
     from app.performance.projects_router import project_management_statistics
 
     db = statistics_db
     db.members += [
-        _statistics_member("E002", department_2="产品部"),
-        _statistics_member("E003", department_2="产品部"),
-        _statistics_member("E004", department_2="  "),
-        _statistics_member("E005", department_2=None),
+        _statistics_member("E002", company_org="BU1", department_2="产品部"),
+        _statistics_member("E003", company_org="BU1", department_2="产品部"),
+        _statistics_member("E004", company_org="BU1", department_2="  "),
+        _statistics_member("E005", company_org=None),
     ]
     db.tasks += [
         _statistics_task("E002", "five", task_id=102),
@@ -3809,19 +3821,30 @@ async def test_department_statistics_groups_by_department_2(statistics_db):
     ]
     result = await project_management_statistics(1, "department", context("performance.projects.manage", refs=("project:x:1",)), db)
     assert result.rowLabel == "部门"
-    assert [row.name for row in result.departments] == ["产品部", "--"]
-    assert result.departments[0].counts == {"one": 0, "five": 1}
-    assert result.departments[1].counts == {"one": 2, "five": 1}
+    departments = result.departments
+    assert [row.name for row in departments] == ["BU1", "--"]
+    assert [row.counts for row in departments] == [{"one": 1, "five": 1}, {"one": 1, "five": 1}]
+    bu1 = departments[0]
+    # E004 空白 department_2 停在该层（BU1 自身计数含其 one），E002 下钻产品部
+    assert [child.name for child in bu1.children] == ["产品部"]
+    assert bu1.counts == {"one": 1, "five": 1}  # E002 five + E004 one
+    assert bu1.children[0].counts == {"one": 0, "five": 1}  # E002 five（E003 无终评不计）
+    assert bu1.children[0].children == []
+    # E005 无 org -> 顶层 --
+    assert departments[1].counts == {"one": 1, "five": 1}
 
 
 @pytest.mark.asyncio
-async def test_team_statistics_groups_by_supervisor_display_name(statistics_db):
+async def test_team_statistics_builds_supervisor_chain_tree(statistics_db):
     from app.performance.projects_router import project_management_statistics
 
     db = statistics_db
+    # 上级链：E001 -> M2 -> M1 -> CEO
+    for index, (employee, supervisor) in enumerate([("M2", "M1"), ("M1", "CEO"), ("CEO", None)]):
+        db.members.append(_statistics_member(employee, display_name=f"上级{index + 1}", direct_supervisor_employee_no=supervisor))
     db.members += [
-        _statistics_member("E002", direct_supervisor_employee_no="SUP1"),
-        _statistics_member("E003", direct_supervisor_employee_no="SUP1"),
+        _statistics_member("E002", direct_supervisor_employee_no="M2"),
+        _statistics_member("E003", direct_supervisor_employee_no="M2"),
         _statistics_member("E004", direct_supervisor_employee_no="SUP2"),
         _statistics_member("E005"),
     ]
@@ -3831,20 +3854,24 @@ async def test_team_statistics_groups_by_supervisor_display_name(statistics_db):
         _statistics_task("E004", "one", task_id=104),
         _statistics_task("E005", "one", task_id=105),
     ]
-    # 上级姓名：SUP1 -> 上级一、SUP2 无 display_name（members 里无此人）
-    db.members.append(_statistics_member("SUP1", display_name="上级一"))
     result = await project_management_statistics(1, "team", context("performance.projects.manage", refs=("project:x:1",)), db)
     assert result.rowLabel == "直属上级"
-    names = [row.name for row in result.departments]
-    assert names == ["SUP2（未录入）", "上级一", "--"]
-    by_name = {row.name: row for row in result.departments}
-    assert by_name["上级一"].counts == {"one": 0, "five": 1}
+    departments = result.departments
+    names = [row.name for row in departments]
+    assert names == ["SUP2（未录入）", "上级3", "--"]
+    by_name = {row.name: row for row in departments}
+    # CEO（上级3）顶层汇总：其下链 M1 -> M2 -> E002 five
+    assert by_name["上级3"].counts == {"one": 0, "five": 1}
+    assert [child.name for child in by_name["上级3"].children] == ["上级2"]
+    assert by_name["上级3"].children[0].counts == {"one": 0, "five": 1}
+    assert [child.name for child in by_name["上级3"].children[0].children] == ["上级1"]
+    assert by_name["上级3"].children[0].children[0].counts == {"one": 0, "five": 1}
     assert by_name["SUP2（未录入）"].counts == {"one": 1, "five": 0}
     assert by_name["--"].counts == {"one": 1, "five": 1}
 
 
 @pytest.mark.asyncio
-async def test_sequence_statistics_groups_by_org_path(statistics_db):
+async def test_sequence_statistics_builds_org_path_tree(statistics_db):
     from app.performance.projects_router import project_management_statistics
 
     db = statistics_db
@@ -3862,10 +3889,18 @@ async def test_sequence_statistics_groups_by_org_path(statistics_db):
     ]
     result = await project_management_statistics(1, "sequence", context("performance.projects.manage", refs=("project:x:1",)), db)
     assert result.rowLabel == "序列（BU/职位族/职位）"
-    by_name = {row.name: row for row in result.departments}
-    assert by_name["BU1/技术族/后端"].counts == {"one": 0, "five": 1}
-    assert by_name["BU2/设计族"].counts == {"one": 1, "five": 0}
-    assert by_name["--"].counts == {"one": 1, "five": 1}
+    departments = result.departments
+    assert [row.name for row in departments] == ["BU1", "BU2", "--"]
+    bu1 = departments[0]
+    assert [child.name for child in bu1.children] == ["技术族"]
+    assert bu1.children[0].counts == {"one": 0, "five": 1}  # E002 five（E003 无终评不计）
+    assert [child.name for child in bu1.children[0].children] == ["后端"]
+    assert bu1.children[0].children[0].counts == {"one": 0, "five": 1}
+    bu2 = departments[1]
+    assert [child.name for child in bu2.children] == ["设计族"]
+    assert bu2.children[0].counts == {"one": 1, "five": 0}  # E004 无 standard_position，职位级不展开
+    assert bu2.children[0].children == []
+    assert departments[2].counts == {"one": 1, "five": 1}  # E005 无 org -> --
 
 
 @pytest.mark.asyncio
@@ -4232,7 +4267,7 @@ async def test_tenure_statistics_returns_six_flat_rows_and_shared_rating_headers
     assert [row.name for row in result.departments] == [
         "入职未满3个月", "3-6个月（不含6个月）", "6个月-1年（不含1年）", "1-3年内（不含3年）", "3年以上", "入职日期缺失",
     ]
-    assert all(not hasattr(row, "children") for row in result.departments)
+    assert all(row.children == [] for row in result.departments)
     assert result.departments[1].counts["five"] == 1
 
 
@@ -4260,7 +4295,7 @@ async def test_level_statistics_http_contract_and_dimension_validation(statistic
         assert payload["dimension"] == "level"
         assert payload["distribution"] == {"one": 0, "five": 1}
         assert "heatLevels" not in payload
-        assert set(payload["departments"][0]) == {"id", "name", "counts"}
+        assert set(payload["departments"][0]) == {"id", "name", "counts", "children"}
         for params in [{}, {"cycle_id": 0}, {"cycle_id": 1, "dimension": "invalid"}]:
             response = await client.get(url, params=params)
             assert response.status_code == 422

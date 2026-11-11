@@ -341,3 +341,25 @@ nodes 含对比预留字段：`compare_custom_review_stage_info`/`compare_pdt_st
 - 自评终评对比的 heatLevel 阈值（30/15）为本地产物，飞书未暴露同规格
 - Docker 未启动，未做真实库联调；上线前需开发侧部署验证
 
+### 8.8 部门/团队/序列统计树形逐级展开（用户反馈修正，2026-11-11）
+
+**背景**：§8.4 D 项初版把部门/团队/序列统计做成**扁平一级聚合**（部门按 department_2、团队按直属上级、序列按拼接名），用户反馈「部门统计和团队统计都是要逐级展开，我以前的逻辑是对的只是没有接入数据，这版调整的不正确了」。
+
+**修正（用户确认口径）**：
+- **部门**：与 `department-completion`（projects_router.py:4496）路径**完全一致**——`company_org → department → department_2 → … → department_5` 逐级下钻，空白级停在该层不占 `--`
+- **团队**：沿 `direct_supervisor_employee_no` 向上追溯上级链（用户选择「沿上级链追溯」），从最顶层上级到直属上级逐级展开；上级姓名经 `PerformanceProjectMemberSnapshot.source_snapshot_id → PerformanceAuthorizationSnapshotPerson` 全量反查，查不到 → `工号（未录入）`；断链/无上级 → `--`
+- **序列**：`company_org → job_family → standard_position` 逐级展开
+- **级别/司龄**：保持扁平（单级无树）
+
+**实现要点**：
+- `_statistics_paths` 返回成员归属的**多级路径列表**（每个前缀一个元素），主循环对每个前缀累加计数 → 父节点天然含全部下属，不重复
+- 新增 `_snapshot_team_people`（全量授权快照人员，含 direct_supervisor 链）+ `_team_chain_paths`（while 循环防环追溯，对齐 snapshot_service.py:304 INDIRECT_MANAGER 范式）
+- 新增 `_team_chain_paths` 返回链的各级前缀，`make_row` 递归建 `children` 树（对齐 department-completion 的 `make_row` 范式），扁平维度 `children: []`
+- `distribution` 用**叶子行**求和（每人恰好一个叶子，父节点不会重复计入汇总）
+- 响应模型 `ProjectStatisticsRowResponse` 增加 `children: list[...] = []`
+- 前端 `ProjectReportMatrix.vue` 已有树形能力（`allowTree`/`expandedKeys`/`matrix-tree-toggle`），`PROJECT_REPORT_MATRIX_CONFIGS` 对 department/team/sequence 已设 `allowTree: true`，无需改动；**移除** `ProjectStatisticsReportPanel.vue` 加载校验中 `report.departments.some(row => row.children?.length)` 的扁平假设（树形会被误判 INVALID）
+
+**测试**：department/team/sequence 三用例重写为树形断言（含多级下钻、上级链共享前缀、空白停层、未录入上级、断链 `--`）；`statistics` 相关 36 用例全过，全文件 725 passed, 5 skipped；前端 `vue-tsc` + `vite build` 通过。`ProjectStatisticsReportPanel.spec.ts` 9 failed 为 §8.6 已披露的 D 项遗留基线，与本次改动无关（stash 验证一致）。
+
+**边界**：团队上级链追溯依赖 `performance_authorization_snapshot_people` 的 `direct_supervisor_employee_no` 完整性——若快照只存部分层级人员，链条会停在断点（显示该层为顶层）；上级本人如不在授权快照人员中，显示 `工号（未录入）`。
+
