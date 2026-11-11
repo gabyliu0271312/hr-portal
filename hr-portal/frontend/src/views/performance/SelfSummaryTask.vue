@@ -30,7 +30,10 @@
             <section v-if="!isReconsiderationTask && !task.form_schema.length" class="state">暂无填写内容</section>
             <div v-else ref="draftAnchor" class="task-form-shell">
               <div v-if="task.calibration_notice" class="task-notices task-notices--calibration"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
-              <PerformanceReviewCompletionNotice v-if="(viewing || task.final_result_locked) && !isReconsiderationTask" :editable="task.editable && task.submit_allowed && !task.final_result_locked" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="task.final_result_locked ? FINAL_RESULT_LOCKED_MESSAGE : saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" />
+              <div class="task-notices task-notices--submission">
+                <PerformanceReviewCompletionNotice v-if="task.final_result_locked" :editable="false" :message="FINAL_RESULT_LOCKED_MESSAGE" />
+                <PerformanceReviewCompletionNotice v-if="!isReconsiderationTask && (viewing || latestSubmission)" :editable="viewing && task.editable && task.submit_allowed && !task.final_result_locked" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="submissionMessage" @edit="choice => load(choice || 'edit')" />
+              </div>
               <PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" />
               <PerformanceReconsiderationContent v-if="isReconsiderationTask" class="task-reconsideration" :title="task.content_page_name || task.node_name" :reason="task.reconsideration_reason" :model-value="keepResultChoice" :show-result-and-modify="showResultAndModify" :interactive="canEdit && !submitting" @update:model-value="changeKeepResult">
                 <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
@@ -44,6 +47,7 @@
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
+  <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '催办'"><PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" mode="member-remind" description="仅展示当前员工可催办的未完成任务" /></PerformanceTaskOverlay>
   <PerformanceConfirmDialog v-model="overdueConfirmOpen" appearance="submit" confirm-variant="primary" message="确定提交吗？" description="当前环节已过截止时间，提交后将无法修改内容。" cancel-text="取消" confirm-text="确定" :loading="submitting" :error-message="overdueConfirmError" @confirm="submit(true)" />
   <PerformanceConfirmDialog v-model="giveupConfirmOpen" appearance="submit" confirm-variant="primary" message="确定放弃评估？" description="放弃后将从你的 360° 评估列表中移除，重新评估需再次发起自愿评估。" cancel-text="取消" confirm-text="确定" :loading="givingUp" :error-message="giveupError" @confirm="giveup()" />
 </template>
@@ -58,6 +62,9 @@ import PerformanceConfirmDialog from '@/components/performance/PerformanceConfir
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
 import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
+import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
+import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
 import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
 import PerformanceSplitWorkspace from '@/components/performance/PerformanceSplitWorkspace.vue'
@@ -88,6 +95,17 @@ const draftPending = ref(false)
 const draftAnchor = ref<HTMLElement | null>(null)
 const saveMessage = ref('草稿将实时保存到云端')
 const task = ref<SelfSummaryTask & { reconsideration_closed?: boolean }>({ task_id: String(route.query.task_id || ''), task_kind: props.taskKind, entry_mode: 'template_task', node_name: '', person: { employee_no: '', display_name: '当前用户' }, editable: false, submit_allowed: false, form_schema: [], answers: {} })
+const latestSubmission = computed(() => task.value.answer_submissions?.at(-1))
+const submissionMessage = computed(() => {
+  const latest = latestSubmission.value
+  if (!latest) return task.value.final_result_locked ? '以下为当前绩效结果' : saveMessage.value === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'
+  if (task.value.stage_views?.some(stage => stage.node_id === task.value.node_id && stage.anonymous)) return '该评估内容已提交'
+  const submitted = new Date(latest.submitted_at).toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return `以下内容由 ${latest.display_name} 在 ${submitted}（GMT+8） 提交`
+})
+const { reminderOpen, reminderContext, openMemberReminder } = usePerformanceMemberReminder()
+const baseResultVersion = ref<number | null | undefined>()
+const sharedResultConflict = ref(false)
 const answers = reactive<Record<string, unknown>>({})
 const errors = reactive<Record<string, string>>({})
 const formRef = ref<{ focusField: (id: string) => void } | null>(null)
@@ -130,6 +148,7 @@ function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
   if (typeof detail === 'string') {
     const calibrationErrors: Record<string, string> = {
+      SHARED_RESULT_VERSION_CONFLICT: '绩效结果已被其他人更新，当前输入已保留，请刷新核对后再提交',
       FINAL_RESULT_CALIBRATED: FINAL_RESULT_LOCKED_MESSAGE,
       RECONSIDERATION_CLOSED: '复议已处理完成，无法继续编辑或提交，请刷新查看最新结果',
       RECONSIDERATION_BASELINE_UNAVAILABLE: '复议前绩效结果暂不可用，请联系管理员核对后重试',
@@ -196,6 +215,8 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
     draftPending.value = !loaded.final_result_locked && !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use')
     draftOpen.value = draftPending.value
     const useDraft = !loaded.final_result_locked && !viewing.value && !draftPending.value && loaded.has_draft && decision !== 'discard'
+    baseResultVersion.value = useDraft ? loaded.draft_base_result_version : loaded.result_version
+    sharedResultConflict.value = false
     const values = useDraft ? { ...loaded.answers, ...loaded.draft_answers } : loaded.answers || {}
     const restoredChoice = useDraft ? loaded.keep_result ?? values.keep_result : loaded.answers?.keep_result ?? (loaded.has_draft ? undefined : loaded.keep_result)
     keepResultChoice.value = restoredChoice === 'keep' ? 'keep' : 'change'
@@ -209,7 +230,7 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
 }
 function updateAnswer(id: string, value: unknown) { if (canEdit.value) answers[id] = value }
 function queueSave() {
-  if (!canEdit.value || disposed || submitting.value) return
+  if (!canEdit.value || sharedResultConflict.value || disposed || submitting.value) return
   window.clearTimeout(saveTimer)
   if (saving.value) { pendingSave = true; return }
   saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, 350)
@@ -231,13 +252,14 @@ function saveDraft() {
         const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
         const result = props.taskKind === 'work_summary'
           ? employeeNo ? await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version)
-          : employeeNo ? await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version)
+          : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value)
         task.value.version = result.version ?? task.value.version
         savedAnswers = serialized
         saveMessage.value = '已自动保存'
       }
     } catch (error) {
       pendingSave = false
+      if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
       saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
       closeReconsiderationOnConflict(error)
       await lockFinalResultOnConflict(error)
@@ -250,7 +272,7 @@ function saveDraft() {
 }
 
 function openReminder(reference: PerformanceReferenceTab) {
-  void router.push({ name: 'PerformanceReminderPlaceholder', query: { project_id: String(route.query.project_id || ''), node_id: reference.node_id, task_id: String(reference.task_id || ''), employee_no: reference.employee_no } })
+  openMemberReminder({ projectId: Number(task.value.project_id || route.query.project_id), cycleId: Number(route.query.cycle_id), employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: props.taskKind === 'evaluation' && task.value.task_kind === 'evaluation' ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, taskId: reference.task_id || undefined })
 }
 function selectedTags(value: unknown) { return Array.isArray(value) ? value as string[] : (value as { tags?: string[] } | undefined)?.tags || [] }
 function tagNotes(value: unknown) { return (value as { notes?: Record<string, string> } | undefined)?.notes || {} }
@@ -322,12 +344,14 @@ async function submit(overdueConfirmed = false) {
   pendingSave = false
   try {
     await saveChain.catch(() => undefined)
-    if (reconsiderationClosed.value || !canEdit.value) return
+    if (reconsiderationClosed.value || !canEdit.value || sharedResultConflict.value) return
     const payload = JSON.parse(JSON.stringify(writableAnswers()))
     const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
     const result = props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
-      : employeeNo ? await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version)
+      : await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value)
+    baseResultVersion.value = result.result_version
+    task.value.answer_submissions = result.answer_submissions
     task.value.submitted_at = result.submitted_at
     task.value.editable = result.editable ?? task.value.editable
     task.value.submit_allowed = result.submit_allowed ?? task.value.submit_allowed
@@ -375,6 +399,7 @@ async function submit(overdueConfirmed = false) {
       else await router.push({ path: '/performance/review', query })
     } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }
   } catch (error) {
+    if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
     closeReconsiderationOnConflict(error)
     await lockFinalResultOnConflict(error)
@@ -391,8 +416,10 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .task-content{display:flex;flex-direction:column;min-width:0;gap:12px}
 .performance-split-workspace.is-split .task-template-renderer{padding:16px 20px 12px;background:transparent}
 .task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column;border-radius:8px;background:var(--color-bg-card)}
-.task-notices--calibration{padding:12px 30px 0}
-.performance-split-workspace.is-split .task-notices--calibration{padding:16px 20px 0}
+.task-notices--calibration,.task-notices--submission{padding:12px 30px 0}
+.task-notices--submission:empty{display:none}
+.task-notices--submission > .performance-review-completion-notice{margin-bottom:0}
+.performance-split-workspace.is-split .task-notices--calibration,.performance-split-workspace.is-split .task-notices--submission{padding:16px 20px 0}
 .task-template-renderer,.task-content > .state{flex:1 0 auto;min-height:0}
 .task-template-renderer{padding:12px 30px;border-radius:8px;background:var(--color-bg-card)}
 .task-reference-content{display:flex;flex-direction:column;min-height:0;padding:20px;border-radius:8px;background:var(--color-bg-card)}
@@ -416,5 +443,5 @@ onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeou
 .reference-scroll > .state{padding:20px}
 .reference-scroll > *{flex:1 0 auto;min-width:0}
 .narrow-mode-notice{padding:8px 16px 0;color:var(--color-text-secondary);font-size:12px;margin:0}
-@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer,.task-notices--calibration,.task-reconsideration{padding-inline:16px}}
+@media(max-width:640px){.summary-tabs{margin-inline:16px;padding-inline:16px;gap:20px}.task-template-renderer,.task-notices--calibration,.task-notices--submission,.task-reconsideration{padding-inline:16px}}
 </style>

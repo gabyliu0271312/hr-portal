@@ -95,7 +95,7 @@ def _unique_tasks(tasks):
     return result
 
 
-def resolve_effective_result(nodes, tasks, appeal=None, *, before_calibration=None) -> dict:
+def resolve_effective_result(nodes, tasks, appeal=None, *, before_calibration=None, shared_state=None) -> dict:
     nodes = sorted(nodes, key=lambda node: _get(node, "node_order", 0))
     tasks = [task for task in tasks if _get(task, "revoked_at") is None]
     finals = [node for node in nodes if ((_get(node, "config") or {}).get("template") or {}).get("include_final_result")]
@@ -111,6 +111,16 @@ def resolve_effective_result(nodes, tasks, appeal=None, *, before_calibration=No
     closed = (before_calibration is None and appeal is not None and _get(appeal, "closed_at") is not None
               and _get(appeal, "withdrawn_at") is None)
     snapshot = (_get(appeal, "result_snapshot") or {}) if closed else {}
+    if shared_state is not None and not closed:
+        state = shared_state
+        if before_calibration is not None:
+            key = f"{before_calibration[0]}:{before_calibration[1]}"
+            state = (state.get("checkpoints") or {}).get(key)
+        if state is not None:
+            source = next((task for task in tasks if _get(task, "id") == state.get("source_task_id") and _submitted(task)), None)
+            return {"answers": deepcopy(state.get("answers") or {}), "calibrated": bool(state.get("calibrated")),
+                    "source_task": source, "source_kind": state.get("source_kind"),
+                    "source_tasks": [source] if source else [], "shared_state": deepcopy(state)}
     frozen = snapshot.get("full_result_answers")
     has_frozen = isinstance(frozen, dict)
     sources = [task for task in tasks if _get(task, "node_snapshot_id") == _get(final, "id")

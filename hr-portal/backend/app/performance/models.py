@@ -955,6 +955,7 @@ class PerformanceProjectMember(Base):
     standard_position: Mapped[str | None] = mapped_column(String(256), nullable=True)
     position_level: Mapped[str | None] = mapped_column(String(128), nullable=True)
     hire_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    shared_result_state: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -1000,6 +1001,9 @@ class PerformanceNodeTask(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     draft_answers: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    actor_drafts: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    calibration_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    calibration_completed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     answer_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

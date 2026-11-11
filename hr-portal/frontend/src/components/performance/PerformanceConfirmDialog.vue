@@ -8,7 +8,7 @@
     >
       <section
         class="performance-confirm-dialog"
-        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit', 'performance-confirm-dialog--delegation': appearance === 'delegation', 'performance-confirm-dialog--result-opening': appearance === 'result-opening' }"
+        :class="{ 'performance-confirm-dialog--calibration-completion': appearance === 'calibration-completion', 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit', 'performance-confirm-dialog--delegation': appearance === 'delegation', 'performance-confirm-dialog--result-opening': appearance === 'result-opening' }"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
@@ -39,7 +39,8 @@
           <div v-if="$slots['footer-left']" class="performance-confirm-dialog__footer-left"><slot name="footer-left" /></div>
           <div class="performance-confirm-dialog__footer-actions">
             <button v-if="showCancel" ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">{{ cancelText }}</button>
-            <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">{{ confirmText }}</button>
+            <UiButton v-if="appearance === 'calibration-completion'" ref="confirmRef" class="performance-confirm-dialog__button--danger" :variant="confirmVariant === 'primary' ? 'primary' : 'danger'" :disabled="!canConfirm" :loading="loading" @click="$emit('confirm')">{{ confirmText }}</UiButton>
+            <button v-else ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">{{ confirmText }}</button>
           </div>
         </footer>
       </section>
@@ -49,6 +50,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import UiButton from '../ui/UiButton.vue'
 import PerformanceWarningFilledIcon from './PerformanceWarningFilledIcon.vue'
 
 const props = withDefaults(defineProps<{
@@ -64,7 +66,7 @@ const props = withDefaults(defineProps<{
   confirmDisabled?: boolean
   confirmVariant?: 'danger' | 'primary'
   errorMessage?: string
-  appearance?: 'default' | 'submit' | 'delegation' | 'result-opening'
+  appearance?: 'default' | 'submit' | 'delegation' | 'result-opening' | 'calibration-completion'
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   subject: '',
@@ -86,7 +88,7 @@ const emit = defineEmits<{
 }>()
 
 const cancelRef = ref<HTMLButtonElement | null>(null)
-const confirmRef = ref<HTMLButtonElement | null>(null)
+const confirmRef = ref<HTMLButtonElement | { $el: HTMLButtonElement } | null>(null)
 const confirmInput = ref('')
 const confirmInputId = 'performance-confirm-delete-input'
 let returnFocus: HTMLElement | null = null
@@ -135,7 +137,7 @@ watch(() => props.modelValue, (visible) => {
     pageLocked = true
     document.body.style.overflow = 'hidden'
     confirmInput.value = ''
-    void nextTick(() => { if (pageLocked) (props.appearance === 'submit' || !props.showCancel ? confirmRef.value : cancelRef.value)?.focus() })
+    void nextTick(() => { if (pageLocked) { const target = props.appearance === 'submit' || !props.showCancel ? confirmRef.value : cancelRef.value; (target && '$el' in target ? target.$el : target)?.focus() } })
   } else {
     restorePage()
   }
@@ -371,6 +373,11 @@ onBeforeUnmount(() => {
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:hover:not(:disabled){background:#336df4;border-color:#336df4;color:#fff}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:active:not(:disabled){background:#0442d2;border-color:#0442d2;color:#fff}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--cancel:active:not(:disabled){background:#eff0f1}
+.performance-confirm-dialog--calibration-completion{--performance-confirm-width:var(--performance-dialog-calibration-completion-width)}
+.performance-confirm-dialog--calibration-completion .performance-confirm-dialog__header{min-height:0}
+.performance-confirm-dialog--calibration-completion .performance-confirm-dialog__title{align-items:flex-start;font-size:var(--performance-dialog-header-title-size);line-height:var(--performance-dialog-header-title-line-height);font-weight:var(--performance-dialog-header-title-weight)}
+.performance-confirm-dialog--calibration-completion .performance-confirm-dialog__icon{align-items:center;color:var(--performance-dialog-warning-icon)}
+.performance-confirm-dialog--calibration-completion .performance-confirm-dialog__footer{padding-bottom:var(--performance-dialog-padding)}
 .performance-confirm-dialog--result-opening{--color-action-primary:var(--color-primary-hover)}
 .performance-confirm-dialog--result-opening .performance-confirm-dialog__title{align-items:flex-start}
 .performance-confirm-dialog--result-opening .performance-confirm-dialog__icon{align-items:center;color:var(--color-action-primary)}

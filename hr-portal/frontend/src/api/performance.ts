@@ -112,6 +112,7 @@ export interface PerformanceTaskRatingValue {
 }
 
 export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile {
+  can_remind?: boolean
   rating_columns?: Array<{ key: string; label: string }>
   ratings?: Record<string, PerformanceTaskRatingValue | null>
   rating?: string | null
@@ -130,6 +131,30 @@ export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile
   department_path?: string | null
   visibility_role?: string
   visible_profile_fields?: string[]
+}
+
+export interface PerformanceCalibrationCompletion {
+  scope_version: string
+  total_count: number
+  completed_count: number
+  missing_result_count: number
+  can_complete: boolean
+  completed: boolean
+}
+
+export interface PerformanceMemberReminderTask {
+  task_id: number
+  project_id: number
+  employee_no: string
+  display_name: string
+  node_id: string
+  node_name: string
+  task_kind: string
+  status: string
+  due_at: string | null
+  reminder_target?: string | null
+  selectable: boolean
+  can_authorize: false
 }
 
 export interface PerformanceReminderResult {
@@ -429,12 +454,12 @@ export const performanceReviewApi = {
     const { data } = await api.get<PerformanceTemplateTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task`, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string): Promise<SelfSummarySaveResult> {
-    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null): Promise<SelfSummarySaveResult> {
+    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string): Promise<SelfSummarySaveResult> {
-    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null): Promise<SelfSummarySaveResult> {
+    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
 }
@@ -932,6 +957,7 @@ export interface PerformanceEvaluateRatio {
 }
 
 export interface ProjectMember extends PerformanceMemberProfile {
+  can_remind?: boolean
   root_review_id?: number
   project_id?: number
   can_view_detail?: boolean
@@ -1164,6 +1190,22 @@ export const projectManagementApi = {
     const { data } = await api.get<PerformanceManagementDetail>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/detail`, { params: rootReviewId ? { root_review_id: rootReviewId } : undefined })
     return data
   },
+  async calibrationCompletionPreview(projectId: number, nodeId: string, phaseId?: string | null): Promise<PerformanceCalibrationCompletion> {
+    const { data } = await api.post<PerformanceCalibrationCompletion>(`/performance/projects/${projectId}/calibration-completion/preview`, { node_id: nodeId, ...(phaseId ? { phase_id: phaseId } : {}) })
+    return data
+  },
+  async calibrationCompletionConfirm(projectId: number, nodeId: string, scopeVersion: string, phaseId?: string | null): Promise<PerformanceCalibrationCompletion> {
+    const { data } = await api.post<PerformanceCalibrationCompletion>(`/performance/projects/${projectId}/calibration-completion/confirm`, { node_id: nodeId, scope_version: scopeVersion, ...(phaseId ? { phase_id: phaseId } : {}) })
+    return data
+  },
+  async memberReminderTasks(projectId: number, employeeNo: string, context: { source_task_id?: number; node_id?: string; task_id?: number } = {}): Promise<{ items: PerformanceMemberReminderTask[]; total: number; can_remind: boolean }> {
+    const { data } = await api.get(`/performance/projects/${projectId}/members/${encodeURIComponent(employeeNo)}/reminder-tasks`, { params: context })
+    return data
+  },
+  async memberRemindBatch(projectId: number, employeeNo: string, context: { source_task_id?: number; node_id?: string; task_ids: number[]; skip_recently_reminded: boolean }): Promise<PerformanceReminderResult> {
+    const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${projectId}/members/${encodeURIComponent(employeeNo)}/remind-batch`, context)
+    return data
+  },
   async memberReminderPreview(projectId: number | string, employeeNo: string, nodeId: string, taskId: number): Promise<PerformanceReminderPreview> {
     const { data } = await api.get<PerformanceReminderPreview>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/reminder-preview`, { params: { node_id: nodeId, task_id: taskId } })
     return data
@@ -1352,6 +1394,8 @@ export type PerformanceTemplateTask = {
   final_result_locked?: boolean
   submitted_at?: string | null
   answer_submissions?: Array<{ display_name: string; submitted_at: string }>
+  result_version?: number | null
+  draft_base_result_version?: number | null
   version?: number
   can_giveup?: boolean
   person: SelfSummaryPerson
@@ -1404,7 +1448,7 @@ export type PerformanceReminderPreview = {
   assessee_name: string
 }
 export type SelfSummaryTask = PerformanceTemplateTask
-export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
+export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {

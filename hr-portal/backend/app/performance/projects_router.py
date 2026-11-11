@@ -31,6 +31,7 @@ from app.performance.executor_config import normalize_executor_config
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time, _resolve_node_handlers
 from app.performance.navigation_service import cycle_payload, project_payload, resolve_frontend_access, review_node_category
 from app.performance.task_authorization_service import effective_handlers, task_handler_condition
+from app.performance import shared_result_service as shared_results
 
 router = APIRouter(prefix="/performance", tags=["performance-projects"])
 
@@ -104,6 +105,7 @@ async def withdraw_reconsideration(project_id: int, payload: ReconsiderationWith
 class SelfSummaryAnswersPayload(BaseModel):
     answers: dict = Field(default_factory=dict)
     version: int | None = Field(default=None, ge=1)
+    result_version: int | None = Field(default=None, ge=0)
 
 
 class TaskDraftVersionPayload(BaseModel):
@@ -292,7 +294,7 @@ def _self_summary_state(task: PerformanceNodeTask, available_at: datetime | None
     if available_at is not None and now < available_at:
         return False, False
     overdue = due_at is not None and now > due_at
-    submitted = task.submitted_at is not None
+    submitted = _task_completed(task)
     if overdue and (submitted or not overdue_allowed):
         return False, False
     return True, True
@@ -524,6 +526,15 @@ async def _effective_member_result(project_id, cycle_ref, snapshot_id, employee_
              and getattr(item, "member_snapshot_id", snapshot_id) == snapshot_id and getattr(item, "target_employee_no", employee_no) == employee_no
              and getattr(item, "revoked_at", None) is None]
     appeal = None
+    shared_state = None
+    member = None
+    if hasattr(db, "scalar"):
+        member = await db.scalar(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == snapshot_id,
+            PerformanceProjectMember.employee_no == employee_no,
+        ))
+    if member is not None:
+        shared_state = getattr(member, "shared_result_state", None)
     if before_calibration is None and any(getattr(item, "task_kind", None) == "result_reconsideration" for item in tasks):
         appeal = await db.scalar(select(PerformanceResultReconsideration).where(
             PerformanceResultReconsideration.project_id == project_id,
@@ -531,7 +542,7 @@ async def _effective_member_result(project_id, cycle_ref, snapshot_id, employee_
             PerformanceResultReconsideration.employee_no == employee_no,
             PerformanceResultReconsideration.withdrawn_at.is_(None),
         ))
-    return resolve_effective_result(nodes, tasks, appeal, before_calibration=before_calibration)
+    return resolve_effective_result(nodes, tasks, appeal, before_calibration=before_calibration, shared_state=shared_state)
 
 
 async def _effective_project_results(project, nodes, tasks, db):
@@ -549,7 +560,11 @@ async def _effective_project_results(project, nodes, tasks, db):
             PerformanceResultReconsideration.withdrawn_at.is_(None),
         ))).scalars().all())
         appeals = {(row.member_snapshot_id, row.employee_no): row for row in rows}
-    return {key: resolve_effective_result(nodes, values, appeals.get(key)) for key, values in grouped.items()}
+    members = list((await db.execute(select(PerformanceProjectMember).where(
+        PerformanceProjectMember.snapshot_id.in_({key[0] for key in grouped}),
+    ))).scalars().all()) if grouped and any(isinstance(task, PerformanceNodeTask) for task in tasks) else []
+    states = {(member.snapshot_id, member.employee_no): getattr(member, "shared_result_state", None) for member in members}
+    return {key: resolve_effective_result(nodes, values, appeals.get(key), shared_state=states.get(key)) for key, values in grouped.items()}
 
 
 async def _final_result_locked(task, node, db):
@@ -562,8 +577,7 @@ async def _final_result_locked(task, node, db):
         PerformanceNodeTask.target_employee_no == task.target_employee_no,
         PerformanceNodeTask.task_kind == "calibration",
         PerformanceNodeTask.revoked_at.is_(None),
-        PerformanceNodeTask.status == "completed",
-        PerformanceNodeTask.submitted_at.is_not(None),
+        PerformanceNodeTask.calibration_completed_at.is_not(None),
     ).limit(1)))
 
 
@@ -682,6 +696,24 @@ async def _calibration_answer_submissions(task, sources, db):
     return [{"display_name": names[actor_ref], "submitted_at": submitted_at} for actor_ref, submitted_at in dict.fromkeys(actors) if actor_ref in names]
 
 
+async def _shared_answer_submissions(task, result, db):
+    state = result.get("shared_state")
+    if not state or not state.get("source_actor_ref"):
+        sources = result.get("source_tasks") or []
+        if not sources:
+            return []
+        latest = max(sources, key=lambda candidate: (candidate.submitted_at, candidate.id))
+        return await _calibration_answer_submissions(task, [latest], db)
+    if state.get("source_actor_type") != "EMPLOYEE" or not state.get("submitted_at"):
+        return []
+    person = await db.scalar(select(PerformanceAuthorizationSnapshotPerson).join(
+        PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    ).where(PerformanceProjectMemberSnapshot.id == task.member_snapshot_id,
+            PerformanceProjectMemberSnapshot.project_id == task.project_id,
+            PerformanceAuthorizationSnapshotPerson.employee_no == state["source_actor_ref"]))
+    return [{"display_name": person.display_name, "submitted_at": state["submitted_at"]}] if person and getattr(person, "display_name", None) else []
+
+
 async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False, submission_sources=None) -> tuple[list[dict], dict]:
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task
@@ -698,6 +730,12 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
         return schema, answers
     template = await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
+    if isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node):
+        result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
+        if result.get("shared_state") is not None:
+            if submission_sources is not None:
+                submission_sources.extend(result["source_tasks"])
+            return schema, _calibration_source_projection(schema, schema, result["answers"])
     if getattr(node, "node_type", None) == "calibration":
         return schema, await _calibration_answers(task, node, schema, db, submission_sources=submission_sources)
     if ((node.config or {}).get("template") or {}).get("include_final_result"):
@@ -819,7 +857,16 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
             project, task.target_employee_no, context, db,
             root_review_id=member.id, skip_scope=True, visibility_role=visibility_role,
         )
+    shared = isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node)
+    shared_state = getattr(member, "shared_result_state", None) if shared and member is not None else None
+    draft_entry = shared_results.private_draft(task, actor_ref) if shared else None
+    visible_draft = (draft_entry or {}).get("answers") if shared else getattr(task, "draft_answers", None)
+    if shared:
+        effective = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
+        answer_submissions = await _shared_answer_submissions(task, effective, db)
     return {
+        "result_version": (shared_state or {}).get("revision", 0) if shared else None,
+        "draft_base_result_version": (draft_entry or {}).get("base_result_version") if shared else None,
         "reconsideration_reason": reconsideration_reason,
         "reconsideration_closed": reconsideration_closed,
         "show_result_and_modify": show_result_and_modify,
@@ -856,9 +903,9 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
-        **({"answer_submissions": answer_submissions} if task.task_kind == "calibration" or manager_evaluation else {}),
-        "has_draft": not final_result_locked and getattr(task, "draft_answers", None) is not None,
-        "draft_answers": {} if final_result_locked else {**project_self_summary_answers(schema, getattr(task, "draft_answers", None) or {}), **({"keep_result": task.draft_answers["keep_result"]} if getattr(task, "draft_answers", None) and task.task_kind == "result_reconsideration" and "keep_result" in task.draft_answers else {})},
+        **({"answer_submissions": answer_submissions} if shared or task.task_kind == "calibration" or manager_evaluation else {}),
+        "has_draft": not final_result_locked and visible_draft is not None,
+        "draft_answers": {} if final_result_locked else {**project_self_summary_answers(schema, visible_draft or {}), **({"keep_result": visible_draft["keep_result"]} if visible_draft and task.task_kind == "result_reconsideration" and "keep_result" in visible_draft else {})},
         "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
         "reference_tabs": await _reference_tabs(task, node, project, actor_ref, db),
@@ -901,6 +948,102 @@ async def _lock_task_context(db, task, node, *, validate: bool = True):
     return project
 
 
+async def _shared_write_context(db, task, node):
+    from app.performance.result_service import resolve_effective_result
+    member = await shared_results.member_for_task(db, task)
+    if member is None:
+        raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
+    state = getattr(member, "shared_result_state", None)
+    if state is not None:
+        return member, deepcopy(state)
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == task.project_id, PerformanceNodeTask.cycle_ref == task.cycle_ref,
+        PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+        PerformanceNodeTask.target_employee_no == task.target_employee_no,
+        PerformanceNodeTask.revoked_at.is_(None),
+    ))).scalars().all())
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == task.project_id,
+    ))).scalars().all())
+    result = resolve_effective_result(nodes, tasks)
+    checkpoints = {}
+    for candidate in nodes:
+        if candidate.node_type != "calibration":
+            continue
+        for phase in ((candidate.config or {}).get("calibration") or {}).get("phases") or []:
+            previous = resolve_effective_result(nodes, tasks, before_calibration=(candidate.id, phase["phase_id"]))
+            checkpoints[f"{candidate.id}:{phase['phase_id']}"] = shared_results.bootstrap(previous)
+    return member, shared_results.bootstrap(result, checkpoints)
+
+
+async def _save_shared_task(task, node, payload, submit, actor, project, schema, db):
+    member, state = await _shared_write_context(db, task, node)
+    revision = state["revision"]
+    draft = shared_results.private_draft(task, actor.actor_ref)
+    if submit:
+        shared_results.require_revision(payload.result_version, revision)
+        if draft is not None and draft["base_result_version"] != revision:
+            raise HTTPException(409, "SHARED_RESULT_VERSION_CONFLICT")
+    else:
+        if draft is None:
+            shared_results.require_revision(payload.result_version, revision)
+        elif payload.result_version != draft["base_result_version"]:
+            raise HTTPException(409, "SHARED_RESULT_VERSION_CONFLICT")
+    base = draft["answers"] if draft is not None and not submit else state["answers"]
+    incoming = {**base, **payload.answers}
+    sanitized = sanitize_self_summary_answers(schema, incoming)
+    answers = shared_results.merge_writable(schema, state["answers"], sanitized)
+    if submit:
+        for section, field, index, value in iter_self_summary_field_instances(schema, answers):
+            if self_summary_instance_unknown(section, answers, index):
+                continue
+            if self_summary_field_requires_value(field, value) and self_summary_value_empty(field, value):
+                raise HTTPException(400, {"code": "VALIDATION_FAILED", "field_id": field["id"]})
+        before = deepcopy(state)
+        state = shared_results.submit_result(member, task, node, schema, sanitized, actor, state)
+        task.answers = _calibration_source_projection(schema, schema, state["answers"])
+        task.submitted_at = datetime.fromisoformat(state["submitted_at"])
+        task.completed_at = task.submitted_at
+        task.status = "completed"
+        shared_results.set_private_draft(task, actor.actor_ref, None, revision)
+        if task.task_kind == "calibration":
+            finals = list((await db.execute(select(PerformanceNodeTask).join(
+                PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+            ).where(PerformanceNodeTask.project_id == task.project_id,
+                    PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+                    PerformanceNodeTask.target_employee_no == task.target_employee_no,
+                    PerformanceNodeTask.revoked_at.is_(None), PerformanceNodeTask.task_kind == "evaluation",
+                    PerformanceProjectNodeSnapshot.config["template"]["include_final_result"].as_boolean().is_(True),
+            ))).scalars().all())
+            for final_task in finals:
+                final_task.status = "completed"
+        event = "CALIBRATION_ADJUSTED" if task.task_kind == "calibration" else "PERFORMANCE_TASK_SUBMITTED"
+    else:
+        before = {"answers": (draft or {}).get("answers")}
+        base_revision = draft["base_result_version"] if draft is not None else revision
+        shared_results.set_private_draft(task, actor.actor_ref, answers, base_revision)
+        member.shared_result_state = state
+        event = "CALIBRATION_DRAFT_SAVED" if task.task_kind == "calibration" else "PERFORMANCE_TASK_DRAFT_SAVED"
+    task.answer_version += 1
+    PerformanceAuditService(db).append_event(AuditEventInput(
+        event_type=event, cycle_ref=task.cycle_ref, employee_no=task.target_employee_no,
+        actor_type=actor.actor_type, actor_ref=actor.actor_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
+        before_state=before, after_state={"project_id": task.project_id, "node_id": node.node_id,
+            "phase_id": task.phase_id, "result_version": state["revision"],
+            **({"shared_result_state": state} if submit else {"draft_base_result_version": base_revision})},
+    ))
+    if submit and project is not None:
+        await _sync_automatic_openings(db, project)
+    await db.commit()
+    current_draft = shared_results.private_draft(task, actor.actor_ref)
+    return {"answers": _calibration_source_projection(schema, schema, state["answers"]),
+            "has_draft": current_draft is not None, "draft_answers": project_self_summary_answers(schema, (current_draft or {}).get("answers") or {}),
+            "version": task.answer_version, "result_version": state["revision"],
+            "draft_base_result_version": (current_draft or {}).get("base_result_version"),
+            "submitted_at": task.submitted_at, "editable": True, "submit_allowed": True,
+            "answer_submissions": await _shared_answer_submissions(task, {"shared_state": state}, db)}
+
+
 async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, submit: bool, context: PerformanceAccessContext, db: AsyncSession, task_kind: str = "work_summary", target_employee_no: str | None = None):
     task, node = await _self_summary_task(task_id, context, db, task_kind, target_employee_no)
     shared_tasks = []
@@ -936,6 +1079,8 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         schema = baseline_schema(appeal.result_snapshot)
     else:
         schema = build_self_summary_schema(template)
+    if isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node):
+        return await _save_shared_task(task, node, payload, submit, actor, project, schema, db)
     current_draft = getattr(task, "draft_answers", None)
     calibration = getattr(task, "task_kind", None) == "calibration"
     trusted_answers = await _calibration_answers(task, node, schema, db) if calibration else task.answers or {}
@@ -1063,6 +1208,13 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
         raise HTTPException(status_code=409, detail="SUBMISSION_NOT_ALLOWED")
     if payload.version != task.answer_version:
         raise HTTPException(status_code=409, detail="VERSION_CONFLICT")
+    if isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node):
+        member = await shared_results.member_for_task(db, task)
+        state = getattr(member, "shared_result_state", None) or {"revision": 0}
+        shared_results.set_private_draft(task, actor.actor_ref, None, state.get("revision", 0))
+        task.answer_version += 1
+        await db.commit()
+        return {"version": task.answer_version, "result_version": state.get("revision", 0), "has_draft": False}
     if task.task_kind == "calibration" and getattr(task, "draft_answers", None) is not None:
         PerformanceAuditService(db).append_event(AuditEventInput(event_type="CALIBRATION_DRAFT_DISCARDED", cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id), before_state={"draft_answers": task.draft_answers}, after_state={"draft_answers": None, "project_id": task.project_id, "node_id": node.node_id, "phase_id": task.phase_id}))
     task.draft_answers = None
@@ -1072,6 +1224,28 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
         shared.answer_version = task.answer_version
     await db.commit()
     return {"version": task.answer_version, "has_draft": False}
+
+
+class CalibrationCompletionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_id: str = Field(min_length=1, max_length=128)
+    phase_id: str | None = Field(default=None, max_length=96)
+
+
+class CalibrationCompletionConfirmPayload(CalibrationCompletionPayload):
+    scope_version: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/projects/{project_id}/calibration-completion/preview")
+async def preview_calibration_completion(project_id: int, payload: CalibrationCompletionPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.calibration_completion_service import preview_completion
+    return await preview_completion(db, project_id, payload, context)
+
+
+@router.post("/projects/{project_id}/calibration-completion/confirm")
+async def confirm_calibration_completion(project_id: int, payload: CalibrationCompletionConfirmPayload, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session)):
+    from app.performance.calibration_completion_service import confirm_completion
+    return await confirm_completion(db, project_id, payload, context)
 
 
 class EvaluatorPreviewPayload(BaseModel):
@@ -1238,6 +1412,7 @@ class ProjectMemberResponse(BaseModel):
     visible_profile_fields: list[str] = Field(default_factory=list)
     task_id: int | None = None
     can_authorize: bool = False
+    can_remind: bool = False
     task_map: list[ProjectMemberTaskOption] = Field(default_factory=list)
     evaluate_ratio: dict[str, object] | None = None
 
@@ -1738,12 +1913,16 @@ def _member_result_ready(employee_no: str, final: PerformanceProjectNodeSnapshot
     return _result_ready([task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == final.id], schema)
 
 
+def _calibration_completed(task):
+    return getattr(task, "calibration_completed_at", None) is not None
+
+
 def _previous_finished(employee_no: str, previous: PerformanceProjectNodeSnapshot | None, tasks: list[PerformanceNodeTask]) -> bool:
     if previous is None or previous.node_type in {"project_start", "project_end"}:
         return True
     related = [task for task in tasks if task.target_employee_no == employee_no and task.node_snapshot_id == previous.id and getattr(task, "revoked_at", None) is None]
     if previous.node_type == "calibration":
-        return bool(related) and all(task.status == "completed" and task.submitted_at is not None for task in related)
+        return bool(related) and all(_calibration_completed(task) for task in related)
     return not related or any(task.status == "completed" and task.submitted_at is not None for task in related)
 
 
@@ -2676,6 +2855,8 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
             item["rating_tone"] = rating["color"] if rating else None
         item["completion"] = progress.get(member.employee_no, "0/0")
         item["evaluate_ratio"] = progress_detail.get(member.employee_no)
+        from app.performance.member_reminders import can_remind_member
+        item["can_remind"] = await can_remind_member(project, member.employee_no, context, db)
         item["direct_supervisor"] = supervisor_names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
         visible_fields = visible_fields_by_member[member.id]
         item["visible_profile_fields"] = visible_fields
@@ -2768,12 +2949,16 @@ async def _project_member_detail(
             PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
         ).where(PerformanceProjectMemberSnapshot.id == snapshot_id, PerformanceAuthorizationSnapshotPerson.employee_no.in_(handler_refs)))).all()
         handler_names = dict(rows)
-    final_locked = any(task.task_kind == "calibration" and task.status == "completed" and task.submitted_at is not None for task in tasks)
+    final_locked = any(task.task_kind == "calibration" and getattr(task, "calibration_completed_at", None) is not None for task in tasks)
     final_node = _final_result_snapshot(nodes)
     tabs = []
     for node in reversed(nodes):
         related = by_node[node.id]
-        completed = [task for task in related if task.submitted_at is not None]
+        shared_final = node is final_node and bool((getattr(member, "shared_result_state", None) or {}).get("calibrated"))
+        completed = [task for task in related if task.submitted_at is not None or shared_final]
+        completed_total = len(completed)
+        if node is final_node and completed and getattr(member, "shared_result_state", None) is not None:
+            completed = completed[:1]
         schema, answers = [], {}
         anonymous = node_role_code(templates[node.id]) == ROLE_REVIEWER_360
         for index, task in enumerate((completed or related[:1] if final_locked and node is final_node else completed) if not anonymous else []):
@@ -2797,17 +2982,20 @@ async def _project_member_detail(
                     if element.get("id") in field_keys:
                         element["id"] = field_keys[element["id"]]
                 schema.append(section)
-        representative = max(completed, key=lambda task: (task.submitted_at, task.id), default=next(iter(related), None))
+        representative = max(completed, key=lambda task: (task.submitted_at is not None, task.submitted_at.isoformat() if task.submitted_at else "", task.id), default=next(iter(related), None))
         statuses = []
         for task in related:
             available_at, due_at = _task_window(task, node, project)
             now = datetime.now(UTC)
-            statuses.append("completed" if task.submitted_at is not None else "not_started" if available_at and now < available_at else "overdue" if due_at and now > due_at else "pending")
+            statuses.append("completed" if task.submitted_at is not None or shared_final else "not_started" if available_at and now < available_at else "overdue" if due_at and now > due_at else "pending")
         statuses = statuses or [_reference_status(None, node, project)]
-        status = "completed" if related and len(completed) == len(related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
+        status = "completed" if related and completed_total == len(related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
         deadline = _task_window(representative, node, project)[1] if representative else _parse_time((_node_timing(project, node) or {}).get("end_at"))
         relation = relations.get(node.node_id, {})
         submissions = await _calibration_answer_submissions(representative, completed, db) if completed and not anonymous else []
+        if node is final_node and representative is not None and not anonymous:
+            effective = await _effective_member_result(project.id, project.cycle_ref, snapshot_id, employee_no, db, nodes=all_nodes, tasks=all_tasks)
+            submissions = await _shared_answer_submissions(representative, effective, db)
         tabs.append({
             "key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
             "node_name": (relation.get("reference_settings") or {}).get("page_name") or node.name,
@@ -2845,9 +3033,9 @@ async def _project_member_detail(
         statuses = []
         for item in related:
             available_at, due_at = _task_window(item, node, project)
-            statuses.append("completed" if item.submitted_at is not None else "not_started" if available_at and now < available_at else "overdue" if due_at and now > due_at else "pending")
+            statuses.append("completed" if _task_completed(item) else "not_started" if available_at and now < available_at else "overdue" if due_at and now > due_at else "pending")
         statuses = statuses or [_reference_status(None, node, project)]
-        stage_status = "completed" if related and len([item for item in related if item.submitted_at is not None]) == len(related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
+        stage_status = "completed" if related and all(_task_completed(item) for item in related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
         deadline = _task_window(task, node, project)[1] if task else _parse_time((_node_timing(project, node) or {}).get("end_at"))
         handler_names_for_view = dict(handler_names)
         can_fill = False
@@ -3621,7 +3809,7 @@ def _completion_task_counts(node, tasks):
         for task in tasks:
             if getattr(task, "revoked_at", None) is None and calibration_task_scope(task, node):
                 groups.setdefault((task.phase_id, task.handler_ref), []).append(task)
-        return sum(all(_task_completed(task) for task in group) for group in groups.values()), len(groups)
+        return sum(all(_calibration_completed(task) for task in group) for group in groups.values()), len(groups)
     return sum(_task_completed(task) for task in tasks), len(tasks)
 
 
@@ -4894,7 +5082,7 @@ async def project_management_calibration_authorization(
                     "id": f"{project.id}:{node.id}:{phase_id}:{handler}",
                     "project_id": project.id, "node_id": node.node_id, "phase_id": phase_id,
                     "calibrator": names.get(handler, handler),
-                    "status": "已校准" if all(_task_completed(task) for task in group) else "待校准",
+                    "status": "已校准" if all(_calibration_completed(task) for task in group) else "待校准",
                     "scope": "已冻结的校准范围", "authorized_count": len(group),
                     "allow_authorize": any(assignment.get("allow_authorize") for assignment in assignments),
                     "can_authorize": bool(group) and all(
@@ -5210,7 +5398,7 @@ def _select_review_task(tasks: list[PerformanceNodeTask], preferred_task_id: int
 
 
 def _review_task_status(task: PerformanceNodeTask | None, start_at: str | None, end_at: str | None, now: datetime | None = None) -> str:
-    return "completed" if task is not None and getattr(task, "submitted_at", None) is not None else _review_node_status(start_at, end_at, now)
+    return "completed" if task is not None and (_task_completed(task) or getattr(task, "effective_completed", False)) else _review_node_status(start_at, end_at, now)
 
 
 def _timeline_node_state(start_at: str | None, end_at: str | None, now: datetime | None = None) -> str:
@@ -5235,7 +5423,7 @@ def _task_completed(task: PerformanceNodeTask) -> bool:
 
 def _review_tasks_status(tasks: list[PerformanceNodeTask], start_at: str | None, end_at: str | None, now: datetime | None = None) -> str:
     current = now or datetime.now(UTC)
-    if tasks and all(_task_completed(task) for task in tasks):
+    if tasks and all(_calibration_completed(task) if getattr(task, "task_kind", None) == "calibration" else _task_completed(task) for task in tasks):
         return "completed"
     if _review_node_status(start_at, end_at, current) == "not_started":
         return "not_started"
@@ -5683,9 +5871,14 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         else:
             ratings = _task_rating_values(task, metadata)
         single_rating = ratings[metadata[0]["key"]] if len(metadata) == 1 else None
+        can_remind = False
+        if isinstance(task, PerformanceNodeTask) and node.node_type == "evaluation" and node_role_code((node.config or {}).get("template") or {}) in MANAGER_ROLE_CODES:
+            from app.performance.member_reminders import can_remind_member
+            can_remind = await can_remind_member(project, task.target_employee_no, context, db, source_task_id=task.id)
         values = {
             "task_id": task.id,
             "aggregate_task_id": aggregate_task_id,
+            "can_remind": can_remind,
             "rating_columns": [{"key": item["key"], "label": item["label"]} for item in metadata],
             "ratings": ratings,
             "rating": single_rating["label"] if single_rating else None,
@@ -6367,3 +6560,8 @@ async def remove_project_member(
     ))
     await db.commit()
     return {"code": 0, "data": {}, "msg": "操作成功"}
+
+
+from app.performance.member_reminders import router as member_reminders_router
+
+router.include_router(member_reminders_router)

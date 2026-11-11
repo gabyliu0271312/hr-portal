@@ -57,6 +57,7 @@
               :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
               :show-export="false"
               @select-member="emit('open-member', { node, member: $event })"
+              @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
             />
             <PerformanceLineTabs v-else v-model="evaluationTab" :tabs="evaluationTabs" flush>
               <ProjectMemberListPanel
@@ -66,6 +67,7 @@
                 :review-context="{ nodeId: node.node_id, state: 'all', phaseId: node.phase_id }"
                 :show-export="false"
                 @select-member="emit('open-member', { node, member: $event })"
+              @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
               />
               <p v-else class="evaluation-pane-hint">该页签内容将在后续迭代中开发</p>
             </PerformanceLineTabs>
@@ -154,6 +156,7 @@ watch(() => [props.node?.node_type, props.node?.node_id, props.node?.phase_id, p
 const emit = defineEmits<{
   retry: []
   'open-node': [node: PerformanceReviewNode]
+  'remind-evaluate': [payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext; pendingCount: number }]
   'open-member': [payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }]
 }>()
 

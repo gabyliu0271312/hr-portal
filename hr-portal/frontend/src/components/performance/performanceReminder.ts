@@ -9,6 +9,9 @@ export type ReminderContext = {
   reviewType: string
   title: string
   sectionTitle: string
+  employeeNo?: string
+  sourceTaskId?: number
+  targetTaskId?: number
   departmentPath?: string
 }
 

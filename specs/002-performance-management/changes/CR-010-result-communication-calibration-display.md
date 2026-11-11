@@ -322,6 +322,8 @@
 
 ## 21. CR-010-F15/F16 校准、复议统一结果与终评锁定（2026-11-11）
 
+> 以下 F15“首次正式校准提交即锁定终评”、F16“锁定提示替换提交记录”为历史实现口径，已被本文件第22节的用户最新确认覆盖；不得继续据此实现或验收。历史测试结果仅证明当时行为，不代表第22节已完成。
+
 - [ ] F15 校准空值开放、统一生效结果与首次正式提交锁定终评。
   - 用户确认：校准按自身时间及授权开放，不等待终评或前阶段全部提交；无正式答案正常空值显示，私人草稿不跨人公开。每员工首次正式校准提交即锁定其终评，已完成仍侧栏、未完成保留填写布局但不可编辑；提示精确为“当前结果已完成校准，你无法再次修改”，无编辑/保存/提交。该最新决定覆盖F12第299行的来源全完成/非空门槛及F13只读原final的局部来源限制，不改变结果开通权限。
   - 范围：performance/result_service.py、projects_router.py、reconsideration_service.py及既有项目/复议测试、新test_performance_effective_results.py；frontend/api/performance.ts、PerformanceReviewEvaluationDrawer、PerformanceReferenceContent、SelfSummaryTask及既有测试。不改原始任务答案/状态/提交人时间，不迁移、不回填、不改权限或生产。
@@ -337,6 +339,52 @@
 - 前端最终证据：npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts，3文件207 passed；保留Review既有jsdom XHR AggregateError stderr，不称零告警。npm --prefix hr-portal/frontend run build完成vue-tsc与Vite，built in 52.05s，既有VueUse PURE annotation提示；git diff --check通过。
 - 真实页面证据：本地5173应用路由通过隔离Chromium与API夹具验证未提交终评锁定填写态、已完成终评锁定侧栏、项目管理真实display_name提示，三张截图均已读取，姓名截图重采等待侧栏动画结束；pageerror均为空。无自定义脚本文件或独立报告。
 - 验收边界：本地ASGI/单元/组件与真实页面隔离夹具，不等同真实PostgreSQL事务并发、生产API、迁移或部署验收；本机8000/5432未监听，真实库与并发锁等待未执行，保持未勾选。无数据库迁移，无通知、commit/push或部署操作；并行会话的开通结果卡独立，不纳入本卡范围。
+
+## 22. CR-010-F17/F18/F19 共享正式结果、显式完成校准与公共催办（2026-11-11）
+
+### 最新已确认口径与实施边界
+
+- 用户已授权完成全部优化；此节覆盖第21节冲突条款。当前状态：本地实现、相关测试及构建通过；用户最新要求停止浏览器校验，测试通过后在main提交并推送。真实PostgreSQL迁移/并发与生产验收未执行，保留任务未勾选，不宣称生产可发布。
+- 终评与校准共用提交成功的同一正式结果，两个入口各按冻结模板及字段权限投影；自动保存草稿按实际业务操作者隔离，不跨人公开，不改变正式结果或最近提交人。
+- 校准成功提交使原未填写终评的有效任务状态为已完成；原终评实际提交历史、原提交人及时间不伪造。待完成/已完成筛选、列表、计数、管理页签与引用统一消费有效状态。
+- 未显式完成校准时，终评在自身允许时间内仍可编辑。完成校准二次确认成功才锁定终评；校准人在自身允许时间及授权内仍可编辑、正式提交，完成事实不清除、不重记。
+- 双端最近编辑记录以最近成功正式提交的真实业务操作者与时间为准；草稿、查看及点击完成校准不刷新该记录。锁定提示与此记录同时保留，不能互相替换。
+- 缺少绩效结果允许确认完成：显示“有 N 名员工没有绩效结果”，不禁用确定、不补默认值、不伪造提交。N按当前获授权校准责任范围内的真实结果计算，非当前搜索/分页人数；结果开通配置、时点、授权和结果就绪资格仍独立。
+- 填写情况/填写页及侧栏内，提示、最近填写记录和正文共用一层白卡和对应内边距。沿既有单屏、双屏、390px及全局提示组件，不再加嵌套白卡。
+- 公共催办覆盖该员工当前获授权的全部有效未完成任务，包括工作总结、评估等。360°评估率仅为入口，不限制公共能力；不硬编码review-360、不凭前端姓名或handler名单选接收人。具体任务入口保留真实task/node/employee上下文；无目标筛选的成员入口列出全部合法任务。
+- 用户最新授权在main提交并推送；不部署、不发真实通知、不操作生产数据库。保留冻结人员/周期快照、关闭复议快照和现有角色范围，不批量伪造历史完成。
+
+### 任务与共享契约
+
+- [ ] CR-010-F17-T01 共享正式版本与操作者私有草稿
+  - 类型：模型/迁移/后端；前置：本节确认与唯一Alembic head。
+  - 允许修改：performance/models.py、result_service.py、projects_router.py、reconsideration_service.py及必要同域服务、alembic新迁移、对应后端测试；禁止修改旧迁移、生产记录及通知全局配置。
+  - 输入输出：保留原任务version；template-task详情/写入追加result_version及draft_base_result_version。共享正式提交在项目锁内校验两种版本，只更新本次真实task和共享正式结果；草稿不推进正式revision。旧草稿基底不自动升级，旧正式版本返回409 SHARED_RESULT_VERSION_CONFLICT并保留草稿。
+  - 当前数据唯一正式源使用成员冻结边界内共享状态，旧数据初始化仍按原冻结阶段/同阶段冲突规则解析；不能按最大task ID/时间跳过旧冲突，也不能复制答案到所有task制造提交。隐藏、只读和多条内容必须无损保留；关闭复议完整快照继续优先。
+  - 验收：终评→校准→终评交替正式提交、双端重开一致；草稿私有；跨任务陈旧提交拒绝；未填终评有效完成且原历史不变；历史阶段及复议冻结值不回归。
+- [ ] CR-010-F18-T01 独立完成校准后端
+  - 类型：API/状态/权限；前置：F17-T01。
+  - POST /projects/{project_id}/calibration-completion/preview：body node_id/phase_id；返回scope_version、total_count、completed_count、missing_result_count、can_complete、completed。
+  - POST同域/confirm：body追加scope_version；服务端按当前节点/阶段/当前业务身份可写责任任务重查，在项目锁内复验授权、时窗、范围及正式结果版本，写独立完成时间/操作者。范围变更409；重复确认幂等，不改变原时间；N非阻断。
+  - 不复用每次submit都会重写的completed_at作为显式完成；旧submitted_at不回填为已点击完成。进度、终评锁定、自动开通前置判定拆开，结果就绪独立。
+  - 验收：提交不锁、显式完成锁终评、校准完成后节点期内续交/期外拒绝、N>0仍可确认、不补值/不开通、取消与重复确认无额外副作用、范围/权限/版本变化拒绝。
+- [ ] CR-010-F18-T02 公共按钮/确认框与白卡提示
+  - 类型：前端/UI；蓝图：CR-010-T02-result-communication-and-calibration.md v2（用户采集及本轮状态确认）。
+  - 允许修改：Review、SelfSummaryTask、EvaluationDrawer、ConfirmDialog、api/performance及现有对应测试，tokens.css仅添加必要共享尺寸token；不全局重设计。
+  - 复用UiButton、PerformanceConfirmDialog、WarningFilled、原完成提示和TemplateRenderer；完成按钮80×32、r6、14/22；确认外宽534有视口上限，24内边距、24图标、16/24/600标题、14/22正文/40缩进、12按钮间距。状态颜色/字体来自全局token。
+  - 验收：N=0/N>0、loading/error/cancel/retry/permission、已完成仍可编辑校准；锁定记录同时展示，单屏/双屏/侧栏/390px白卡内边距与无横向溢出。独立实际PNG需后续获取，不拿旧截图冒充。
+- [ ] CR-010-F19-T01 全任务公共催办闭环
+  - 类型：后端/前端/API/权限；独立文件并行，projects_router与共享API类型由单一所有者串行整合。
+  - GET /projects/{id}/members/{employee}/reminder-tasks：source_task_id可选及可选真实node/task筛选，返回该员工冻结范围内合法候选、独立can_remind。POST同成员/remind-batch提交task_ids及skip_recently_reminded，服务端重新验权，不接受任意receiver。
+  - 复用既有member授权、_task_handlers、_send_performance_task_reminder及统一通知日志；6小时去重以现有成功非测试日志task ID口径为准，不扩大声称为跨任务全局人+环节去重。success/partial/failed/preview/skipped明确，recorded不是送达。
+  - 复用PerformanceReminderButton、TaskOverlay、ReminderPanel、ConfirmDialog；补列表能力映射与ReviewContent事件透传，替换placeholder和局部催办确认。不复制面板/按钮SVG，不借周期管理接口扩大普通上级权限。
+  - 验收：工作总结及360任务均可从通用入口催办；具体任务入口不扩围；拒绝跨员工/项目/快照、撤销/已完成/本人；权限变更、有效处理人、去重、失败/预览和取消无发送均覆盖。所有发送测试mock，不真实通知。
+
+### 验证与完成定义
+
+- 后端：隔离DB_HOST=127.0.0.1/DB_PORT=1，pytest现有test_performance_projects/effective_results/reconsideration_results/reconsideration_lifecycle/template_workflow/user_authorization及本轮专项；真实PostgreSQL迁移/并发另记，无法执行写blocked。
+- 前端：npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/views/performance/ProjectManagement.spec.ts；npm --prefix hr-portal/frontend run build；git diff --check。
+- 测试、构建、API/持久化、PNG和部署分别记录，未执行不报通过；以上完成前不勾选任务。新增迁移先核唯一head，不改旧迁移；有新历史后保护downgrade，不直接降级旧应用继续写共享结果。
 
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 

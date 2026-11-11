@@ -8,9 +8,10 @@
         <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
+            <PerformanceReviewCompletionNotice v-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
-            <PerformanceReferenceContent v-else-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" />
+            <PerformanceReferenceContent v-else-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="emit('remind', $event)" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
               <p>暂未提交</p>
@@ -29,6 +30,7 @@
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
+            <PerformanceReviewCompletionNotice v-if="task?.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-for="(message, index) in completionMessages" :key="index" :task-id="task?.task_id ?? undefined" :task-kind="task?.task_kind" :employee-no="displayPerson.employee_no" variant="evaluation-drawer" :editable="taskEditable && index === completionMessages.length - 1" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
           </div>
@@ -37,6 +39,7 @@
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ activeReference.node_name }}</div>
             <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
+            <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked && activeReference.answer_submissions?.length" :editable="false" variant="evaluation-drawer" :message="referenceSubmissionMessage" />
             <PerformanceTemplateRenderer v-if="activeReference.final_result_locked" mode="readonly" :sections="activeReference.form_schema" :answers="activeReference.answers" />
             <PerformanceReferenceContent v-else :reference="activeReference" @remind="emit('remind', $event)" />
           </div>
@@ -45,30 +48,13 @@
       </PerformanceLineTabs>
     </div>
   </UiDrawerShell>
-  <PerformanceConfirmDialog
-    v-model="remindOpen"
-    appearance="submit"
-    :message="stageRemindMessage"
-    description=""
-    cancel-text="取消"
-    confirm-text="确定"
-    @confirm="confirmRemind"
-  >
-    <template #icon><InfoFilledIcon /></template>
-    <template #footer-left>
-      <a class="performance-remind-preview-link" role="button" tabindex="0" @mouseenter="loadPreview" @mouseleave="closePreview">预览通知</a>
-    </template>
-  </PerformanceConfirmDialog>
   <PerformanceConfirmDialog v-model="deleteOpen" :message="'确定删除该人员吗？'" description="删除后，系统将清除本周期被评估人数据，且无法恢复。" cancel-text="保留" confirm-text="删除" @confirm="confirmDelete" />
-  <PerformancePopover :visible="previewOpen" :anchor="previewAnchor" role="dialog" :width="380" name="performance-reminder-preview-popover" @close="closePreview" @mouseenter="cancelClose" @mouseleave="closePreview">
-    <PerformanceReminderPreviewCard v-if="previewData" :preview="previewData" />
-  </PerformancePopover>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { performanceReviewApi, projectManagementApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type PerformanceReminderPreview, type SelfSummaryPerson } from '@/api/performance'
+import { performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type SelfSummaryPerson } from '@/api/performance'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
@@ -76,11 +62,8 @@ import PerformanceReviewPersonHeader from './PerformanceReviewPersonHeader.vue'
 import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
-import PerformancePopover from './PerformancePopover.vue'
-import PerformanceReminderPreviewCard from './PerformanceReminderPreviewCard.vue'
 import PerformanceMemberMoreMenu, { type PerformanceMemberContext } from './PerformanceMemberMoreMenu.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
-import InfoFilledIcon from './InfoFilledIcon.vue'
 
 type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
 const props = withDefaults(defineProps<{
@@ -112,19 +95,19 @@ const task = ref<PerformanceManagementDetail | null>(null)
 const loading = ref(false)
 const error = ref('')
 const activeTab = ref(props.activeTab || 'evaluation')
-const remindOpen = ref(false)
 const deleteOpen = ref(false)
-const previewOpen = ref(false)
-const previewAnchor = ref<HTMLElement | null>(null)
-const previewHoverAnchor = ref<HTMLElement | null>(null)
-const previewData = ref<PerformanceReminderPreview | null>(null)
 const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
 let loadSequence = 0
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const title = computed(() => task.value?.node_name || props.nodeName || '上级评估')
-const resolveProjectId = computed(() => props.projectId ?? task.value?.project_id ?? '')
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
 const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.key === activeTab.value) || referenceTabs.value.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value) || null)
+const referenceSubmissionMessage = computed(() => {
+  const reference = activeReference.value
+  if (task.value?.stage_views?.some(stage => stage.node_id === reference?.node_id && stage.anonymous)) return '该评估内容已提交'
+  const latest = reference?.answer_submissions?.at(-1)
+  return latest ? `以下内容由 ${latest.display_name} 在 ${formatDate(latest.submitted_at)} 提交` : ''
+})
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
 const currentManagementTab = computed(() => Boolean(task.value?.task_id != null && managementTab.value && (task.value.node_id ? managementTab.value.node_id === task.value.node_id : managementTab.value.task_id === task.value.task_id)))
 const managementTabEditable = computed(() => currentManagementTab.value && !managementTabLocked.value && taskEditable.value)
@@ -133,11 +116,6 @@ const stageView = computed(() => {
   const tab = managementTab.value
   if (!tab || tab.status === 'completed') return null
   return task.value?.stage_views?.find(view => view.node_id === tab.node_id) || null
-})
-const stageRemindMessage = computed(() => {
-  const stage = stageView.value
-  const name = stage?.reminder_target || ''
-  return `确定催办后，会立即向${name}发送飞书通知`
 })
 const tabs = computed<PerformanceLineTab[]>(() => task.value?.management_tabs
   ? task.value.management_tabs.map(tab => ({ key: tab.key, label: tab.node_name }))
@@ -148,7 +126,6 @@ const tabs = computed<PerformanceLineTab[]>(() => task.value?.management_tabs
 const managementCompletionMessages = computed(() => {
   const tab = managementTab.value
   if (!tab) return []
-  if (managementTabLocked.value) return [FINAL_RESULT_LOCKED_MESSAGE]
   const anonymous = task.value?.stage_views?.some(view => view.node_id === tab.node_id && view.anonymous)
   if (anonymous) return tab.submitted_at ? ['该评估内容已提交'] : []
   if (tab.answer_submissions?.length) {
@@ -164,7 +141,7 @@ const displayPerson = computed<DrawerPerson>(() => task.value ? task.value.perso
 const taskEditable = computed(() => Boolean(!props.readonly && !task.value?.final_result_locked && task.value?.editable && task.value?.submit_allowed && (task.value.task_kind !== 'calibration' || !task.value.deadline_at || Date.parse(task.value.deadline_at) >= Date.now())))
 const completionMessages = computed(() => {
   const current = task.value
-  if (current?.final_result_locked) return [FINAL_RESULT_LOCKED_MESSAGE]
+  if (current?.final_result_locked && !current.answer_submissions?.length && !current.submitted_at) return []
   if (current?.stage_views?.some(view => view.node_id === current.node_id && view.anonymous)) return current.submitted_at ? ['该评估内容已提交'] : []
   if (current?.task_kind !== 'calibration') {
     const deadline = formatDate(current?.deadline_at)
@@ -233,8 +210,10 @@ function fillStage() {
   emit('edit', { task_id: stage.task_id, employee_no: displayPerson.value.employee_no, node_id: stage.node_id })
 }
 function openRemind() {
-  if (!stageView.value?.reminder_target) return
-  remindOpen.value = true
+  const stage = stageView.value
+  const tab = managementTab.value
+  if (!stage?.reminder_target || !tab) return
+  emit('remind', { ...tab, can_remind: true })
 }
 function onMoreAuthorize(payload: PerformanceMemberContext) {
   emit('authorize', payload)
@@ -246,54 +225,6 @@ function confirmDelete() {
   if (!props.member) return
   deleteOpen.value = false
   emit('delete', { ...props.member })
-}
-let previewCloseTimer: ReturnType<typeof setTimeout> | undefined
-function cancelClose() {
-  if (previewCloseTimer) { clearTimeout(previewCloseTimer); previewCloseTimer = undefined }
-}
-function closePreview() {
-  previewHoverAnchor.value = null
-  if (previewCloseTimer) return
-  previewCloseTimer = setTimeout(() => {
-    previewCloseTimer = undefined
-    previewOpen.value = false
-    previewData.value = null
-    previewAnchor.value = null
-  }, 150)
-}
-function loadPreview(event: MouseEvent) {
-  const stage = stageView.value
-  if (!stage || !event.currentTarget || stage.task_id == null) return
-  cancelClose()
-  const anchor = event.currentTarget as HTMLElement
-  previewHoverAnchor.value = anchor
-  void projectManagementApi.memberReminderPreview(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
-    .then(data => {
-      if (previewHoverAnchor.value !== anchor) return
-      previewOpen.value = true
-      previewAnchor.value = anchor
-      previewData.value = data
-    })
-    .catch(() => {
-      if (previewHoverAnchor.value === anchor) closePreview()
-    })
-}
-async function confirmRemind() {
-  const stage = stageView.value
-  if (!stage || stage.task_id == null || remindOpen.value === false) return
-  remindOpen.value = false
-  try {
-    const result = await projectManagementApi.memberRemind(resolveProjectId.value, props.employeeNo, stage.node_id, stage.task_id)
-    if (result.delivery_status === 'success') {
-      ElMessage.success('催办已发送')
-    } else if (result.delivery_status === 'preview_only') {
-      ElMessage.info('通知仅生成预览，未实际发送')
-    } else {
-      ElMessage.error(result.errors?.map(item => item.error).join('；') || '催办发送失败，请稍后重试')
-    }
-  } catch {
-    ElMessage.error('催办请求提交失败，请稍后重试')
-  }
 }
 watch(() => [props.modelValue, props.taskId, props.employeeNo, props.detailLoader], () => {
   if (props.modelValue) {

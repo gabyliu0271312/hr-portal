@@ -62,6 +62,7 @@
       @close="closeMember"
       @closed="finishClosingMember"
       @copy-link="copyMemberLink"
+      @remind="handleDrawerRemind"
       @edit="fillFromDrawer"
       @authorize="openDrawerDelegation('AUTHORIZE', $event)"
       @transfer="openDrawerDelegation('TRANSFER', $event)"
@@ -105,7 +106,7 @@ import PerformanceTaskDelegationDialog from '@/components/performance/Performanc
 import RevieweeAddDialog from '@/components/performance/RevieweeAddDialog.vue'
 import MemberAddIcon from '@/components/performance/MemberAddIcon.vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import type { ProjectMember, ProjectMemberTaskOption } from '@/api/performance'
+import type { PerformanceReferenceTab, ProjectMember, ProjectMemberTaskOption } from '@/api/performance'
 import type { ReminderContext } from '@/components/performance/performanceReminder'
 import type { CompletionNode } from '@/components/performance/CompletionNodeCard.vue'
 import type { AuthorizationItem } from '@/components/performance/AuthorizationManagementPanel.vue'
@@ -215,7 +216,7 @@ watch(overviewViewMode, (value) => {
   void router.replace({ query })
 })
 const reminderOpen = ref(false)
-const reminderMode = ref<'remind' | 'open-result'>('remind')
+const reminderMode = ref<'remind' | 'member-remind' | 'open-result'>('remind')
 type ReminderContextWithDescription = ReminderContext & { description?: string; nodeKey?: string }
 const reminderContext = ref<ReminderContextWithDescription | null>(null)
 
@@ -289,20 +290,29 @@ function delegationCompleted(count: number, _notificationStatus: string | undefi
   void router.push({ name: 'PerformanceAuthorizationRecords', query: { cycle_id: String(cycleId), highlight_id: recordId ? String(recordId) : undefined, highlight_tab: delegationAction.value === 'TRANSFER' ? 'transfer' : 'authorization' } })
 }
 
-function handleEvaluateRemind(payload: { member: ProjectMember; pendingCount: number }) {
+function handleDrawerRemind(reference: PerformanceReferenceTab) {
+  const member = drawerMember.value
+  if (!member) return
+  handleEvaluateRemind({ member, pendingCount: 1 })
+  if (reminderContext.value) {
+    reminderContext.value.nodeId = reference.node_id
+    reminderContext.value.targetTaskId = reference.task_id || undefined
+  }
+}
+function handleEvaluateRemind(payload: { member: { project_id?: number; employee_no: string; display_name?: string }; pendingCount: number }) {
   const cycle = activeCycle.value
   if (!cycle || !payload.pendingCount) return
-  // 弹窗催办：打开该成员 360° 评估的未完成评估人浮层（review-360 走自愿评估 node）
-  reminderMode.value = 'remind'
+  reminderMode.value = 'member-remind'
   reminderContext.value = {
     projectId: Number(payload.member.project_id || memberProjectId.value),
     cycleId: cycle.cycle_id,
-    nodeId: 'review-360',
-    nodeType: 'review',
-    reviewType: 'review',
-    title: `${payload.member.display_name} · 360° 评估催办`,
-    sectionTitle: '未完成的评估人',
-    description: `仅展示 ${payload.member.display_name} 尚未完成 360° 评估的评估人`,
+    employeeNo: payload.member.employee_no,
+    nodeId: '',
+    nodeType: 'member',
+    reviewType: 'member-remind',
+    title: payload.member.display_name ? `${payload.member.display_name} · 催办` : '催办',
+    sectionTitle: '未完成的任务',
+    description: '仅展示当前员工可催办的未完成任务',
   }
   reminderOpen.value = true
 }

@@ -159,6 +159,7 @@ const loadMembers = async () => {
         rating_tone: item.rating_tone ?? null,
         ratings: item.ratings,
         completion: item.completion || '0/0',
+        can_remind: item.can_remind,
         evaluate_ratio: item.evaluate_ratio,
         direct_supervisor: item.direct_supervisor,
         job_family: item.job_family,
@@ -313,7 +314,7 @@ onMounted(() => void loadMembers())
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
         <span v-else-if="column.key === 'rating' && row.rating" class="rating-badge" :class="ratingClass(row)">{{ row.rating }}</span>
         <span v-else-if="column.key === 'completion'" class="table-text completion-text">
-          <PerformanceEvaluateRatioPopover v-if="row.evaluate_ratio" :completion="cellValue(row, column.key)" :ratio="row.evaluate_ratio" :can-remind="row.can_authorize" @remind="onEvaluateRemind(row, $event)" />
+          <PerformanceEvaluateRatioPopover v-if="row.evaluate_ratio" :completion="cellValue(row, column.key)" :ratio="row.evaluate_ratio" :can-remind="row.can_remind === true" @remind="onEvaluateRemind(row, $event)" />
           <template v-else>{{ cellValue(row, column.key) }}</template>
         </span>
         <span v-else class="table-text">{{ cellValue(row, column.key) }}</span>

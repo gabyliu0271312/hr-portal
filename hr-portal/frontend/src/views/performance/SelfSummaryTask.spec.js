@@ -50,6 +50,32 @@ describe('SelfSummaryTask', () => {
     vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ answers: {}, version: 3, submitted_at: '2026-09-11T00:00:00Z', editable: true, submit_allowed: true })
   })
 
+  it('keeps the restored draft revision during autosave and retains input on a shared-result conflict', async () => {
+    vi.useFakeTimers()
+    const loaded = { ...structuredClone(task), task_kind: 'calibration', result_version: 9, draft_base_result_version: 4, has_draft: true, draft_answers: { text: '私人草稿' }, form_schema: [{ id: 's', name: '校准', fields: [{ id: 'text', type: 'rich_text', label: '结果' }] }] }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded)
+    const save = vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockRejectedValue({ response: { status: 409, data: { detail: 'SHARED_RESULT_VERSION_CONFLICT' } } })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask')
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    try {
+      await flushPromises()
+      const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+      renderer.vm.$emit('update-answer', 'text', '保留输入')
+      renderer.vm.$emit('queue-save')
+      await vi.advanceTimersByTimeAsync(400)
+      await flushPromises()
+      expect(save).toHaveBeenCalledWith('task-1', { text: '保留输入' }, 1, undefined, 4)
+      expect(wrapper.text()).toContain('当前输入已保留')
+      expect(renderer.props('answers').text).toBe('保留输入')
+      renderer.vm.$emit('queue-save')
+      await vi.advanceTimersByTimeAsync(400)
+      await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+      await flushPromises()
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(submit).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
   it.each([null, '2026-11-10T00:00:00Z'])('keeps a calibrated final result readonly and does not restore or write its draft: submitted=%s', async submittedAt => {
     const loaded = { ...structuredClone(task), final_result_locked: true, submitted_at: submittedAt, has_draft: true, draft_answers: { work: '不应恢复的草稿' }, answers: { work: '<p>当前生效结果</p>' } }
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(loaded)
@@ -98,6 +124,7 @@ describe('SelfSummaryTask', () => {
   it('renders configured reference tabs and reminder action for an unsubmitted reference task', async () => {
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({
       ...structuredClone(task),
+      project_id: 1,
       reference_tabs: [{
         key: 'reference-node',
         node_id: 'evaluation-1',
@@ -119,7 +146,8 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.text()).toContain('暂未提交')
     expect(wrapper.find('.performance-reminder-button').exists()).toBe(true)
     await wrapper.get('.performance-reminder-button').trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: 'PerformanceReminderPlaceholder', query: { project_id: '', node_id: 'evaluation-1', task_id: '77', employee_no: 'E001' } })
+    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.getComponent({ name: 'PerformanceReminderPanel' }).props('context')).toEqual(expect.objectContaining({ projectId: 1, employeeNo: 'E001', nodeId: 'evaluation-1', targetTaskId: 77 }))
   })
 
   it.each([undefined, { tags: [], notes: {} }])('applies default tags only to missing editable answers: %o', async value => {
@@ -206,7 +234,7 @@ describe('SelfSummaryTask', () => {
     await input.trigger('input')
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
-    expect(submit).toHaveBeenCalledWith('task-1', { editable: expect.stringContaining('校准调整') }, 1)
+    expect(submit).toHaveBeenCalledWith('task-1', { editable: expect.stringContaining('校准调整') }, 1, undefined, undefined)
     expect(wrapper.text()).toContain('服务器保留的可信值')
     expect(wrapper.text()).toContain('校准调整')
     expect(wrapper.get('.task-form-shell .task-notices--calibration').text()).toContain('修改记录')
@@ -271,7 +299,7 @@ describe('SelfSummaryTask', () => {
       expect(save).not.toHaveBeenCalled()
       await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
       await vi.advanceTimersByTimeAsync(350)
-      expect(save).toHaveBeenCalledWith('task-1', { keep_result: 'keep' }, 1)
+      expect(save).toHaveBeenCalledWith('task-1', { keep_result: 'keep' }, 1, undefined, undefined)
       wrapper.unmount()
       wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
       await flushPromises()
@@ -295,7 +323,7 @@ describe('SelfSummaryTask', () => {
       await input.trigger('input')
       await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
       await vi.advanceTimersByTimeAsync(350)
-      expect(save).toHaveBeenCalledWith('task-1', { text: expect.stringContaining('切换后保留的草稿'), keep_result: 'keep' }, 1)
+      expect(save).toHaveBeenCalledWith('task-1', { text: expect.stringContaining('切换后保留的草稿'), keep_result: 'keep' }, 1, undefined, undefined)
       wrapper.unmount()
       wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
       await flushPromises()
@@ -338,7 +366,7 @@ describe('SelfSummaryTask', () => {
     else expect(wrapper.find('.reconsideration-choice').exists()).toBe(false)
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
-    expect(submit).toHaveBeenCalledWith('task-1', { keep_result: 'keep' }, 1)
+    expect(submit).toHaveBeenCalledWith('task-1', { keep_result: 'keep' }, 1, undefined, undefined)
     expect(wrapper.find('.performance-review-completion-notice').exists()).toBe(false)
     expect(wrapper.find('[aria-label="编辑已提交内容"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('继续编辑')
@@ -385,7 +413,7 @@ describe('SelfSummaryTask', () => {
     await wrapper.get('[data-field-id="grade"] input[value="a"]').setValue(true)
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
-    expect(submit).toHaveBeenCalledWith('task-1', { grade: 'a', keep_result: 'change' }, 1)
+    expect(submit).toHaveBeenCalledWith('task-1', { grade: 'a', keep_result: 'change' }, 1, undefined, undefined)
     expect(wrapper.get('[data-field-id="grade"]').text()).toContain('B')
     expect(wrapper.findAll('.reconsideration-choice input').every(input => input.element.disabled)).toBe(true)
     expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
@@ -418,7 +446,7 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.text()).not.toContain('暂无填写内容')
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
-    expect(submit).toHaveBeenCalledWith('task-1', { keep_result: show ? 'change' : 'keep' }, 1)
+    expect(submit).toHaveBeenCalledWith('task-1', { keep_result: show ? 'change' : 'keep' }, 1, undefined, undefined)
     wrapper.unmount()
   })
 

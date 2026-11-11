@@ -1115,7 +1115,7 @@ def test_result_opening_requires_complete_tasks_and_configured_rating_answers():
     previous = SimpleNamespace(id=12, node_type="calibration")
     assert not _previous_finished("E001", previous, [])
     assert not _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="pending", submitted_at=None)])
-    assert _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="completed", submitted_at=submitted)])
+    assert _previous_finished("E001", previous, [SimpleNamespace(target_employee_no="E001", node_snapshot_id=12, status="completed", submitted_at=submitted, calibration_completed_at=submitted)])
 
     project = SimpleNamespace(project_ref="project:one", settings={"flow_settings": {"node_settings": {"view": {"result_view": {"manual_enabled": True}}}, "node_times": {"view": {"start_at": "2026-10-19T00:00:00Z"}}}})
     view = SimpleNamespace(node_id="view", config={})
@@ -7114,7 +7114,20 @@ async def test_calibration_source_uses_real_project_lock_and_refreshes_before_re
     assert events == ["project-lock", "node-refresh", "task-refresh"]
     assert not data.db.queries and not data.db.commits
     monkeypatch.setattr(PerformanceAuditService, "append_event", lambda self, event: data.db.added.append(event))
-    result = await data.routes._save_self_summary(real.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "saved"}, version=2), True, context(), data.db, "evaluation")
+    from app.performance import shared_result_service
+    member = SimpleNamespace(shared_result_state=None)
+    monkeypatch.setattr(shared_result_service, "member_for_task", AsyncMock(return_value=member))
+    monkeypatch.setattr(data.routes, "_shared_write_context", AsyncMock(return_value=(member, {"revision": 0, "answers": {"locked": "trusted", "grade": "a"}})))
+    monkeypatch.setattr(data.routes, "_shared_answer_submissions", AsyncMock(return_value=[]))
+    original_execute = data.db.execute
+    async def execute_shared(query):
+        if "config" in query.compile().params:
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+        if any(key.startswith("config") for key in query.compile().params):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+        return await original_execute(query)
+    monkeypatch.setattr(data.db, "execute", execute_shared)
+    result = await data.routes._save_self_summary(real.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "saved"}, version=2, result_version=0), True, context(), data.db, "evaluation")
     assert result["answers"] == {"locked": "trusted", "editable": "saved", "grade": "a"}
     assert real.answer_version == 3 and data.db.commits == 1
 
@@ -8820,7 +8833,7 @@ async def test_fuse_off_still_preview_only_even_when_blocked(monkeypatch):
 def test_calibration_completion_counts_handlers_not_individual_reviewees():
     from app.performance.projects_router import _completion_task_counts
     node = SimpleNamespace(project_id=3, node_type="calibration", config={"calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "p1", "assignments": [{"handler_ref": handler, "employee_no": employee} for handler, employee in [("M1", "E1"), ("M1", "E2"), ("M2", "E3")]]}]}})
-    tasks = [SimpleNamespace(project_id=3, task_kind="calibration", phase_id="p1", handler_ref=handler, target_employee_no=employee, status=state, submitted_at=None) for handler, employee, state in [("M1", "E1", "completed"), ("M1", "E2", "pending"), ("M2", "E3", "completed")]]
+    tasks = [SimpleNamespace(project_id=3, task_kind="calibration", phase_id="p1", handler_ref=handler, target_employee_no=employee, status=state, submitted_at=None, calibration_completed_at="2026-11-11" if state == "completed" else None) for handler, employee, state in [("M1", "E1", "completed"), ("M1", "E2", "pending"), ("M2", "E3", "completed")]]
     assert _completion_task_counts(node, tasks) == (1, 2)
 
 
@@ -9592,7 +9605,7 @@ def management_member_data(monkeypatch):
             if "performance_cycles" in sql:
                 return SimpleNamespace(name="测试周期", start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
             if query.column_descriptions[0]["entity"] is models.PerformanceNodeTask:
-                return next((task.id for task in tasks if task.task_kind == "calibration" and task.status == "completed" and task.submitted_at is not None and task.revoked_at is None), None)
+                return next((task.id for task in tasks if task.task_kind == "calibration" and getattr(task, "calibration_completed_at", None) is not None and task.revoked_at is None), None)
             assert "performance_project_members.employee_no = 'E1'" in sql
             if "performance_project_members.snapshot_id = 7" not in sql:
                 assert "performance_project_member_snapshots.project_id = 1" in sql
@@ -9683,7 +9696,7 @@ async def test_management_main_tab_uses_actual_audit_submitter_not_handler(manag
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("submitted", [False, True])
-async def test_first_calibration_locks_final_detail_and_management_without_rewriting_task(management_member_data, monkeypatch, submitted):
+async def test_explicit_calibration_completion_locks_final_without_rewriting_task(management_member_data, monkeypatch, submitted):
     from copy import deepcopy
     from datetime import UTC, datetime
     from unittest.mock import AsyncMock
@@ -9715,6 +9728,10 @@ async def test_first_calibration_locks_final_detail_and_management_without_rewri
         assert before.status_code == 200, before.text
         assert before.json()["final_result_locked"] is False
         data.tasks.append(calibration)
+        uncompleted = await client.get(path)
+        assert uncompleted.status_code == 200
+        assert uncompleted.json()["final_result_locked"] is False
+        calibration.calibration_completed_at = datetime.now(UTC)
         for _ in range(2):
             response = await client.get(path)
             assert response.status_code == 200, response.text

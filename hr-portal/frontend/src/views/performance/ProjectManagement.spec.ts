@@ -615,7 +615,8 @@ describe('ProjectManagement', () => {
     expect(wrapper.findAll('.member-name')).toHaveLength(0)
   })
 
-  it('opens the statistics preview with the current cycle and no new report request', async () => {
+  it('opens the statistics report with the current cycle and the statistics API', async () => {
+    const statistics = vi.spyOn(projectManagementApi, 'levelStatistics').mockResolvedValue({ source: 'api', dimension: 'department', rowLabel: '部门', showSummary: true, totalParticipants: 0, ratings: [], distribution: {}, departments: [] })
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     const wrapper = mountView()
     await flushPromises()
@@ -624,8 +625,9 @@ describe('ProjectManagement', () => {
     const report = wrapper.findComponent({ name: 'ProjectStatisticsReportPanel' })
     expect(report.props('cycleId')).toBe(1)
     expect(report.props('cycleName')).toBe('2026上半年')
-    expect(wrapper.text()).toContain('模拟数据')
+    expect(wrapper.text()).not.toContain('模拟数据')
     expect(wrapper.findAll('[data-report-section]')).toHaveLength(9)
+    expect(statistics).toHaveBeenCalledWith(1, 'department')
     expect(mockedApi.members).not.toHaveBeenCalled()
     expect(mockedApi.overview).toHaveBeenCalledTimes(1)
     await wrapper.findAll('.line-tab')[2].trigger('click')
@@ -634,6 +636,7 @@ describe('ProjectManagement', () => {
     expect(mockedApi.matrix).toHaveBeenCalledWith(3)
     expect(wrapper.text()).toContain('待完成评估')
     wrapper.unmount()
+    statistics.mockRestore()
   })
 
   it('selects a project menu item and marks it active', async () => {

@@ -146,6 +146,8 @@ describe('PerformanceReview', () => {
     context.setNavigation(navigationOf(1))
     vi.spyOn(projectManagementApi, 'resultReconsideration').mockRejectedValue(new Error('RECONSIDERATION_NOT_CONFIGURED'))
     vi.spyOn(performanceReviewApi, 'overview').mockResolvedValue(overview)
+    vi.spyOn(projectManagementApi, 'calibrationCompletionPreview').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: true, completed: false })
+    vi.spyOn(projectManagementApi, 'memberReminderTasks').mockResolvedValue({ items: [], total: 0, can_remind: true })
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
   })
 
@@ -965,6 +967,27 @@ describe('PerformanceReview', () => {
     wrapper.findComponent({ name: 'PerformanceManagementTable' }).vm.$emit('row-click', { task_id: 23, employee_no: 'E3', display_name: '待沟通', status: 'pending' })
     await flushPromises()
     expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=23&project_id=1&node=communicate&employee_no=E3')
+    wrapper.unmount()
+  })
+
+  it('allows completing calibration with missing results and confirms the exact preview scope', async () => {
+    Object.assign(routeQuery, { project_id: '1', node: 'calibration' })
+    const node = { ...overview.categories[2].nodes[0], status: 'pending' as const, phase_id: 'phase-2' }
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const confirm = vi.spyOn(projectManagementApi, 'calibrationCompletionConfirm').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: false, completed: true })
+    const wrapper = mountView()
+    await flushPromises()
+    const button = wrapper.findAll('button').find(item => item.text() === '完成校准')!
+    expect(button.attributes('disabled')).toBeUndefined()
+    await button.trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('确定要完成校准吗？')
+    expect(document.body.textContent).toContain('1 名被评估人尚无绩效结果')
+    expect(document.body.querySelector('[data-icon="WarningFilled"]')).not.toBeNull()
+    document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog--calibration-completion .performance-button--primary')!.click()
+    await flushPromises()
+    expect(confirm).toHaveBeenCalledWith(1, 'calibration', 'scope-1', 'phase-2')
+    expect(wrapper.text()).toContain('已完成校准')
     wrapper.unmount()
   })
 

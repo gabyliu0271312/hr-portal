@@ -66,7 +66,7 @@
         </template>
         <template #selection-actions>
           <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通结果</UiButton>
-          <UiButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')"><BellOutlinedIcon />催办</UiButton>
+          <PerformanceReminderButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')" />
           <UiButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</UiButton>
           <UiButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</UiButton>
         </template>
@@ -132,7 +132,7 @@ import InfoFilledIcon from './InfoFilledIcon.vue'
 import YesOutlinedIcon from './YesOutlinedIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
-import BellOutlinedIcon from './BellOutlinedIcon.vue'
+import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
@@ -144,7 +144,7 @@ import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTab
 import { defaultReminderColumns, reminderCellValue as defaultReminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
 import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
-const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
+const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'member-remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
 const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const loadedKeyword = ref('')
@@ -244,6 +244,25 @@ function openingColumns(items: ReminderListResult['items'], ratingColumns: Array
 }
 
 async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<ReminderListResult> {
+  if (props.mode === 'member-remind') {
+    const context = query.context
+    const result = await projectManagementApi.memberReminderTasks(context.projectId, context.employeeNo || '', { source_task_id: context.sourceTaskId, node_id: context.nodeId || undefined, task_id: context.targetTaskId })
+    const matching = result.items.filter(item => !query.keyword.trim() || `${item.display_name} ${item.node_name} ${item.reminder_target || ''}`.includes(query.keyword.trim()))
+    const start = (query.page - 1) * query.pageSize
+    return {
+      items: matching.slice(start, start + query.pageSize).map(item => ({
+        job_family: null, job_category: null, standard_position: null, position_level: null, job_sequence: null, hire_date: null, department: null, employee_type: null, employment_status: null,
+        ...item,
+      })), total: matching.length,
+      columns: [
+        { key: 'node_name', label: '环节', locked: true, minWidth: 184 },
+        { key: 'reminder_target', label: '催办对象', minWidth: 184 },
+        { key: 'status', label: '状态', minWidth: 144 },
+        { key: 'due_at', label: '截止时间', minWidth: 184 },
+      ],
+      capabilities: { canRemind: result.can_remind, canAuthorize: false, canTransfer: false, canExport: false },
+    }
+  }
   if (props.mode === 'cycle-remind') {
     const result = await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath)
     return {
@@ -419,17 +438,19 @@ async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-
     delegationOpen.value = true
     return
   }
-  if (!selectedKeys.value.length || actionLoading.value || loading.value || error.value) return
+  if (!selectedKeys.value.length || !capabilities.value.canRemind || actionLoading.value || loading.value || error.value) return
   remindConfirmOpen.value = true
 }
 
 async function confirmRemind() {
-  if (!selectedKeys.value.length || actionLoading.value || loading.value || error.value) return
+  if (!selectedKeys.value.length || !capabilities.value.canRemind || actionLoading.value || loading.value || error.value) return
   const submittedKeys = [...selectedKeys.value]
   actionLoading.value = true
   notice.value = ''
   try {
-    const result = props.mode === 'cycle-remind'
+    const result = props.mode === 'member-remind'
+      ? await projectManagementApi.memberRemindBatch(props.context.projectId, props.context.employeeNo || '', { source_task_id: props.context.sourceTaskId, node_id: props.context.nodeId || undefined, task_ids: submittedKeys.map(Number), skip_recently_reminded: skipRecentlyReminded.value })
+      : props.mode === 'cycle-remind'
       ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
       : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
     if (disposed) return
@@ -496,7 +517,7 @@ async function confirmResults() {
   }
 }
 
-watch(() => [props.context.projectId, props.context.cycleId, props.context.nodeId, props.context.reviewType], () => {
+watch(() => [props.context.projectId, props.context.cycleId, props.context.nodeId, props.context.reviewType, props.context.employeeNo, props.context.sourceTaskId, props.context.targetTaskId, props.mode], () => {
   columnsInitialized.value = false
   openedEmployeeNos.value = new Set()
   page.value = 1
