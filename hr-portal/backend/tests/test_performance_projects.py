@@ -18,7 +18,7 @@ async def test_result_opening_candidates_filter_before_pagination_and_post(monke
     from app.performance import projects_router as router
     project = SimpleNamespace(id=1, project_ref="p1", name="项目", settings={})
     other = SimpleNamespace(id=2, project_ref="p2", name="其他项目", settings={})
-    members = [SimpleNamespace(employee_no=no, display_name=no, organization_ref="集团/研发") for no in ["READY", "MISSING", "OPENED", "FUTURE", "MANUAL_OFF", "DUP"]]
+    members = [SimpleNamespace(snapshot_id=10, employee_no=no, display_name=no, organization_ref="集团/研发", employment_status="在职") for no in ["READY", "MISSING", "OPENED", "FUTURE", "MANUAL_OFF", "DUP"]]
     rows = [(project, member) for member in members] + [(other, members[-1])]
     role = SimpleNamespace(code="custom.open", is_active=True, function_permission_keys=["performance.frontend.result-open"])
     grants = [(role, SimpleNamespace(scope_type="PROJECT", scope_ref="p1"))]
@@ -34,12 +34,21 @@ async def test_result_opening_candidates_filter_before_pagination_and_post(monke
     monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")))
     opening = AsyncMock(return_value=True)
     monkeypatch.setattr(router, "_open_result", opening)
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [(1, "OPENED")])), commit=AsyncMock())
+    async def execute(query):
+        return SimpleNamespace(all=lambda: [(1, "OPENED")] if query.column_descriptions[0]["entity"] is router.PerformanceResultOpening else [])
+    db = SimpleNamespace(execute=AsyncMock(side_effect=execute), commit=AsyncMock())
     page = await router.result_opening_people(1, page=1, page_size=1, keyword=None, context=context(), db=db)
-    assert page.total == 1 and [item.employee_no for item in page.items] == ["READY"]
-    assert page.items[0].can_open and page.items[0].unavailable_reason is None
-    empty = await router.result_opening_people(1, page=2, page_size=1, keyword=None, context=context(), db=db)
-    assert empty.total == 1 and empty.items == []
+    assert page.total == 5 and [item.employee_no for item in page.items] == ["DUP"]
+    assert not page.items[0].can_open and page.items[0].unavailable_reason == "MULTIPLE_PROJECT_MEMBERSHIPS"
+    ready = await router.result_opening_people(1, page=5, page_size=1, keyword=None, context=context(), db=db)
+    assert ready.items[0].employee_no == "READY" and ready.items[0].can_open and ready.items[0].unavailable_reason is None
+    empty = await router.result_opening_people(1, page=6, page_size=1, keyword=None, context=context(), db=db)
+    assert empty.total == 5 and empty.items == []
+    all_people = await router.result_opening_people(1, page=1, page_size=50, keyword=None, context=context(), db=db)
+    assert {item.employee_no: item.unavailable_reason for item in all_people.items} == {
+        **reasons, "DUP": "MULTIPLE_PROJECT_MEMBERSHIPS", "READY": None,
+    }
+    assert [item.employee_no for item in all_people.items if item.can_open] == ["READY"]
     result = await router.open_cycle_results(1, router.ResultOpeningBatchPayload(employee_nos=[member.employee_no for member in members] + ["OUTSIDE"]), context(), db)
     assert result.accepted_employee_nos == ["READY"]
     assert result.skipped_reasons == {**reasons, "OPENED": "ALREADY_OPENED", "DUP": "MULTIPLE_PROJECT_MEMBERSHIPS", "OUTSIDE": "PERSON_NOT_FOUND"}
@@ -47,6 +56,87 @@ async def test_result_opening_candidates_filter_before_pagination_and_post(monke
     grants.clear()
     eligible, _ = await router._result_opening_candidates(rows, grants, db, now=datetime.now(UTC))
     assert eligible == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("live,frozen,member_status,can_open", [
+    ("在职", "离职", "离职", True),
+    ("离职", "在职", "在职", False),
+    ("已离职", "在职", "在职", False),
+    ("未知", "在职", "在职", False),
+    (None, "在职", "离职", True),
+    (None, "离职", "在职", False),
+    (None, None, "在职", True),
+    (None, None, None, False),
+    ("", "", "未知", False),
+])
+async def test_result_opening_live_employment_controls_get_post_and_overview(monkeypatch, live, frozen, member_status, can_open):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    cycle = _pm_cycle(1, "周期")
+    project = _pm_project(1, "项目", 1)
+    member = SimpleNamespace(snapshot_id=10, employee_no="E1", display_name="员工", organization_ref="集团/研发", employment_status=member_status)
+    rows = [(project, member)]
+    grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="GLOBAL"))]
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=rows))
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    monkeypatch.setattr(router, "_opening_state", AsyncMock(return_value=(None, "final", None, [], [], [])))
+    monkeypatch.setattr(router, "_manual_openable", lambda *args: None)
+    async def identity_rows(rows, *args):
+        return [router.ResultOpeningPerson(employee_no=member.employee_no, display_name=member.display_name,
+            project_id=project.id, project_name=project.name, can_open=True) for project, member in rows], []
+    monkeypatch.setattr(router, "_result_opening_rows", identity_rows)
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")))
+    opening = AsyncMock(return_value=True)
+    monkeypatch.setattr(router, "_open_result", opening)
+    async def execute(query):
+        if query.column_descriptions[0]["entity"] is router.PerformanceResultOpening:
+            return SimpleNamespace(all=lambda: [])
+        assert "source_snapshot_id" in str(query) and "live_employment_status" in str(query)
+        return SimpleNamespace(all=lambda: [(10, "E1", live, frozen)])
+    db = SimpleNamespace(execute=AsyncMock(side_effect=execute), commit=AsyncMock())
+    page = await router.result_opening_people(1, page=1, page_size=50, keyword=None, context=context(), db=db)
+    assert page.total == 1 and page.items[0].can_open is can_open
+    assert page.items[0].unavailable_reason == (None if can_open else "EMPLOYEE_NOT_ACTIVE")
+    assert db.execute.await_count == 2
+    result = await router.open_cycle_results(1, router.ResultOpeningBatchPayload(employee_nos=["E1"]), context(), db)
+    assert result.accepted_employee_nos == (["E1"] if can_open else [])
+    assert result.skipped_reasons == ({} if can_open else {"E1": "EMPLOYEE_NOT_ACTIVE"})
+    assert opening.await_count == int(can_open)
+    access = _frontend_access(cycles=[cycle], manage_projects=[(project, cycle)], scopes={1: None}, features={1: {"performance.frontend.result-open"}}, manageable={cycle.cycle_ref})
+    monkeypatch.setattr(router, "resolve_frontend_access", AsyncMock(return_value=access))
+    monkeypatch.setattr(router, "_project_completion_nodes", AsyncMock(return_value=[{"key": "view-result"}]))
+    overview = await router.project_management_overview(1, context(), db)
+    assert overview["completion_nodes"][0]["openable_count"] == int(can_open)
+    assert overview["completion_nodes"][0]["can_open_result"] is can_open
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_state", [True, False])
+async def test_result_opening_people_without_final_result_keeps_masked_snapshot_profile(monkeypatch, missing_state):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember
+    project = SimpleNamespace(id=1, project_ref="p1", cycle_ref="cycle:1", name="项目", administrators=[])
+    member = PerformanceProjectMember(snapshot_id=10, employee_no="E1", display_name="快照姓名", employment_status="在职",
+        company_org="集团", department="研发", organization_ref="集团/研发", job_family="技术", job_category="研发")
+    state = None if missing_state else (SimpleNamespace(config={}), None, None, [], [], [{"fields": [{"id": "grade", "type": "rating"}]}])
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=[(project, member)]))
+    grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="GLOBAL"))]
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    monkeypatch.setattr(router, "_opening_state", AsyncMock(return_value=state))
+    monkeypatch.setattr(router, "load_subject_visibility_rules", AsyncMock(return_value={"other": ["department"]}))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="OPENER")))
+    monkeypatch.setattr(router, "_communication_progress", AsyncMock(return_value={"E1": "1/2"}))
+    monkeypatch.setattr(router, "_previous_published_position_levels", AsyncMock(return_value={"E1": "P5"}))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [])), scalar=AsyncMock(return_value=None))
+    result = await router.result_opening_people(1, page=1, page_size=50, keyword=None, context=context(), db=db)
+    assert result.total == 1 and result.rating_columns == []
+    person = result.items[0]
+    assert not person.can_open and person.unavailable_reason == "RESULT_NOT_READY"
+    assert person.ratings == {} and person.display_name == "快照姓名" and person.completion == "1/2"
+    assert person.department == "研发" and person.organization_path == "集团/研发"
+    assert person.job_sequence is None and person.previous_position_level is None
 
 
 def test_result_opening_response_schema_keeps_legacy_defaults():
@@ -116,13 +206,15 @@ async def test_result_opening_people_returns_snapshot_profiles_and_multiple_rati
         entity = query.column_descriptions[0]["entity"]
         if entity is router.PerformanceResultOpening:
             return SimpleNamespace(all=lambda: [])
+        if "live_employment_status" in str(query):
+            return SimpleNamespace(all=lambda: [(10, "E1", "在职", "在职"), (10, "E2", None, "在职")])
         assert entity is router.PerformanceProjectMemberSnapshot
         assert "performance_authorization_snapshot_people" in str(query)
         assert "source_snapshot_id" in str(query)
         return SimpleNamespace(all=lambda: [(10, "M1", "快照上级"), (10, "H1", "快照HRBP")])
     db = SimpleNamespace(execute=AsyncMock(side_effect=execute), scalar=AsyncMock(return_value=None))
     result = await router.result_opening_people(1, page=1, page_size=50, keyword=None, context=context("performance.cycles.manage"), db=db)
-    assert result.total == 2
+    assert result.total == 2 and all(item.can_open for item in result.items)
     assert [column.model_dump() for column in result.rating_columns] == [{"key": "rating:grade", "label": "年度绩效"}, {"key": "rating:value", "label": "价值贡献"}]
     first, second = result.items
     assert first.ratings["rating:grade"].model_dump() == {"label": "A", "color": "#123456", "foreground": "#ffffff"}
@@ -148,7 +240,7 @@ async def test_result_opening_people_rating_columns_stable_across_pages_and_keyw
     from app.performance import projects_router as router
     from app.performance.models import PerformanceProjectMember
     projects = [SimpleNamespace(id=i, project_ref=f"p{i}", cycle_ref="cycle:1", name=f"项目{i}") for i in [1, 2, 3]]
-    members = [PerformanceProjectMember(id=i, snapshot_id=i * 10, employee_no=f"E{i}", display_name=f"员工{i}") for i in [1, 2, 3]]
+    members = [PerformanceProjectMember(id=i, snapshot_id=i * 10, employee_no=f"E{i}", display_name=f"员工{i}", employment_status="在职") for i in [1, 2, 3]]
     rows = list(zip(projects, members))
     states = {}
     for project, member in rows:
@@ -178,10 +270,11 @@ async def test_result_opening_people_rating_columns_stable_across_pages_and_keyw
     monkeypatch.setattr(router, "_previous_published_position_levels", previous)
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [])))
     pages = [await router.result_opening_people(1, page=page, page_size=1, keyword=None, context=context(), db=db) for page in [1, 2, 3]]
-    expected = [{"key": "rating:grade1", "label": "评级1"}, {"key": "rating:grade2", "label": "评级2"}]
+    expected = [{"key": f"rating:grade{i}", "label": f"评级{i}"} for i in [1, 2, 3]]
     assert all([column.model_dump() for column in page.rating_columns] == expected for page in pages)
-    assert all(page.total == 2 for page in pages)
-    assert pages[0].items[0].employee_no == "E1" and pages[1].items[0].employee_no == "E2" and pages[2].items == []
+    assert all(page.total == 3 for page in pages)
+    assert [page.items[0].employee_no for page in pages] == ["E1", "E2", "E3"]
+    assert not pages[2].items[0].can_open and pages[2].items[0].unavailable_reason == "RESULT_NOT_READY"
     assert pages[0].items[0].ratings["rating:grade1"].label == "A"
     assert state.await_count == 9
     progress.reset_mock()
@@ -199,7 +292,7 @@ async def test_result_opening_empty_list_skips_profile_queries(monkeypatch, keyw
     from unittest.mock import AsyncMock
     from app.performance import projects_router as router
     project = SimpleNamespace(id=1, project_ref="p1")
-    member = SimpleNamespace(employee_no="E1", display_name="员工")
+    member = SimpleNamespace(snapshot_id=10, employee_no="E1", display_name="员工")
     monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=[(project, member)] if has_rows else []))
     grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="GLOBAL"))]
     monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
@@ -209,8 +302,10 @@ async def test_result_opening_empty_list_skips_profile_queries(monkeypatch, keyw
     unused = AsyncMock(side_effect=AssertionError("empty query must not load profile data"))
     for name in ["load_subject_visibility_rules", "resolve_trusted_performance_actor", "_communication_progress", "_previous_published_position_levels", "resolve_subject_visibility_role"]:
         monkeypatch.setattr(router, name, unused)
+    async def execute(query):
+        return SimpleNamespace(all=lambda: [(1, "E1")] if has_rows and not keyword and query.column_descriptions[0]["entity"] is router.PerformanceResultOpening else [])
     result = await router.result_opening_people(1, page=1, page_size=50, keyword=keyword, context=context(),
-        db=SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: []))))
+        db=SimpleNamespace(execute=AsyncMock(side_effect=execute)))
     assert result.items == [] and result.total == 0 and result.rating_columns == []
     unused.assert_not_awaited()
 

@@ -47,7 +47,7 @@
       </template>
     </section>
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
-      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" @results-opened="handleResultsOpened" />
+      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" />
     </PerformanceTaskOverlay>
     <PerformanceReviewEvaluationDrawer
       v-if="drawerMember"
@@ -496,11 +496,6 @@ function closeReminder() {
 }
 
 function handleReminderFilter() {}
-
-async function handleResultsOpened() {
-  closeReminder()
-  await loadOverview(activeCycleId.value ?? undefined)
-}
 
 onMounted(async () => {
   const routeCycleId = Number(route.query.cycle_id)

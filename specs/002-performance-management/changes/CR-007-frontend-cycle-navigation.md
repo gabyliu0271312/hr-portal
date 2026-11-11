@@ -107,6 +107,20 @@
 - 复议生命周期缺失是已知范围边界；不能用占位任务冒充真实复议。
 - 停止本轮能力时，仅回退导航接口、共享周期状态和三个前台页面接入，不整体回滚仓库、删除历史任务或改变角色配置。
 
+## 2026-11-11 开通名单全量展示与原地清选（用户最新确认，替代F08/F11旧名单/刷新规则）
+
+- [ ] CR-007-F12 全名单默认合格全选与开通后留页
+  - 规则：GET展示当前权限范围内全部未开通人员；最终结果缺失、非在职、手动开通关闭或时间未到等不合格人员仍列出，但can_open=false且不选/禁选。只有在职、最终结果就绪并满足原资格者默认跨页全选；总览openable_count/POST仍严格合格集，不扩大权限。
+  - 在职来源：周期授权快照live_employment_status优先，原employment_status兜底；保留冻结组织/项目名单，不以实时状态重建成员，未知状态不当在职。
+  - 交互：确定成功后留在当前名单、不刷新或关闭overlay、不再GET名单/总览、取消勾选；已开通行原地保留并禁选防重复。零accepted不冒充成功，失败保留待重试项；取消确认不写入且保留选择。跨页勾选必须按所选合法employee提交，超过500按既有请求上限分批，部分批失败不重发已确认成功项。
+  - 边界：只改projects_router.py开通hunks/test_performance_projects.py、PerformanceReminderPanel.vue/spec、ProjectManagement.vue/spec及本记录；保留其它会话API/任务/报表改动。不改模型/迁移/自动开通/角色权限/通知链，不新文件或脚本，不自动commit/push/生产操作。复用原全局表格/确认弹窗，无新设计/动画。
+  - 验收：后端GET全名单/不合格标记、实时离职优先、未知禁选、state=None不500、POST/总览合格一致；前端3行全名单默认只选合格、101跨页/501分批、取消零写、成功无GET/无父页卸载清勾、部分失败重试。现有pytest/Vitest/build及真实Vue路由合成API浏览器覆盖，独立F12 PNG，不将本地mock当生产/真实库/通知验收。
+  - 前端最终证据：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/components/performance/performanceReminderVisibility.spec.ts --silent` → 3文件58 passed（43+13+2），类型修复后主线程复跑通过；`npm.cmd --prefix hr-portal/frontend run build` → vue-tsc+Vite exit0、3689模块，仅既有VueUse PURE注释警告。此前构建3个类型错误已最小修复（缓存不写ReminderPerson未定义can_open、测试notification_status字面量as const）。联合ProjectManagement测试100 passed/1 failed，新开通留页集成用例通过，唯一失败是旧报表“模拟数据”断言，未跨改报表。
+  - 后端证据：主线程 `hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short -k result_opening` → 32 passed / 718 deselected / 1第三方python_multipart弃用警告，exit0；718是未选中执行而非skip或通过。后端执行者全文件最近66 failed / 679 passed / 5 skipped，涉及并行结果链改动与旧替身不匹配，未宣称全文件通过。
+  - 浏览器证据：真实Vue路由、1440×900、全部API隔离合成数据；3行名单（在职结果就绪/离职/无结果）均显示，初始仅合格行勾选且另2行disabled。取消0次POST并保留选择；确定仅提交合格employee，成功后3行仍在、勾选0、底栏DOM为0、已开通行disabled，名单与总览GET计数均不变，pageerror0。独立PNG `ui-blueprints/CR-007-F12-implemented-default-selection-20261111.png`、`ui-blueprints/CR-007-F12-implemented-stay-and-clear-20261111.png`均已查看。
+  - 提交前隔离验证（2026-11-11）：用户明确要求本卡在main提交并推送。按hunk排除并行结果链/校准改动后，直接加载暂存版本projects_router.py及test_performance_projects.py运行完整项目测试 → 745 passed / 5 skipped / 1 anyio预加载警告，exit0；证明待提交本卡版本无需依赖并行结果链补丁。前端专项3文件58 passed复跑通过，ProjectManagement新开通留页用例定向1 passed/42 skipped（按名称筛选未执行），exit0。扩大工作区回归的旧报表失败及并行结果链失败仍按前述保留，不混称全部通过。
+  - 状态：本卡本地实现/定向测试/构建及合成UI验证完成；真实数据库/API/生产投递与部署未验收，因此不勾选整体完成。无本卡模型或迁移；本次仅按用户明确指令提交/推送本卡，不部署，不纳入其它会话结果链/校准补丁。
+
 ## 2026-11-11 开通结果名单与确认弹窗（本轮用户确认）
 
 - [ ] CR-007-F11 开通名单真实列与全局确认弹窗

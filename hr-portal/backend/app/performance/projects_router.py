@@ -1811,6 +1811,8 @@ def _manual_openable(project: PerformanceProject, member: PerformanceProjectMemb
     if state is None:
         return "RESULT_NOT_READY"
     view, final, _previous, _members, tasks, schema = state
+    if view is None or final is None:
+        return "RESULT_NOT_READY"
     if not _result_opening_config(project, view).get("manual_enabled"):
         return "MANUAL_OPENING_DISABLED"
     start_at = _parse_time((_node_timing(project, view) or {}).get("start_at"))
@@ -1819,6 +1821,20 @@ def _manual_openable(project: PerformanceProject, member: PerformanceProjectMemb
     if not _member_result_ready(member.employee_no, final, tasks, schema):
         return "RESULT_NOT_READY"
     return None
+
+
+async def _result_opening_employment_statuses(rows, db):
+    snapshot_ids = {member.snapshot_id for _project, member in rows}
+    employee_nos = {member.employee_no for _project, member in rows}
+    if not rows:
+        return {}
+    people = (await db.execute(
+        select(PerformanceProjectMemberSnapshot.id, PerformanceAuthorizationSnapshotPerson.employee_no,
+               PerformanceAuthorizationSnapshotPerson.live_employment_status, PerformanceAuthorizationSnapshotPerson.employment_status)
+        .join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id)
+        .where(PerformanceProjectMemberSnapshot.id.in_(snapshot_ids), PerformanceAuthorizationSnapshotPerson.employee_no.in_(employee_nos))
+    )).all()
+    return {(snapshot_id, employee_no): live_status or status for snapshot_id, employee_no, live_status, status in people}
 
 
 async def _result_opening_candidates(
@@ -1841,18 +1857,22 @@ async def _result_opening_candidates(
     opened = set((await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
         PerformanceResultOpening.project_id.in_(list(projects)),
     ))).all()) if projects else set()
+    statuses = await _result_opening_employment_statuses(rows, db)
     eligible = []
     reasons: dict[tuple[int, str], str] = {}
     for project, member in rows:
         key = (project.id, member.employee_no)
-        if len(memberships[member.employee_no]) > 1:
-            reasons[key] = "MULTIPLE_PROJECT_MEMBERSHIPS"
-            continue
         if key in opened:
             reasons[key] = "ALREADY_OPENED"
             continue
         if not _result_opening_scope(None, grants, project, member):
             reasons[key] = "RESULT_OPEN_FORBIDDEN"
+            continue
+        if len(memberships[member.employee_no]) > 1:
+            reasons[key] = "MULTIPLE_PROJECT_MEMBERSHIPS"
+            continue
+        if (statuses.get((member.snapshot_id, member.employee_no)) or getattr(member, "employment_status", None)) != "在职":
+            reasons[key] = "EMPLOYEE_NOT_ACTIVE"
             continue
         reason = _manual_openable(project, member, states[project.id], current)
         if reason:
@@ -1872,8 +1892,9 @@ async def _result_opening_rows(rows, states, context, db):
     items = []
     rating_columns = {}
     for project, members in grouped.values():
-        view, final, _previous, _members, tasks, schema = states[project.id]
-        metadata = _task_rating_metadata(schema)
+        state = states.get(project.id)
+        view, final, _previous, _members, tasks, schema = state if state is not None else (None, None, None, [], [], [])
+        metadata = _task_rating_metadata(schema) if final is not None else []
         for column in metadata:
             rating_columns.setdefault(column["key"], {"key": column["key"], "label": column["label"]})
         employee_nos = {member.employee_no for member in members}
@@ -1892,7 +1913,7 @@ async def _result_opening_rows(rows, states, context, db):
         actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
         latest = {}
         for task in tasks:
-            if (task.node_snapshot_id != final.id or task.target_employee_no not in employee_nos
+            if (final is None or task.node_snapshot_id != final.id or task.target_employee_no not in employee_nos
                 or task.member_snapshot_id not in snapshot_ids or getattr(task, "revoked_at", None) is not None
                 or task.submitted_at is None):
                 continue
@@ -1938,10 +1959,14 @@ async def result_opening_people(
     if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
         raise HTTPException(status_code=403, detail="RESULT_OPEN_FORBIDDEN")
     states = {}
-    eligible, _reasons = await _result_opening_candidates(rows, grants, db, states=states)
-    filtered = [(project, member) for project, member in eligible
-                if not keyword or keyword.casefold() in f"{member.display_name} {member.employee_no}".casefold()]
+    _eligible, reasons = await _result_opening_candidates(rows, grants, db, states=states)
+    filtered = [(project, member) for project, member in rows
+                if reasons.get((project.id, member.employee_no)) not in {"ALREADY_OPENED", "RESULT_OPEN_FORBIDDEN"}
+                and (not keyword or keyword.casefold() in f"{member.display_name} {member.employee_no}".casefold())]
     items, rating_columns = await _result_opening_rows(filtered, states, context, db)
+    for item in items:
+        item.unavailable_reason = reasons.get((item.project_id, item.employee_no))
+        item.can_open = item.unavailable_reason is None
     items.sort(key=lambda item: (item.display_name, item.employee_no))
     return ResultOpeningPeoplePage(items=items[(page - 1) * page_size:page * page_size], total=len(items), page=page, page_size=page_size, rating_columns=rating_columns)
 

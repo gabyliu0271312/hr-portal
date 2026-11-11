@@ -435,26 +435,35 @@ describe('ProjectManagement', () => {
     wrapper.unmount()
   })
 
-  it('opens the shared task overlay for cycle-wide result opening', async () => {
-    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({
-      completion_nodes: [{ key: 'view-result', title: '查看绩效结果', status: 'not_started', completed_count: 0, total_count: 2, completion_rate: 0, deadline_at: null, can_open_result: true, openable_count: 2 }],
-    }))
-    const people = vi.spyOn(projectManagementApi, 'openingPeople').mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
+  it('keeps the opening list mounted after confirmation without refreshing the overview', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [
+      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 0, total_count: 1, completion_rate: 0, deadline_at: null, can_open_result: true, openable_count: 1 },
+    ] }))
+    const people = vi.spyOn(projectManagementApi, 'openingPeople').mockResolvedValue({ items: [
+      { employee_no: 'E001', display_name: '开通成员', project_id: 3, project_name: '项目', can_open: true, unavailable_reason: null },
+    ], total: 1, page: 1, page_size: 50 })
+    const opening = vi.spyOn(projectManagementApi, 'openResults').mockResolvedValue({ accepted_employee_nos: ['E001'], skipped_employee_nos: [], skipped_reasons: {}, notification_status: 'pending_integration' })
     const wrapper = mountView()
     await flushPromises()
     await wrapper.get('.completion-node-card .node-action').trigger('click')
-    expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('mode')).toBe('open-result')
-    expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('context')).toMatchObject({ cycleId: 1, projectId: 0 })
+    await flushPromises()
+    const panel = wrapper.getComponent({ name: 'PerformanceReminderPanel' })
+    expect(panel.props('mode')).toBe('open-result')
+    expect(panel.props('context')).toMatchObject({ cycleId: 1, projectId: 0 })
+    const loads = people.mock.calls.length
+    await panel.get('.selection-bar .performance-button--primary').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--danger')!.click()
+    await flushPromises()
+    expect(opening).toHaveBeenCalledWith(1, ['E001'])
     expect(wrapper.getComponent({ name: 'PerformanceTaskOverlay' }).props('modelValue')).toBe(true)
-    await flushPromises()
-    wrapper.getComponent({ name: 'PerformanceReminderPanel' }).vm.$emit('results-opened')
-    await flushPromises()
-    expect(wrapper.getComponent({ name: 'PerformanceTaskOverlay' }).props('modelValue')).toBe(false)
-    expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).exists()).toBe(false)
-    expect(mockedApi.overview).toHaveBeenCalledTimes(2)
-    expect(mockedApi.overview).toHaveBeenLastCalledWith(1)
+    expect(panel.text()).toContain('开通成员')
+    expect(panel.find('.selection-bar').exists()).toBe(false)
+    expect(people).toHaveBeenCalledTimes(loads)
+    expect(mockedApi.overview).toHaveBeenCalledTimes(1)
     wrapper.unmount()
     people.mockRestore()
+    opening.mockRestore()
   })
 
   it('navigates to the scoped reminder route with the clicked department cell data', async () => {

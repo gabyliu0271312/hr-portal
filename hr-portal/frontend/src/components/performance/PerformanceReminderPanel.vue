@@ -145,7 +145,7 @@ import { defaultReminderColumns, reminderCellValue as defaultReminderCellValue, 
 import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
 const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
-const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer']; 'results-opened': [] }>()
+const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const loadedKeyword = ref('')
 const columnsInitialized = ref(false)
@@ -155,6 +155,8 @@ const selectedColumnKeys = ref(defaultReminderColumns.filter(column => column.vi
 const capabilities = ref<ReminderCapabilities>({ canRemind: true, canAuthorize: false, canTransfer: false, canExport: false })
 const selectedKeys = ref<string[]>([])
 const taskMap = ref(new Map<string, PerformanceTaskDelegationTarget & { can_authorize?: boolean }>())
+const openingPeopleMap = ref(new Map<string, ReminderListResult['items'][number]>())
+const openedEmployeeNos = ref(new Set<string>())
 const delegationOpen = ref(false)
 const delegationAction = ref<'AUTHORIZE' | 'TRANSFER'>('AUTHORIZE')
 const delegationTasks = computed(() => {
@@ -190,7 +192,7 @@ const remindConfirmOpen = ref(false)
 const remindResultOpen = ref(false)
 const remindResult = ref({ message: '', description: '', success: false })
 const openingForbidden = ref(false)
-const emptyText = computed(() => props.mode === 'open-result' ? '暂无可开通绩效结果的人员' : props.mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人')
+const emptyText = computed(() => props.mode === 'open-result' ? '暂无未开通绩效结果的人员' : props.mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人')
 const skipRecentlyReminded = ref(false)
 let requestSequence = 0
 let disposed = false
@@ -204,7 +206,17 @@ const visibleColumns = computed(() => selectedColumnKeys.value.map(key => column
 const tableColumns = computed(() => visibleColumns.value.map(column => ({ key: column.key, label: column.label, width: column.minWidth || 144, fixed: column.key === 'display_name', sortable: column.key !== 'reminder_target' && column.key !== 'hrbp' })))
 const sortedRows = computed(() => sortPerformanceRows(rows.value, sortKey.value, sortOrder.value, (row, key) => reminderCellValue(row, key)))
 const hiddenColumnCount = computed(() => Math.max(0, columns.value.length - selectedColumnKeys.value.length))
-const selectAllEligible = computed(() => props.selectAllAvailable ?? props.mode === 'cycle-remind')
+const selectAllEligible = computed(() => props.selectAllAvailable ?? (props.mode === 'cycle-remind' || props.mode === 'open-result'))
+const preservePageSelection = computed(() => props.mode === 'open-result' || selectAllEligible.value)
+
+function cacheOpeningPeople(items: ReminderListResult['items']) {
+  if (props.mode !== 'open-result') return items
+  return items.map(row => {
+    const current = openedEmployeeNos.value.has(row.employee_no) ? { ...row, selectable: false, status: 'unavailable', unavailable_reason: 'ALREADY_OPENED' } : row
+    openingPeopleMap.value.set(String(row.task_id), current)
+    return current
+  })
+}
 
 function reminderCellValue(person: ReminderListResult['items'][number], key: string) {
   return props.mode === 'open-result' && key.startsWith('rating:') ? person.ratings?.[key]?.label || '--' : defaultReminderCellValue(person, key)
@@ -277,7 +289,7 @@ async function load() {
     const result = await (props.provider || defaultProvider)({ context: props.context, keyword: requestedKeyword, page: page.value, pageSize: pageSize.value })
     if (sequence !== requestSequence) return
     loadedKeyword.value = requestedKeyword
-    rows.value = result.items
+    rows.value = cacheOpeningPeople(result.items)
     for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
     total.value = result.total
     emit('loaded', result.total)
@@ -291,7 +303,8 @@ async function load() {
     selectedColumnKeys.value = ((!columnsInitialized.value && props.mode === 'preview') || !retainedKeys.length) ? configuredDefaults : retainedKeys
     columnsInitialized.value = true
     const availableKeys = new Set(rows.value.filter(row => row.selectable !== false).map(row => String(row.task_id)))
-    if (!selectAllEligible.value) selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
+    if (!preservePageSelection.value) selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
+    else if (props.mode === 'open-result') selectedKeys.value = selectedKeys.value.filter(key => openingPeopleMap.value.get(key)?.selectable !== false)
   } catch (cause) {
     if (sequence === requestSequence) setLoadError(cause, props.mode === 'preview' ? '人员加载失败，请稍后重试' : '未完成人员加载失败，请稍后重试')
   } finally {
@@ -307,12 +320,13 @@ async function initialize() {
   notice.value = ''
   selectedKeys.value = []
   taskMap.value = new Map()
+  openingPeopleMap.value = new Map()
   const query = { context: { ...props.context }, keyword: keyword.value.trim(), page: page.value, pageSize: pageSize.value }
   try {
     const provider = props.provider || defaultProvider
     const result = await provider(query)
     if (sequence !== requestSequence) return
-    rows.value = result.items
+    rows.value = cacheOpeningPeople(result.items)
     for (const row of result.items) taskMap.value.set(String(row.task_id), { task_id: Number(row.task_id), project_id: row.project_id || props.context.projectId, employee_no: row.employee_no, display_name: row.display_name, task_map: row.task_map || [], can_authorize: row.can_authorize })
     total.value = result.total
     columns.value = result.columns
@@ -322,7 +336,19 @@ async function initialize() {
       capabilities.value = { ...capabilities.value, canAuthorize: false, canTransfer: false }
     }
     emit('loaded', result.total)
-    if (selectAllEligible.value) {
+    if (selectAllEligible.value && props.mode === 'open-result') {
+      let nextTotal = result.total
+      if (nextTotal > result.items.length) {
+        for (let nextPage = 1; (nextPage - 1) * 100 < nextTotal; nextPage++) {
+          const next = await provider({ ...query, page: nextPage, pageSize: 100 })
+          if (sequence !== requestSequence) return
+          if (!next.items.length && (nextPage - 1) * 100 < next.total) throw new Error('人员名单已变化，请刷新后重试')
+          cacheOpeningPeople(next.items)
+          nextTotal = next.total
+        }
+      }
+      selectedKeys.value = [...openingPeopleMap.value].filter(([, row]) => row.selectable !== false).map(([key]) => key)
+    } else if (selectAllEligible.value) {
       const selection: string[] = []
       for (let nextPage = 1; (nextPage - 1) * 100 < result.total; nextPage++) {
         const next = await provider({ ...query, page: nextPage, pageSize: 100 })
@@ -349,7 +375,7 @@ function reload() {
 function changePage(nextPage: number) {
   if (actionLoading.value) return
   page.value = nextPage
-  if (!selectAllEligible.value) selectedKeys.value = []
+  if (!preservePageSelection.value) selectedKeys.value = []
   void load()
 }
 
@@ -438,22 +464,33 @@ async function confirmRemind() {
 
 async function confirmResults() {
   if (!selectedKeys.value.length || actionLoading.value || loading.value || error.value) return
-  const selected = rows.value.filter(row => row.selectable !== false && selectedKeys.value.includes(String(row.task_id))).map(row => row.employee_no)
+  const submittedKeys = [...selectedKeys.value]
+  const selected = [...new Set(submittedKeys.map(key => openingPeopleMap.value.get(key)).filter(row => row && row.selectable !== false && !openedEmployeeNos.value.has(row.employee_no)).map(row => row!.employee_no))]
   if (!selected.length) { confirmOpen.value = false; return }
   actionLoading.value = true
+  let accepted = 0
+  let skipped = 0
+  const completed = new Set<string>()
   try {
-    const result = await projectManagementApi.openResults(props.context.cycleId, selected)
-    if (disposed) return
-    confirmOpen.value = false
-    selectedKeys.value = []
-    notice.value = `实际开通 ${result.accepted_employee_nos.length} 人，跳过 ${result.skipped_employee_nos.length} 人`
-    if (result.accepted_employee_nos.length) {
-      emit('results-opened')
-      await nextTick()
-      if (!disposed) await load()
+    for (let start = 0; start < selected.length; start += 500) {
+      const result = await projectManagementApi.openResults(props.context.cycleId, selected.slice(start, start + 500))
+      if (disposed) return
+      accepted += result.accepted_employee_nos.length
+      skipped += result.skipped_employee_nos.length
+      for (const employeeNo of result.accepted_employee_nos) openedEmployeeNos.value.add(employeeNo)
+      for (const employeeNo of [...result.accepted_employee_nos, ...result.skipped_employee_nos]) completed.add(employeeNo)
+      rows.value = cacheOpeningPeople(rows.value)
+      for (const [key, row] of openingPeopleMap.value) {
+        if (openedEmployeeNos.value.has(row.employee_no)) openingPeopleMap.value.set(key, { ...row, selectable: false, status: 'unavailable', unavailable_reason: 'ALREADY_OPENED' })
+      }
     }
+    confirmOpen.value = false
+    if (accepted) selectedKeys.value = []
+    notice.value = `实际开通 ${accepted} 人，跳过 ${skipped} 人`
   } catch {
-    notice.value = '结果开通失败，请稍后重试'
+    if (disposed) return
+    if (accepted) selectedKeys.value = submittedKeys.filter(key => !completed.has(openingPeopleMap.value.get(key)?.employee_no || ''))
+    notice.value = accepted ? `实际开通 ${accepted} 人，跳过 ${skipped} 人；其余结果开通失败，请稍后重试` : '结果开通失败，请稍后重试'
   } finally {
     actionLoading.value = false
   }
@@ -461,6 +498,7 @@ async function confirmResults() {
 
 watch(() => [props.context.projectId, props.context.cycleId, props.context.nodeId, props.context.reviewType], () => {
   columnsInitialized.value = false
+  openedEmployeeNos.value = new Set()
   page.value = 1
   selectedKeys.value = []
   void initialize()
