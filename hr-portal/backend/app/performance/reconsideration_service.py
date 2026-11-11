@@ -245,6 +245,10 @@ async def freeze_published_result(db, project, employee_no, node, actor):
     from fastapi.encoders import jsonable_encoder
     snapshot = freeze_result(jsonable_encoder(result), snapshot_id, opening.id, opening.result_version or {},
                              {"node": (node.config or {}).get("template") or {}, "final": final_template})
+    from app.performance.projects_router import _effective_member_result
+    effective = await _effective_member_result(project.id, project.cycle_ref, snapshot_id, employee_no, db)
+    snapshot["full_result_answers"] = jsonable_encoder(effective["answers"])
+    snapshot["full_result_source_task_ids"] = [task.id for task in effective["source_tasks"]]
     return snapshot, snapshot_id
 
 

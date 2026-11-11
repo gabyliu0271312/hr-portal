@@ -3433,7 +3433,7 @@ async def test_calibration_people_returns_inherited_rating_before_calibration_su
         ],
     }]}})
     member = SimpleNamespace(snapshot_id=7, employee_no="E1", display_name="员工")
-    task = SimpleNamespace(id=20, project_id=1, task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no="E1", available_at=None, due_at=None, answers={})
+    task = SimpleNamespace(id=20, project_id=1, cycle_ref="C1", member_snapshot_id=7, node_snapshot_id=10, task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no="E1", available_at=None, due_at=None, answers={})
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
     async def rules(*args): return {"leader": []}
     async def role(*args): return "leader"
@@ -3444,6 +3444,8 @@ async def test_calibration_people_returns_inherited_rating_before_calibration_su
     monkeypatch.setattr(routes, "resolve_subject_visibility_role", role)
     monkeypatch.setattr(routes, "_communication_progress", progress)
     monkeypatch.setattr(routes, "_communication_progress_detail", progress)
+    async def effective(*args, **kwargs): return {"answers": {"grade": "good"}, "calibrated": False, "source_task": None, "source_kind": None, "source_tasks": []}
+    monkeypatch.setattr(routes, "_effective_member_result", effective)
     monkeypatch.setattr(routes, "_calibration_answers", inherited)
     class Db:
         async def get(self, model, key): return project if model is PerformanceProject else None
@@ -3461,12 +3463,17 @@ async def test_result_communication_people_use_submitted_final_result_rating_wit
     from app.performance import projects_router as routes
     from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
 
-    project = SimpleNamespace(id=1)
-    final_node = SimpleNamespace(id=10, node_type="evaluation", node_order=1, config={"template": {"include_final_result": True}})
+    project = SimpleNamespace(id=1, cycle_ref="cycle:1")
+    schema = [{"id": "assessment", "fields": [{"id": "grade", "type": "rating", "label": "绩效评级", "options": [{"id": "good", "code": "A", "label": "优秀", "color": "#d9f5d6"}]}]}]
+    final_node = SimpleNamespace(id=10, node_type="evaluation", node_order=1, config={"template": {
+        "include_final_result": True, "content": [{"content_id": "assessment", "type": "rating",
+        "items": [{"id": "grade", "kind": "rating", "options": schema[0]["fields"][0]["options"]}]}],
+    }})
     communication_node = SimpleNamespace(id=20, node_type="result_communication", node_order=2, config={})
     communication_task = SimpleNamespace(member_snapshot_id=7, target_employee_no="E1")
-    final_task = SimpleNamespace(id=11, member_snapshot_id=7, target_employee_no="E1", submitted_at=datetime(2026, 11, 10, tzinfo=UTC), answers={"grade": "good"})
-    schema = [{"id": "assessment", "fields": [{"id": "grade", "type": "rating", "label": "绩效评级", "options": [{"id": "good", "code": "A", "label": "优秀", "color": "#d9f5d6"}]}]}]
+    final_task = SimpleNamespace(id=11, project_id=1, cycle_ref="cycle:1", node_snapshot_id=10,
+        task_kind="evaluation", status="completed", member_snapshot_id=7, target_employee_no="E1",
+        submitted_at=datetime(2026, 11, 10, tzinfo=UTC), answers={"grade": "good"})
     queries = []
     class Db:
         async def execute(self, query):
@@ -3479,11 +3486,10 @@ async def test_result_communication_people_use_submitted_final_result_rating_wit
     assert metadata == [{"key": "rating:grade", "answer_key": "grade", "label": "绩效评级", "options": schema[0]["fields"][0]["options"]}]
     assert values[(7, "E1")]["rating:grade"] == {"label": "A", "color": "#d9f5d6", "foreground": None}
     task_sql = str(queries[1].compile(compile_kwargs={"literal_binds": True}))
-    assert "performance_node_tasks.node_snapshot_id = 10" in task_sql
+    assert "performance_node_tasks.node_snapshot_id IN (10, 20)" in task_sql
     assert "performance_node_tasks.member_snapshot_id IN (7)" in task_sql
     assert "performance_node_tasks.target_employee_no IN ('E1')" in task_sql
     assert "performance_node_tasks.revoked_at IS NULL" in task_sql
-    assert "performance_node_tasks.submitted_at IS NOT NULL" in task_sql
 
 
 @pytest.mark.asyncio
@@ -3843,9 +3849,9 @@ async def test_project_matrix_uses_submitted_rating_from_final_result_node(monke
     )
     submitted_rating = datetime(2026, 9, 20, tzinfo=UTC)
     tasks = [
-        SimpleNamespace(node_snapshot_id=31, target_employee_no="E001", submitted_at=submitted_rating, id=101, answers={"rating-field": "five"}, status="completed"),
-        SimpleNamespace(node_snapshot_id=31, target_employee_no="E002", submitted_at=submitted_rating, id=102, answers={}, status="completed"),
-        SimpleNamespace(node_snapshot_id=31, target_employee_no="E003", submitted_at=None, id=103, answers={"rating-field": "one"}, status="completed"),
+        SimpleNamespace(project_id=7, cycle_ref="cycle:matrix", member_snapshot_id=21, task_kind="evaluation", node_snapshot_id=31, target_employee_no="E001", submitted_at=submitted_rating, id=101, answers={"rating-field": "five"}, status="completed"),
+        SimpleNamespace(project_id=7, cycle_ref="cycle:matrix", member_snapshot_id=21, task_kind="evaluation", node_snapshot_id=31, target_employee_no="E002", submitted_at=submitted_rating, id=102, answers={}, status="completed"),
+        SimpleNamespace(project_id=7, cycle_ref="cycle:matrix", member_snapshot_id=21, task_kind="evaluation", node_snapshot_id=31, target_employee_no="E003", submitted_at=None, id=103, answers={"rating-field": "one"}, status="completed"),
     ]
 
     class Result:
@@ -3936,10 +3942,11 @@ def _statistics_member(employee_no, snapshot_id=21, *, display_name=None, positi
     )
 
 
-def _statistics_task(employee_no, value="five", *, task_id=101, node_id=31, snapshot_id=21, project_id=1, submitted=True):
+def _statistics_task(employee_no, value="five", *, task_id=101, node_id=31, snapshot_id=21, project_id=1, submitted=True, task_kind="evaluation"):
     from datetime import UTC, datetime
     return SimpleNamespace(
-        id=task_id, project_id=project_id, node_snapshot_id=node_id, member_snapshot_id=snapshot_id,
+        id=task_id, project_id=project_id, cycle_ref="cycle:1", node_snapshot_id=node_id, member_snapshot_id=snapshot_id,
+        task_kind=task_kind,
         target_employee_no=employee_no, answers={"rating-field": value}, status="completed",
         submitted_at=datetime(2026, 9, 20, tzinfo=UTC) if submitted else None,
     )
@@ -4009,7 +4016,7 @@ def statistics_db(monkeypatch):
                 snapshot_id = params.get("snapshot_id_1", self.snapshots.get(params.get("project_id_1")))
                 rows = [item for item in self.members if item.snapshot_id == snapshot_id]
             elif model is PerformanceProjectNodeSnapshot:
-                rows = sorted([item for item in self.nodes if item.project_id == params["project_id_1"] and item.node_type == params["node_type_1"]], key=lambda item: item.node_order)
+                rows = sorted([item for item in self.nodes if item.project_id == params["project_id_1"] and ("node_type_1" not in params or item.node_type == params["node_type_1"])], key=lambda item: item.node_order)
             elif model is PerformanceNodeTask:
                 rows = [item for item in self.tasks if item.project_id == params.get("project_id_1") and item.node_snapshot_id in params.get("node_snapshot_id_1", [])]
                 if "member_snapshot_id_1" in params:
@@ -4352,7 +4359,8 @@ async def test_level_statistics_compares_ordered_unmerged_rating_scales(statisti
         db.nodes.append(_statistics_node(2, node_id=32, options=options))
     with pytest.raises(HTTPException) as error:
         await project_management_statistics(1, "level", context("performance.cycles.manage"), db)
-    assert (error.value.status_code, error.value.detail) == (409, "RATING_SCALE_CONFLICT")
+    expected = "CALIBRATION_SOURCE_CONFLICT" if same_project else "RATING_SCALE_CONFLICT"
+    assert (error.value.status_code, error.value.detail) == (409, expected)
 
 
 @pytest.mark.asyncio
@@ -4452,18 +4460,26 @@ async def test_level_statistics_empty_data_keeps_zero_values(statistics_db, miss
 
 
 @pytest.mark.asyncio
-async def test_matrix_and_statistics_share_final_node_and_task_priority(statistics_db):
+async def test_matrix_and_statistics_reject_conflicting_submitted_final_sources(statistics_db):
+    from fastapi import HTTPException
     from app.performance.projects_router import project_management_statistics, project_matrix
 
     db = statistics_db
-    db.nodes += [_statistics_node(node_id=32, order=2), _statistics_node(node_id=33, order=3, final=False)]
+    db.nodes.append(_statistics_node(node_id=33, order=3, final=False))
     db.tasks += [
-        _statistics_task("E001", "one", node_id=32, task_id=10),
-        _statistics_task("E001", {"option_id": "five"}, node_id=32, task_id=11),
+        _statistics_task("E001", "one", task_id=10),
         _statistics_task("E001", "one", node_id=33, task_id=999),
         _statistics_task("NOT_A_MEMBER", "one", task_id=1000),
     ]
     account = context("performance.cycles.manage")
+    for call in (
+        lambda: project_management_statistics(1, "level", account, db),
+        lambda: project_matrix(1, account, db),
+    ):
+        with pytest.raises(HTTPException) as error:
+            await call()
+        assert (error.value.status_code, error.value.detail) == (409, "CALIBRATION_SOURCE_CONFLICT")
+    db.tasks = [task for task in db.tasks if task.id != 10]
     report = await project_management_statistics(1, "level", account, db)
     matrix = await project_matrix(1, account, db)
     assert report.distribution == {"one": 0, "five": 1}
@@ -4471,23 +4487,19 @@ async def test_matrix_and_statistics_share_final_node_and_task_priority(statisti
     assert matrix.completed_rows[0].cells["five"].count == 1
     assert matrix.source == "template_final_result"
     assert matrix.display_modes == ["name", "count"]
-    db.tasks = [task for task in db.tasks if task.id != 11]
-    report = await project_management_statistics(1, "level", account, db)
-    matrix = await project_matrix(1, account, db)
-    assert report.distribution == {"one": 1, "five": 0}
-    assert matrix.completed_rows[0].cells["one"].count == 1
 
 
 @pytest.mark.asyncio
-async def test_matrix_preserves_legacy_snapshot_and_scale_behavior(statistics_db):
+async def test_matrix_rejects_multiple_final_nodes_in_legacy_snapshot(statistics_db):
+    from fastapi import HTTPException
     from app.performance.projects_router import project_matrix
 
     db = statistics_db
     db.nodes.append(_statistics_node(node_id=32, order=2, options=[{"id": "one", "label": "其他标签", "color": "#000000"}]))
     db.tasks.append(_statistics_task("E001", "one", task_id=999, node_id=32, snapshot_id=20))
-    result = await project_matrix(1, context("performance.cycles.manage"), db)
-    assert result.ratings[0].label == "1星"
-    assert result.completed_rows[0].cells["one"].count == 1
+    with pytest.raises(HTTPException) as error:
+        await project_matrix(1, context("performance.cycles.manage"), db)
+    assert (error.value.status_code, error.value.detail) == (409, "CALIBRATION_SOURCE_CONFLICT")
     task_query = next(query for query in db.queries if "FROM performance_node_tasks" in str(query))
     assert "member_snapshot_id_1" not in task_query.compile().params
 
@@ -5485,11 +5497,11 @@ async def test_project_results_route_keeps_rating_results_and_adds_projected_con
     project = SimpleNamespace(id=7, cycle_ref="cycle:7")
     tags = {"content_id": "tags", "type": "custom", "name": "标签", "items": [{"id": "tag", "label": "标签题", "questionType": "tag", "options": [{"id": "a", "label": "协作"}]}]}
     view = SimpleNamespace(name="结果查看", config={"template": {"content_page_name": "查看绩效结果", "content": [{**tags, "content_slot": "view"}]}})
-    final = SimpleNamespace(id=31, config={"template": {"content": [
+    final = SimpleNamespace(id=31, node_type="evaluation", node_order=1, config={"template": {"include_final_result": True, "content": [
         {**tags, "content_slot": "fill"},
         {"content_id": "rating", "type": "rating", "content_slot": "fill", "name": "评级", "items": [{"id": "rating", "label": "评级"}], "options": [{"id": "A", "label": "优秀"}]},
     ]}})
-    task = SimpleNamespace(id=101, project_id=7, cycle_ref="cycle:7", member_snapshot_id=91, target_employee_no="E001", node_snapshot_id=31, status="completed", submitted_at=datetime(2026, 10, 1, tzinfo=timezone.utc), answers={"rating": "A", "tag": {"tags": ["a"], "notes": {"a": "<script>x</script><p>完成</p>"}}, "work": "不应返回"})
+    task = SimpleNamespace(id=101, project_id=7, task_kind="evaluation", cycle_ref="cycle:7", member_snapshot_id=91, target_employee_no="E001", node_snapshot_id=31, status="completed", submitted_at=datetime(2026, 10, 1, tzinfo=timezone.utc), answers={"rating": "A", "tag": {"tags": ["a"], "notes": {"a": "<script>x</script><p>完成</p>"}}, "work": "不应返回"})
     member = SimpleNamespace(employee_no="E001")
 
     async def actor(*_args, **_kwargs):
@@ -5506,8 +5518,9 @@ async def test_project_results_route_keeps_rating_results_and_adds_projected_con
     class Db:
         async def scalar(self, _statement):
             return SimpleNamespace(id=1, result_version={"101": 1})
-        async def execute(self, _statement):
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [task]))
+        async def execute(self, statement):
+            rows = [final] if statement.column_descriptions[0]["entity"] is projects_router.PerformanceProjectNodeSnapshot else [task]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
 
     result = await projects_router.read_my_project_results(7, context(), Db())
 
@@ -5679,9 +5692,9 @@ async def test_employee_results_bind_published_snapshot_and_visible_ratings(monk
     from fastapi import HTTPException
     from app.performance import projects_router as routes
     rating = {"content_id": "rating", "type": "rating", "items": [{"id": "grade"}], "options": [{"id": "a", "label": "Label", "description": "Not label"}]}
-    final = SimpleNamespace(id=2, config={"template": {"content": [rating]}})
+    final = SimpleNamespace(id=2, node_type="evaluation", node_order=1, config={"template": {"include_final_result": True, "content": [rating]}})
     view = SimpleNamespace(name="结果", config={"template": {"content": [{**rating, "content_slot": "view"}]}})
-    task = SimpleNamespace(id=3, project_id=1, cycle_ref="cycle", member_snapshot_id=8, target_employee_no="E1", node_snapshot_id=2, status="completed", submitted_at="now", answers={"grade": "a"})
+    task = SimpleNamespace(id=3, project_id=1, cycle_ref="cycle", task_kind="evaluation", member_snapshot_id=8, target_employee_no="E1", node_snapshot_id=2, status="completed", submitted_at="now", answers={"grade": "a"})
     for case, key, value in [("wrong_project", "project_id", 99), ("wrong_cycle", "cycle_ref", "other"), ("wrong_employee", "target_employee_no", "E2"), ("wrong_final", "node_snapshot_id", 99)]:
         if scenario == case:
             setattr(task, key, value)
@@ -5695,7 +5708,8 @@ async def test_employee_results_bind_published_snapshot_and_visible_ratings(monk
         async def scalar(self, statement):
             return SimpleNamespace(result_version=version)
         async def execute(self, statement):
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: tasks))
+            rows = [final] if statement.column_descriptions[0]["entity"] is routes.PerformanceProjectNodeSnapshot else tasks
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
     monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=SimpleNamespace(id=1, cycle_ref="cycle")))
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1")))
     if scenario == "published_revoked":
@@ -5708,7 +5722,7 @@ async def test_employee_results_bind_published_snapshot_and_visible_ratings(monk
         assert error.value.status_code == 404
         return
     result = await routes.read_my_project_results(1, context(), Db())
-    assert result["results"] == [{"task_id": 3, "field_id": "grade", "option_id": "a", "label": "Label"}]
+    assert result["results"] == ([] if scenario == "published_revoked" else [{"task_id": 3, "field_id": "grade", "option_id": "a", "label": "Label"}])
     assert state.call_args.kwargs == {"include_history": True, "member_snapshot_id": 8}
     view.config["template"]["content"][0]["settings"] = {"allowView": False}
     result = await routes.read_my_project_results(1, context(), Db())
@@ -6734,7 +6748,7 @@ async def test_calibration_save_preserves_trusted_readonly_and_reopens_without_s
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case,code", [("missing", "CALIBRATION_SOURCE_NOT_READY"), ("pending", "CALIBRATION_SOURCE_NOT_READY"), ("draft", "CALIBRATION_SOURCE_NOT_READY"), ("empty", "CALIBRATION_SOURCE_NOT_READY"), ("different", "CALIBRATION_SOURCE_CONFLICT"), ("missing-value", "CALIBRATION_SOURCE_CONFLICT"), ("ambiguous-final", "CALIBRATION_SOURCE_CONFLICT")])
+@pytest.mark.parametrize("case,code", [("different", "CALIBRATION_SOURCE_CONFLICT"), ("missing-value", "CALIBRATION_SOURCE_CONFLICT"), ("ambiguous-final", "CALIBRATION_SOURCE_CONFLICT")])
 async def test_calibration_source_blocks_unready_or_conflicting_results(calibration_content_data, case, code):
     from fastapi import HTTPException
     data = calibration_content_data
@@ -6765,15 +6779,35 @@ async def test_calibration_source_blocks_unready_or_conflicting_results(calibrat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["missing", "pending", "draft", "empty"])
+async def test_calibration_unsubmitted_or_empty_source_opens_and_accepts_submission(calibration_content_data, case):
+    data = calibration_content_data
+    if case == "missing":
+        data.db.tasks = [data.task]
+    else:
+        data.db.tasks[0].answers = {}
+        if case in {"pending", "draft"}:
+            data.db.tasks[0].status = "pending"
+            data.db.tasks[0].submitted_at = None
+            data.db.tasks[0].draft_answers = {"editable": "private draft"}
+    schema, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+    assert schema and answers == {}
+    result = await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(
+        answers={"editable": "calibrated", "grade": "b"}, version=1), True, context(), data.db, "evaluation")
+    assert result["answers"] == {"editable": "calibrated", "grade": "b"}
+    assert data.task.status == "completed" and data.db.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_calibration_multiple_final_reviewers_must_agree_on_visible_projection(calibration_content_data):
     data = calibration_content_data
-    data.db.tasks.append(data.make_task(13, answers={**data.db.tasks[0].answers, "hidden": "other hidden", "unknown": "ignored"}))
+    data.db.tasks.append(data.make_task(13, answers={**data.db.tasks[0].answers, "unknown": "ignored"}))
     _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
     assert answers == {"locked": "trusted", "editable": "original", "grade": "a"}
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case,expected", [("nearest", "previous"), ("skip-empty", "previous"), ("pending", "CALIBRATION_SOURCE_NOT_READY"), ("conflict", "CALIBRATION_SOURCE_CONFLICT"), ("agree", "previous"), ("revoked", "original")])
+@pytest.mark.parametrize("case,expected", [("nearest", "previous"), ("skip-empty", "previous"), ("pending", "original"), ("conflict", "CALIBRATION_SOURCE_CONFLICT"), ("agree", "previous"), ("revoked", "original")])
 async def test_calibration_phase_inherits_nearest_valid_completed_phase(calibration_content_data, case, expected):
     from fastapi import HTTPException
     data = calibration_content_data
@@ -6796,7 +6830,7 @@ async def test_calibration_phase_inherits_nearest_valid_completed_phase(calibrat
     else:
         _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
         assert answers["editable"] == expected
-        assert answers["grade"] == ("a" if case == "revoked" else "b")
+        assert answers["grade"] == ("a" if case in {"revoked", "pending"} else "b")
 
 
 @pytest.mark.asyncio
@@ -6885,7 +6919,10 @@ async def test_calibration_http_detail_submit_and_reopen(calibration_content_dat
         response = await client.get(path)
         assert response.status_code == 200, response.text
         assert response.json()["answers"] == {"locked": "trusted", "editable": "submitted", "grade": "b"}
-        assert response.json()["answer_submissions"] == [{"display_name": "校准人", "submitted_at": data.task.submitted_at.isoformat()}]
+        assert response.json()["answer_submissions"] == [
+            {"display_name": "冻结上级", "submitted_at": data.db.tasks[0].submitted_at.isoformat()},
+            {"display_name": "校准人", "submitted_at": data.task.submitted_at.isoformat()},
+        ]
 
 
 @pytest.mark.asyncio
@@ -6910,7 +6947,10 @@ async def test_calibration_submission_metadata_tracks_each_selected_source_and_s
     sources = []
     _, answers = await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=sources)
     result = await data.routes._calibration_answer_submissions(data.task, sources + sources, data.db)
-    assert result == [{"display_name": expected_name, "submitted_at": first.submitted_at}, {"display_name": "另一校准人", "submitted_at": second.submitted_at}]
+    expected = [{"display_name": expected_name, "submitted_at": first.submitted_at}, {"display_name": "另一校准人", "submitted_at": second.submitted_at}]
+    if phase == "third":
+        expected.insert(0, {"display_name": "冻结上级", "submitted_at": data.db.tasks[0].submitted_at})
+    assert result == expected
     assert data.task.submitted_at is None and data.task.answers == {} and answers["locked"] == "trusted"
     assert not data.db.commits and not data.db.added
     assert sum(query.column_descriptions[0]["entity"] is PerformanceNodeTask for query in data.db.queries) == 1
@@ -6982,9 +7022,13 @@ async def test_calibration_submission_metadata_cannot_break_saved_baseline_or_hi
     assert answers == data.task.answers and sources == []
     assert await data.routes._calibration_answer_submissions(data.task, sources, data.db) == []
     data.task.answers, data.task.answer_version = {}, 1
-    with pytest.raises(HTTPException) as error:
-        await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=[])
-    assert error.value.status_code == 409
+    if case == "conflict":
+        with pytest.raises(HTTPException) as error:
+            await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=[])
+        assert error.value.status_code == 409
+    else:
+        _, empty = await data.routes._task_visible_content(data.task, data.node, data.db, submission_sources=[])
+        assert empty == {}
     assert not data.db.commits and not data.db.added
 
 
@@ -7076,14 +7120,12 @@ async def test_calibration_source_uses_real_project_lock_and_refreshes_before_re
 
 
 @pytest.mark.asyncio
-async def test_calibration_refuses_submission_of_entirely_empty_result(calibration_content_data):
-    from fastapi import HTTPException
+async def test_calibration_all_optional_empty_result_can_submit(calibration_content_data):
     data = calibration_content_data
     data.db.tasks[0].answers = {"editable": "original"}
-    with pytest.raises(HTTPException) as error:
-        await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": ""}, version=1), True, context(), data.db, "evaluation")
-    assert error.value.detail == "CALIBRATION_SOURCE_NOT_READY"
-    assert data.task.answers == {} and not data.db.commits
+    result = await data.routes._save_self_summary(data.task.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": ""}, version=1), True, context(), data.db, "evaluation")
+    assert result["answers"] == {"editable": ""}
+    assert data.task.status == "completed" and data.db.commits == 1
 
 
 @pytest.mark.asyncio
@@ -7124,9 +7166,13 @@ async def test_calibration_legacy_missing_readonly_requires_trustworthy_source(c
         data.db.tasks = [data.task]
     else:
         data.db.tasks.append(data.make_task(30, answers={**data.db.tasks[0].answers, "locked": "different"}))
-    with pytest.raises(HTTPException) as error:
-        await data.routes._task_visible_content(data.task, data.node, data.db)
-    assert error.value.detail == code
+    if case == "missing":
+        _, answers = await data.routes._task_visible_content(data.task, data.node, data.db)
+        assert answers == {"editable": "historical-adjustment"}
+    else:
+        with pytest.raises(HTTPException) as error:
+            await data.routes._task_visible_content(data.task, data.node, data.db)
+        assert error.value.detail == code
     assert data.task.answers == {"editable": "historical-adjustment"} and not data.db.commits
 
 
@@ -7946,7 +7992,7 @@ async def test_task_detail_uses_source_snapshot_supervisor_name(monkeypatch, kin
         direct_supervisor_employee_no=None if scenario == "no_supervisor" else "M1",
     ) if scenario != "missing_member" else None
     task = SimpleNamespace(
-        id=9, project_id=3, member_snapshot_id=7, target_employee_no="E1",
+        id=9, project_id=3, cycle_ref="C1", member_snapshot_id=7, target_employee_no="E1",
         task_kind=kind, handler_ref="REVIEWER", submitted_at=None, status="pending",
         answer_version=1, answers={}, available_at=None, due_at=None, phase_id="",
     )
@@ -7956,6 +8002,7 @@ async def test_task_detail_uses_source_snapshot_supervisor_name(monkeypatch, kin
     monkeypatch.setattr(routes, "_self_summary_task", AsyncMock(return_value=(task, node)))
     monkeypatch.setattr(routes, "_overdue_submission_allowed", AsyncMock(return_value=False))
     monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(return_value=([], {})))
+    monkeypatch.setattr(routes, "_effective_member_result", AsyncMock(return_value={"answers": {}, "source_task": None, "source_tasks": [], "source_kind": None, "calibrated": False}))
     monkeypatch.setattr(routes, "_reference_tabs", AsyncMock(return_value=[]))
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="REVIEWER")))
     monkeypatch.setattr(routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
@@ -8158,9 +8205,9 @@ async def test_member_task_map_skips_non_delegatable_stage_without_key_error(mon
     member = PerformanceProjectMember(id=1, snapshot_id=7, employee_no="E1", display_name="员工", direct_supervisor_employee_no="M1", employee_type="正式员工")
     # self-review 节点（不可授权环节）+ manager-review 节点（可授权环节）
     self_node = SimpleNamespace(id=11, project_id=1, node_type="evaluation", node_id="self", config={"template": {"executor_role_code": ROLE_REVIEWEE}})
-    manager_node = SimpleNamespace(id=12, project_id=1, node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": ROLE_LINE_MANAGER}})
-    self_task = SimpleNamespace(id=101, project_id=1, node_snapshot_id=11, member_snapshot_id=7, target_employee_no="E1", handler_ref="E1")
-    manager_task = SimpleNamespace(id=102, project_id=1, node_snapshot_id=12, member_snapshot_id=7, target_employee_no="E1", handler_ref="M1")
+    manager_node = SimpleNamespace(id=12, project_id=1, node_type="evaluation", node_id="manager", config={"template": {"executor_role_code": ROLE_LINE_MANAGER, "include_final_result": True, "content": []}})
+    self_task = SimpleNamespace(id=101, project_id=1, cycle_ref="C1", task_kind="evaluation", status="pending", submitted_at=None, node_snapshot_id=11, member_snapshot_id=7, target_employee_no="E1", handler_ref="E1")
+    manager_task = SimpleNamespace(id=102, project_id=1, cycle_ref="C1", task_kind="evaluation", status="pending", submitted_at=None, node_snapshot_id=12, member_snapshot_id=7, target_employee_no="E1", handler_ref="M1")
     async def get_project(*args): return target
     async def scope(*args): return None
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="VIEWER")
@@ -9532,16 +9579,23 @@ def management_member_data(monkeypatch):
     def task(index, node_id=20, employee_no="E1", submitted=True):
         return SimpleNamespace(id=index, project_id=1, cycle_ref="C1", node_snapshot_id=node_id, member_snapshot_id=7, target_employee_no=employee_no, handler_ref=f"M{index}", task_kind=next(row.node_type for row in nodes if row.id == node_id), status="completed" if submitted else "pending", submitted_at=datetime(2026, 1, index, tzinfo=UTC) if submitted else None, available_at=None, due_at=None, answer_version=1, revoked_at=None, answers={"text": f"已提交{index}" if submitted else "未提交秘密", "unknown": "未知字段"}, draft_answers={"text": "草稿秘密"})
     tasks = [task(1, 10), task(2), task(3), task(4, submitted=False), task(5, 30), task(6, 30)]
+    tasks[2].answers = dict(tasks[1].answers)
     class Db:
-        def __init__(self): self.queries = []
+        def __init__(self):
+            self.queries = []
+            self.events = []
+            self.people = []
         async def scalar(self, query):
             self.queries.append(query)
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
             if "performance_result_openings" in sql: return None
             if "performance_cycles" in sql:
                 return SimpleNamespace(name="测试周期", start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
-            assert "performance_project_member_snapshots.project_id = 1" in sql
+            if query.column_descriptions[0]["entity"] is models.PerformanceNodeTask:
+                return next((task.id for task in tasks if task.task_kind == "calibration" and task.status == "completed" and task.submitted_at is not None and task.revoked_at is None), None)
             assert "performance_project_members.employee_no = 'E1'" in sql
+            if "performance_project_members.snapshot_id = 7" not in sql:
+                assert "performance_project_member_snapshots.project_id = 1" in sql
             if "performance_project_members.id = 999" in sql: return None
             return members[0]
         async def get(self, model, key):
@@ -9550,7 +9604,12 @@ def management_member_data(monkeypatch):
             self.queries.append(query)
             entity = query.column_descriptions[0]["entity"]
             if entity is models.PerformanceAuthorizationSnapshotPerson:
-                return SimpleNamespace(all=lambda: [(task.handler_ref, f"冻结处理人{task.id}") for task in tasks])
+                people = [SimpleNamespace(employee_no=task.handler_ref, display_name=f"冻结处理人{task.id}") for task in tasks] + self.people
+                return SimpleNamespace(all=lambda: [(person.employee_no, person.display_name) for person in people], scalars=lambda: SimpleNamespace(all=lambda: people))
+            if entity is models.PerformanceAuditEvent:
+                refs = set(query.compile().params["subject_ref_1"])
+                rows = sorted([event for event in self.events if event.subject_ref in refs], key=lambda event: (event.event_at, event.id), reverse=True)
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
             if entity is models.PerformanceNodeTaskAuthorization:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []), all=lambda: [], first=lambda: None)
             values = nodes if entity is models.PerformanceProjectNodeSnapshot else tasks if entity is models.PerformanceNodeTask else members
@@ -9578,7 +9637,7 @@ async def test_management_detail_defaults_latest_communication_merges_tasks_and_
     final = detail["management_tabs"][1]
     assert len(final["form_schema"]) == 2
     assert len(final["answers"]) == 2
-    assert set(final["answers"].values()) == {"已提交2", "已提交3"}
+    assert set(final["answers"].values()) == {"已提交2"}
     assert "冻结处理人2" in final["form_schema"][0]["name"]
     assert final["status"] == "pending"
     assert detail["person"]["visibility_role"] == "activity_manager"
@@ -9588,6 +9647,149 @@ async def test_management_detail_defaults_latest_communication_merges_tasks_and_
     task_sql = [str(query.compile(compile_kwargs={"literal_binds": True})) for query in data.db.queries if "performance_node_tasks" in str(query)]
     assert all("performance_node_tasks.member_snapshot_id = 7" in sql for sql in task_sql)
     assert "performance_project_members.id = 1" in str(data.db.queries[0].compile(compile_kwargs={"literal_binds": True}))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("actor", ["employee", "switch", "portal", "missing-name", "legacy"])
+async def test_management_main_tab_uses_actual_audit_submitter_not_handler(management_member_data, actor):
+    from datetime import timedelta
+    from app.performance.models import PerformanceAuditEvent, PerformanceAuthorizationSnapshotPerson
+    data = management_member_data
+    data.tasks[:] = [task for task in data.tasks if task.id == 2]
+    task = data.tasks[0]
+    data.db.people.append(PerformanceAuthorizationSnapshotPerson(employee_no="ACTUAL", display_name="真实提交人" if actor != "missing-name" else ""))
+    if actor != "legacy":
+        event = PerformanceAuditEvent(id=2, event_at=task.submitted_at, cycle_ref=task.cycle_ref,
+            employee_no=task.target_employee_no, subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
+            event_type="PERFORMANCE_TASK_SUBMITTED", actor_type="EMPLOYEE", actor_ref="ACTUAL",
+            after_state={"project_id": data.project.id})
+        if actor in {"switch", "portal"}:
+            event.actor_type, event.actor_ref = "PORTAL_USER", "42"
+            if actor == "switch":
+                event.after_state["identity_switch"] = {"business_actor_type": "EMPLOYEE", "business_actor_ref": "ACTUAL"}
+        data.db.events.extend([PerformanceAuditEvent(id=1, event_at=task.submitted_at - timedelta(hours=1),
+            cycle_ref=task.cycle_ref, employee_no=task.target_employee_no, subject_type="PERFORMANCE_NODE_TASK",
+            subject_ref=str(task.id), event_type="PERFORMANCE_TASK_SUBMITTED", actor_type="EMPLOYEE",
+            actor_ref=task.handler_ref, after_state={"project_id": data.project.id}), event])
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    tab = next(tab for tab in detail["management_tabs"] if tab["node_id"] == "node-20")
+    expected_name = None if actor in {"portal", "missing-name"} else "冻结处理人2" if actor == "legacy" else "真实提交人"
+    assert detail["default_active_tab"] == tab["key"]
+    assert tab["answer_submissions"] == ([] if expected_name is None else [{"display_name": expected_name, "submitted_at": task.submitted_at}])
+    assert tab["submitted_by"] == expected_name
+    assert detail["answer_submissions"] == tab["answer_submissions"]
+    assert task.handler_ref == "M2" and task.answers["text"] == "已提交2"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("submitted", [False, True])
+async def test_first_calibration_locks_final_detail_and_management_without_rewriting_task(management_member_data, monkeypatch, submitted):
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    data = management_member_data
+    data.tasks[:] = [data.task(2, submitted=submitted)]
+    final_task = data.tasks[0]
+    final_task.handler_ref = "ADMIN"
+    final_task.completed_at = final_task.submitted_at
+    data.nodes.append(data.node(25, "calibration"))
+    data.nodes[-1].config["calibration"] = {"phases": [{"phase_id": "first"}]}
+    calibration = data.task(7, 25)
+    calibration.phase_id = "first"
+    calibration.answers = {"text": "首次校准结果"}
+    final_task.available_at = datetime(2020, 1, 1, tzinfo=UTC)
+    final_task.due_at = datetime(2099, 1, 1, tzinfo=UTC)
+    original = deepcopy(vars(final_task))
+    monkeypatch.setattr(data.routes, "_self_summary_task", AsyncMock(return_value=(final_task, data.nodes[1])))
+    monkeypatch.setattr(data.routes, "_overdue_submission_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(data.routes, "resolve_subject_visibility_role", AsyncMock(return_value="activity_manager"))
+    app = FastAPI()
+    app.include_router(data.routes.router, prefix="/api/v1")
+    app.dependency_overrides[data.routes.get_session] = lambda: data.db
+    app.dependency_overrides[data.routes.get_performance_access_context] = lambda: context()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        path = f"/api/v1/performance/tasks/{final_task.id}/template-task"
+        before = await client.get(path)
+        assert before.status_code == 200, before.text
+        assert before.json()["final_result_locked"] is False
+        data.tasks.append(calibration)
+        for _ in range(2):
+            response = await client.get(path)
+            assert response.status_code == 200, response.text
+            detail = response.json()
+            assert detail["final_result_locked"] is True
+            assert detail["editable"] is False and detail["submit_allowed"] is False
+            assert detail["answers"] == {"text": "首次校准结果"}
+            assert detail["has_draft"] is False and detail["draft_answers"] == {}
+            management = await client.get("/api/v1/performance/projects/1/members/E1/detail?root_review_id=1")
+            assert management.status_code == 200, management.text
+            body = management.json()
+            assert body["final_result_locked"] is True
+            assert body["editable"] is False and body["submit_allowed"] is False
+            assert body["answers"] == detail["answers"]
+            final_tab = next(tab for tab in body["management_tabs"] if tab["node_id"] == "node-20")
+            assert final_tab["final_result_locked"] is True and final_tab["answers"] == detail["answers"]
+            stage = next(view for view in body["stage_views"] if view["node_id"] == "node-20")
+            assert stage["can_fill"] is False and stage["final_result_locked"] is True
+        for suffix, method in [("/draft", client.patch), ("/submit", client.post)]:
+            refused = await method(path + suffix, json={"answers": {"text": "试图覆盖"}, "version": 1})
+            assert refused.status_code == 409 and refused.json()["detail"] == "FINAL_RESULT_CALIBRATED"
+    assert vars(final_task) == original
+
+
+@pytest.mark.asyncio
+async def test_statistics_and_matrix_consume_calibration_then_closed_reconsideration(statistics_db, monkeypatch):
+    from copy import deepcopy
+    from datetime import UTC, datetime
+    from app.performance import projects_router as routes
+    from app.performance.self_summary_service import build_self_summary_schema
+    db = statistics_db
+    project = db.projects[0]
+    final = db.nodes[0]
+    calibration = deepcopy(final)
+    calibration.id, calibration.node_id, calibration.node_type, calibration.node_order = 41, "calibration", "calibration", 2
+    calibration.config["template"]["include_final_result"] = False
+    calibration.config["calibration"] = {"phases": [{"phase_id": "first"}]}
+    task = _statistics_task("E001", "one", task_id=201, node_id=41, task_kind="calibration")
+    task.phase_id = "first"
+    db.nodes.append(calibration)
+    db.tasks.append(task)
+    _ratings, values, _scales = await routes._project_final_ratings(project, {"E001"}, db, member_snapshot_id=21)
+    assert values["E001"][3]["key"] == "one"
+    report = await routes.project_management_statistics(1, "level", context("performance.projects.manage", refs=(project.project_ref,)), db)
+    assert report.departments[0].counts["one"] == 1 and report.departments[0].counts["five"] == 0
+    schema = build_self_summary_schema(final.config["template"])
+    appeal = SimpleNamespace(member_snapshot_id=21, employee_no="E001", node_snapshot_id=51,
+        closed_at=datetime.now(UTC), withdrawn_at=None, effective_result=None,
+        result_snapshot={"form_schema": schema, "full_result_answers": {"rating-field": "one"},
+                         "full_result_source_task_ids": [101, 201]})
+    decision = _statistics_task("E001", "five", task_id=301, node_id=51, task_kind="result_reconsideration")
+    decision.answers["keep_result"] = "change"
+    db.tasks.append(decision)
+    execute = db.execute
+    async def with_appeal(query):
+        if query.column_descriptions[0]["entity"] is routes.PerformanceResultReconsideration:
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [appeal]))
+        return await execute(query)
+    monkeypatch.setattr(db, "execute", with_appeal)
+    db.nodes.append(SimpleNamespace(id=51, project_id=project.id, node_id="appeal", node_order=3,
+        node_type="result_reconsideration", config={"template": {}}))
+    _ratings, values, _scales = await routes._project_final_ratings(project, {"E001"}, db, member_snapshot_id=21)
+    assert values["E001"][3]["key"] == "five"
+    assert db.tasks[0].answers == {"rating-field": "five"}
+    assert task.answers == {"rating-field": "one"}
+
+
+@pytest.mark.asyncio
+async def test_management_final_conflicting_submissions_are_rejected_instead_of_last_wins(management_member_data):
+    from fastapi import HTTPException
+    data = management_member_data
+    data.tasks[2].answers["text"] = "不一致正式终评"
+    with pytest.raises(HTTPException) as error:
+        await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    assert (error.value.status_code, error.value.detail) == (409, "CALIBRATION_SOURCE_CONFLICT")
 
 
 @pytest.mark.asyncio
@@ -9682,7 +9884,10 @@ async def test_management_list_dynamic_final_ratings_empty_page_and_sort_validat
     schema = [{"id": "result", "fields": [{"id": f"grade-{i}", "label": f"指标{i}", "type": "rating", "options": [{"id": "a", "label": "优秀", "color": "#123456", "foreground": "#ffffff"}]} for i in range(column_count)]}]
     schema_loader = AsyncMock(return_value=schema)
     monkeypatch.setattr(data.routes, "_matrix_node_schema", schema_loader)
-    data.tasks[2].answers = {f"grade-{i}": "a" for i in range(column_count)}
+    data.nodes[1].config["template"]["content"] = [{"content_id": "result", "type": "rating", "items": [{"id": f"grade-{i}", "kind": "rating", "options": schema[0]["fields"][i]["options"]} for i in range(column_count)]}]
+    for task in data.tasks:
+        if task.node_snapshot_id == 20:
+            task.answers = {f"grade-{i}": "a" for i in range(column_count)}
     data.tasks[-1].answers = {f"grade-{i}": "invalid" for i in range(column_count)}
     page = await data.routes.list_project_members(1, None, 1, 1, "rating:grade-0", "asc", context(), data.db)
     assert page.total == 2 and len(page.items) == 1
@@ -9695,7 +9900,9 @@ async def test_management_list_dynamic_final_ratings_empty_page_and_sort_validat
     assert first.rating == ("优秀" if column_count == 1 else None)
     page = await data.routes.list_project_members(1, None, 99, 1, None, None, context(), data.db)
     assert page.items == [] and len(page.rating_columns) == column_count
-    data.tasks[2].submitted_at = None
+    for task in data.tasks:
+        if task.node_snapshot_id == 20:
+            task.submitted_at = None
     items, _ = await data.routes._project_member_rows(data.project, None, None, None, None, context(), data.db)
     assert all(value is None for item in items for value in item.ratings.values())
     with pytest.raises(HTTPException) as error:

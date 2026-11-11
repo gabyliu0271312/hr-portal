@@ -140,6 +140,58 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
+  it('replaces completion messages with the exact lock notice and keeps current server answers readonly', async () => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...structuredClone(task), final_result_locked: true, editable: true, submit_allowed: true, answers: { good: '当前生效校准结果' } })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145 } })
+    try {
+      await flushPromises()
+      expect(document.body.querySelector('.performance-review-completion-notice__description')?.textContent).toBe('当前结果已完成校准，你无法再次修改')
+      expect(document.body.textContent).toContain('当前生效校准结果')
+      expect(document.body.textContent).not.toContain('继续编辑')
+      expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+      expect(document.body.querySelector('[contenteditable="true"]')).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['pending', 'completed'] as const)('renders a %s locked management tab schema instead of an empty or fill state', async status => {
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task), task_id: null, final_result_locked: false,
+      management_tabs: [{ key: 'final', node_id: 'final', node_name: '终评', status, employee_no: 'E001', final_result_locked: true, can_remind: false, form_schema: task.form_schema, answers: { good: '锁定页签当前答案' } }], default_active_tab: 'final',
+      stage_views: [{ node_id: 'final', anonymous: false, can_fill: true, task_id: 12, final_result_locked: true }],
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })
+    try {
+      await flushPromises()
+      expect(document.body.textContent).toContain('当前结果已完成校准，你无法再次修改')
+      expect(document.body.textContent).toContain('锁定页签当前答案')
+      expect(document.body.textContent).not.toContain('暂未提交')
+      expect(document.body.querySelector('.performance-stage-empty__fill')).toBeNull()
+      expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([false, true])('uses each management tab audit pair without exposing anonymous names: anonymous=%s', async anonymous => {
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task), node_id: 'manager', answer_submissions: [{ display_name: '顶层旧提交人', submitted_at: task.submitted_at }],
+      management_tabs: [
+        { key: 'manager', node_id: 'manager', node_name: '上级评估', task_id: 145, status: 'completed', employee_no: 'E001', submitted_at: task.submitted_at, submitted_by: '错误处理人', answer_submissions: [{ display_name: '主页签真实提交人', submitted_at: '2026-09-22T08:00:00Z' }], can_remind: false, form_schema: task.form_schema, answers: task.answers },
+        { key: 'other', node_id: 'other', node_name: '其他评估', task_id: 999, status: 'completed', employee_no: 'E001', submitted_at: task.submitted_at, submitted_by: '其他错误处理人', answer_submissions: [{ display_name: '其他真实提交人', submitted_at: '2026-09-22T09:00:00Z' }], can_remind: false, form_schema: task.form_schema, answers: task.answers },
+      ], default_active_tab: 'manager', stage_views: [{ node_id: 'other', anonymous }],
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })
+    try {
+      await flushPromises()
+      expect(document.body.textContent).toContain('主页签真实提交人 在 2026-09-22 16:00')
+      expect(document.body.textContent).not.toContain('顶层旧提交人')
+      expect(document.body.textContent).not.toContain('错误处理人')
+      ;(document.body.querySelectorAll('.performance-drawer .line-tab')[1] as HTMLButtonElement).click()
+      await flushPromises()
+      if (anonymous) expect(document.body.textContent).not.toContain('其他真实提交人')
+      else expect(document.body.textContent).toContain('其他真实提交人 在 2026-09-22 17:00')
+      expect(document.body.textContent).not.toContain('其他错误处理人')
+    } finally { wrapper.unmount() }
+  })
+
   it('renders only configured reference tabs and shows unsubmitted reminder action', async () => {
     vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
       ...structuredClone(task),

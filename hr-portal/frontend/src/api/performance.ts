@@ -1298,6 +1298,8 @@ export type PerformanceReferenceTab = {
   deadline_at?: string | null
   submitted_by?: string | null
   submitted_at?: string | null
+  answer_submissions?: Array<{ display_name: string; submitted_at: string }>
+  final_result_locked?: boolean
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
   can_remind: boolean
@@ -1328,6 +1330,7 @@ export type SelfSummaryPerson = {
   visibility_role?: string
   profile_fields?: SelfSummaryProfileField[]
 }
+export const FINAL_RESULT_LOCKED_MESSAGE = '当前结果已完成校准，你无法再次修改'
 export type PerformanceTemplateTask = {
   management_tabs?: PerformanceReferenceTab[]
   default_active_tab?: string
@@ -1346,6 +1349,7 @@ export type PerformanceTemplateTask = {
   deadline_at?: string | null
   editable: boolean
   submit_allowed: boolean
+  final_result_locked?: boolean
   submitted_at?: string | null
   answer_submissions?: Array<{ display_name: string; submitted_at: string }>
   version?: number
@@ -1378,6 +1382,7 @@ export type PerformanceStageView = {
   submitted_at?: string | null
   empty: boolean
   can_fill: boolean
+  final_result_locked?: boolean
   reminder_target?: string | null
   anonymous: boolean
 }

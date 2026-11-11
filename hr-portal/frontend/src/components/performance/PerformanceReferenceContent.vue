@@ -5,7 +5,7 @@
     <p v-if="reference.kind === 'okr' && okrError" role="alert">OKR 加载失败 <button type="button" @click="loadOkr">重试</button></p>
     <PerformanceOkrPanel v-if="reference.kind === 'okr' && !okrLoading && !okrError" :okr="okr" :okrs="okrs" />
     <PerformanceTemplateRenderer
-      v-else-if="reference.status === 'completed' && reference.form_schema.length"
+      v-else-if="(reference.status === 'completed' || reference.final_result_locked) && reference.form_schema.length"
       mode="readonly"
       :sections="reference.form_schema"
       :answers="reference.answers"

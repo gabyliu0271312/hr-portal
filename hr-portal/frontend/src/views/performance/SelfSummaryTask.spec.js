@@ -50,6 +50,51 @@ describe('SelfSummaryTask', () => {
     vi.spyOn(performanceReviewApi, 'submitSelfSummary').mockResolvedValue({ answers: {}, version: 3, submitted_at: '2026-09-11T00:00:00Z', editable: true, submit_allowed: true })
   })
 
+  it.each([null, '2026-11-10T00:00:00Z'])('keeps a calibrated final result readonly and does not restore or write its draft: submitted=%s', async submittedAt => {
+    const loaded = { ...structuredClone(task), final_result_locked: true, submitted_at: submittedAt, has_draft: true, draft_answers: { work: '不应恢复的草稿' }, answers: { work: '<p>当前生效结果</p>' } }
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue(loaded)
+    const save = vi.spyOn(performanceReviewApi, 'saveSelfSummaryDraft')
+    const submit = vi.spyOn(performanceReviewApi, 'submitSelfSummary')
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    expect(wrapper.text()).toContain('当前结果已完成校准，你无法再次修改')
+    expect(wrapper.text()).toContain('当前生效结果')
+    expect(wrapper.text()).not.toContain('不应恢复的草稿')
+    expect(wrapper.find('.performance-draft-choice').exists()).toBe(false)
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+    if (!submittedAt) {
+      expect(wrapper.getComponent(PerformanceTemplateRenderer).props('mode')).toBe('edit')
+      wrapper.getComponent(PerformanceTemplateRenderer).vm.$emit('submit')
+      await flushPromises()
+    }
+    expect(save).not.toHaveBeenCalled()
+    expect(submit).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['save', 'submit'])('maps FINAL_RESULT_CALIBRATED after a stale %s to the exact lock notice and reloads', async action => {
+    vi.useFakeTimers()
+    const first = { ...structuredClone(task), form_schema: [{ id: 's', name: '终评', fields: [{ id: 'work', type: 'rich_text', label: '结果' }] }], answers: { work: '<p>原答案</p>' } }
+    const locked = { ...structuredClone(first), final_result_locked: true, editable: false, submit_allowed: false, answers: { work: '<p>校准后答案</p>' } }
+    vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValueOnce(first).mockResolvedValueOnce(locked)
+    vi.spyOn(performanceReviewApi, action === 'save' ? 'saveSelfSummaryDraft' : 'submitSelfSummary').mockRejectedValue({ response: { data: { detail: 'FINAL_RESULT_CALIBRATED' } } })
+    const wrapper = mount(SelfSummaryTask)
+    await flushPromises()
+    const input = wrapper.get('.rich-input')
+    input.element.innerHTML = '<p>待保存</p>'
+    await input.trigger('input')
+    if (action === 'save') vi.advanceTimersByTime(400)
+    else await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(performanceReviewApi.selfSummary).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('当前结果已完成校准，你无法再次修改')
+    expect(wrapper.text()).toContain('校准后答案')
+    expect(wrapper.find('[contenteditable="true"]').exists()).toBe(false)
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+
   it('renders configured reference tabs and reminder action for an unsubmitted reference task', async () => {
     vi.spyOn(performanceReviewApi, 'selfSummary').mockResolvedValue({
       ...structuredClone(task),

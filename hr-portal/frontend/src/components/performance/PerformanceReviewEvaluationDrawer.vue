@@ -8,8 +8,9 @@
         <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
-            <PerformanceReviewCompletionNotice v-if="managementTab.submitted_at || currentManagementTab && task?.submitted_at" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable" variant="evaluation-drawer" :message="currentManagementTab ? completionMessages[0] : managementCompletionMessage" @edit="edit" />
-            <PerformanceReferenceContent v-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" />
+            <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
+            <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
+            <PerformanceReferenceContent v-else-if="managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
               <p>暂未提交</p>
@@ -35,7 +36,9 @@
         <section v-else-if="activeReference" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ activeReference.node_name }}</div>
-            <PerformanceReferenceContent :reference="activeReference" @remind="emit('remind', $event)" />
+            <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
+            <PerformanceTemplateRenderer v-if="activeReference.final_result_locked" mode="readonly" :sections="activeReference.form_schema" :answers="activeReference.answers" />
+            <PerformanceReferenceContent v-else :reference="activeReference" @remind="emit('remind', $event)" />
           </div>
         </section>
         <section v-else class="performance-review-evaluation-drawer__tab-content performance-review-evaluation-drawer__tab-placeholder">该页签内容将在后续迭代中开发</section>
@@ -65,7 +68,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { performanceReviewApi, projectManagementApi, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type PerformanceReminderPreview, type SelfSummaryPerson } from '@/api/performance'
+import { performanceReviewApi, projectManagementApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type PerformanceReminderPreview, type SelfSummaryPerson } from '@/api/performance'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
@@ -124,7 +127,8 @@ const referenceTabs = computed(() => task.value?.reference_tabs || [])
 const activeReference = computed<PerformanceReferenceTab | null>(() => referenceTabs.value.find(reference => reference.key === activeTab.value) || referenceTabs.value.find(reference => Boolean(reference.node_id) && reference.node_id === activeTab.value) || null)
 const managementTab = computed(() => task.value?.management_tabs?.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value))
 const currentManagementTab = computed(() => Boolean(task.value?.task_id != null && managementTab.value && (task.value.node_id ? managementTab.value.node_id === task.value.node_id : managementTab.value.task_id === task.value.task_id)))
-const managementTabEditable = computed(() => currentManagementTab.value && taskEditable.value)
+const managementTabEditable = computed(() => currentManagementTab.value && !managementTabLocked.value && taskEditable.value)
+const managementTabLocked = computed(() => Boolean(managementTab.value?.final_result_locked || currentManagementTab.value && task.value?.final_result_locked || task.value?.stage_views?.some(view => view.node_id === managementTab.value?.node_id && view.final_result_locked)))
 const stageView = computed(() => {
   const tab = managementTab.value
   if (!tab || tab.status === 'completed') return null
@@ -141,23 +145,37 @@ const tabs = computed<PerformanceLineTab[]>(() => task.value?.management_tabs
     { key: 'evaluation', label: title.value },
     ...referenceTabs.value.map(reference => ({ key: reference.key, label: reference.node_name })),
   ])
-const managementCompletionMessage = computed(() => {
+const managementCompletionMessages = computed(() => {
   const tab = managementTab.value
-  const deadline = formatDate(tab?.deadline_at)
-  return `以下内容由 ${tab?.submitted_by || '评估人'} 在 ${formatDate(tab?.submitted_at)} 提交${deadline && Date.parse(tab?.deadline_at || '') < Date.now() ? `，该环节已在 ${deadline} 截止` : ''}`
+  if (!tab) return []
+  if (managementTabLocked.value) return [FINAL_RESULT_LOCKED_MESSAGE]
+  const anonymous = task.value?.stage_views?.some(view => view.node_id === tab.node_id && view.anonymous)
+  if (anonymous) return tab.submitted_at ? ['该评估内容已提交'] : []
+  if (tab.answer_submissions?.length) {
+    const deadlineAt = currentManagementTab.value ? task.value?.deadline_at : tab.deadline_at
+    const deadline = formatDate(deadlineAt)
+    const suffix = deadline && Date.parse(deadlineAt || '') < Date.now() ? `，该环节已在 ${deadline} 截止` : deadline && managementTabEditable.value ? `，你可在 ${deadline} 前继续编辑` : ''
+    return tab.answer_submissions.map(item => `以下内容由 ${item.display_name} 在 ${formatDate(item.submitted_at)} 提交${suffix}`)
+  }
+  if (currentManagementTab.value && task.value?.submitted_at) return completionMessages.value
+  return tab.submitted_at ? [`以下内容由 评估人 在 ${formatDate(tab.submitted_at)} 提交`] : []
 })
 const displayPerson = computed<DrawerPerson>(() => task.value ? task.value.person : { employee_no: props.employeeNo, display_name: '' })
-const taskEditable = computed(() => Boolean(!props.readonly && task.value?.editable && task.value?.submit_allowed && (task.value.task_kind !== 'calibration' || !task.value.deadline_at || Date.parse(task.value.deadline_at) >= Date.now())))
+const taskEditable = computed(() => Boolean(!props.readonly && !task.value?.final_result_locked && task.value?.editable && task.value?.submit_allowed && (task.value.task_kind !== 'calibration' || !task.value.deadline_at || Date.parse(task.value.deadline_at) >= Date.now())))
 const completionMessages = computed(() => {
   const current = task.value
+  if (current?.final_result_locked) return [FINAL_RESULT_LOCKED_MESSAGE]
+  if (current?.stage_views?.some(view => view.node_id === current.node_id && view.anonymous)) return current.submitted_at ? ['该评估内容已提交'] : []
   if (current?.task_kind !== 'calibration') {
-    const submittedAt = formatDate(current?.submitted_at)
     const deadline = formatDate(current?.deadline_at)
-    const submitter = current?.answer_submissions?.[0]?.display_name
-    const prefix = submittedAt ? `以下内容由 ${submitter || '评估人'} 在 ${submittedAt} 提交` : '该评估内容已提交'
-    if (submittedAt && deadline && Date.parse(current?.deadline_at || '') < Date.now()) return [`${prefix}，该环节已在 ${deadline} 截止`]
-    if (submittedAt && deadline && taskEditable.value) return [`${prefix}，你可在 ${deadline} 前继续编辑`]
-    return [prefix]
+    const submissions = current?.answer_submissions?.length ? current.answer_submissions : [{ display_name: '评估人', submitted_at: current?.submitted_at || '' }]
+    return submissions.map(item => {
+      const submittedAt = formatDate(item.submitted_at)
+      const prefix = submittedAt ? `以下内容由 ${item.display_name} 在 ${submittedAt} 提交` : '该评估内容已提交'
+      if (submittedAt && deadline && Date.parse(current?.deadline_at || '') < Date.now()) return `${prefix}，该环节已在 ${deadline} 截止`
+      if (submittedAt && deadline && taskEditable.value) return `${prefix}，你可在 ${deadline} 前继续编辑`
+      return prefix
+    })
   }
   const deadline = formatDate(current.deadline_at)
   const suffix = deadline && Date.parse(current.deadline_at || '') < Date.now()
@@ -211,7 +229,7 @@ function edit(choice?: 'use' | 'discard') {
 }
 function fillStage() {
   const stage = stageView.value
-  if (!stage || !task.value || !stage.can_fill || stage.task_id == null) return
+  if (!stage || !task.value || managementTabLocked.value || stage.final_result_locked || !stage.can_fill || stage.task_id == null) return
   emit('edit', { task_id: stage.task_id, employee_no: displayPerson.value.employee_no, node_id: stage.node_id })
 }
 function openRemind() {

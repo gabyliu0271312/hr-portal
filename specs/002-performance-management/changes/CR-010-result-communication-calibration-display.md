@@ -320,6 +320,23 @@
 - 上级评估提示增量（2026-11-10用户确认）：manager evaluation详情复用既有提交元数据查询，按当前任务的提交审计/冻结姓名返回answer_submissions；本节点submitted_at和有效deadline_at不被管理页签的另一代表任务替代。当前任务对应管理页签按node_id识别，提示与编辑指向当前获授权task_id；其他参考页签不扩权。截止前文案为“以下内容由 {display_name} 在 {submitted_at} 提交，你可在 {deadline_at} 前继续编辑”，截止后为“以下内容由 {display_name} 在 {submitted_at} 提交，该环节已在 {deadline_at} 截止”，全部Asia/Shanghai展示；保留原共享提示图标、编辑按钮及权限。无可靠姓名时保留中性评估人兜底，不用当前登录用户/被评估人伪造提交者。
 - 本增量验证：抽屉与Review前端106 passed；后端manager_detail_uses_actual_submitter/submission_metadata/self_summary_detail_keeps_template_title/calibration_http_detail定向24 passed，覆盖真实审计提交者/legacy/缺名及旧task.due_at被本节点有效延期配置替代。vue-tsc＋Vite build通过；既有Review 360 XHR stderr、VueUse PURE/multipart警告保留。真实本地页面受控API验证用户两段文案、代表task错人错时间不参与提示、截止前有编辑/截止后无编辑，pageerror=0；Temp截图manager-submission-notice-before.png/after.png已读取。git diff --check通过，真实数据库/生产未执行，不commit/push，保留另一会话沟通评级改动。
 
+## 21. CR-010-F15/F16 校准、复议统一结果与终评锁定（2026-11-11）
+
+- [ ] F15 校准空值开放、统一生效结果与首次正式提交锁定终评。
+  - 用户确认：校准按自身时间及授权开放，不等待终评或前阶段全部提交；无正式答案正常空值显示，私人草稿不跨人公开。每员工首次正式校准提交即锁定其终评，已完成仍侧栏、未完成保留填写布局但不可编辑；提示精确为“当前结果已完成校准，你无法再次修改”，无编辑/保存/提交。该最新决定覆盖F12第299行的来源全完成/非空门槛及F13只读原final的局部来源限制，不改变结果开通权限。
+  - 范围：performance/result_service.py、projects_router.py、reconsideration_service.py及既有项目/复议测试、新test_performance_effective_results.py；frontend/api/performance.ts、PerformanceReviewEvaluationDrawer、PerformanceReferenceContent、SelfSummaryTask及既有测试。不改原始任务答案/状态/提交人时间，不迁移、不回填、不改权限或生产。
+  - 契约：统一完整答案按冻结节点/阶段顺序合并正式校准、关闭复议，草稿/撤销/未正式提交不参与；同阶段重叠字段冲突409 CALIBRATION_SOURCE_CONFLICT，缺key不覆盖、显式空值保留、隐藏/只读不可伪造。各入口再按自身模板及权限投影，不能将员工裁剪结果反作完整内部结果。复议新申请在既有JSON快照增加full_result_answers/full_result_source_task_ids，旧快照保留内部基底并承接已冻结员工可见字段；不冒充发布时答案快照。
+  - 锁定/API：沿原URL，DTO新增final_result_locked；终评保存/提交/丢弃草稿均在原项目锁内复验并返回409 FINAL_RESULT_CALIBRATED，保留任务版本及授权校验；未完成终评不伪造成completed，旧草稿不恢复。校准、终评引用、管理列表/导出、沟通评级、员工结果、矩阵及统计统一消费结果解析。
+  - UI：沿用户确认的既有工作区与侧栏，小范围状态修复无新IA/蓝图。真实Vite应用+隔离API夹具验证未提交填写布局、无contenteditable/提交栏，及已完成侧栏无编辑、当前答案、精确提示。截图：ui-blueprints/CR-010-F15-implemented-locked-pending-final.png、CR-010-F15-implemented-locked-completed-final.png，均已读取；受控夹具非真实业务库验收。
+  - 测试：Given无终评/未提交/空值/部分结果/多阶段/冲突/草稿/关闭复议，When读取→正式提交→重开及各入口查询，Then空值不阻断、正式结果一致、隐藏保护、原记录不变；已完成/未完成终评HTTP读取与写入409均有覆盖。数据库隔离设置DB_HOST=127.0.0.1 DB_PORT=1；实际pytest、前端测试/build结果见下方收尾证据。
+- [ ] F16 项目管理成员侧栏真实提交人统一。
+  - 复用原_calibration_answer_submissions按正式审计解析实际EMPLOYEE/身份切换业务员工，并使用冻结display_name；无审计legacy才回退任务处理人快照。顶层与各management_tab增加answer_submissions，submitted_by也使用真实审计姓名。前端每页签各自姓名/时间成对显示，匿名360不泄露，可靠姓名缺失不伪造。
+  - 覆盖实际员工、身份切换、Portal无业务员工、缺姓名、无审计历史及匿名页签；真实项目管理路由受控API验证“以下内容由 真实提交人 在 2026-11-10 15:42（GMT+8） 提交”，截图ui-blueprints/CR-010-F16-implemented-management-submit-name.png。校准锁定提示优先，不能把原终评提交人冒充后续校准人。
+- 最终回归证据：隔离环境DB_HOST=127.0.0.1、DB_PORT=1、PYTHONPATH=hr-portal/backend，执行backend/.venv/Scripts/python.exe -m pytest，六文件test_performance_projects.py、test_performance_effective_results.py、test_performance_reconsideration_results.py、test_performance_reconsideration_lifecycle.py、test_performance_template_workflow.py、test_performance_user_authorization.py，最终1173 passed、6 skipped、1既有python_multipart弃用警告（29.18s）。新增跨入口用例实际验证正式校准后矩阵/统计同值、关闭复议覆盖及原任务不变；只读冻结值缺失回补另有回归。
+- 前端最终证据：npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/SelfSummaryTask.spec.js src/views/performance/Review.spec.ts，3文件207 passed；保留Review既有jsdom XHR AggregateError stderr，不称零告警。npm --prefix hr-portal/frontend run build完成vue-tsc与Vite，built in 52.05s，既有VueUse PURE annotation提示；git diff --check通过。
+- 真实页面证据：本地5173应用路由通过隔离Chromium与API夹具验证未提交终评锁定填写态、已完成终评锁定侧栏、项目管理真实display_name提示，三张截图均已读取，姓名截图重采等待侧栏动画结束；pageerror均为空。无自定义脚本文件或独立报告。
+- 验收边界：本地ASGI/单元/组件与真实页面隔离夹具，不等同真实PostgreSQL事务并发、生产API、迁移或部署验收；本机8000/5432未监听，真实库与并发锁等待未执行，保持未勾选。无数据库迁移，无通知、commit/push或部署操作；并行会话的开通结果卡独立，不纳入本卡范围。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

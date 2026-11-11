@@ -480,10 +480,24 @@ async def test_freeze_published_result_uses_same_employee_result_projection(deci
     data = decision_runtime
     projection = AsyncMock(return_value=(_result(), SimpleNamespace(id=22, result_version={"1": 3}), 11, _template()["final"]))
     monkeypatch.setattr(data.router, "_published_employee_result", projection)
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectNodeSnapshot
+    final = SimpleNamespace(id=2, node_type="evaluation", node_order=1,
+        config={"template": {**_template()["final"], "include_final_result": True}})
+    source = SimpleNamespace(id=1, project_id=data.project.id, cycle_ref=data.project.cycle_ref,
+        member_snapshot_id=11, target_employee_no="E001", node_snapshot_id=2, task_kind="evaluation",
+        status="completed", submitted_at=datetime.now(UTC), answers={"rating-1": "A"})
+    async def execute(statement):
+        entity = statement.column_descriptions[0]["entity"]
+        assert entity in {PerformanceNodeTask, PerformanceProjectNodeSnapshot}
+        rows = [final] if entity is PerformanceProjectNodeSnapshot else [source]
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    data.db.execute = AsyncMock(side_effect=execute)
     snapshot, member_snapshot_id = await data.service.freeze_published_result(data.db, data.project, "E001", data.node, data.context)
     projection.assert_awaited_once_with(data.project, "E001", data.context, data.db, lock=True)
     assert member_snapshot_id == 11 and snapshot["opening_id"] == 22
     assert snapshot["source_result"] == _result()
+    assert snapshot["full_result_answers"] == {"rating-1": "A"}
+    assert snapshot["full_result_source_task_ids"] == [1]
 
 
 def test_result_migration_linear_nullable_legacy_and_protected_downgrade(monkeypatch):

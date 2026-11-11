@@ -30,17 +30,17 @@
             <section v-if="!isReconsiderationTask && !task.form_schema.length" class="state">暂无填写内容</section>
             <div v-else ref="draftAnchor" class="task-form-shell">
               <div v-if="task.calibration_notice" class="task-notices task-notices--calibration"><PerformancePromptNotice type="info" multiline>{{ task.calibration_notice }}</PerformancePromptNotice></div>
-              <PerformanceReviewCompletionNotice v-if="viewing && !isReconsiderationTask" :editable="task.editable && task.submit_allowed" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" />
+              <PerformanceReviewCompletionNotice v-if="(viewing || task.final_result_locked) && !isReconsiderationTask" :editable="task.editable && task.submit_allowed && !task.final_result_locked" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="task.final_result_locked ? FINAL_RESULT_LOCKED_MESSAGE : saveMessage === '提交成功' ? '提交成功，可在允许的期限内继续编辑' : '已提交，可在允许的期限内继续编辑'" @edit="choice => load(choice || 'edit')" />
               <PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" />
               <PerformanceReconsiderationContent v-if="isReconsiderationTask" class="task-reconsideration" :title="task.content_page_name || task.node_name" :reason="task.reconsideration_reason" :model-value="keepResultChoice" :show-result-and-modify="showResultAndModify" :interactive="canEdit && !submitting" @update:model-value="changeKeepResult">
                 <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
               </PerformanceReconsiderationContent>
-              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
+              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed && !task.final_result_locked" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
             </div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed && !task.final_result_locked" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !task.final_result_locked && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
@@ -57,7 +57,7 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
-import { performanceReview360FeedbackApi, performanceReviewApi, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
 import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
 import PerformanceSplitWorkspace from '@/components/performance/PerformanceSplitWorkspace.vue'
@@ -118,7 +118,7 @@ function writableAnswers(includeHiddenResults = false) {
   return writable
 }
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
-const canEdit = computed(() => !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed)
+const canEdit = computed(() => !task.value.final_result_locked && !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed)
 const canGiveup = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && Boolean(task.value.can_giveup) && !task.value.submitted_at)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
@@ -130,6 +130,7 @@ function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
   if (typeof detail === 'string') {
     const calibrationErrors: Record<string, string> = {
+      FINAL_RESULT_CALIBRATED: FINAL_RESULT_LOCKED_MESSAGE,
       RECONSIDERATION_CLOSED: '复议已处理完成，无法继续编辑或提交，请刷新查看最新结果',
       RECONSIDERATION_BASELINE_UNAVAILABLE: '复议前绩效结果暂不可用，请联系管理员核对后重试',
       RECONSIDERATION_SOURCE_CONFLICT: '复议结果来源不一致，请联系管理员核对后重试',
@@ -148,6 +149,19 @@ function closeReconsiderationOnConflict(error: unknown) {
   task.value.submit_allowed = false
   loadError.value = errorMessage(error, '')
 }
+async function lockFinalResultOnConflict(error: unknown) {
+  if ((error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail !== 'FINAL_RESULT_CALIBRATED') return
+  task.value.final_result_locked = true
+  task.value.editable = false
+  task.value.submit_allowed = false
+  pendingSave = false
+  window.clearTimeout(saveTimer)
+  draftOpen.value = false
+  draftPending.value = false
+  overdueConfirmOpen.value = false
+  saveMessage.value = FINAL_RESULT_LOCKED_MESSAGE
+  await load()
+}
 async function load(choice?: 'use' | 'discard' | 'edit') {
   loading.value = true
   loadError.value = ''
@@ -160,7 +174,14 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
     task.value = loaded
     activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
-    if (reconsiderationClosed.value) {
+    if (loaded.final_result_locked) {
+      loaded.editable = false
+      loaded.submit_allowed = false
+      viewing.value = Boolean(loaded.submitted_at)
+      draftOpen.value = false
+      draftPending.value = false
+      saveMessage.value = FINAL_RESULT_LOCKED_MESSAGE
+    } else if (reconsiderationClosed.value) {
       viewing.value = true
       draftOpen.value = false
       draftPending.value = false
@@ -172,9 +193,9 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
       }
     }
     const decision = choice || route.query.draft_choice
-    draftPending.value = !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use')
+    draftPending.value = !loaded.final_result_locked && !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use')
     draftOpen.value = draftPending.value
-    const useDraft = !viewing.value && !draftPending.value && loaded.has_draft && decision !== 'discard'
+    const useDraft = !loaded.final_result_locked && !viewing.value && !draftPending.value && loaded.has_draft && decision !== 'discard'
     const values = useDraft ? { ...loaded.answers, ...loaded.draft_answers } : loaded.answers || {}
     const restoredChoice = useDraft ? loaded.keep_result ?? values.keep_result : loaded.answers?.keep_result ?? (loaded.has_draft ? undefined : loaded.keep_result)
     keepResultChoice.value = restoredChoice === 'keep' ? 'keep' : 'change'
@@ -219,6 +240,7 @@ function saveDraft() {
       pendingSave = false
       saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
       closeReconsiderationOnConflict(error)
+      await lockFinalResultOnConflict(error)
       throw error
     } finally {
       saving.value = false
@@ -300,7 +322,7 @@ async function submit(overdueConfirmed = false) {
   pendingSave = false
   try {
     await saveChain.catch(() => undefined)
-    if (reconsiderationClosed.value) return
+    if (reconsiderationClosed.value || !canEdit.value) return
     const payload = JSON.parse(JSON.stringify(writableAnswers()))
     const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
     const result = props.taskKind === 'work_summary'
@@ -355,6 +377,7 @@ async function submit(overdueConfirmed = false) {
   } catch (error) {
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
     closeReconsiderationOnConflict(error)
+    await lockFinalResultOnConflict(error)
     if (overdueConfirmOpen.value) overdueConfirmError.value = saveMessage.value
   } finally {
     submitting.value = false
