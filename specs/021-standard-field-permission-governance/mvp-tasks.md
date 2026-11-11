@@ -81,7 +81,7 @@ R08的分摊内部依赖只能服务获准分摊结果，独立工资/奖金输�
 #### 组织与成本中心树
 
 - [ ] **B20.a 组织树通用能力样例**（FR-B01/B02/B04/B05/B06/B13/A14；AC-B01/B02/B04/B05/B06/B13/A14）：在通用入口检索、展开、查看组织同结构样例；local样例按权维护、托管样例只读；循环/孤儿/跨树父/重复码/超深度拒绝。必需服务端+真库+PC；通过仅证明通用树底座，不代表接管或切换。
-- [ ] **B20.b 成本中心树复用样例**（FR-B01/B02/B04/B05/B06/B13/B17；AC-B01/B02/B04/B05/B06/B13/B17）：用同一树能力配置成本中心同结构样例，证明无专属CRUD；重复B20.a的结构负例并通过。必需真库+PC；不改现网成本树/范围。**进行中（2026-11-11）**：只读目录入口（`people.cost_center` 菜单 + `GET /trees/cost-center/directory` + 四列树/搜索/含停用）开发+单测+构建完成，证据见§9.13；未走查PC、未部署、未提交，维护模式操作留 B06.cc，未勾选。
+- [ ] **B20.b 成本中心树复用样例**（FR-B01/B02/B04/B05/B06/B13/B17；AC-B01/B02/B04/B05/B06/B13/B17）：用同一树能力配置成本中心同结构样例，证明无专属CRUD；重复B20.a的结构负例并通过。必需真库+PC；不改现网成本树/范围。**进行中（2026-11-11）**：只读目录入口（`people.cost_center` 菜单 + `GET /trees/cost-center/directory` + 四列树/搜索/含停用）开发+单测+构建完成，证据见§9.13；**用户 PC 走查发现健康校验对真实成本中心树 409 + 错误态隐藏表头，根因已定位（校验器选型错误）、UX 已修（错误仍显示表头+issues 明细），校验器处置待用户决策，未部署**，维护模式操作留 B06.cc，未勾选。
 - [ ] **B06.org 组织来源接管**（FR-B04/B05/B06/B07/B13；AC-B04/B05/B06/B07/B13）：按B00.a核准来源键接管一批既有组织，同源重跑同ID、父缺失/身份冲突拒绝或待就绪；组织业务入口可查。必需真库+PC；不重拉、不切现网输入。
 - [ ] **B06.cc 成本中心来源接管或获准本地维护**（FR-B04/B05/B06/B07/B13/B17；AC-B04/B05/B06/B07/B13/B17）：来源模式按核准合同选择接管或local维护；获准写入在通用入口完成，托管手写拒绝，重跑/更新同ID、冲突拒绝。必需真实来源/隔离真库+PC；不能用B20.b样例代替。
 - [ ] **B13.org 组织权限投影只读对照**（FR-B10/B13；AC-B10/B13）：对照旧新code、存续ID、父子/path/后代、启停和范围标签；每项差异可解释且不泄露人员。只读、不切换。
@@ -218,7 +218,7 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 | B03 | US-B01 | FR-B02 | AC-B02的本实例约束/类型 | 待开发，一种约束一实例 |
 | B04 | US-B02 | FR-B02、FR-B03、FR-B04、FR-B05、FR-B06 | AC-B02、AC-B03、AC-B04、AC-B05、AC-B06 | 待开发，Person/Employment业务模型已确认 |
 | B05 | US-B02、US-B05 | FR-B04、FR-B05、FR-B06、FR-B18 | 原扩展实体关联及AC-B18的scope-org/person/cc分别验收 | 待开发；原关联实例和权限选择器实例独立，不互相冒充完成 |
-| B20 | US-B07 | FR-B01、FR-B02、FR-B04、FR-B05、FR-B06、FR-B13、FR-A14 | AC-B01/AC-B02/AC-B04/AC-B05/AC-B06/AC-B13/AC-A14的单树实例及非组织复用 | 开发中：B20.a组织目录已验收（§9.12）；B20.b成本中心只读目录开发+单测+构建完成（§9.13），未走查PC/未部署，不晚于组织阶段 |
+| B20 | US-B07 | FR-B01、FR-B02、FR-B04、FR-B05、FR-B06、FR-B13、FR-A14 | AC-B01/AC-B02/AC-B04/AC-B05/AC-B06/AC-B13/AC-A14的单树实例及非组织复用 | 开发中：B20.a组织目录已验收（§9.12）；B20.b成本中心只读目录开发+单测+构建完成（§9.13），PC走查发现健康校验409+错误态隐藏表头，UX已修、校验器处置待决策，未部署 |
 | B06 | US-B03、US-B07 | FR-B04、FR-B05、FR-B06、FR-B07、FR-B13、FR-B17 | AC-B04/AC-B05/AC-B06/AC-B07/AC-B13/AC-B17的org/cc真实来源或获准local维护实例 | 待开发；org需B20.a，cc需B20.b及独立来源/写者核准，分别验收 |
 | B07 | US-B02、US-B03 | FR-B03、FR-B04、FR-B05、FR-B07 | AC-B03、AC-B04、AC-B05、AC-B07 | 待开发，真实身份未核准不得接管 |
 | B08 | US-B03 | FR-B05、FR-B07、FR-B08 | AC-B05、AC-B07、AC-B08的持久增量/重复通知 | 待开发 |
@@ -792,7 +792,15 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
   - 共享组件 `components/master-data/OrganizationTree.vue` 增加 `mode` prop（默认 `org`，组织目录列不变）：`cc` 模式四列「名称/编码/更新时间/操作」，时间经 `formatDisplayDateTime` 转北京时间；展开/搜索/停用标签逻辑复用。
   - 新页面 `views/master-data/CostCenter.vue`：标题「成本中心」、描述「展示所有成本中心相关的信息」、含停用开关文案「含停用成本中心」、搜索按名称/编码匹配，页面只组装组件不写树细节。
 - **后端测试**：`tests/test_cc_directory_router.py`（新建 7 用例）直接调用 router 函数 + FakeSession/FakeResult：健康树返回、默认排除 inactive、include_inactive、synced_at 透出、循环/缺父→409，及 `require_op("people.cost_center","V")` 源码声明回归断言。连同 `test_org_directory_router.py`、`test_trees_router_entity.py` → **18 passed** 无回归。
-- **前端测试/构建证据**：`OrganizationTree.spec.ts` 增 cc 模式四列/时间渲染用例、`CostCenter.spec.ts` 新建（授权加载/权限错误态）、`PeopleLayout.spec.ts` 回归 → **12 passed**；`vue-tsc --noEmit` 干净；`npm run build`（vue-tsc+Vite）成功。
-- **PC 证据（待补）**：本轮完成代码/测试/构建验证，**未做真实登录的 PC 走查**（侧栏「成本中心」菜单 → 四列树 → 展开/搜索 → 含停用开关截图），sticky 滚动与树形收起依赖真实浏览器，jsdom 无法覆盖，留待用户登录 dev 栈确认后补入。
+- **前端测试/构建证据**：`OrganizationTree.spec.ts` 增 cc 模式四列/时间渲染用例、`CostCenter.spec.ts` 新建（授权加载/权限错误态/错误仍显示表头+issues 明细）、`PeopleLayout.spec.ts` 回归 → **13 passed**；`vue-tsc --noEmit` 干净；`npm run build`（vue-tsc+Vite）成功。
+- **PC 走查（2026-11-11 用户实测，发现缺陷）**：用户登录 dev 栈实测成本中心页，页面提示「成本中心树未通过健康校验，已拒绝返回目录」——`GET /trees/cost-center/directory` 的 `analyze_tree` fail-closed 校验对**真实成本中心树数据**判不合格（409），整个表格被前端隐藏。两点缺陷：
+  1. **校验器选型错误（根因，代码层面已定位）**：组织目录 B20.a 用 `resolve_org_hierarchy`（只查循环/父缺失/超深三类，有容错），成本中心目录却套用了 `analyze_tree`（14 类严格校验：重复路径、层级不连续、根层级、启用挂停用下等）。`_sync_cc_tree` 建树特性与 `analyze_tree` 结构性冲突——本地复现脚本（`.tmp-cc-diag/repro.py`）验证四类成本中心正常形态即触发：
+     - `duplicate_path`：北森源同名成本中心（不同编码）→ `_recompute_tree_paths` 算出一致 path →「名称路径重复，后代展开可能扩大授权」
+     - `active_under_inactive`：父「停用」子「启用」（本地维护的启用状态与源层级冲突）
+     - `root_level_invalid` / `path_depth_mismatch`：源端无一级、根业务层级Id从 2 起
+     - `level_mismatch`：源端层级跳级（1→3，无二级）
+     即：**数据大概率是成本中心树的正常形态，不是数据损坏**；`analyze_tree` 的组织树严格语义不适配成本中心目录。
+  2. **UX 缺陷（已修）**：`CostCenter.vue` 原用 `v-else` 把错误提示与整个表格互斥——错误时工具栏和表头全部隐藏，用户看不到任何列结构。已改为：错误条展示在表格上方，工具栏 + 表头表格（`OrganizationTree` 壳）始终渲染，错误态空数据行显示「暂无」，并把 409 响应的 `issues` 明细（`code`+`message`+`node_code`）逐条列出，作为根因可视化。
+- **根因后续处置（待定）**：健康校验对成本中心目录的适用性需按 021 口径决策——(a) 目录端点改用与组织目录一致的容错校验器/降级为 warning 不阻断（推荐，读权限不应被数据形态阻断）；或 (b) 保持严格 fail-closed 并修数据。按仓库规则，改动与数据处置均需用户确认后实施，不自行改业务口径。
 - **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。菜单为新增叶子 code，seed 幂等仅 INSERT；上线需按版本推送+部署流程执行。
 - **未做/停止（冻结边界）**：不做成本中心 CRUD / local 维护（B06.cc）、不切任何现网消费输入、不读真实员工行、不改组织输入；组织目录与成本中心目录为两个独立实例，组织通过不代表中心通过；B13.cc/B14.cc 投影切换不在本轮。

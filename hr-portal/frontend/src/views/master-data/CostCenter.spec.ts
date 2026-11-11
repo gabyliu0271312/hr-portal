@@ -49,4 +49,25 @@ describe('cost center directory shell', () => {
     expect(vm.trees).toHaveLength(0)
     wrapper.unmount()
   })
+
+  it('keeps toolbar and table headers visible while showing health issues', async () => {
+    api.costCenterDirectory.mockRejectedValueOnce({ response: { data: { detail: {
+      message: '成本中心树未通过健康校验，已拒绝返回目录',
+      issues: [
+        { code: 'duplicate_path', message: '名称路径重复，后代展开可能扩大授权', node_id: 2, node_code: 'A1-1' },
+        { code: 'active_under_inactive', message: '启用节点不能挂在停用父节点下', node_id: 3, node_code: 'B1-1' },
+      ],
+    } } } })
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.error).toContain('未通过健康校验')
+    expect(vm.issues).toHaveLength(2)
+    // 表头壳（OrganizationTree）与工具栏在错误时仍然渲染
+    expect(wrapper.find('.org-tree').exists()).toBe(true)
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
+    // issues 明细渲染
+    expect(wrapper.text()).toContain('duplicate_path')
+    expect(wrapper.text()).toContain('active_under_inactive')
+    wrapper.unmount()
+  })
 })
