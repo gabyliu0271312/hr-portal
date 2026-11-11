@@ -17,7 +17,8 @@
             <div v-for="tick in ticks" :key="tick" class="chart-gridline" :style="{ bottom: `${tick / maximum * 100}%` }"><span>{{ tick }}</span></div>
           </div>
           <div class="chart-columns" :style="{ gridTemplateColumns: `repeat(${report.ratings.length}, minmax(0, 1fr))` }">
-            <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${share(rating.key)}%`" @mouseenter="activate(rating.key, $event)" @mouseleave="activeKey = null; tooltipPosition = null" @focus="activate(rating.key, $event)" @blur="activeKey = null; tooltipPosition = null">
+            <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :class="{ 'column-active': activeKey === rating.key }" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${share(rating.key)}%`" @mouseenter="activate(rating.key, $event)" @mouseleave="activeKey = null; tooltipPosition = null" @focus="activate(rating.key, $event)" @blur="activeKey = null; tooltipPosition = null">
+              <div class="chart-axis-line" aria-hidden="true"></div>
               <div class="chart-bar" :class="heatClass(rating.key)" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }"></div>
               <span class="chart-label"><PerformanceRatingTag :label="rating.label" :color="rating.color" /></span>
             </div>
@@ -88,7 +89,9 @@ const tooltipStyle = computed(() => tooltipPosition.value ? { left: `${tooltipPo
 .chart-gridline span { position: absolute; right: calc(100% + 8px); top: -10px; color: #646a73; font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-columns { position: absolute; inset: 0; display: grid; }
 .chart-column { display: flex; position: relative; justify-content: center; align-items: flex-end; min-width: 0; height: 100%; }
-.chart-bar { position: relative; width: 24px; max-width: calc(100% - 8px); border-radius: 4px 4px 0 0; }
+.chart-axis-line { position: absolute; inset: 0; background: transparent; pointer-events: none; }
+.chart-column.column-active .chart-axis-line { background: #f6f6f6; }
+.chart-bar { position: relative; width: 24px; max-width: calc(100% - 8px); border-radius: 4px 4px 0 0; z-index: 1; }
 .chart-bar.heat-1 { background: #e1eaff; }
 .chart-bar.heat-2 { background: #bacefd; }
 .chart-bar.heat-3 { background: #82a7fc; }
