@@ -1240,6 +1240,7 @@ class ProjectStatisticsRowResponse(BaseModel):
     id: str
     name: str
     counts: dict[str, int]
+    heatLevels: dict[str, int] = {}
     children: list["ProjectStatisticsRowResponse"] = []
 
 
@@ -4889,13 +4890,23 @@ async def project_management_statistics(
         "team": "直属上级", "sequence": "序列（BU/职位族/职位）",
     }[dimension]
     row_sort = _statistics_sort_key(dimension)
+
+    def row_heat_levels(counts: dict[str, int]) -> dict[str, int]:
+        total = sum(counts.values())
+        return {
+            key: 3 if total > 0 and counts.get(key, 0) / total > 0.4
+            else 2 if total > 0 and counts.get(key, 0) / total > 0.3
+            else 1 if counts.get(key, 0) > 0 else 0
+            for key in keys
+        }
+
     if dimension in ("department", "team", "sequence"):
         paths = sorted(rows, key=lambda p: (row_sort(p[-1]), p))
 
         def make_row(path):
             own = rows.get(path, {})
             children = [make_row(child) for child in paths if len(child) == len(path) + 1 and child[:-1] == path]
-            return {"id": f"{dimension}:" + "/".join(path), "name": path[-1], "counts": {key: own.get(key, 0) for key in keys}, "children": children}
+            return {"id": f"{dimension}:" + "/".join(path), "name": path[-1], "counts": {key: own.get(key, 0) for key in keys}, "heatLevels": row_heat_levels(own), "children": children}
 
         report_rows = [make_row(path) for path in paths if len(path) == 1]
     else:
@@ -4903,6 +4914,7 @@ async def project_management_statistics(
             "id": f"{dimension}:{bucket[0]}",
             "name": bucket[0],
             "counts": {key: rows[bucket].get(key, 0) for key in keys},
+            "heatLevels": row_heat_levels(rows[bucket]),
         } for bucket in sorted(rows, key=lambda p: row_sort(p[0]))]
     leaf_rows = []
     for path in rows:

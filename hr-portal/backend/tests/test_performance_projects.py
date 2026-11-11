@@ -3964,10 +3964,10 @@ async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(stati
         "distribution": {"one": 1, "five": 1},
         "heatLevels": {"one": 3, "five": 3},
         "departments": [
-            {"id": "level:J6", "name": "J6", "counts": {"one": 0, "five": 1}, "children": []},
-            {"id": "level:J3", "name": "J3", "counts": {"one": 0, "five": 0}, "children": []},
-            {"id": "level:专家", "name": "专家", "counts": {"one": 0, "five": 0}, "children": []},
-            {"id": "level:--", "name": "--", "counts": {"one": 1, "five": 0}, "children": []},
+            {"id": "level:J6", "name": "J6", "counts": {"one": 0, "five": 1}, "heatLevels": {"one": 0, "five": 3}, "children": []},
+            {"id": "level:J3", "name": "J3", "counts": {"one": 0, "five": 0}, "heatLevels": {"one": 0, "five": 0}, "children": []},
+            {"id": "level:专家", "name": "专家", "counts": {"one": 0, "five": 0}, "heatLevels": {"one": 0, "five": 0}, "children": []},
+            {"id": "level:--", "name": "--", "counts": {"one": 1, "five": 0}, "heatLevels": {"one": 3, "five": 0}, "children": []},
         ],
     }
     assert sum(result.distribution.values()) == 2 < result.totalParticipants
@@ -4466,7 +4466,7 @@ async def test_level_statistics_http_contract_and_dimension_validation(statistic
         assert payload["dimension"] == "level"
         assert payload["distribution"] == {"one": 0, "five": 1}
         assert payload["heatLevels"] == {"one": 0, "five": 3}
-        assert set(payload["departments"][0]) == {"id", "name", "counts", "children"}
+        assert set(payload["departments"][0]) == {"id", "name", "counts", "children", "heatLevels"}
         for params in [{}, {"cycle_id": 0}, {"cycle_id": 1, "dimension": "invalid"}]:
             response = await client.get(url, params=params)
             assert response.status_code == 422

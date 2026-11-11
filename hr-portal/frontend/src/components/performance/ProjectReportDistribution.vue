@@ -18,13 +18,15 @@
           </div>
           <div class="chart-columns" :style="{ gridTemplateColumns: `repeat(${report.ratings.length}, minmax(0, 1fr))` }">
             <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${share(rating.key)}%`">
-              <div class="chart-bar" :class="heatClass(rating.key)" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }" />
-              <span class="chart-label"><PerformanceRatingTag :label="rating.label" :color="rating.color" /></span>
-              <div class="chart-tooltip" role="tooltip">
-                <div class="tooltip-title">价值贡献（终评）</div>
-                <div class="tooltip-rating">{{ rating.label }}</div>
-                <div class="tooltip-row"><span class="tooltip-row-label">汇总</span><span class="tooltip-row-value">{{ share(rating.key) }}% ({{ report.distribution[rating.key] ?? 0 }} 人)</span></div>
+              <div class="chart-bar" :class="heatClass(rating.key)" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }">
+                <div class="chart-tooltip" role="tooltip">
+                  <div class="tooltip-title">价值贡献（终评）</div>
+                  <div class="tooltip-rating">{{ rating.label }}</div>
+                  <div class="tooltip-row"><span class="tooltip-dot" aria-hidden="true" /><span class="tooltip-row-label">我的团队数据</span><span class="tooltip-row-value">{{ share(rating.key) }}% ({{ report.distribution[rating.key] ?? 0 }} 人)</span></div>
+                  <div class="tooltip-row"><span class="tooltip-dot" aria-hidden="true" /><span class="tooltip-row-label">汇总</span><span class="tooltip-row-value">{{ share(rating.key) }}% ({{ report.distribution[rating.key] ?? 0 }} 人)</span></div>
+                </div>
               </div>
+              <span class="chart-label"><PerformanceRatingTag :label="rating.label" :color="rating.color" /></span>
             </div>
           </div>
         </div>
@@ -69,19 +71,18 @@ const heatClass = (key: string) => {
 .chart-gridline span { position: absolute; right: calc(100% + 8px); top: -10px; color: #646a73; font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-columns { position: absolute; inset: 0; display: grid; }
 .chart-column { display: flex; position: relative; justify-content: center; align-items: flex-end; min-width: 0; height: 100%; }
-.chart-bar { width: 24px; max-width: calc(100% - 8px); border-radius: 4px 4px 0 0; }
+.chart-bar { position: relative; width: 24px; max-width: calc(100% - 8px); border-radius: 4px 4px 0 0; }
 .chart-bar.heat-1 { background: #e1eaff; }
 .chart-bar.heat-2 { background: #bacefd; }
 .chart-bar.heat-3 { background: #82a7fc; }
 .chart-bar.heat-2:hover { background: #a9bff3; }
 .chart-label { position: absolute; top: calc(100% + 12px); left: 0; right: 0; display: flex; justify-content: center; }
-.chart-tooltip { display: none; position: absolute; z-index: 9999999; bottom: 100%; left: 50%; transform: translateX(-50%); width: 282px; box-sizing: border-box; padding: 8px 12px; margin-bottom: 8px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: rgba(0, 0, 0, 0.16) 0 4px 16px; color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }
-.chart-column:first-child .chart-tooltip { left: 0; transform: none; }
-.chart-column:last-child .chart-tooltip { left: auto; right: 0; transform: none; }
+.chart-tooltip { display: none; position: absolute; z-index: 9999999; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: 282px; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 8px 12px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: rgba(0, 0, 0, 0.16) 0 4px 16px; color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }
 .chart-column:hover .chart-tooltip, .chart-column:focus .chart-tooltip { display: block; }
 .tooltip-title { color: #666; font-weight: 500; }
 .tooltip-rating { display: flex; align-items: center; gap: 4px; color: #666; font-weight: 500; }
-.tooltip-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tooltip-row { display: flex; align-items: center; gap: 8px; }
+.tooltip-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: #3370ff; }
 .tooltip-row-label { color: #666; }
 .tooltip-row-value { text-align: right; color: #666; font-variant-numeric: tabular-nums; }
 figcaption { color: #646a73; font-size: 12px; }
