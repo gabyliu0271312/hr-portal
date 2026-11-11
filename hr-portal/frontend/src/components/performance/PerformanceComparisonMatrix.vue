@@ -78,7 +78,7 @@ const focusStyle = (area: PerformanceComparisonFocusArea) => ({
 
 <style scoped>
 .performance-comparison-matrix { position: relative; min-width: 0; }
-.comparison-table-shell { display: flex; width: 100%; min-width: 924px; height: 488px; overflow: visible; border-top: 1px solid #dee0e3; }
+.comparison-table-shell { display: flex; width: 100%; min-width: 0; height: 488px; overflow-x: auto; border-top: 1px solid #dee0e3; }
 .comparison-axis-y { position: relative; flex: 0 0 122px; width: 122px; border-right: 1px solid #dee0e3; }
 .comparison-corner { height: 102px; border-bottom: 1px solid #dee0e3; background: #f8f9fa; box-sizing: border-box; }
 .y-axis-body { position: relative; display: flex; height: 385px; background: #f8f9fa; }
@@ -92,5 +92,4 @@ const focusStyle = (area: PerformanceComparisonFocusArea) => ({
 .focus-area { position: absolute; z-index: 2; pointer-events: none; border: 1px solid #ffb34d; border-radius: 4px; box-sizing: border-box; background: repeating-linear-gradient(135deg, rgba(255, 179, 77, .05) 0 2px, rgba(255, 179, 77, .38) 2px 3px, rgba(255, 179, 77, .05) 3px 6px); }
 .focus-area-left { left: 0; }
 .focus-area-right { right: 0; }
-@media (max-width: 900px) { .comparison-table-shell { overflow-x: auto; } }
 </style>

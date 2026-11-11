@@ -20,8 +20,8 @@ export function getProjectReportMatrixConfig(dimension: ProjectReportDimension):
   return PROJECT_REPORT_MATRIX_CONFIGS[dimension]
 }
 export interface ReportRating { key: string; label: string; color?: string }
-export interface ProjectReportComparison {
-  source: 'mock'
+export interface ProjectReportComparisonData {
+  source: 'mock' | 'api'
   total: number
   ratings: ReportRating[]
   counts: number[][]
@@ -79,7 +79,7 @@ export function reportPercent(count: number, total: number) {
   return total > 0 ? (count / total * 100).toFixed(1) : '0.0'
 }
 
-export function mockProjectReportComparison(): ProjectReportComparison {
+export function mockProjectReportComparison(): ProjectReportComparisonData {
   const ratings: ReportRating[] = [
     { key: 'rating-0', label: '1星', color: PERFORMANCE_LEVEL_COLORS[0].value },
     { key: 'rating-1', label: '2星', color: PERFORMANCE_LEVEL_COLORS[2].value },

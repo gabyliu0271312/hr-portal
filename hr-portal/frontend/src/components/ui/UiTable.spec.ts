@@ -156,6 +156,25 @@ describe('UiTable', () => {
     }
   })
 
+  it('remeasures split tables on window resize and removes the fallback listener on unmount', async () => {
+    const wrapper = mount(UiTable, { props: { columns, rows: [{}], maxHeight: 'max-content' } })
+    const body = wrapper.get('.ui-table__body').element
+    let width = 900
+    Object.defineProperty(body, 'clientWidth', { get: () => width })
+    try {
+      window.dispatchEvent(new Event('resize'))
+      await nextTick()
+      expect(wrapper.get('.ui-table__header').attributes('style')).toContain('width: 900px')
+      width = 720
+      window.dispatchEvent(new Event('resize'))
+      await nextTick()
+      expect(wrapper.get('.ui-table__header').attributes('style')).toContain('width: 720px')
+    } finally {
+      wrapper.unmount()
+    }
+    expect(() => window.dispatchEvent(new Event('resize'))).not.toThrow()
+  })
+
   it('synchronizes horizontal scroll in both directions without changing vertical position', async () => {
     const wrapper = mount(UiTable, { props: { columns, rows: [{ name: '组织甲' }], stickyHeaderTop: 0 } })
     const header = wrapper.get('.ui-table__header')

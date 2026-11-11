@@ -16,8 +16,7 @@
               <section v-for="(section, sectionIndex) in group.sections" :key="section.key" :data-report-section="section.key" class="report-section" :aria-label="section.label">
                 <PerformanceReportSectionTitle :label="section.label" :info="reportSectionInfo[section.key]" />
                 <template v-if="groupIndex === 0 && sectionIndex === 0">
-                  <p v-if="data?.source === 'mock'" class="report-source-notice" role="note"><strong>模拟数据</strong> · 总览、部门、团队、序列仅供布局预览，不代表{{ cycleName || '当前周期' }}的真实绩效结果；级别统计单独接入真实数据。</p>
-                  <p v-else-if="data?.source === 'api'" class="report-source-notice">数据来源：统计 API</p>
+                  <p v-if="data?.source === 'api'" class="report-source-notice">数据来源：统计 API</p>
                 </template>
                 <div v-if="section.key === 'overview'">
                   <p v-if="loading" class="report-state" role="status">正在加载统计报表…</p>
@@ -51,7 +50,12 @@
                   </template>
                   <p v-else class="report-placeholder">统计数据尚未加载</p>
                 </template>
-                <ProjectReportComparison v-else-if="section.key === 'self-final' && data" :comparison="selfFinalComparison" />
+                <template v-else-if="section.key === 'self-final'">
+                  <p v-if="selfFinalLoading" class="report-placeholder" role="status">正在加载自评/终评对比…</p>
+                  <div v-else-if="selfFinalError" class="report-state" role="alert"><p>{{ selfFinalError }}</p><button type="button" @click="loadSelfFinal">重新加载</button></div>
+                  <ProjectReportComparison v-else-if="selfFinal" :comparison="selfFinal" />
+                  <p v-else class="report-placeholder">自评/终评对比数据尚未加载</p>
+                </template>
                 <div v-else class="report-placeholder"><span>{{ section.label }}报表内容预留</span><small>当前仅搭建章节框架，具体统计内容待后续接入。</small></div>
               </section>
             </template>
@@ -73,15 +77,12 @@ import ProjectReportDistribution from './ProjectReportDistribution.vue'
 import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import { projectManagementApi } from '@/api/performance'
-import { mockProjectReportComparison, mockProjectReportProvider, reportGroups, reportSectionInfo, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
+import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
 
 const defaultProvider: ProjectReportProvider = async ({ cycleId, dimension = 'department' }) => {
-  if (dimension === 'level' || dimension === 'tenure') {
-    const report = await projectManagementApi.levelStatistics(cycleId, dimension)
-    return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
-  }
-  return mockProjectReportProvider({ cycleId, dimension })
+  const report = await projectManagementApi.levelStatistics(cycleId, dimension)
+  return { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
 }
 
 const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider }>()
@@ -97,8 +98,31 @@ const requestIds: Record<ProjectReportDimension, number> = { department: 0, team
 const data = computed(() => reports.value.department ?? null)
 const loading = computed(() => Boolean(loadingDimensions.value.department))
 const error = computed(() => errors.value.department || '')
-const reportLoading = computed(() => Object.values(loadingDimensions.value).some(Boolean))
-const selfFinalComparison = mockProjectReportComparison()
+const reportLoading = computed(() => Object.values(loadingDimensions.value).some(Boolean) || selfFinalLoading.value)
+const selfFinal = ref<ProjectReportComparisonData | null>(null)
+const selfFinalLoading = ref(false)
+const selfFinalError = ref('')
+const selfFinalRequestId = ref(0)
+
+async function loadSelfFinal() {
+  const id = ++selfFinalRequestId.value
+  selfFinal.value = null
+  selfFinalError.value = ''
+  selfFinalLoading.value = true
+  try {
+    const report = await projectManagementApi.selfFinalComparison(props.cycleId)
+    if (id === selfFinalRequestId.value) selfFinal.value = { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
+  } catch (cause) {
+    const failure = cause as { response?: { status?: number; data?: { detail?: string } } }
+    if (id === selfFinalRequestId.value) {
+      selfFinalError.value = failure.response?.status === 403 ? '无权查看当前周期的自评/终评对比' :
+        failure.response?.data?.detail === 'CYCLE_MEMBER_OVERLAP_UNRESOLVED' ? '多个项目存在重复成员，尚未配置跨项目评级合成规则' :
+        '自评/终评对比加载失败，请稍后重试'
+    }
+  } finally {
+    if (id === selfFinalRequestId.value) selfFinalLoading.value = false
+  }
+}
 
 async function loadDimension(dimension: ProjectReportDimension) {
   const id = ++requestIds[dimension]
@@ -106,9 +130,8 @@ async function loadDimension(dimension: ProjectReportDimension) {
   loadingDimensions.value = { ...loadingDimensions.value, [dimension]: true }
   errors.value = { ...errors.value, [dimension]: '' }
   try {
-    const query = dimension === 'department' ? { cycleId: props.cycleId } : { cycleId: props.cycleId, dimension }
-    const report = await (props.provider ?? defaultProvider)(query)
-    if ((dimension === 'level' || dimension === 'tenure') && (report.source !== 'api' || report.dimension !== dimension || !report.showSummary || report.departments.some(row => row.children?.length))) {
+    const report = await (props.provider ?? defaultProvider)({ cycleId: props.cycleId, dimension })
+    if (report.source !== 'api' || report.dimension !== dimension || !report.showSummary || report.departments.some(row => row.children?.length)) {
       throw new Error(`INVALID_${dimension.toUpperCase()}_REPORT`)
     }
     if (id === requestIds[dimension]) reports.value = { ...reports.value, [dimension]: report }
@@ -141,6 +164,10 @@ function requestAction(action: 'filter' | 'compare') {
 
 watch(() => [props.cycleId, props.provider], () => {
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
+  selfFinalRequestId.value++
+  selfFinal.value = null
+  selfFinalError.value = ''
+  selfFinalLoading.value = false
   feedback.value = ''
   collapsed.value = false
   reports.value = {}
@@ -154,9 +181,13 @@ watch(activeKey, (key) => {
     const dimension = key as ProjectReportDimension
     if (!reports.value[dimension] && !loadingDimensions.value[dimension]) void loadDimension(dimension)
   }
+  if (key === 'self-final' && !selfFinal.value && !selfFinalLoading.value) void loadSelfFinal()
 })
 watch(collapsed, () => void refresh())
-onBeforeUnmount(() => { requestIds.department++; requestIds.team++; requestIds.sequence++; requestIds.level++; requestIds.tenure++ })
+onBeforeUnmount(() => {
+  for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
+  selfFinalRequestId.value++
+})
 </script>
 
 <style scoped>
@@ -176,7 +207,7 @@ onBeforeUnmount(() => { requestIds.department++; requestIds.team++; requestIds.s
 .report-sticky-filter { position: sticky; top: var(--report-sticky-top); display: flex; justify-content: flex-end; height: 32px; pointer-events: none; }
 .report-filter-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 80px; width: 80px; height: 32px; box-sizing: border-box; padding: 4px 11px; border: 1px solid #d0d3d6; border-radius: 6px; background: #fff; color: #1f2329; font: inherit; line-height: 22px; cursor: pointer; pointer-events: auto; }
 .report-filter-button :deep(svg), .report-filter-button :deep(.filter-outlined-icon) { width: 14px; height: 14px; }
-.report-filter-button:hover { background: #eff0f1; }
+.report-filter-button:hover { background: #f2f3f5; }
 .report-filter-button:focus-visible { outline: 2px solid #3370ff; outline-offset: 2px; }
 .report-source-notice { margin: 0 0 20px; color: #646a73; font-size: 12px; }
 .report-source-notice strong { padding: 2px 6px; border-radius: 4px; background: #eff3ff; color: var(--color-primary); font-weight: 500; }

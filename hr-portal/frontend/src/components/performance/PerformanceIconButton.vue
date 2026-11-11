@@ -39,8 +39,9 @@ const paths: Record<string, string> = {
 </script>
 
 <style scoped>
-.performance-icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--performance-icon-button-size, var(--performance-button-icon-size)); height: var(--performance-icon-button-size, var(--performance-button-icon-size)); padding: var(--spacing-1); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
-.performance-icon-button:hover, .performance-icon-button:focus-visible, .performance-icon-button.is-active { background: var(--color-surface-disabled); color: var(--color-action-primary-hover); outline: 0; }
+.performance-icon-button { display: inline-flex; align-items: center; justify-content: center; width: var(--performance-icon-button-size, var(--performance-button-icon-size)); height: var(--performance-icon-button-size, var(--performance-button-icon-size)); padding: var(--spacing-1); border: 0; border-radius: var(--performance-button-radius); background: transparent; color: var(--performance-icon-button-color); cursor: pointer; transition: color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard); }
+.performance-icon-button:hover, .performance-icon-button:focus-visible { background: var(--performance-icon-button-hover-background); outline: 0; }
+.performance-icon-button.is-active { background: var(--performance-icon-button-hover-background); color: var(--color-action-primary-hover); outline: 0; }
 .performance-icon-button:focus-visible { box-shadow: var(--performance-button-focus-ring); }
 .performance-icon-button:disabled, .performance-icon-button.is-disabled { background: transparent; color: var(--performance-button-link-disabled-color); cursor: not-allowed; box-shadow: none; }
 .performance-icon-button.is-static { cursor: default; pointer-events: none; }

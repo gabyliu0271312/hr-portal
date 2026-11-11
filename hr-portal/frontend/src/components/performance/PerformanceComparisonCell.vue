@@ -29,5 +29,6 @@ defineProps<{
 .performance-comparison-cell.heat-1 { background: #e1eaff; }
 .performance-comparison-cell.heat-2 { background: #bacefd; }
 .performance-comparison-cell.heat-3 { background: #82a7fc; color: #fff; }
+.performance-comparison-cell.heat-2.clickable:hover { background: #a9bff3; }
 .performance-comparison-cell__zero { color: #8f959e; }
 </style>

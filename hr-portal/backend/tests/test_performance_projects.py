@@ -3642,11 +3642,30 @@ def _statistics_node(project_id=1, *, node_id=31, order=1, options=None, final=T
     )
 
 
-def _statistics_member(employee_no, snapshot_id=21, *, position_level="J6", hire_date=None):
+def _self_summary_node(project_id=1, *, node_id=32, order=2, options=None):
+    return SimpleNamespace(
+        id=node_id, project_id=project_id, node_id=f"self-{node_id}", node_order=order,
+        node_type="work_summary", config={"template": {
+            "include_final_result": False,
+            "content": [{
+                "type": "rating", "name": "绩效评级",
+                "items": [{"id": "rating-field", "label": "绩效评级"}],
+                "options": options if options is not None else [
+                    {"id": "one", "label": "1星", "color": "#f54a45"},
+                    {"id": "five", "label": "5星", "color": "#3370ff"},
+                ],
+            }],
+        }},
+    )
+
+
+def _statistics_member(employee_no, snapshot_id=21, *, display_name=None, position_level="J6", hire_date=None, department_2=None, direct_supervisor_employee_no=None, company_org=None, job_family=None, standard_position=None):
     return SimpleNamespace(
         employee_no=employee_no, snapshot_id=snapshot_id,
-        display_name=f"员工{employee_no}", employment_status="在职",
+        display_name=display_name or f"员工{employee_no}", employment_status="在职",
         position_level=position_level, hire_date=hire_date,
+        department_2=department_2, direct_supervisor_employee_no=direct_supervisor_employee_no,
+        company_org=company_org, job_family=job_family, standard_position=standard_position,
     )
 
 
@@ -3662,7 +3681,7 @@ def _statistics_task(employee_no, value="five", *, task_id=101, node_id=31, snap
 @pytest.fixture
 def statistics_db(monkeypatch):
     from app.performance import projects_router
-    from app.performance.models import PerformanceProject, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceRole, PerformanceHrbpPermission
+    from app.performance.models import PerformanceProject, PerformanceProjectMember, PerformanceProjectMemberSnapshot, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceRole, PerformanceHrbpPermission
 
     monkeypatch.setattr(settings, "APP_ENV", "prod")
     monkeypatch.setattr(settings, "PERFORMANCE_DEV_ADMIN_DEBUG", False)
@@ -3697,6 +3716,18 @@ def statistics_db(monkeypatch):
                 rows = [item for item in self.hrbp_permissions if item.cycle_ref == params["cycle_ref_1"] and item.hrbp_employee_no == params["hrbp_employee_no_1"]]
             elif model is PerformanceProject:
                 rows = [item for item in self.projects if item.cycle_ref == params["cycle_ref_1"] and item.status == params["status_1"]]
+            elif model is PerformanceProjectMemberSnapshot:
+                params = statement.compile().params
+                ids = params.get("id_1", [])
+                supervisor_nos = params.get("employee_no_1", [])
+                rows = []
+                for snapshot_id in (ids if isinstance(ids, list) else [ids]):
+                    for employee_no in (supervisor_nos if isinstance(supervisor_nos, list) else [supervisor_nos]):
+                        display = next((member.display_name for member in self.members if member.employee_no == employee_no), None)
+                        if display is None:
+                            continue
+                        rows.append((snapshot_id, employee_no, display))
+                return SimpleNamespace(all=lambda: rows)
             elif model is PerformanceProjectMember:
                 snapshot_id = params.get("snapshot_id_1", self.snapshots.get(params.get("project_id_1")))
                 rows = [item for item in self.members if item.snapshot_id == snapshot_id]
@@ -3757,6 +3788,149 @@ async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(stati
         ],
     }
     assert sum(result.distribution.values()) == 2 < result.totalParticipants
+
+
+@pytest.mark.asyncio
+async def test_department_statistics_groups_by_department_2(statistics_db):
+    from app.performance.projects_router import project_management_statistics
+
+    db = statistics_db
+    db.members += [
+        _statistics_member("E002", department_2="产品部"),
+        _statistics_member("E003", department_2="产品部"),
+        _statistics_member("E004", department_2="  "),
+        _statistics_member("E005", department_2=None),
+    ]
+    db.tasks += [
+        _statistics_task("E002", "five", task_id=102),
+        _statistics_task("E003", None, task_id=103),
+        _statistics_task("E004", "one", task_id=104),
+        _statistics_task("E005", "one", task_id=105),
+    ]
+    result = await project_management_statistics(1, "department", context("performance.projects.manage", refs=("project:x:1",)), db)
+    assert result.rowLabel == "部门"
+    assert [row.name for row in result.departments] == ["产品部", "--"]
+    assert result.departments[0].counts == {"one": 0, "five": 1}
+    assert result.departments[1].counts == {"one": 2, "five": 1}
+
+
+@pytest.mark.asyncio
+async def test_team_statistics_groups_by_supervisor_display_name(statistics_db):
+    from app.performance.projects_router import project_management_statistics
+
+    db = statistics_db
+    db.members += [
+        _statistics_member("E002", direct_supervisor_employee_no="SUP1"),
+        _statistics_member("E003", direct_supervisor_employee_no="SUP1"),
+        _statistics_member("E004", direct_supervisor_employee_no="SUP2"),
+        _statistics_member("E005"),
+    ]
+    db.tasks += [
+        _statistics_task("E002", "five", task_id=102),
+        _statistics_task("E003", None, task_id=103),
+        _statistics_task("E004", "one", task_id=104),
+        _statistics_task("E005", "one", task_id=105),
+    ]
+    # 上级姓名：SUP1 -> 上级一、SUP2 无 display_name（members 里无此人）
+    db.members.append(_statistics_member("SUP1", display_name="上级一"))
+    result = await project_management_statistics(1, "team", context("performance.projects.manage", refs=("project:x:1",)), db)
+    assert result.rowLabel == "直属上级"
+    names = [row.name for row in result.departments]
+    assert names == ["SUP2（未录入）", "上级一", "--"]
+    by_name = {row.name: row for row in result.departments}
+    assert by_name["上级一"].counts == {"one": 0, "five": 1}
+    assert by_name["SUP2（未录入）"].counts == {"one": 1, "five": 0}
+    assert by_name["--"].counts == {"one": 1, "five": 1}
+
+
+@pytest.mark.asyncio
+async def test_sequence_statistics_groups_by_org_path(statistics_db):
+    from app.performance.projects_router import project_management_statistics
+
+    db = statistics_db
+    db.members += [
+        _statistics_member("E002", company_org="BU1", job_family="技术族", standard_position="后端"),
+        _statistics_member("E003", company_org="BU1", job_family="技术族", standard_position="后端"),
+        _statistics_member("E004", company_org="BU2", job_family="设计族", standard_position=None),
+        _statistics_member("E005"),
+    ]
+    db.tasks += [
+        _statistics_task("E002", "five", task_id=102),
+        _statistics_task("E003", None, task_id=103),
+        _statistics_task("E004", "one", task_id=104),
+        _statistics_task("E005", "one", task_id=105),
+    ]
+    result = await project_management_statistics(1, "sequence", context("performance.projects.manage", refs=("project:x:1",)), db)
+    assert result.rowLabel == "序列（BU/职位族/职位）"
+    by_name = {row.name: row for row in result.departments}
+    assert by_name["BU1/技术族/后端"].counts == {"one": 0, "five": 1}
+    assert by_name["BU2/设计族"].counts == {"one": 1, "five": 0}
+    assert by_name["--"].counts == {"one": 1, "five": 1}
+
+
+@pytest.mark.asyncio
+async def test_self_final_comparison_counts_only_members_with_both_submitted(statistics_db):
+    from app.performance.projects_router import project_management_self_final_comparison
+
+    db = statistics_db
+    db.nodes += [_self_summary_node()]
+    # E001 自评 one + 终评 five；E002 自评 five + 终评 five；E003 自评 one 无终评；E004 无自评 终评 five
+    db.members += [
+        _statistics_member("E002"),
+        _statistics_member("E003"),
+        _statistics_member("E004"),
+    ]
+    db.tasks += [
+        _statistics_task("E001", "one", task_id=201, node_id=32),
+        _statistics_task("E001", "five", task_id=202),
+        _statistics_task("E002", "five", task_id=203, node_id=32),
+        _statistics_task("E002", "five", task_id=204),
+        _statistics_task("E003", "one", task_id=205, node_id=32),
+        _statistics_task("E004", "five", task_id=206),
+    ]
+    result = await project_management_self_final_comparison(1, context("performance.projects.manage", refs=("project:x:1",)), db)
+    assert result.source == "api"
+    assert result.total == 2
+    keys = [rating.key for rating in result.ratings]
+    assert keys == ["one", "five"]
+    assert result.counts == [[0, 1], [0, 1]]  # 行=自评(one,five)，列=终评(one,five)
+    assert result.heatLevels == [[0, 1], [0, 1]]
+
+
+@pytest.mark.asyncio
+async def test_self_final_comparison_heat_levels_thresholds(statistics_db):
+    from app.performance.projects_router import project_management_self_final_comparison
+
+    db = statistics_db
+    db.nodes += [_self_summary_node()]
+    for index in range(30):
+        db.members.append(_statistics_member(f"E{index:02d}"))
+        db.tasks.append(_statistics_task(f"E{index:02d}", "one", task_id=300 + index, node_id=32))
+        db.tasks.append(_statistics_task(f"E{index:02d}", "five", task_id=400 + index))
+    result = await project_management_self_final_comparison(1, context("performance.projects.manage", refs=("project:x:1",)), db)
+    assert result.total == 30
+    assert result.counts[0][1] == 30  # 自评 one × 终评 five
+    assert result.heatLevels[0][1] == 3  # 30 >= 阈值 30
+
+
+@pytest.mark.asyncio
+async def test_self_final_comparison_http_contract(statistics_db):
+    import httpx
+    from fastapi import FastAPI
+    from app.performance import projects_router
+
+    app = FastAPI()
+    app.include_router(projects_router.router, prefix="/api/v1")
+    app.dependency_overrides[projects_router.get_session] = lambda: statistics_db
+    app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context("performance.cycles.manage")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/performance/project-management/self-final-comparison", params={"cycle_id": 1})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["source"] == "api"
+        assert "heatLevels" in payload
+        assert len(payload["counts"]) == len(payload["ratings"])
+        assert all(len(row) == len(payload["ratings"]) for row in payload["counts"])
 
 
 @pytest.mark.asyncio
@@ -4087,7 +4261,7 @@ async def test_level_statistics_http_contract_and_dimension_validation(statistic
         assert payload["distribution"] == {"one": 0, "five": 1}
         assert "heatLevels" not in payload
         assert set(payload["departments"][0]) == {"id", "name", "counts"}
-        for params in [{}, {"cycle_id": 0}, {"cycle_id": 1, "dimension": "department"}]:
+        for params in [{}, {"cycle_id": 0}, {"cycle_id": 1, "dimension": "invalid"}]:
             response = await client.get(url, params=params)
             assert response.status_code == 422
         app.dependency_overrides[projects_router.get_performance_access_context] = lambda: context()

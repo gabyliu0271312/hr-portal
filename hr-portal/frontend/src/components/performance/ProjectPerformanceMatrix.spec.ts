@@ -11,6 +11,12 @@ import ProjectPerformanceMatrix from './ProjectPerformanceMatrix.vue'
 import matrixSource from './ProjectPerformanceMatrix.vue?raw'
 import PerformanceSurfaceCard from './PerformanceSurfaceCard.vue'
 import { projectManagementApi as mockedApi } from '@/api/performance'
+import MatrixPeopleDialog from './MatrixPeopleDialog.vue'
+import UiSurface from '../ui/UiSurface.vue'
+import UiFullScreenModal from '../ui/UiFullScreenModal.vue'
+import UiTable from '../ui/UiTable.vue'
+import PerformanceManagementTable from './PerformanceManagementTable.vue'
+import PerformanceListToolbar from './PerformanceListToolbar.vue'
 
 const matrixOf = (overrides: Partial<ProjectMatrix> = {}): ProjectMatrix => ({
   source: 'template_final_result',
@@ -137,6 +143,69 @@ describe('ProjectPerformanceMatrix', () => {
 
     expect(wrapper.get('.matrix-people-dialog-stub').text()).toBe('2026年半年度绩效评估 J6 1星')
     expect(wrapper.find('button[aria-label*="0人"]').exists()).toBe(false)
+  })
+
+  it('opens the real count drilldown using the shared surface, toolbar and synchronized table', async () => {
+    vi.mocked(mockedApi.matrix).mockResolvedValue(matrixOf())
+    const member = { employee_no: 'E001', display_name: '钻取员工', department_path: '集团/研发', can_view_detail: true, project_id: 7, root_review_id: 1 }
+    const members = vi.spyOn(mockedApi, 'members').mockResolvedValue({ items: [member], total: 101 } as any)
+    const wrapper = mount(ProjectPerformanceMatrix, { props: { projectId: 7, cycleName: '2026年半年度绩效评估' } })
+    try {
+      await flushPromises()
+      wrapper.getComponent({ name: 'PerformanceSearchSelect' }).vm.$emit('update:modelValue', 'count')
+      await wrapper.vm.$nextTick()
+      await wrapper.get('button[aria-label="查看J61星1人"]').trigger('click')
+      await flushPromises()
+      expect(members).toHaveBeenCalledWith(7, undefined, 1, 50, 'name', 'asc', 'J6', 'one')
+      const dialog = wrapper.getComponent(MatrixPeopleDialog)
+      const surface = dialog.getComponent(UiSurface)
+      expect(surface.props()).toMatchObject({ radius: 'all', minWidth: '0', shadow: true })
+      expect(surface.findComponent(PerformanceListToolbar).props('searchFill')).toBe(true)
+      expect(dialog.getComponent(UiFullScreenModal).props('contentScroll')).toBe('inner')
+      expect(dialog.get('.matrix-people-subtitle').text()).toContain('职级：J6')
+      const table = dialog.getComponent(PerformanceManagementTable)
+      const uiTable = dialog.getComponent(UiTable)
+      expect(uiTable.props('maxHeight')).toBe('max-content')
+      expect(uiTable.props('stickyHeaderTop')).toBeUndefined()
+      expect(uiTable.findAll('.ui-table__viewport')).toHaveLength(2)
+      expect(uiTable.get('thead th.is-fixed-left').attributes('style')).toContain('left: 0px')
+      await dialog.get('[aria-label="下一页"]').trigger('click')
+      await flushPromises()
+      expect(members).toHaveBeenLastCalledWith(7, undefined, 2, 50, 'name', 'asc', 'J6', 'one')
+      await dialog.get('.search-input input').setValue('钻取')
+      await dialog.get('.search-input input').trigger('keyup.enter')
+      await flushPromises()
+      expect(members).toHaveBeenLastCalledWith(7, '钻取', 1, 50, 'name', 'asc', 'J6', 'one')
+      table.vm.$emit('sort-change', { key: 'position_level', order: 'desc' })
+      await flushPromises()
+      expect(members).toHaveBeenLastCalledWith(7, '钻取', 1, 50, 'position_level', 'desc', 'J6', 'one')
+      table.vm.$emit('page-size-change', 20)
+      await flushPromises()
+      expect(members).toHaveBeenLastCalledWith(7, '钻取', 1, 20, 'position_level', 'desc', 'J6', 'one')
+      members.mockResolvedValueOnce({ items: [{ ...member, can_view_detail: false }], total: 1 } as any)
+      table.vm.$emit('page-change', 1)
+      await flushPromises()
+      await uiTable.get('tbody tr').trigger('click')
+      expect(wrapper.emitted('open-member')).toBeUndefined()
+      members.mockResolvedValueOnce({ items: [member], total: 1 } as any)
+      table.vm.$emit('page-change', 1)
+      await flushPromises()
+      await uiTable.get('tbody tr').trigger('click')
+      expect(wrapper.emitted('open-member')?.at(-1)).toEqual([expect.objectContaining({ employee_no: 'E001', can_view_detail: true })])
+      members.mockResolvedValueOnce({ items: [], total: 0 } as any)
+      table.vm.$emit('page-change', 1)
+      await flushPromises()
+      expect(dialog.text()).toContain('暂无人员')
+      members.mockRejectedValueOnce(new Error('network'))
+      table.vm.$emit('page-change', 1)
+      await flushPromises()
+      expect(dialog.get('[role="alert"]').text()).toBe('人员列表加载失败，请稍后重试')
+      await dialog.get('.full-screen-modal-header-back').trigger('click')
+      expect(dialog.emitted('update:modelValue')?.at(-1)).toEqual([false])
+    } finally {
+      wrapper.unmount()
+      members.mockRestore()
+    }
   })
 
   it('tiers count cells by percentage thresholds recovered from the Feishu capture', async () => {

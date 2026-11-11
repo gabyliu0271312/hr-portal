@@ -111,10 +111,12 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
 .matrix-heat-1 { background: #e1eaff; color: #133c9a; }
 .matrix-heat-2 { background: #bacefd; color: #133c9a; }
 .matrix-heat-3 { background: #82a7fc; color: #fff; }
+.matrix-heat-2:hover { background: #a9bff3; }
 .matrix-zero { padding: 16px 12px; color: #8f959e; }
 .matrix-department { display: flex; align-items: center; height: 54px; }
 .matrix-department-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .matrix-tree-toggle { flex: 0 0 16px; width: 16px; height: 16px; margin: 0 4px 0 10px; padding: 3px; border-radius: 4px; color: #646a73; }
+.matrix-tree-toggle.matrix-tree-toggle:hover { background: transparent; }
 .matrix-tree-toggle :deep(svg) { width: 10px; height: 10px; }
 .matrix-tree-toggle.expanded :deep(svg) { transform: rotate(90deg); }
 .matrix-tree-placeholder { flex: 0 0 26px; }

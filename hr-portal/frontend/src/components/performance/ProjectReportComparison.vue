@@ -22,9 +22,9 @@ import { computed } from 'vue'
 import PerformanceComparisonMatrix from './PerformanceComparisonMatrix.vue'
 import PerformanceReportCommentButton from './PerformanceReportCommentButton.vue'
 import type { PerformanceComparisonCellData, PerformanceComparisonFocusArea, PerformanceComparisonOption } from './performanceComparison'
-import type { ProjectReportComparison } from './projectStatisticsReport'
+import type { ProjectReportComparisonData } from './projectStatisticsReport'
 
-const props = defineProps<{ comparison: ProjectReportComparison }>()
+const props = defineProps<{ comparison: ProjectReportComparisonData }>()
 const ratings = computed<PerformanceComparisonOption[]>(() => props.comparison.ratings.map(rating => ({ value: rating.key, label: rating.label, color: rating.color })))
 const dimensionOptions: PerformanceComparisonOption[] = [{ value: 'rating', label: '绩效评级' }]
 const cells = computed<PerformanceComparisonCellData[][]>(() => props.comparison.counts.map((row, rowIndex) => row.map((count, columnIndex) => ({ count, heatLevel: count > 0 ? props.comparison.heatLevels[rowIndex][columnIndex] as 1 | 2 | 3 : undefined }))))

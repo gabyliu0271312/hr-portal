@@ -44,5 +44,5 @@ function select(value: string) {
 .is-x .axis-menu { top: 40px; left: 0; }
 .is-y .axis-menu { top: 39px; left: 0; }
 .axis-menu button { display: block; width: 100%; height: 32px; padding: 4px 12px; border: 0; background: #fff; color: #1f2329; font: inherit; text-align: left; cursor: pointer; }
-.axis-menu button:hover, .axis-menu button[aria-current="true"] { background: #eff0f1; }
+.axis-menu button:hover, .axis-menu button[aria-current="true"] { background: #f2f3f5; }
 </style>

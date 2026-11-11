@@ -378,3 +378,12 @@ REA 专项复核飞书成员列表滚动锁定（evidence `ev_bec1df…`，登�
 - 复用：继续UiFullScreenModal/UiPageHeader，启用既有page内容滚动；嵌入UiSurface（all圆角/min-width0/spacious padding），工具栏改用PerformanceListToolbar search-fill，保留PerformanceManagementTable page模式及UiPagination。颜色、字号、间距、圆角均消费现有全局token，无新增组件或独立设计体系；移除旧白底通铺、局部gap8、字号/行高/表头覆盖。
 - 真实组件浏览器验收（22人隔离数据）：1280×600、1280×720、1680×950、900×600均保持白卡x24/y76、表格x48/y178、内外各24px、搜索与筛选间距12px；页面无横向溢出，表格横滚300后姓名保持x48。小屏滚动页面可达分页，表头随页面滚走，表格没有独立纵滚。截图 `hr-portal/.tmp/admin-focus-count-shared-surface-20261111.png` 已查看，不代表生产验收。
 - 自动化：专项真实组件用例覆盖共享页头/白卡/填充搜索/page模式/姓名固定/翻页/搜索回第一页/清除/空态/加载禁用/错误/返回，原loadFn契约保留；8文件45项通过。`npm --prefix hr-portal/frontend run build` 的vue-tsc和Vite通过（54.81s，保留既有VueUse PURE警告）。本轮3文件diff-check通过；全工作区另有并行校准文件行尾空白，不修改。未commit、push或部署。
+
+### 2026-11-11：矩阵人员数量钻取共享容器接入
+
+- REA：针对用户提供的 matrix?drilldown URL 补采1280×600及1280×400，确认全屏灰底#f5f6f7、页面外留白20px、独立白卡r8/内留白20px/有投影；白卡纵滚，表体max-height:max-content无独立纵向限高，头体分离同步横滚且姓名左固定，不纵向吸顶。真实钻取当前命中4人，未对飞书生产注入或修改记录。
+- 接入：MatrixPeopleDialog复用UiFullScreenModal/UiPageHeader、UiSurface（all/min-width0/shadow）、PerformanceListToolbar search-fill、PerformanceManagementTable/UiPagination。白卡承接纵滚，保留独立头体的max-content配置，使用已有背景、padding、圆角、投影和工具栏间距token，不新增组件或第二套设计体系。保留既有6列、钻取参数、远程排序分页、评级、评估率及人员详情权限，不扩大字段范围。
+- 修复首次以modelValue=true挂载未加载的问题，watch启用immediate；UiTable补充窗口resize测量及卸载清理，避免可视表头宽度在窗口变更后未刷新，ResizeObserver保留。
+- 测试：现有ProjectPerformanceMatrix.spec.ts新增真实数量点击→完整弹窗用例，覆盖初次请求、分页/搜索/排序/容量均携带原level/rating过滤、详情允许/拒绝、空态、错误和返回；UiTable.spec.ts新增resize宽度刷新及卸载用例。最终专项5文件45项通过。扩大到ProjectManagement.spec.ts时统计报表预览“模拟数据”断言失败，涉及当前并行统计报表改动，未修改或隐藏该失败。
+- 浏览器：真实Vue矩阵弹窗+隔离50行数据，在1280×600、1280×400、1680×950、900×600均验证白卡x20/y76、表格x40、白卡可纵滚至分页、表头随卡片滚走、表体无独立纵滚、头体列与可视宽度一致、横滚同步、姓名固定、搜索/筛选间距12px、页面无横向溢出。截图hr-portal/.tmp/matrix-drilldown-shared-surface-20261111.png已重采并查看，仅本地组件证据。
+- 构建：最终npm --prefix hr-portal/frontend run build的vue-tsc与Vite通过（47.34s，既有VueUse PURE警告保留）；本轮文件diff-check通过。未commit、push或部署，并行后端/统计报表/色值token改动保留、不纳入本轮。

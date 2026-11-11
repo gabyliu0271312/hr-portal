@@ -10,6 +10,6 @@
 
 <style scoped>
 .performance-report-comment-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; margin-top: 16px; padding: 2px 4px; border: 0; border-radius: 6px; background: transparent; color: #646a73; cursor: pointer; font: inherit; }
-.performance-report-comment-button:hover { background: #eff0f1; }
+.performance-report-comment-button:hover { background: var(--performance-button-text-neutral-hover-background); }
 .performance-report-comment-button svg { flex: 0 0 14px; width: 14px; height: 14px; }
 </style>

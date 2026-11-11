@@ -1241,6 +1241,14 @@ class ProjectStatisticsReportResponse(BaseModel):
     departments: list[ProjectStatisticsRowResponse]
 
 
+class ProjectSelfFinalComparisonResponse(BaseModel):
+    source: str
+    total: int
+    ratings: list[MatrixRatingResponse]
+    counts: list[list[int]]
+    heatLevels: list[list[int]]
+
+
 def _matrix_level(value: object) -> str:
     text = str(value or "").strip()
     return text or "--"
@@ -1459,6 +1467,66 @@ async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_i
             if previous is None or candidate[:3] > previous[:3]:
                 final_values[task.target_employee_no] = candidate
     return ratings, final_values, rating_scales
+
+
+async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id=None):
+    """采集自评环节（work_summary 节点）的评级：每成员取本人最新已提交的自评评级值。
+
+    返回 (self_ratings, self_values, self_scales)：
+    - self_ratings: 全量档位（含评估题配置与实提交档位）
+    - self_values: {employee_no: (node_order, task_id, submitted_key, normalized_option)}
+    - self_scales: 每项目节点评估题的 (id, label, color, code) 列表
+    """
+    project_id = project.id
+    nodes = list((await db.execute(
+        select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project_id,
+            PerformanceProjectNodeSnapshot.node_type == "work_summary",
+        ).order_by(PerformanceProjectNodeSnapshot.node_order)
+    )).scalars().all())
+    task_statement = select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project_id,
+        PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]) if nodes else False,
+        PerformanceNodeTask.revoked_at.is_(None),
+    )
+    if member_snapshot_id is not None:
+        task_statement = task_statement.where(PerformanceNodeTask.member_snapshot_id == member_snapshot_id)
+    tasks = list((await db.execute(task_statement.order_by(PerformanceNodeTask.id))).scalars().all())
+    tasks_by_node: dict[int, list[PerformanceNodeTask]] = {}
+    for task in tasks:
+        tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
+
+    self_ratings: list[dict] = []
+    self_scales = []
+    self_values: dict[str, tuple[int, int, str, dict]] = {}
+    for node in nodes:
+        schema = await _matrix_node_schema(node, project, db)
+        rating_fields = [field for section in schema for field in section.get("fields", []) if field.get("type") == "rating"]
+        if not rating_fields:
+            continue
+        field = rating_fields[0]
+        options = [dict(option) for option in field.get("options", [])]
+        if options:
+            self_scales.append([(option.get("id"), option.get("label"), option.get("color"), option.get("code")) for option in options])
+        for option in options:
+            normalized = {"key": str(option.get("id")), "label": str(option.get("code") or option.get("label") or option.get("id")), "color": option.get("color")}
+            if not any(item["key"] == normalized["key"] for item in self_ratings):
+                self_ratings.append(normalized)
+        for task in tasks_by_node.get(node.id, []):
+            if task.submitted_at is None or task.target_employee_no not in employee_nos:
+                continue
+            option = _matrix_rating_value((task.answers or {}).get(field.get("id")), options)
+            if option is None:
+                continue
+            normalized = {"key": str(option.get("id")), "label": str(option.get("code") or option.get("label") or option.get("id")), "color": option.get("color")}
+            if not any(item["key"] == normalized["key"] for item in self_ratings):
+                self_ratings.append(normalized)
+            submitted_key = task.submitted_at.isoformat() if hasattr(task.submitted_at, "isoformat") else str(task.submitted_at)
+            candidate = (node.node_order, task.id, submitted_key, normalized)
+            previous = self_values.get(task.target_employee_no)
+            if previous is None or candidate[:3] > previous[:3]:
+                self_values[task.target_employee_no] = candidate
+    return self_ratings, self_values, self_scales
 
 
 @router.get("/projects/{project_id}/matrix", response_model=ProjectMatrixResponse)
@@ -4672,7 +4740,7 @@ async def project_management_calibration_authorization(
 @router.get("/project-management/statistics", response_model=ProjectStatisticsReportResponse)
 async def project_management_statistics(
     cycle_id: int = Query(..., ge=1),
-    dimension: str = Query(default="level", pattern="^(level|tenure)$"),
+    dimension: str = Query(default="level", pattern="^(level|tenure|department|team|sequence)$"),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
@@ -4704,6 +4772,7 @@ async def project_management_statistics(
     ratings: list[dict] = []
     rating_scale = None
     employee_nos = set()
+    supervisor_names: dict[str, str] = {}
     for project in projects:
         snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
         if snapshot_id is None:
@@ -4714,6 +4783,11 @@ async def project_management_statistics(
         scope = scopes[project.id]
         if scope is not None:
             members = [member for member in members if member.employee_no in scope]
+        if dimension == "team":
+            names = await _snapshot_supervisor_names(db, members)
+            for (_, supervisor_no), display in names.items():
+                if display and display.strip():
+                    supervisor_names[supervisor_no] = display
         project_employee_nos = {member.employee_no for member in members}
         if employee_nos.intersection(project_employee_nos):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_MEMBER_OVERLAP_UNRESOLVED")
@@ -4730,7 +4804,9 @@ async def project_management_statistics(
         members_by_employee = {member.employee_no: member for member in members}
         for employee_no in project_employee_nos:
             member = members_by_employee[employee_no]
-            bucket = _tenure_bucket(member.hire_date) if dimension == "tenure" else _matrix_level(member.position_level)
+            bucket = _statistics_bucket(member, dimension)
+            if dimension == "team" and bucket != "--":
+                bucket = supervisor_names.get(bucket) or f"{bucket}（未录入）"
             counts = rows.setdefault(bucket, {})
             selected = final_values.get(employee_no)
             if selected is not None:
@@ -4738,7 +4814,11 @@ async def project_management_statistics(
                 counts[key] = counts.get(key, 0) + 1
 
     keys = [rating["key"] for rating in ratings]
-    row_sort = _tenure_sort_key if dimension == "tenure" else _matrix_level_sort_key
+    row_label = {
+        "level": "岗位职级", "tenure": "司龄", "department": "部门",
+        "team": "直属上级", "sequence": "序列（BU/职位族/职位）",
+    }[dimension]
+    row_sort = _statistics_sort_key(dimension)
     report_rows = [{
         "id": f"{dimension}:{bucket}",
         "name": bucket,
@@ -4748,13 +4828,124 @@ async def project_management_statistics(
     return ProjectStatisticsReportResponse(
         source="api",
         dimension=dimension,
-        rowLabel="司龄" if dimension == "tenure" else "岗位职级",
+        rowLabel=row_label,
         showSummary=True,
         totalParticipants=len(employee_nos),
         ratings=[MatrixRatingResponse(**rating) for rating in ratings],
         distribution=distribution,
         departments=[ProjectStatisticsRowResponse(**row) for row in report_rows],
     )
+
+
+@router.get("/project-management/self-final-comparison", response_model=ProjectSelfFinalComparisonResponse)
+async def project_management_self_final_comparison(
+    cycle_id: int = Query(..., ge=1),
+    context: PerformanceAccessContext = Depends(get_performance_access_context),
+    db: AsyncSession = Depends(get_session),
+):
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.id == cycle_id))
+    if cycle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+    projects = list((await db.execute(select(PerformanceProject).where(
+        PerformanceProject.cycle_ref == cycle.cycle_ref,
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+    ).order_by(PerformanceProject.id))).scalars().all())
+    empty_cycle_allowed = not projects and _is_cycle_manager(context)
+    scopes = {}
+    visible_projects = []
+    for project in projects:
+        try:
+            scopes[project.id] = await _project_data_scope(context, project, db, "performance.frontend.data-view")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_403_FORBIDDEN:
+                raise
+            continue
+        visible_projects.append(project)
+    projects = visible_projects
+    if not projects and not empty_cycle_allowed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="CYCLE_NOT_FOUND")
+
+    all_self_ratings: list[dict] = []
+    all_final_ratings: list[dict] = []
+    self_final: dict[str, tuple[dict, dict]] = {}
+    employee_nos = set()
+    for project in projects:
+        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+        if snapshot_id is None:
+            continue
+        members = list((await db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id == snapshot_id,
+        ))).scalars().all())
+        scope = scopes[project.id]
+        if scope is not None:
+            members = [member for member in members if member.employee_no in scope]
+        project_employee_nos = {member.employee_no for member in members}
+        if employee_nos.intersection(project_employee_nos):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="CYCLE_MEMBER_OVERLAP_UNRESOLVED")
+        employee_nos.update(project_employee_nos)
+        self_ratings, self_values, _ = await _project_self_ratings(
+            project, project_employee_nos, db, member_snapshot_id=snapshot_id,
+        )
+        final_ratings, final_values, _ = await _project_final_ratings(
+            project, project_employee_nos, db, member_snapshot_id=snapshot_id,
+        )
+        for rating in self_ratings:
+            if not any(item["key"] == rating["key"] for item in all_self_ratings):
+                all_self_ratings.append(rating)
+        for rating in final_ratings:
+            if not any(item["key"] == rating["key"] for item in all_final_ratings):
+                all_final_ratings.append(rating)
+        for employee_no in project_employee_nos:
+            self_selected = self_values.get(employee_no)
+            final_selected = final_values.get(employee_no)
+            if self_selected is None or final_selected is None:
+                continue
+            self_final[employee_no] = (self_selected[3], final_selected[3])
+
+    if not all_self_ratings:
+        all_self_ratings = list(all_final_ratings)
+    if not all_final_ratings:
+        all_final_ratings = list(all_self_ratings)
+    self_keys = [rating["key"] for rating in all_self_ratings]
+    final_keys = [rating["key"] for rating in all_final_ratings]
+    self_index = {key: index for index, key in enumerate(self_keys)}
+    final_index = {key: index for index, key in enumerate(final_keys)}
+    counts = [[0] * len(final_keys) for _ in self_keys]
+    for self_rating, final_rating in self_final.values():
+        counts[self_index[self_rating["key"]]][final_index[final_rating["key"]]] += 1
+    total = sum(sum(row) for row in counts)
+    heat_levels = [
+        [3 if count >= 30 else 2 if count >= 15 else 1 if count > 0 else 0 for count in row]
+        for row in counts
+    ]
+    return ProjectSelfFinalComparisonResponse(
+        source="api",
+        total=total,
+        ratings=[MatrixRatingResponse(**rating) for rating in all_self_ratings],
+        counts=counts,
+        heatLevels=heat_levels,
+    )
+
+
+def _statistics_bucket(member: PerformanceProjectMember, dimension: str) -> str:
+    if dimension == "department":
+        return str(member.department_2 or "").strip() or "--"
+    if dimension == "team":
+        return str(getattr(member, "direct_supervisor_employee_no", None) or "").strip() or "--"
+    if dimension == "sequence":
+        parts = [str(getattr(member, key) or "").strip() for key in ("company_org", "job_family", "standard_position")]
+        return "/".join(part for part in parts if part) or "--"
+    if dimension == "tenure":
+        return _tenure_bucket(member.hire_date)
+    return _matrix_level(member.position_level)
+
+
+def _statistics_sort_key(dimension: str):
+    if dimension == "tenure":
+        return _tenure_sort_key
+    if dimension == "level":
+        return _matrix_level_sort_key
+    return lambda name: (name == "--", name)
 
 
 _TASK_ENTRY_MODES = {

@@ -4,8 +4,8 @@ import { projectManagementApi, type ProjectMember } from '@/api/performance'
 import type { PerformanceTableColumn } from './performanceTableColumns'
 import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
-import PerformanceSearchInput from './PerformanceSearchInput.vue'
-import PerformanceFilterButton from './PerformanceFilterButton.vue'
+import UiSurface from '@/components/ui/UiSurface.vue'
+import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import PerformanceEvaluateRatioPopover from './PerformanceEvaluateRatioPopover.vue'
@@ -94,18 +94,16 @@ watch(() => props.modelValue, open => {
   sortKey.value = 'name'
   sortOrder.value = 'asc'
   void load()
-})
+}, { immediate: true })
 </script>
 
 <template>
-  <UiFullScreenModal v-if="modelValue" title="人员列表" :show-footer="false" content-scroll="inner" @back="close">
+  <UiFullScreenModal v-if="modelValue" class="matrix-people-dialog" title="人员列表" :show-footer="false" content-scroll="inner" @back="close">
     <template #subtitle><span class="matrix-people-subtitle">{{ subtitle }}</span></template>
     <div class="matrix-people-page">
+      <UiSurface class="matrix-people-surface" radius="all" min-width="0" shadow>
       <p v-if="error" class="matrix-people-error" role="alert">{{ error }}</p>
-      <div class="matrix-people-toolbar">
-        <PerformanceSearchInput v-model="keyword" placeholder="搜索成员" aria-label="搜索成员" @search="search" @clear="clearSearch" />
-        <PerformanceFilterButton :disabled="loading" @click="search" />
-      </div>
+      <PerformanceListToolbar v-model:keyword="keyword" search-placeholder="搜索成员" search-aria-label="搜索成员" search-fill :filter-disabled="loading" @search="search" @clear="clearSearch" @filter="search" />
       <div class="matrix-people-result" aria-live="polite">{{ total }}个结果</div>
       <PerformanceManagementTable
         class="matrix-people-table"
@@ -116,7 +114,8 @@ watch(() => props.modelValue, open => {
         :empty-text="error || '暂无人员'"
         table-aria-label="人员列表"
         pagination-aria-label="人员列表分页"
-        scroll-mode="page"
+        scroll-mode="inner"
+        max-height="max-content"
         row-key="employee_no"
         :page="page"
         :page-size="pageSize"
@@ -144,22 +143,20 @@ watch(() => props.modelValue, open => {
           </div>
         </template>
       </PerformanceManagementTable>
+      </UiSurface>
     </div>
   </UiFullScreenModal>
 </template>
 
 <style scoped>
-.matrix-people-subtitle { color: #646a73; font-size: 14px; font-weight: 400; line-height: 24px; white-space: nowrap; }
-.matrix-people-page { width: 100%; min-width: 0; min-height: 0; display: flex; flex: 1 1 auto; flex-direction: column; padding: 16px 20px 20px; box-sizing: border-box; background: #fff; }
-.matrix-people-error { margin: 0 0 12px; color: var(--performance-field-error-color); font-size: 14px; line-height: 22px; }
-.matrix-people-toolbar { display: flex; flex: none; align-items: center; gap: 8px; min-height: 32px; }
-.matrix-people-toolbar :deep(.performance-search-input) { flex: 1 1 auto; min-width: 0; height: 32px; }
-.matrix-people-result { flex: none; margin-top: 16px; color: #1f2329; font-size: 14px; line-height: 22px; }
-.matrix-people-table { flex: 1 1 auto; min-height: 0; margin-top: 8px; --ui-table-header-background: #fff; --ui-table-header-height: 47px; --ui-table-row-height: 55px; }
-.matrix-people-table :deep(.ui-table__cell--head) { color: #646a73; font-weight: 500; }
+.matrix-people-dialog { --ui-fullscreen-background: var(--ui-page-background); }
+.matrix-people-subtitle { color: var(--color-text-secondary); font-size: var(--font-size-md); font-weight: 400; line-height: var(--performance-header-title-line-height); white-space: nowrap; }
+.matrix-people-page { width: 100%; min-width: 0; min-height: 0; display: flex; flex: 1 1 0; padding: var(--ui-surface-padding); box-sizing: border-box; }
+.matrix-people-surface { width: 100%; min-height: 0; overflow: auto; }
+.matrix-people-error { margin: 0 0 var(--spacing-3); color: var(--performance-field-error-color); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
+.matrix-people-result { margin-bottom: var(--spacing-2); color: var(--ui-table-text-color); font-size: var(--ui-table-font-size); line-height: var(--ui-table-line-height); }
 .matrix-people-table :deep(.is-detail-link) { cursor: pointer; }
 .matrix-people-table :deep(.is-detail-link .member-name) { color: var(--color-primary); text-decoration: none; }
 .matrix-people-table :deep(.is-detail-link:hover .member-name) { color: var(--color-primary-hover); }
-.matrix-people-table :deep(.table-pagination) { justify-content: flex-end; }
-.matrix-people-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 20px 0; color: #646a73; font-size: 14px; line-height: 22px; }
+.matrix-people-empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 </style>

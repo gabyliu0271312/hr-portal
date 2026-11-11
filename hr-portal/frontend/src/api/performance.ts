@@ -1022,14 +1022,22 @@ export interface ProjectMatrix {
 
 export interface ProjectStatisticsReport {
   source: 'api'
-  dimension: 'level' | 'tenure'
-  rowLabel: '岗位职级' | '司龄'
+  dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure'
+  rowLabel: string
   showSummary: true
   totalParticipants: number
   ratings: ProjectMatrixRating[]
   distribution: Record<string, number>
   heatLevels?: Record<string, 1 | 2 | 3>
   departments: Array<{ id: string; name: string; counts: Record<string, number>; heatLevels?: Record<string, 1 | 2 | 3>; children?: never[] }>
+}
+
+export interface ProjectReportComparisonData {
+  source: 'api'
+  total: number
+  ratings: ProjectMatrixRating[]
+  counts: number[][]
+  heatLevels: number[][]
 }
 
 export interface PerformanceResultOpeningPerson {
@@ -1188,8 +1196,12 @@ export const projectManagementApi = {
     const { data } = await api.post(`/performance/projects/${encodeURIComponent(String(projectId))}/result-reconsiderations/withdraw`, { version })
     return data
   },
-  async levelStatistics(cycleId: number, dimension: 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
+  async levelStatistics(cycleId: number, dimension: 'department' | 'team' | 'sequence' | 'level' | 'tenure' = 'level'): Promise<ProjectStatisticsReport> {
     const { data } = await api.get<ProjectStatisticsReport>('/performance/project-management/statistics', { params: { cycle_id: cycleId, dimension } })
+    return data
+  },
+  async selfFinalComparison(cycleId: number): Promise<ProjectReportComparisonData> {
+    const { data } = await api.get<ProjectReportComparisonData>('/performance/project-management/self-final-comparison', { params: { cycle_id: cycleId } })
     return data
   },
   async revieweeSearch(projectId: number | string, keyword: string): Promise<RevieweeSearchResult> {

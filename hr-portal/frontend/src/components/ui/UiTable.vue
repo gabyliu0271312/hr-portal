@@ -256,12 +256,17 @@ function observeColumns() {
 }
 
 onMounted(() => {
+  window.addEventListener('resize', measure)
+  void nextTick(measure)
   if (typeof ResizeObserver === 'undefined') return
   observer = new ResizeObserver(measure)
   observeColumns()
 })
 watch(() => [props.columns, props.selectable, props.stickyHeaderTop, props.maxHeight], observeColumns, { deep: true })
-onBeforeUnmount(() => observer?.disconnect())
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', measure)
+  observer?.disconnect()
+})
 
 function rowKeyOf(row: any, index: number) {
   if (typeof props.rowKey === 'function') return props.rowKey(row, index)
