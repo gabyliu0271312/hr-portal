@@ -28,7 +28,7 @@
         :rows="sortedRows"
         :loading="loading"
         loading-text="正在加载成员…"
-        :empty-text="error || (mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人')"
+        :empty-text="error || emptyText"
         table-aria-label="未完成的被评估人"
         pagination-aria-label="未完成人员分页"
         :page="page"
@@ -41,6 +41,7 @@
         sticky-header-top="var(--performance-table-sticky-top, 0px)"
         :selectable="mode !== 'preview'"
         :show-selection-bar="mode !== 'preview'"
+        :selection-bar-animated="false"
         :selection-bar-target="selectionBarTarget"
         :is-row-selectable="row => !loading && !actionLoading && row.selectable !== false"
         selection-key="task_id"
@@ -59,8 +60,8 @@
         </template>
         <template #empty="{ loading: tableLoading }">
           <div v-if="tableLoading" class="table-state" role="status">正在加载成员…</div>
-          <div v-else-if="error" class="table-state table-state--error" role="alert">{{ error }} <button type="button" @click="initialize">重新加载</button></div>
-          <div v-else class="table-state">{{ mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人' }}</div>
+          <div v-else-if="error" class="table-state table-state--error" role="alert">{{ error }} <button v-if="!openingForbidden" type="button" @click="initialize">重新加载</button></div>
+          <div v-else class="table-state">{{ emptyText }}</div>
         </template>
         <template #selection-actions>
           <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通所选成员</UiButton>
@@ -100,16 +101,31 @@
         <PerformanceCheckbox v-model="skipRecentlyReminded" label="6 小时内已被催办过该环节的人员不再发送通知" />
       </template>
     </PerformanceConfirmDialog>
+    <PerformanceConfirmDialog
+      v-model="remindResultOpen"
+      :message="remindResult.message"
+      :description="remindResult.description"
+      :show-cancel="false"
+      confirm-text="确定"
+      confirm-variant="primary"
+      @confirm="remindResultOpen = false"
+    >
+      <template #icon>
+        <YesOutlinedIcon v-if="remindResult.success" class="reminder-result-success" />
+        <InfoFilledIcon v-else />
+      </template>
+    </PerformanceConfirmDialog>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { performanceWorkbenchApi, projectManagementApi, type PerformanceTaskDelegationTarget } from '@/api/performance'
 import PerformanceColumnVisibilityDrawer from './PerformanceColumnVisibilityDrawer.vue'
 import PerformanceTaskDelegationDialog from './PerformanceTaskDelegationDialog.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import InfoFilledIcon from './InfoFilledIcon.vue'
+import YesOutlinedIcon from './YesOutlinedIcon.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceExportButton from './PerformanceExportButton.vue'
 import BellOutlinedIcon from './BellOutlinedIcon.vue'
@@ -124,7 +140,7 @@ import { defaultReminderColumns, reminderCellValue, reminderColumnsForVisibility
 import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
 const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
-const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
+const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer']; 'results-opened': [] }>()
 const keyword = ref('')
 const loadedKeyword = ref('')
 const columnsInitialized = ref(false)
@@ -166,8 +182,18 @@ const notice = ref('')
 const columnDrawerOpen = ref(false)
 const confirmOpen = ref(false)
 const remindConfirmOpen = ref(false)
+const remindResultOpen = ref(false)
+const remindResult = ref({ message: '', description: '', success: false })
+const openingForbidden = ref(false)
+const emptyText = computed(() => props.mode === 'open-result' ? '暂无可开通绩效结果的人员' : props.mode === 'preview' ? '暂无符合条件的员工' : '暂无未完成的被评估人')
 const skipRecentlyReminded = ref(false)
 let requestSequence = 0
+let disposed = false
+
+function setLoadError(cause: unknown, fallback: string) {
+  openingForbidden.value = props.mode === 'open-result' && (cause as { response?: { status?: number } })?.response?.status === 403
+  error.value = openingForbidden.value ? '无开通绩效结果权限' : fallback
+}
 
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columns.value.find(column => column.key === key)).filter((column): column is ReminderColumn => Boolean(column)))
 const tableColumns = computed(() => visibleColumns.value.map(column => ({ key: column.key, label: column.label, width: column.minWidth || 144, fixed: column.key === 'display_name', sortable: column.key !== 'reminder_target' && column.key !== 'hrbp' })))
@@ -218,6 +244,7 @@ async function load() {
   const sequence = ++requestSequence
   loading.value = true
   error.value = ''
+  openingForbidden.value = false
   const requestedKeyword = keyword.value.trim()
   try {
     const result = await (props.provider || defaultProvider)({ context: props.context, keyword: requestedKeyword, page: page.value, pageSize: pageSize.value })
@@ -238,8 +265,8 @@ async function load() {
     columnsInitialized.value = true
     const availableKeys = new Set(rows.value.filter(row => row.selectable !== false).map(row => String(row.task_id)))
     if (!selectAllEligible.value) selectedKeys.value = selectedKeys.value.filter(key => availableKeys.has(key))
-  } catch {
-    if (sequence === requestSequence) error.value = props.mode === 'preview' ? '人员加载失败，请稍后重试' : '未完成人员加载失败，请稍后重试'
+  } catch (cause) {
+    if (sequence === requestSequence) setLoadError(cause, props.mode === 'preview' ? '人员加载失败，请稍后重试' : '未完成人员加载失败，请稍后重试')
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -249,6 +276,7 @@ async function initialize() {
   const sequence = ++requestSequence
   loading.value = true
   error.value = ''
+  openingForbidden.value = false
   notice.value = ''
   selectedKeys.value = []
   taskMap.value = new Map()
@@ -279,8 +307,8 @@ async function initialize() {
       selectedKeys.value = [...new Set(selection)]
     }
     loadedKeyword.value = query.keyword
-  } catch {
-    if (sequence === requestSequence) { selectedKeys.value = []; error.value = '人员加载失败，请重新加载'; rows.value = [] }
+  } catch (cause) {
+    if (sequence === requestSequence) { selectedKeys.value = []; setLoadError(cause, '人员加载失败，请重新加载'); rows.value = [] }
   } finally {
     if (sequence === requestSequence) loading.value = false
   }
@@ -344,23 +372,41 @@ async function handleAction(action: 'remind' | 'authorize' | 'transfer' | 'open-
 
 async function confirmRemind() {
   if (!selectedKeys.value.length || actionLoading.value || loading.value || error.value) return
+  const submittedKeys = [...selectedKeys.value]
   actionLoading.value = true
   notice.value = ''
   try {
     const result = props.mode === 'cycle-remind'
-      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, selectedKeys.value.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
-      : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, selectedKeys.value.map(Number))
-    remindConfirmOpen.value = false
-    selectedKeys.value = (result.failed_task_ids || []).map(String)
-    await load()
-    const statusText = result.delivery_status === 'success' ? '催办已发送' : result.delivery_status === 'partial_success' ? '催办部分发送成功' : '催办发送失败'
-    notice.value = `${statusText}：${result.accepted_task_ids.length} 条，跳过 ${result.skipped_task_ids.length} 条${result.failed_task_ids?.length ? `，失败 ${result.failed_task_ids.length} 条` : ''}${result.errors?.some(item => item.error.includes('未确认')) ? '；发送结果未确认，请核对通知日志后再重试' : ''}`
+      ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
+      : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
+    if (disposed) return
+    const accepted = result.accepted_task_ids.length
+    const skipped = result.skipped_task_ids.length
+    const failed = result.failed_task_ids?.length || 0
+    const preview = result.preview_task_ids?.length || 0
+    const delivered = accepted > 0 && (result.delivery_status === 'success' || result.delivery_status === 'partial_success')
+    const success = delivered && !failed && !preview && !skipped
+    const completed = new Set([
+      ...(delivered ? result.accepted_task_ids : []),
+      ...result.skipped_task_ids,
+    ].map(String))
+    const retryKeys = new Set([...(result.failed_task_ids || []), ...(result.preview_task_ids || [])].map(String))
+    selectedKeys.value = success ? [] : submittedKeys.filter(key => retryKeys.has(key) || !completed.has(key))
+    const skippedOnly = skipped > 0 && !accepted && !failed && !preview
+    remindResult.value = {
+      success,
+      message: success ? '催办成功' : skippedOnly ? '本次催办已跳过' : delivered ? '催办部分发送成功' : result.delivery_status === 'preview_only' || preview ? '催办未发送' : '催办发送失败',
+      description: success ? '' : skippedOnly ? `跳过 ${skipped} 条，未重复发送通知。` : `${delivered ? `已发送 ${accepted} 条，` : ''}${failed ? `失败 ${failed} 条，` : ''}${preview ? `未发送 ${preview} 条，` : ''}跳过 ${skipped} 条${result.errors?.some(item => item.error.includes('未确认')) ? '；发送结果未确认，请核对通知日志后再重试' : ''}`,
+    }
   } catch {
-    remindConfirmOpen.value = false
-    notice.value = '催办请求提交失败，请稍后重试'
+    if (disposed) return
+    remindResult.value = { message: '催办请求提交失败', description: '请稍后重试。', success: false }
   } finally {
     actionLoading.value = false
+    remindConfirmOpen.value = false
   }
+  await nextTick()
+  if (!disposed) remindResultOpen.value = true
 }
 
 async function confirmResults() {
@@ -370,10 +416,15 @@ async function confirmResults() {
   actionLoading.value = true
   try {
     const result = await projectManagementApi.openResults(props.context.cycleId, selected)
+    if (disposed) return
     confirmOpen.value = false
     selectedKeys.value = []
-    await load()
     notice.value = `实际开通 ${result.accepted_employee_nos.length} 人，跳过 ${result.skipped_employee_nos.length} 人`
+    if (result.accepted_employee_nos.length) {
+      emit('results-opened')
+      await nextTick()
+      if (!disposed) await load()
+    }
   } catch {
     notice.value = '结果开通失败，请稍后重试'
   } finally {
@@ -388,9 +439,11 @@ watch(() => [props.context.projectId, props.context.cycleId, props.context.nodeI
   void initialize()
 })
 onMounted(() => void initialize())
+onBeforeUnmount(() => { disposed = true; requestSequence++ })
 </script>
 
 <style scoped>
+.reminder-result-success { color: var(--color-success); }
 .performance-reminder-panel :deep(.performance-sort-header) { height:22px; font-weight:400; }
 .reminder-target :deep(.member-avatar) { width:20px; height:20px; flex-basis:20px; }
 .performance-reminder-panel__description.is-statistics { display:flex; align-items:center; flex-wrap:wrap; }

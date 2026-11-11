@@ -9,7 +9,7 @@ import gridCardSource from './PerformanceGridCard.vue?raw'
 
 const nodes = [
   { key: 'work-summary', title: '填写工作总结', progress: '98.28%', canRemind: true, deadline: '2026-07-10 23:59（GMT+8）（已截止）' },
-  { key: 'view-result', title: '查看绩效结果', progress: '96.55%', deadline: null },
+  { key: 'view-result', title: '查看绩效结果', progress: '96.55%', completionStatus: '392/406', openedProgress: '96.55%', openedCompletionStatus: '392/406', reconsideredProgress: '12.32%', reconsideredCompletionStatus: '50/406', canOpenResult: true, openableCount: 4, deadline: null },
   { key: 'result-reconsideration', title: '结果复议处理', progress: '0.00%', deadline: '2026-08-28 23:59（GMT+8）（已截止）' },
 ]
 
@@ -26,8 +26,20 @@ describe('CompletionRatePanel', () => {
     const labels = wrapper.findAll('.segment').map(item => item.text())
     expect(labels).toEqual(['全部', '按部门', '已开通', '已复议'])
     expect(wrapper.find('.filter-button').attributes('disabled')).toBeDefined()
-    expect(wrapper.findAll('.segment')[3].attributes('disabled')).toBeDefined()
-    expect(wrapper.findAll('.segment')[3].attributes('title')).toBe('该功能暂不可用')
+    expect(wrapper.findAll('.segment')[3].attributes('disabled')).toBeUndefined()
+    expect(wrapper.findAll('.segment')[3].attributes('title')).toBeUndefined()
+  })
+
+  it('switches result completion statistics without disabling 已复议', async () => {
+    const wrapper = mountPanel()
+    await wrapper.findAll('.segment')[3].trigger('click')
+    expect(wrapper.find('.card-progress').text()).toBe('98.28%')
+    expect(wrapper.findAll('.completion-node-card')[1].find('.card-progress').text()).toBe('12.32%')
+    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('完成情况：50/406')
+    await wrapper.findAll('.segment')[2].trigger('click')
+    expect(wrapper.findAll('.completion-node-card')[1].find('.card-progress').text()).toBe('96.55%')
+    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('完成情况：392/406')
+    wrapper.unmount()
   })
 
   it('renders node cards with progress and deadline, and -- for missing deadline', () => {
@@ -40,7 +52,7 @@ describe('CompletionRatePanel', () => {
     expect(cards[1].text()).toContain('截止时间：--')
   })
 
-  it('shows 去催办 on the first six cards, 去开通 on view-result, and none on reconsideration', () => {
+  it('shows 去催办 on eligible cards and 去开通 only when server capability and count allow it', () => {
     const wrapper = mountPanel()
     const buttons = wrapper.findAll('.text-button')
     expect(buttons).toHaveLength(2)
@@ -49,6 +61,18 @@ describe('CompletionRatePanel', () => {
     expect(buttons[1].attributes('aria-label')).toBe('去开通')
     expect(wrapper.find('[data-icon="BellOutlined"]').exists()).toBe(false)
     expect(wrapper.find('[data-icon="PaReleaseResultOutlined"]').exists()).toBe(false)
+  })
+
+  it.each([
+    { canOpenResult: false, openableCount: 2, visible: false },
+    { canOpenResult: true, openableCount: 0, visible: false },
+    { canOpenResult: undefined, openableCount: 2, visible: false },
+    { canOpenResult: true, openableCount: undefined, visible: false },
+    { canOpenResult: true, openableCount: 2, visible: true },
+  ])('uses server opening capability and count: $canOpenResult/$openableCount', ({ visible, ...capability }) => {
+    const wrapper = mount(CompletionRatePanel, { props: { nodes: [{ ...nodes[1], ...capability }] } })
+    expect(wrapper.findAll('.node-action')).toHaveLength(visible ? 1 : 0)
+    wrapper.unmount()
   })
 
   it('emits a business action instead of handling reminder and enablement internally', async () => {

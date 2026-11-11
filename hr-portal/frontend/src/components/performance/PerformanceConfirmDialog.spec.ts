@@ -147,6 +147,37 @@ describe('PerformanceConfirmDialog', () => {
     wrapper.unmount()
   })
 
+  it('supports one primary acknowledgement with focus trapping and overflow restoration', async () => {
+    document.body.style.overflow = 'auto'
+    const wrapper = mountDialog({ showCancel: false, confirmVariant: 'primary', message: '催办成功', confirmText: '确定' })
+    await flushPromises()
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+    const confirm = dialog.querySelector<HTMLButtonElement>('button')!
+    expect(dialog.classList.contains('performance-confirm-dialog--primary')).toBe(true)
+    expect(dialog.querySelectorAll('button')).toHaveLength(1)
+    expect(confirm.textContent).toBe('确定')
+    expect(document.activeElement).toBe(confirm)
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    expect(document.activeElement).toBe(confirm)
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+    expect(document.activeElement).toBe(confirm)
+    confirm.click()
+    expect(wrapper.emitted('confirm')).toEqual([[]])
+    await wrapper.setProps({ modelValue: false })
+    await flushPromises()
+    expect(document.body.style.overflow).toBe('auto')
+    wrapper.unmount()
+  })
+
+  it('does not change an existing body lock when mounted closed', async () => {
+    document.body.style.overflow = 'hidden'
+    const wrapper = mountDialog({ modelValue: false })
+    await flushPromises()
+    expect(document.body.style.overflow).toBe('hidden')
+    wrapper.unmount()
+    expect(document.body.style.overflow).toBe('hidden')
+  })
+
   it('supports the shared wide delegation warning without deletion input', async () => {
     const wrapper = mountDialog({ appearance: 'delegation', confirmVariant: 'primary', message: '确定转交吗?', description: '请确保转交对象有所选环节的操作资格，避免泄露敏感数据。', cancelText: '取消', confirmText: '确定' })
     await flushPromises()

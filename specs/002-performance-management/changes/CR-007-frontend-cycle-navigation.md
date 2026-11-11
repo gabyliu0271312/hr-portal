@@ -107,6 +107,27 @@
 - 复议生命周期缺失是已知范围边界；不能用占位任务冒充真实复议。
 - 停止本轮能力时，仅回退导航接口、共享周期状态和三个前台页面接入，不整体回滚仓库、删除历史任务或改变角色配置。
 
+## 2026-11-11 结果开通与复议总览修复（用户已确认实施）
+
+- [ ] CR-007-F08 结果开通权限与可开通人员闭环
+  - 规则：独立 `performance.frontend.result-open` 权限、有效项目/人员范围、项目手动开通开启，且至少一名最终结果就绪、未开通并满足原时间条件的人员，才显示去开通；无最终结果人员不入名单。GET/POST/总览同口径，周期管理/进度权限不替代开通权限。
+  - 输出：总览 `can_open_result`、`openable_count`；开通完成事件 `results-opened` 刷新总览；名单过滤先于计数/分页。403/空态/异常分开反馈。
+- [ ] CR-007-F09 查看结果时间与复议指标/催办
+  - 规则：结果查看 `deadline_at=null`，不使用复议申请截止或遗留 end_at；其他环节原时间不变。`reconsidered_count` 是最新成员范围内未撤回申请人数（含已处理、按成员去重），与已开通使用相同人员分母；切换真实数据，不把处理任务份数冒充申请人数，不新增人员明细筛选API。
+  - 复议任务统计排除无真实有效申请的孤儿任务；催办要求未关闭/未撤回/未撤销、pending且已开始，GET/POST重校验；沿实际处理人解析、原通知链、六小时去重及投递结果语义。
+- [ ] CR-007-F10 催办反馈
+  - 规则：确认催办后不重新加载名单；全成功清空勾选，仅一个全局token结果弹窗，无动画/Toast/重复页内提示。部分失败保留失败项，异常保留原选择；preview_only/全跳过不得冒充成功送达。原提交前确认和六小时去重保留。
+- 前置与复用：已读Spec002基线、PM-001/PM-T004/PM-T007相关规则、Spec012 UI门禁及执行/验收契约；复用现有总览、人员表、确认弹窗、API、通知及已有测试。既有页面小范围修复，无新页面/蓝图。
+- 允许修改：后端 projects_router.py、必要的 navigation_service.py/reconsideration_service.py；前端 api/performance.ts、ProjectManagement.vue、CompletionRatePanel.vue、CompletionNodeCard.vue、PerformanceReminderPanel.vue、必要的 PerformanceConfirmDialog.vue及上述既有测试；各共享文件由单一负责人串行合并。
+- 验收：现有 test_performance_projects.py 定向pytest、对应Vitest、统一build、本地真实Vue路由受控合成API验证；覆盖权限允许/拒绝、空结果/manual关闭/未来/已开通/越界、指标切换/孤儿排除、催办不再GET及所有投递状态。独立PNG按F08/F09/F10命名，缺真实库/部署证据不得声称生产验收完成。
+- 非范围：不新建脚本/报告/测试文档，不改模型/迁移/权限配置数据/周期快照/生产，不实际外发、commit/push/deploy；保留无关临时文件。停止仅撤销本卡代码diff，不删任务/答案/审计，不整包回滚。主线程核查证据后才勾选。
+- 前端证据（2026-11-11）：`npm --prefix hr-portal/frontend run test -- src/components/performance/CompletionRatePanel.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/views/performance/ProjectManagement.spec.ts src/components/performance/performanceReminderVisibility.spec.ts` → 5文件107 passed，exit0；输出既有dropdown/drawer stub警告及一次jsdom XHR AggregateError，不声称无告警。成功/部分失败/失败/异常/preview/skipped均断言不再GET；开通accepted事件、父页卸载不重查、空态/403、权限/零人数隐藏、指标切换与零分母均覆盖。
+- UI证据：本地Vite真实Vue路由，1440×900、Chromium，全部 `/api/v1/*` 拦截为隔离合成数据（非生产/真实鉴权API）。总览已开通50%→已复议25%、结果查看截止--、开通后刷新按钮隐藏、复议催办路由通过；无权限/零可开通人数隐藏、名单空态/403通过。催办success清空checkbox且 `.selection-bar` DOM立即为0，failed/preview保留勾选、全跳过清空，四种状态无再GET、单结果弹窗、无页内notice，关闭后body overflow恢复；pageerror均0。首次截图发现共享表格0.2s选择栏离场残留，后用可选 `selectionBarAnimated`（默认true，仅本提醒面板false）修复并重截图。
+- 独立实现PNG（均已查看）：`ui-blueprints/CR-007-F08-implemented-opening-capability-20261111.png`、`ui-blueprints/CR-007-F09-implemented-reconsideration-metrics-20261111.png`、`ui-blueprints/CR-007-F10-implemented-reminder-success-20261111.png`。复用既有token/组件，无新页面或动画，不作为像素完全一致、真实后端/数据库/生产验收证明。
+- 后端证据（2026-11-11）：`hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_reconsideration_lifecycle.py hr-portal/backend/tests/test_performance_auth_context.py hr-portal/backend/tests/test_performance_role_configuration.py hr-portal/backend/tests/test_performance_subject_visibility.py -q --tb=short` → 809 passed / 5 skipped / 1 python_multipart第三方弃用警告，exit0；同轮项目文件单跑716 passed/5 skipped。新增开通候选/名单/POST同口径、隐式管理员独立权限/角色数据管理勾选/重名拒绝、HRBP局部与全局不可见、开通单独权限不泄漏其他进度节点、无结果/已开通/未来/manual关闭/重复成员过滤、真实复议去重和孤儿排除、复议名单与POST撤回/关闭/撤销/无申请拒绝及实际接收人验证。旧四项开通/总览测试替身补新增查询分支；六项communication旧替身补现有成员快照scalars空结果，未改相关业务实现。共享测试文件中的项目时间规则/草稿用例由并行项目设置卡负责，保留其变更。
+- 构建：`npm --prefix hr-portal/frontend run build` → vue-tsc + Vite exit0，3686模块，仅既有VueUse PURE注释警告；首次build发现本卡测试mock notification_status非法，已改回现有DTO合法pending_integration后通过。最终前端5文件107项复跑exit0（--silent；此前非静默警告见上）。`py_compile`后端路由通过。本卡逐文件diff检查通过（CRLF提示不作为业务错误），未覆盖其它会话的在途文件。
+- 交付边界：F08/F09本地实现、mock后端回归与受控前端交互已验证；真实登录/API/数据库新连接回读、真实外部投递及部署未执行，无模型/迁移变更。不把5个跳过当通过，不宣称生产验收完成；F08/F09整体保持未勾选。F10催办反馈本地组件/路由验收完成，不代表通知真实投递已验收。未commit/push/deploy。
+
 ## 8. 项目管理总览、组织完成率与催办增强（2026-11-01，进行中）
 
 用户确认授权查看按飞书参考页跳转为独立页面；要求基于 REA 参数还原组织完成率、模板与节点状态驱动卡片、环节统计提示、默认选中所有可催办项、真实发送及催办专属列。此节不改变第6章已完成任务的历史状态，也不代表本增强已完成验收。

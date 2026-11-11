@@ -11,6 +11,189 @@ from app.performance.auth_context import PerformanceAccessContext, PerformanceRo
 from app.performance.project_service import PerformanceProjectService, ProjectValidationError, _parse_time
 
 
+@pytest.mark.asyncio
+async def test_result_opening_candidates_filter_before_pagination_and_post(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    project = SimpleNamespace(id=1, project_ref="p1", name="项目", settings={})
+    other = SimpleNamespace(id=2, project_ref="p2", name="其他项目", settings={})
+    members = [SimpleNamespace(employee_no=no, display_name=no, organization_ref="集团/研发") for no in ["READY", "MISSING", "OPENED", "FUTURE", "MANUAL_OFF", "DUP"]]
+    rows = [(project, member) for member in members] + [(other, members[-1])]
+    role = SimpleNamespace(code="custom.open", is_active=True, function_permission_keys=["performance.frontend.result-open"])
+    grants = [(role, SimpleNamespace(scope_type="PROJECT", scope_ref="p1"))]
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=rows))
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    monkeypatch.setattr(router, "_opening_state", AsyncMock(return_value=(None, "final", None, [], [], [])))
+    reasons = {"MISSING": "RESULT_NOT_READY", "FUTURE": "RESULT_VIEW_NOT_STARTED", "MANUAL_OFF": "MANUAL_OPENING_DISABLED"}
+    monkeypatch.setattr(router, "_manual_openable", lambda project, member, state, now: reasons.get(member.employee_no))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")))
+    opening = AsyncMock(return_value=True)
+    monkeypatch.setattr(router, "_open_result", opening)
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [(1, "OPENED")])), commit=AsyncMock())
+    page = await router.result_opening_people(1, page=1, page_size=1, keyword=None, context=context(), db=db)
+    assert page.total == 1 and [item.employee_no for item in page.items] == ["READY"]
+    assert page.items[0].can_open and page.items[0].unavailable_reason is None
+    empty = await router.result_opening_people(1, page=2, page_size=1, keyword=None, context=context(), db=db)
+    assert empty.total == 1 and empty.items == []
+    result = await router.open_cycle_results(1, router.ResultOpeningBatchPayload(employee_nos=[member.employee_no for member in members] + ["OUTSIDE"]), context(), db)
+    assert result.accepted_employee_nos == ["READY"]
+    assert result.skipped_reasons == {**reasons, "OPENED": "ALREADY_OPENED", "DUP": "MULTIPLE_PROJECT_MEMBERSHIPS", "OUTSIDE": "PERSON_NOT_FOUND"}
+    opening.assert_awaited_once()
+    grants.clear()
+    eligible, _ = await router._result_opening_candidates(rows, grants, db, now=datetime.now(UTC))
+    assert eligible == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selected,feature,identity,expected", [
+    (["PROJECT_ADMIN"], True, ["ADMIN"], True),
+    (["PROJECT_ADMIN"], False, ["ADMIN"], False),
+    (["HRBP"], True, ["ADMIN"], False),
+    (["PROJECT_ADMIN"], True, ["ADMIN", "OTHER"], False),
+])
+async def test_result_opening_implicit_project_admin_requires_independent_permission(monkeypatch, selected, feature, identity, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceRole
+    role = SimpleNamespace(code="performance.project_admin", is_active=True, function_permission_keys=["performance.frontend.result-open"] if feature else [])
+    project = SimpleNamespace(id=1, project_ref="p1", cycle_ref="cycle:1", administrators=["管理员"], settings={"data_managers": selected})
+    monkeypatch.setattr(router, "_opening_role_grants", AsyncMock(return_value=[(role, SimpleNamespace(scope_type="GLOBAL"))]))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")))
+    class Scalars:
+        def __init__(self, values): self.values = values
+        def all(self): return self.values
+        def __iter__(self): return iter(self.values)
+    async def execute(query):
+        values = [role] if query.column_descriptions[0]["entity"] is PerformanceRole else identity
+        return SimpleNamespace(scalars=lambda: Scalars(values))
+    grants = await router._opening_access_grants(SimpleNamespace(execute=execute), context("performance.cycles.manage"), [project])
+    member = SimpleNamespace(employee_no="E1", organization_ref="集团/研发")
+    assert router._result_opening_scope(context(), grants, project, member) is expected
+    assert not router._result_opening_scope(context(), grants, SimpleNamespace(project_ref="p2"), member)
+
+
+@pytest.mark.asyncio
+async def test_result_opening_hrbp_preserves_project_scope_and_invisible_people(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    role = SimpleNamespace(code="performance.hrbp", is_active=True, function_permission_keys=["performance.frontend.result-open"])
+    project = SimpleNamespace(id=1, project_ref="p1", cycle_ref="cycle:1", administrators=[], settings={"data_managers": ["HRBP"]})
+    monkeypatch.setattr(router, "_opening_role_grants", AsyncMock(return_value=[]))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="H1")))
+    monkeypatch.setattr(router, "_person_hrbp_permissions", AsyncMock(return_value=[SimpleNamespace(scope=["集团/研发"], invisible_people=["HIDDEN"])]))
+    monkeypatch.setattr(router, "_global_hrbp_invisible_people", AsyncMock(return_value={"GLOBAL_HIDDEN"}))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [role]))))
+    grants = await router._opening_access_grants(db, context(), [project])
+    def allowed(no, org="集团/研发", target=project):
+        return router._result_opening_scope(context(), grants, target, SimpleNamespace(employee_no=no, organization_ref=org))
+    assert allowed("VISIBLE")
+    assert not allowed("HIDDEN") and not allowed("GLOBAL_HIDDEN") and not allowed("OUTSIDE", "集团/销售")
+    assert not allowed("VISIBLE", target=SimpleNamespace(project_ref="p2"))
+
+
+@pytest.mark.asyncio
+async def test_result_opening_overview_does_not_leak_progress_nodes(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    cycle = _pm_cycle(1, "周期")
+    project = _pm_project(1, "项目", 1)
+    member = SimpleNamespace(employee_no="E1", organization_ref="集团/研发")
+    access = _frontend_access(cycles=[cycle], manage_projects=[(project, cycle)], scopes={1: None}, features={1: {"performance.frontend.result-open"}}, manageable={cycle.cycle_ref})
+    grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="PROJECT", scope_ref=project.project_ref))]
+    monkeypatch.setattr(router, "resolve_frontend_access", AsyncMock(return_value=access))
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=[(project, member)]))
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    candidates = AsyncMock(return_value=([(project, member)], {}))
+    monkeypatch.setattr(router, "_result_opening_candidates", candidates)
+    nodes = AsyncMock(return_value=[{"key": "view-result", "configured": True, "total_count": 1}, {"key": "manager-review", "configured": True, "total_count": 99}])
+    monkeypatch.setattr(router, "_project_completion_nodes", nodes)
+    result = await router.project_management_overview(1, context(), object())
+    assert result["completion_nodes"] == [{"key": "view-result", "configured": True, "total_count": 1, "openable_count": 1, "can_open_result": True}]
+    assert nodes.await_args.kwargs["scopes"] == {1: {"E1"}}
+    candidates.return_value = ([], {})
+    result = await router.project_management_overview(1, context(), object())
+    assert not result["completion_nodes"][0]["can_open_result"]
+    assert result["completion_nodes"][0]["openable_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_result_opening_metrics_use_real_appeals_and_no_view_deadline():
+    from datetime import UTC, datetime
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration
+    project = _pm_project(1, "项目", 1)
+    project.settings = {"flow_settings": {}}
+    members = [SimpleNamespace(employee_no=no) for no in ["E1", "E2", "E3", "E4"]]
+    nodes = [SimpleNamespace(id=i, node_id=str(i), node_type=kind, config={"time": {"start_at": "2020-01-01T00:00:00Z", "end_at": "2020-01-02T00:00:00Z", "appeal_deadline": "2020-01-03T00:00:00Z"}}) for i, kind in [(1, "result_view"), (2, "result_reconsideration")]]
+    appeals = [SimpleNamespace(node_snapshot_id=2, employee_no=no, withdrawn_at=withdrawn, closed_at=closed) for no, withdrawn, closed in [("E1", None, None), ("E1", None, None), ("E2", None, datetime.now(UTC)), ("E3", datetime.now(UTC), None), ("OUTSIDE", None, None)]]
+    tasks = [SimpleNamespace(node_snapshot_id=2, target_employee_no=no, submitted_at=None, status="pending", task_kind="result_reconsideration", available_at=None, due_at=None) for no in ["E1", "E1", "E2", "E3", "E4"]]
+    values = {PerformanceProjectMember: members, PerformanceProjectNodeSnapshot: nodes, PerformanceNodeTask: tasks, PerformanceResultOpening: ["E1"], PerformanceResultReconsideration: appeals}
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    result = {item["key"]: item for item in await router._project_completion_nodes([project], Db())}
+    assert result["view-result"]["deadline_at"] is None
+    assert result["view-result"]["status"] == "active"
+    assert result["view-result"]["reconsidered_count"] == 2
+    assert result["view-result"]["total_count"] == 4
+    assert result["result-reconsideration"]["total_count"] == 3
+    assert result["result-reconsideration"]["can_remind"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,expected", [("active", True), ("closed", False), ("withdrawn", False), ("orphan", False), ("revoked", False)])
+async def test_reconsideration_reminder_post_revalidates_before_delivery(monkeypatch, state, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from app.performance import reconsideration_service
+    project = SimpleNamespace(id=1, cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=2, node_id="reconsideration", project_id=1, node_type="result_reconsideration", config={})
+    task = SimpleNamespace(id=3, task_kind="result_reconsideration", revoked_at=1 if state == "revoked" else None, project_id=1, cycle_ref="cycle:1", member_snapshot_id=10, node_snapshot_id=2, target_employee_no="E1", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    appeal = None if state == "orphan" else SimpleNamespace(withdrawn_at=1 if state == "withdrawn" else None, closed_at=1 if state == "closed" else None)
+    monkeypatch.setattr(router, "_managed_completion_projects", AsyncMock(return_value=[(project, {"E1"})]))
+    monkeypatch.setattr(router, "_completion_reminder_rows", AsyncMock(return_value=[{"task_id": 3, "selectable": True}]))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")))
+    monkeypatch.setattr(router, "_task_handlers", AsyncMock(return_value={"TRANSFERRED"}))
+    send = AsyncMock(return_value=(True, None))
+    monkeypatch.setattr(router, "_send_performance_task_reminder", send)
+    from app.performance.models import PerformanceResultReconsideration
+    class Db:
+        async def scalar(self, query): return appeal if query.column_descriptions[0]["entity"] is PerformanceResultReconsideration else 10
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, project)])
+        async def commit(self): pass
+        def add(self, event): pass
+    result = await router.project_management_remind(router.CycleReminderTasksPayload(cycle_id=1, node_key="result-reconsideration", task_ids=[3]), context(), Db())
+    assert result["accepted_task_ids"] == ([3] if expected else [])
+    assert result["skipped_task_ids"] == ([] if expected else [3])
+    assert send.await_count == int(expected)
+    if expected: assert send.await_args.args[0].handler_ref == "TRANSFERRED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,expected", [("active", True), ("closed", False), ("withdrawn", False), ("orphan", False), ("revoked", False)])
+async def test_reconsideration_reminder_list_filters_invalid_applications(monkeypatch, state, expected):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceAuthorizationSnapshotPerson, PerformanceIdentityLink, PerformanceResultReconsideration
+    monkeypatch.setattr("app.integrations.feishu.notification_service._global_delivery_mode", AsyncMock(return_value="blocked"))
+    project = SimpleNamespace(id=1, name="项目", cycle_ref="cycle:1", settings={})
+    node = SimpleNamespace(id=2, node_id="appeal", node_type="result_reconsideration", config={})
+    task = SimpleNamespace(id=3, task_kind="result_reconsideration", revoked_at=1 if state == "revoked" else None, project_id=1, cycle_ref="cycle:1", member_snapshot_id=10, node_snapshot_id=2, target_employee_no="E1", handler_ref="M1", status="pending", submitted_at=None, available_at=None, due_at=None)
+    member = PerformanceProjectMember(snapshot_id=10, employee_no="E1", display_name="成员", organization_ref="集团/研发")
+    appeal = None if state == "orphan" else SimpleNamespace(withdrawn_at=1 if state == "withdrawn" else None, closed_at=1 if state == "closed" else None)
+    for name, value in [("_managed_completion_projects", [(project, {"E1"})]), ("load_subject_visibility_rules", {"activity_manager": []}), ("resolve_trusted_performance_actor", SimpleNamespace(actor_ref="ADMIN")), ("_communication_progress", {}), ("_previous_published_position_levels", {}), ("_project_final_ratings", ([], {}, [])), ("_delegatable_stages", {}), ("resolve_subject_visibility_role", "activity_manager"), ("_task_handlers", {"M1"})]:
+        monkeypatch.setattr(router, name, AsyncMock(return_value=value))
+    values = {PerformanceProjectMember: [member], PerformanceProjectNodeSnapshot: [node], PerformanceNodeTask: [task], PerformanceAuthorizationSnapshotPerson: [SimpleNamespace(employee_no="M1", display_name="处理人", employment_status="在职")], PerformanceIdentityLink: []}
+    class Db:
+        async def scalar(self, query): return appeal if query.column_descriptions[0]["entity"] is PerformanceResultReconsideration else 10
+        async def get(self, model, key): return SimpleNamespace(source_snapshot_id=20)
+        async def execute(self, query): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    rows = await router._completion_reminder_rows(1, "result-reconsideration", context(), Db())
+    assert [row["task_id"] for row in rows] == ([3] if expected else [])
+    if expected: assert rows[0]["selectable"]
+
+
 def test_reconsideration_handlers_merge_roles_without_duplicate_tasks():
     from app.performance.reconsideration_service import resolve_handlers
     member = SimpleNamespace(employee_no="E1", direct_supervisor_employee_no="M1", hrbp_employee_no="H1")
@@ -437,7 +620,9 @@ async def test_result_opening_list_and_batch_deny_roles_without_function_key(mon
     async def grants(_db, _context):
         return [(SimpleNamespace(is_active=True, function_permission_keys=[]), SimpleNamespace(scope_type="GLOBAL", scope_ref="GLOBAL"))]
 
+    from unittest.mock import AsyncMock
     monkeypatch.setattr(projects_router, "_opening_role_grants", grants)
+    monkeypatch.setattr(projects_router, "_opening_project_members", AsyncMock(return_value=[]))
     with pytest.raises(HTTPException) as listed:
         await projects_router.result_opening_people(1, context=context(), db=object())
     assert listed.value.status_code == 403
@@ -713,6 +898,9 @@ async def test_project_management_overview_filters_cycles_and_projects_by_involv
         return access
 
     monkeypatch.setattr(projects_router, "resolve_frontend_access", resolve)
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(projects_router, "_opening_project_members", AsyncMock(return_value=[]))
+    monkeypatch.setattr(projects_router, "_opening_role_grants", AsyncMock(return_value=[]))
 
     class Db:
         async def scalar(self, _query):
@@ -766,7 +954,7 @@ async def test_project_management_overview_empty_and_missing_cycle(monkeypatch):
 async def test_project_completion_nodes_aggregate_real_deadlines_and_task_progress():
     from datetime import UTC, datetime
     from app.performance import projects_router
-    from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening
+    from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration
 
     project = _pm_project(1, "项目", 1)
     project.settings = {"flow_settings": {}}
@@ -780,7 +968,7 @@ async def test_project_completion_nodes_aggregate_real_deadlines_and_task_progre
         SimpleNamespace(project_id=1, node_snapshot_id=11, submitted_at=datetime(2026, 9, 20, tzinfo=UTC), status="completed"),
         SimpleNamespace(project_id=1, node_snapshot_id=11, submitted_at=None, status="pending"),
         SimpleNamespace(project_id=1, node_snapshot_id=12, submitted_at=None, status="pending"),
-        SimpleNamespace(project_id=1, node_snapshot_id=13, submitted_at=None, status="pending"),
+        SimpleNamespace(project_id=1, node_snapshot_id=13, target_employee_no="E001", submitted_at=None, status="pending"),
     ]
 
     class Db:
@@ -789,6 +977,8 @@ async def test_project_completion_nodes_aggregate_real_deadlines_and_task_progre
 
         async def execute(self, query):
             model = query.column_descriptions[0]["entity"]
+            if model is PerformanceResultReconsideration:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             if model is PerformanceProjectMember:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: members))
             if model is PerformanceProjectNodeSnapshot:
@@ -806,7 +996,7 @@ async def test_project_completion_nodes_aggregate_real_deadlines_and_task_progre
     assert by_key["work-summary"]["deadline_at"] == datetime(2026, 10, 1, 15, 59, tzinfo=UTC)
     assert by_key["self-review"]["status"] == "not_started"
     assert by_key["self-review"]["completion_rate"] == 0
-    assert by_key["result-reconsideration"]["total_count"] == 1
+    assert by_key["result-reconsideration"]["total_count"] == 0
     assert by_key["result-reconsideration"]["completed_count"] == 0
     assert by_key["result-reconsideration"]["completion_rate"] == 0
 
@@ -2627,6 +2817,8 @@ async def test_workbench_tasks_and_people_return_live_due_date(monkeypatch):
 
     class Db:
         async def execute(self, query):
+            if query.column_descriptions[0].get("entity") is projects_router.PerformanceProjectMemberSnapshot:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             if "performance_node_tasks.cycle_ref =" in str(query):
                 return SimpleNamespace(all=lambda: [])
             if "performance_project_members" in str(query):
@@ -3718,6 +3910,8 @@ async def test_evaluation_member_list_can_return_completed_and_pending_tasks(mon
 
     class Db:
         async def execute(self, _query):
+            if _query.column_descriptions[0].get("entity") is projects_router.PerformanceProjectMemberSnapshot:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             if "performance_node_tasks.cycle_ref =" in str(_query):
                 return SimpleNamespace(all=lambda: [])
             return SimpleNamespace(all=lambda: [(completed, node, member_a), (pending, node, member_b)])
@@ -7124,6 +7318,8 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
                 return SimpleNamespace(all=lambda: [(7, "M1", "冻结上级姓名")])
             if "performance_node_tasks.cycle_ref =" in sql:
                 return SimpleNamespace(all=lambda: [])
+            if query.column_descriptions[0].get("entity") is projects_router.PerformanceProjectMemberSnapshot:
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
             if "performance_project_node_snapshots" in sql and "performance_node_tasks" not in sql:
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [node]))
             if "performance_node_tasks" in sql and "JOIN" not in sql:

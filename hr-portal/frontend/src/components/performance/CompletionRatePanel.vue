@@ -31,14 +31,14 @@
       </div>
     </div>
     <div v-else class="node-grid">
-      <CompletionNodeCard v-for="node in nodes" :key="node.key" :node="node">
+      <CompletionNodeCard v-for="node in displayNodes" :key="node.key" :node="node">
         <template v-if="node.key === 'view-result'" #header-extra>
           <PerformanceSegmentedControl v-model="resultView" size="sm" :options="resultOptions" aria-label="结果查看维度" />
         </template>
         <template v-if="node.canRemind" #actions>
           <PerformanceTextButton class="node-action" label="去催办" @click="emit('action', { action: 'remind', nodeKey: node.key, title: node.reminderTitle || node.title, description: reminderMetrics(node) })" />
         </template>
-        <template v-else-if="node.key === 'view-result' && node.status !== 'unavailable'" #actions>
+        <template v-else-if="node.key === 'view-result' && node.canOpenResult === true && (node.openableCount || 0) > 0" #actions>
           <PerformanceTextButton class="node-action" label="去开通" @click="emit('action', { action: 'enable-result', nodeKey: node.key, title: node.title, description: '' })" />
         </template>
       </CompletionNodeCard>
@@ -67,7 +67,15 @@ const viewOptions = [
   { value: 'by-org', label: '按部门', icon: OrganizationOutlinedIcon },
 ]
 const resultView = ref('opened')
-const resultOptions = [{ value: 'opened', label: '已开通' }, { value: 'reconsidered', label: '已复议', disabled: true }]
+const resultOptions = [{ value: 'opened', label: '已开通' }, { value: 'reconsidered', label: '已复议' }]
+const displayNodes = computed(() => props.nodes.map(node => {
+  if (node.key !== 'view-result') return node
+  return {
+    ...node,
+    progress: (resultView.value === 'reconsidered' ? node.reconsideredProgress : node.openedProgress) ?? node.progress,
+    completionStatus: (resultView.value === 'reconsidered' ? node.reconsideredCompletionStatus : node.openedCompletionStatus) ?? node.completionStatus,
+  }
+}))
 const departmentLoading = ref(false)
 const departmentError = ref('')
 const departmentData = ref<ProjectManagementDepartmentCompletion | null>(null)

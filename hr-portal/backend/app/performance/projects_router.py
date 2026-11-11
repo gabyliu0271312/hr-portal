@@ -1626,6 +1626,13 @@ async def _sync_automatic_openings(db: AsyncSession, project: PerformanceProject
 
 def _result_opening_scope(context: PerformanceAccessContext, grants: list[tuple[PerformanceRole, PerformanceRoleAssignment]], project: PerformanceProject, member: PerformanceProjectMember) -> bool:
     for role, assignment in grants:
+        if getattr(assignment, "project_ref", project.project_ref) != project.project_ref:
+            continue
+        employee_nos = getattr(assignment, "employee_nos", None)
+        if employee_nos is not None and member.employee_no not in employee_nos:
+            continue
+        if getattr(member, "employee_no", None) in getattr(assignment, "invisible_people", ()):
+            continue
         if role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []):
             if assignment.scope_type == "GLOBAL":
                 return True
@@ -1649,6 +1656,45 @@ async def _opening_role_grants(db: AsyncSession, context: PerformanceAccessConte
         or_(PerformanceRoleAssignment.starts_at.is_(None), PerformanceRoleAssignment.starts_at <= now),
         or_(PerformanceRoleAssignment.ends_at.is_(None), PerformanceRoleAssignment.ends_at > now),
     ))).all())
+
+
+async def _opening_access_grants(db: AsyncSession, context: PerformanceAccessContext, projects: list[PerformanceProject]) -> list[tuple[PerformanceRole, PerformanceRoleAssignment]]:
+    """Combine explicit scoped assignments with configured project-admin/HRBP identities."""
+    grants = [(role, assignment) for role, assignment in await _opening_role_grants(db, context)
+              if getattr(role, "code", None) not in {"performance.project_admin", "performance.hrbp"}]
+    if not projects:
+        return grants
+    roles = list((await db.execute(select(PerformanceRole).where(
+        PerformanceRole.code.in_(("performance.project_admin", "performance.hrbp")),
+        PerformanceRole.role_type == "MANAGEMENT",
+        PerformanceRole.is_active.is_(True),
+    ))).scalars().all())
+    result_open_roles = {role.code: role for role in roles if role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or [])}
+    if not result_open_roles:
+        return grants
+    for project in projects:
+        try:
+            actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref, require_employee_identity=True)
+        except PerformanceIdentityMappingNotFound:
+            continue
+        selected = (project.settings or {}).get("data_managers", ["HRBP"])
+        role = result_open_roles.get("performance.project_admin")
+        if "PROJECT_ADMIN" in selected and role and _person_in_project_administrators(project, context.display_name) and actor.actor_type == "EMPLOYEE":
+            identity_matches = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson.employee_no)
+                .join(PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id)
+                .where(PerformanceAuthorizationSnapshot.cycle_ref == project.cycle_ref,
+                       PerformanceAuthorizationSnapshotPerson.display_name == context.display_name))).scalars())
+            if identity_matches == [actor.actor_ref]:
+                grants.append((role, SimpleNamespace(scope_type="PROJECT", scope_ref=project.project_ref, project_ref=project.project_ref)))
+        role = result_open_roles.get("performance.hrbp")
+        if "HRBP" in selected and role and actor.actor_type == "EMPLOYEE":
+            permissions = await _person_hrbp_permissions(db, actor.actor_ref, project.cycle_ref)
+            global_invisible = await _global_hrbp_invisible_people(db, scopes=[scope for permission in permissions for scope in (permission.scope or [])]) if permissions else set()
+            for permission in permissions:
+                for scope in (permission.scope or []):
+                    grants.append((role, SimpleNamespace(scope_type="ORG", scope_ref=scope, project_ref=project.project_ref,
+                        invisible_people=set(permission.invisible_people or []) | global_invisible)))
+    return grants
 
 
 async def _opening_project_members(db: AsyncSession, cycle_id: int) -> list[tuple[PerformanceProject, PerformanceProjectMember]]:
@@ -1683,6 +1729,44 @@ def _manual_openable(project: PerformanceProject, member: PerformanceProjectMemb
     return None
 
 
+async def _result_opening_candidates(
+    rows: list[tuple[PerformanceProject, PerformanceProjectMember]],
+    grants: list[tuple[PerformanceRole, PerformanceRoleAssignment]],
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> tuple[list[tuple[PerformanceProject, PerformanceProjectMember]], dict[tuple[int, str], str]]:
+    """Resolve result-opening qualification once for GET, POST, and overview counts."""
+    current = now or datetime.now(UTC)
+    projects = {project.id: project for project, _member in rows}
+    memberships = {}
+    for project, member in rows:
+        memberships.setdefault(member.employee_no, set()).add(project.id)
+    states = {project.id: await _opening_state(project, db) for project in projects.values()}
+    opened = set((await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
+        PerformanceResultOpening.project_id.in_(list(projects)),
+    ))).all()) if projects else set()
+    eligible = []
+    reasons: dict[tuple[int, str], str] = {}
+    for project, member in rows:
+        key = (project.id, member.employee_no)
+        if len(memberships[member.employee_no]) > 1:
+            reasons[key] = "MULTIPLE_PROJECT_MEMBERSHIPS"
+            continue
+        if key in opened:
+            reasons[key] = "ALREADY_OPENED"
+            continue
+        if not _result_opening_scope(None, grants, project, member):
+            reasons[key] = "RESULT_OPEN_FORBIDDEN"
+            continue
+        reason = _manual_openable(project, member, states[project.id], current)
+        if reason:
+            reasons[key] = reason
+            continue
+        eligible.append((project, member))
+    return eligible, reasons
+
+
 @router.get("/cycles/{cycle_id}/result-opening/people", response_model=ResultOpeningPeoplePage)
 async def result_opening_people(
     cycle_id: int,
@@ -1692,26 +1776,19 @@ async def result_opening_people(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    grants = await _opening_role_grants(db, context)
+    rows = await _opening_project_members(db, cycle_id)
+    projects = list({project.id: project for project, _member in rows}.values())
+    grants = await _opening_access_grants(db, context, projects)
     if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
         raise HTTPException(status_code=403, detail="RESULT_OPEN_FORBIDDEN")
-    rows = await _opening_project_members(db, cycle_id)
-    project_ids = [project.id for project, _ in rows]
-    projects_by_id = {project.id: project for project, _ in rows}
-    opened = set((await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
-        PerformanceResultOpening.project_id.in_(project_ids),
-    ))).all()) if project_ids else set()
-    states = {project.id: await _opening_state(project, db) for project in projects_by_id.values()}
+    eligible, _reasons = await _result_opening_candidates(rows, grants, db)
     items = []
-    for project, member in rows:
-        if (project.id, member.employee_no) in opened or not _result_opening_scope(context, grants, project, member):
-            continue
+    for project, member in eligible:
         if keyword and keyword.casefold() not in f"{member.display_name} {member.employee_no}".casefold():
             continue
-        reason = _manual_openable(project, member, states.get(project.id), datetime.now(UTC))
         items.append(ResultOpeningPerson(
             employee_no=member.employee_no, display_name=member.display_name, project_id=project.id,
-            project_name=project.name, can_open=reason is None, unavailable_reason=reason,
+            project_name=project.name, can_open=True, unavailable_reason=None,
         ))
     items.sort(key=lambda item: (item.display_name, item.employee_no))
     return ResultOpeningPeoplePage(items=items[(page - 1) * page_size:page * page_size], total=len(items), page=page, page_size=page_size)
@@ -1724,10 +1801,13 @@ async def open_cycle_results(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    grants = await _opening_role_grants(db, context)
+    rows = await _opening_project_members(db, cycle_id)
+    projects = list({project.id: project for project, _member in rows}.values())
+    grants = await _opening_access_grants(db, context, projects)
     if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
         raise HTTPException(status_code=403, detail="RESULT_OPEN_FORBIDDEN")
-    rows = await _opening_project_members(db, cycle_id)
+    eligible, reasons = await _result_opening_candidates(rows, grants, db)
+    eligible_keys = {(project.id, member.employee_no) for project, member in eligible}
     selected = list(dict.fromkeys(payload.employee_nos))
     matched: dict[str, tuple[PerformanceProject, PerformanceProjectMember]] = {}
     duplicates: set[str] = set()
@@ -1751,6 +1831,9 @@ async def open_cycle_results(
             skipped[employee_no] = "PERSON_NOT_FOUND"
             continue
         project, member = item
+        if (project.id, employee_no) not in eligible_keys:
+            skipped[employee_no] = reasons.get((project.id, employee_no), "RESULT_NOT_READY")
+            continue
         if not _result_opening_scope(context, grants, project, member):
             skipped[employee_no] = "RESULT_OPEN_FORBIDDEN"
             continue
@@ -3286,6 +3369,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         key: {
             "configured": 0, "starts": [], "deadlines": [], "completed": 0, "total": 0,
             "available_pending": 0, "title": title, "node_type": None,
+            "openable_count": 0, "reconsidered_count": 0,
         }
         for key, title in _COMPLETION_NODE_DEFINITIONS
     }
@@ -3312,6 +3396,13 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
             members = [member for member in members if member.employee_no in scope]
             tasks = [task for task in tasks if task.target_employee_no in scope]
             opened_people.intersection_update(scope)
+        appeals = list((await db.execute(select(PerformanceResultReconsideration).where(
+            PerformanceResultReconsideration.project_id == project.id,
+            PerformanceResultReconsideration.member_snapshot_id == snapshot_id,
+            PerformanceResultReconsideration.withdrawn_at.is_(None),
+        ))).scalars().all()) if any(node.node_type in {"result_view", "result_reconsideration"} for node in nodes) else []
+        member_nos = {member.employee_no for member in members}
+        appeals = [appeal for appeal in appeals if appeal.employee_no in member_nos and appeal.withdrawn_at is None]
         tasks_by_node: dict[int, list[PerformanceNodeTask]] = {}
         for task in tasks:
             tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
@@ -3326,20 +3417,30 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
             state["node_type"] = node.node_type
             timing = _node_timing(project, node) or {}
             start_at = _safe_node_time(timing.get("start_at"))
-            deadline_at = _safe_node_time(timing.get("end_at") or timing.get("appeal_deadline"))
+            deadline_at = None if node.node_type == "result_view" else _safe_node_time(timing.get("end_at") or timing.get("appeal_deadline"))
             if start_at is not None:
                 state["starts"].append(start_at)
             if deadline_at is not None:
                 state["deadlines"].append(deadline_at)
             node_tasks = tasks_by_node.get(node.id, [])
+            if node.node_type == "result_reconsideration":
+                node_tasks = [task for task in node_tasks if any(
+                    appeal.node_snapshot_id == node.id and appeal.employee_no == task.target_employee_no
+                    for appeal in appeals
+                )]
             if node.node_type == "result_view":
                 total = len(members)
                 completed = sum(member.employee_no in opened_people for member in members)
+                state["reconsidered_count"] += len({appeal.employee_no for appeal in appeals})
             else:
                 completed, total = _completion_task_counts(node, node_tasks)
                 state["available_pending"] += sum(
                     1 for task in node_tasks
                     if not _task_completed(task) and task.status == "pending" and _task_is_available(task, node, project, current)
+                    and (node.node_type != "result_reconsideration" or any(
+                        appeal.node_snapshot_id == node.id and appeal.employee_no == task.target_employee_no and appeal.closed_at is None
+                        for appeal in appeals
+                    ))
                 )
             state["total"] += total
             state["completed"] += completed
@@ -3352,6 +3453,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
                 "key": key, "title": fallback_title, "status": "unavailable",
                 "completed_count": 0, "total_count": 0, "completion_rate": None, "deadline_at": None,
                 "configured": False, "can_remind": False, "reminder_title": None, "reminder_description": None,
+                "can_open_result": False, "openable_count": 0, "reconsidered_count": 0,
             })
             continue
         completed = state["completed"]
@@ -3359,7 +3461,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         status_value = _completion_node_status(state["starts"], state["deadlines"], completed, total, current)
         reminder_title = state["title"]
         can_remind = bool(
-            key not in {"view-result", "result-reconsideration"}
+            key != "view-result"
             and status_value in {"active", "overdue"}
             and state["available_pending"] > 0
         )
@@ -3374,6 +3476,9 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
             "can_remind": can_remind,
             "reminder_title": reminder_title,
             "configured": True,
+            "can_open_result": state["openable_count"] > 0,
+            "openable_count": state["openable_count"],
+            "reconsidered_count": state["reconsidered_count"],
         })
     return result
 
@@ -3528,8 +3633,21 @@ def _department_path_filter(department: str | None) -> Callable[[PerformanceProj
     return lambda member: _department_path(member)[:len(parts)] == parts
 
 
+async def _completion_reconsideration_valid(db, task, *, lock=False):
+    if getattr(task, "revoked_at", None) is not None or getattr(task, "task_kind", None) != "result_reconsideration":
+        return False
+    from app.performance.reconsideration_service import reconsideration_for_task
+    try:
+        appeal = await reconsideration_for_task(db, task, lock=lock)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return False
+        raise
+    return appeal.withdrawn_at is None and appeal.closed_at is None
+
+
 async def _completion_reminder_rows(cycle_id: int, node_key: str, context: PerformanceAccessContext, db: AsyncSession, keyword: str | None = None, department: str | None = None) -> list[dict]:
-    if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key in {"view-result", "result-reconsideration"}:
+    if node_key not in {key for key, _title in _COMPLETION_NODE_DEFINITIONS} or node_key == "view-result":
         raise HTTPException(status_code=422, detail="REMINDER_NODE_NOT_SUPPORTED")
     projects = await _managed_completion_projects(cycle_id, context, db)
     visibility_rules = await load_subject_visibility_rules(db)
@@ -3603,7 +3721,9 @@ async def _completion_reminder_rows(cycle_id: int, node_key: str, context: Perfo
             ).order_by(PerformanceNodeTask.id))).scalars().all())
             for task in tasks:
                 if (task.target_employee_no not in member_by_employee or _task_completed(task)
+                    or task.status != "pending" or getattr(task, "revoked_at", None) is not None
                     or not _task_is_available(task, node, project)
+                    or (node.node_type == "result_reconsideration" and not await _completion_reconsideration_valid(db, task))
                     or (node.node_type == "calibration" and not calibration_task_scope(task, node))):
                     continue
                 member = member_by_employee[task.target_employee_no]
@@ -4199,6 +4319,9 @@ async def project_management_remind(
             skipped.append(task_id)
             continue
         outcomes = []
+        if node.node_type == "result_reconsideration" and not await _completion_reconsideration_valid(db, task, lock=True):
+            skipped.append(task_id)
+            continue
         for handler_ref in sorted(await _task_handlers(db, task)):
             delivery_key = (project.id, node.id, handler_ref, getattr(task, "phase_id", ""))
             if delivery_key not in deliveries:
@@ -4256,6 +4379,31 @@ async def project_management_overview(
     projects.sort(key=lambda item: item["project_name"])
     active_projects = [project for project, _cycle in managed if project.id in scopes]
     completion_nodes = await _project_completion_nodes(active_projects, db, scopes=scopes) if active_projects else []
+    opening_rows = await _opening_project_members(db, active_cycle["cycle_id"])
+    opening_projects = list({project.id: project for project, _member in opening_rows}.values())
+    opening_grants = await _opening_access_grants(db, context, opening_projects)
+    opening_eligible, _reasons = await _result_opening_candidates(opening_rows, opening_grants, db)
+    result_scopes = {project_id: None if scope is None else set(scope) for project_id, scope in scopes.items()}
+    for project, member in opening_rows:
+        if not _result_opening_scope(context, opening_grants, project, member):
+            continue
+        if project.id not in result_scopes:
+            result_scopes[project.id] = set()
+        if result_scopes[project.id] is not None:
+            result_scopes[project.id].add(member.employee_no)
+    result_projects = [project for project in opening_projects if project.id in result_scopes]
+    if result_projects:
+        result_nodes = await _project_completion_nodes(result_projects, db, scopes=result_scopes)
+        result_node = next(item for item in result_nodes if item["key"] == "view-result")
+        completion_nodes = [item for item in completion_nodes if item["key"] != "view-result"]
+        completion_nodes.append(result_node)
+        order = {key: index for index, (key, _title) in enumerate(_COMPLETION_NODE_DEFINITIONS)}
+        completion_nodes.sort(key=lambda item: order[item["key"]])
+    else:
+        result_node = next((item for item in completion_nodes if item["key"] == "view-result"), None)
+    if result_node is not None:
+        result_node["openable_count"] = len(opening_eligible)
+        result_node["can_open_result"] = bool(opening_eligible)
     hrbp_scope = sorted(project.project_ref for project, _cycle in managed if access.management_scopes.get(project.id) is not None)
     return {
         "cycles": cycles,

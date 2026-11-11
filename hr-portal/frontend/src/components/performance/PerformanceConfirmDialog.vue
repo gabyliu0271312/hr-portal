@@ -38,7 +38,7 @@
         <footer class="performance-confirm-dialog__footer">
           <div v-if="$slots['footer-left']" class="performance-confirm-dialog__footer-left"><slot name="footer-left" /></div>
           <div class="performance-confirm-dialog__footer-actions">
-            <button ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">{{ cancelText }}</button>
+            <button v-if="showCancel" ref="cancelRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--cancel" type="button" :disabled="loading" @click="cancel">{{ cancelText }}</button>
             <button ref="confirmRef" class="performance-confirm-dialog__button performance-confirm-dialog__button--danger" type="button" :disabled="loading || !canConfirm" :aria-busy="loading" @click="$emit('confirm')">{{ confirmText }}</button>
           </div>
         </footer>
@@ -57,6 +57,7 @@ const props = withDefaults(defineProps<{
   subject?: string
   description?: string
   cancelText?: string
+  showCancel?: boolean
   confirmText?: string
   loading?: boolean
   requireConfirm?: boolean
@@ -69,6 +70,7 @@ const props = withDefaults(defineProps<{
   subject: '',
   description: '',
   cancelText: '保留',
+  showCancel: true,
   confirmText: '删除',
   loading: false,
   requireConfirm: false,
@@ -89,12 +91,16 @@ const confirmInput = ref('')
 const confirmInputId = 'performance-confirm-delete-input'
 let returnFocus: HTMLElement | null = null
 let previousOverflow = ''
+let pageLocked = false
 
 const canConfirm = computed(() => !props.confirmDisabled && (!props.requireConfirm || confirmInput.value.trim() === '确认删除'))
 
 function restorePage() {
+  if (!pageLocked) return
+  pageLocked = false
   document.body.style.overflow = previousOverflow
-  void nextTick(() => returnFocus?.focus())
+  const target = returnFocus
+  void nextTick(() => { if (!pageLocked) target?.focus() })
 }
 
 function cancel() {
@@ -126,9 +132,10 @@ watch(() => props.modelValue, (visible) => {
   if (visible) {
     returnFocus = document.activeElement as HTMLElement | null
     previousOverflow = document.body.style.overflow
+    pageLocked = true
     document.body.style.overflow = 'hidden'
     confirmInput.value = ''
-    void nextTick(() => (props.appearance === 'submit' ? confirmRef.value : cancelRef.value)?.focus())
+    void nextTick(() => { if (pageLocked) (props.appearance === 'submit' || !props.showCancel ? confirmRef.value : cancelRef.value)?.focus() })
   } else {
     restorePage()
   }

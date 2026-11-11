@@ -387,9 +387,57 @@ describe('ProjectManagement', () => {
     expect(cards[1].find('.text-button').text()).toBe('去催办')
   })
 
+  it('maps result opening facts, latest member totals and reconsiderations without a result deadline', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [
+      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 3, total_count: 5, completion_rate: 60, reconsidered_count: 1, can_open_result: false, openable_count: 2, deadline_at: null },
+      { key: 'result-reconsideration', title: '结果复议处理', status: 'active', completed_count: 0, total_count: 1, completion_rate: 0, can_remind: true, deadline_at: '2099-08-28T15:59:00Z' },
+    ] }))
+    const wrapper = mountView()
+    await flushPromises()
+    const cards = wrapper.findAll('.completion-node-card')
+    expect(cards[0].find('.card-progress').text()).toBe('60.00%')
+    expect(cards[0].text()).toContain('完成情况：3/5')
+    expect(cards[0].text()).toContain('截止时间：--')
+    expect(cards[0].find('.node-action').exists()).toBe(false)
+    expect(cards[1].text()).toContain('截止时间：2099-08-28 23:59（GMT+8）')
+    await cards[0].findAll('.segment')[1].trigger('click')
+    expect(cards[0].find('.card-progress').text()).toBe('20.00%')
+    expect(cards[0].text()).toContain('完成情况：1/5')
+    await cards[1].get('.node-action').trigger('click')
+    expect(push).toHaveBeenCalledWith(expect.objectContaining({ name: 'PerformanceProjectReminder', query: expect.objectContaining({ node_key: 'result-reconsideration' }) }))
+    wrapper.unmount()
+  })
+
+  it.each([0, 5])('defaults missing reconsiderations to zero with total=%s', async total => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [
+      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 0, total_count: total, completion_rate: 0, deadline_at: null },
+    ] }))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('.completion-node-card .segment')[1].trigger('click')
+    expect(wrapper.get('.completion-node-card .card-progress').text()).toBe('0.00%')
+    expect(wrapper.get('.completion-node-card').text()).toContain(`完成情况：0/${total}`)
+    expect(wrapper.find('.completion-node-card .node-action').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([
+    { can_open_result: false, openable_count: 2, visible: false },
+    { can_open_result: true, openable_count: 0, visible: false },
+    { can_open_result: true, openable_count: 2, visible: true },
+  ])('passes backend opening eligibility to result actions: $can_open_result/$openable_count', async ({ visible, ...capability }) => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [
+      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 0, total_count: 2, completion_rate: 0, deadline_at: null, ...capability },
+    ] }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('.completion-node-card .node-action').exists()).toBe(visible)
+    wrapper.unmount()
+  })
+
   it('opens the shared task overlay for cycle-wide result opening', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({
-      completion_nodes: [{ key: 'view-result', title: '查看绩效结果', status: 'not_started', completed_count: 0, total_count: 2, completion_rate: 0, deadline_at: null }],
+      completion_nodes: [{ key: 'view-result', title: '查看绩效结果', status: 'not_started', completed_count: 0, total_count: 2, completion_rate: 0, deadline_at: null, can_open_result: true, openable_count: 2 }],
     }))
     const people = vi.spyOn(projectManagementApi, 'openingPeople').mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 })
     const wrapper = mountView()
@@ -397,6 +445,14 @@ describe('ProjectManagement', () => {
     await wrapper.get('.completion-node-card .node-action').trigger('click')
     expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('mode')).toBe('open-result')
     expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).props('context')).toMatchObject({ cycleId: 1, projectId: 0 })
+    expect(wrapper.getComponent({ name: 'PerformanceTaskOverlay' }).props('modelValue')).toBe(true)
+    await flushPromises()
+    wrapper.getComponent({ name: 'PerformanceReminderPanel' }).vm.$emit('results-opened')
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'PerformanceTaskOverlay' }).props('modelValue')).toBe(false)
+    expect(wrapper.findComponent({ name: 'PerformanceReminderPanel' }).exists()).toBe(false)
+    expect(mockedApi.overview).toHaveBeenCalledTimes(2)
+    expect(mockedApi.overview).toHaveBeenLastCalledWith(1)
     wrapper.unmount()
     people.mockRestore()
   })

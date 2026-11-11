@@ -47,7 +47,7 @@
       </template>
     </section>
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
-      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" />
+      <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" @results-opened="handleResultsOpened" />
     </PerformanceTaskOverlay>
     <PerformanceReviewEvaluationDrawer
       v-if="drawerMember"
@@ -332,6 +332,12 @@ const completionNodes = computed<CompletionNode[]>(() => {
     completionStatus: `${node.completed_count}/${node.total_count}`,
     deadline: formatDeadline(node.deadline_at),
     canRemind: node.can_remind,
+    canOpenResult: node.can_open_result,
+    openableCount: node.openable_count,
+    openedProgress: node.completion_rate == null ? '--' : `${node.completion_rate.toFixed(2)}%`,
+    openedCompletionStatus: `${node.completed_count}/${node.total_count}`,
+    reconsideredProgress: `${(node.total_count ? (node.reconsidered_count ?? 0) / node.total_count * 100 : 0).toFixed(2)}%`,
+    reconsideredCompletionStatus: `${node.reconsidered_count ?? 0}/${node.total_count}`,
     reminderTitle: node.reminder_title,
     reminderDescription: node.reminder_description,
   }))
@@ -490,6 +496,11 @@ function closeReminder() {
 }
 
 function handleReminderFilter() {}
+
+async function handleResultsOpened() {
+  closeReminder()
+  await loadOverview(activeCycleId.value ?? undefined)
+}
 
 onMounted(async () => {
   const routeCycleId = Number(route.query.cycle_id)

@@ -881,6 +881,9 @@ export interface ProjectManagementCompletionNode {
   deadline_at: string | null
   configured?: boolean
   can_remind?: boolean
+  can_open_result?: boolean
+  openable_count?: number
+  reconsidered_count?: number
   reminder_title?: string | null
   reminder_description?: string | null
 }

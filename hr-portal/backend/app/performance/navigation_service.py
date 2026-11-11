@@ -123,7 +123,7 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
         tasks_by_project.setdefault(task.project_id, []).append(task)
     hrbp_permissions = list((await db.execute(select(PerformanceHrbpPermission))).scalars().all()) if "performance.hrbp" in management_roles else []
     related_refs = set()
-    frontend_features = {"performance.frontend.progress", "performance.frontend.data-view"}
+    frontend_features = {"performance.frontend.progress", "performance.frontend.data-view", "performance.frontend.result-open"}
     custom_task_features = {"performance.frontend.authorize-evaluation-tasks", "performance.frontend.authorize-calibration-tasks"}
     custom_global_features = set().union(*(management_roles.get(grant.code, set()) for grant in context.role_grants if grant.code.startswith("custom.") and grant.scope_type == "GLOBAL")) & (frontend_features | custom_task_features)
 

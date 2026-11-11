@@ -23,9 +23,15 @@ export interface CompletionNode {
   title: string
   progress: string
   completionStatus?: string | null
+  openedProgress?: string | null
+  openedCompletionStatus?: string | null
+  reconsideredProgress?: string | null
+  reconsideredCompletionStatus?: string | null
   deadline: string | null
   status?: 'active' | 'completed' | 'not_started' | 'overdue' | 'unavailable'
   canRemind?: boolean
+  canOpenResult?: boolean
+  openableCount?: number
   reminderTitle?: string | null
   reminderDescription?: string | null
 }

@@ -32,6 +32,7 @@ const props = withDefaults(defineProps<{
   fit?: boolean
   browserColumnMinWidths?: number[]
   showSelectionBar?: boolean
+  selectionBarAnimated?: boolean
   selectionBarTarget?: string
   columns?: PerformanceTableColumn[]
   selectable?: boolean
@@ -58,6 +59,7 @@ const props = withDefaults(defineProps<{
   scrollMode: 'inner',
   fit: true,
   showSelectionBar: false,
+  selectionBarAnimated: true,
   selectionBarTarget: undefined,
   columns: undefined,
   selectable: false,
@@ -345,7 +347,7 @@ function rowClassName({ row }: { row: any }) {
 
     <div v-if="showSelectionBar && selectedCount" class="selection-bar-spacer" aria-hidden="true"></div>
     <Teleport :to="selectionBarTarget || 'body'" :disabled="!selectionBarTarget">
-      <Transition name="selection-bar-slide">
+      <Transition name="selection-bar-slide" :css="selectionBarAnimated">
         <div v-if="showSelectionBar && selectedCount" class="selection-bar" :class="{ 'selection-bar--viewport': selectionBarTarget }" :style="selectionBarTarget ? undefined : barStyle" :aria-label="`已选择 ${selectedCount} 条`">
           <slot name="selection-actions" />
           <span class="selection-bar__count">已选择 {{ selectedCount }} 条</span>
