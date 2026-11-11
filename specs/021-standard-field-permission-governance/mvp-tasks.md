@@ -81,7 +81,7 @@ R08的分摊内部依赖只能服务获准分摊结果，独立工资/奖金输�
 #### 组织与成本中心树
 
 - [ ] **B20.a 组织树通用能力样例**（FR-B01/B02/B04/B05/B06/B13/A14；AC-B01/B02/B04/B05/B06/B13/A14）：在通用入口检索、展开、查看组织同结构样例；local样例按权维护、托管样例只读；循环/孤儿/跨树父/重复码/超深度拒绝。必需服务端+真库+PC；通过仅证明通用树底座，不代表接管或切换。
-- [ ] **B20.b 成本中心树复用样例**（FR-B01/B02/B04/B05/B06/B13/B17；AC-B01/B02/B04/B05/B06/B13/B17）：用同一树能力配置成本中心同结构样例，证明无专属CRUD；重复B20.a的结构负例并通过。必需真库+PC；不改现网成本树/范围。
+- [ ] **B20.b 成本中心树复用样例**（FR-B01/B02/B04/B05/B06/B13/B17；AC-B01/B02/B04/B05/B06/B13/B17）：用同一树能力配置成本中心同结构样例，证明无专属CRUD；重复B20.a的结构负例并通过。必需真库+PC；不改现网成本树/范围。**进行中（2026-11-11）**：只读目录入口（`people.cost_center` 菜单 + `GET /trees/cost-center/directory` + 四列树/搜索/含停用）开发+单测+构建完成，证据见§9.13；未走查PC、未部署、未提交，维护模式操作留 B06.cc，未勾选。
 - [ ] **B06.org 组织来源接管**（FR-B04/B05/B06/B07/B13；AC-B04/B05/B06/B07/B13）：按B00.a核准来源键接管一批既有组织，同源重跑同ID、父缺失/身份冲突拒绝或待就绪；组织业务入口可查。必需真库+PC；不重拉、不切现网输入。
 - [ ] **B06.cc 成本中心来源接管或获准本地维护**（FR-B04/B05/B06/B07/B13/B17；AC-B04/B05/B06/B07/B13/B17）：来源模式按核准合同选择接管或local维护；获准写入在通用入口完成，托管手写拒绝，重跑/更新同ID、冲突拒绝。必需真实来源/隔离真库+PC；不能用B20.b样例代替。
 - [ ] **B13.org 组织权限投影只读对照**（FR-B10/B13；AC-B10/B13）：对照旧新code、存续ID、父子/path/后代、启停和范围标签；每项差异可解释且不泄露人员。只读、不切换。
@@ -218,7 +218,7 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 | B03 | US-B01 | FR-B02 | AC-B02的本实例约束/类型 | 待开发，一种约束一实例 |
 | B04 | US-B02 | FR-B02、FR-B03、FR-B04、FR-B05、FR-B06 | AC-B02、AC-B03、AC-B04、AC-B05、AC-B06 | 待开发，Person/Employment业务模型已确认 |
 | B05 | US-B02、US-B05 | FR-B04、FR-B05、FR-B06、FR-B18 | 原扩展实体关联及AC-B18的scope-org/person/cc分别验收 | 待开发；原关联实例和权限选择器实例独立，不互相冒充完成 |
-| B20 | US-B07 | FR-B01、FR-B02、FR-B04、FR-B05、FR-B06、FR-B13、FR-A14 | AC-B01/AC-B02/AC-B04/AC-B05/AC-B06/AC-B13/AC-A14的单树实例及非组织复用 | 待开发，B前段先a组织实例、b非组织树；不晚于组织阶段 |
+| B20 | US-B07 | FR-B01、FR-B02、FR-B04、FR-B05、FR-B06、FR-B13、FR-A14 | AC-B01/AC-B02/AC-B04/AC-B05/AC-B06/AC-B13/AC-A14的单树实例及非组织复用 | 开发中：B20.a组织目录已验收（§9.12）；B20.b成本中心只读目录开发+单测+构建完成（§9.13），未走查PC/未部署，不晚于组织阶段 |
 | B06 | US-B03、US-B07 | FR-B04、FR-B05、FR-B06、FR-B07、FR-B13、FR-B17 | AC-B04/AC-B05/AC-B06/AC-B07/AC-B13/AC-B17的org/cc真实来源或获准local维护实例 | 待开发；org需B20.a，cc需B20.b及独立来源/写者核准，分别验收 |
 | B07 | US-B02、US-B03 | FR-B03、FR-B04、FR-B05、FR-B07 | AC-B03、AC-B04、AC-B05、AC-B07 | 待开发，真实身份未核准不得接管 |
 | B08 | US-B03 | FR-B05、FR-B07、FR-B08 | AC-B05、AC-B07、AC-B08的持久增量/重复通知 | 待开发 |
@@ -779,3 +779,20 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **PC 证据（待补）**：本轮完成代码/测试/构建/真实 API 与权限正负例验证，**未做真实登录的 PC 走查**（顶部人员/组织 tab → 白色卡片 → sticky 表头贴顶/名称列/操作列横向锁定 → 首级展开/手动展开 → 搜索 → 停用标签截图），sticky 滚动与树形收起依赖真实浏览器，jsdom 无法覆盖，留待用户登录 dev 栈确认后补入。
 - **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。菜单为新增叶子 code，seed 幂等仅 INSERT；上线需按版本推送+部署流程执行。
 - **未做/停止（冻结边界）**：不做组织 CRUD / local 维护、不改成本中心、不切任何现网消费输入、不读真实员工行、不改 Person/Employment 归属；B20.b、B06.org、B13/B14 切换均不在本轮。
+
+### 9.13 B20.b 成本中心目录通用入口（2026-11-11，开发+单测+构建完成，未走查PC、未部署）
+
+- **目标/范围（本轮冻结子集）**：B20.b 卡「配置成本中心树实例→同一入口检索、展开」的只读目录前半部分——HR 管理员经菜单授权进入创梦人力「成本中心」只读目录（搜索/展开/核对层级与启停状态），与 B20.a 组织目录同构，证明成本中心树复用同一通用树能力。**不做**：维护模式操作（成本中心 CRUD / local 维护，属 B06.cc）、真实来源接管、权限投影切换（B13.cc/B14.cc）。只读对照为准备交付，不冒称业务能力或接管。
+- **角色/入口**：HR 管理员（菜单 `people.cost_center` V）→ 创梦人力顶栏「组织」→ 侧栏「成本中心」（与「组织架构」并级）→ 只读树（搜索 + 含停用成本中心开关）。未授权用户路由与 API 均拒绝。
+- **列口径**：需求指定「名称、编码、更新时间、操作」四列（区别于组织目录的七列）；更新时间取 `cost_center_tree.synced_at`（来源同步落库时间）。
+- **实现（代码）**：
+  - 后端 `app/trees/router.py` 新增 `GET /trees/cost-center/directory`：`require_op("people.cost_center", "V")` 声明查看权限；以 `tree_health.analyze_tree("cost_center", rows)` 做 fail-closed 健康校验，循环/孤儿/跨树父/重复码/超深度等任一问题 → **409 + issues**，绝不静默构树扩大授权；`include_inactive` 参数控制停用节点。`TreeNodeOut` 扩展 `synced_at` 字段（`_build_tree` 透出，仅目录端点使用，现有 `/trees/cost-center`、`/trees/org` 消费不变）。
+  - `app/seed.py` MENU_TREE：`people.access` children 新增 `people.cost_center`（label 成本中心，icon Wallet），code 一次投产不改；`_retire_legacy_menus` 不含新码，无删除风险；超级管理员 seed 自动全授权（admin 可见）。
+  - 前端 `router/index.ts` 新增 `/people/cost-center` 子路由（`meta.menuCode` 逐字符等于 `people.cost_center`，懒加载）；`layouts/PeopleLayout.vue` 侧栏「组织架构 / 成本中心」并级菜单（`isActive('/people/cost-center')` 高亮）；`api/data.ts` 新增 `treesApi.costCenterDirectory()` 与 `TreeNode.synced_at`。
+  - 共享组件 `components/master-data/OrganizationTree.vue` 增加 `mode` prop（默认 `org`，组织目录列不变）：`cc` 模式四列「名称/编码/更新时间/操作」，时间经 `formatDisplayDateTime` 转北京时间；展开/搜索/停用标签逻辑复用。
+  - 新页面 `views/master-data/CostCenter.vue`：标题「成本中心」、描述「展示所有成本中心相关的信息」、含停用开关文案「含停用成本中心」、搜索按名称/编码匹配，页面只组装组件不写树细节。
+- **后端测试**：`tests/test_cc_directory_router.py`（新建 7 用例）直接调用 router 函数 + FakeSession/FakeResult：健康树返回、默认排除 inactive、include_inactive、synced_at 透出、循环/缺父→409，及 `require_op("people.cost_center","V")` 源码声明回归断言。连同 `test_org_directory_router.py`、`test_trees_router_entity.py` → **18 passed** 无回归。
+- **前端测试/构建证据**：`OrganizationTree.spec.ts` 增 cc 模式四列/时间渲染用例、`CostCenter.spec.ts` 新建（授权加载/权限错误态）、`PeopleLayout.spec.ts` 回归 → **12 passed**；`vue-tsc --noEmit` 干净；`npm run build`（vue-tsc+Vite）成功。
+- **PC 证据（待补）**：本轮完成代码/测试/构建验证，**未做真实登录的 PC 走查**（侧栏「成本中心」菜单 → 四列树 → 展开/搜索 → 含停用开关截图），sticky 滚动与树形收起依赖真实浏览器，jsdom 无法覆盖，留待用户登录 dev 栈确认后补入。
+- **部署状态**：本次改动**未提交推送、未部署**；生产未连接、未读员工行。菜单为新增叶子 code，seed 幂等仅 INSERT；上线需按版本推送+部署流程执行。
+- **未做/停止（冻结边界）**：不做成本中心 CRUD / local 维护（B06.cc）、不切任何现网消费输入、不读真实员工行、不改组织输入；组织目录与成本中心目录为两个独立实例，组织通过不代表中心通过；B13.cc/B14.cc 投影切换不在本轮。

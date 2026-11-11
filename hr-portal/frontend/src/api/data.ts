@@ -76,6 +76,7 @@ export interface TreeNode {
   level: number
   is_leaf: boolean
   is_active: boolean
+  synced_at?: string | null
   children: TreeNode[]
 }
 
@@ -83,6 +84,10 @@ export const treesApi = {
   costCenter: (include_inactive = false) =>
     api
       .get<TreeNode[]>('/trees/cost-center', { params: { include_inactive } })
+      .then((r) => r.data),
+  costCenterDirectory: (include_inactive = false) =>
+    api
+      .get<TreeNode[]>('/trees/cost-center/directory', { params: { include_inactive } })
       .then((r) => r.data),
   org: (include_inactive = false) =>
     api.get<TreeNode[]>('/trees/org', { params: { include_inactive } }).then((r) => r.data),

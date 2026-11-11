@@ -29,6 +29,7 @@ class TreeNodeOut(BaseModel):
     level: int
     is_leaf: bool
     is_active: bool
+    synced_at: str | None = None
     children: list["TreeNodeOut"] = []
 
 
@@ -47,6 +48,7 @@ def _build_tree(rows: list[Any]) -> list[TreeNodeOut]:
             level=r.level,
             is_leaf=r.is_leaf,
             is_active=r.is_active,
+            synced_at=getattr(r, "synced_at", None).isoformat() if getattr(r, "synced_at", None) else None,
             children=[],
         )
     roots: list[TreeNodeOut] = []
@@ -71,6 +73,36 @@ async def get_cc_tree(
         stmt = stmt.where(CostCenterNode.is_active.is_(True))
     rows = (await db.execute(stmt)).scalars().all()
     return _build_tree(rows)
+
+
+@router.get("/cost-center/directory", response_model=list[TreeNodeOut])
+async def get_cc_directory(
+    include_inactive: bool = False,
+    _: User = Depends(require_op("people.cost_center", "V")),
+    db: AsyncSession = Depends(get_session),
+) -> list[TreeNodeOut]:
+    """成本中心目录树（B20.b 通用入口复用）。
+
+    仅菜单授权用户可访问（require_op people.cost_center V）。
+    以 tree_health.analyze_tree 做 fail-closed 健康校验：孤儿 / 循环 / 跨树父 /
+    重复编码 / 超深度等任意问题存在时返回 409 + issues，绝不静默构树扩大授权。
+    """
+    from app.warehouse.service.tree_health import analyze_tree
+
+    stmt = select(CostCenterNode).order_by(CostCenterNode.level, CostCenterNode.code)
+    rows = (await db.execute(stmt)).scalars().all()
+    health = analyze_tree("cost_center", rows)
+    if not health.eligible:
+        raise HTTPException(status_code=409, detail={
+            "code": "cost_center_tree_invalid",
+            "message": "成本中心树未通过健康校验，已拒绝返回目录",
+            "issues": [issue.__dict__ for issue in health.issues],
+        })
+    if include_inactive:
+        kept = rows
+    else:
+        kept = [row for row in rows if row.is_active]
+    return _build_tree(kept)
 
 
 @router.get("/org/directory", response_model=list[TreeNodeOut])

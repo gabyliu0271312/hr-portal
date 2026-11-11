@@ -58,4 +58,23 @@ describe('OrganizationTree', () => {
     expect(wrapper.text()).toContain('研发中心')
     wrapper.unmount()
   })
+
+  it('renders cost-center columns (名称/编码/更新时间/操作) in cc mode', () => {
+    const ccFixture = [
+      { id: 1, code: 'C1', name: '一级成本中心', parent_id: null, level: 1, is_leaf: false, is_active: true, synced_at: '2026-11-11T08:00:00+00:00', children: [] },
+    ]
+    const wrapper = mount(OrganizationTree, { props: { nodes: ccFixture, mode: 'cc' } })
+    const header = wrapper.find('.ui-table__header')
+    expect(header.text()).toContain('名称')
+    expect(header.text()).toContain('编码')
+    expect(header.text()).toContain('更新时间')
+    expect(header.text()).toContain('操作')
+    // 组织专属列不出现
+    expect(header.text()).not.toContain('部门负责人')
+    expect(header.text()).not.toContain('部门 HRBP')
+    // 编码与更新时间值渲染
+    expect(wrapper.text()).toContain('C1')
+    expect(wrapper.text()).toMatch(/2026\/11\/11|2026-11-11/)
+    wrapper.unmount()
+  })
 })

@@ -4,7 +4,7 @@
     :rows="rows"
     :row-key="rowKeyOf"
     sticky-header-top="0px"
-    aria-label="组织架构"
+    :aria-label="mode === 'cc' ? '成本中心' : '组织架构'"
   >
     <template #cell="{ row, column }">
       <div
@@ -27,6 +27,7 @@
         <span class="org-table__label" :title="row.name">{{ row.name }}</span>
         <el-tag v-if="!row.is_active" type="info" size="small" class="org-table__inactive">停用</el-tag>
       </div>
+      <span v-else-if="column.key === 'synced_at'" class="org-table__time">{{ formatTime(row.synced_at) }}</span>
       <span v-else-if="column.key === 'action'" class="org-table__action-placeholder">--</span>
       <template v-else>{{ (row as Row)[column.key as keyof Row] ?? '--' }}</template>
     </template>
@@ -37,6 +38,7 @@
 import { computed, ref, watch } from 'vue'
 import type { TreeNode } from '@/api/data'
 import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
+import { formatDisplayDateTime } from '@/utils/datetime'
 
 type Row = Omit<TreeNode, 'children'> & {
   depth: number
@@ -50,19 +52,33 @@ type Row = Omit<TreeNode, 'children'> & {
   __hasSearchDescendant?: boolean
 }
 
-const props = withDefaults(defineProps<{ nodes: TreeNode[]; searching?: boolean }>(), { searching: false })
+const props = withDefaults(defineProps<{ nodes: TreeNode[]; searching?: boolean; mode?: 'org' | 'cc' }>(), {
+  searching: false,
+  mode: 'org',
+})
 
 const expandedKeys = ref<Set<string>>(new Set())
 
-const columns: UiTableColumn[] = [
-  { key: 'name', label: '名称', width: 220, fixed: 'left' },
-  { key: 'manager', label: '部门负责人', minWidth: 150 },
-  { key: 'hrbp', label: '部门 HRBP', minWidth: 150 },
-  { key: 'employee_count', label: '人数', minWidth: 100 },
-  { key: 'updated_by', label: '更新人', minWidth: 150 },
-  { key: 'updated_at', label: '更新时间', minWidth: 150 },
-  { key: 'action', label: '操作', width: 194, fixed: 'right' },
-]
+const columns = computed<UiTableColumn[]>(() => props.mode === 'cc'
+  ? [
+      { key: 'name', label: '名称', width: 220, fixed: 'left' },
+      { key: 'code', label: '编码', minWidth: 180 },
+      { key: 'synced_at', label: '更新时间', minWidth: 180 },
+      { key: 'action', label: '操作', width: 194, fixed: 'right' },
+    ]
+  : [
+      { key: 'name', label: '名称', width: 220, fixed: 'left' },
+      { key: 'manager', label: '部门负责人', minWidth: 150 },
+      { key: 'hrbp', label: '部门 HRBP', minWidth: 150 },
+      { key: 'employee_count', label: '人数', minWidth: 100 },
+      { key: 'updated_by', label: '更新人', minWidth: 150 },
+      { key: 'updated_at', label: '更新时间', minWidth: 150 },
+      { key: 'action', label: '操作', width: 194, fixed: 'right' },
+    ])
+
+function formatTime(value: string | null | undefined) {
+  return formatDisplayDateTime(value)
+}
 
 const rowKeyOf = (row: Row) => String(row.id)
 
@@ -138,6 +154,7 @@ function toggleExpand(row: Row) {
 .org-table__expand svg.is-collapsed { transform: rotate(-90deg); }
 .org-table__expand--placeholder { pointer-events: none; }
 .org-table__label { overflow: hidden; min-width: 0; flex: 1; color: var(--color-text-primary); font: inherit; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.org-table__time { color: var(--color-text-regular); font: inherit; }
 .org-table__inactive { margin-left: var(--ui-tree-tag-gap); }
 .org-table__action-placeholder { color: var(--color-text-placeholder); }
 </style>

@@ -41,8 +41,9 @@
         <template v-if="isActive('/people/overview')">
           <div class="menu-item active" @click="router.push('/people/overview')">人员信息</div>
         </template>
-        <template v-else-if="isActive('/people/organization')">
-          <div class="menu-item active" @click="router.push('/people/organization')">组织架构</div>
+        <template v-else-if="isActive('/people/organization') || isActive('/people/cost-center')">
+          <div class="menu-item" :class="{ active: isActive('/people/organization') }" @click="router.push('/people/organization')">组织架构</div>
+          <div class="menu-item" :class="{ active: isActive('/people/cost-center') }" @click="router.push('/people/cost-center')">成本中心</div>
         </template>
       </el-aside>
 

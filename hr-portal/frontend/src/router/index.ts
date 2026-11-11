@@ -792,6 +792,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/master-data/Organization.vue'),
         meta: { label: '组织', menuCode: 'people.organization' },
       },
+      {
+        path: 'cost-center',
+        name: 'PeopleCostCenter',
+        component: () => import('@/views/master-data/CostCenter.vue'),
+        meta: { label: '成本中心', menuCode: 'people.cost_center' },
+      },
     ],
   },
   {
