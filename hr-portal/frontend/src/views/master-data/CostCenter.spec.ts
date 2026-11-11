@@ -26,7 +26,7 @@ const tree = [
 beforeEach(() => {
   vi.resetAllMocks()
   store.menus = [{ code: 'people.cost_center' }]
-  api.costCenterDirectory.mockResolvedValue(tree)
+  api.costCenterDirectory.mockResolvedValue({ tree, warnings: [] })
 })
 
 describe('cost center directory shell', () => {
@@ -68,6 +68,23 @@ describe('cost center directory shell', () => {
     // issues 明细渲染
     expect(wrapper.text()).toContain('duplicate_path')
     expect(wrapper.text()).toContain('active_under_inactive')
+    wrapper.unmount()
+  })
+
+  it('renders tree with warnings banner when health issues are non-blocking', async () => {
+    api.costCenterDirectory.mockResolvedValueOnce({
+      tree,
+      warnings: [
+        { code: 'duplicate_path', message: '名称路径重复，后代展开可能扩大授权', node_id: 2, node_code: 'A1-1' },
+      ],
+    })
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.error).toBe('')
+    expect(vm.warnings).toHaveLength(1)
+    // 树照常渲染 + 黄条（slot 内）展示规范提示
+    expect(wrapper.find('.org-tree').exists()).toBe(true)
+    expect(wrapper.text()).toContain('duplicate_path')
     wrapper.unmount()
   })
 })

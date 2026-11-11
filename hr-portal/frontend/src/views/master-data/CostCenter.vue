@@ -4,7 +4,7 @@ import SearchInput from '@/components/common/SearchInput.vue'
 import OrganizationTree from '@/components/master-data/OrganizationTree.vue'
 import PageTitle from '@/components/common/PageTitle.vue'
 import UiSurface from '@/components/ui/UiSurface.vue'
-import { treesApi, type TreeNode } from '@/api/data'
+import { treesApi, type TreeNode, type TreeHealthWarning } from '@/api/data'
 import { useUserStore } from '@/stores/user'
 
 const store = useUserStore()
@@ -15,6 +15,7 @@ const trees = ref<TreeNode[]>([])
 const loading = ref(false)
 const error = ref('')
 const issues = ref<HealthIssue[]>([])
+const warnings = ref<TreeHealthWarning[]>([])
 let request = 0
 
 interface HealthIssue {
@@ -32,12 +33,15 @@ function parseError(cause: any): { text: string; issues: HealthIssue[] } {
 }
 async function load() {
   const current = ++request
-  trees.value = []; error.value = ''; issues.value = []; loading.value = false
+  trees.value = []; error.value = ''; issues.value = []; warnings.value = []; loading.value = false
   if (!canView.value) return
   loading.value = true
   try {
     const response = await treesApi.costCenterDirectory(includeInactive.value)
-    if (current === request) trees.value = response
+    if (current === request) {
+      trees.value = response.tree
+      warnings.value = response.warnings ?? []
+    }
   } catch (cause) {
     if (current === request) {
       const parsed = parseError(cause)
@@ -86,6 +90,13 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
           <ul v-if="issues.length" class="cost-center__issues">
             <li v-for="issue in issues" :key="`${issue.code}-${issue.node_code ?? ''}-${issue.node_id ?? ''}`">
               <code>{{ issue.code }}</code> — {{ issue.message }}<span v-if="issue.node_code">（{{ issue.node_code }}）</span>
+            </li>
+          </ul>
+        </el-alert>
+        <el-alert v-else-if="warnings.length" title="成本中心树存在数据规范提示，已按当前形态展示。" type="warning" :closable="false">
+          <ul class="cost-center__issues">
+            <li v-for="warning in warnings" :key="`${warning.code}-${warning.node_code ?? ''}-${warning.node_id ?? ''}`">
+              <code>{{ warning.code }}</code> — {{ warning.message }}<span v-if="warning.node_code">（{{ warning.node_code }}）</span>
             </li>
           </ul>
         </el-alert>

@@ -26,6 +26,15 @@ def _healthy_rows():
     ]
 
 
+def _all_codes(nodes) -> set[str]:
+    """递归收集树中所有节点 code（含子节点）。"""
+    codes: set[str] = set()
+    for node in nodes:
+        codes.add(node.code)
+        codes |= _all_codes(node.children)
+    return codes
+
+
 class FakeResult:
     def __init__(self, rows=None):
         self.rows = list(rows or [])
@@ -56,11 +65,12 @@ async def test_cc_directory_returns_healthy_tree():
     out = await trees_router.get_cc_directory(
         include_inactive=False, _=ACTOR, db=db,
     )
-    codes = {node.code for node in out}
+    codes = {node.code for node in out.tree}
     assert codes == {"C1", "C2"}
-    c1 = next(node for node in out if node.code == "C1")
+    c1 = next(node for node in out.tree if node.code == "C1")
     assert [child.code for child in c1.children] == ["C1-1"]
-    assert all(node.is_active for node in out)
+    assert all(node.is_active for node in out.tree)
+    assert out.warnings == []
 
 
 @pytest.mark.asyncio
@@ -69,7 +79,7 @@ async def test_cc_directory_default_excludes_inactive():
     out = await trees_router.get_cc_directory(
         include_inactive=False, _=ACTOR, db=db,
     )
-    text = repr(out)
+    text = repr(out.tree)
     assert "A1x" not in text
 
 
@@ -79,7 +89,7 @@ async def test_cc_directory_include_inactive():
     out = await trees_router.get_cc_directory(
         include_inactive=True, _=ACTOR, db=db,
     )
-    text = repr(out)
+    text = repr(out.tree)
     assert "A1x" in text
 
 
@@ -89,8 +99,41 @@ async def test_cc_directory_exposes_synced_at():
     out = await trees_router.get_cc_directory(
         include_inactive=True, _=ACTOR, db=db,
     )
-    assert out[0].synced_at is not None
-    assert out[0].synced_at.endswith("+00:00") or out[0].synced_at.endswith("Z")
+    assert out.tree[0].synced_at is not None
+    assert out.tree[0].synced_at.endswith("+00:00") or out.tree[0].synced_at.endswith("Z")
+
+
+@pytest.mark.asyncio
+async def test_cc_directory_degrades_normative_issues_to_warnings():
+    """规范性问题（启用挂停用下、同名路径）不阻断展示：树返回 + warnings 透出。"""
+    rows = [
+        _cc_node(1, "C1", "一级成本中心A", None, 1, True, path="/一级成本中心A/"),
+        _cc_node(2, "C1-1", "二级成本中心A1", 1, 2, True, path="/一级成本中心A/二级成本中心A1/"),
+        _cc_node(3, "C1-1y", "二级成本中心A2", 1, 2, False, path="/一级成本中心A/二级成本中心A1/"),
+    ]
+    db = FakeSession(rows)
+    out = await trees_router.get_cc_directory(
+        include_inactive=False, _=ACTOR, db=db,
+    )
+    codes = {issue.code for issue in out.warnings}
+    assert "duplicate_path" in codes  # 同名路径 → 降级为 warning
+    assert _all_codes(out.tree) == {"C1", "C1-1"}
+
+
+@pytest.mark.asyncio
+async def test_cc_directory_degrades_active_under_inactive_to_warning():
+    """父停用子启用（本地维护状态与源层级冲突）→ 降级为 warning 不阻断。"""
+    rows = [
+        _cc_node(1, "C1", "一级成本中心A", None, 1, False, path="/一级成本中心A/"),
+        _cc_node(2, "C1-1", "二级成本中心A1", 1, 2, True, path="/一级成本中心A/二级成本中心A1/"),
+    ]
+    db = FakeSession(rows)
+    out = await trees_router.get_cc_directory(
+        include_inactive=True, _=ACTOR, db=db,
+    )
+    codes = {issue.code for issue in out.warnings}
+    assert "active_under_inactive" in codes
+    assert _all_codes(out.tree) == {"C1", "C1-1"}
 
 
 @pytest.mark.asyncio
@@ -124,6 +167,23 @@ async def test_cc_directory_fails_closed_on_missing_parent():
     assert exc_info.value.status_code == 409
     detail = exc_info.value.detail
     assert any(issue["code"] == "orphan_parent" for issue in detail["issues"])
+
+
+@pytest.mark.asyncio
+async def test_cc_directory_fails_closed_on_duplicate_code():
+    """编码重复是权限锚点歧义，即使展示入口也必须阻断。"""
+    rows = [
+        _cc_node(1, "C1", "一级成本中心A", None, 1, True, path="/一级成本中心A/"),
+        _cc_node(2, "C1", "一级成本中心B", None, 1, True, path="/一级成本中心B/"),
+    ]
+    db = FakeSession(rows)
+    with pytest.raises(HTTPException) as exc_info:
+        await trees_router.get_cc_directory(
+            include_inactive=False, _=ACTOR, db=db,
+        )
+    assert exc_info.value.status_code == 409
+    detail = exc_info.value.detail
+    assert any(issue["code"] == "duplicate_code" for issue in detail["issues"])
 
 
 def test_cc_directory_declares_people_cost_center_view_permission():

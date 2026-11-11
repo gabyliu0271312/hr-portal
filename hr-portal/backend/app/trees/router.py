@@ -16,9 +16,23 @@ from app.core.db import get_session
 from app.core.deps import current_user, require_op
 from app.data.models import CostCenterNode, DATA_TABLES, OrgNode
 from app.users.models import User
+from app.warehouse.schemas import TreeHealthIssueOut
 
 
 router = APIRouter(prefix="/trees", tags=["trees"])
+
+
+# 成本中心目录结构性硬阻断：这些规则意味着树无法安全构图 / 权限锚点歧义，
+# 展示入口也必须 fail-closed。其余（层级不连续、启停冲突、同名路径等）降级为
+# warning，读权限入口不被数据形态阻断；授权/执行链（d_execution 等）仍严格 eligible。
+_CC_STRUCTURAL_ISSUES = {
+    "duplicate_node_id",  # 节点身份重复 → by_id 覆盖丢节点
+    "cycle",              # 循环引用 → 构图错乱
+    "orphan_parent",      # 父缺失 → 节点悬浮，构图失真
+    "empty_tree",         # 空树
+    "root_missing",       # 无根 → 全部悬浮
+    "duplicate_code",     # 编码重复 → 权限键歧义
+}
 
 
 class TreeNodeOut(BaseModel):
@@ -34,6 +48,16 @@ class TreeNodeOut(BaseModel):
 
 
 TreeNodeOut.model_rebuild()
+
+
+class TreeDirectoryOut(BaseModel):
+    """目录树响应：tree + warnings。
+
+    warnings 为健康校验的非阻断问题（层级不连续 / 启停冲突 / 同名路径等），
+    仅提示不阻断展示；结构性问题（孤儿 / 循环 / 重复身份 / 重复编码）仍 409。
+    """
+    tree: list[TreeNodeOut]
+    warnings: list[TreeHealthIssueOut] = []
 
 
 def _build_tree(rows: list[Any]) -> list[TreeNodeOut]:
@@ -75,34 +99,39 @@ async def get_cc_tree(
     return _build_tree(rows)
 
 
-@router.get("/cost-center/directory", response_model=list[TreeNodeOut])
+@router.get("/cost-center/directory", response_model=TreeDirectoryOut)
 async def get_cc_directory(
     include_inactive: bool = False,
     _: User = Depends(require_op("people.cost_center", "V")),
     db: AsyncSession = Depends(get_session),
-) -> list[TreeNodeOut]:
+) -> TreeDirectoryOut:
     """成本中心目录树（B20.b 通用入口复用）。
 
     仅菜单授权用户可访问（require_op people.cost_center V）。
-    以 tree_health.analyze_tree 做 fail-closed 健康校验：孤儿 / 循环 / 跨树父 /
-    重复编码 / 超深度等任意问题存在时返回 409 + issues，绝不静默构树扩大授权。
+    以 tree_health.analyze_tree 做健康校验，按问题类别分级：
+    - 结构性问题（孤儿 / 循环 / 重复身份 / 重复编码 / 空树 / 无根）→ 409，
+      绝不静默构树扩大授权；
+    - 规范性问题（层级不连续 / 启停冲突 / 同名路径 / 深度不一致等）→ 降级为
+      warnings 随树返回，读权限入口不被数据形态阻断（执行/授权链仍严格校验）。
     """
     from app.warehouse.service.tree_health import analyze_tree
 
     stmt = select(CostCenterNode).order_by(CostCenterNode.level, CostCenterNode.code)
     rows = (await db.execute(stmt)).scalars().all()
     health = analyze_tree("cost_center", rows)
-    if not health.eligible:
+    structural = [issue for issue in health.issues if issue.code in _CC_STRUCTURAL_ISSUES]
+    if structural:
         raise HTTPException(status_code=409, detail={
             "code": "cost_center_tree_invalid",
-            "message": "成本中心树未通过健康校验，已拒绝返回目录",
-            "issues": [issue.__dict__ for issue in health.issues],
+            "message": "成本中心树未通过结构校验，已拒绝返回目录",
+            "issues": [issue.__dict__ for issue in structural],
         })
+    warnings = [issue for issue in health.issues if issue.code not in _CC_STRUCTURAL_ISSUES]
     if include_inactive:
         kept = rows
     else:
         kept = [row for row in rows if row.is_active]
-    return _build_tree(kept)
+    return TreeDirectoryOut(tree=_build_tree(kept), warnings=warnings)
 
 
 @router.get("/org/directory", response_model=list[TreeNodeOut])
