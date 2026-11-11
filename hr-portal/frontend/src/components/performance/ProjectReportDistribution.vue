@@ -10,26 +10,25 @@
       <span class="summary-tag">汇总：{{ evaluated }}</span>
     </div>
     <p v-if="!evaluated" class="distribution-empty">暂无已评估数据</p>
-    <figure v-else class="distribution-figure" aria-label="绩效评级人数占比分布">
+    <figure v-else ref="figure" class="distribution-figure" aria-label="绩效评级人数占比分布">
       <div class="chart-scroll">
         <div class="chart">
           <div class="chart-grid" aria-hidden="true">
             <div v-for="tick in ticks" :key="tick" class="chart-gridline" :style="{ bottom: `${tick / maximum * 100}%` }"><span>{{ tick }}</span></div>
           </div>
           <div class="chart-columns" :style="{ gridTemplateColumns: `repeat(${report.ratings.length}, minmax(0, 1fr))` }">
-            <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${share(rating.key)}%`">
-              <div class="chart-bar" :class="heatClass(rating.key)" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }">
-                <div class="chart-tooltip" role="tooltip">
-                  <div class="tooltip-title">价值贡献（终评）</div>
-                  <div class="tooltip-rating">{{ rating.label }}</div>
-                  <div class="tooltip-row"><span class="tooltip-dot" aria-hidden="true" /><span class="tooltip-row-label">我的团队数据</span><span class="tooltip-row-value">{{ share(rating.key) }}% ({{ report.distribution[rating.key] ?? 0 }} 人)</span></div>
-                  <div class="tooltip-row"><span class="tooltip-dot" aria-hidden="true" /><span class="tooltip-row-label">汇总</span><span class="tooltip-row-value">{{ share(rating.key) }}% ({{ report.distribution[rating.key] ?? 0 }} 人)</span></div>
-                </div>
-              </div>
+            <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${share(rating.key)}%`" @mouseenter="activate(rating.key, $event)" @mouseleave="activeKey = null; tooltipPosition = null" @focus="activate(rating.key, $event)" @blur="activeKey = null; tooltipPosition = null">
+              <div class="chart-bar" :class="heatClass(rating.key)" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }"></div>
               <span class="chart-label"><PerformanceRatingTag :label="rating.label" :color="rating.color" /></span>
             </div>
           </div>
         </div>
+      </div>
+      <div v-if="activeTooltip" class="chart-tooltip" role="tooltip" :style="tooltipStyle">
+        <div class="tooltip-title">价值贡献（终评）</div>
+        <div class="tooltip-rating">{{ activeTooltip.rating.label }}</div>
+        <div class="tooltip-row"><span class="tooltip-dot" aria-hidden="true" /><span class="tooltip-row-label">我的团队数据</span><span class="tooltip-row-value">{{ share(activeTooltip.rating.key) }}% ({{ report.distribution[activeTooltip.rating.key] ?? 0 }} 人)</span></div>
+        <div class="tooltip-row"><span class="tooltip-dot" aria-hidden="true" /><span class="tooltip-row-label">汇总</span><span class="tooltip-row-value">{{ share(activeTooltip.rating.key) }}% ({{ report.distribution[activeTooltip.rating.key] ?? 0 }} 人)</span></div>
       </div>
       <figcaption>占比按已评估人数计算</figcaption>
     </figure>
@@ -37,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { reportPercent, reportTotal, type ProjectStatisticsReport } from './projectStatisticsReport'
@@ -52,6 +51,24 @@ const heatClass = (key: string) => {
   const level = props.report.heatLevels?.[key]
   return level === 1 || level === 2 || level === 3 ? `heat-${level}` : ''
 }
+const activeKey = ref<string | null>(null)
+const tooltipPosition = ref<{ x: number; y: number } | null>(null)
+const figure = ref<HTMLElement | null>(null)
+function activate(key: string, event: MouseEvent | FocusEvent) {
+  activeKey.value = key
+  const column = event.currentTarget as HTMLElement
+  const bar = column.querySelector<HTMLElement>('.chart-bar')
+  const root = figure.value
+  if (!bar || !root) { tooltipPosition.value = null; return }
+  const barRect = bar.getBoundingClientRect()
+  const rootRect = root.getBoundingClientRect()
+  tooltipPosition.value = { x: barRect.left + barRect.width / 2 - rootRect.left, y: barRect.top - rootRect.top }
+}
+const activeTooltip = computed(() => {
+  const rating = props.report.ratings.find(item => item.key === activeKey.value)
+  return rating ? { rating } : null
+})
+const tooltipStyle = computed(() => tooltipPosition.value ? { left: `${tooltipPosition.value.x}px`, top: `${tooltipPosition.value.y}px` } : { display: 'none' })
 </script>
 
 <style scoped>
@@ -63,7 +80,7 @@ const heatClass = (key: string) => {
 .comparison-button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #3370ff; border-radius: 6px; background: #fff; color: var(--color-primary); padding: 3px 8px; font: inherit; line-height: 20px; cursor: pointer; }
 .comparison-button :deep(svg) { width: 14px; height: 14px; }
 .summary-tag { padding: 2px 8px; background: #eff3ff; color: #1f2329; border-radius: 4px; font-size: 12px; }
-.distribution-figure { margin: 0; }
+.distribution-figure { position: relative; margin: 0; }
 .chart-scroll { overflow-x: auto; padding: 0 0 8px; }
 .chart { position: relative; min-width: 380px; height: 240px; margin: 12px 8px 36px 40px; }
 .chart-grid { position: absolute; inset: 0; pointer-events: none; }
@@ -77,8 +94,7 @@ const heatClass = (key: string) => {
 .chart-bar.heat-3 { background: #82a7fc; }
 .chart-bar.heat-2:hover { background: #a9bff3; }
 .chart-label { position: absolute; top: calc(100% + 12px); left: 0; right: 0; display: flex; justify-content: center; }
-.chart-tooltip { display: none; position: absolute; z-index: 9999999; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); width: 282px; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 8px 12px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: rgba(0, 0, 0, 0.16) 0 4px 16px; color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }
-.chart-column:hover .chart-tooltip, .chart-column:focus .chart-tooltip { display: block; }
+.chart-tooltip { position: absolute; z-index: 9999999; transform: translate(-50%, calc(-100% - 6px)); width: 282px; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 8px 12px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: rgba(0, 0, 0, 0.16) 0 4px 16px; color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }
 .tooltip-title { color: #666; font-weight: 500; }
 .tooltip-rating { display: flex; align-items: center; gap: 4px; color: #666; font-weight: 500; }
 .tooltip-row { display: flex; align-items: center; gap: 8px; }
