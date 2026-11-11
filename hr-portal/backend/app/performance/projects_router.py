@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime, date, timedelta
+import math
 from typing import Callable, Literal
 from types import SimpleNamespace
 
@@ -36,6 +37,14 @@ router = APIRouter(prefix="/performance", tags=["performance-projects"])
 
 def _is_admin_preview(context: PerformanceAccessContext) -> bool:
     return performance_admin_preview_enabled(context)
+
+
+def _ceil_int(value: float) -> int:
+    return int(math.ceil(value))
+
+
+def _floor_int(value: float) -> int:
+    return int(math.floor(value))
 
 
 class ReconsiderationPayload(BaseModel):
@@ -5281,6 +5290,110 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         }
         result.append(mask_profile_values(values, visible_fields))
     return result
+
+
+@router.get("/workbench/tasks/{node_id}/distribution-tips")
+async def workbench_task_distribution_tips(node_id: str, project_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), phase_id: str | None = Query(default=None, max_length=96)):
+    """运行期绩效结果强制/建议分布提示（校准节点顶部）。
+
+    与 /workbench/tasks/{node_id}/people 同权限、同数据源、同评级解析（021 一条计算链）：
+    对校准范围内每个任务解析当前评级，按配置的分布规则计算各条件的目标人数/当前人数/差额。
+    """
+    actor = await resolve_trusted_performance_actor(db, context)
+    handler = str(actor.actor_ref)
+    scope = (
+        PerformanceNodeTask.project_id == project_id,
+        PerformanceProjectNodeSnapshot.project_id == project_id,
+        PerformanceProjectNodeSnapshot.node_id == node_id,
+    )
+    if isinstance(phase_id, str) and phase_id:
+        scope += (PerformanceNodeTask.phase_id == phase_id,)
+    statement = (
+        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
+        .select_from(PerformanceNodeTask)
+        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
+        .where(*scope)
+    )
+    statement = statement.where(task_handler_condition(handler))
+    rows = (await db.execute(statement.order_by(PerformanceNodeTask.id))).all()
+    rows = [row for row in rows if getattr(row[0], "revoked_at", None) is None and (row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1]))]
+    project = await db.get(PerformanceProject, project_id)
+    if project is None or not rows:
+        return {"enabled": False, "total_people": 0, "rated_people": 0, "rules": [], "lines": []}
+    node = rows[0][1]
+    current_phase_id = phase_id or getattr(rows[0][0], "phase_id", "") or None
+    schema = build_self_summary_schema(await _self_summary_template(rows[0][0], node, db))
+    metadata = _task_rating_metadata(schema)
+    rating_counts: dict[str, int] = {}
+    rated_people = 0
+    for task, _node in rows:
+        if node.node_type == "calibration":
+            try:
+                rating_answers = await _calibration_answers(task, node, schema, db)
+            except HTTPException as error:
+                if error.status_code != 409 or error.detail not in {"CALIBRATION_SOURCE_NOT_READY", "CALIBRATION_SOURCE_CONFLICT"}:
+                    raise
+                rating_answers = task.answers or {}
+            ratings = _rating_values_from_answers(rating_answers, metadata)
+        else:
+            ratings = _task_rating_values(task, metadata)
+        rated = any(value is not None for value in ratings.values())
+        if rated:
+            rated_people += 1
+        for value in ratings.values():
+            if value is None:
+                continue
+            label = str(value.get("label") or "")
+            if label:
+                rating_counts[label] = rating_counts.get(label, 0) + 1
+    total_people = len(rows)
+    flow = ((project.settings or {}).get("flow_settings") or {}) if project else {}
+    template_id = str((project.settings or {}).get("template_id") or "")
+    assessment_names = {}
+    if template_id.isdigit():
+        from app.performance.project_service import distribution_assessment_options
+        workflow = await db.get(PerformanceTemplateWorkflow, int(template_id))
+        options = distribution_assessment_options(list(workflow.nodes or []) if workflow else [], list(workflow.content_library or []) if workflow else [])
+        assessment_names = {option["id"]: option["label"] for option in options}
+    summary = distribution_summary(flow, node, current_phase_id, assessment_names)
+    enabled = bool(summary.get("force_distribution_enabled"))
+    if not enabled:
+        return {"enabled": False, "total_people": total_people, "rated_people": rated_people, "rules": [], "lines": []}
+    rounding_modes = {"ROUND": round, "CEIL": _ceil_int, "FLOOR": _floor_int, "NONE": round}
+    rules = []
+    for rule in summary.get("rules") or []:
+        conditions = []
+        for condition in rule.get("conditions") or []:
+            grades = list(condition.get("grade_codes") or [])
+            current_people = sum(rating_counts.get(grade, 0) for grade in grades)
+            unit = condition.get("unit", "PERCENT")
+            value = int(condition.get("value", 0) or 0)
+            if unit == "PERCENT" and total_people:
+                raw = value / 100 * total_people
+                target_people = rounding_modes.get(rule.get("rounding_method", "ROUND"), round)(raw)
+            elif unit == "PEOPLE":
+                target_people = value
+            else:
+                target_people = current_people
+            diff = current_people - target_people
+            conditions.append({
+                "control_mode": condition.get("control_mode"),
+                "grades": grades,
+                "operator": condition.get("operator"),
+                "value": value,
+                "unit": unit,
+                "rounding": rule.get("rounding_method", "ROUND"),
+                "target_people": target_people,
+                "current_people": current_people,
+                "diff": diff,
+                "violated": diff != 0,
+            })
+        rules.append({
+            "assessment_item_id": rule.get("assessment_item_id"),
+            "assessment_label": assessment_names.get(rule.get("assessment_item_id")) or (metadata[0]["label"] if metadata else ""),
+            "conditions": conditions,
+        })
+    return {"enabled": True, "total_people": total_people, "rated_people": rated_people, "rules": rules, "lines": summary.get("lines") or []}
 
 
 @router.post("/projects/{project_id}/reminder-tasks/remind")

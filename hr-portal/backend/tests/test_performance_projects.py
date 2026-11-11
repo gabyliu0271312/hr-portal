@@ -671,6 +671,129 @@ def test_distribution_summary_uses_assessment_names_when_provided():
     assert any("item-123：适用人数大于等于3人时生效" in line for line in fallback["lines"])
 
 
+@pytest.mark.asyncio
+async def test_workbench_distribution_tips_disabled_when_force_distribution_off(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject
+
+    flow = {"node_settings": {"calibration": {"calibration": {
+        "force_distribution_enabled": False,
+        "distribution": {"mode": "UNIFIED", "rules": [{"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"}], "scope_configured": False},
+        "phases": [],
+    }}}}
+    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
+        "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": "E1"}]}]},
+        "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}]}]}]},
+    })
+    task = SimpleNamespace(id=20, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no="E1", available_at=None, due_at=None, answers={})
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
+    async def answers(*args, **kwargs): return {"grade": "S"}
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(routes, "_calibration_answers", answers)
+    class Db:
+        async def get(self, model, key): return project if model is PerformanceProject else None
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node)])
+    result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
+    assert result["enabled"] is False
+    assert result["total_people"] == 1
+    assert result["rated_people"] == 1
+    assert result["rules"] == []
+
+
+@pytest.mark.asyncio
+async def test_workbench_distribution_tips_computes_percent_target_and_diff(monkeypatch):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject
+
+    flow = {"node_settings": {"calibration": {"calibration": {
+        "force_distribution_enabled": True,
+        "distribution": {"mode": "UNIFIED", "rules": [
+            {"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"},
+            {"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "SOFT", "grade_codes": ["D"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"},
+        ], "scope_configured": False},
+        "phases": [],
+    }}}}
+    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
+        "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": no} for no in ("E1", "E2", "E3", "E4", "E5")]}]},
+        "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}, {"id": "D", "code": "D", "label": "D"}]}]}]},
+    })
+    tasks = []
+    for index, no in enumerate(("E1", "E2", "E3", "E4", "E5")):
+        tasks.append(SimpleNamespace(id=20 + index, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no=no, available_at=None, due_at=None, answers={}))
+    grade = {"E1": "S", "E2": "S", "E3": "D", "E4": "A", "E5": "A"}
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
+    async def answers(task, *args, **kwargs): return {"grade": grade[task.target_employee_no]}
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(routes, "_calibration_answers", answers)
+    class Db:
+        async def get(self, model, key): return project if model is PerformanceProject else None
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks])
+    result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
+    assert result["enabled"] is True
+    assert result["total_people"] == 5
+    # E4/E5 的答案 "A" 不在模板 options 内，未解析出评级 → 不计入 rated_people
+    assert result["rated_people"] == 3
+    assert result["rules"][0]["assessment_label"] == "绩效评级"
+    hard = result["rules"][0]["conditions"][0]
+    assert hard["control_mode"] == "HARD"
+    assert hard["grades"] == ["S"]
+    assert hard["unit"] == "PERCENT"
+    assert hard["value"] == 20
+    assert hard["target_people"] == 1
+    assert hard["current_people"] == 2
+    assert hard["diff"] == 1
+    assert hard["violated"] is True
+    soft = result["rules"][1]["conditions"][0]
+    assert soft["control_mode"] == "SOFT"
+    assert soft["current_people"] == 1
+    assert soft["target_people"] == 1
+    assert soft["diff"] == 0
+    assert soft["violated"] is False
+
+
+@pytest.mark.asyncio
+async def test_workbench_distribution_tips_phase_rules_override_node_and_people_unit(monkeypatch):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProject
+
+    node_rule = {"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 3, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 20, "unit": "PERCENT"}], "rounding_method": "ROUND"}
+    phase_rule = {"assessment_item_id": "grade", "min_people_operator": "GTE", "min_people_count": 2, "conditions": [{"control_mode": "HARD", "grade_codes": ["S"], "operator": "LTE", "value": 1, "unit": "PEOPLE"}], "rounding_method": "FLOOR"}
+    flow = {"node_settings": {"calibration": {"calibration": {
+        "force_distribution_enabled": True,
+        "distribution": {"mode": "UNIFIED", "rules": [node_rule], "scope_configured": False},
+        "phases": [{"phase_id": "phase-1", "rules": [{"scope": "PROJECT_ALL", "allow_authorize": False, "distribution_rules": [phase_rule]}]}],
+    }}}}
+    project = SimpleNamespace(id=1, settings={"flow_settings": flow, "template_id": ""})
+    node = SimpleNamespace(id=11, project_id=1, node_id="calibration", node_type="calibration", config={
+        "calibration": {"role_code": "assessment.calibrator", "phases": [{"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": no} for no in ("E1", "E2", "E3")]}]},
+        "template": {"content": [{"content_id": "assessment", "type": "rating", "name": "综合评估", "items": [{"id": "grade", "kind": "rating", "label": "绩效评级", "options": [{"id": "S", "code": "S", "label": "S"}]}]}]},
+    })
+    tasks = []
+    for index, no in enumerate(("E1", "E2", "E3")):
+        tasks.append(SimpleNamespace(id=30 + index, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no=no, available_at=None, due_at=None, answers={}))
+    async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
+    async def answers(task, *args, **kwargs): return {"grade": "S"}
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
+    monkeypatch.setattr(routes, "_calibration_answers", answers)
+    class Db:
+        async def get(self, model, key): return project if model is PerformanceProject else None
+        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node) for task in tasks])
+    result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
+    assert result["enabled"] is True
+    # phase 级 distribution_rules 覆盖节点级：PEOPLE 单位直接取目标值
+    condition = result["rules"][0]["conditions"][0]
+    assert condition["unit"] == "PEOPLE"
+    assert condition["value"] == 1
+    assert condition["target_people"] == 1
+    assert condition["current_people"] == 3
+    assert condition["diff"] == 2
+    assert condition["violated"] is True
+    assert condition["rounding"] == "FLOOR"
+
+
 def test_calibration_member_increment_keeps_old_assignments_and_adds_all_handlers():
     from app.performance.calibration_service import resolve_calibration, extend_calibration_member
     people = {no: SimpleNamespace(employee_no=no, direct_supervisor_employee_no=None) for no in ["E1", "E2", "M1", "M2"]}

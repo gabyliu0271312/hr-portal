@@ -49,6 +49,7 @@
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">
+            <PerformanceDistributionTipsPanel v-if="isCalibrationNode && props.projectId && node.node_id" :tips="distributionTips" />
             <ProjectMemberListPanel
               v-if="displayConfig?.table === 'members' && props.projectId && node.node_id"
               :project-id="props.projectId"
@@ -93,7 +94,8 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
+import type { PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
+import { performanceWorkbenchApi } from '@/api/performance'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import UiButton from '../ui/UiButton.vue'
@@ -101,6 +103,7 @@ import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineT
 import ProjectMemberListPanel from './ProjectMemberListPanel.vue'
 import PerformanceReview360InvitePanel from './PerformanceReview360InvitePanel.vue'
 import PerformanceReview360FeedbackPanel from './PerformanceReview360FeedbackPanel.vue'
+import PerformanceDistributionTipsPanel from './PerformanceDistributionTips.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import { isReviewer360Node, isSelfEvaluationNode } from './performanceExecutorOptions'
 import { performanceReviewDisplay } from './performanceReviewDisplay'
@@ -133,6 +136,20 @@ const evaluationTabs: PerformanceLineTab[] = [
 ]
 const evaluationTab = ref('members')
 watch(() => props.node?.node_id, () => { evaluationTab.value = 'members' })
+
+const isCalibrationNode = computed(() => props.node?.node_type === 'calibration')
+const distributionTips = ref<PerformanceDistributionTips | null>(null)
+let distributionRequest = 0
+watch(() => [props.node?.node_type, props.node?.node_id, props.node?.phase_id, props.projectId], () => {
+  const node = props.node
+  const projectId = props.projectId
+  distributionTips.value = null
+  if (!node || node.node_type !== 'calibration' || !projectId) return
+  const request = ++distributionRequest
+  void performanceWorkbenchApi.taskDistributionTips(Number(projectId), node.node_id, node.phase_id || null)
+    .then(tips => { if (request === distributionRequest) distributionTips.value = tips })
+    .catch(() => { if (request === distributionRequest) distributionTips.value = null })
+})
 
 const emit = defineEmits<{
   retry: []

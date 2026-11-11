@@ -1402,6 +1402,33 @@ export const performanceWorkbenchApi = {
     const { data } = await api.get<PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}), ...(phaseId ? { phase_id: phaseId } : {}) } })
     return data
   },
+  async taskDistributionTips(projectId: number, nodeId: string, phaseId?: string | null): Promise<PerformanceDistributionTips> {
+    const { data } = await api.get<PerformanceDistributionTips>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/distribution-tips`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}) } })
+    return data
+  },
+}
+
+export interface PerformanceDistributionTips {
+  enabled: boolean
+  total_people: number
+  rated_people: number
+  rules: Array<{
+    assessment_item_id: string
+    assessment_label: string
+    conditions: Array<{
+      control_mode: 'HARD' | 'SOFT'
+      grades: string[]
+      operator: string
+      value: number
+      unit: 'PERCENT' | 'PEOPLE'
+      rounding: string
+      target_people: number
+      current_people: number
+      diff: number
+      violated: boolean
+    }>
+  }>
+  lines: string[]
 }
 
 export interface PerformanceAccessContext {
