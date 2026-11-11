@@ -1239,6 +1239,7 @@ class ProjectStatisticsReportResponse(BaseModel):
     totalParticipants: int
     ratings: list[MatrixRatingResponse]
     distribution: dict[str, int]
+    heatLevels: dict[str, int] = {}
     departments: list[ProjectStatisticsRowResponse]
 
 
@@ -4836,6 +4837,13 @@ async def project_management_statistics(
         if not any(other for other in rows if len(other) == len(path) + 1 and other[:-1] == path):
             leaf_rows.append((path, rows[path]))
     distribution = {key: sum(counts.get(key, 0) for _path, counts in leaf_rows) for key in keys}
+    evaluated_total = sum(distribution.values())
+    heat_levels = {
+        key: 3 if evaluated_total > 0 and distribution[key] / evaluated_total > 0.4
+        else 2 if evaluated_total > 0 and distribution[key] / evaluated_total > 0.3
+        else 1 if distribution[key] > 0 else 0
+        for key in keys
+    }
     return ProjectStatisticsReportResponse(
         source="api",
         dimension=dimension,
@@ -4844,6 +4852,7 @@ async def project_management_statistics(
         totalParticipants=len(employee_nos),
         ratings=[MatrixRatingResponse(**rating) for rating in ratings],
         distribution=distribution,
+        heatLevels=heat_levels,
         departments=[ProjectStatisticsRowResponse(**row) for row in report_rows],
     )
 

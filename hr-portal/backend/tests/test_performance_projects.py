@@ -3792,6 +3792,7 @@ async def test_level_statistics_uses_real_final_answers_and_flat_zero_rows(stati
         "totalParticipants": 5,
         "ratings": [{"key": "one", "label": "1星", "color": "#f54a45"}, {"key": "five", "label": "5星", "color": "#3370ff"}],
         "distribution": {"one": 1, "five": 1},
+        "heatLevels": {"one": 3, "five": 3},
         "departments": [
             {"id": "level:J6", "name": "J6", "counts": {"one": 0, "five": 1}, "children": []},
             {"id": "level:J3", "name": "J3", "counts": {"one": 0, "five": 0}, "children": []},
@@ -4040,7 +4041,7 @@ async def test_level_statistics_empty_cycle_requires_cycle_management(statistics
     result = await project_management_statistics(1, "level", context("performance.cycles.manage"), statistics_db)
     assert result.model_dump() == {
         "source": "api", "dimension": "level", "rowLabel": "岗位职级", "showSummary": True,
-        "totalParticipants": 0, "ratings": [], "distribution": {}, "departments": [],
+        "totalParticipants": 0, "ratings": [], "distribution": {}, "heatLevels": {}, "departments": [],
     }
     with pytest.raises(HTTPException) as error:
         await project_management_statistics(1, "level", context(), statistics_db)
@@ -4294,7 +4295,7 @@ async def test_level_statistics_http_contract_and_dimension_validation(statistic
         assert payload["source"] == "api"
         assert payload["dimension"] == "level"
         assert payload["distribution"] == {"one": 0, "five": 1}
-        assert "heatLevels" not in payload
+        assert payload["heatLevels"] == {"one": 0, "five": 3}
         assert set(payload["departments"][0]) == {"id", "name", "counts", "children"}
         for params in [{}, {"cycle_id": 0}, {"cycle_id": 1, "dimension": "invalid"}]:
             response = await client.get(url, params=params)

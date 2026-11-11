@@ -15,9 +15,6 @@
               <h2 class="report-primary-heading"><span>{{ group.label }}</span></h2>
               <section v-for="(section, sectionIndex) in group.sections" :key="section.key" :data-report-section="section.key" class="report-section" :aria-label="section.label">
                 <PerformanceReportSectionTitle :label="section.label" :info="reportSectionInfo[section.key]" />
-                <template v-if="groupIndex === 0 && sectionIndex === 0">
-                  <p v-if="data?.source === 'api'" class="report-source-notice">数据来源：统计 API</p>
-                </template>
                 <div v-if="section.key === 'overview'">
                   <p v-if="loading" class="report-state" role="status">正在加载统计报表…</p>
                   <div v-else-if="error" class="report-state" role="alert"><p>{{ error }}</p><button type="button" @click="load">重新加载</button></div>

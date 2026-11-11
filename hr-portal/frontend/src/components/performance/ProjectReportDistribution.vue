@@ -14,33 +14,30 @@
       <div class="chart-scroll">
         <div class="chart">
           <div class="chart-grid" aria-hidden="true">
-            <div v-for="tick in ticks" :key="tick" class="chart-gridline" :style="{ bottom: `${tick / maximum * 100}%` }"><span>{{ tick }}%</span></div>
+            <div v-for="tick in ticks" :key="tick" class="chart-gridline" :style="{ bottom: `${tick / maximum * 100}%` }"><span>{{ tick }}</span></div>
           </div>
           <div class="chart-columns" :style="{ gridTemplateColumns: `repeat(${report.ratings.length}, minmax(0, 1fr))` }">
             <div v-for="rating in report.ratings" :key="rating.key" class="chart-column" tabindex="0" :aria-label="`${rating.label}：${report.distribution[rating.key] ?? 0}人，占比${share(rating.key)}%`">
-              <div class="chart-bar" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }" />
-              <span class="chart-label">{{ rating.label }}</span>
-              <div class="chart-tooltip" aria-hidden="true">{{ rating.label }}<br>{{ report.distribution[rating.key] ?? 0 }} 人 · {{ share(rating.key) }}%</div>
+              <div class="chart-bar" :class="heatClass(rating.key)" :style="{ height: `${Number(share(rating.key)) / maximum * 100}%` }" />
+              <span class="chart-label"><PerformanceRatingTag :label="rating.label" :color="rating.color" /></span>
+              <div class="chart-tooltip" role="tooltip">
+                <div class="tooltip-title">价值贡献（终评）</div>
+                <div class="tooltip-rating">{{ rating.label }}</div>
+                <div class="tooltip-row"><span class="tooltip-row-label">汇总</span><span class="tooltip-row-value">{{ share(rating.key) }}% ({{ report.distribution[rating.key] ?? 0 }} 人)</span></div>
+              </div>
             </div>
           </div>
         </div>
       </div>
       <figcaption>占比按已评估人数计算</figcaption>
     </figure>
-    <details class="distribution-data">
-      <summary>查看图表数据</summary>
-      <table>
-        <caption>绩效评级分布</caption>
-        <thead><tr><th scope="col">绩效评级</th><th scope="col">人数</th><th scope="col">人数占比</th></tr></thead>
-        <tbody><tr v-for="rating in report.ratings" :key="rating.key"><th scope="row">{{ rating.label }}</th><td>{{ report.distribution[rating.key] ?? 0 }}</td><td>{{ share(rating.key) }}%</td></tr></tbody>
-      </table>
-    </details>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import AddOutlinedIcon from './AddOutlinedIcon.vue'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { reportPercent, reportTotal, type ProjectStatisticsReport } from './projectStatisticsReport'
 const props = defineProps<{ report: ProjectStatisticsReport }>()
 const emit = defineEmits<{ compare: [] }>()
@@ -48,6 +45,11 @@ const evaluated = computed(() => reportTotal(props.report.distribution))
 const share = (key: string) => reportPercent(props.report.distribution[key] ?? 0, evaluated.value)
 const maximum = computed(() => Math.max(10, Math.ceil(Math.max(0, ...props.report.ratings.map(rating => Number(share(rating.key)))) / 10) * 10))
 const ticks = computed(() => Array.from({ length: maximum.value / 10 + 1 }, (_, i) => i * 10))
+const heatClass = (key: string) => {
+  if (!(props.report.distribution[key] ?? 0)) return ''
+  const level = props.report.heatLevels?.[key]
+  return level === 1 || level === 2 || level === 3 ? `heat-${level}` : ''
+}
 </script>
 
 <style scoped>
@@ -66,20 +68,23 @@ const ticks = computed(() => Array.from({ length: maximum.value / 10 + 1 }, (_, 
 .chart-gridline { position: absolute; left: 0; right: 0; border-top: 1px solid #eff0f1; }
 .chart-gridline span { position: absolute; right: calc(100% + 8px); top: -10px; color: #646a73; font-size: 11px; font-variant-numeric: tabular-nums; }
 .chart-columns { position: absolute; inset: 0; display: grid; }
-.chart-column { display: flex; position: relative; justify-content: center; align-items: flex-end; min-width: 0; height: 100%; outline-offset: 2px; }
-.chart-column:focus-visible { outline: 2px solid #3370ff; }
-.chart-bar { width: 24px; max-width: calc(100% - 8px); background: #3370ff; border-radius: 4px 4px 0 0; }
-.chart-label { position: absolute; top: calc(100% + 12px); left: 0; right: 0; text-align: center; color: #646a73; font-size: 12px; }
-.chart-tooltip { display: none; position: absolute; z-index: 2; top: 8px; padding: 8px 10px; white-space: nowrap; background: #fff; border: 1px solid #dee0e3; border-radius: 6px; box-shadow: 0 4px 12px #1f23291a; color: #1f2329; font-size: 12px; pointer-events: none; }
-.chart-column:first-child .chart-tooltip { left: 0; }
-.chart-column:last-child .chart-tooltip { right: 0; }
+.chart-column { display: flex; position: relative; justify-content: center; align-items: flex-end; min-width: 0; height: 100%; }
+.chart-bar { width: 24px; max-width: calc(100% - 8px); border-radius: 4px 4px 0 0; }
+.chart-bar.heat-1 { background: #e1eaff; }
+.chart-bar.heat-2 { background: #bacefd; }
+.chart-bar.heat-3 { background: #82a7fc; }
+.chart-bar.heat-2:hover { background: #a9bff3; }
+.chart-label { position: absolute; top: calc(100% + 12px); left: 0; right: 0; display: flex; justify-content: center; }
+.chart-tooltip { display: none; position: absolute; z-index: 9999999; bottom: 100%; left: 50%; transform: translateX(-50%); width: 282px; box-sizing: border-box; padding: 8px 12px; margin-bottom: 8px; background: #fff; border: 1px solid #fff; border-radius: 6px; box-shadow: rgba(0, 0, 0, 0.16) 0 4px 16px; color: #666; font-size: 14px; line-height: 22px; pointer-events: none; }
+.chart-column:first-child .chart-tooltip { left: 0; transform: none; }
+.chart-column:last-child .chart-tooltip { left: auto; right: 0; transform: none; }
 .chart-column:hover .chart-tooltip, .chart-column:focus .chart-tooltip { display: block; }
+.tooltip-title { color: #666; font-weight: 500; }
+.tooltip-rating { display: flex; align-items: center; gap: 4px; color: #666; font-weight: 500; }
+.tooltip-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tooltip-row-label { color: #666; }
+.tooltip-row-value { text-align: right; color: #666; font-variant-numeric: tabular-nums; }
 figcaption { color: #646a73; font-size: 12px; }
 .distribution-empty { padding: 48px 0; text-align: center; color: #646a73; }
-.distribution-data { margin-top: 12px; color: #646a73; font-size: 12px; }
-.distribution-data summary { cursor: pointer; width: fit-content; }
-.distribution-data table { width: 100%; margin-top: 12px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.distribution-data th, .distribution-data td { border-bottom: 1px solid #eff0f1; padding: 6px 12px; text-align: left; }
-.distribution-data caption { text-align: left; padding: 6px 12px; }
 @media (forced-colors: active) { .chart-bar { background: CanvasText; forced-color-adjust: none; } }
 </style>
