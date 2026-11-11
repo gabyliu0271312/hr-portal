@@ -155,7 +155,7 @@ const managementCompletionMessages = computed(() => {
     const deadlineAt = currentManagementTab.value ? task.value?.deadline_at : tab.deadline_at
     const deadline = formatDate(deadlineAt)
     const suffix = deadline && Date.parse(deadlineAt || '') < Date.now() ? `，该环节已在 ${deadline} 截止` : deadline && managementTabEditable.value ? `，你可在 ${deadline} 前继续编辑` : ''
-    return tab.answer_submissions.map(item => `以下内容由 ${item.display_name} 在 ${formatDate(item.submitted_at)} 提交${suffix}`)
+    return tab.answer_submissions.slice(-1).map(item => `以下内容由 ${item.display_name} 在 ${formatDate(item.submitted_at)} 提交${suffix}`)
   }
   if (currentManagementTab.value && task.value?.submitted_at) return completionMessages.value
   return tab.submitted_at ? [`以下内容由 评估人 在 ${formatDate(tab.submitted_at)} 提交`] : []
@@ -168,7 +168,7 @@ const completionMessages = computed(() => {
   if (current?.stage_views?.some(view => view.node_id === current.node_id && view.anonymous)) return current.submitted_at ? ['该评估内容已提交'] : []
   if (current?.task_kind !== 'calibration') {
     const deadline = formatDate(current?.deadline_at)
-    const submissions = current?.answer_submissions?.length ? current.answer_submissions : [{ display_name: '评估人', submitted_at: current?.submitted_at || '' }]
+    const submissions = current?.answer_submissions?.length ? current.answer_submissions.slice(-1) : [{ display_name: '评估人', submitted_at: current?.submitted_at || '' }]
     return submissions.map(item => {
       const submittedAt = formatDate(item.submitted_at)
       const prefix = submittedAt ? `以下内容由 ${item.display_name} 在 ${submittedAt} 提交` : '该评估内容已提交'
@@ -181,7 +181,7 @@ const completionMessages = computed(() => {
   const suffix = deadline && Date.parse(current.deadline_at || '') < Date.now()
     ? `，该环节已在 ${deadline} 截止`
     : deadline && taskEditable.value ? `，你可以在 ${deadline} 前继续编辑` : ''
-  const submissions = current.answer_submissions || []
+  const submissions = (current.answer_submissions || []).slice(-1)
   return submissions.length
     ? submissions.map(item => `以下内容由 ${item.display_name}在 ${formatDate(item.submitted_at)} 提交${suffix}`)
     : [`以下为当前绩效结果${suffix}`]

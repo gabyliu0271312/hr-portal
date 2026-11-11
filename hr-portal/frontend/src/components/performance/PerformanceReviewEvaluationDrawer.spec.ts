@@ -112,9 +112,9 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
-  it('keeps each trusted source submitter and timestamp paired for calibration and offers one edit action', async () => {
+  it.each(['calibration', 'evaluation'])('shows only the last trusted submitter and timestamp with one edit action: %s', async taskKind => {
     vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
-      ...structuredClone(task), task_kind: 'calibration', submitted_at: null, deadline_at: '2099-11-18T12:00:00Z',
+      ...structuredClone(task), task_kind: taskKind, submitted_at: null, deadline_at: '2099-11-18T12:00:00Z',
       answer_submissions: [
         { display_name: '终评人甲', submitted_at: '2026-11-10T08:37:00Z' },
         { display_name: '终评人乙', submitted_at: '2026-11-10T09:00:00Z' },
@@ -123,9 +123,10 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
     await flushPromises()
     const notices = document.body.querySelectorAll('.performance-review-completion-notice')
-    expect(notices).toHaveLength(2)
-    expect(notices[0].textContent).toContain('终评人甲在 2026-11-10 16:37')
-    expect(notices[1].textContent).toContain('终评人乙在 2026-11-10 17:00')
+    expect(notices).toHaveLength(1)
+    expect(notices[0].textContent).toContain('终评人乙')
+    expect(notices[0].textContent).toContain('2026-11-10 17:00')
+    expect(notices[0].textContent).not.toContain('终评人甲')
     expect(document.body.querySelectorAll('.performance-review-completion-notice__edit')).toHaveLength(1)
     wrapper.unmount()
   })
@@ -141,11 +142,13 @@ describe('PerformanceReviewEvaluationDrawer', () => {
   })
 
   it('replaces completion messages with the exact lock notice and keeps current server answers readonly', async () => {
-    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...structuredClone(task), final_result_locked: true, editable: true, submit_allowed: true, answers: { good: '当前生效校准结果' } })
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...structuredClone(task), final_result_locked: true, editable: true, submit_allowed: true, answers: { good: '当前生效校准结果' }, answer_submissions: [{ display_name: '原终评人', submitted_at: '2026-09-22T07:00:00Z' }, { display_name: '校准人', submitted_at: '2026-09-22T08:00:00Z' }] })
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145 } })
     try {
       await flushPromises()
       expect(document.body.querySelector('.performance-review-completion-notice__description')?.textContent).toBe('当前结果已完成校准，你无法再次修改')
+      expect(document.body.querySelectorAll('.performance-review-completion-notice')).toHaveLength(1)
+      expect(document.body.textContent).not.toContain('以下内容由')
       expect(document.body.textContent).toContain('当前生效校准结果')
       expect(document.body.textContent).not.toContain('继续编辑')
       expect(document.body.querySelector('.performance-review-completion-notice__edit')).toBeNull()
@@ -174,8 +177,8 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     const detailLoader = vi.fn().mockResolvedValue({
       ...structuredClone(task), node_id: 'manager', answer_submissions: [{ display_name: '顶层旧提交人', submitted_at: task.submitted_at }],
       management_tabs: [
-        { key: 'manager', node_id: 'manager', node_name: '上级评估', task_id: 145, status: 'completed', employee_no: 'E001', submitted_at: task.submitted_at, submitted_by: '错误处理人', answer_submissions: [{ display_name: '主页签真实提交人', submitted_at: '2026-09-22T08:00:00Z' }], can_remind: false, form_schema: task.form_schema, answers: task.answers },
-        { key: 'other', node_id: 'other', node_name: '其他评估', task_id: 999, status: 'completed', employee_no: 'E001', submitted_at: task.submitted_at, submitted_by: '其他错误处理人', answer_submissions: [{ display_name: '其他真实提交人', submitted_at: '2026-09-22T09:00:00Z' }], can_remind: false, form_schema: task.form_schema, answers: task.answers },
+        { key: 'manager', node_id: 'manager', node_name: '上级评估', task_id: 145, status: 'completed', employee_no: 'E001', submitted_at: task.submitted_at, submitted_by: '错误处理人', answer_submissions: [{ display_name: '主页签较早提交人', submitted_at: '2026-09-22T07:00:00Z' }, { display_name: '主页签真实提交人', submitted_at: '2026-09-22T08:00:00Z' }], can_remind: false, form_schema: task.form_schema, answers: task.answers },
+        { key: 'other', node_id: 'other', node_name: '其他评估', task_id: 999, status: 'completed', employee_no: 'E001', submitted_at: task.submitted_at, submitted_by: '其他错误处理人', answer_submissions: [{ display_name: '其他较早提交人', submitted_at: '2026-09-22T07:30:00Z' }, { display_name: '其他真实提交人', submitted_at: '2026-09-22T09:00:00Z' }], can_remind: false, form_schema: task.form_schema, answers: task.answers },
       ], default_active_tab: 'manager', stage_views: [{ node_id: 'other', anonymous }],
     })
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })
@@ -183,12 +186,16 @@ describe('PerformanceReviewEvaluationDrawer', () => {
       await flushPromises()
       expect(document.body.textContent).toContain('主页签真实提交人 在 2026-09-22 16:00')
       expect(document.body.textContent).not.toContain('顶层旧提交人')
+      expect(document.body.textContent).not.toContain('主页签较早提交人')
+      expect(document.body.querySelectorAll('.performance-review-completion-notice')).toHaveLength(1)
       expect(document.body.textContent).not.toContain('错误处理人')
       ;(document.body.querySelectorAll('.performance-drawer .line-tab')[1] as HTMLButtonElement).click()
       await flushPromises()
       if (anonymous) expect(document.body.textContent).not.toContain('其他真实提交人')
       else expect(document.body.textContent).toContain('其他真实提交人 在 2026-09-22 17:00')
       expect(document.body.textContent).not.toContain('其他错误处理人')
+      expect(document.body.textContent).not.toContain('其他较早提交人')
+      expect(document.body.querySelectorAll('.performance-review-completion-notice').length).toBeLessThanOrEqual(1)
     } finally { wrapper.unmount() }
   })
 
