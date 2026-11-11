@@ -8,7 +8,7 @@
     >
       <section
         class="performance-confirm-dialog"
-        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit', 'performance-confirm-dialog--delegation': appearance === 'delegation' }"
+        :class="{ 'performance-confirm-dialog--wide': requireConfirm, 'performance-confirm-dialog--primary': confirmVariant === 'primary', 'performance-confirm-dialog--submit': appearance === 'submit', 'performance-confirm-dialog--delegation': appearance === 'delegation', 'performance-confirm-dialog--result-opening': appearance === 'result-opening' }"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="performance-confirm-title"
@@ -64,7 +64,7 @@ const props = withDefaults(defineProps<{
   confirmDisabled?: boolean
   confirmVariant?: 'danger' | 'primary'
   errorMessage?: string
-  appearance?: 'default' | 'submit' | 'delegation'
+  appearance?: 'default' | 'submit' | 'delegation' | 'result-opening'
 }>(), {
   message: '后续配置项目将无法使用该模板，确定删除吗？',
   subject: '',
@@ -371,4 +371,8 @@ onBeforeUnmount(() => {
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:hover:not(:disabled){background:#336df4;border-color:#336df4;color:#fff}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--danger:active:not(:disabled){background:#0442d2;border-color:#0442d2;color:#fff}
 .performance-confirm-dialog--submit .performance-confirm-dialog__button--cancel:active:not(:disabled){background:#eff0f1}
+.performance-confirm-dialog--result-opening{--color-action-primary:var(--color-primary-hover)}
+.performance-confirm-dialog--result-opening .performance-confirm-dialog__title{align-items:flex-start}
+.performance-confirm-dialog--result-opening .performance-confirm-dialog__icon{align-items:center;color:var(--color-action-primary)}
+.performance-confirm-dialog--result-opening .performance-confirm-dialog__footer{padding-bottom:var(--performance-dialog-padding)}
 </style>

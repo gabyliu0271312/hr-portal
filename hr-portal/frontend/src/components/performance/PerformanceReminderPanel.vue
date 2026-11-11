@@ -54,6 +54,7 @@
           <PerformanceMemberIdentity v-if="column.key === 'display_name'" :display-name="row.display_name" size="sm" />
           <span v-else-if="column.key === 'reminder_target'" class="reminder-target"><PerformanceMemberIdentity :display-name="String(reminderCellValue(row, column.key))" size="sm" /></span>
           <PerformanceMemberIdentity v-else-if="(column.key === 'direct_supervisor' || column.key === 'hrbp') && row[column.key]" :display-name="row[column.key]" size="sm" />
+          <PerformanceRatingTag v-else-if="mode === 'open-result' && column.key.startsWith('rating:') && row.ratings?.[column.key]?.label" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
           <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" />
           <span v-else-if="column.key === 'completion'" class="cell-text completion-text">{{ reminderCellValue(row, column.key) }}</span>
           <span v-else class="cell-text">{{ reminderCellValue(row, column.key) }}</span>
@@ -64,7 +65,7 @@
           <div v-else class="table-state">{{ emptyText }}</div>
         </template>
         <template #selection-actions>
-          <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通所选成员</UiButton>
+          <UiButton v-if="mode === 'open-result'" variant="primary" :disabled="!selectedKeys.length || actionLoading" @click="handleAction('open-result')">开通结果</UiButton>
           <UiButton v-else variant="primary" :disabled="!selectedKeys.length || !capabilities.canRemind || actionLoading" @click="handleAction('remind')"><BellOutlinedIcon />催办</UiButton>
           <UiButton v-if="capabilities.canAuthorize" :disabled="actionLoading" @click="handleAction('authorize')">授权他人处理</UiButton>
           <UiButton v-if="capabilities.canTransfer" :disabled="actionLoading" @click="handleAction('transfer')">转交他人处理</UiButton>
@@ -77,14 +78,17 @@
     <PerformanceConfirmDialog
       v-if="mode === 'open-result'"
       v-model="confirmOpen"
-      message="确定开通所选成员的绩效结果嘛？"
+      message="确定开通所选成员的绩效结果吗？"
       :description="`有${selectedKeys.length}名被评估人会立即收到结果开通的通知，并且可以在系统中查看自己的绩效结果。`"
       cancel-text="取消"
       confirm-text="确定"
       confirm-variant="primary"
+      appearance="result-opening"
       :loading="actionLoading"
       @confirm="confirmResults"
-    />
+    >
+      <template #icon><InfoFilledIcon /></template>
+    </PerformanceConfirmDialog>
     <PerformanceConfirmDialog
       v-else
       v-model="remindConfirmOpen"
@@ -133,10 +137,11 @@ import PerformanceListToolbar from './PerformanceListToolbar.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
+import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import UiButton from '../ui/UiButton.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
-import { defaultReminderColumns, reminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
+import { defaultReminderColumns, reminderCellValue as defaultReminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
 import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
 const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
@@ -201,6 +206,31 @@ const sortedRows = computed(() => sortPerformanceRows(rows.value, sortKey.value,
 const hiddenColumnCount = computed(() => Math.max(0, columns.value.length - selectedColumnKeys.value.length))
 const selectAllEligible = computed(() => props.selectAllAvailable ?? props.mode === 'cycle-remind')
 
+function reminderCellValue(person: ReminderListResult['items'][number], key: string) {
+  return props.mode === 'open-result' && key.startsWith('rating:') ? person.ratings?.[key]?.label || '--' : defaultReminderCellValue(person, key)
+}
+
+function openingColumns(items: ReminderListResult['items'], ratingColumns: Array<{ key: string; label: string }> = []): ReminderColumn[] {
+  const allowedKeys = new Set(reminderColumnsForVisibility(items).map(column => column.key))
+  const profileColumns: ReminderColumn[] = [
+    { key: 'completion', label: '360° 评估率', minWidth: 144 },
+    { key: 'direct_supervisor', label: '直属上级', minWidth: 144 },
+    { key: 'hrbp', label: 'HRBP', minWidth: 184 },
+    { key: 'job_sequence', label: '序列', minWidth: 104 },
+    { key: 'hire_date', label: '入职日期', minWidth: 134 },
+    { key: 'department', label: '所属部门', minWidth: 224 },
+    { key: 'organization_path', label: '部门全路径', visibleByDefault: false, minWidth: 240 },
+    { key: 'project_name', label: '所属项目', visibleByDefault: false, minWidth: 184 },
+    { key: 'previous_position_level', label: '上期职级', visibleByDefault: false, minWidth: 124 },
+    { key: 'employee_type', label: '人员类型', visibleByDefault: false, minWidth: 120 },
+  ]
+  return [
+    { key: 'display_name', label: '姓名', locked: true, minWidth: 224 },
+    ...ratingColumns.map(column => ({ ...column, visibleByDefault: true, minWidth: 144 })),
+    ...profileColumns.filter(column => allowedKeys.has(column.key)),
+  ]
+}
+
 async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<ReminderListResult> {
   if (props.mode === 'cycle-remind') {
     const result = await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath)
@@ -213,20 +243,17 @@ async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<
   }
   if (props.mode === 'open-result') {
     const result = await projectManagementApi.openingPeople(props.context.cycleId, query.keyword.trim(), query.page, query.pageSize)
+    const items = result.items.map(item => ({
+      job_family: null, job_category: null, standard_position: null, position_level: null,
+      job_sequence: null, hire_date: null, department: null, employee_type: null, employment_status: null,
+      ...item,
+      task_id: item.employee_no,
+      status: item.can_open ? 'pending' : 'unavailable', selectable: item.can_open, due_at: null,
+    }))
     return {
-      items: result.items.map(item => ({
-        task_id: item.employee_no,
-        employee_no: item.employee_no, display_name: item.display_name, project_name: item.project_name,
-        status: item.can_open ? 'pending' : 'unavailable', selectable: item.can_open, unavailable_reason: item.unavailable_reason,
-        due_at: null, job_family: null, job_category: null, standard_position: null, job_sequence: null, position_level: null,
-        hire_date: null, department: null, employee_type: null, employment_status: null,
-      })),
+      items,
       total: result.total,
-      columns: [
-        { key: 'display_name', label: '被评估人', locked: true, visibleByDefault: true },
-        { key: 'project_name', label: '所属项目', visibleByDefault: true },
-        { key: 'unavailable_reason', label: '开通状态', visibleByDefault: true },
-      ],
+      columns: openingColumns(items, result.rating_columns),
       capabilities: { canRemind: false, canAuthorize: false, canTransfer: false, canExport: true },
     }
   }

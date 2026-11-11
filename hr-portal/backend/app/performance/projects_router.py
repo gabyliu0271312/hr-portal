@@ -115,6 +115,17 @@ class ResultOpeningBatchPayload(BaseModel):
     employee_nos: list[str] = Field(min_length=1, max_length=500)
 
 
+class ProjectRatingColumn(BaseModel):
+    key: str
+    label: str
+
+
+class ProjectRatingValue(BaseModel):
+    label: str
+    color: str | None = None
+    foreground: str | None = None
+
+
 class ResultOpeningPerson(BaseModel):
     employee_no: str
     display_name: str
@@ -122,6 +133,17 @@ class ResultOpeningPerson(BaseModel):
     project_name: str
     can_open: bool
     unavailable_reason: str | None = None
+    ratings: dict[str, ProjectRatingValue | None] = Field(default_factory=dict)
+    completion: str = "0/0"
+    direct_supervisor: str | None = None
+    hrbp: str | None = None
+    job_sequence: str | None = None
+    hire_date: str | None = None
+    department: str | None = None
+    organization_path: str | None = None
+    previous_position_level: str | None = None
+    employee_type: str | None = None
+    visible_profile_fields: list[str] = Field(default_factory=list)
 
 
 class ResultOpeningPeoplePage(BaseModel):
@@ -129,6 +151,7 @@ class ResultOpeningPeoplePage(BaseModel):
     total: int
     page: int
     page_size: int
+    rating_columns: list[ProjectRatingColumn] = Field(default_factory=list)
 
 
 class ResultOpeningBatchResponse(BaseModel):
@@ -1119,17 +1142,6 @@ class ProjectPage(BaseModel):
     page_size: int
 
 
-class ProjectRatingColumn(BaseModel):
-    key: str
-    label: str
-
-
-class ProjectRatingValue(BaseModel):
-    label: str
-    color: str | None = None
-    foreground: str | None = None
-
-
 class ProjectMemberResponse(BaseModel):
     id: int
     root_review_id: int
@@ -1814,6 +1826,7 @@ async def _result_opening_candidates(
     db: AsyncSession,
     *,
     now: datetime | None = None,
+    states: dict | None = None,
 ) -> tuple[list[tuple[PerformanceProject, PerformanceProjectMember]], dict[tuple[int, str], str]]:
     """Resolve result-opening qualification once for GET, POST, and overview counts."""
     current = now or datetime.now(UTC)
@@ -1821,7 +1834,9 @@ async def _result_opening_candidates(
     memberships = {}
     for project, member in rows:
         memberships.setdefault(member.employee_no, set()).add(project.id)
-    states = {project.id: await _opening_state(project, db) for project in projects.values()}
+    if states is None:
+        states = {}
+    states.update({project.id: await _opening_state(project, db) for project in projects.values()})
     opened = set((await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
         PerformanceResultOpening.project_id.in_(list(projects)),
     ))).all()) if projects else set()
@@ -1846,6 +1861,67 @@ async def _result_opening_candidates(
     return eligible, reasons
 
 
+async def _result_opening_rows(rows, states, context, db):
+    if not rows:
+        return [], []
+    visibility_rules = await load_subject_visibility_rules(db)
+    grouped = {}
+    for project, member in rows:
+        grouped.setdefault(project.id, (project, []))[1].append(member)
+    items = []
+    rating_columns = {}
+    for project, members in grouped.values():
+        view, final, _previous, _members, tasks, schema = states[project.id]
+        metadata = _task_rating_metadata(schema)
+        for column in metadata:
+            rating_columns.setdefault(column["key"], {"key": column["key"], "label": column["label"]})
+        employee_nos = {member.employee_no for member in members}
+        snapshot_ids = {member.snapshot_id for member in members}
+        related_nos = {getattr(member, field, None) for member in members for field in ("direct_supervisor_employee_no", "hrbp_employee_no")} - {None, ""}
+        names = {}
+        if related_nos:
+            people = (await db.execute(
+                select(PerformanceProjectMemberSnapshot.id, PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name)
+                .join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id)
+                .where(PerformanceProjectMemberSnapshot.id.in_(snapshot_ids), PerformanceAuthorizationSnapshotPerson.employee_no.in_(related_nos))
+            )).all()
+            names = {(snapshot_id, employee_no): name for snapshot_id, employee_no, name in people}
+        progress = await _communication_progress(db, project, employee_nos)
+        previous_levels = await _previous_published_position_levels(db, project, employee_nos)
+        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+        latest = {}
+        for task in tasks:
+            if (task.node_snapshot_id != final.id or task.target_employee_no not in employee_nos
+                or task.member_snapshot_id not in snapshot_ids or getattr(task, "revoked_at", None) is not None
+                or task.submitted_at is None):
+                continue
+            key = (task.member_snapshot_id, task.target_employee_no)
+            if key not in latest or (task.submitted_at, task.id) > (latest[key].submitted_at, latest[key].id):
+                latest[key] = task
+        for member in members:
+            role = await resolve_subject_visibility_role(db, context, str(actor.actor_ref), member, view, project)
+            visible_fields = visibility_rules[role]
+            hire_date = getattr(member, "hire_date", None)
+            values = mask_profile_values({
+                "direct_supervisor": names.get((member.snapshot_id, getattr(member, "direct_supervisor_employee_no", None))),
+                "job_sequence": format_job_sequence(getattr(member, "job_family", None), getattr(member, "job_category", None)),
+                "hire_date": hire_date.isoformat() if hire_date else None,
+                "department": organization_leaf(member),
+                "employee_type": getattr(member, "employee_type", None),
+            }, visible_fields)
+            items.append(ResultOpeningPerson(
+                employee_no=member.employee_no, display_name=member.display_name, project_id=project.id,
+                project_name=project.name, can_open=True,
+                ratings=_task_rating_values(latest.get((member.snapshot_id, member.employee_no)), metadata),
+                completion=progress.get(member.employee_no, "0/0"),
+                hrbp=names.get((member.snapshot_id, getattr(member, "hrbp_employee_no", None))),
+                organization_path=(organization_path(member) or member.organization_ref) if "department" in visible_fields else None,
+                previous_position_level=previous_levels.get(member.employee_no) if "position_level" in visible_fields else None,
+                visible_profile_fields=visible_fields, **values,
+            ))
+    return items, list(rating_columns.values())
+
+
 @router.get("/cycles/{cycle_id}/result-opening/people", response_model=ResultOpeningPeoplePage)
 async def result_opening_people(
     cycle_id: int,
@@ -1860,17 +1936,13 @@ async def result_opening_people(
     grants = await _opening_access_grants(db, context, projects)
     if not any(role.is_active and "performance.frontend.result-open" in (role.function_permission_keys or []) for role, _ in grants):
         raise HTTPException(status_code=403, detail="RESULT_OPEN_FORBIDDEN")
-    eligible, _reasons = await _result_opening_candidates(rows, grants, db)
-    items = []
-    for project, member in eligible:
-        if keyword and keyword.casefold() not in f"{member.display_name} {member.employee_no}".casefold():
-            continue
-        items.append(ResultOpeningPerson(
-            employee_no=member.employee_no, display_name=member.display_name, project_id=project.id,
-            project_name=project.name, can_open=True, unavailable_reason=None,
-        ))
+    states = {}
+    eligible, _reasons = await _result_opening_candidates(rows, grants, db, states=states)
+    filtered = [(project, member) for project, member in eligible
+                if not keyword or keyword.casefold() in f"{member.display_name} {member.employee_no}".casefold()]
+    items, rating_columns = await _result_opening_rows(filtered, states, context, db)
     items.sort(key=lambda item: (item.display_name, item.employee_no))
-    return ResultOpeningPeoplePage(items=items[(page - 1) * page_size:page * page_size], total=len(items), page=page, page_size=page_size)
+    return ResultOpeningPeoplePage(items=items[(page - 1) * page_size:page * page_size], total=len(items), page=page, page_size=page_size, rating_columns=rating_columns)
 
 
 @router.post("/cycles/{cycle_id}/result-opening/open", response_model=ResultOpeningBatchResponse)

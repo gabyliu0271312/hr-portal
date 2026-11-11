@@ -25,6 +25,10 @@ async def test_result_opening_candidates_filter_before_pagination_and_post(monke
     monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=rows))
     monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
     monkeypatch.setattr(router, "_opening_state", AsyncMock(return_value=(None, "final", None, [], [], [])))
+    async def identity_rows(eligible, states, context, db):
+        return [router.ResultOpeningPerson(employee_no=member.employee_no, display_name=member.display_name,
+                project_id=project.id, project_name=project.name, can_open=True) for project, member in eligible], []
+    monkeypatch.setattr(router, "_result_opening_rows", identity_rows)
     reasons = {"MISSING": "RESULT_NOT_READY", "FUTURE": "RESULT_VIEW_NOT_STARTED", "MANUAL_OFF": "MANUAL_OPENING_DISABLED"}
     monkeypatch.setattr(router, "_manual_openable", lambda project, member, state, now: reasons.get(member.employee_no))
     monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="ADMIN")))
@@ -43,6 +47,172 @@ async def test_result_opening_candidates_filter_before_pagination_and_post(monke
     grants.clear()
     eligible, _ = await router._result_opening_candidates(rows, grants, db, now=datetime.now(UTC))
     assert eligible == []
+
+
+def test_result_opening_response_schema_keeps_legacy_defaults():
+    from fastapi import FastAPI
+    from app.performance import projects_router as router
+    person = router.ResultOpeningPerson(employee_no="E1", display_name="员工", project_id=1, project_name="项目", can_open=True)
+    page = router.ResultOpeningPeoplePage(items=[person], total=1, page=1, page_size=50)
+    assert person.ratings == {} and person.completion == "0/0"
+    assert person.visible_profile_fields == [] and page.rating_columns == []
+    assert person.hrbp is None and person.organization_path is None and person.previous_position_level is None
+    assert "ProjectRatingValue" in router.ResultOpeningPeoplePage.model_json_schema()["$defs"]
+    app = FastAPI()
+    app.include_router(router.router)
+    response = app.openapi()["paths"]["/performance/cycles/{cycle_id}/result-opening/people"]["get"]["responses"]["200"]
+    assert response["content"]["application/json"]["schema"]["$ref"].endswith("/ResultOpeningPeoplePage")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("visible_fields", [
+    ["department", "position_level", "job_sequence", "direct_supervisor", "hire_date", "employee_type"],
+    ["department"],
+    ["position_level"],
+    [],
+])
+async def test_result_opening_people_returns_snapshot_profiles_and_multiple_ratings(monkeypatch, visible_fields):
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember
+    from app.performance.subject_visibility_service import resolve_subject_visibility_role
+    view = SimpleNamespace(id=12, node_id="view", node_type="result_view", config={"time": {"start_at": "2020-01-01T00:00:00Z"}})
+    final = SimpleNamespace(id=11)
+    project = SimpleNamespace(id=1, project_ref="p1", cycle_ref="cycle:1", name="项目", administrators=[],
+        settings={"flow_settings": {"node_settings": {"view": {"result_view": {"manual_enabled": True}}}}})
+    members = [PerformanceProjectMember(id=i, snapshot_id=10, employee_no=f"E{i}", display_name=f"员工{i}",
+        company_org="集团", department="研发", department_2="平台", organization_ref="集团/研发/平台",
+        direct_supervisor_employee_no="M1", hrbp_employee_no="H1" if i == 1 else "MISSING",
+        job_family="技术", job_category="研发", hire_date=date(2020, 5, 6), employee_type="正式") for i in [1, 2]]
+    schema = [{"id": "assessment", "fields": [
+        {"id": "grade", "type": "rating", "label": "年度绩效", "options": [{"id": "a", "code": "A", "color": "#123456", "foreground": "#ffffff"}, {"id": "b", "code": "B"}]},
+        {"id": "value", "type": "rating", "label": "价值贡献", "options": [{"id": "high", "code": "优秀"}]},
+    ]}]
+    submitted = datetime.now(UTC)
+    def task(task_id, employee_no, answers, when=submitted, **kwargs):
+        return SimpleNamespace(id=task_id, member_snapshot_id=10, target_employee_no=employee_no, node_snapshot_id=11,
+            status="completed", submitted_at=when, revoked_at=None, answers=answers, **kwargs)
+    tasks = [task(1, "E1", {"grade": "b", "value": "high"}, submitted - timedelta(days=1)),
+        task(2, "E1", {"grade": "a", "value": "high"}), task(3, "E2", {"grade": "b", "value": "high"})]
+    state = AsyncMock(return_value=(view, final, None, members, tasks, schema))
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=[(project, member) for member in members]))
+    grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="PROJECT", scope_ref="p1"))]
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    monkeypatch.setattr(router, "_opening_state", state)
+    monkeypatch.setattr(router, "load_subject_visibility_rules", AsyncMock(return_value={"other": visible_fields}))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="OPENER")))
+    progress = AsyncMock(return_value={"E1": "2/3"})
+    previous = AsyncMock(return_value={"E1": "P6", "E2": "P5"})
+    monkeypatch.setattr(router, "_communication_progress", progress)
+    monkeypatch.setattr(router, "_previous_published_position_levels", previous)
+    role = AsyncMock(side_effect=resolve_subject_visibility_role)
+    monkeypatch.setattr(router, "resolve_subject_visibility_role", role)
+    forbidden = AsyncMock(side_effect=AssertionError("opening must not require progress/data-view or first-rating helper"))
+    monkeypatch.setattr(router, "_project_member_rows", forbidden)
+    monkeypatch.setattr(router, "_project_data_scope", forbidden)
+    monkeypatch.setattr(router, "_project_final_ratings", forbidden)
+    async def execute(query):
+        entity = query.column_descriptions[0]["entity"]
+        if entity is router.PerformanceResultOpening:
+            return SimpleNamespace(all=lambda: [])
+        assert entity is router.PerformanceProjectMemberSnapshot
+        assert "performance_authorization_snapshot_people" in str(query)
+        assert "source_snapshot_id" in str(query)
+        return SimpleNamespace(all=lambda: [(10, "M1", "快照上级"), (10, "H1", "快照HRBP")])
+    db = SimpleNamespace(execute=AsyncMock(side_effect=execute), scalar=AsyncMock(return_value=None))
+    result = await router.result_opening_people(1, page=1, page_size=50, keyword=None, context=context("performance.cycles.manage"), db=db)
+    assert result.total == 2
+    assert [column.model_dump() for column in result.rating_columns] == [{"key": "rating:grade", "label": "年度绩效"}, {"key": "rating:value", "label": "价值贡献"}]
+    first, second = result.items
+    assert first.ratings["rating:grade"].model_dump() == {"label": "A", "color": "#123456", "foreground": "#ffffff"}
+    assert first.ratings["rating:value"].label == "优秀" and second.ratings["rating:grade"].label == "B"
+    assert first.display_name == "员工1" and first.completion == "2/3" and second.completion == "0/0"
+    assert first.hrbp == "快照HRBP" and second.hrbp is None
+    assert first.visible_profile_fields == visible_fields
+    expected = {"direct_supervisor": "快照上级", "job_sequence": "技术-研发", "hire_date": "2020-05-06", "department": "平台", "organization_path": "集团/研发/平台", "previous_position_level": "P6", "employee_type": "正式"}
+    field_by_key = {"direct_supervisor": "direct_supervisor", "job_sequence": "job_sequence", "hire_date": "hire_date", "department": "department", "organization_path": "department", "previous_position_level": "position_level", "employee_type": "employee_type"}
+    for key, value in expected.items():
+        assert getattr(first, key) == (value if field_by_key[key] in visible_fields else None)
+    state.assert_awaited_once()
+    progress.assert_awaited_once_with(db, project, {"E1", "E2"})
+    previous.assert_awaited_once_with(db, project, {"E1", "E2"})
+    assert role.await_count == 2
+    forbidden.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_result_opening_people_rating_columns_stable_across_pages_and_keyword(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    from app.performance.models import PerformanceProjectMember
+    projects = [SimpleNamespace(id=i, project_ref=f"p{i}", cycle_ref="cycle:1", name=f"项目{i}") for i in [1, 2, 3]]
+    members = [PerformanceProjectMember(id=i, snapshot_id=i * 10, employee_no=f"E{i}", display_name=f"员工{i}") for i in [1, 2, 3]]
+    rows = list(zip(projects, members))
+    states = {}
+    for project, member in rows:
+        schema = [{"fields": [{"id": f"grade{project.id}", "type": "rating", "label": f"评级{project.id}", "options": [{"id": "a", "label": "A"}]}]}]
+        submitted = datetime.now(UTC)
+        submitted_task = dict(member_snapshot_id=member.snapshot_id, node_snapshot_id=11,
+            target_employee_no=member.employee_no, status="pending", submitted_at=submitted, revoked_at=None)
+        tasks = [SimpleNamespace(id=project.id, **submitted_task, answers={f"grade{project.id}": "a"})]
+        for override in [
+            {"id": 0}, {"submitted_at": None}, {"revoked_at": submitted},
+            {"node_snapshot_id": 99}, {"member_snapshot_id": 999},
+        ]:
+            tasks.append(SimpleNamespace(**({"id": 100, **submitted_task, "answers": {}, **override})))
+        states[project.id] = (SimpleNamespace(node_type="result_view", config={}), SimpleNamespace(id=11), None, [member], tasks, schema)
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=rows))
+    grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="GLOBAL"))]
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    state = AsyncMock(side_effect=lambda project, db: states[project.id])
+    monkeypatch.setattr(router, "_opening_state", state)
+    monkeypatch.setattr(router, "_manual_openable", lambda project, member, state, now: "RESULT_NOT_READY" if project.id == 3 else None)
+    monkeypatch.setattr(router, "load_subject_visibility_rules", AsyncMock(return_value={"other": []}))
+    monkeypatch.setattr(router, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="OPENER")))
+    progress = AsyncMock(return_value={})
+    previous = AsyncMock(return_value={})
+    monkeypatch.setattr(router, "_communication_progress", progress)
+    monkeypatch.setattr(router, "_previous_published_position_levels", previous)
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [])))
+    pages = [await router.result_opening_people(1, page=page, page_size=1, keyword=None, context=context(), db=db) for page in [1, 2, 3]]
+    expected = [{"key": "rating:grade1", "label": "评级1"}, {"key": "rating:grade2", "label": "评级2"}]
+    assert all([column.model_dump() for column in page.rating_columns] == expected for page in pages)
+    assert all(page.total == 2 for page in pages)
+    assert pages[0].items[0].employee_no == "E1" and pages[1].items[0].employee_no == "E2" and pages[2].items == []
+    assert pages[0].items[0].ratings["rating:grade1"].label == "A"
+    assert state.await_count == 9
+    progress.reset_mock()
+    previous.reset_mock()
+    filtered = await router.result_opening_people(1, page=1, page_size=1, keyword="e2", context=context(), db=db)
+    assert filtered.total == 1 and filtered.items[0].employee_no == "E2"
+    assert [column.key for column in filtered.rating_columns] == ["rating:grade2"]
+    progress.assert_awaited_once_with(db, projects[1], {"E2"})
+    previous.assert_awaited_once_with(db, projects[1], {"E2"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keyword,has_rows", [(None, False), (None, True), ("no-match", True)])
+async def test_result_opening_empty_list_skips_profile_queries(monkeypatch, keyword, has_rows):
+    from unittest.mock import AsyncMock
+    from app.performance import projects_router as router
+    project = SimpleNamespace(id=1, project_ref="p1")
+    member = SimpleNamespace(employee_no="E1", display_name="员工")
+    monkeypatch.setattr(router, "_opening_project_members", AsyncMock(return_value=[(project, member)] if has_rows else []))
+    grants = [(SimpleNamespace(is_active=True, function_permission_keys=["performance.frontend.result-open"]), SimpleNamespace(scope_type="GLOBAL"))]
+    monkeypatch.setattr(router, "_opening_access_grants", AsyncMock(return_value=grants))
+    monkeypatch.setattr(router, "_opening_state", AsyncMock(return_value=None))
+    if keyword:
+        monkeypatch.setattr(router, "_manual_openable", lambda *args: None)
+    unused = AsyncMock(side_effect=AssertionError("empty query must not load profile data"))
+    for name in ["load_subject_visibility_rules", "resolve_trusted_performance_actor", "_communication_progress", "_previous_published_position_levels", "resolve_subject_visibility_role"]:
+        monkeypatch.setattr(router, name, unused)
+    result = await router.result_opening_people(1, page=1, page_size=50, keyword=keyword, context=context(),
+        db=SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: []))))
+    assert result.items == [] and result.total == 0 and result.rating_columns == []
+    unused.assert_not_awaited()
 
 
 @pytest.mark.asyncio

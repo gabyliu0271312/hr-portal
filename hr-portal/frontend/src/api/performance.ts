@@ -1047,9 +1047,21 @@ export interface PerformanceResultOpeningPerson {
   project_name: string
   can_open: boolean
   unavailable_reason: string | null
+  ratings?: Record<string, PerformanceTaskRatingValue | null>
+  completion?: string
+  direct_supervisor?: string | null
+  hrbp?: string | null
+  job_sequence?: string | null
+  hire_date?: string | null
+  department?: string | null
+  organization_path?: string | null
+  previous_position_level?: string | null
+  employee_type?: string | null
+  visible_profile_fields?: string[]
 }
 
 export interface PerformanceResultOpeningPage {
+  rating_columns?: Array<{ key: string; label: string }>
   items: PerformanceResultOpeningPerson[]
   total: number
   page: number

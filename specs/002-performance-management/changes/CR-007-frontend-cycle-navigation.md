@@ -107,6 +107,20 @@
 - 复议生命周期缺失是已知范围边界；不能用占位任务冒充真实复议。
 - 停止本轮能力时，仅回退导航接口、共享周期状态和三个前台页面接入，不整体回滚仓库、删除历史任务或改变角色配置。
 
+## 2026-11-11 开通结果名单与确认弹窗（本轮用户确认）
+
+- [ ] CR-007-F11 开通名单真实列与全局确认弹窗
+  - Goal：原开通名单补齐真实人员/动态评级列，按钮改“开通结果”；不改变开通资格或通知规则。
+  - Confirmed UI：默认姓名、绩效评级（按模板动态多列）、360°评估率、直属上级、HRBP、序列、入职日期、所属部门；默认隐藏部门全路径、所属项目、上期职级（用户确认非“上级职级”）、员工类型。字段与派生列服从既有可见权限，列配置、排序和导出共用值解析；不混入催办对象/状态/开通状态列。其它催办与preview模式不变。
+  - Dialog：复用PerformanceConfirmDialog全局token；420px壳、24px内边距、24px蓝InfoFilled、16px/600标题、正文14/22、8px上距/40px缩进、56px页脚、80×32按钮。标题“确定开通所选成员的绩效结果吗？”；取消回名单保留勾选且不POST，确定才开通；无新动画/弹窗系统。
+  - API：原GET `/performance/cycles/{cycle_id}/result-opening/people`扩items ratings/completion/direct_supervisor/hrbp/job_sequence/hire_date/department/organization_path/previous_position_level/employee_type/visible_profile_fields；顶层rating_columns取合法查询结果动态评级并集、跨页稳定，保留原筛选/分页/权限。复用最终任务评级、周期快照姓名、360计数、上期职级、字段权限；不回实时花名册。
+  - Allowed：projects_router.py及test_performance_projects.py、api/performance.ts、PerformanceReminderPanel.vue/spec、performanceReminder.ts、必要PerformanceConfirmDialog.vue/spec；唯一负责人各自写文件。无新模型/迁移/权限/页面，既有小范围调整无需新蓝图。只更新本记录，不新建脚本/报告/测试文档。
+  - Tests：现有pytest/Vitest覆盖动态多评级列、分页列稳定、脱敏、默认/隐藏列、取消零写入/确定提交、原开通资格及催办回归；build与真实Vue组件隔离API浏览器验证，独立PNG按CR-007-F11命名。真实DB/投递/生产部署另列未验证，不自动commit/push。
+  - 本地证据：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/components/performance/performanceReminderVisibility.spec.ts --silent` → 3文件53 passed；`npm.cmd --prefix hr-portal/frontend run build` → vue-tsc+Vite exit0，3689模块，仅既有VueUse PURE注释警告。扩大至CompletionRatePanel/ProjectManagement共5文件时110 passed/1 failed，唯一失败是既有报表测试仍期待“模拟数据”而报表已接真实加载；已通知并行报表会话，不以此声称扩大回归全通过。
+  - 后端证据：`hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_projects.py -q --tb=short` → 734 passed / 5 skipped / 1既有python_multipart弃用警告，exit0；开通专项21 passed/718 deselected（执行者报告）。响应model_json_schema与FastAPI app.openapi已覆盖；评级最新已提交/撤销边界、快照姓名/HRBP缺失、字段脱敏/派生隐藏、分页列稳定及空名单无额外资料查询已覆盖。未改POST资格、评级来源或并行报表heatLevels实现。
+  - UI证据：本地真实Vue路由、全部API隔离为合成人员，894×631实测弹窗420×180、header124/footer56、padding24、InfoFilled24、标题16px，图标/主按钮rgb(20,86,240)；取消0次POST且保留勾选，确定才1次POST，pageerror0。1440×900名单默认列/动态两评级正确，列设置真实勾选上期职级后显示P5；4个默认隐藏项正确，脱敏字段不进入列抽屉。独立PNG `ui-blueprints/CR-007-F11-implemented-opening-list-20261111.png`及`ui-blueprints/CR-007-F11-implemented-opening-confirm-20261111.png`均已查看；不是生产/真实后端API证据。
+  - 边界：本轮改动仅开通相关后端/前端/API类型及既有测试/本记录；保留并行报表改动，不自动提交、推送或部署，无数据库迁移、真实通知/数据库回读。F11保持未勾选，不将本地合成UI或跳过项当作生产验收。
+
 ## 2026-11-11 结果开通与复议总览修复（用户已确认实施）
 
 - [ ] CR-007-F08 结果开通权限与可开通人员闭环

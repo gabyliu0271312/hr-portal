@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
+import InfoFilledIcon from './InfoFilledIcon.vue'
 
 function mountDialog(props: Record<string, unknown> = {}) {
   return mount(PerformanceConfirmDialog, {
@@ -144,6 +145,27 @@ describe('PerformanceConfirmDialog', () => {
     expect(wrapper.emitted('confirm')).toHaveLength(1)
     document.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--cancel')!.click()
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    wrapper.unmount()
+  })
+
+  it('reuses the global result-opening shell with InfoFilled and cancel-first primary actions', async () => {
+    const wrapper = mount(PerformanceConfirmDialog, {
+      attachTo: document.body,
+      props: { modelValue: true, appearance: 'result-opening', confirmVariant: 'primary', message: '确定开通所选成员的绩效结果吗？', description: '有2名被评估人会立即收到结果开通的通知，并且可以在系统中查看自己的绩效结果。', cancelText: '取消', confirmText: '确定' },
+      slots: { icon: InfoFilledIcon },
+    })
+    await flushPromises()
+    const dialog = document.querySelector('.performance-confirm-dialog--result-opening')!
+    expect(dialog.classList.contains('performance-confirm-dialog--primary')).toBe(true)
+    expect(dialog.classList.contains('performance-confirm-dialog--submit')).toBe(false)
+    expect(dialog.querySelector('[data-icon="InfoFilled"]')).not.toBeNull()
+    expect(dialog.querySelector('[data-icon="WarningFilled"]')).toBeNull()
+    expect(dialog.querySelector('.performance-confirm-dialog__body')?.textContent).toContain('有2名被评估人')
+    expect(Array.from(dialog.querySelectorAll('button')).map(button => button.textContent)).toEqual(['取消', '确定'])
+    expect(document.activeElement).toBe(dialog.querySelector('.performance-confirm-dialog__button--cancel'))
+    dialog.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--cancel')!.click()
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
+    expect(wrapper.emitted('confirm')).toBeUndefined()
     wrapper.unmount()
   })
 
