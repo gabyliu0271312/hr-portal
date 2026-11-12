@@ -1296,7 +1296,7 @@ export type PerformanceTemplateField = {
   previewValue?: unknown
 }
 export type PerformanceTemplateElement = { kind: 'field'; id: string } | { kind: 'prompt'; id: string; prompt: PerformancePromptValue }
-export type PerformanceTemplateSection = { id: string; name: string; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[]; elements?: PerformanceTemplateElement[] }
+export type PerformanceTemplateSection = { id: string; name: string; hide_name?: boolean; description?: string; allow_multiple?: boolean; fields: PerformanceTemplateField[]; elements?: PerformanceTemplateElement[] }
 export type PerformanceOkrStatus = 'unset' | 'normal' | 'risk' | 'extended' | (string & {})
 export type PerformanceOkrKeyResult = {
   id: string
@@ -1349,13 +1349,13 @@ export type PerformanceReferenceTab = {
   okr?: PerformanceOkrView | null
   okrs?: PerformanceOkrView[]
 }
-export type PerformanceResultContent = { task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown> }
+export type PerformanceResultContent = { task_id: number; form_schema: SelfSummarySection[]; answers: Record<string, unknown>; reviewer?: { employee_no: string; display_name: string } }
 export type PerformanceResultRegion = {
   key: string
   kind: 'result' | 'reference'
   title: string
   contents: PerformanceResultContent[]
-  reference_kind?: 'node' | 'okr'
+  reference_kind?: 'node' | 'okr' | 'reviewer_360'
   status?: string
   okr?: PerformanceOkrView | null
   okrs?: PerformanceOkrView[]
@@ -1882,6 +1882,7 @@ export interface PerformanceTemplateContent {
   }
   settings?: {
     hideDescription?: boolean
+    hideName?: boolean
     allowMultiple?: boolean
     allowView?: boolean
     allowUnknown?: boolean

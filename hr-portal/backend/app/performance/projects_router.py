@@ -2287,14 +2287,11 @@ async def _employee_result_regions(project, view, final_tasks, contents, employe
     relations = [content for content in template.get("content") or [] if content.get("content_slot") == "reference"]
     for relation in relations:
         relation_id = str(relation.get("content_id") or relation.get("id") or "")
-        if not relation_id or any(region["key"] == f"reference:{relation_id}" for region in regions):
+        if not relation_id or (relation.get("settings") or {}).get("allowView") is False or any(region["key"] == f"reference:{relation_id}" for region in regions):
             continue
         page_name = (relation.get("reference_settings") or {}).get("page_name")
         region = {"key": f"reference:{relation_id}", "kind": "reference", "title": page_name or relation.get("name") or "参考内容", "contents": [], "status": "unavailable"}
         regions.append(region)
-        if (relation.get("settings") or {}).get("allowView") is False:
-            region["title"] = "参考内容"
-            continue
         if relation.get("reference_kind") == "more" and relation.get("reference_value") == "okr":
             from app.performance.okr_provider import fetch_employee_okrs
             from app.integrations.feishu.feishu_client import authorized_okr_read
@@ -2313,9 +2310,11 @@ async def _employee_result_regions(project, view, final_tasks, contents, employe
             continue
         region["title"] = page_name or source.name
         source_template = (source.config or {}).get("template") or {}
-        if "template" not in (source.config or {}) or node_role_code(source_template) == ROLE_REVIEWER_360 or source_template.get("executor_label") == "360°评估人":
-            region["status"] = "unavailable"
+        if "template" not in (source.config or {}) or getattr(source, "project_id", project.id) != project.id:
             continue
+        reviewer_360 = node_role_code(source_template) == ROLE_REVIEWER_360 or source_template.get("executor_label") == "360°评估人"
+        if reviewer_360:
+            region["reference_kind"] = "reviewer_360"
         tasks = list((await db.execute(select(PerformanceNodeTask).where(
             PerformanceNodeTask.project_id == project.id,
             PerformanceNodeTask.cycle_ref == project.cycle_ref,
@@ -2326,15 +2325,36 @@ async def _employee_result_regions(project, view, final_tasks, contents, employe
             PerformanceNodeTask.submitted_at.is_not(None),
             PerformanceNodeTask.revoked_at.is_(None),
         ).order_by(PerformanceNodeTask.id))).scalars().all())
+        tasks = [task for task in tasks if (
+            task.project_id == project.id and task.cycle_ref == project.cycle_ref and task.member_snapshot_id == snapshot_id
+            and task.target_employee_no == employee_no and task.node_snapshot_id == source.id
+            and task.status == "completed" and task.submitted_at is not None and getattr(task, "revoked_at", None) is None
+        )]
+        handler_names = {}
+        if reviewer_360 and tasks:
+            rows = (await db.execute(select(
+                PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name,
+            ).join(PerformanceProjectMemberSnapshot,
+                PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+            ).where(
+                PerformanceProjectMemberSnapshot.id == snapshot_id,
+                PerformanceProjectMemberSnapshot.project_id == project.id,
+                PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+                PerformanceAuthorizationSnapshotPerson.employee_no.in_([task.handler_ref for task in tasks]),
+            ))).all()
+            handler_names = dict(rows)
         for task in tasks:
-            if (task.project_id != project.id or task.cycle_ref != project.cycle_ref or task.member_snapshot_id != snapshot_id
-                    or task.target_employee_no != employee_no or task.node_snapshot_id != source.id or task.status != "completed" or task.submitted_at is None
-                    or getattr(task, "revoked_at", None) is not None):
-                continue
-            _, answers = await _task_visible_content(task, source, db)
-            schema, answers = project_reference_content(await _self_summary_template(task, source, db), relation, answers)
+            if reviewer_360:
+                hydrated = await _self_summary_template(task, source, db)
+                schema, answers = project_reference_content(hydrated, relation, task.answers or {})
+            else:
+                _, answers = await _task_visible_content(task, source, db)
+                schema, answers = project_reference_content(await _self_summary_template(task, source, db), relation, answers)
             if schema:
-                region["contents"].append({"task_id": task.id, "form_schema": schema, "answers": answers})
+                content = {"task_id": task.id, "form_schema": schema, "answers": answers}
+                if reviewer_360:
+                    content["reviewer"] = {"employee_no": str(task.handler_ref), "display_name": handler_names.get(str(task.handler_ref)) or str(task.handler_ref)}
+                region["contents"].append(content)
         region["status"] = "completed" if region["contents"] else "not_started"
     by_key = {region["key"]: region for region in regions}
     order = list(dict.fromkeys(template.get("content_region_order") or []))

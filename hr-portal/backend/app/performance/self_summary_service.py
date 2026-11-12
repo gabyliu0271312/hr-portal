@@ -386,6 +386,8 @@ def _project_result_view_schema(final_template: dict, view_contents: list[dict])
 
 
 def project_reference_content(source_template: dict, relation: dict, answers: dict) -> tuple[list[dict], dict]:
+    if (relation.get("settings") or {}).get("allowView") is False:
+        return [], {}
     content_settings = ((relation.get("reference_settings") or {}).get("content_settings") or {})
     source_contents = [
         content for content in source_template.get("content") or []
@@ -404,10 +406,11 @@ def project_reference_content(source_template: dict, relation: dict, answers: di
             for item in source.get("items") or []
         ]
         if source.get("type") == "prompt":
-            view["prompt"] = {**(view.get("prompt") or {}), "onlyWhenFilling": (source.get("prompt") or {}).get("onlyWhenFilling") is True or (override.get("root") or {}).get("onlyWhenFilling") is True}
+            view["prompt"] = {**(source.get("prompt") or {}), **(override.get("root") or {})}
         for item in view["items"]:
             if item.get("kind") == "prompt":
-                item["settings"]["onlyWhenFilling"] = (item.get("prompt") or {}).get("onlyWhenFilling") is True or (item.get("settings") or {}).get("onlyWhenFilling") is True
+                local = items_by_id.get(str(item.get("id") or ""), {})
+                item["prompt"] = {**(item.get("prompt") or {}), **{key: local[key] for key in ("allowView", "onlyWhenFilling") if key in local}}
         view_contents.append(view)
     schema = _project_result_view_schema({"content": source_contents}, view_contents)
     return schema, project_self_summary_answers(schema, answers, include_readonly=True)

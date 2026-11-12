@@ -231,7 +231,9 @@ describe('PerformanceTemplatePreviewStep', () => {
     expect(referenced.text()).not.toContain('引用隐藏根标题')
     expect(referenced.text()).toContain('引用保留描述')
     expect(referenced.text()).toContain('引用保留题')
-    for (const denied of ['引用拒绝题', '引用拒绝行内说明', '来源仅填写说明', '局部仅填写说明', '来源行内仅填写', '局部行内仅填写']) expect(referenced.text()).not.toContain(denied)
+    for (const denied of ['引用拒绝题', '引用拒绝行内说明', '局部仅填写说明', '局部行内仅填写']) expect(referenced.text()).not.toContain(denied)
+    expect(referenced.text()).toContain('来源仅填写说明')
+    expect(referenced.text()).toContain('来源行内仅填写')
     expect(source).toEqual(original)
     wrapper.unmount()
   })
@@ -277,7 +279,7 @@ describe('PerformanceTemplatePreviewStep', () => {
     await flushPromises()
     const panels = wrapper.findAll('.ptp-panel')
     expect(panels).toHaveLength(2)
-    expect(panels[0].text()).toContain('重点工作 1')
+    expect(panels[0].text()).not.toContain('重点工作 1')
     expect(panels[1].text()).toContain('重点工作 1')
     expect(panels[1].text()).toContain('222')
     expect(panels[1].find('[contenteditable="true"]').exists()).toBe(true)
@@ -424,10 +426,67 @@ describe('PerformanceTemplatePreviewStep', () => {
     // 默认收起：不显示条目，点展开后显示
     expect(wrapper.findAll('.pr360-item')).toHaveLength(0)
     await block.find('.pr360-toggle').trigger('click')
-    expect(wrapper.findAll('.pr360-item')).toHaveLength(2)
-    expect(wrapper.text()).toContain('360°反馈内容')
-    expect(wrapper.text()).toContain('留言内容')
-    for (const privateText of ['匿名来源根标题', '匿名来源原文说明', '匿名来源原文题名']) expect(wrapper.find('.ptp-panel').text()).not.toContain(privateText)
+    expect(wrapper.findAll('.pr360-item')).toHaveLength(0)
+    expect(wrapper.findAll('.pr360-reviewer')).toHaveLength(1)
+    expect(wrapper.text()).toContain('评估人')
+    for (const sourceText of ['匿名来源根标题', '匿名来源原文说明', '匿名来源原文题名']) expect(wrapper.find('.ptp-panel').text()).toContain(sourceText)
+    wrapper.unmount()
+  })
+
+  it('projects local 360 display overrides in both reference tabs and result blocks without exposing source-hidden fields', async () => {
+    const feedback = {
+      ...structuredClone(fillSummary), name: '隐藏根名称', description: '保留根描述',
+      settings: { allowView: false, hideName: false, hideDescription: true },
+      items: [
+        { ...fillSummary.items[0], label: '隐藏题名称', hint: '题目提示', settings: { allowView: false, hideName: false } },
+        { ...fillSummary.items[0], id: 'source-hidden', label: '源隐藏题', settings: { mode: 'hidden' } },
+        { id: 'prompt', kind: 'prompt', prompt: { ...promptContent.prompt, content: '局部公开提示', allowView: false, onlyWhenFilling: true } },
+      ],
+    } as any
+    const reference = {
+      content_id: 'ref-360', type: 'reference', content_slot: 'reference', reference_kind: 'node', reference_value: 'source', name: '同事反馈', items: [],
+      reference_settings: { content_settings: { 'c-summary': {
+        root: { allowView: true, hideName: true, hideDescription: false },
+        items: { 'i-keywork': { allowView: true, hideName: true }, 'source-hidden': { allowView: true }, prompt: { allowView: true, onlyWhenFilling: false } },
+      } } },
+    } as any
+    const source = node({ node_id: 'source', name: '360来源', executor_role_code: 'assessment.reviewer_360', content: [feedback] })
+    const original = structuredClone(source)
+    const wrapper = mountStep([
+      node({ node_id: 'evaluation', name: '评估', content: [reference] }),
+      node({ node_id: 'result', name: '结果', node_type: 'result_view', content: [reference] }),
+      source,
+    ])
+    await flushPromises()
+    const tab = wrapper.get('.ptp-body--reference')
+    expect(tab.find('.r360-preview').exists()).toBe(true)
+    for (const text of ['隐藏根名称', '隐藏题名称', '源隐藏题']) expect(tab.text()).not.toContain(text)
+    expect(tab.text()).toContain('保留根描述')
+    expect(tab.text()).toContain('局部公开提示')
+    expect(tab.find('[data-field-id="i-keywork"]').exists()).toBe(true)
+    await wrapper.findAll('.ptp-stage-card')[1].trigger('click')
+    const block = wrapper.get('.pr360-block')
+    expect(block.findAll('.pr360-reviewer')).toHaveLength(1)
+    await block.get('.pr360-toggle').trigger('click')
+    for (const text of ['隐藏根名称', '隐藏题名称', '源隐藏题']) expect(block.text()).not.toContain(text)
+    expect(block.text()).toContain('保留根描述')
+    expect(block.text()).toContain('局部公开提示')
+    expect(block.text()).toContain('这里展示用户填写的内容')
+    expect(source).toEqual(original)
+    wrapper.unmount()
+  })
+
+  it.each(['evaluation', 'result_view'])('does not render a denied 360 reference relation in %s preview', async nodeType => {
+    const reference = { content_id: 'ref-360', type: 'reference', content_slot: 'reference', reference_kind: 'node', reference_value: 'source', name: '不允许的360参考', items: [], settings: { allowView: false } } as any
+    const wrapper = mountStep([
+      node({ node_id: 'target', name: '目标环节', node_type: nodeType, content: [reference] }),
+      node({ node_id: 'source', name: '来源', executor_role_code: 'assessment.reviewer_360', content: [fillSummary] }),
+    ])
+    await flushPromises()
+    expect(wrapper.find('.pr360-block').exists()).toBe(false)
+    expect(wrapper.find('.r360-preview').exists()).toBe(false)
+    expect(wrapper.find('[data-region-id="reference:ref-360"]').exists()).toBe(false)
+    expect(wrapper.find('.ptp-ref-tab').exists()).toBe(false)
     wrapper.unmount()
   })
 

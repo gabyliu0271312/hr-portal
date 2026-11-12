@@ -528,6 +528,16 @@
 - 后端兼容：节点 `content` 仍持久化为投影（运行期消费方直接读取），历史数据中节点副本比库新时读取以节点为准回填库（自愈）后再投影；写入优先级为 显式 `content_library` > 已存库/节点填写内容（仅补缺口）。不新增字段、迁移、API 或权限变更，不改已使用模板锁定与历史周期快照。
 - 验证：前端 `PerformanceTemplateContentSettings` 83/83、`performanceRatingOptions` 7/7、渲染器与抽屉 105/105；后端 `test_performance_template_workflow` 235/235、`test_performance_projects` 386/386；vue-tsc 仅剩既有 spec 类型断言告警。真实登录态浏览器与真实数据库保存重开未执行，不作为完成证据。
 
+## 360°结果查看与只读内容复用（PM-T004-T05-F40，2026-11-12）
+
+- 依据本轮REA目标模板`/perf/admin/templates/7703786341502307621/4`及用户逐项确认，沿既有模板预览和员工`/performance/review`结果区原位修复，无新页面/整页蓝图。模板详情通过`template_groups/{id}/detail`的readTemplates/ref指向来源；实际浏览器证据`ev_606b3ba717ba6610567386f2848027738980c38402bfedd0270163df9c8522f6`确认顶部与人员三角联动，`ev_0cf12c93034d8eeaf602601490252274a0fe43d94a3a0fccd5457800ca617e83`确认结果查看引用配置结构。
+- 结果区保留独立360外壳：标题+展开全部按钮，条目内为三角按钮+公共PerformanceMemberIdentity sm头像姓名；无关系/部门/提交时间、筛选、排序、详情/表格切换。该最新确认优先于采集中时间字段及旧组件占位；普通360参考页签的统计/筛选/外置头像布局保留。
+- 逐人独立默认收起；点击单人按钮仅改变该人，顶部按钮依据所有人员状态展开或收起全部；键盘可达，aria-expanded与实际状态一致，列表更换不能继承其他结果的展开状态。
+- 内容走统一readonly TemplateRenderer：模板预览使用公共contentToSections预览值，真实员工使用API返回schema和答案，不注入“这里展示用户填写的内容”假答案。复用普通结果引用的root/item名称、描述、题型、提示与显隐投影；不存在内容时沿已有空态。
+- 引用显示设置显式覆盖源显示设置、未配置继承，源mode=hidden仍不展示；整引用allowView=false不显示其标题、内容和评估人。两处入口按本环节reference_settings.content_settings处理，不复制固定360题目。
+- 真实员工仅显示后端裁剪的已提交且未撤销360任务，每人各自form_schema/answers，不拼接答案字典；头像沿系统姓名fallback，不新建头像获取服务。错误/未开通/无权限继续沿Review已有状态。
+- UI合规关联Spec012 N0001/N0002/N0004/N0005/N1102-N1104，复用tokens、MemberIdentity、展开控件和TemplateRenderer，不建立新设计体系。独立实现PNG目标`../../ui-blueprints/PM-T004-T05-F40-implemented-result-reviewer360.png`；测试/浏览器/真实数据库证据分开记录。
+
 ## 模板预览360°反馈真实root与只读展示（PM-T004-T05-F39，2026-11-06）
 
 - 上级评估环节的360°反馈参考页签保留REA专用的统计信息、筛选、详情/表格切换、人员卡片和展开/收起外壳；特殊格式不能替代来源内容。

@@ -191,6 +191,52 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('renders real 360 reviewers with shared compact identities and no duplicate region heading', async () => {
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    const contents = [
+      { task_id: 41, reviewer: { employee_no: 'R41', display_name: '评估同事甲' }, form_schema: [{ id: 'feedback', name: '反馈根标题', description: '模板反馈说明', fields: [{ id: 'answer', type: 'rich_text' as const, label: '反馈内容' }] }], answers: { answer: '<p>第一位真实反馈</p>' } },
+      { task_id: 42, reviewer: { employee_no: 'R42', display_name: '评估同事乙' }, form_schema: [{ id: 'feedback', name: '隐藏根标题', hide_name: true, description: '独立可见描述', fields: [{ id: 'answer', type: 'rich_text' as const, label: '隐藏题名', hide_name: true }] }], answers: { answer: '第二位真实反馈' } },
+    ]
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], regions: [
+      { key: 'reference:360', kind: 'reference', title: '我的360反馈', reference_kind: 'reviewer_360', contents },
+    ] })
+    const wrapper = mountView()
+    await flushPromises()
+    const region = wrapper.get('[data-region-id="reference:360"]')
+    expect(region.findAll('h3')).toHaveLength(1)
+    expect(region.get('h3').text()).toBe('我的360反馈')
+    expect(region.findAllComponents(PerformanceMemberIdentity)).toHaveLength(2)
+    for (const identity of region.findAllComponents(PerformanceMemberIdentity)) expect(identity.props('size')).toBe('sm')
+    expect(region.findAll('.member-name').map(identity => identity.text())).toEqual(['评估同事甲', '评估同事乙'])
+    expect(region.find('.pr360-items').exists()).toBe(false)
+    await region.get('.pr360-comment__toggle').trigger('click')
+    expect(region.text()).toContain('第一位真实反馈')
+    expect(region.text()).not.toContain('第二位真实反馈')
+    await region.get('.pr360-toggle').trigger('click')
+    expect(region.text()).toContain('第二位真实反馈')
+    expect(region.text()).toContain('独立可见描述')
+    for (const text of ['隐藏根标题', '隐藏题名', '这里展示用户填写的内容', '所属部门', '提交时间', '员工关系']) expect(region.text()).not.toContain(text)
+    expect(region.find('[contenteditable="true"]').exists()).toBe(false)
+    expect(region.find('table, select, [role="listbox"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps empty 360 results empty instead of fabricating reviewers or preview answers', async () => {
+    Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())
+    vi.spyOn(projectManagementApi, 'myResults').mockResolvedValue({ project_id: 1, employee_no: 'E001', results: [], regions: [
+      { key: 'reference:360', kind: 'reference', title: '360反馈', reference_kind: 'reviewer_360', contents: [] },
+    ] })
+    const wrapper = mountView()
+    await flushPromises()
+    const region = wrapper.get('[data-region-id="reference:360"]')
+    expect(region.text()).toContain('暂无可查看内容')
+    expect(region.find('.pr360-reviewer').exists()).toBe(false)
+    expect(region.text()).not.toContain('这里展示用户填写的内容')
+    wrapper.unmount()
+  })
+
   it('renders explicitly configured OKR regions through the existing readonly OKR panel', async () => {
     Object.assign(routeQuery, { node: 'view-result', project_id: '1' })
     vi.mocked(performanceReviewApi.overview).mockResolvedValue(resultOverview())

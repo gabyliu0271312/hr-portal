@@ -92,7 +92,7 @@ interface ReferenceGroup {
 const referenceGroups = computed<ReferenceGroup[]>(() => {
   const node = selectedNode.value
   if (!node) return []
-  const relations = (node.content || []).filter(content => (content.content_slot || 'fill') === 'reference' || content.type === 'reference')
+  const relations = (node.content || []).filter(content => ((content.content_slot || 'fill') === 'reference' || content.type === 'reference') && content.settings?.allowView !== false)
   const groups: ReferenceGroup[] = relations.map((relation, index) => {
     const id = relation.content_id || relation.id || `reference-${index}`
     if (relation.reference_kind === 'node' && relation.reference_value) {
@@ -100,8 +100,8 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
       /* 360°反馈环节 = 流程设置里执行人为「360°评估人」的评估环节：
          参考区对该引用渲染「360°评估详情」视图（REA 实测与普通引用不同） */
       const isReviewer360 = Boolean(source && (source.executor_role_code === ASSESSMENT_ROLE_CODES.REVIEWER_360 || source.executor_label === '360°评估人'))
-      /* REA 的参考内容只展示被引用环节的填写项，不包含「说明」块 */
-      const contents = source ? visibleFillContents(source).filter(content => content.type !== 'prompt') : []
+      /* REA 的参考内容只展示被引用环节的填写项，不包含「说明」块；引用侧显示设置只覆盖可见/文案，不可解除源 mode=hidden。 */
+      const contents = source ? resultPreviewBlocks(slotContents(source, 'fill'), relation).map(block => block.content) : []
       return {
         id, kind: 'node' as const, value: relation.reference_value,
         label: relation.reference_settings?.page_name || source?.name || relation.name || '参考内容',
@@ -122,6 +122,9 @@ const referenceGroups = computed<ReferenceGroup[]>(() => {
 })
 const showReferencePanel = computed(() => !isResultView.value && referenceGroups.value.length > 0)
 const activeReferenceGroup = computed(() => referenceGroups.value[activeReferenceTab.value] || null)
+const activeReferenceBlocks = computed(() => resultPreviewBlocks(activeReferenceGroup.value?.contents || []))
+const activeReferenceContents = computed(() => activeReferenceBlocks.value.map(block => ({ ...block.content, name: block.hideName ? '' : block.content.name })))
+const activeReferenceSections = computed(() => Object.fromEntries(activeReferenceBlocks.value.map(block => [contentKeyOf(block.content), block.sections])))
 
 function selectStage(id: string) {
   selectedId.value = id
@@ -164,22 +167,24 @@ function resultPreviewBlocks(contents: PerformanceTemplateContent[], relation?: 
     const projected = relation ? {
       ...content,
       settings: { ...content.settings, ...(local.root || {}) },
-      prompt: content.prompt ? { ...content.prompt, ...(local.root || {}), ...(content.prompt.onlyWhenFilling === true ? { onlyWhenFilling: true } : {}) } : undefined,
+      prompt: content.prompt ? { ...content.prompt, ...(local.root || {}) } : undefined,
       items: (content.items || []).map(item => ({
         ...item,
         settings: { ...item.settings, ...(local.items?.[item.id] || {}) },
-        prompt: item.prompt ? { ...item.prompt, ...(local.items?.[item.id] || {}), ...(item.prompt.onlyWhenFilling === true ? { onlyWhenFilling: true } : {}) } : undefined,
+        prompt: item.prompt ? { ...item.prompt, ...(local.items?.[item.id] || {}) } : undefined,
       })),
     } : { ...content }
-    if (projected.settings?.allowView === false) return []
+    if (projected.settings?.allowView === false || content.settings?.mode === 'hidden') return []
     if (projected.type === 'prompt' && !isPromptVisible(projected.prompt, { filling: false })) return []
     projected.items = (projected.items || []).filter(item => {
       if (item.kind === 'prompt') return isPromptVisible(item.prompt, { filling: false })
       const settings = resolveFieldSettings({ node: selectedNode.value, content: projected, item, readonly: true })
       return settings.allowView && isFieldRendered(settings)
     })
+    const hideName = projected.settings?.hideName === true
     const sections = contentToSections(selectedNode.value, [projected], { readonly: true, filling: false })
-    return sections.length ? [{ content: projected, sections, hideName: (projected.settings as { hideName?: boolean })?.hideName === true }] : []
+      .map(section => ({ ...section, hide_name: hideName, name: hideName ? '' : section.name, description: projected.settings?.hideDescription ? '' : section.description }))
+    return sections.length ? [{ content: projected, sections, hideName }] : []
   })
 }
 
@@ -192,7 +197,8 @@ const resultRegions = computed(() => {
       const contents = source?.node_type === 'calibration'
         ? resolveCalibrationContents(slotContents(finalNode.value, 'fill'), source.calibration_settings)
         : slotContents(source || null, 'fill')
-      return { id: `reference:${group.id}`, label: group.label, group, blocks: group.kind === 'node' && !group.isReviewer360 ? resultPreviewBlocks(contents, group.relation) : [] }
+      const blocks = group.kind === 'node' ? resultPreviewBlocks(contents, group.relation) : []
+      return { id: `reference:${group.id}`, label: group.label, group, blocks }
     }),
   ]
   const order = selectedNode.value?.content_region_order || []
@@ -327,8 +333,8 @@ function contentDescription(content: PerformanceTemplateContent) {
                     <PerformanceReviewer360Preview
                       v-if="activeReferenceGroup.isReviewer360"
                       relation-label="直属上级"
-                      :contents="activeReferenceGroup.contents"
-                      :readonly-sections="readonlySections"
+                      :contents="activeReferenceContents"
+                      :readonly-sections="activeReferenceSections"
                     />
                     <!-- OKR：内置引用，模板预览阶段渲染骨架；数据字段结构与填写页一致 -->
                     <PerformanceOkrPanel
@@ -343,12 +349,12 @@ function contentDescription(content: PerformanceTemplateContent) {
                       :description="activeReferenceGroup.description"
                     />
                     <div
-                      v-for="content in activeReferenceGroup.contents"
+                      v-for="content in activeReferenceContents"
                       v-else :key="content.content_id || content.id || content.name"
                       class="ptp-block"
                     >
                       <div v-if="content.type !== 'prompt'" class="ptp-block__header">
-                        <div class="ptp-block__title">{{ content.name }}</div>
+                        <div v-if="content.name" class="ptp-block__title">{{ content.name }}</div>
                         <div v-if="contentDescription(content)" class="ptp-block__desc">{{ contentDescription(content) }}</div>
                       </div>
                       <!-- REA 中栏参考内容为只读结果态：走统一渲染链路（mode=readonly），
@@ -357,7 +363,7 @@ function contentDescription(content: PerformanceTemplateContent) {
                         v-if="content.type !== 'prompt'"
                         mode="readonly"
                         :show-header="false"
-                        :sections="readonlySectionsFor(content)"
+                        :sections="activeReferenceSections[contentKeyOf(content)] || []"
                         :answers="{ }"
                       />
                       <PerformancePromptDisplay
@@ -409,7 +415,10 @@ function contentDescription(content: PerformanceTemplateContent) {
                 <template v-else-if="isResultView">
                   <div v-for="region in resultRegions" :key="region.id" :data-region-id="region.id">
                     <div v-if="region.group?.isReviewer360" class="ptp-result-360">
-                      <PerformanceResultReviewer360Block :title="region.label" />
+                      <PerformanceResultReviewer360Block
+                        :title="region.label"
+                        :contents="[{ task_id: -1, form_schema: region.blocks.flatMap(block => block.sections), answers: {}, reviewer: { employee_no: 'preview', display_name: '评估人' } }]"
+                      />
                     </div>
                     <template v-else>
                       <div class="ptp-page-title">{{ region.label }}</div>

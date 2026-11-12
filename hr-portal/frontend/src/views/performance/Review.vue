@@ -34,8 +34,9 @@
           <PerformanceResultReconsideration v-if="activeProjectId" :key="`${activeProjectId}-${selectedNodeId}`" ref="reconsiderationPanel" :project-id="activeProjectId" :status="reconsideration" :expired="reconsiderationExpired" :loading="reconsiderationLoading" :load-error="reconsiderationError" @retry="loadReconsideration()" @updated="reconsideration = $event" @busy="reconsiderationBusy = $event" />
           <div v-if="!hasResultContent">暂无可查看的绩效结果</div>
           <section v-for="region in resultRegions" :key="region.key" class="result-region" :data-region-id="region.key" :aria-label="region.title">
-            <h3 v-if="region.kind === 'reference'">{{ region.title }}</h3>
-            <PerformanceOkrPanel v-if="region.reference_kind === 'okr'" :okr="region.okr || null" :okrs="region.okrs || []" />
+            <h3 v-if="region.kind === 'reference' && region.reference_kind !== 'reviewer_360'">{{ region.title }}</h3>
+            <PerformanceResultReviewer360Block v-if="region.reference_kind === 'reviewer_360'" :title="region.title" :contents="region.contents" />
+            <PerformanceOkrPanel v-else-if="region.reference_kind === 'okr'" :okr="region.okr || null" :okrs="region.okrs || []" />
             <template v-else>
               <PerformanceTemplateRenderer v-for="content in region.contents" :key="content.task_id" mode="readonly" :sections="content.form_schema" :answers="content.answers" />
               <p v-if="region.kind === 'reference' && !region.contents.some(content => content.form_schema.length)">暂无可查看内容</p>
@@ -87,6 +88,7 @@ import { usePerformanceMemberReminder } from '@/composables/usePerformanceMember
 import PerformanceResultReconsideration from '@/components/performance/PerformanceResultReconsideration.vue'
 import PerformanceResultReconsiderationMenu from '@/components/performance/PerformanceResultReconsiderationMenu.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
+import PerformanceResultReviewer360Block from '@/components/performance/PerformanceResultReviewer360Block.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
