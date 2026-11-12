@@ -1782,6 +1782,14 @@ export interface PerformanceTemplateListItem {
   description: string
   status: 'DRAFT' | 'active' | 'inactive'
   created_at: string
+  is_used?: boolean
+  deletable?: boolean
+  delete_reason?: string
+}
+
+export interface PerformanceTemplateCopyResponse {
+  template_id: number
+  name: string
 }
 
 export const performanceTemplateApi = {
@@ -1807,6 +1815,10 @@ export const performanceTemplateApi = {
   },
   async update(id: number, payload: PerformanceTemplateCreateRequest & { configuration_completed?: boolean }): Promise<PerformanceTemplateDetail> {
     const { data } = await api.patch<PerformanceTemplateDetail>(`/performance/templates/${id}`, payload)
+    return data
+  },
+  async copy(id: number): Promise<PerformanceTemplateCopyResponse> {
+    const { data } = await api.post<PerformanceTemplateCopyResponse>(`/performance/templates/${id}/copy`)
     return data
   },
   async remove(id: number): Promise<void> {

@@ -38,8 +38,10 @@
                   <el-button class="more-button" link aria-label="更多操作"><el-icon><MoreFilled /></el-icon></el-button>
                   <template #dropdown>
                     <el-dropdown-menu class="template-action-menu">
-                      <el-dropdown-item command="复制">复制</el-dropdown-item>
-                      <el-dropdown-item command="删除">删除</el-dropdown-item>
+                      <el-dropdown-item command="复制" :disabled="copyingTemplateId !== null">复制</el-dropdown-item>
+                      <el-dropdown-item command="删除" :disabled="!row.deletable" class="template-delete-item">
+                        <PerformanceDisabledReason :disabled="!row.deletable" :reason="row.deleteReason" class="template-delete-reason"><span :class="{ 'template-delete-disabled': !row.deletable }">删除</span></PerformanceDisabledReason>
+                      </el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
                 </el-dropdown>
@@ -68,6 +70,7 @@ import { performanceTemplateApi } from '@/api/performance'
 import { formatDisplayDateTime } from '@/utils/datetime'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
+import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
 import PerformanceListPage from '@/components/performance/PerformanceListPage.vue'
 import PerformanceListToolbar from '@/components/performance/PerformanceListToolbar.vue'
 import PerformancePermissionButton from '@/components/performance/PerformancePermissionButton.vue'
@@ -81,6 +84,8 @@ interface PerformanceTemplate {
   description: string
   status: TemplateStatus
   createdAt: string
+  deletable: boolean
+  deleteReason: string
 }
 
 const keyword = ref('')
@@ -89,6 +94,7 @@ const loadError = ref('')
 const notice = ref('')
 const deleteDialogVisible = ref(false)
 const deleting = ref(false)
+const copyingTemplateId = ref<number | null>(null)
 const pendingDeleteTemplate = ref<PerformanceTemplate | null>(null)
 const router = useRouter()
 
@@ -135,7 +141,21 @@ async function handleTemplateAction(action: string, template: PerformanceTemplat
     }
     return
   }
-  if (action !== '删除') { showComingSoon(`${action}模板：${template.name}`); return }
+  if (action === '复制') {
+    if (!template.templateId || copyingTemplateId.value !== null) return
+    copyingTemplateId.value = template.templateId
+    try {
+      const copied = await performanceTemplateApi.copy(template.templateId)
+      await router.push({ name: 'PerformanceTemplateCreate', query: { template_id: String(copied.template_id) } })
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      notice.value = (typeof detail === 'string' ? detail : detail?.message) || '模板复制失败，请稍后重试'
+    } finally {
+      copyingTemplateId.value = null
+    }
+    return
+  }
+  if (action !== '删除' || !template.deletable) return
   if (!template.templateId) { notice.value = '该行是接口不可用时的参考数据，无法删除。'; return }
   pendingDeleteTemplate.value = template
   deleteDialogVisible.value = true
@@ -143,7 +163,7 @@ async function handleTemplateAction(action: string, template: PerformanceTemplat
 
 async function confirmDelete() {
   const template = pendingDeleteTemplate.value
-  if (!template?.templateId || deleting.value) return
+  if (!template?.templateId || !template.deletable || deleting.value) return
   deleting.value = true
   try {
     await performanceTemplateApi.remove(template.templateId)
@@ -153,7 +173,14 @@ async function confirmDelete() {
     await loadTemplates()
     notice.value = '模板已删除'
   } catch (error: any) {
-    notice.value = error?.response?.data?.detail || '模板删除失败，请稍后重试'
+    const detail = error?.response?.data?.detail
+    notice.value = (typeof detail === 'string' ? detail : detail?.message) || '模板删除失败，请稍后重试'
+    if (detail?.code === 'PERFORMANCE_TEMPLATE_USED') {
+      template.deletable = false
+      template.deleteReason = notice.value
+      deleteDialogVisible.value = false
+      pendingDeleteTemplate.value = null
+    }
   } finally {
     deleting.value = false
   }
@@ -174,6 +201,8 @@ async function loadTemplates() {
       description: template.description || '--',
       status: template.status as TemplateStatus,
       createdAt: formatDisplayDateTime(template.created_at, '--'),
+      deletable: template.deletable !== false && !template.is_used,
+      deleteReason: template.delete_reason || '此模板已被使用，不允许删除',
     }))
     templates.value = persistedRows
   } catch (error: any) {
@@ -196,9 +225,15 @@ onMounted(loadTemplates)
 .status-inactive i { background: var(--performance-line-tabs-ink); }
 .status-active { color: #1f2329; }.status-active i { background: #12b76a; }
 .row-actions { gap: var(--performance-button-gap); white-space: nowrap; }.more-button { width: 28px; }
-:global(.template-action-menu) { min-width: 67px; margin: 0; padding: 2px 0; border: 1px solid #dee0e3; border-radius: 6px; box-shadow: 0 8px 24px 8px rgba(31, 35, 41, .04), 0 6px 12px rgba(31, 35, 41, .04), 0 4px 8px -8px rgba(31, 35, 41, .06); }
-:global(.template-action-menu .el-dropdown-menu__item) { min-width: 60px; height: 37px; margin: 1px 3px; padding: 7px 16px; border-radius: 4px; color: #1f2329; font-size: 14px; line-height: 22px; }
-:global(.template-action-menu .el-dropdown-menu__item:hover) { background: rgba(31, 35, 41, .08); color: #1f2329; }
+:global(.template-action-menu) { min-width: 67px; margin: 0; padding: 2px 0; border: var(--performance-popover-border-width) solid var(--performance-popover-border); border-radius: var(--performance-menu-radius); box-shadow: var(--performance-popover-shadow); }
+:global(.template-action-menu .el-dropdown-menu__item) { min-width: 60px; height: 37px; margin: 1px 3px; padding: 7px var(--spacing-4); border-radius: var(--performance-menu-item-radius); color: var(--color-text-primary); font-size: var(--font-size-md); line-height: var(--performance-menu-item-line-height); }
+:global(.template-action-menu .el-dropdown-menu__item:not(.is-disabled):hover) { background: var(--performance-menu-item-hover-background); color: var(--color-text-primary); }
+:global(.template-action-menu .template-delete-item) { padding: 0; }
+.template-delete-disabled { color: var(--performance-button-link-disabled-color); }
+.template-delete-reason { display: inline-flex; width: 100%; }
+.template-delete-reason :deep(.performance-info-popover__anchor), .template-delete-reason.is-enabled { width: 100%; padding: 7px var(--spacing-4); box-sizing: border-box; }
+:global(.template-action-menu .el-dropdown-menu__item.is-disabled) { color: var(--performance-button-link-disabled-color); cursor: not-allowed; }
+:global(.template-action-menu .el-dropdown-menu__item.is-disabled:hover) { background: transparent; }
 .template-loading, .template-empty { min-height: 280px; display: grid; place-items: center; color: #646a73; }
 .template-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 40px; margin-top: 16px; color: #646a73; font-size: 14px; }
 .template-pagination :deep(.el-button) { width: 28px; height: 28px; padding: 0; }.page-current { width: 28px; height: 28px; border: 1px solid #3370ff; border-radius: 4px; background: #fff; color: #3370ff; }.page-size { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }

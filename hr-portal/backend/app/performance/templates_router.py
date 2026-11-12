@@ -1,18 +1,19 @@
 """Performance template workflow API."""
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from app.core.db import get_session
 from app.performance.auth_context import PerformanceAccessContext, require_performance_permission
-from app.performance.models import PerformanceAuditEvent, PerformanceMetricType, PerformanceReviewRule, PerformanceTemplate, PerformanceTemplateWorkflow
+from app.performance.models import PerformanceAuditEvent, PerformanceCycle, PerformanceMetricType, PerformanceProject, PerformanceReviewRule, PerformanceTemplate, PerformanceTemplateWorkflow
 from app.performance.template_workflow_service import (
     PerformanceTemplateWorkflowService,
     TemplateWorkflowValidationError,
@@ -178,6 +179,9 @@ class TemplateListItem(BaseModel):
     created_at: str
     updated_at: str = ""
     updated_by: str = ""
+    is_used: bool = False
+    deletable: bool = True
+    delete_reason: str = ""
 
 
 async def _validate_metric_dimensions(db: AsyncSession, dimensions: list[MetricTemplateDimension]) -> None:
@@ -225,6 +229,17 @@ async def list_templates(
     template_kind: Literal["performance", "metric"] = "performance",
 ):
     rows = (await db.execute(select(PerformanceTemplate).where(PerformanceTemplate.template_kind == template_kind).order_by(PerformanceTemplate.created_at.desc()))).scalars().all()
+    usage_rows = await db.execute(select(
+        PerformanceTemplate.id,
+        select(PerformanceCycle.id).where(or_(
+            PerformanceCycle.template_id == PerformanceTemplate.id,
+            PerformanceCycle.template_ids.contains(func.jsonb_build_array(PerformanceTemplate.id)),
+        )).exists(),
+        select(PerformanceProject.id).where(
+            PerformanceProject.settings["template_id"].as_string() == cast(PerformanceTemplate.id, String),
+        ).exists(),
+    ).where(PerformanceTemplate.template_kind == template_kind))
+    used_ids = {template_id for template_id, cycle_used, project_used in usage_rows.all() if cycle_used or project_used}
     return [
         TemplateListItem(
             template_id=row.id,
@@ -234,6 +249,9 @@ async def list_templates(
             created_at=row.created_at.isoformat() if row.created_at else "",
             updated_at=row.updated_at.isoformat() if row.updated_at else "",
             updated_by=row.created_by_ref,
+            is_used=row.id in used_ids,
+            deletable=row.id not in used_ids,
+            delete_reason="此模板已被使用，不允许删除" if row.id in used_ids else "",
         )
         for row in rows
     ]
@@ -390,11 +408,19 @@ async def delete_template(
             detail={"code": "TEMPLATE_NOT_FOUND", "message": "绩效模板不存在"},
         )
 
+    service = PerformanceTemplateWorkflowService(db)
+    await service.lock_usage(template_id)
+    cycle_count, project_count = await service.usage_summary(template_id)
+    if cycle_count or project_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "PERFORMANCE_TEMPLATE_USED", "message": "此模板已被使用，不允许删除"},
+        )
     workflow = await db.get(PerformanceTemplateWorkflow, template_id)
     before_state = _template_detail(template).model_dump()
     before_state["usage_summary"] = {
-        "cycle_count": workflow.cycle_count if workflow is not None else 0,
-        "project_count": workflow.project_count if workflow is not None else 0,
+        "cycle_count": cycle_count,
+        "project_count": project_count,
     }
     if workflow is not None:
         await db.delete(workflow)
@@ -411,6 +437,67 @@ async def delete_template(
         )
     )
     await db.commit()
+
+
+@router.post("/{template_id}/copy", response_model=TemplateCreateResponse, status_code=status.HTTP_201_CREATED)
+async def copy_template(
+    template_id: int,
+    context: PerformanceAccessContext = Depends(require_performance_permission("performance.configuration.manage")),
+    db: AsyncSession = Depends(get_session),
+):
+    await PerformanceTemplateWorkflowService(db).lock_usage(template_id)
+    source = await db.get(PerformanceTemplate, template_id)
+    if source is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "TEMPLATE_NOT_FOUND", "message": "绩效模板不存在"},
+        )
+    index = 1
+    while True:
+        suffix = "副本" if index == 1 else f"（{index}）副本"
+        name = source.name[:100 - len(suffix)] + suffix
+        existing = await db.execute(select(PerformanceTemplate.id).where(PerformanceTemplate.name == name))
+        if existing.scalar_one_or_none() is None:
+            break
+        index += 1
+    payload = TemplateCreateRequest.model_validate(_template_detail(source).model_dump(include=set(TemplateCreateRequest.model_fields)))
+    copied = PerformanceTemplate(
+        **{**deepcopy(payload.model_dump()), "name": name},
+        status="DRAFT" if payload.template_kind == "performance" else "inactive",
+        created_by_type=context.subject_type,
+        created_by_ref=str(context.subject_id),
+    )
+    db.add(copied)
+    try:
+        await db.flush()
+        workflow = await db.get(PerformanceTemplateWorkflow, template_id)
+        if workflow is not None:
+            db.add(PerformanceTemplateWorkflow(
+                template_id=copied.id,
+                nodes=deepcopy(workflow.nodes),
+                content_library=deepcopy(workflow.content_library or []),
+                cycle_count=0,
+                project_count=0,
+                updated_by_type=context.subject_type,
+                updated_by_ref=str(context.subject_id),
+            ))
+        db.add(PerformanceAuditEvent(
+            event_type="PERFORMANCE_TEMPLATE_COPIED",
+            actor_type=context.subject_type,
+            actor_ref=str(context.subject_id),
+            subject_type="PERFORMANCE_TEMPLATE",
+            subject_ref=str(copied.id),
+            before_state={"source_template_id": template_id},
+            after_state={"name": name},
+        ))
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "PERFORMANCE_TEMPLATE_NAME_DUPLICATE", "message": "副本名称已存在，请重试"},
+        ) from exc
+    return TemplateCreateResponse(template_id=copied.id, name=name)
 
 
 @router.post("", response_model=TemplateCreateResponse, status_code=status.HTTP_201_CREATED)

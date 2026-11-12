@@ -1478,8 +1478,120 @@ async def test_template_delete_removes_metadata_and_workflow_and_writes_audit():
     assert audit.event_type == "PERFORMANCE_TEMPLATE_DELETED"
     assert audit.subject_ref == "42"
     assert audit.before_state["name"] == "已有模板"
-    assert audit.before_state["usage_summary"] == {"cycle_count": 2, "project_count": 3}
+    assert audit.before_state["usage_summary"] == {"cycle_count": 0, "project_count": 0}
     assert audit.after_state == {"deleted": True}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cycle_usage,project_usage", [(1, 0), (0, 1), (2, 3)])
+async def test_used_template_cannot_be_deleted_even_without_workflow(cycle_usage, project_usage):
+    db = _TemplateMetadataDb(_template_metadata())
+    db.cycle_usage = cycle_usage
+    db.project_usage = project_usage
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.delete_template(42, _template_admin_context(), db)
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"code": "PERFORMANCE_TEMPLATE_USED", "message": "此模板已被使用，不允许删除"}
+    assert db.deleted == []
+    assert db.added == []
+    assert db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_template_list_returns_real_usage_and_deletion_policy():
+    template = _template_metadata()
+    template.created_by_ref = "7"
+    unused = deepcopy(template)
+    unused.id = 43
+    db = _TemplateMetadataDb(template)
+    responses = iter([
+        SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [template, unused])),
+        SimpleNamespace(all=lambda: [(42, False, True), (43, False, False)]),
+    ])
+    async def execute(statement):
+        db.statements.append(statement)
+        return next(responses)
+    db.execute = execute
+    rows = await templates_router.list_templates(_template_admin_context(), db, "performance")
+    assert rows[0].is_used is True
+    assert rows[0].deletable is False
+    assert rows[0].delete_reason == "此模板已被使用，不允许删除"
+    assert rows[1].deletable is True
+    assert rows[1].delete_reason == ""
+    from sqlalchemy.dialects import postgresql
+    query = str(db.statements[1].compile(dialect=postgresql.dialect()))
+    assert "jsonb_build_array(performance_templates.id)" in query
+    assert "performance_projects.settings" in query
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_workflow", [False, True])
+async def test_copy_template_persists_independent_metadata_workflow_and_content(with_workflow):
+    source = _template_metadata()
+    source.english_enabled = True
+    source.calculation_enabled = True
+    source.selected_rules = ["content"]
+    nodes = default_workflow_nodes()
+    nodes[0]["content"] = [{"content_id": "content-1", "type": "work_summary", "items": [{"id": "item-1", "label": "产出"}]}]
+    workflow = SimpleNamespace(template_id=42, nodes=nodes, content_library=deepcopy(nodes[0]["content"]), cycle_count=2, project_count=3) if with_workflow else None
+    db = _TemplateMetadataDb(source, workflow)
+    result = await templates_router.copy_template(42, _template_admin_context(), db)
+    copied = next(value for value in db.added if isinstance(value, PerformanceTemplate))
+    assert result.template_id == 43
+    assert result.name == "已有模板副本"
+    assert copied.status == "DRAFT"
+    assert copied.description == source.description
+    assert copied.english_enabled is True
+    assert copied.calculation_enabled is True
+    assert copied.selected_rules == source.selected_rules
+    copied.selected_rules.append("role")
+    assert source.selected_rules == ["content"]
+    if with_workflow:
+        copied_workflow = next(value for value in db.added if isinstance(value, PerformanceTemplateWorkflow))
+        assert copied_workflow.template_id == 43
+        assert copied_workflow.nodes == workflow.nodes
+        assert copied_workflow.content_library == workflow.content_library
+        assert copied_workflow.cycle_count == copied_workflow.project_count == 0
+        copied_workflow.nodes[0]["content"][0]["items"][0]["label"] = "副本产出"
+        copied_workflow.content_library[0]["name"] = "副本内容"
+        assert workflow.nodes[0]["content"][0]["items"][0]["label"] == "产出"
+        assert "name" not in workflow.content_library[0]
+    else:
+        assert not any(isinstance(value, PerformanceTemplateWorkflow) for value in db.added)
+    assert db.commits == 1
+    assert db.deleted == []
+    audit = db.added[-1]
+    assert audit.event_type == "PERFORMANCE_TEMPLATE_COPIED"
+    assert audit.before_state == {"source_template_id": 42}
+
+
+@pytest.mark.asyncio
+async def test_copy_template_avoids_existing_copy_name_and_limits_length():
+    source = _template_metadata()
+    source.name = "模" * 100
+    db = _TemplateMetadataDb(source)
+    original_execute = db.execute
+    checked_names = []
+    async def execute(statement):
+        if "performance_templates.name =" in str(statement):
+            checked_names.append(statement.compile().params["name_1"])
+            return SimpleNamespace(scalar_one_or_none=lambda: 98 if len(checked_names) == 1 else None)
+        return await original_execute(statement)
+    db.execute = execute
+    result = await templates_router.copy_template(42, _template_admin_context(), db)
+    assert len(result.name) == 100
+    assert result.name.endswith("（2）副本")
+    assert len(checked_names) == 2
+
+
+@pytest.mark.asyncio
+async def test_copy_unknown_template_has_no_writes():
+    db = _TemplateMetadataDb(_template_metadata())
+    with pytest.raises(HTTPException) as exc:
+        await templates_router.copy_template(99, _template_admin_context(), db)
+    assert exc.value.status_code == 404
+    assert db.added == []
+    assert db.commits == 0
 
 
 @pytest.mark.asyncio
@@ -1504,7 +1616,7 @@ def _template_metadata_api_client(*, allowed: bool) -> TestClient:
         route
         for route in app.routes
         if isinstance(route, APIRoute)
-        and route.path in {"/api/v1/performance/templates/{template_id}", "/api/v1/performance/templates/{template_id}/status"}
+        and route.path in {"/api/v1/performance/templates/{template_id}", "/api/v1/performance/templates/{template_id}/status", "/api/v1/performance/templates/{template_id}/copy"}
     ]
     for route in routes:
         permission_dependency = next(
@@ -1520,6 +1632,14 @@ def _template_metadata_api_client(*, allowed: bool) -> TestClient:
 
             app.dependency_overrides[permission_dependency] = deny
     return TestClient(app)
+
+
+def test_template_copy_api_requires_configuration_permission():
+    allowed = _template_metadata_api_client(allowed=True).post("/api/v1/performance/templates/42/copy")
+    denied = _template_metadata_api_client(allowed=False).post("/api/v1/performance/templates/42/copy")
+    assert allowed.status_code == 201
+    assert allowed.json() == {"template_id": 43, "name": "已有模板副本"}
+    assert denied.status_code == 403
 
 
 def test_template_metadata_api_requires_configuration_permission():

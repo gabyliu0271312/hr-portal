@@ -1,7 +1,7 @@
 ﻿import { readFileSync } from 'node:fs'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ElTable, ElTableColumn } from 'element-plus'
+import { ElDropdown, ElDropdownItem, ElDropdownMenu, ElTable, ElTableColumn } from 'element-plus'
 import { performanceTemplateApi } from '@/api/performance'
 
 const persistedTemplates = [
@@ -15,14 +15,16 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }))
 vi.mock('@/stores/user', () => ({ useUserStore: () => ({ hasOp: () => true }) }))
 import PerformanceTemplateManagement from './PerformanceTemplateManagement.vue'
 
-function mountView() {
+function mountView(realDropdown = false) {
   return mount(PerformanceTemplateManagement, {
+    attachTo: document.body,
     global: {
+      components: { ElDropdown, ElDropdownItem, ElDropdownMenu },
       stubs: {
         'el-button': { props: ['disabled'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
-        'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' },
-        'el-dropdown-menu': { template: '<ul><slot /></ul>' },
-        'el-dropdown-item': { props: ['command'], template: '<li @click="$emit(\'click\')"><slot /></li>' },
+        'el-dropdown': realDropdown ? false : { template: '<div><slot /><slot name="dropdown" /></div>' },
+        'el-dropdown-menu': realDropdown ? false : { template: '<ul><slot /></ul>' },
+        'el-dropdown-item': realDropdown ? false : { props: ['command', 'disabled'], template: '<li :aria-disabled="disabled" @click="$emit(\'click\')"><slot /></li>' },
         'el-input': { props: ['modelValue'], emits: ['update:modelValue'], template: '<label><input :value="modelValue" aria-label="通过名称、备注搜索" @input="$emit(\'update:modelValue\', $event.target.value)" /><slot name="prefix" /></label>' },
         'el-empty': { props: ['description'], template: '<div>{{ description }}</div>' },
         'el-table': ElTable,
@@ -90,7 +92,7 @@ describe('PerformanceTemplateManagement', () => {
     const viewSource = readFileSync('src/views/performance/PerformanceTemplateManagement.vue', 'utf8')
     const tokenSource = readFileSync('src/styles/tokens.css', 'utf8')
     expect(viewSource).toContain('.status-inactive i { background: var(--performance-line-tabs-ink); }')
-    expect(tokenSource).toContain('--performance-line-tabs-ink: #1456f0')
+    expect(tokenSource).toContain('--performance-line-tabs-ink: var(--color-primary)')
   })
 
   it('filters templates by keyword', async () => {
@@ -167,6 +169,71 @@ describe('PerformanceTemplateManagement', () => {
       name: 'PerformanceTemplateCreate',
       query: { template_id: '42' },
     })
+  })
+
+  it('disables used template deletion and shows the shared hover reason in the real menu', async () => {
+    vi.mocked(performanceTemplateApi.list).mockResolvedValueOnce([{ ...persistedTemplates[0], is_used: true, deletable: false, delete_reason: '此模板已被使用，不允许删除' }])
+    const wrapper = mountView(true)
+    await flushPromises()
+    await wrapper.get('.more-button').trigger('click')
+    await flushPromises()
+    const menu = document.querySelector('.template-action-menu')!
+    const deleteItem = menu.querySelector('.template-delete-item')!
+    expect(deleteItem.getAttribute('aria-disabled')).toBe('true')
+    const anchor = deleteItem.querySelector('.performance-info-popover__anchor')!
+    anchor.dispatchEvent(new MouseEvent('mouseenter'))
+    await new Promise(resolve => setTimeout(resolve, 150))
+    await flushPromises()
+    expect(document.querySelector('[role="tooltip"].performance-info-popover')?.textContent).toContain('此模板已被使用，不允许删除')
+    ;(deleteItem as HTMLElement).click()
+    const state = (wrapper.vm.$ as any).setupState
+    await state.handleTemplateAction('删除', state.templates[0])
+    expect(state.deleteDialogVisible).toBe(false)
+    expect(performanceTemplateApi.remove).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('copies the template through the API and opens the independent copy at basic information', async () => {
+    const copy = vi.spyOn(performanceTemplateApi, 'copy').mockResolvedValue({ template_id: 99, name: '半年度绩效评估副本' })
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm.$ as any).setupState
+    await state.handleTemplateAction('复制', state.templates[0])
+    expect(copy).toHaveBeenCalledTimes(1)
+    expect(copy).toHaveBeenCalledWith(1)
+    expect(push).toHaveBeenCalledWith({ name: 'PerformanceTemplateCreate', query: { template_id: '99' } })
+    expect(state.templates[0].name).toBe('半年度绩效评估')
+    wrapper.unmount()
+  })
+
+  it('prevents duplicate copy requests and does not navigate if copying fails', async () => {
+    let rejectCopy!: (reason: unknown) => void
+    const copy = vi.spyOn(performanceTemplateApi, 'copy').mockImplementation(() => new Promise((_resolve, reject) => { rejectCopy = reject }))
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm.$ as any).setupState
+    const pending = state.handleTemplateAction('复制', state.templates[0])
+    await state.handleTemplateAction('复制', state.templates[0])
+    expect(copy).toHaveBeenCalledTimes(1)
+    rejectCopy({ response: { data: { detail: { message: '复制失败' } } } })
+    await pending
+    expect(push).not.toHaveBeenCalled()
+    expect(state.notice).toBe('复制失败')
+    expect(state.copyingTemplateId).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('updates the disabled state when a template is used after loading the list', async () => {
+    vi.mocked(performanceTemplateApi.remove).mockRejectedValueOnce({ response: { data: { detail: { code: 'PERFORMANCE_TEMPLATE_USED', message: '此模板已被使用，不允许删除' } } } })
+    const wrapper = mountView()
+    await flushPromises()
+    const state = (wrapper.vm.$ as any).setupState
+    await state.handleTemplateAction('删除', state.templates[0])
+    await state.confirmDelete()
+    expect(state.deleteDialogVisible).toBe(false)
+    expect(state.templates[0].deletable).toBe(false)
+    expect(state.notice).toBe('此模板已被使用，不允许删除')
+    wrapper.unmount()
   })
 
   it('opens the captured confirmation and keeps the template when cancelled', async () => {
