@@ -640,6 +640,73 @@ async def test_service_saves_result_view_only_from_final_fill_and_reopens(
     assert db.added[1].after_state["nodes"] == record.nodes
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_form", ["inline", "bindings"])
+@pytest.mark.parametrize("view_form", ["inline", "bindings"])
+@pytest.mark.parametrize("levels", [["DIRECT_MANAGER"], ["DIRECT_MANAGER", "LEVEL_2_MANAGER"]])
+async def test_result_view_saves_matching_executor_communication_contents(workflow_save_setup, source_form, view_form, levels):
+    service, db = workflow_save_setup
+    content = _view_source_content("communication", "custom")
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True,
+             "executor_role_code": "assessment.line_manager", "executor_types": levels}
+    source = {**_evaluation("communication", "实线上级"), "node_type": "result_communication",
+              "executor_role_code": "assessment.line_manager", "executor_types": list(reversed(levels))}
+    if source_form == "inline":
+        source["content"] = [content]
+    else:
+        source["content_bindings"] = {"fill": ["communication"]}
+    view = default_workflow_nodes()[1]
+    if view_form == "inline":
+        view["content"] = [{**content, "content_slot": "view"}]
+    else:
+        view["content_bindings"] = {"view": ["communication"]}
+    record = await service.save_nodes(77, [final, source, view], content_library=[content], actor_type="PORTAL_USER", actor_ref="9")
+    db.workflow = record
+    reopened, _, _ = await service.get_nodes(77)
+    assert reopened[2]["content_bindings"]["view"] == ["communication"]
+    assert reopened[1]["content"][0]["content_id"] == "communication"
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("denial", ["role", "level", "extra-level", "system", "hidden", "reference", "view", "prompt"])
+async def test_result_view_rejects_nonmatching_or_nonfill_communication_sources(workflow_save_setup, denial):
+    service, db = workflow_save_setup
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "executor_types": ["DIRECT_MANAGER"]}
+    content = _view_source_content("communication", "custom")
+    source = {**_evaluation("communication", "实线上级"), "node_type": "result_communication", "executor_types": ["DIRECT_MANAGER"], "content": [content]}
+    if denial == "role":
+        source.update(executor_role_code="assessment.dotted_manager", executor_label="虚线上级", executor_types=["VIRTUAL_LINE_MANAGER"])
+    elif denial == "level":
+        source["executor_types"] = ["LEVEL_1_MANAGER"]
+    elif denial == "extra-level":
+        source["executor_types"] += ["LEVEL_1_MANAGER"]
+    elif denial == "system":
+        source["system"] = True
+    elif denial == "hidden":
+        content["items"][0]["settings"]["mode"] = "hidden"
+    elif denial == "prompt":
+        source["content"] = [_prompt_content("communication")]
+    else:
+        content["content_slot"] = denial
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": ["communication"]}}
+    with pytest.raises(TemplateWorkflowValidationError, match="仅可选择终评环节"):
+        await service.save_nodes(77, [final, source, view], actor_type="PORTAL_USER", actor_ref="9")
+    assert db.commits == 0 and db.added == []
+
+
+@pytest.mark.asyncio
+async def test_result_view_duplicate_source_prefers_final_even_when_hidden(workflow_save_setup):
+    service, db = workflow_save_setup
+    hidden = _view_source_content("shared", "custom", items=[{"id": "text", "settings": {"mode": "hidden"}}])
+    final = {**_evaluation("final", "实线上级"), "include_final_result": True, "content": [hidden]}
+    other = {**_evaluation("communication", "实线上级"), "node_type": "result_communication", "content": [_view_source_content("shared", "custom")]}
+    view = {**default_workflow_nodes()[1], "content_bindings": {"view": ["shared"]}}
+    with pytest.raises(TemplateWorkflowValidationError):
+        await service.save_nodes(77, [other, final, view], actor_type="PORTAL_USER", actor_ref="9")
+    assert db.commits == 0
+
+
 def _prompt_content(content_id="notice", **overrides):
     return {"content_id": content_id, "type": "prompt", "items": [], "name": "提示", "description": "", "prompt": {"title": "", "content": "请如实填写", "color": "#3B82F6", "scope": "all"}, **overrides}
 

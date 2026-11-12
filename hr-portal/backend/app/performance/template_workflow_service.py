@@ -13,7 +13,7 @@ from app.performance.models import (
     PerformanceCycle, PerformanceProject, PerformanceProjectNodeSnapshot,
     PerformanceReviewQuestion, PerformanceTemplate, PerformanceTemplateWorkflow,
 )
-from app.performance.self_summary_service import review_question_ids
+from app.performance.self_summary_service import result_view_content_sources, review_question_ids
 from app.performance.assessment_roles import ROLE_DOTTED_MANAGER, normalize_executor_identity
 from app.performance.executor_config import normalize_result_reconsideration_executor
 
@@ -666,21 +666,7 @@ def _validate_content_region_order(node: dict) -> None:
 
 def _validate_result_view_contents(nodes: list[dict], library: list[dict]) -> None:
     final_node = next(node for node in nodes if node["include_final_result"])
-    contents_by_id = {content["content_id"]: content for content in library}
-    fill_contents = {
-        _content_id(content): content
-        for content in final_node.get("content") or []
-        if (content.get("content_slot") or "fill") == "fill"
-    }
-    fill_ids = set(fill_contents) | set(final_node["content_bindings"].get("fill") or [])
-    allowed_ids = set()
-    for content_id in fill_ids:
-        content = fill_contents.get(content_id, contents_by_id.get(content_id))
-        if content and content.get("type") != "prompt" and any(
-            item.get("kind") != "prompt" and (item.get("settings") or {}).get("mode") != "hidden"
-            for item in content.get("items") or []
-        ):
-            allowed_ids.add(content_id)
+    allowed_ids = set(result_view_content_sources(nodes, library))
 
     executor_label = final_node["executor_label"]
     if executor_label == "实线上级":

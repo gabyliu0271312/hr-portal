@@ -247,7 +247,7 @@
     </aside>
     <PerformancePromptModal v-model:open="promptModalOpen" :initial-value="editingPrompt?.prompt" @save="handlePromptSave" />
     <PerformanceReferenceContentDrawer v-model:open="referenceDrawerOpen" :node-candidates="referenceNodeCandidates" :more-options="referenceMoreOptions" :selected="referenceSelectedValues" @confirm="handleReferenceConfirm" />
-    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :definition-editable="!displaySettingsLocked" :display-only="structureLocked" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? finalContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
+    <PerformanceAssessmentContentLayers :horizontal-handle="true" ref="contentLayerRef" :definition-editable="!displaySettingsLocked" :display-only="structureLocked" :open="contentDrawerOpen" :title="allContentDrawerOpen ? '全部评估内容' : '选择评估内容'" :initial-contents="allContentDrawerOpen ? [] : assessmentInitialContents" :available-contents="availableContentCandidates" :rating-options="ratingOptions" :tag-options="tagOptions" :allowed-types="allowedContentTypeList" :selectable-content-ids="isResultView ? resultViewContentIds : undefined" :selection-restriction="isResultView ? finalContentRestriction : ''" @update:open="handleContentDrawerVisibility" @confirm="handleContentConfirm" />
   </div>
 </template>
 
@@ -412,8 +412,41 @@ const finalFillContents = computed(() => {
   })
   return [...contents.values()].filter(content => content.type !== 'reference' && (content.type === 'prompt' || (content.items || []).length > 0))
 })
-const finalContents = computed(() => finalFillContents.value.filter(content => content.type !== 'prompt' && content.items.some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden')))
-const finalContentIds = computed(() => finalContents.value.map(contentIdentity))
+const resultViewSourceDefinitions = ref<Record<string, PerformanceTemplateContent[]>>({})
+const resultViewFillContents = computed<Record<string, PerformanceTemplateContent[]>>(() => Object.fromEntries(resultViewSourceNodes.value.map(node => {
+  const sourceContents = resultViewSourceDefinitions.value[node.node_id || ''] || node.content || []
+  const contents = new Map<string, PerformanceTemplateContent>()
+  sourceContents.filter(content => (content.content_slot || 'fill') === 'fill').forEach(content => contents.set(contentIdentity(content), content))
+  for (const id of node.content_bindings?.fill || []) {
+    if (contents.has(id)) continue
+    const content = contentLibrary.value.find(item => contentIdentity(item) === id)
+    if (content) contents.set(id, content)
+  }
+  return [node.node_id || '', [...contents.values()]]
+})))
+const resultViewSourceNodes = computed(() => {
+  const final = finalNode.value
+  if (!final) return []
+  const executorTypes = new Set(final.executor_types || [])
+  const matching = workflowNodes.value.filter(node => node !== final && !node.system
+    && Boolean(final.executor_role_code) && node.executor_role_code === final.executor_role_code
+    && new Set(node.executor_types || []).size === executorTypes.size
+    && (node.executor_types || []).every(type => executorTypes.has(type))
+    && getStageContentTabs(node.node_type, getEvaluationExecutorKind(node.executor_role_code)).some(tab => tab.key === 'fill'))
+  return [final, ...matching.sort((a, b) => (a.order ?? workflowNodes.value.indexOf(a)) - (b.order ?? workflowNodes.value.indexOf(b)))]
+})
+const resultViewContents = computed(() => {
+  const contents = new Map<string, PerformanceTemplateContent>()
+  for (const node of resultViewSourceNodes.value) {
+    for (const content of resultViewFillContents.value[node.node_id || ''] || []) {
+      const id = contentIdentity(content)
+      if (!contents.has(id)) contents.set(id, content)
+    }
+  }
+  return [...contents.values()].filter(content => content.type !== 'prompt' && content.type !== 'reference'
+    && (content.items || []).some(item => item.kind !== 'prompt' && item.settings?.mode !== 'hidden'))
+})
+const resultViewContentIds = computed(() => resultViewContents.value.map(contentIdentity))
 const calibrationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
 const reconsiderationContents = computed(() => resolveCalibrationContents(finalFillContents.value, selectedWorkflowNode.value?.calibration_settings))
 /** REA 复议处理模块2 表头 = final 环节名（如「上级评估」，finalResult 指向的最终绩效结果环节） */
@@ -639,7 +672,7 @@ function reorderContentRegions(from: number, to: number) {
   replaceNodeContentSlot(node, 'reference', regions.flatMap(region => relations.filter(relation => `reference:${referenceRelationId(relation)}` === region.id)))
 }
 const assessmentInitialContents = computed(() => configuredContents.value.filter((content) => content.type !== 'prompt' && (content.type as string) !== 'reference').map(content => {
-  const source = isResultView.value ? finalContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
+  const source = isResultView.value ? resultViewContents.value.find(item => contentIdentity(item) === contentIdentity(content)) : undefined
   return { ...content, ...source, id: content.id, type: (source || content).type as AssessmentContentType }
 }) as Array<AssessmentContentDraft & { id: string }>)
 const activeStageContentRule = computed(() => {
@@ -653,7 +686,7 @@ const allowedContentTypes = computed(() => activeStageContentRule.value.allowedC
 const allowedContentTypeList = computed(() => [...allowedContentTypes.value])
 const availableContentCandidates = computed(() => {
   const pool = new Map(contentLibrary.value.map(content => [contentIdentity(content), content]))
-  if (isResultView.value) finalContents.value.forEach(content => pool.set(contentIdentity(content), content))
+  if (isResultView.value) resultViewContents.value.forEach(content => pool.set(contentIdentity(content), content))
   return [...pool.values()].filter(content => allowedContentTypes.value.includes(content.type as AssessmentContentType)).map(content => {
     const normalized = normalizeRatingContent(content)
     return { ...normalized, id: contentIdentity(normalized) }
@@ -803,7 +836,7 @@ function handlePromptSave(value: PerformancePromptValue) {
   const next = editingPrompt.value ? contents.map(content => contentIdentity(content) === id ? prompt : content) : [...contents, prompt]
   setConfiguredContents(next, isResultView.value)
   mergeContentLibrary([prompt])
-  projectContentDefinitions([id])
+  projectContentDefinitions([id], true)
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
   promptModalOpen.value = false
@@ -881,16 +914,24 @@ function projectContentDefinition<T extends PerformanceTemplateContent>(target: 
   } as T
 }
 // 把库里的定义投影到所有引用该内容的节点，保证任一环节的修改在其他环节立即可见。
-function projectContentDefinitions(ids?: string[]) {
+function projectContentDefinitions(ids?: string[], updateResultSources = false) {
   const definitions = new Map(contentLibrary.value.map(content => [contentIdentity(content), content]))
   const scope = ids ? new Set(ids) : null
+  if (updateResultSources) {
+    resultViewSourceDefinitions.value = Object.fromEntries(Object.entries(resultViewSourceDefinitions.value).map(([nodeId, contents]) => [nodeId, contents.map(content => {
+      const id = contentIdentity(content)
+      return !scope || scope.has(id) ? projectContentDefinition(content, definitions.get(id)) : content
+    })]))
+  }
   workflowNodes.value = workflowNodes.value.map(node => ({
     ...node,
     content: (node.content || []).map(content => {
       if ((content.content_slot || 'fill') === 'reference' || content.type === 'reference') return content
       const identity = contentIdentity(content)
       if (scope && !scope.has(identity)) return content
-      const definition = definitions.get(identity)
+      const definition = node.node_type === 'result_view' && content.content_slot === 'view'
+        ? resultViewContents.value.find(source => contentIdentity(source) === identity) || definitions.get(identity)
+        : definitions.get(identity)
       return definition ? normalizeRatingContent(projectContentDefinition(content, definition)) : content
     }),
   }))
@@ -925,6 +966,7 @@ function replaceNodeContentSlot(node: PerformanceWorkflowNode, slot: string, con
   const retained = (node.content || []).filter((content) => (content.content_slot || 'fill') !== slot)
   node.content = [...retained, ...contents]
   node.content_bindings = { ...(node.content_bindings || {}), [slot]: contents.map((content) => content.content_id || content.id || `${content.type}-${content.name}`) }
+  if (slot === 'fill' && node.node_id) resultViewSourceDefinitions.value[node.node_id] = cloneContent(node.content)
 }
 function syncSelectedStageContents() {
   // 校准/复议处理的供调整内容由 settings/运行时投影承载（无需同步 node.content）；
@@ -970,16 +1012,16 @@ function handleContentConfirm(contents: AssessmentContentDraft[]) {
       return updated ? displayContentUpdate({ ...current, id: contentIdentity(current) } as AssessmentContentDraft & { id: string }, { ...updated, id: contentIdentity(current) }) : current
     })
     contentLibrary.value = definitions
-    projectContentDefinitions()
+    projectContentDefinitions(undefined, true)
     loadSelectedStageContents()
     contentDrawerOpen.value = false
     return
   }
   if (isReferenceTab.value) return
-  if (isResultView.value && contents.some(content => !finalContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
+  if (isResultView.value && contents.some(content => !resultViewContentIds.value.includes(content.content_id || content.id || `${content.type}-${content.name}`))) return
   const localContents = serializeConfiguredContents()
   const nextContents = isResultView.value ? contents.map(content => {
-    const source = finalContents.value.find(item => contentIdentity(item) === contentIdentity(content))!
+    const source = resultViewContents.value.find(item => contentIdentity(item) === contentIdentity(content))!
     const local = localContents.find(item => contentIdentity(item) === contentIdentity(content))
     return { ...source, settings: local?.settings ?? source.settings, items: source.items.map(item => {
       const localItem = local?.items.find(candidate => candidate.id === item.id)
@@ -995,7 +1037,7 @@ function handleContentConfirm(contents: AssessmentContentDraft[]) {
   setConfiguredContents([...ordered, ...pending], isResultView.value)
   // 结果查看内容引用终评内容，不单独写库；其他环节的编辑写入内容库并同步所有引用环节。
   if (!isResultView.value) mergeContentLibrary(configuredContents.value)
-  projectContentDefinitions(nextContents.map(contentIdentity))
+  projectContentDefinitions(nextContents.map(contentIdentity), !isResultView.value)
   const node = workflowNodes.value.find((item) => item.node_id === selectedStage.value)
   if (node) replaceNodeContentSlot(node, activeTab.value, serializeConfiguredContents())
   selectedConfiguredId.value = null
@@ -1074,6 +1116,7 @@ function refreshRatingSnapshots() {
   loadSelectedStageContents()
 }
 function applyWorkflowNodes(nodes: PerformanceWorkflowNode[], library: PerformanceTemplateContent[] = []) {
+  resultViewSourceDefinitions.value = Object.fromEntries(nodes.filter(node => node.node_id).map(node => [node.node_id!, cloneContent(node.content || [])]))
   const merged = new Map<string, PerformanceTemplateContent>()
   // 节点上已保存的定义优先（保存时按库投影，二者应一致），内容库补足未被任何环节引用的条目
   nodes.flatMap((node) => node.content || []).forEach((content) => {

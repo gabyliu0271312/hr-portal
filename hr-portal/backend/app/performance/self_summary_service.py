@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.performance.models import PerformanceReviewQuestion, PerformanceReviewRule
+from app.performance.assessment_roles import node_role_code
 
 
 def _option(value: dict, index: int) -> dict:
@@ -446,19 +447,54 @@ def _project_result_view_answer(field: dict, value: object) -> object:
     return None
 
 
+def result_view_content_sources(nodes: list[dict], library: list[dict] | None = None) -> dict:
+    finals = [node for node in nodes if node.get("include_final_result")]
+    if len(finals) != 1:
+        return {}
+    final = finals[0]
+    identity = (node_role_code(final), frozenset(final.get("executor_types") or []))
+    by_id = {_content_identity(content): content for content in library or []}
+    sources = {}
+    ordered = [final, *sorted((node for node in nodes if node is not final), key=lambda node: node.get("order", 0))]
+    for node in ordered:
+        if node.get("system") or node.get("node_type") == "result_view":
+            continue
+        if node is not final and (identity[0] is None or (node_role_code(node), frozenset(node.get("executor_types") or [])) != identity):
+            continue
+        contents = {
+            _content_identity(content): content for content in node.get("content") or []
+            if (content.get("content_slot") or "fill") == "fill"
+        }
+        for content_id in (node.get("content_bindings") or {}).get("fill") or []:
+            content_id = str(content_id)
+            if content_id in by_id:
+                contents.setdefault(content_id, by_id[content_id])
+        for content_id, content in contents.items():
+            sources.setdefault(content_id, (node, content))
+    return {
+        content_id: (node, content) for content_id, (node, content) in sources.items()
+        if content.get("type") not in {"prompt", "reference"} and any(
+            item.get("kind") != "prompt" and (item.get("settings") or {}).get("mode") != "hidden"
+            for item in content.get("items") or []
+        )
+    }
+
+
 def project_result_view_contents(
     view_template: dict,
     final_template: dict,
     completed_tasks: list[object],
     *,
     employee_no: str | None = None,
+    source_templates: list[dict] | None = None,
+    source_tasks_by_content: dict | None = None,
 ) -> list[dict]:
-    """Project published result content from immutable final-node snapshot data."""
-    source_ids = {
-        _content_identity(content)
-        for content in final_template.get("content") or []
-        if isinstance(content, dict) and (content.get("content_slot") or "fill") == "fill"
-    }
+    """Project published content without mixing source-task answer namespaces."""
+    sources = result_view_content_sources([
+        {**final_template, "include_final_result": True}, *(source_templates or []),
+    ])
+    source_ids = set(sources)
+    source_template = {"content": [content for _, content in sources.values()]}
     view_contents: list[dict] = []
     seen_ids: set[str] = set()
     for content in view_template.get("content") or []:
@@ -472,21 +508,51 @@ def project_result_view_contents(
         content_id = str(content_id)
         if content_id not in source_ids or content_id in seen_ids:
             continue
-        source = next(
-            content for content in final_template.get("content") or []
-            if isinstance(content, dict) and _content_identity(content) == content_id
-            and (content.get("content_slot") or "fill") == "fill"
-        )
+        source = sources[content_id][1]
         view_contents.append(deepcopy(source))
         seen_ids.add(content_id)
-    schema = _project_result_view_schema(final_template, view_contents)
+    schema = _project_result_view_schema(source_template, view_contents)
     if not schema:
         return []
+
+    def submitted(task):
+        return (
+            (employee_no is None or str(_task_attribute(task, "target_employee_no")) == str(employee_no))
+            and _task_attribute(task, "status") == "completed"
+            and _task_attribute(task, "submitted_at") is not None
+            and _task_attribute(task, "revoked_at") is None
+        )
+    if source_templates is not None or source_tasks_by_content is not None:
+        source_tasks_by_content = source_tasks_by_content or {}
+        anchors = [task for task in completed_tasks if submitted(task)]
+        if not anchors:
+            return []
+        merged_schema, merged_answers, field_ids = [], {}, set()
+        for section in schema:
+            content_id = section["id"]
+            owner = sources.get(content_id)
+            candidates = source_tasks_by_content.get(content_id, anchors if owner is None or owner[0].get("include_final_result") else [])
+            candidates = [task for task in candidates if submitted(task)]
+            if not candidates:
+                continue
+            ids = {field["id"] for field in section.get("fields") or []}
+            if field_ids & ids:
+                raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
+            field_ids.update(ids)
+            values = [project_self_summary_answers([section], _task_attribute(task, "answers") or {}) for task in candidates]
+            if any(value != values[0] for value in values[1:]):
+                raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
+            merged_schema.append(section)
+            merged_answers.update(values[0])
+        if not merged_schema:
+            return []
+        schema = merged_schema
+        completed_tasks = [{"id": _task_attribute(anchors[0], "id"), "target_employee_no": employee_no,
+                            "status": "completed", "submitted_at": _task_attribute(anchors[0], "submitted_at"),
+                            "answers": merged_answers}]
     contents = []
     for task in completed_tasks:
-        if employee_no is not None and str(_task_attribute(task, "target_employee_no")) != str(employee_no):
-            continue
-        if _task_attribute(task, "status") != "completed" or _task_attribute(task, "submitted_at") is None:
+        if not submitted(task):
             continue
         raw_answers = _task_attribute(task, "answers") or {}
         answers = project_self_summary_answers(schema, raw_answers)

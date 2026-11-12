@@ -5489,6 +5489,163 @@ def test_result_view_projection_keeps_view_hidden_and_allow_view_rules_for_all_t
     assert result[0]["answers"] == {"visible": "可见"}
 
 
+def _result_view_cross_source_fixture():
+    from copy import deepcopy
+    from app.performance import projects_router as routes
+    role = {"executor_role_code": "assessment.line_manager", "executor_types": ["DIRECT_MANAGER", "LEVEL_1_MANAGER"]}
+    rating = {"content_id": "rating", "type": "rating", "items": [{"id": "grade", "label": "终评"}], "options": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}
+    communication = {"content_id": "communication", "type": "custom", "items": [
+        {"id": "feedback", "kind": "fill", "label": "沟通记录"},
+        {"id": "private", "kind": "fill", "settings": {"mode": "hidden"}},
+        {"id": "denied", "kind": "fill", "settings": {"allowView": False}},
+        {"id": "communication-grade", "kind": "rating", "options": [{"id": "x", "label": "沟通评级"}]},
+    ]}
+    final = SimpleNamespace(id=2, project_id=1, node_id="final", node_type="evaluation", node_order=1,
+                            config={"template": {**role, "include_final_result": True, "content": [rating]}})
+    source = SimpleNamespace(id=4, project_id=1, node_id="communication", node_type="result_communication", node_order=2,
+                             config={"template": {**role, "executor_types": list(reversed(role["executor_types"])), "content": [communication]}})
+    notice = {"content_id": "notice", "type": "prompt", "content_slot": "view", "prompt": {"content": "查看提示"}}
+    view = SimpleNamespace(name="结果", config={"template": {"content": [{**deepcopy(communication), "content_slot": "view"}, notice, {**deepcopy(rating), "content_slot": "view"}]}})
+    def task(task_id, node_id, kind, answers):
+        return SimpleNamespace(id=task_id, project_id=1, cycle_ref="cycle", member_snapshot_id=8, target_employee_no="E1",
+            node_snapshot_id=node_id, task_kind=kind, status="completed", submitted_at="now", revoked_at=None, answers=answers)
+    final_task = task(3, 2, "evaluation", {"grade": "a", "feedback": "不得串用终评答案"})
+    source_task = task(5, 4, "result_communication", {"feedback": "<p>真实沟通答案</p>", "private": "秘密", "denied": "秘密", "grade": "b", "communication-grade": "x"})
+    return routes, final, source, view, final_task, source_task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["allowed", "wrong_project", "wrong_cycle", "wrong_snapshot", "wrong_employee", "wrong_node", "pending", "unsubmitted", "revoked", "wrong_role", "wrong_level", "system"])
+async def test_employee_results_cross_source_uses_exact_frozen_identity_and_submitted_task(monkeypatch, scenario):
+    from copy import deepcopy
+    from unittest.mock import AsyncMock
+    from app.performance.result_service import resolve_effective_result
+    routes, final, source, view, final_task, source_task = _result_view_cross_source_fixture()
+    project = SimpleNamespace(id=1, cycle_ref="cycle")
+    for case, key, value in [("wrong_project", "project_id", 99), ("wrong_cycle", "cycle_ref", "other"),
+                             ("wrong_snapshot", "member_snapshot_id", 99), ("wrong_employee", "target_employee_no", "E2"),
+                             ("wrong_node", "node_snapshot_id", 99), ("pending", "status", "pending"),
+                             ("unsubmitted", "submitted_at", None), ("revoked", "revoked_at", "later")]:
+        if scenario == case:
+            setattr(source_task, key, value)
+    if scenario == "wrong_role":
+        source.config["template"]["executor_role_code"] = "assessment.dotted_manager"
+    elif scenario == "wrong_level":
+        source.config["template"]["executor_types"] = ["DIRECT_MANAGER"]
+    elif scenario == "system":
+        source.config["template"]["system"] = True
+    tasks, nodes = [final_task, source_task], [final, source]
+    expected_effective = resolve_effective_result(nodes, tasks)
+    originals = deepcopy((final.config, source.config, final_task.answers, source_task.answers))
+    queries = []
+    class Db:
+        async def scalar(self, statement):
+            return SimpleNamespace(id=6, result_version={"3": 1})
+        async def execute(self, statement):
+            queries.append(statement)
+            entity = statement.column_descriptions[0]["entity"]
+            rows = nodes if entity is routes.PerformanceProjectNodeSnapshot else ([final_task] if "JOIN performance_project_member_snapshots" in str(statement) else tasks)
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=project))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E1")))
+    monkeypatch.setattr(routes, "_opening_state", AsyncMock(return_value=(view, final, None, [SimpleNamespace(employee_no="E1")], tasks, [])))
+    result = await routes.read_my_project_results(1, context(), Db())
+    assert len(result["contents"]) == 1
+    content = result["contents"][0]
+    assert content["task_id"] == 3
+    assert content["answers"]["grade"] == "a"
+    assert "秘密" not in str(result) and "不得串用" not in str(result)
+    if scenario == "allowed":
+        assert [section["id"] for section in content["form_schema"]] == ["communication", "notice", "rating"]
+        assert content["answers"] == {"feedback": "<p>真实沟通答案</p>", "communication-grade": "x", "grade": "a"}
+        assert [value["field_id"] for value in result["results"]] == ["communication-grade", "grade"]
+        query = next(query for query in queries if "node_snapshot_id IN" in str(query))
+        for column in ["project_id", "cycle_ref", "member_snapshot_id", "target_employee_no", "status", "submitted_at", "revoked_at"]:
+            assert column in str(query)
+    else:
+        assert [section["id"] for section in content["form_schema"]] == ["notice", "rating"]
+        assert content["answers"] == {"grade": "a"}
+        assert [value["field_id"] for value in result["results"]] == ["grade"]
+    assert resolve_effective_result(nodes, tasks) == expected_effective
+    assert expected_effective["answers"] == {"grade": "a"}
+    assert (final.config, source.config, final_task.answers, source_task.answers) == originals
+
+
+@pytest.mark.parametrize("choice", ["keep", "change"])
+def test_cross_source_result_freeze_and_reconsideration_preserve_communication(choice):
+    from copy import deepcopy
+    from app.performance.self_summary_service import project_result_view_contents
+    from app.performance.reconsideration_result_service import freeze_result, effective_result, prepare_decision
+    from app.performance.result_service import resolve_effective_result
+    routes, final, source, view, final_task, source_task = _result_view_cross_source_fixture()
+    contents = project_result_view_contents(view.config["template"], final.config["template"], [final_task], employee_no="E1",
+        source_templates=[source.config["template"]], source_tasks_by_content={"communication": [source_task]})
+    result = {"project_id": 1, "employee_no": "E1", "contents": contents, "results": [
+        {"task_id": 3, "field_id": "communication-grade", "option_id": "x", "label": "沟通评级"},
+        {"task_id": 3, "field_id": "grade", "option_id": "a", "label": "A"},
+    ], "regions": [{"kind": "result", "contents": deepcopy(contents)}]}
+    original = deepcopy(result)
+    frozen = freeze_result(result, 8, 6, {"3": 1}, {"final": final.config["template"], "node": {"node_type": "result_reconsideration"}})
+    assert frozen["answers"] == {"grade": "a"}
+    assert [item["field_id"] for item in result["results"]] == ["communication-grade", "grade"]
+    payload = {"keep_result": choice, **({"grade": "b"} if choice == "change" else {})}
+    decision = prepare_decision(frozen, {}, None, payload, True, True)
+    resolved = effective_result(frozen, decision)
+    assert resolved["contents"][0]["answers"] == {"grade": "b" if choice == "change" else "a", "feedback": "<p>真实沟通答案</p>", "communication-grade": "x"}
+    assert resolved["regions"][0]["contents"] == resolved["contents"]
+    assert resolved["results"] == [
+        {"task_id": 3, "field_id": "communication-grade", "option_id": "x", "label": "沟通评级"},
+        {"task_id": 3, "field_id": "grade", "option_id": "b" if choice == "change" else "a", "label": "B" if choice == "change" else "A"},
+    ]
+    assert result == original
+    frozen.update(full_result_answers={"grade": "a"}, full_result_source_task_ids=[3])
+    decision_task = SimpleNamespace(id=7, node_snapshot_id=9, task_kind="result_reconsideration", status="completed", submitted_at="then", revoked_at=None, answers=decision)
+    appeal = SimpleNamespace(node_snapshot_id=9, closed_at="then", withdrawn_at=None, result_snapshot=frozen, effective_result=resolved)
+    effective = resolve_effective_result([final, source], [final_task, source_task, decision_task], appeal)
+    assert effective["answers"] == {"grade": "b" if choice == "change" else "a"}
+    assert effective["source_kind"] == "result_reconsideration"
+
+
+@pytest.mark.parametrize("collision", ["field", "answers"])
+def test_cross_source_result_explicitly_rejects_field_or_source_answer_conflicts(collision):
+    from copy import deepcopy
+    from fastapi import HTTPException
+    from app.performance.self_summary_service import project_result_view_contents
+    routes, final, source, view, final_task, source_task = _result_view_cross_source_fixture()
+    candidates = [source_task]
+    if collision == "field":
+        source.config["template"]["content"][0]["items"][0]["id"] = "grade"
+    else:
+        candidates.append(SimpleNamespace(**{**vars(source_task), "id": 6, "answers": {**source_task.answers, "feedback": "另一份冲突答案"}}))
+    original = deepcopy((final.config, source.config, final_task.answers, source_task.answers))
+    with pytest.raises(HTTPException) as error:
+        project_result_view_contents(view.config["template"], final.config["template"], [final_task], employee_no="E1",
+            source_templates=[source.config["template"]], source_tasks_by_content={"communication": candidates})
+    assert error.value.status_code == 409 and error.value.detail == "CALIBRATION_SOURCE_CONFLICT"
+    assert (final.config, source.config, final_task.answers, source_task.answers) == original
+
+
+def test_cross_source_result_content_precedence_and_no_task_fallback():
+    from copy import deepcopy
+    from app.performance.self_summary_service import project_result_view_contents, result_view_content_sources
+    routes, final, source, view, final_task, source_task = _result_view_cross_source_fixture()
+    first = {**deepcopy(source.config["template"]), "order": 1}
+    later = {**deepcopy(source.config["template"]), "order": 2}
+    later["content"][0]["name"] = "后续同ID内容"
+    sources = result_view_content_sources([later, {**final.config["template"]}, first])
+    assert sources["communication"][0] is first
+    duplicate = deepcopy(final.config["template"])
+    duplicate["content"].append(deepcopy(source.config["template"]["content"][0]))
+    assert result_view_content_sources([first, duplicate])["communication"][0] is duplicate
+    result = project_result_view_contents(view.config["template"], final.config["template"], [final_task], employee_no="E1", source_templates=[first])
+    assert "feedback" not in result[0]["answers"]
+    result = project_result_view_contents(view.config["template"], final.config["template"], [final_task], employee_no="E1", source_templates=[first], source_tasks_by_content={})
+    assert [section["id"] for section in result[0]["form_schema"]] == ["notice", "rating"]
+    library = first["content"]
+    binding = {**first, "content": [], "content_bindings": {"fill": ["communication"]}}
+    assert result_view_content_sources([final.config["template"], binding], library)["communication"][1] == library[0]
+
+
 @pytest.mark.asyncio
 async def test_project_results_route_keeps_rating_results_and_adds_projected_contents(monkeypatch):
     from datetime import datetime, timezone

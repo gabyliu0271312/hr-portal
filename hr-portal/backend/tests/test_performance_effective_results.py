@@ -327,6 +327,35 @@ def test_effective_contents_cannot_silently_disagree_with_submitted_decision():
     _assert_conflict(_nodes(), [_task(), _decision()], appeal=appeal)
 
 
+def test_closed_change_ignores_public_communication_fields_without_expanding_final_result():
+    appeal = _appeal(full=True)
+    communication = build_self_summary_schema({"content": [{
+        "id": "communication", "type": "custom", "items": [{"id": "communication-note", "kind": "fill"}],
+    }]})
+    schema = deepcopy(appeal.result_snapshot["form_schema"]) + communication
+    appeal.effective_result = {"contents": [{"form_schema": schema, "answers": {
+        "rating": "B", "communication-note": "public feedback", "locked": "attempt",
+    }}]}
+    original = deepcopy(appeal.effective_result)
+    result = resolve_effective_result(_nodes(), [_task(), _decision()], appeal)
+    assert result["answers"] == {"rating": "B", "locked": "frozen-visible", "internal": "frozen-secret"}
+    assert appeal.effective_result == original
+
+
+@pytest.mark.parametrize("mutation", ["section", "type", "options"])
+def test_closed_change_still_rejects_incompatible_writable_fields_with_communication(mutation):
+    appeal = _appeal(full=True)
+    schema = deepcopy(appeal.result_snapshot["form_schema"])
+    if mutation == "section":
+        schema[0]["id"] = "communication"
+    elif mutation == "type":
+        schema[0]["fields"][0]["type"] = "rich_text"
+    else:
+        schema[0]["fields"][0]["options"] = [{"id": "C"}]
+    appeal.effective_result = {"contents": [{"form_schema": schema, "answers": {"rating": "B"}}]}
+    _assert_conflict(_nodes(), [_task(), _decision()], appeal=appeal)
+
+
 def test_saved_calibration_preserves_missing_readonly_baseline_without_overwriting_existing_value():
     final = _task(answers={"rating": "A"})
     calibration = _calibration(answers={"rating": "B", "locked": "frozen-readonly"})

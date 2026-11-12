@@ -74,12 +74,12 @@ def _contents_answers(result, full_schema, *, allowed_schema=None):
     values = []
     for content in (result or {}).get("contents") or []:
         schema = content.get("form_schema") or []
-        _compatible(schema, full_schema)
         if allowed_schema is not None:
             allowed = _fields(allowed_schema)
             schema = [{**section, "fields": [field for field in section.get("fields") or []
                        if field["id"] in allowed and not allowed[field["id"]][1].get("readonly")]}
                       for section in schema]
+        _compatible(schema, full_schema)
         values.append(_project(schema, content.get("answers")))
     return _consensus(values)
 

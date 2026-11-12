@@ -24,7 +24,7 @@ from app.integrations.feishu.models import FeishuNotificationLog
 from app.integrations.feishu.notification_service import send_notification
 from app.integrations.feishu.schemas import FixedUsersRule, MessageConfig, NotificationConfig
 from app.users.models import User
-from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
+from app.performance.self_summary_service import build_self_summary_schema, hydrate_self_summary_template, iter_self_summary_field_instances, project_reference_content, project_result_view_contents, result_view_content_sources, project_self_summary_answers, resolve_self_summary_content, sanitize_self_summary_answers, self_summary_field_requires_value, self_summary_instance_unknown, self_summary_value_empty
 from app.performance.subject_visibility_service import load_subject_visibility_rules, mask_profile_values, resolve_subject_visibility_role, subject_profile_items
 from app.data.employee_roster_contract import ORGANIZATION_FIELDS, format_job_sequence, organization_leaf, organization_path
 from app.performance.executor_config import normalize_executor_config
@@ -2422,11 +2422,47 @@ async def _published_employee_result(project, employee_no, context, db, *, lock=
     source = effective["source_task"]
     projected_tasks = [SimpleNamespace(id=source.id, target_employee_no=employee_no, status="completed",
         submitted_at=source.submitted_at, answers=effective["answers"])] if source is not None else []
+    final_template = (final.config or {}).get("template") or {}
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+    source_templates = [
+        {**((node.config or {}).get("template") or {}), "node_type": node.node_type,
+         "order": getattr(node, "node_order", 0), "_source_snapshot_id": node.id}
+        for node in nodes if node.id != final.id and getattr(node, "project_id", project.id) == project.id
+        and "template" in (node.config or {})
+    ]
+    sources = result_view_content_sources([{**final_template, "include_final_result": True}, *source_templates])
+    view_template = (view.config or {}).get("template") or {}
+    view_ids = {str(content.get("content_id") or content.get("id") or "")
+                for content in view_template.get("content") or [] if content.get("content_slot") == "view"}
+    view_ids.update(str(value) for value in (view_template.get("content_bindings") or {}).get("view") or [])
+    source_nodes = {template["_source_snapshot_id"] for content_id, (template, _) in sources.items()
+                    if content_id in view_ids and "_source_snapshot_id" in template}
+    source_tasks = []
+    if source_nodes:
+        source_tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id == next(iter(snapshot_ids)),
+            PerformanceNodeTask.target_employee_no == employee_no,
+            PerformanceNodeTask.node_snapshot_id.in_(source_nodes),
+            PerformanceNodeTask.status == "completed",
+            PerformanceNodeTask.submitted_at.is_not(None),
+            PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+        source_tasks = [task for task in source_tasks if task.project_id == project.id
+                        and task.cycle_ref == project.cycle_ref and task.member_snapshot_id == next(iter(snapshot_ids))
+                        and task.target_employee_no == employee_no and task.node_snapshot_id in source_nodes
+                        and task.status == "completed" and task.submitted_at is not None
+                        and getattr(task, "revoked_at", None) is None]
+    source_tasks_by_content = {
+        content_id: [task for task in source_tasks if task.node_snapshot_id == template["_source_snapshot_id"]]
+        for content_id, (template, _) in sources.items() if "_source_snapshot_id" in template
+    }
     contents = project_result_view_contents(
-        (view.config or {}).get("template") or {},
-        (final.config or {}).get("template") or {},
-        projected_tasks,
-        employee_no=employee_no,
+        view_template, final_template, projected_tasks, employee_no=employee_no,
+        source_templates=source_templates, source_tasks_by_content=source_tasks_by_content,
     )
     results = []
     for content in contents:

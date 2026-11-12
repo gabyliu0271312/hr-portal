@@ -1509,6 +1509,130 @@ describe('PerformanceTemplateContentSettings', () => {
     expect(wrapper.get('[data-content-item-id="final-item"]').classes()).toContain('is-selected')
   })
 
+  it.each(['inline', 'binding'])('selects same-identity communication %s content, preserves source settings and reopens without widening calibration', async sourceForm => {
+    const content = { content_id: 'communication', type: 'custom', name: '沟通意见', description: '沟通描述', content_slot: 'fill', settings: { hideDescription: true }, items: [
+      { id: 'visible', kind: 'fill', label: '沟通题', hint: '说明', settings: { mode: 'fill', required: false, hideName: true, hideDescription: true } },
+      { id: 'hidden', kind: 'fill', label: '隐藏题', settings: { mode: 'hidden', required: false } },
+    ] }
+    const final = { ...mockNodes[6], include_final_result: true, executor_types: ['DIRECT_MANAGER', 'LEVEL_1_MANAGER'], content: [{ ...content, content_id: 'final', name: '终评意见' }] }
+    const communication = { ...mockNodes[5], executor_label: '不同显示名称', executor_types: ['LEVEL_1_MANAGER', 'DIRECT_MANAGER'], ...(sourceForm === 'inline' ? { content: [content] } : { content_bindings: { fill: ['communication'] } }) }
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes: [final, communication, mockNodes[7], mockNodes[4], mockNodes[8]], content_library: [sourceForm === 'inline' ? { ...content, settings: {}, items: content.items.map(item => ({ ...item, settings: {} })) } : content] } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    let wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    await wrapper.get('[aria-label="添加终评内容"]').trigger('click')
+    const layer = wrapper.getComponent(PerformanceAssessmentContentLayers)
+    expect(layer.props('selectableContentIds')).toEqual(['final', 'communication'])
+    const candidate = layer.props('availableContents')!.find((item: any) => item.content_id === 'communication')!
+    expect(candidate.settings).toEqual(content.settings)
+    expect(candidate.items.map((item: any) => item.settings)).toEqual(content.items.map(item => item.settings))
+    const row = [...document.body.querySelectorAll('.created-item')].find(item => item.textContent?.includes('沟通意见'))!
+    const checkbox = row.querySelector('input') as HTMLInputElement
+    expect(checkbox.disabled).toBe(false)
+    checkbox.click()
+    await wrapper.vm.$nextTick()
+    ;(document.body.querySelector('.drawer-footer .button--primary') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('rootSettings').hideDescription).toBe(true)
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('itemSettings').visible).toMatchObject({ required: false, hideName: true, hideDescription: true })
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[2].content_bindings?.view).toEqual(['communication'])
+    expect(saved.nodes[2].content!.find(item => item.content_slot === 'view')!.items[1].settings?.mode).toBe('hidden')
+    expect(saved.nodes[1].content![0].items[0].settings).toEqual(content.items[0].settings)
+    wrapper.unmount()
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue(saved as any)
+    wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('content').content_id).toBe('communication')
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('rootSettings').hideDescription).toBe(true)
+    expect(wrapper.getComponent(PerformanceConfiguredContentBlock).props('itemSettings').visible).toMatchObject({ required: false, hideName: true, hideDescription: true })
+    for (const index of [3, 4]) {
+      await wrapper.findAll('.stage-card')[index].trigger('click')
+      expect(wrapper.findAllComponents(PerformanceConfiguredContentBlock).map(block => block.props('content').content_id)).toEqual(['final'])
+    }
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['assessment.line_manager', ['DIRECT_MANAGER']],
+    ['assessment.line_manager', ['LEVEL_1_MANAGER', 'LEVEL_2_MANAGER']],
+    ['assessment.dotted_manager', ['DIRECT_MANAGER', 'LEVEL_1_MANAGER']],
+    [null, ['DIRECT_MANAGER', 'LEVEL_1_MANAGER']],
+  ])('rejects communication identity mismatch role=%s types=%j despite matching display names', async (role, types) => {
+    const content = { content_id: 'other', type: 'custom', name: '不匹配意见', items: [{ id: 'item', label: '意见' }] }
+    const nodes = [{ ...mockNodes[6], include_final_result: true, executor_types: ['DIRECT_MANAGER', 'LEVEL_1_MANAGER'] }, { ...mockNodes[5], executor_role_code: role, executor_types: types, content: [content] }, mockNodes[7]]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    const layer = wrapper.getComponent(PerformanceAssessmentContentLayers)
+    expect(layer.props('selectableContentIds')).toEqual([])
+    layer.vm.$emit('confirm', [content])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(PerformanceConfiguredContentBlock).exists()).toBe(false)
+    await (wrapper.vm as any).save()
+    expect(update.mock.calls.at(-1)![1].nodes[2].content_bindings?.view).toEqual([])
+    wrapper.unmount()
+  })
+
+  it.each([0, 2])('does not enable matching communication contents with %s final-result nodes', async finalCount => {
+    const content = { content_id: 'communication', type: 'custom', name: '沟通意见', items: [{ id: 'item', label: '意见' }] }
+    const nodes = [...Array.from({ length: finalCount }, (_, index) => ({ ...mockNodes[6], node_id: `final-${index}`, include_final_result: true, executor_types: ['DIRECT_MANAGER'] })), { ...mockNodes[5], executor_types: ['DIRECT_MANAGER'], content: [content] }, mockNodes[7]]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card').at(-1)!.trigger('click')
+    const layer = wrapper.getComponent(PerformanceAssessmentContentLayers)
+    expect(layer.props('selectableContentIds')).toEqual([])
+    layer.vm.$emit('confirm', [content])
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent(PerformanceConfiguredContentBlock).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps matching communication prompts, references, prompt-only and all-hidden blocks unselectable', async () => {
+    const content = { content_id: 'hidden', type: 'custom', name: '隐藏内容', items: [{ id: 'item', label: '隐藏题', settings: { mode: 'hidden' } }] }
+    const sources = [content, { ...content, content_id: 'prompt', type: 'prompt', items: [] }, { ...content, content_id: 'reference', type: 'reference' }, { ...content, content_id: 'reference-slot', content_slot: 'reference', items: [{ id: 'item', label: '参考题' }] }, { ...content, content_id: 'prompt-only', items: [{ id: 'prompt', kind: 'prompt', label: '' }] }]
+    const nodes = [{ ...mockNodes[6], include_final_result: true, executor_types: ['DIRECT_MANAGER'] }, { ...mockNodes[5], executor_types: ['DIRECT_MANAGER'], content: sources }, mockNodes[7]]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[2].trigger('click')
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('selectableContentIds')).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('prefers final definitions for shared IDs and the earliest matching source for non-final IDs without changing ordinary candidates', async () => {
+    const content = (id: string, name: string, hidden = false) => ({ content_id: id, type: 'custom', name, content_slot: 'fill', settings: { hideDescription: hidden }, items: [{ id: 'item', label: name, settings: { mode: hidden ? 'hidden' : 'fill', required: false } }] })
+    const early = { ...mockNodes[5], node_id: 'early', order: 1, executor_types: ['DIRECT_MANAGER'], content: [content('shared', '沟通旧定义'), content('communication', '首个沟通定义'), content('blocked', '首个隐藏定义', true)] }
+    const late = { ...early, node_id: 'late', order: 3, content: [content('communication', '后续沟通定义', true), content('blocked', '后续可见定义')] }
+    const final = { ...mockNodes[6], order: 2, include_final_result: true, executor_types: ['DIRECT_MANAGER'], content: [content('shared', '终评优先定义')] }
+    const nodes = [late, early, final, { ...mockNodes[7], content: [{ ...content('shared', '查看旧定义'), content_slot: 'view' }] }]
+    vi.mocked(performanceTemplateApi.getWorkflow).mockResolvedValue({ nodes } as any)
+    const update = vi.spyOn(performanceTemplateApi, 'updateWorkflow').mockImplementation(async (_id, payload) => structuredClone(payload) as any)
+    const wrapper = mount(PerformanceTemplateContentSettings, { props: { templateId: 1 } })
+    await flushPromises()
+    await wrapper.findAll('.stage-card')[3].trigger('click')
+    const layer = wrapper.getComponent(PerformanceAssessmentContentLayers)
+    expect(layer.props('selectableContentIds')).toEqual(['shared', 'communication'])
+    expect(layer.props('availableContents')!.find((item: any) => item.content_id === 'shared')!.name).toBe('终评优先定义')
+    expect(layer.props('availableContents')!.find((item: any) => item.content_id === 'communication')!.name).toBe('首个沟通定义')
+    expect(layer.props('initialContents')![0].name).toBe('终评优先定义')
+    layer.vm.$emit('confirm', [content('shared', '伪造定义'), content('communication', '伪造定义')])
+    await wrapper.vm.$nextTick()
+    await (wrapper.vm as any).save()
+    const saved = update.mock.calls.at(-1)![1]
+    expect(saved.nodes[3].content!.filter(item => item.content_slot === 'view').map(item => item.name)).toEqual(['终评优先定义', '首个沟通定义'])
+    await wrapper.findAll('.stage-card')[1].trigger('click')
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('selectableContentIds')).toBeUndefined()
+    expect(wrapper.getComponent(PerformanceAssessmentContentLayers).props('availableContents')!.find((item: any) => item.content_id === 'shared')!.name).toBe('沟通旧定义')
+    wrapper.unmount()
+  })
+
   it('uses current final content instead of the previously selected view copy', async () => {
     const source = { content_id: 'same', type: 'custom', name: '最新终评意见', description: '', items: [{ id: 'item', label: '最新问题', hint: '' }] }
     const stale = { ...source, name: '旧终评意见', items: [{ id: 'item', label: '旧问题', hint: '' }], content_slot: 'view' }
