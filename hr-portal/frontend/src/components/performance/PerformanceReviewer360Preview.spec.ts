@@ -41,6 +41,21 @@ afterEach(() => {
 })
 
 describe('PerformanceReviewer360Preview', () => {
+  it('renders real relationship, leaf department and source under each name and in table view', async () => {
+    const reviewers = runtimeReviewers.map((entry, index) => ({ ...entry, reviewer: { ...entry.reviewer, relationship: index ? '相同上级同事' : '直属上级', department: index ? '产品组' : '研发末级组', source_label: index ? '自己邀请' : '自愿评估' } }))
+    const wrapper = mountPreview({ reviewers })
+    expect(wrapper.findAll('.r360-card__desc').map(item => item.text())).toEqual(['直属上级 | 研发末级组 | 自愿评估', '相同上级同事 | 产品组 | 自己邀请'])
+    await wrapper.get('.r360-info__num').trigger('mouseenter')
+    const tooltip = document.body.querySelector('.r360-evaluated-tooltip')
+    expect(tooltip?.textContent).toContain('评估人甲')
+    expect(tooltip?.textContent).toContain('评估人乙')
+    expect(tooltip?.querySelectorAll('.r360-tooltip__person')).toHaveLength(2)
+    await wrapper.get('.r360-info__num').trigger('mouseleave')
+    await wrapper.get('.r360-tools__btn--view').trigger('click')
+    await wrapper.findAll('.r360-view-menu__item')[1].trigger('click')
+    expect(wrapper.findAll('.r360-table__sub').map(item => item.text())).toEqual(['直属上级 | 研发末级组 | 自愿评估', '相同上级同事 | 产品组 | 自己邀请'])
+  })
+
   it('isolates runtime reviewer answers, strips preview values and keeps each renderer readonly', async () => {
     const wrapper = mountPreview({ reviewers: runtimeReviewers, expectedCount: 3 })
     expect(wrapper.get('.r360-info').text()).toBe('已评估2/3')

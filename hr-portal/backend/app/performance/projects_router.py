@@ -437,6 +437,52 @@ async def _reference_tabs(
     return [by_key[key] for key in order if key in by_key]
 
 
+def _reviewer_360_relationship(employee_no, reviewer_no, people):
+    target, reviewer = people.get(employee_no), people.get(reviewer_no)
+    if target is None or reviewer is None or employee_no == reviewer_no:
+        return None
+    manager = getattr(target, "direct_supervisor_employee_no", None)
+    if manager == reviewer_no:
+        return "直属上级"
+    visited = {employee_no}
+    while manager and manager not in visited:
+        if manager == reviewer_no:
+            return "隔级上级"
+        visited.add(manager)
+        manager = getattr(people.get(manager), "direct_supervisor_employee_no", None)
+    reviewer_manager = getattr(reviewer, "direct_supervisor_employee_no", None)
+    if reviewer_manager == employee_no:
+        return "直属下级"
+    target_manager = getattr(target, "direct_supervisor_employee_no", None)
+    if target_manager and reviewer_manager:
+        return "相同上级同事" if target_manager == reviewer_manager else "不同上级同事"
+    return None
+
+
+def _reviewer_360_source(task, event, employee_no, people):
+    if getattr(task, "source_type", None) == "VOLUNTARY":
+        return "自愿评估"
+    if event is None or getattr(event, "event_type", None) in {"REVIEWER_360_REVOKED", "REVIEWER_360_VOLUNTARY_GIVEUP"}:
+        return None
+    after = event.after_state or {}
+    source = after.get("source_type")
+    if source == "DEFAULT":
+        return "系统默认邀请"
+    if source == "VOLUNTARY":
+        return "自愿评估"
+    inviter_type = after.get("assigned_by_type")
+    inviter = str(after.get("assigned_by_ref") or "")
+    if inviter_type == "EMPLOYEE" and inviter:
+        if inviter == employee_no:
+            return "自己邀请"
+        if _reviewer_360_relationship(employee_no, inviter, people) in {"直属上级", "隔级上级"}:
+            return "上级邀请"
+        return "HRBP或其他人邀请"
+    if inviter_type and inviter:
+        return "HRBP或其他人邀请"
+    return None
+
+
 async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks, relation, db, *, content_loaded=True, template=None, names=None):
     payload = {"kind": "reviewer_360", "reviewers": [], "expected_count": 0}
     if not relation or (relation.get("settings") or {}).get("allowView") is False:
@@ -453,23 +499,42 @@ async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks
     completed = [task for task in tasks if task.status == "completed" and task.submitted_at is not None]
     if not completed or not content_loaded:
         return payload
-    if names is None:
-        names = dict((await db.execute(select(
-            PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name,
-        ).join(PerformanceProjectMemberSnapshot,
-            PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
-        ).where(
-            PerformanceProjectMemberSnapshot.id == snapshot_id,
-            PerformanceProjectMemberSnapshot.project_id == project.id,
-            PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
-            PerformanceAuthorizationSnapshotPerson.employee_no.in_([task.handler_ref for task in completed]),
-        ))).all())
+    snapshot_people = (await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
+        PerformanceProjectMemberSnapshot,
+        PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    ).where(
+        PerformanceProjectMemberSnapshot.id == snapshot_id,
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+        PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+    ))).scalars().all()
+    people = {person.employee_no: person for person in snapshot_people}
+    names = names if names is not None else {key: person.display_name for key, person in people.items()}
+    events = (await db.execute(select(PerformanceAuditEvent).where(
+        PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+        PerformanceAuditEvent.employee_no == employee_no,
+        PerformanceAuditEvent.subject_ref.in_([str(task.handler_ref) for task in completed]),
+        PerformanceAuditEvent.event_type.in_(["REVIEWER_360_INVITED", "REVIEWER_360_VOLUNTEERED", "REVIEWER_360_REVOKED", "REVIEWER_360_VOLUNTARY_GIVEUP"]),
+    ).order_by(PerformanceAuditEvent.event_at, PerformanceAuditEvent.id))).scalars().all()
+    sources = {}
+    for event in sorted(events, key=lambda item: (item.event_at, item.id)):
+        after = event.after_state or {}
+        if str(after.get("project_id")) != str(project.id) or after.get("node_id") != node.node_id:
+            continue
+        sources[str(event.subject_ref)] = event
     for task in completed:
         schema, answers = project_reference_content(template, relation, task.answers or {})
         if schema:
+            reviewer_no = str(task.handler_ref)
+            person = people.get(reviewer_no)
+            reviewer = {"employee_no": reviewer_no, "display_name": names.get(reviewer_no) or reviewer_no}
+            metadata = {
+                "relationship": _reviewer_360_relationship(employee_no, reviewer_no, people),
+                "department": organization_leaf(person) if person is not None else None,
+                "source_label": _reviewer_360_source(task, sources.get(reviewer_no), employee_no, people),
+            }
+            reviewer.update({key: value for key, value in metadata.items() if value})
             payload["reviewers"].append({
-                "task_id": task.id,
-                "reviewer": {"employee_no": str(task.handler_ref), "display_name": names.get(str(task.handler_ref)) or str(task.handler_ref)},
+                "task_id": task.id, "reviewer": reviewer,
                 "form_schema": schema, "answers": answers,
             })
     return payload

@@ -10192,6 +10192,56 @@ async def test_manager_360_reference_uses_current_stage_not_later_communication(
     assert not any(tab["node_id"] == "node-15" for tab in later["management_tabs"])
 
 
+def test_360_reference_metadata_relationships_and_source_labels():
+    from app.performance import projects_router as routes
+    def person(no, manager=None):
+        return SimpleNamespace(employee_no=no, direct_supervisor_employee_no=manager)
+    people = {row.employee_no: row for row in [person("E", "M"), person("M", "G"), person("G"), person("PEER", "M"), person("OTHER", "G"), person("REPORT", "E")]}
+    assert {no: routes._reviewer_360_relationship("E", no, people) for no in ["M", "G", "PEER", "OTHER", "REPORT"]} == {
+        "M": "直属上级", "G": "隔级上级", "PEER": "相同上级同事", "OTHER": "不同上级同事", "REPORT": "直属下级"}
+    task = SimpleNamespace(source_type=None)
+    for source, inviter, expected in [("DEFAULT", None, "系统默认邀请"), ("SELF", "E", "自己邀请"), ("MANUAL", "M", "上级邀请"), ("MANUAL", "G", "上级邀请"), ("MANUAL", "OTHER", "HRBP或其他人邀请"), ("VOLUNTARY", "E", "自愿评估")]:
+        event = SimpleNamespace(after_state={"source_type": source, "assigned_by_type": "EMPLOYEE", "assigned_by_ref": inviter})
+        assert routes._reviewer_360_source(task, event, "E", people) == expected
+    assert routes._reviewer_360_source(task, None, "E", people) is None
+    task.source_type = "VOLUNTARY"
+    assert routes._reviewer_360_source(task, None, "E", people) == "自愿评估"
+    people["G"].direct_supervisor_employee_no = "M"
+    assert routes._reviewer_360_relationship("E", "OTHER", people) == "不同上级同事"
+
+
+@pytest.mark.asyncio
+async def test_360_reference_metadata_uses_frozen_people_and_scoped_invite_audit(management_member_data, monkeypatch):
+    from datetime import UTC, datetime
+    from app.performance.models import PerformanceAuditEvent
+    data = management_member_data
+    people = [SimpleNamespace(employee_no="E1", display_name="员工", direct_supervisor_employee_no="M2"),
+        SimpleNamespace(employee_no="M2", display_name="冻结上级姓名", direct_supervisor_employee_no="G", department_2="研发", department_5="末级测试组")]
+    def event(index, project_id=1, node_id="node-20", source="DEFAULT"):
+        return PerformanceAuditEvent(id=index, event_at=datetime(2026, 1, index, tzinfo=UTC), subject_ref="M2", event_type="REVIEWER_360_INVITED", after_state={"project_id": project_id, "node_id": node_id, "source_type": source})
+    events = [event(1), event(2, project_id=99, source="SELF"), event(3, node_id="other", source="VOLUNTARY")]
+    original_execute = data.db.execute
+    async def execute(query):
+        entity = query.column_descriptions[0]["entity"]
+        if entity is data.routes.PerformanceAuthorizationSnapshotPerson:
+            sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            assert "performance_project_member_snapshots.id = 7" in sql
+            assert "performance_project_member_snapshots.project_id = 1" in sql
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: people))
+        if entity is PerformanceAuditEvent:
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: events))
+        return await original_execute(query)
+    monkeypatch.setattr(data.db, "execute", execute)
+    feedback = await data.routes._reviewer_360_reference(data.project, 7, "E1", data.nodes[1], [data.tasks[1]], {"content_slot": "reference"}, data.db)
+    reviewer = feedback["reviewers"][0]["reviewer"]
+    assert reviewer == {"employee_no": "M2", "display_name": "冻结上级姓名", "relationship": "直属上级", "department": "末级测试组", "source_label": "系统默认邀请"}
+    count = len(data.db.queries)
+    hidden = await data.routes._reviewer_360_reference(data.project, 7, "E1", data.nodes[1], [data.tasks[1]], {"settings": {"allowView": False}}, data.db)
+    assert hidden["reviewers"] == [] and len(data.db.queries) == count
+    unloaded = await data.routes._reviewer_360_reference(data.project, 7, "E1", data.nodes[1], [data.tasks[1]], {"content_slot": "reference"}, data.db, content_loaded=False)
+    assert unloaded["reviewers"] == []
+
+
 @pytest.mark.asyncio
 async def test_filling_360_reference_uses_same_projection(management_member_data):
     data = management_member_data

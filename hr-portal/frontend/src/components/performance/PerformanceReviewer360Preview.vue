@@ -12,10 +12,10 @@
       </div>
       <PerformancePopover :visible="evaluatedTooltipOpen" :anchor="evaluatedAnchor" width="auto" :gap="8" name="r360-evaluated-tooltip" class="is-dark" @close="evaluatedTooltipOpen = false">
         <div class="r360-tooltip__stat">已评估: {{ effectiveEvaluatedCount }}</div>
-        <div class="r360-tooltip__people" aria-hidden="true"><ReviewerAvatar v-for="(row, index) in visibleEvaluatedReviewers" :key="`evaluated-${index}`" :row="row" /></div>
+        <div class="r360-tooltip__people"><span v-for="(row, index) in visibleEvaluatedReviewers" :key="`evaluated-${index}`" class="r360-tooltip__person"><ReviewerAvatar :row="row" /><span>{{ row.name }}</span></span></div>
       </PerformancePopover>
       <PerformancePopover :visible="relationTooltipOpen" :anchor="relationAnchor" width="auto" :gap="8" name="r360-relation-tooltip" class="is-dark" @close="relationTooltipOpen = false">
-        <div class="r360-tooltip__people" aria-label="直属上级人员"><ReviewerAvatar v-for="(row, index) in visibleReviewers" :key="`relation-${index}`" :row="row" /></div>
+        <div class="r360-tooltip__people" aria-label="关系人员"><span v-for="(row, index) in visibleReviewers" :key="`relation-${index}`" class="r360-tooltip__person"><ReviewerAvatar :row="row" /><span>{{ row.name }}</span></span></div>
       </PerformancePopover>
 
       <!-- 表头：默认灰底黑字，打开后浅蓝底蓝字；同一时刻只打开一个 -->
@@ -77,6 +77,7 @@
           </button>
           <div class="r360-runtime-card__main">
             <div class="r360-card__first"><ReviewerAvatar :row="runtimeRow(reviewer)" /><span class="r360-runtime-card__name">{{ reviewer.reviewer.display_name }}</span></div>
+            <div v-if="runtimeRow(reviewer).sub" class="r360-card__desc">{{ runtimeRow(reviewer).sub }}</div>
             <div v-show="isReviewerExpanded(reviewer.task_id)" class="r360-runtime-card__details">
               <PerformanceTemplateRenderer v-if="isReviewerExpanded(reviewer.task_id)" mode="readonly" :sections="reviewer.form_schema" :answers="reviewer.answers" />
             </div>
@@ -218,7 +219,9 @@ const runtimeReviewers = computed(() => (props.reviewers || []).map(reviewer => 
     fields: section.fields.map(({ previewValue: _previewValue, ...field }) => field),
   })),
 })))
-function runtimeRow(reviewer: RuntimeReviewer): ReviewerRow { return { name: reviewer.reviewer.display_name, sub: '', review: reviewer } }
+function runtimeRow(reviewer: RuntimeReviewer): ReviewerRow {
+  return { name: reviewer.reviewer.display_name, sub: [reviewer.reviewer.relationship, reviewer.reviewer.department, reviewer.reviewer.source_label].filter(Boolean).join(' | '), review: reviewer }
+}
 const effectiveEvaluatedCount = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length : props.evaluatedCount)
 const evaluatedProgress = computed(() => hasRuntimeReviewers.value && props.expectedCount === undefined ? String(effectiveEvaluatedCount.value) : `${effectiveEvaluatedCount.value}/${props.expectedCount ?? 1}`)
 const visibleReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? runtimeReviewers.value.map(runtimeRow) : props.tableRows.length ? props.tableRows : [{ name: '评估人', sub: `${props.relationLabel}  |  所属部门  |  系统默认邀请`, avatarUrl: props.avatarUrl }])
@@ -282,7 +285,8 @@ function sectionsFor(content: PerformanceTemplateContent) {
 .r360-info__label + .r360-info__num { margin-left: 4px; }
 .r360-info__relation { margin-left: 4px; color: #646a73; }
 .r360-tooltip__stat { white-space: nowrap; }
-.r360-tooltip__people { display: flex; align-items: center; min-height: 20px; margin-top: 4px; }
+.r360-tooltip__people { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-height: 20px; margin-top: 4px; }
+.r360-tooltip__person { display: inline-flex; align-items: center; gap: 8px; }
 .r360-relation-tooltip .r360-tooltip__people { margin-top: 0; }
 .r360-tooltip__people :deep(.r360-avatar + .r360-avatar) { margin-left: -4px; }
 

@@ -1361,7 +1361,7 @@ export type PerformanceReferenceTab = {
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
   can_remind: boolean
-  reviewers?: Array<{ task_id: number; reviewer: { employee_no: string; display_name: string }; form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>
+  reviewers?: Array<{ task_id: number; reviewer: { employee_no: string; display_name: string; relationship?: string; department?: string; source_label?: string }; form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>
   expected_count?: number
   /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
   okr?: PerformanceOkrView | null

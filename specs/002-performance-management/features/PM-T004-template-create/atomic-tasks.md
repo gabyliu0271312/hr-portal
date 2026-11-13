@@ -710,7 +710,8 @@
   - Runtime contract: 现有任务与管理详情URL不变；参考kind追加reviewer_360，reviewers逐人返回task_id/reviewer{employee_no,display_name}/form_schema/answers，expected_count为当前合法来源的有效任务数，普通schema/answers保持空。统一project_reference_content服务端裁剪；仅同项目/周期/成员快照/员工/来源节点且completed、submitted_at非空、未撤销任务返回答案，姓名来自冻结人员快照。未配置引用、整引用关闭、全部内容隐藏不得开放人员答案。从上级评估进入详情时使用该环节引用配置，不能被后续沟通配置替代。无写入、迁移、新权限或外部副作用。
   - Runtime UI: 复用原360组件与公共readonly Renderer，逐人独立答案/展开、全局展开、详情及表格切换；部分提交仍展示已提交部分，剥离previewValue，真实数据不伪造关系/部门/邀请方式；无数据沿空态。既有局部修复，无新整页蓝图；Spec012 N0001/N0002/N0004/N0005/N1102-N1104，不引入禁止项。
   - Runtime evidence: 前端Reviewer360Preview/ReviewEvaluationDrawer/TemplatePreviewStep三文件71/71；后端reference/management定向36/36，扩大projects/shared_results回归793 passed、5 skipped、2 deselected（固定日期校准测试组单独复核1 passed/1 failed，失败是截止日期已过，不称全量通过）；前端vue-tsc+Vite生产构建exit0，既有VueUse PURE注释警告；git diff --check通过。浏览器使用本地Vite真实ReferenceContent组件和两名合成人员验证：独立展开false/true、表格2行、editable=0、390px scrollWidth=390、pageerrors=[]；实现PNG `../../ui-blueprints/PM-T004-T05-F39-implemented-runtime-360.png` 已查看。隔离挂载与合成数据不代表生产或真实认证/API/数据库验收。
-  - DoD: 实现与自动化回归完成；真实认证页面/API数据库联调及生产验收未执行，完整F39保持未勾选。无部署、commit或push。
+  - 2026-11-13追加元数据接入: 用户要求姓名下真实关系/末级部门/来源及数字hover display_name；本次沿上述允许文件局部扩展reviewer.relationship/department/source_label，冻结人员直属链区分直属/隔级上级、同/不同上级同事、直属下级，organization_leaf取末级部门，来源按VOLUNTARY任务或限定项目/来源节点邀请审计判定；历史证据不足省略，不伪造。保留并行性能优化的content_loaded/template/names与懒加载，只有允许可见且已加载的360页签查询元数据，不改员工结果页、权限或历史数据。卡片/表格复用副文案，统计数字不变，浮层改头像+真实姓名。后端定向16/16、扩大projects/shared_results795 passed/5 skipped/2 deselected，前端三文件76/76，vue-tsc+Vite构建exit0；浏览器真实Vite组件+合成数据验证副文案/姓名hover/表格一致、390px无横向溢出、pageerrors=[]，独立PNG`../../ui-blueprints/PM-T004-T05-F39-implemented-reviewer-metadata.png`已读取。该证据不是生产或真实认证/API数据库验收。
+  - DoD: 实现与自动化回归完成；真实认证页面/API数据库联调及生产验收未执行，完整F39保持未勾选。首次运行态修复已随89b3f470提交推送；本次追加元数据未提交推送，无部署。
 
 - [ ] PM-T004-T05-F38 OKR 参考内容真实读取与填写页渲染（2026-11-04）
 
