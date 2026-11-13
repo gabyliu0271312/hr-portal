@@ -419,3 +419,27 @@ async def test_navigation_reuses_real_identity_and_rejects_nonmember_cycles(iden
     assert access.actor_refs_by_cycle == {}
     assert access.review_projects == []
     assert access.manage_projects == []
+
+
+@pytest.mark.asyncio
+async def test_navigation_caches_only_successful_context_and_isolates_identity(monkeypatch):
+    from dataclasses import replace
+    from unittest.mock import AsyncMock
+    from app.performance import navigation_service as navigation
+
+    db = SimpleNamespace(info={})
+    context = _employee_context()
+    first = navigation.FrontendAccess(actor_ref="E001")
+    switched = navigation.FrontendAccess(actor_ref="E002")
+    resolve = AsyncMock(side_effect=[RuntimeError("retry"), first, switched, first])
+    monkeypatch.setattr(navigation, "_resolve_frontend_access", resolve)
+    with pytest.raises(RuntimeError, match="retry"):
+        await navigation.resolve_frontend_access(db, context)
+    assert await navigation.resolve_frontend_access(db, context) is first
+    assert await navigation.resolve_frontend_access(db, context) is first
+    assert resolve.await_count == 2
+    assert await navigation.resolve_frontend_access(db, replace(context, effective_employee_no="E002")) is switched
+    assert resolve.await_count == 3
+    db.info.clear()
+    assert await navigation.resolve_frontend_access(db, context) is first
+    assert resolve.await_count == 4

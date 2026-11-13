@@ -49,6 +49,7 @@
       v-if="drawerMember"
       v-model="drawerOpen"
       :task-id="drawerMember.task_id"
+      :detail-loader="drawerDetailLoader"
       :employee-no="drawerMember.member.employee_no"
       :node-name="drawerMember.node.node_name"
       :person="drawerMember.member"
@@ -234,6 +235,14 @@ watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.va
 watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.value?.node_type], () => { void loadMyResults() })
 const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number; active_tab: string } | null>(null)
 const drawerOpen = ref(false)
+const drawerDetailLoader = computed(() => {
+  const member = drawerMember.value
+  const projectId = activeProjectId.value
+  return member ? (tab?: string) => projectContext.loadDrawerDetail(
+    JSON.stringify(['review', projectId, member.member.employee_no, member.task_id, tab || '']),
+    () => performanceReviewApi.templateTask(member.task_id, member.member.employee_no || undefined, { view: 'drawer', tab }),
+  ) : undefined
+})
 function finishClosingDrawer() { if (!drawerOpen.value) drawerMember.value = null }
 function clearDrawerQuery() {
   const { rootReviewId: _rootReview, activeTab: _activeTab, employee_no: _employee, ...query } = route.query
@@ -313,22 +322,27 @@ function routeTaskId() {
   const taskId = Number(route.query.rootReviewId || route.query.task_id)
   return Number.isFinite(taskId) && taskId > 0 ? taskId : undefined
 }
+let overviewRequest = 0
 async function loadOverview(projectId?: number, silent = false) {
+  const request = ++overviewRequest
+  const cycleId = projectContext.activeCycleId
+  const cacheVersion = projectContext.cacheVersion
+  const current = () => request === overviewRequest && cycleId === projectContext.activeCycleId && cacheVersion === projectContext.cacheVersion && (!projectId || activeProjectId.value === projectId)
   if (!silent) loading.value = true
   if (!silent) error.value = ''
   try {
-    const loaded = await performanceReviewApi.overview(projectId, routeTaskId(), projectContext.activeCycleId || undefined)
-    if (projectId && activeProjectId.value !== projectId) return
+    const loaded = await performanceReviewApi.overview(projectId, routeTaskId(), cycleId || undefined)
+    if (!current()) return
     error.value = ''
     applyOverview(loaded)
     if (projectContext.navigation && projectContext.navigation.can_review !== (loaded.projects.length > 0)) {
       const navigation = await projectContext.refreshNavigation(projectContext.activeCycleId || undefined, true)
-      if (!navigation.can_review) await router.replace('/performance/workbench')
+      if (current() && !navigation.can_review) await router.replace('/performance/workbench')
     }
   } catch {
-    if (!silent) error.value = '绩效评估加载失败，请稍后重试'
+    if (current() && !silent) error.value = '绩效评估加载失败，请稍后重试'
   } finally {
-    if (!silent) loading.value = false
+    if (current() && !silent) loading.value = false
   }
 }
 async function selectCycle(rawCycleId: number | string) {
@@ -409,6 +423,7 @@ function openDrawerReminder(reference: PerformanceReferenceTab) {
 }
 async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }) {
   const current = drawerMember.value
+  projectContext.invalidateDrawerDetails()
   drawerMember.value = null
   if (!current) return
   const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value, payload.employee_no)

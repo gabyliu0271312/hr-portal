@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref, shallowRef } from 'vue'
-import { employeeSwitchSession } from './identitySwitch'
+import { ref, shallowRef, watch } from 'vue'
+import { employeeSwitchEpoch, employeeSwitchSession } from './identitySwitch'
 import { performanceNavigationApi, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 
 const STORAGE_KEY = 'performance.active-cycle-id'
@@ -32,6 +32,54 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   const selectedReviewNodes = ref<Record<number, string>>({})
   const workbenchProjects = shallowRef<PerformanceWorkbenchProject[] | null>(null)
   const workbenchSnapshots = shallowRef<Record<number, PerformanceWorkbenchSnapshot>>({})
+  const drawerDetails = new Map<string, unknown>()
+  const drawerRequests = new Map<string, Promise<unknown>>()
+  const cacheVersion = ref(0)
+  const reports = new Map<string, { value: unknown; expiresAt: number }>()
+  const reportRequests = new Map<string, Promise<unknown>>()
+  function invalidate() {
+    cacheVersion.value += 1
+    drawerDetails.clear()
+    drawerRequests.clear()
+    reports.clear()
+    reportRequests.clear()
+    reviewOverviews.value = {}
+    workbenchSnapshots.value = {}
+    workbenchProjects.value = null
+  }
+  const invalidateDrawerDetails = invalidate
+  async function loadReport<T>(key: string, loader: () => Promise<T>): Promise<T> {
+    const scopedKey = JSON.stringify([employeeSwitchEpoch.value, activeCycleId.value, key])
+    const cached = reports.get(scopedKey)
+    if (cached && cached.expiresAt > Date.now()) return cached.value as T
+    const pending = reportRequests.get(scopedKey)
+    if (pending) return pending as Promise<T>
+    const version = cacheVersion.value
+    const request = loader().then(value => {
+      if (version === cacheVersion.value) reports.set(scopedKey, { value, expiresAt: Date.now() + 30_000 })
+      return value
+    }).finally(() => {
+      if (reportRequests.get(scopedKey) === request) reportRequests.delete(scopedKey)
+    })
+    reportRequests.set(scopedKey, request)
+    return request
+  }
+  async function loadDrawerDetail<T>(key: string, loader: () => Promise<T>): Promise<T> {
+    const scopedKey = JSON.stringify([employeeSwitchEpoch.value, activeCycleId.value, key])
+    if (drawerDetails.has(scopedKey)) return drawerDetails.get(scopedKey) as T
+    const pending = drawerRequests.get(scopedKey)
+    if (pending) return pending as Promise<T>
+    const version = cacheVersion.value
+    const request = loader().then(detail => {
+      if (version === cacheVersion.value) drawerDetails.set(scopedKey, detail)
+      return detail
+    }).finally(() => {
+      if (drawerRequests.get(scopedKey) === request) drawerRequests.delete(scopedKey)
+    })
+    drawerRequests.set(scopedKey, request)
+    return request
+  }
+  watch(employeeSwitchEpoch, invalidateDrawerDetails, { flush: 'sync' })
 
   function setActiveCycleId(cycleId: number | null) {
     if (activeCycleId.value !== cycleId) {
@@ -39,6 +87,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
       workbenchProjects.value = null
       reviewOverviews.value = {}
       workbenchSnapshots.value = {}
+      invalidateDrawerDetails()
     }
     activeCycleId.value = cycleId
     navigationReady.value = true
@@ -95,6 +144,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     if (projectId) reviewOverviews.value = { ...reviewOverviews.value, [projectId]: overview }
   }
   function invalidateReviewOverview(projectId: number) {
+    invalidateDrawerDetails()
     const next = { ...reviewOverviews.value }
     delete next[projectId]
     reviewOverviews.value = next
@@ -107,6 +157,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   function workbenchSnapshot(projectId: number | null | undefined) { return projectId ? workbenchSnapshots.value[projectId] || null : null }
 
   function resetIdentity() {
+    invalidateDrawerDetails()
     ++requestVersion
     navigationRequest = null
     activeCycleId.value = null
@@ -123,6 +174,11 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   }
   return {
     resetIdentity,
+    loadDrawerDetail,
+    invalidateDrawerDetails,
+    cacheVersion,
+    invalidate,
+    loadReport,
     navigationReady,
     navigationLoading,
     navigationError,

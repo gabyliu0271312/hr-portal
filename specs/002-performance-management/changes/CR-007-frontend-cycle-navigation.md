@@ -229,3 +229,18 @@
 - 后端实际回归：`.venv/Scripts/python.exe -m pytest -q tests/test_performance_projects.py -k 'delegation or task_authorization or reconsideration or member_task_map or real_line_handlers'` → **29 passed**。排除三个已知失败测试名后的模块回归 **480 passed / 5 skipped / 8 deselected**。全模块曾得478 passed / 5 skipped / 6 failed，6项用 HEAD 原路由内存基线复现相同失败，集中工作台／成员列表360详情夹具；未改本轮外业务。存在 python_multipart 第三方弃用告警。
 - PC 证据：真实 Vite Vue 组件、1280×800、合成人员和浏览器拦截 API；双人相同环节只展示一次，二次确认前写请求0、二次确定后发两条对应任务请求、转交二次取消无新增写请求、pageerror0。截图 `ui-blueprints/CR-007-F07-implemented-authorization.png`、`CR-007-F07-implemented-authorization-confirm.png`、`CR-007-F07-implemented-transfer-confirm.png` 已查看。仅组件集成验证，不是原入口真实后端端到端验收；合成数据及“打开转交”按钮不加入正式页面。
 - 边界与停止：未操作飞书或生产、未实际外发消息、未执行迁移／部署／commit／push。Docker守护进程不可用，不反复重试。批量保持既有逐任务 API，不承诺原子批量；结果复议通知重试器 reconsideration_service.dispatch_notifications 仍按原 task.handler_ref 投递，不随有效授权人变化，这一通知重试限制未扩文件处理。后继须在本地真库可用时补原入口→真实 API→新连接回读，不能以组件截图或 ORM 测试替代 PostgreSQL 验收。
+
+## 2026-11-13 CR-007-F13 前台读链路性能优化
+
+- [ ] CR-007-F13：本地实现及自动化回归通过；真实登录/API/PostgreSQL、运行时前后对比与生产验收未完成，不勾选整体验收。
+- 授权：用户明确要求完成本次架构排查发现的慢加载优化。复用原工作台、评估、项目管理及共享侧栏；不新增页面、角色、结果算法或通知通道，不改变冻结周期和历史快照。既有信息架构不变，无新蓝图；本轮未创建脚本、报告、测试文档或PNG。
+- 公共查询：导航按身份相关周期及最新成员快照收窄，必要字段投影、复议资格批量验证和请求内上下文复用；催办列表批量预取任务/节点/有效授权，复用管理范围、快照人员及可投递人，实际发送不使用列表预取替代重校验。
+- 列表：taskPeople 不传 page 保持全量数组；带 page/page_size/sort_by/sort_order 返回 items/total/rating_columns；任务/姓名/工号排序先分页再 enrich，派生排序保留全范围计算后分页。校准/终评有效结果和分布来源批量计算，显式关闭分布提前返回。单项目默认/姓名升序 SQL 分页；周期成员默认/姓名排序先选全局当前页，再仅 enrich 当前页，跨项目动态列稳定且导出仍全量。周期候选及 taskPeople 首次基础查询仍可能全范围读取，不宣称所有排序均已 SQL 分页。
+- 结果与统计：开通资格先过滤授权/已开通/在职等条件，状态复用和结果键索引，分页后补资料；单人结果限制本人任务/成员。自评/终评 SQL 下推人员范围；多项目完成率基础查询批量化，部门任务及树按键分组，减少重复全表扫描。统计保留权威结果解析，不另建计算链。
+- 详情契约：template-task/memberDetail 可选 view=drawer 与 tab；未加载页签 content_loaded=false，仅返回元数据；填写默认完整接口保留。选中OKR才沿原授权加载所有周期；详情内部复用节点、本人任务、成员及模板，上级管理抽屉跳过重复顶层 schema 组装。保留匿名360和字段裁剪，保留其他会话360元数据增量。
+- 前端：工作台缓存立即展示、公告并行、时间轴/待办各自完成即更新；列表服务端分页及旧响应丢弃，导出及跨页选择保留；侧栏按页签加载、已加载内容复用、在途合并和身份隔离；OKR保留已有内容，失败不清空；折叠360不挂载隐藏renderer。统计使用共享store的30秒TTL与在途合并，身份/周期/写后失效版本阻止旧响应回填；评估overview增加请求序号、周期和缓存版本校验。
+- 修改范围：backend/app/performance/{navigation_service,member_reminders,projects_router}.py，frontend/src/api/performance.ts，原Workbench/Review/ProjectManagement页面、performanceProjectContext store、成员/反馈列表、详情/OKR参考/360预览/统计组件，以及对应既有测试。本轮不修改路由原有在途diff、模型或迁移。
+- 后端主线程联合命令：backend/.venv/Scripts/python.exe -m pytest backend/tests/test_performance_projects.py backend/tests/test_performance_auth_context.py backend/tests/test_performance_member_reminders.py -q --tb=short（路径从hr-portal解析）→ **863 passed / 5 skipped / 1 python_multipart弃用警告**。其中项目文件790通过、身份29通过、催办44通过；固定日期测试在测试内统一mock时间，不修改业务服务。
+- 查询断言：完成率2个和10个项目的基础数据读取均5次（测试替身计数，不是生产SQL计数）；催办重复检查不再补任务/授权查询，发送重新校验；周期第一页仅enrich所选成员、跨项目列稳定、姓名/动态评级/完成率/状态排序及非法键拒绝。
+- 前端主线程：7文件212通过（Review93、ProjectManagement44、Workbench13、store7、Drawer32、360Preview11、Statistics12）；最后overview竞态增量再跑Review/Workbench/store共113通过。npm run build 已通过vue-tsc+Vite（3694模块，既有VueUse PURE注释及大chunk提示）；最终构建结果如有后续补录以其为准。git diff --check通过，仅LF/CRLF提示。
+- 未验证/剩余：未采生产请求瀑布、TTFB/响应字节/长任务或真实SQL/EXPLAIN，不能承诺提速倍数/P95达标；统计仍逐项目解析评级，部分派生排序仍需全范围计算；身份切换续期锁、物化统计、索引迁移和打包/网关调整不凭静态猜测变更，待真实度量后判断必要性。无生产操作、真实外发、commit/push/deploy。停止仅撤销本卡增量，不整体回滚或删除快照、任务和审计。

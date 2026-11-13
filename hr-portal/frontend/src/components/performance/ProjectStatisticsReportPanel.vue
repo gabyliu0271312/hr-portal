@@ -73,6 +73,7 @@ import ProjectReportNavigation from './ProjectReportNavigation.vue'
 import ProjectReportDistribution from './ProjectReportDistribution.vue'
 import ProjectReportComparison from './ProjectReportComparison.vue'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { projectManagementApi } from '@/api/performance'
 import { reportGroups, reportSectionInfo, type ProjectReportComparisonData, type ProjectReportDimension, type ProjectReportProvider, type ProjectStatisticsReport } from './projectStatisticsReport'
 import { useProjectReportNavigation } from './useProjectReportNavigation'
@@ -83,6 +84,7 @@ const defaultProvider: ProjectReportProvider = async ({ cycleId, dimension = 'de
 }
 
 const props = defineProps<{ cycleId: number; cycleName?: string; provider?: ProjectReportProvider }>()
+const reportStore = usePerformanceProjectContextStore()
 const emit = defineEmits<{ filter: []; compare: [] }>()
 const root = ref<HTMLElement | null>(null)
 const collapsed = ref(false)
@@ -107,7 +109,7 @@ async function loadSelfFinal() {
   selfFinalError.value = ''
   selfFinalLoading.value = true
   try {
-    const report = await projectManagementApi.selfFinalComparison(props.cycleId)
+    const report = await reportStore.loadReport(`self-final:${props.cycleId}`, () => projectManagementApi.selfFinalComparison(props.cycleId))
     if (id === selfFinalRequestId.value) selfFinal.value = { ...report, ratings: report.ratings.map(rating => ({ ...rating, color: rating.color ?? undefined })) }
   } catch (cause) {
     const failure = cause as { response?: { status?: number; data?: { detail?: string } } }
@@ -127,7 +129,9 @@ async function loadDimension(dimension: ProjectReportDimension) {
   loadingDimensions.value = { ...loadingDimensions.value, [dimension]: true }
   errors.value = { ...errors.value, [dimension]: '' }
   try {
-    const report = await (props.provider ?? defaultProvider)({ cycleId: props.cycleId, dimension })
+    const report = props.provider
+      ? await props.provider({ cycleId: props.cycleId, dimension })
+      : await reportStore.loadReport(`statistics:${props.cycleId}:${dimension}`, () => defaultProvider({ cycleId: props.cycleId, dimension }))
     if (report.source !== 'api' || report.dimension !== dimension || !report.showSummary) {
       throw new Error(`INVALID_${dimension.toUpperCase()}_REPORT`)
     }
@@ -159,7 +163,7 @@ function requestAction(action: 'filter' | 'compare') {
   else emit('compare')
 }
 
-watch(() => [props.cycleId, props.provider], () => {
+watch(() => [props.cycleId, props.provider, reportStore.cacheVersion], () => {
   for (const dimension of Object.keys(requestIds) as ProjectReportDimension[]) requestIds[dimension]++
   selfFinalRequestId.value++
   selfFinal.value = null

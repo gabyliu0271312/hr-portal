@@ -190,13 +190,17 @@ const announcements = ref<PerformanceWorkbenchAnnouncementFeedItem[]>([])
 const announcementEnabled = ref(true)
 const announcementLoading = ref(false)
 let selectionVersion = 0
+let announcementVersion = 0
 
 watch(activeCycleId, () => {
   projects.value = []
   visibleNodes.value = []
   pendingTodos.value = []
   completedTodos.value = []
-})
+  announcementVersion += 1
+  announcements.value = []
+  announcementLoading.value = false
+}, { flush: 'sync' })
 
 function formatDateTime(value: string | null) {
   if (!value) return null
@@ -221,17 +225,20 @@ function isExternalLink(link: string) {
   return /^(https?:|mailto:)/i.test(link)
 }
 function loadAnnouncements(cycleRef?: string | null) {
+  const version = ++announcementVersion
   announcementLoading.value = true
   return performanceWorkbenchApi.announcements(cycleRef)
     .then((feed) => {
+      if (version !== announcementVersion) return
       announcementEnabled.value = feed.announcement_enabled
       announcements.value = feed.items
     })
     .catch(() => {
+      if (version !== announcementVersion) return
       announcementEnabled.value = false
       announcements.value = []
     })
-    .finally(() => { announcementLoading.value = false })
+    .finally(() => { if (version === announcementVersion) announcementLoading.value = false })
 }
 function formatDueAt(value: string | null) {
   if (!value) return '未配置'
@@ -260,25 +267,42 @@ function applyProjectSnapshot(snapshot: PerformanceWorkbenchSnapshot) {
   pendingTodos.value = snapshot.pending
   completedTodos.value = snapshot.completed
 }
+const initialSnapshot = projectContext.workbenchSnapshot(activeProjectId.value)
+if (initialSnapshot) applyProjectSnapshot(initialSnapshot)
+
 async function loadProject(projectId: number) {
-  const [timeline, pending, completed] = await Promise.all([
-    performanceWorkbenchApi.timeline(projectId),
-    performanceWorkbenchApi.tasks(projectId, 'pending'),
-    performanceWorkbenchApi.tasks(projectId, 'completed'),
+  const cycleId = activeCycleId.value
+  const version = selectionVersion
+  const cacheVersion = projectContext.cacheVersion
+  const current = () => version === selectionVersion && activeCycleId.value === cycleId && cacheVersion === projectContext.cacheVersion
+  const applySection = <K extends keyof PerformanceWorkbenchSnapshot>(key: K, value: PerformanceWorkbenchSnapshot[K]) => {
+    if (!current()) return
+    const cached = projectContext.workbenchSnapshot(projectId)
+    const snapshot = { timeline: [], pending: [], completed: [], ...cached, [key]: value } as PerformanceWorkbenchSnapshot
+    projectContext.setWorkbenchSnapshot(projectId, snapshot)
+    if (activeProjectId.value !== projectId) return
+    if (key === 'timeline') visibleNodes.value = snapshot.timeline.map(node => ({ ...node, range: formatRange(node.start_at, node.end_at), ended: node.status === 'ended', current: node.status === 'in_progress' }))
+    else if (key === 'pending') pendingTodos.value = snapshot.pending
+    else completedTodos.value = snapshot.completed
+  }
+  const sectionFailed = () => {
+    if (current() && activeProjectId.value === projectId) error.value = '部分工作台数据加载失败，请稍后重试'
+  }
+  await Promise.allSettled([
+    performanceWorkbenchApi.timeline(projectId).then(value => applySection('timeline', value)).catch(sectionFailed),
+    performanceWorkbenchApi.tasks(projectId, 'pending').then(value => applySection('pending', value)).catch(sectionFailed),
+    performanceWorkbenchApi.tasks(projectId, 'completed').then(value => applySection('completed', value)).catch(sectionFailed),
   ])
-  const snapshot = { timeline, pending, completed }
-  projectContext.setWorkbenchSnapshot(projectId, snapshot)
-  if (activeProjectId.value === projectId) applyProjectSnapshot(snapshot)
 }
 async function selectProject(rawId: number | string) {
   const id = Number(rawId)
   if (!Number.isFinite(id) || id <= 0) return
-  const unchanged = id === activeProjectId.value && Boolean(projectContext.workbenchSnapshot(id))
+  selectionVersion += 1
   projectContext.setActiveProjectId(id)
-  await router.replace({ query: { ...route.query, project_id: String(id) } })
   const cached = projectContext.workbenchSnapshot(id)
-  if (cached) applyProjectSnapshot(cached)
-  if (unchanged) return
+  applyProjectSnapshot(cached || { timeline: [], pending: [], completed: [] })
+  error.value = ''
+  await router.replace({ query: { ...route.query, project_id: String(id) } })
   const project = projects.value.find((item) => item.project_id === id)
   try {
     await Promise.all([
@@ -305,11 +329,11 @@ async function loadCycle() {
   const version = ++selectionVersion
   const cycleId = projectContext.activeCycleId
   if (!cycleId) { error.value = '当前没有可用的绩效周期'; loading.value = false; return }
-  projects.value = []
-  visibleNodes.value = []
-  pendingTodos.value = []
-  completedTodos.value = []
-  loading.value = true
+  const cachedProjects = projectContext.workbenchProjects
+  if (cachedProjects) projects.value = cachedProjects
+  const cachedSnapshot = projectContext.workbenchSnapshot(activeProjectId.value)
+  if (cachedSnapshot) applyProjectSnapshot(cachedSnapshot)
+  loading.value = !cachedSnapshot
   error.value = ''
   try {
     const loadedProjects = await performanceWorkbenchApi.listProjects(undefined, cycleId)
@@ -322,16 +346,15 @@ async function loadCycle() {
     projectContext.setActiveProjectId(preferredId)
     const preferredProject = loadedProjects.find(project => project.project_id === preferredId)
     if (!preferredId) {
-      await loadAnnouncements(null)
+      applyProjectSnapshot({ timeline: [], pending: [], completed: [] })
+      void loadAnnouncements(null)
       return
     }
-    if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
-    await loadAnnouncements(preferredProject?.cycle_ref)
     const snapshot = projectContext.workbenchSnapshot(preferredId)
-    if (snapshot) {
-      applyProjectSnapshot(snapshot)
-      await loadProject(preferredId)
-    } else await loadProject(preferredId)
+    applyProjectSnapshot(snapshot || { timeline: [], pending: [], completed: [] })
+    if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
+    void loadAnnouncements(preferredProject?.cycle_ref)
+    await loadProject(preferredId)
   } catch {
     if (version === selectionVersion) error.value = '工作台数据加载失败，请稍后重试'
   } finally {

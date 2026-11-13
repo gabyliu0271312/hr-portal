@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -374,6 +374,10 @@ async def _reference_tabs(
     project: PerformanceProject,
     actor_ref: str,
     db: AsyncSession,
+    *,
+    view=None,
+    tab=None,
+    context=None,
 ) -> list[dict]:
     template = await _self_summary_template(task, node, db)
     references = []
@@ -402,11 +406,18 @@ async def _reference_tabs(
         has_okr_reference = True
         order.append("reference-okr")
 
-    result = await _node_reference_tabs(task, node, project, actor_ref, db, template, references) if references else []
+    result = await _node_reference_tabs(task, node, project, actor_ref, db, template, references, **({"view": view, "tab": tab} if view == "drawer" else {})) if references else []
     if has_okr_reference:
         from app.performance.okr_policy import task_okr_access_allowed
         has_okr_reference = await task_okr_access_allowed(db, task, node, project)
     if has_okr_reference:
+        okr_loaded = view == "drawer" and tab == "reference-okr"
+        okrs = []
+        if okr_loaded:
+            from app.performance.okr_provider import fetch_employee_okrs
+            from app.integrations.feishu.feishu_client import authorized_okr_read
+            with authorized_okr_read(task.target_employee_no, context):
+                okrs = await fetch_employee_okrs(db, task.target_employee_no)
         result.append({
             "key": "reference-okr",
             "kind": "okr",
@@ -419,13 +430,14 @@ async def _reference_tabs(
             "form_schema": [],
             "answers": {},
             "can_remind": False,
-            "okr": None,
+            "okr": okrs[0] if okrs else None,
+            **({"content_loaded": okr_loaded, "okrs": okrs} if view == "drawer" else {}),
         })
     by_key = {tab["key"]: tab for tab in result}
     return [by_key[key] for key in order if key in by_key]
 
 
-async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks, relation, db):
+async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks, relation, db, *, content_loaded=True, template=None, names=None):
     payload = {"kind": "reviewer_360", "reviewers": [], "expected_count": 0}
     if not relation or (relation.get("settings") or {}).get("allowView") is False:
         return payload
@@ -433,24 +445,25 @@ async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks
              and task.cycle_ref == project.cycle_ref and task.member_snapshot_id == snapshot_id
              and task.target_employee_no == employee_no and task.node_snapshot_id == node.id
              and getattr(task, "revoked_at", None) is None]
-    template = await _reference_template(next(iter(tasks), None), node, project, db)
+    template = template if template is not None else await _reference_template(next(iter(tasks), None), node, project, db)
     schema, _ = project_reference_content(template, relation, {})
     if not schema:
         return payload
     payload["expected_count"] = len(tasks)
     completed = [task for task in tasks if task.status == "completed" and task.submitted_at is not None]
-    if not completed:
+    if not completed or not content_loaded:
         return payload
-    names = dict((await db.execute(select(
-        PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name,
-    ).join(PerformanceProjectMemberSnapshot,
-        PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
-    ).where(
-        PerformanceProjectMemberSnapshot.id == snapshot_id,
-        PerformanceProjectMemberSnapshot.project_id == project.id,
-        PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
-        PerformanceAuthorizationSnapshotPerson.employee_no.in_([task.handler_ref for task in completed]),
-    ))).all())
+    if names is None:
+        names = dict((await db.execute(select(
+            PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name,
+        ).join(PerformanceProjectMemberSnapshot,
+            PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+        ).where(
+            PerformanceProjectMemberSnapshot.id == snapshot_id,
+            PerformanceProjectMemberSnapshot.project_id == project.id,
+            PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+            PerformanceAuthorizationSnapshotPerson.employee_no.in_([task.handler_ref for task in completed]),
+        ))).all())
     for task in completed:
         schema, answers = project_reference_content(template, relation, task.answers or {})
         if schema:
@@ -470,6 +483,9 @@ async def _node_reference_tabs(
     db: AsyncSession,
     template: dict,
     references: list[str],
+    *,
+    view=None,
+    tab=None,
 ) -> list[dict]:
     """引用其他环节内容的参考页签。"""
     node_rows = (await db.execute(
@@ -514,19 +530,21 @@ async def _node_reference_tabs(
             and item.get("reference_kind") == "node"
             and str(item.get("reference_value") or "").strip() == reference_node_id
         ), {})
+        content_loaded = view != "drawer" or tab == f"reference-{reference_node.node_id}"
         reference_template = (reference_node.config or {}).get("template") or {}
         if node_role_code(reference_template) == ROLE_REVIEWER_360 or reference_template.get("executor_label") == "360°评估人":
-            feedback = await _reviewer_360_reference(project, task.member_snapshot_id, task.target_employee_no, reference_node, source_task, relation, db)
+            feedback = await _reviewer_360_reference(project, task.member_snapshot_id, task.target_employee_no, reference_node, source_task, relation, db, content_loaded=content_loaded)
             result.append({
                 "key": f"reference-{reference_node.node_id}", "node_id": reference_node.node_id,
                 "node_name": (relation.get("reference_settings") or {}).get("page_name") or reference_node.name,
                 "task_id": None, "employee_no": task.target_employee_no, "status": status,
                 "submitted_at": None, "form_schema": [], "answers": {}, "can_remind": False,
+                "content_loaded": content_loaded,
                 **feedback,
             })
             continue
-        final_locked = source is not None and await _final_result_locked(source, reference_node, db)
-        if source is not None and (completed or final_locked):
+        final_locked = content_loaded and source is not None and await _final_result_locked(source, reference_node, db)
+        if content_loaded and source is not None and (completed or final_locked):
             _, visible_answers = await _task_visible_content(source, reference_node, db)
             source_template = await _self_summary_template(source, reference_node, db)
             schema, visible_answers = project_reference_content(source_template, relation, visible_answers)
@@ -546,6 +564,7 @@ async def _node_reference_tabs(
             "final_result_locked": final_locked,
             "form_schema": schema,
             "answers": visible_answers,
+            "content_loaded": content_loaded,
             "can_remind": bool(
                 source is not None
                 and not completed
@@ -557,7 +576,7 @@ async def _node_reference_tabs(
     return result
 
 
-async def _effective_member_result(project_id, cycle_ref, snapshot_id, employee_no, db, *, nodes=None, tasks=None, before_calibration=None):
+async def _effective_member_result(project_id, cycle_ref, snapshot_id, employee_no, db, *, nodes=None, tasks=None, before_calibration=None, member=None):
     from app.performance.result_service import resolve_effective_result
     if nodes is None:
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
@@ -576,8 +595,7 @@ async def _effective_member_result(project_id, cycle_ref, snapshot_id, employee_
              and getattr(item, "revoked_at", None) is None]
     appeal = None
     shared_state = None
-    member = None
-    if hasattr(db, "scalar"):
+    if member is None and hasattr(db, "scalar"):
         member = await db.scalar(select(PerformanceProjectMember).where(
             PerformanceProjectMember.snapshot_id == snapshot_id,
             PerformanceProjectMember.employee_no == employee_no,
@@ -594,7 +612,7 @@ async def _effective_member_result(project_id, cycle_ref, snapshot_id, employee_
     return resolve_effective_result(nodes, tasks, appeal, before_calibration=before_calibration, shared_state=shared_state)
 
 
-async def _effective_project_results(project, nodes, tasks, db):
+async def _effective_project_results(project, nodes, tasks, db, *, members=None):
     from app.performance.result_service import resolve_effective_result
     if not any(((node.config or {}).get("template") or {}).get("include_final_result") for node in nodes):
         return {}
@@ -606,12 +624,16 @@ async def _effective_project_results(project, nodes, tasks, db):
     if any(getattr(task, "task_kind", None) == "result_reconsideration" for task in tasks):
         rows = list((await db.execute(select(PerformanceResultReconsideration).where(
             PerformanceResultReconsideration.project_id == project.id,
+            PerformanceResultReconsideration.member_snapshot_id.in_({key[0] for key in grouped}),
+            PerformanceResultReconsideration.employee_no.in_({key[1] for key in grouped}),
             PerformanceResultReconsideration.withdrawn_at.is_(None),
         ))).scalars().all())
         appeals = {(row.member_snapshot_id, row.employee_no): row for row in rows}
-    members = list((await db.execute(select(PerformanceProjectMember).where(
-        PerformanceProjectMember.snapshot_id.in_({key[0] for key in grouped}),
-    ))).scalars().all()) if grouped and any(isinstance(task, PerformanceNodeTask) for task in tasks) else []
+    if members is None:
+        members = list((await db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id.in_({key[0] for key in grouped}),
+            PerformanceProjectMember.employee_no.in_({key[1] for key in grouped}),
+        ))).scalars().all()) if grouped and any(isinstance(task, PerformanceNodeTask) for task in tasks) else []
     states = {(member.snapshot_id, member.employee_no): getattr(member, "shared_result_state", None) for member in members}
     return {key: resolve_effective_result(nodes, values, appeals.get(key), shared_state=states.get(key)) for key, values in grouped.items()}
 
@@ -651,23 +673,30 @@ def _calibration_source_projection(schema, source_schema, answers):
     return projected
 
 
-async def _calibration_source_answers(task, node, schema, db):
+async def _calibration_source_answers(task, node, schema, db, *, result_context=None):
     phases = ((node.config or {}).get("calibration") or {}).get("phases") or []
     phase_ids = [phase["phase_id"] for phase in phases]
     if task.phase_id not in phase_ids:
         raise HTTPException(409, "CALIBRATION_SOURCE_NOT_READY")
-    tasks = list((await db.execute(select(PerformanceNodeTask).where(
-        PerformanceNodeTask.project_id == task.project_id,
-        PerformanceNodeTask.cycle_ref == task.cycle_ref,
-        PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
-        PerformanceNodeTask.target_employee_no == task.target_employee_no,
-        PerformanceNodeTask.revoked_at.is_(None),
-    ).order_by(PerformanceNodeTask.id))).scalars().all())
-    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
-        PerformanceProjectNodeSnapshot.project_id == task.project_id,
-    ))).scalars().all())
-    result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id,
-        task.target_employee_no, db, nodes=nodes, tasks=tasks, before_calibration=(node.id, task.phase_id))
+    if result_context is None:
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == task.project_id,
+            PerformanceNodeTask.cycle_ref == task.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+            PerformanceNodeTask.target_employee_no == task.target_employee_no,
+            PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == task.project_id,
+        ))).scalars().all())
+        result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id,
+            task.target_employee_no, db, nodes=nodes, tasks=tasks, before_calibration=(node.id, task.phase_id))
+    else:
+        from app.performance.result_service import resolve_effective_result
+        nodes, grouped, members = result_context
+        key = (task.member_snapshot_id, task.target_employee_no)
+        result = resolve_effective_result(nodes, grouped.get(key, []), before_calibration=(node.id, task.phase_id),
+            shared_state=getattr(members.get(key), "shared_result_state", None))
     final = _final_result_snapshot(nodes)
     if final is None:
         raise HTTPException(409, "CALIBRATION_SOURCE_CONFLICT")
@@ -675,7 +704,8 @@ async def _calibration_source_answers(task, node, schema, db):
     return result["source_tasks"], _calibration_source_projection(schema, source_schema, result["answers"])
 
 
-async def _calibration_answers(task, node, schema, db, *, submission_sources=None):
+async def _calibration_answers(task, node, schema, db, *, submission_sources=None, result_context=None):
+    source_options = {"result_context": result_context} if result_context is not None else {}
     current = project_self_summary_answers(schema, task.answers or {}, include_readonly=True)
     for section in schema:
         for field in section["fields"]:
@@ -689,14 +719,14 @@ async def _calibration_answers(task, node, schema, db, *, submission_sources=Non
                 submission_sources.append(task)
             else:
                 try:
-                    sources, _ = await _calibration_source_answers(task, node, schema, db)
+                    sources, _ = await _calibration_source_answers(task, node, schema, db, **source_options)
                 except HTTPException as error:
                     if error.status_code != 409 or error.detail not in {"CALIBRATION_SOURCE_NOT_READY", "CALIBRATION_SOURCE_CONFLICT"}:
                         raise
                 else:
                     submission_sources.extend(sources)
         return current
-    sources, sourced = await _calibration_source_answers(task, node, schema, db)
+    sources, sourced = await _calibration_source_answers(task, node, schema, db, **source_options)
     if submission_sources is not None:
         submission_sources.extend([task] if task.status == "completed" and task.submitted_at is not None else sources)
     return {**{key: value for key, value in sourced.items() if key in missing_readonly}, **current} if saved else {**sourced, **current}
@@ -763,7 +793,11 @@ async def _shared_answer_submissions(task, result, db):
     return [{"display_name": person.display_name, "submitted_at": state["submitted_at"]}] if person and getattr(person, "display_name", None) else []
 
 
-async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False, submission_sources=None) -> tuple[list[dict], dict]:
+async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, db: AsyncSession, *, filling: bool = False, submission_sources=None, result_context=None, template=None) -> tuple[list[dict], dict]:
+    result_options = {}
+    if result_context is not None:
+        context_nodes, context_tasks, context_member = result_context
+        result_options = {"nodes": context_nodes, "tasks": context_tasks, "member": context_member}
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task
         from app.performance.reconsideration_result_service import task_result
@@ -777,18 +811,23 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
         if (task.answers or {}).get("keep_result") in {"keep", "change"}:
             answers["keep_result"] = task.answers["keep_result"]
         return schema, answers
-    template = await _self_summary_template(task, node, db)
+    template = template if template is not None else await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
+    result = None
     if isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node):
-        result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
+        result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db, **result_options)
         if result.get("shared_state") is not None:
             if submission_sources is not None:
                 submission_sources.extend(result["source_tasks"])
             return schema, _calibration_source_projection(schema, schema, result["answers"])
     if getattr(node, "node_type", None) == "calibration":
-        return schema, await _calibration_answers(task, node, schema, db, submission_sources=submission_sources)
+        calibration_options = {}
+        if result_context is not None:
+            calibration_options["result_context"] = (context_nodes, {(task.member_snapshot_id, task.target_employee_no): context_tasks}, {(task.member_snapshot_id, task.target_employee_no): context_member})
+        return schema, await _calibration_answers(task, node, schema, db, submission_sources=submission_sources, **calibration_options)
     if ((node.config or {}).get("template") or {}).get("include_final_result"):
-        result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
+        if result is None:
+            result = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db, **result_options)
         if result["calibrated"] or result["source_kind"] == "result_reconsideration":
             return schema, _calibration_source_projection(schema, schema, result["answers"])
     answers = project_self_summary_answers(schema, task.answers or {})
@@ -833,7 +872,7 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
     return schema, answers
 
 
-async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession):
+async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProjectNodeSnapshot, context: PerformanceAccessContext, db: AsyncSession, *, view=None, tab=None):
     project = await db.get(PerformanceProject, task.project_id)
     available_at, due_at = _task_window(task, node, project)
     overdue_allowed = False if getattr(task, "task_kind", None) in {"calibration", "result_reconsideration"} else await _overdue_submission_allowed(task, node, db)
@@ -843,7 +882,10 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         editable, submit_allowed = False, False
     submission_sources = []
     content_options = {"submission_sources": submission_sources} if task.task_kind == "calibration" else {}
-    schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed, **content_options)
+    manager_drawer = view == "drawer" and task.task_kind == "evaluation" and node_role_code({
+        "node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {}),
+    }) in MANAGER_ROLE_CODES
+    schema, answers = ([], {}) if manager_drawer else await _task_visible_content(task, node, db, filling=editable and submit_allowed, **content_options)
     if task.task_kind == "calibration":
         effective = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
         if effective["calibrated"] or effective["source_kind"] == "result_reconsideration":
@@ -906,7 +948,13 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
             project, task.target_employee_no, context, db,
             root_review_id=member.id, skip_scope=True, visibility_role=visibility_role,
             reference_node_id=node.node_id,
+            **({"view": view, "tab": tab} if view == "drawer" else {}),
         )
+    if manager_drawer:
+        if management_detail is None:
+            schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed)
+        else:
+            schema, answers = management_detail["form_schema"], management_detail["answers"]
     shared = isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node)
     shared_state = getattr(member, "shared_result_state", None) if shared and member is not None else None
     draft_entry = shared_results.private_draft(task, actor_ref) if shared else None
@@ -958,7 +1006,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "draft_answers": {} if final_result_locked else {**project_self_summary_answers(schema, visible_draft or {}), **({"keep_result": visible_draft["keep_result"]} if visible_draft and task.task_kind == "result_reconsideration" and "keep_result" in visible_draft else {})},
         "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
-        "reference_tabs": await _reference_tabs(task, node, project, actor_ref, db),
+        "reference_tabs": [] if management_detail is not None and view == "drawer" else await _reference_tabs(task, node, project, actor_ref, db, **({"view": view, "tab": tab, "context": context} if view == "drawer" else {})),
         **({
             key: management_detail[key]
             for key in ("management_tabs", "default_active_tab", "stage_views", "root_review_id", "opened_at", "cycle")
@@ -977,12 +1025,12 @@ async def get_self_summary(task_id: int, context: PerformanceAccessContext = Dep
 
 
 @router.get("/tasks/{task_id}/template-task")
-async def get_template_task(task_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None)):
+async def get_template_task(task_id: int, context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), employee_no: str | None = Query(default=None), view: Literal["drawer"] | None = None, tab: str | None = Query(default=None, max_length=128)):
     task_args = (task_id, context, db, "evaluation")
     if employee_no:
         task_args = (*task_args, employee_no)
     task, node = await _self_summary_task(*task_args)
-    return await _template_task_detail(task, node, context, db)
+    return await _template_task_detail(task, node, context, db, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
 
 
 async def _lock_task_context(db, task, node, *, validate: bool = True):
@@ -1730,6 +1778,7 @@ async def _project_final_ratings(project, employee_nos, db, *, member_snapshot_i
     task_statement = select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == project_id,
         PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]) if final_nodes else False,
+        PerformanceNodeTask.target_employee_no.in_(employee_nos),
         PerformanceNodeTask.revoked_at.is_(None),
     )
     if member_snapshot_id is not None:
@@ -1789,6 +1838,7 @@ async def _project_self_ratings(project, employee_nos, db, *, member_snapshot_id
     task_statement = select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == project_id,
         PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]) if nodes else False,
+        PerformanceNodeTask.target_employee_no.in_(employee_nos),
         PerformanceNodeTask.revoked_at.is_(None),
     )
     if member_snapshot_id is not None:
@@ -1924,7 +1974,7 @@ def _result_ready(tasks: list[PerformanceNodeTask], schema: list[dict]) -> bool:
     return True
 
 
-async def _opening_state(project: PerformanceProject, db: AsyncSession, *, include_history=False, member_snapshot_id=None):
+async def _opening_state(project: PerformanceProject, db: AsyncSession, *, include_history=False, member_snapshot_id=None, employee_no=None):
     nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
         PerformanceProjectNodeSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
@@ -1935,27 +1985,33 @@ async def _opening_state(project: PerformanceProject, db: AsyncSession, *, inclu
     snapshot_id = member_snapshot_id if member_snapshot_id is not None else await db.scalar(select(_latest_member_snapshot_statement(project.id)))
     if snapshot_id is None:
         return None
-    members = list((await db.execute(select(PerformanceProjectMember).where(
-        PerformanceProjectMember.snapshot_id == snapshot_id,
-    ))).scalars().all())
-    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+    member_statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
+    task_statement = select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.cycle_ref == project.cycle_ref,
         PerformanceNodeTask.member_snapshot_id == snapshot_id,
         PerformanceNodeTask.node_snapshot_id.in_([node.id for node in nodes]),
-    ))).scalars().all())
+    )
+    if employee_no is not None:
+        member_statement = member_statement.where(PerformanceProjectMember.employee_no == employee_no)
+        task_statement = task_statement.where(PerformanceNodeTask.target_employee_no == employee_no)
+    members = list((await db.execute(member_statement)).scalars().all())
+    tasks = list((await db.execute(task_statement)).scalars().all())
     if not include_history:
         tasks = [task for task in tasks if getattr(task, "revoked_at", None) is None]
     previous_index = nodes.index(view) - 1
     previous = nodes[previous_index] if previous_index >= 0 else None
     schema = await _matrix_node_schema(final, project, db)
-    final._effective_results = await _effective_project_results(project, nodes, tasks, db)
+    final._effective_results = await _effective_project_results(project, nodes, tasks, db, members=members)
+    final._effective_results_by_employee = {employee: result for (_snapshot, employee), result in final._effective_results.items()}
     return view, final, previous, members, tasks, schema
 
 
 def _member_result_ready(employee_no: str, final: PerformanceProjectNodeSnapshot, tasks: list[PerformanceNodeTask], schema: list[dict]) -> bool:
     effective_results = getattr(final, "_effective_results", None)
     if effective_results is not None:
-        results = [result for (snapshot_id, employee), result in effective_results.items() if employee == employee_no]
+        indexed = getattr(final, "_effective_results_by_employee", None)
+        results = ([indexed[employee_no]] if employee_no in indexed else []) if indexed is not None else [result for (snapshot_id, employee), result in effective_results.items() if employee == employee_no]
         if len(results) != 1 or results[0]["source_task"] is None:
             return False
         source = results[0]["source_task"]
@@ -2007,11 +2063,15 @@ async def _sync_automatic_openings(db: AsyncSession, project: PerformanceProject
         start_at = _parse_time((_node_timing(project, view) or {}).get("start_at"))
         if start_at is None or (now or datetime.now(UTC)) < start_at:
             return 0
+    grouped = {}
+    for task in tasks:
+        grouped.setdefault(task.target_employee_no, []).append(task)
     opened = 0
     for member in members:
-        if not _previous_finished(member.employee_no, previous, tasks) or not _member_result_ready(member.employee_no, final, tasks, schema):
+        member_tasks = grouped.get(member.employee_no, [])
+        if not _previous_finished(member.employee_no, previous, member_tasks) or not _member_result_ready(member.employee_no, final, member_tasks, schema):
             continue
-        opened += int(await _open_result(db, project, member.employee_no, actor_type="SYSTEM", actor_ref="automatic", tasks=tasks, final=final, member=member))
+        opened += int(await _open_result(db, project, member.employee_no, actor_type="SYSTEM", actor_ref="automatic", tasks=member_tasks, final=final, member=member))
     return opened
 
 
@@ -2152,11 +2212,18 @@ async def _result_opening_candidates(
         memberships.setdefault(member.employee_no, set()).add(project.id)
     if states is None:
         states = {}
-    states.update({project.id: await _opening_state(project, db) for project in projects.values()})
     opened = set((await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
         PerformanceResultOpening.project_id.in_(list(projects)),
     ))).all()) if projects else set()
     statuses = await _result_opening_employment_statuses(rows, db)
+    candidate_projects = {project.id: project for project, member in rows
+                          if (project.id, member.employee_no) not in opened
+                          and _result_opening_scope(None, grants, project, member)
+                          and len(memberships[member.employee_no]) == 1
+                          and (statuses.get((member.snapshot_id, member.employee_no)) or getattr(member, "employment_status", None)) == "在职"}
+    for project_id, project in candidate_projects.items():
+        if project_id not in states:
+            states[project_id] = await _opening_state(project, db)
     eligible = []
     reasons: dict[tuple[int, str], str] = {}
     for project, member in rows:
@@ -2262,12 +2329,24 @@ async def result_opening_people(
     filtered = [(project, member) for project, member in rows
                 if reasons.get((project.id, member.employee_no)) not in {"ALREADY_OPENED", "RESULT_OPEN_FORBIDDEN"}
                 and (not keyword or keyword.casefold() in f"{member.display_name} {member.employee_no}".casefold())]
-    items, rating_columns = await _result_opening_rows(filtered, states, context, db)
+    total = len(filtered)
+    rating_columns = []
+    for project_id in dict.fromkeys(project.id for project, _member in filtered):
+        if project_id not in states:
+            states[project_id] = await _opening_state(next(project for project, _member in filtered if project.id == project_id), db)
+        state = states[project_id]
+        if state is not None and state[1] is not None:
+            for item in _task_rating_metadata(state[5]):
+                column = {"key": item["key"], "label": item["label"]}
+                if column not in rating_columns:
+                    rating_columns.append(column)
+    filtered.sort(key=lambda row: (row[1].display_name, row[1].employee_no))
+    items, _page_columns = await _result_opening_rows(filtered[(page - 1) * page_size:page * page_size], states, context, db)
     for item in items:
         item.unavailable_reason = reasons.get((item.project_id, item.employee_no))
         item.can_open = item.unavailable_reason is None
     items.sort(key=lambda item: (item.display_name, item.employee_no))
-    return ResultOpeningPeoplePage(items=items[(page - 1) * page_size:page * page_size], total=len(items), page=page, page_size=page_size, rating_columns=rating_columns)
+    return ResultOpeningPeoplePage(items=items, total=total, page=page, page_size=page_size, rating_columns=rating_columns)
 
 
 @router.post("/cycles/{cycle_id}/result-opening/open", response_model=ResultOpeningBatchResponse)
@@ -2479,7 +2558,7 @@ async def _published_employee_result(project, employee_no, context, db, *, lock=
     if ((version and {str(task.id) for task in bound_tasks} != set(version)) or len(snapshot_ids) != 1 or None in snapshot_ids
             or any(task.project_id != project.id or task.cycle_ref != project.cycle_ref or task.target_employee_no != employee_no for task in bound_tasks)):
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
-    state = await _opening_state(project, db, include_history=True, member_snapshot_id=next(iter(snapshot_ids)))
+    state = await _opening_state(project, db, include_history=True, member_snapshot_id=next(iter(snapshot_ids)), employee_no=employee_no)
     if state is None:
         raise HTTPException(status_code=404, detail="RESULT_NOT_FOUND")
     view, final, _previous, members, tasks, schema = state
@@ -2798,6 +2877,9 @@ async def list_project_members(
 
     if matrix_level and matrix_rating:
         scope = await _matrix_drilldown_scope(project, scope, matrix_level, matrix_rating, db)
+    if isinstance(page, int) and sort_by in (None, "name") and sort_order != "desc":
+        items, rating_columns, total = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size)
+        return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=rating_columns)
     items, rating_columns = await _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db)
     start = (page - 1) * page_size
     return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size, rating_columns=rating_columns)
@@ -2816,7 +2898,7 @@ def _sort_member_rows(items, sort_by, sort_order, rating_columns):
         items.sort(key=lambda item: (sort_value(item) is None, str(sort_value(item) or "")), reverse=sort_order == "desc")
 
 
-async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False):
+async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, *, export=False, page=None, page_size=50):
     access = await resolve_frontend_access(db, context)
     if not any(cycle.id == cycle_id for cycle in access.cycles):
         raise HTTPException(status_code=404, detail="CYCLE_NOT_FOUND")
@@ -2838,15 +2920,53 @@ async def _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db
     if not authorized:
         raise HTTPException(status_code=403, detail="PERFORMANCE_MEMBER_EXPORT_FORBIDDEN" if export else "PROJECT_DATA_FORBIDDEN")
     items, columns = [], {}
-    for project, scope in authorized:
-        project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db)
-        items.extend(project_items)
-        for column in project_columns:
-            columns.setdefault(column["key"], column)
+    total = 0
+    if page is not None and not export and sort_by in {None, "name"}:
+        candidates = []
+        for project, scope in authorized:
+            statement = select(PerformanceProjectMember).where(
+                PerformanceProjectMember.snapshot_id == _latest_member_snapshot_statement(project.id),
+            )
+            if scope is not None:
+                statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
+            if isinstance(keyword, str) and keyword.strip():
+                pattern = f"%{keyword.strip()}%"
+                statement = statement.where(or_(
+                    PerformanceProjectMember.display_name.ilike(pattern),
+                    PerformanceProjectMember.employee_no.ilike(pattern),
+                    PerformanceProjectMember.organization_ref.ilike(pattern),
+                ))
+            rows = list((await db.execute(statement)).scalars().all())
+            total += len(rows)
+            candidates.extend((project, scope, member) for member in rows)
+        candidates.sort(key=lambda row: (row[2].display_name, row[2].employee_no, row[0].id, row[2].id))
+        if sort_by == "name" and sort_order == "desc":
+            candidates.sort(key=lambda row: row[2].display_name, reverse=True)
+        selected = candidates[(page - 1) * page_size:page * page_size]
+        selected_by_project = {}
+        for project, scope, member in selected:
+            entry = selected_by_project.setdefault(project.id, (project, scope, set()))
+            entry[2].add(member.employee_no)
+        for project, scope in authorized:
+            employee_nos = selected_by_project.get(project.id, (None, None, set()))[2]
+            project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db, employee_nos=employee_nos)
+            items.extend(project_items)
+            for column in project_columns:
+                columns.setdefault(column["key"], column)
+        order = {(member.employee_no, project.id): index for index, (project, _scope, member) in enumerate(selected)}
+        items.sort(key=lambda item: order.get((item.employee_no, item.project_id), len(order)))
+    else:
+        for project, scope in authorized:
+            project_items, project_columns = await _project_member_rows(project, scope, keyword, None, None, context, db)
+            items.extend(project_items)
+            for column in project_columns:
+                columns.setdefault(column["key"], column)
+        total = len(items)
+        items.sort(key=lambda item: (item.display_name, item.employee_no, item.project_id, item.id))
+        rating_columns = list(columns.values())
+        _sort_member_rows(items, sort_by, sort_order, rating_columns)
     rating_columns = list(columns.values())
-    items.sort(key=lambda item: (item.display_name, item.employee_no, item.project_id, item.id))
-    _sort_member_rows(items, sort_by, sort_order, rating_columns)
-    return items, rating_columns
+    return items, rating_columns, total
 
 
 @router.get("/project-management/cycles/{cycle_id}/members", response_model=ProjectMemberPage)
@@ -2860,9 +2980,10 @@ async def cycle_project_members(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    items, columns = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db)
-    start = (page - 1) * page_size
-    return ProjectMemberPage(items=items[start:start + page_size], total=len(items), page=page, page_size=page_size, rating_columns=columns)
+    items, columns, total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, page=page, page_size=page_size)
+    if sort_by not in {None, "name"}:
+        items = items[(page - 1) * page_size:page * page_size]
+    return ProjectMemberPage(items=items, total=total, page=page, page_size=page_size, rating_columns=columns)
 
 
 @router.get("/project-management/cycles/{cycle_id}/members/export", response_model=ProjectMemberPage)
@@ -2874,7 +2995,7 @@ async def export_cycle_project_members(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    items, columns = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True)
+    items, columns, _total = await _cycle_member_rows(cycle_id, keyword, sort_by, sort_order, context, db, export=True)
     return ProjectMemberPage(items=items, total=len(items), page=1, page_size=len(items), rating_columns=columns)
 
 
@@ -2884,12 +3005,14 @@ async def _member_visibility_role(context, project, member, scope, actor_ref, db
     return "hrbp" if scope is not None else "activity_manager"
 
 
-async def _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db):
+async def _project_member_rows(project, scope, keyword, sort_by, sort_order, context, db, *, page=None, page_size=50, employee_nos=None):
     project_id = project.id
     snapshot_id = _latest_member_snapshot_statement(project_id)
     statement = select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == snapshot_id)
     if scope is not None:
         statement = statement.where(PerformanceProjectMember.employee_no.in_(scope))
+    if employee_nos is not None:
+        statement = statement.where(PerformanceProjectMember.employee_no.in_(employee_nos))
     actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
     actor_ref = str(actor.actor_ref)
     if isinstance(keyword, str) and keyword.strip():
@@ -2901,8 +3024,12 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         )
         statement = statement.where(condition)
 
+    if page is not None:
+        member_total = await db.scalar(select(func.count()).select_from(statement.subquery()))
+        statement = statement.offset((page - 1) * page_size).limit(page_size)
     members = list((await db.execute(statement.order_by(PerformanceProjectMember.display_name.asc(), PerformanceProjectMember.id.asc()))).scalars().all())
-
+    if page is None:
+        member_total = len(members)
     supervisor_names = await _snapshot_supervisor_names(db, members)
     progress = await _communication_progress(db, project, {member.employee_no for member in members}) if members else {}
     progress_detail = await _communication_progress_detail(db, project, {member.employee_no for member in members}) if members else {}
@@ -2925,6 +3052,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     tasks = list((await db.execute(select(PerformanceNodeTask).where(
         PerformanceNodeTask.project_id == project.id,
         PerformanceNodeTask.member_snapshot_id == snapshot_id,
+        PerformanceNodeTask.target_employee_no.in_({member.employee_no for member in members}),
         PerformanceNodeTask.revoked_at.is_(None),
     ))).scalars().all()) if members and (stages or final_node is not None) else []
     if stages:
@@ -2944,9 +3072,11 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     for task in tasks:
         by_employee.setdefault(task.target_employee_no, []).append(task)
 
-    effective_results = await _effective_project_results(project, nodes, tasks, db) if tasks else {}
+    effective_results = await _effective_project_results(project, nodes, tasks, db, members=members) if tasks else {}
     items = []
     people_cache = {}
+    from app.performance.member_reminders import preload_member_reminders
+    await preload_member_reminders(project, members, context, db)
     for member in members:
         item = _serialize_project_member(member, project.id).model_dump()
         item["can_view_detail"] = True
@@ -2987,7 +3117,7 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
         item["task_map"] = [option.model_dump() for option in options]
         items.append(ProjectMemberResponse(**item))
     _sort_member_rows(items, sort_by, sort_order, rating_columns)
-    return items, rating_columns
+    return (items, rating_columns, member_total) if page is not None else (items, rating_columns)
 
 
 async def _project_member_detail(
@@ -3000,6 +3130,8 @@ async def _project_member_detail(
     skip_scope: bool = False,
     visibility_role: str | None = None,
     reference_node_id: str | None = None,
+    view: str | None = None,
+    tab: str | None = None,
 ):
     """被评估人管理详情（management_tabs + stage_views）。
 
@@ -3038,7 +3170,10 @@ async def _project_member_detail(
     ).order_by(PerformanceNodeTask.id))).scalars().all())
     all_nodes, all_tasks = nodes, tasks
     nodes = [node for node in nodes if node.node_type in {"work_summary", "evaluation", "result_communication"}]
-    by_node = {node.id: [task for task in tasks if task.node_snapshot_id == node.id] for node in nodes}
+    by_node = {node.id: [] for node in nodes}
+    for task in tasks:
+        if task.node_snapshot_id in by_node:
+            by_node[task.node_snapshot_id].append(task)
     submitted_communications = [(task, node) for node in nodes if node.node_type == "result_communication" for task in by_node[node.id] if task.submitted_at is not None]
     selected_node = max(submitted_communications, key=lambda pair: (pair[0].submitted_at, pair[0].id))[1] if submitted_communications else _final_result_snapshot(nodes)
     selected_node = selected_node or next((node for node in reversed(nodes) if by_node[node.id]), None)
@@ -3060,8 +3195,10 @@ async def _project_member_detail(
         handler_names = dict(rows)
     final_locked = any(task.task_kind == "calibration" and getattr(task, "calibration_completed_at", None) is not None for task in tasks)
     final_node = _final_result_snapshot(nodes)
+    active_tab = tab if isinstance(tab, str) and tab else f"management-{selected_node.node_id}"
     tabs = []
     for node in reversed(nodes):
+        content_loaded = view != "drawer" or active_tab == f"management-{node.node_id}"
         related = by_node[node.id]
         shared_final = node is final_node and bool((getattr(member, "shared_result_state", None) or {}).get("calibrated"))
         completed = [task for task in related if task.submitted_at is not None or shared_final]
@@ -3071,13 +3208,13 @@ async def _project_member_detail(
         schema, answers = [], {}
         anonymous = node_role_code(templates[node.id]) == ROLE_REVIEWER_360 or templates[node.id].get("executor_label") == "360°评估人"
         if anonymous:
-            feedback = await _reviewer_360_reference(project, snapshot_id, employee_no, node, related, relations.get(node.node_id), db)
+            feedback = await _reviewer_360_reference(project, snapshot_id, employee_no, node, related, relations.get(node.node_id), db, content_loaded=content_loaded, template=templates[node.id], names=handler_names)
             if not feedback["expected_count"] and node is not selected_node:
                 continue
         else:
             feedback = {}
-        for index, task in enumerate((completed or related[:1] if final_locked and node is final_node else completed) if not anonymous else []):
-            _, visible_answers = await _task_visible_content(task, node, db)
+        for index, task in enumerate((completed or related[:1] if final_locked and node is final_node else completed) if content_loaded and not anonymous else []):
+            _, visible_answers = await _task_visible_content(task, node, db, result_context=(all_nodes, all_tasks, member), template=templates[node.id])
             projected, visible_answers = project_reference_content(templates[node.id], relations.get(node.node_id, {}), visible_answers)
             for source_section in projected:
                 section = deepcopy(source_section)
@@ -3107,9 +3244,9 @@ async def _project_member_detail(
         status = "completed" if related and completed_total == len(related) else "overdue" if "overdue" in statuses else "pending" if "pending" in statuses else "not_started"
         deadline = _task_window(representative, node, project)[1] if representative else _parse_time((_node_timing(project, node) or {}).get("end_at"))
         relation = relations.get(node.node_id, {})
-        submissions = await _calibration_answer_submissions(representative, completed, db) if completed and not anonymous else []
-        if node is final_node and representative is not None and not anonymous:
-            effective = await _effective_member_result(project.id, project.cycle_ref, snapshot_id, employee_no, db, nodes=all_nodes, tasks=all_tasks)
+        submissions = await _calibration_answer_submissions(representative, completed, db) if completed and not anonymous and content_loaded else []
+        if node is final_node and representative is not None and not anonymous and content_loaded:
+            effective = await _effective_member_result(project.id, project.cycle_ref, snapshot_id, employee_no, db, nodes=all_nodes, tasks=all_tasks, member=member)
             submissions = await _shared_answer_submissions(representative, effective, db)
         tabs.append({
             "key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
@@ -3120,17 +3257,21 @@ async def _project_member_detail(
             "submitted_by": next((item["display_name"] for item in submissions if representative is not None and item["submitted_at"] == representative.submitted_at), None),
             "answer_submissions": submissions,
             "final_result_locked": bool(final_locked and final_node is not None and node.id == final_node.id),
-            "form_schema": schema, "answers": answers, "can_remind": False,
+            "form_schema": schema, "answers": answers, "can_remind": False, "content_loaded": content_loaded,
             **feedback,
         })
     okr_relation = next((content for template in templates.values() for content in template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "more" and content.get("reference_value") == "okr"), None)
     if okr_relation is not None:
-        from app.performance.okr_provider import fetch_employee_okrs
-        from app.integrations.feishu.feishu_client import authorized_okr_read
-        with authorized_okr_read(employee_no, context):
-            okrs = await fetch_employee_okrs(db, employee_no)
-        okr = okrs[0] if okrs else None
-        tabs.append({"key": "management-okr", "kind": "okr", "node_id": "", "node_name": (okr_relation.get("reference_settings") or {}).get("page_name") or okr_relation.get("name") or "OKR", "task_id": None, "task_kind": None, "employee_no": employee_no, "status": "completed" if okr is not None else "not_started", "deadline_at": None, "submitted_at": None, "submitted_by": None, "form_schema": [], "answers": {}, "can_remind": False, "okr": okr, "okrs": okrs})
+        okr_loaded = view != "drawer" or active_tab == "management-okr"
+        okr = None
+        okrs = []
+        if okr_loaded:
+            from app.performance.okr_provider import fetch_employee_okrs
+            from app.integrations.feishu.feishu_client import authorized_okr_read
+            with authorized_okr_read(employee_no, context):
+                okrs = await fetch_employee_okrs(db, employee_no)
+            okr = okrs[0] if okrs else None
+        tabs.append({"key": "management-okr", "kind": "okr", "node_id": "", "node_name": (okr_relation.get("reference_settings") or {}).get("page_name") or okr_relation.get("name") or "OKR", "task_id": None, "task_kind": None, "employee_no": employee_no, "status": "completed" if okr is not None else "not_started", "deadline_at": None, "submitted_at": None, "submitted_by": None, "form_schema": [], "answers": {}, "can_remind": False, "content_loaded": okr_loaded, "okr": okr, "okrs": okrs})
     selected_tab = next(tab for tab in tabs if tab["node_id"] == selected_node.node_id)
     if visibility_role is None:
         visibility_role = await _member_visibility_role(context, project, member, scope, str(actor.actor_ref), db)
@@ -3207,9 +3348,11 @@ async def project_member_detail(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
     root_review_id: int | None = Query(default=None, ge=1),
+    view: Literal["drawer"] | None = None,
+    tab: str | None = Query(default=None, max_length=128),
 ):
     project = await _get_project(db, project_id)
-    return await _project_member_detail(project, employee_no, context, db, root_review_id)
+    return await _project_member_detail(project, employee_no, context, db, root_review_id, **({"view": view, "tab": tab if isinstance(tab, str) else None} if view == "drawer" else {}))
 
 
 class MemberRemindPayload(BaseModel):
@@ -3939,36 +4082,85 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         }
         for key, title in _COMPLETION_NODE_DEFINITIONS
     }
-    for project in projects:
-        snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
-        if snapshot_id is None:
-            continue
+    completion_data = {}
+    if len(projects) > 1:
+        project_ids = [project.id for project in projects]
+        snapshot_rows = (await db.execute(select(
+            PerformanceProjectMemberSnapshot.project_id, func.max(PerformanceProjectMemberSnapshot.id),
+        ).where(PerformanceProjectMemberSnapshot.project_id.in_(project_ids)).group_by(PerformanceProjectMemberSnapshot.project_id))).all()
+        snapshot_ids = dict(snapshot_rows)
         members = list((await db.execute(select(PerformanceProjectMember).where(
-            PerformanceProjectMember.snapshot_id == snapshot_id,
+            PerformanceProjectMember.snapshot_id.in_(list(snapshot_ids.values())),
         ))).scalars().all())
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
-            PerformanceProjectNodeSnapshot.project_id == project.id,
+            PerformanceProjectNodeSnapshot.project_id.in_(project_ids),
         ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
         tasks = list((await db.execute(select(PerformanceNodeTask).where(
-            PerformanceNodeTask.project_id == project.id,
-            PerformanceNodeTask.member_snapshot_id == snapshot_id,
+            PerformanceNodeTask.project_id.in_(project_ids),
+            PerformanceNodeTask.member_snapshot_id.in_(list(snapshot_ids.values())),
             PerformanceNodeTask.revoked_at.is_(None),
         ))).scalars().all())
-        opened_people = set((await db.execute(select(PerformanceResultOpening.employee_no).where(
-            PerformanceResultOpening.project_id == project.id,
-        ))).scalars().all())
+        openings = (await db.execute(select(PerformanceResultOpening.project_id, PerformanceResultOpening.employee_no).where(
+            PerformanceResultOpening.project_id.in_(project_ids),
+        ))).all()
+        appeals = list((await db.execute(select(PerformanceResultReconsideration).where(
+            PerformanceResultReconsideration.project_id.in_(project_ids),
+            PerformanceResultReconsideration.member_snapshot_id.in_(list(snapshot_ids.values())),
+            PerformanceResultReconsideration.withdrawn_at.is_(None),
+        ))).scalars().all()) if any(node.node_type in {"result_view", "result_reconsideration"} for node in nodes) else []
+        completion_data = {project_id: (snapshot_id, [], [], [], set(), []) for project_id, snapshot_id in snapshot_ids.items()}
+        project_by_snapshot = {snapshot_id: project_id for project_id, snapshot_id in snapshot_ids.items()}
+        for member in members:
+            completion_data[project_by_snapshot[member.snapshot_id]][1].append(member)
+        for node in nodes:
+            if node.project_id in completion_data:
+                completion_data[node.project_id][2].append(node)
+        for task in tasks:
+            if task.project_id in completion_data and task.member_snapshot_id == snapshot_ids[task.project_id]:
+                completion_data[task.project_id][3].append(task)
+        for project_id, employee_no in openings:
+            if project_id in completion_data:
+                completion_data[project_id][4].add(employee_no)
+        for appeal in appeals:
+            if appeal.project_id in completion_data and appeal.member_snapshot_id == snapshot_ids[appeal.project_id]:
+                completion_data[appeal.project_id][5].append(appeal)
+    for project in projects:
+        if len(projects) > 1:
+            if project.id not in completion_data:
+                continue
+            snapshot_id, members, nodes, tasks, opened_people, appeals = completion_data[project.id]
+        else:
+            snapshot_id = await db.scalar(select(_latest_member_snapshot_statement(project.id)))
+            if snapshot_id is None:
+                continue
+            members = list((await db.execute(select(PerformanceProjectMember).where(
+                PerformanceProjectMember.snapshot_id == snapshot_id,
+            ))).scalars().all())
+            nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+                PerformanceProjectNodeSnapshot.project_id == project.id,
+            ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+            tasks = list((await db.execute(select(PerformanceNodeTask).where(
+                PerformanceNodeTask.project_id == project.id,
+                PerformanceNodeTask.member_snapshot_id == snapshot_id,
+                PerformanceNodeTask.revoked_at.is_(None),
+            ))).scalars().all())
+            opened_people = set((await db.execute(select(PerformanceResultOpening.employee_no).where(
+                PerformanceResultOpening.project_id == project.id,
+            ))).scalars().all())
+            appeals = list((await db.execute(select(PerformanceResultReconsideration).where(
+                PerformanceResultReconsideration.project_id == project.id,
+                PerformanceResultReconsideration.member_snapshot_id == snapshot_id,
+                PerformanceResultReconsideration.withdrawn_at.is_(None),
+            ))).scalars().all()) if any(node.node_type in {"result_view", "result_reconsideration"} for node in nodes) else []
         scope = scopes.get(project.id) if scopes is not None else None
         if scope is not None:
             members = [member for member in members if member.employee_no in scope]
             tasks = [task for task in tasks if task.target_employee_no in scope]
             opened_people.intersection_update(scope)
-        appeals = list((await db.execute(select(PerformanceResultReconsideration).where(
-            PerformanceResultReconsideration.project_id == project.id,
-            PerformanceResultReconsideration.member_snapshot_id == snapshot_id,
-            PerformanceResultReconsideration.withdrawn_at.is_(None),
-        ))).scalars().all()) if any(node.node_type in {"result_view", "result_reconsideration"} for node in nodes) else []
         member_nos = {member.employee_no for member in members}
         appeals = [appeal for appeal in appeals if appeal.employee_no in member_nos and appeal.withdrawn_at is None]
+        appeal_keys = {(appeal.node_snapshot_id, appeal.employee_no) for appeal in appeals}
+        active_appeal_keys = {(appeal.node_snapshot_id, appeal.employee_no) for appeal in appeals if appeal.closed_at is None}
         tasks_by_node: dict[int, list[PerformanceNodeTask]] = {}
         for task in tasks:
             tasks_by_node.setdefault(task.node_snapshot_id, []).append(task)
@@ -3990,10 +4182,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
                 state["deadlines"].append(deadline_at)
             node_tasks = tasks_by_node.get(node.id, [])
             if node.node_type == "result_reconsideration":
-                node_tasks = [task for task in node_tasks if any(
-                    appeal.node_snapshot_id == node.id and appeal.employee_no == task.target_employee_no
-                    for appeal in appeals
-                )]
+                node_tasks = [task for task in node_tasks if (node.id, task.target_employee_no) in appeal_keys]
             if node.node_type == "result_view":
                 total = len(members)
                 completed = sum(member.employee_no in opened_people for member in members)
@@ -4003,10 +4192,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
                 state["available_pending"] += sum(
                     1 for task in node_tasks
                     if not _task_completed(task) and task.status == "pending" and _task_is_available(task, node, project, current)
-                    and (node.node_type != "result_reconsideration" or any(
-                        appeal.node_snapshot_id == node.id and appeal.employee_no == task.target_employee_no and appeal.closed_at is None
-                        for appeal in appeals
-                    ))
+                    and (node.node_type != "result_reconsideration" or (node.id, task.target_employee_no) in active_appeal_keys)
                 )
             state["total"] += total
             state["completed"] += completed
@@ -5005,6 +5191,14 @@ async def project_management_department_completion(
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id == project.id).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
         tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.member_snapshot_id == snapshot_id))).scalars().all())
         opened = set((await db.execute(select(PerformanceResultOpening.employee_no).where(PerformanceResultOpening.project_id == project.id))).scalars().all())
+        paths_by_employee = {}
+        for path, employee_nos in departments.items():
+            for employee_no in employee_nos:
+                paths_by_employee.setdefault(employee_no, []).append(path)
+        tasks_by_department_node = {}
+        for task in tasks:
+            for path in paths_by_employee.get(task.target_employee_no, []):
+                tasks_by_department_node.setdefault((path, task.node_snapshot_id), []).append(task)
         for node in nodes:
             key = _completion_node_key(node)
             if key is None:
@@ -5015,15 +5209,18 @@ async def project_management_department_completion(
                 if node.node_type == "result_view":
                     completed, total = len(opened & employee_nos), len(employee_nos)
                 else:
-                    completed, total = _completion_task_counts(node, [task for task in tasks if task.node_snapshot_id == node.id and task.target_employee_no in employee_nos])
+                    completed, total = _completion_task_counts(node, tasks_by_department_node.get((path, node.id), []))
                 target[0] += completed
                 target[1] += total
+    children_by_parent = {}
+    for path in sorted(totals):
+        children_by_parent.setdefault(path[:-1], []).append(path)
     def make_row(path):
         metrics = {}
         for key in titles:
             completed, total = totals[path].get(key, [0, 0])
             metrics[key] = {"completed_count": completed, "total_count": total, "completion_rate": round(completed * 100 / total, 2) if total else 0}
-        return {"id": "/".join(path), "department": path[-1], "metrics": metrics, "children": [make_row(child) for child in sorted(totals) if len(child) == len(path) + 1 and child[:-1] == path]}
+        return {"id": "/".join(path), "department": path[-1], "metrics": metrics, "children": [make_row(child) for child in children_by_parent.get(path, [])]}
     return {
         "columns": [{"key": key, "title": titles[key]} for key, _title in _COMPLETION_NODE_DEFINITIONS if key in titles],
         "rows": [make_row(path) for path in sorted(totals) if len(path) == 1],
@@ -5317,9 +5514,13 @@ async def project_management_statistics(
     if dimension in ("department", "team", "sequence"):
         paths = sorted(rows, key=lambda p: (row_sort(p[-1]), p))
 
+        children_by_parent = {}
+        for path in paths:
+            children_by_parent.setdefault(path[:-1], []).append(path)
+
         def make_row(path):
             own = rows.get(path, {})
-            children = [make_row(child) for child in paths if len(child) == len(path) + 1 and child[:-1] == path]
+            children = [make_row(child) for child in children_by_parent.get(path, [])]
             return {"id": f"{dimension}:" + "/".join(path), "name": path[-1], "counts": {key: own.get(key, 0) for key in keys}, "heatLevels": row_heat_levels(own), "children": children}
 
         report_rows = [make_row(path) for path in paths if len(path) == 1]
@@ -5331,8 +5532,9 @@ async def project_management_statistics(
             "heatLevels": row_heat_levels(rows[bucket]),
         } for bucket in sorted(rows, key=lambda p: row_sort(p[0]))]
     leaf_rows = []
+    parent_paths = {path[:-1] for path in rows}
     for path in rows:
-        if not any(other for other in rows if len(other) == len(path) + 1 and other[:-1] == path):
+        if path not in parent_paths:
             leaf_rows.append((path, rows[path]))
     distribution = {key: sum(counts.get(key, 0) for _path, counts in leaf_rows) for key in keys}
     evaluated_total = sum(distribution.values())
@@ -5927,7 +6129,11 @@ async def _communication_final_rating_values(project, rows, db):
 
 
 @router.get("/workbench/tasks/{node_id}/people")
-async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96)):
+async def workbench_task_people(node_id: str, project_id: int, state: str = Query(default="pending", pattern="^(pending|completed|all)$"), context: PerformanceAccessContext = Depends(get_performance_access_context), db: AsyncSession = Depends(get_session), keyword: str | None = Query(default=None, max_length=100), phase_id: str | None = Query(default=None, max_length=96), page: int | None = Query(default=None, ge=1), page_size: int = Query(default=50, ge=1, le=100), sort_by: str = Query(default="task_id", max_length=256), sort_order: str = Query(default="asc", pattern="^(asc|desc)$")):
+    paged = isinstance(page, int)
+    page_size = page_size if isinstance(page_size, int) else 50
+    sort_by = sort_by if isinstance(sort_by, str) else "task_id"
+    sort_order = sort_order if isinstance(sort_order, str) else "asc"
     actor = await resolve_trusted_performance_actor(db, context)
     handler = str(actor.actor_ref)
     is_admin_preview = False
@@ -5958,31 +6164,70 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
     rows = (await db.execute(statement.order_by(PerformanceNodeTask.id))).all()
     project = await db.get(PerformanceProject, project_id)
     rows = [row for row in rows if getattr(row[0], "revoked_at", None) is None and (row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1]))]
-    communication_people = {task.target_employee_no for task, node, _member in rows if node.node_type == "result_communication"}
-    member_nos = {task.target_employee_no for task, _node, _member in rows}
-    progress = await _communication_progress(db, project, member_nos) if project and rows else {}
-    progress_detail = await _communication_progress_detail(db, project, member_nos) if project and rows else {}
-    supervisor_names = await _snapshot_supervisor_names(db, [member for _task, _node, member in rows if member])
-    previous_levels = await _previous_published_position_levels(db, project, communication_people) if project and communication_people else {}
-    communication_metadata, communication_ratings = await _communication_final_rating_values(project, rows, db)
     if state == "pending":
         rows = [row for row in rows if _task_is_available(row[0], row[1], project)]
     aggregate_task_id = rows[0][0].id if rows else None
-    visibility_rules = await load_subject_visibility_rules(db)
-    result = []
+    total = len(rows)
     rating_metadata = {}
-    for task, node, member in rows:
-        visibility_role = await resolve_subject_visibility_role(db, context, handler, member, node, project)
-        visible_fields = visibility_rules[visibility_role]
+    for task, node, _member in rows:
         if node.id not in rating_metadata:
             schema = build_self_summary_schema(await _self_summary_template(task, node, db))
             rating_metadata[node.id] = (schema, _task_rating_metadata(schema))
+    sort_by = "display_name" if sort_by == "name" else sort_by
+    allowed_sort_keys = {"task_id", "display_name", "employee_no", "department", "hire_date", "status", "due_at", "rating", "completion", "direct_supervisor", "job_sequence", "position_level", "employee_type", "previous_position_level"}
+    allowed_sort_keys.update(item["key"] for _schema, metadata in rating_metadata.values() for item in metadata)
+    if sort_by not in allowed_sort_keys and not sort_by.startswith("rating:"):
+        raise HTTPException(422, "INVALID_MEMBER_SORT_KEY")
+    early_page = paged and sort_by in {"task_id", "display_name", "employee_no"}
+    if early_page:
+        def row_sort_value(row):
+            task, _node, member = row
+            if sort_by == "task_id":
+                return task.id
+            return str(getattr(member, sort_by, None) or task.target_employee_no).casefold()
+        rows.sort(key=lambda row: (row_sort_value(row), row[0].id), reverse=sort_order == "desc")
+        rows = rows[(page - 1) * page_size:page * page_size]
+    communication_people = {task.target_employee_no for task, node, _member in rows if node.node_type == "result_communication"}
+    member_nos = {task.target_employee_no for task, _node, _member in rows}
+    progress_detail = await _communication_progress_detail(db, project, member_nos) if project and rows else {}
+    progress = {employee: detail["completion"] for employee, detail in progress_detail.items()}
+    supervisor_names = await _snapshot_supervisor_names(db, [member for _task, _node, member in rows if member])
+    previous_levels = await _previous_published_position_levels(db, project, communication_people) if project and communication_people else {}
+    communication_metadata, communication_ratings = await _communication_final_rating_values(project, rows, db)
+    allowed_sort_keys.update(item["key"] for item in communication_metadata)
+    if sort_by not in allowed_sort_keys:
+        raise HTTPException(422, "INVALID_MEMBER_SORT_KEY")
+    visibility_rules = await load_subject_visibility_rules(db)
+    effective_by_member = {}
+    effective_needed = [(task, node, member) for task, node, member in rows if node.node_type == "calibration" or ((node.config or {}).get("template") or {}).get("include_final_result")]
+    if effective_needed and project:
+        snapshot_ids = {task.member_snapshot_id for task, _node, _member in effective_needed}
+        effective_tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project.id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id.in_(snapshot_ids),
+            PerformanceNodeTask.target_employee_no.in_({task.target_employee_no for task, _node, _member in effective_needed}),
+            PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+        effective_nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project.id,
+        ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+        effective_members = [member for _task, _node, member in effective_needed if member]
+        effective_by_member = await _effective_project_results(project, effective_nodes, effective_tasks, db, members=effective_members)
+    from app.performance.member_reminders import preload_member_reminders
+    reminder_members = [member for _task, node, member in rows if member and node.node_type == "evaluation" and node_role_code((node.config or {}).get("template") or {}) in MANAGER_ROLE_CODES]
+    if reminder_members and project:
+        await preload_member_reminders(project, reminder_members, context, db)
+    result = []
+    for task, node, member in rows:
+        visibility_role = await resolve_subject_visibility_role(db, context, handler, member, node, project)
+        visible_fields = visibility_rules[visibility_role]
         schema, metadata = rating_metadata[node.id]
         if node.node_type == "result_communication" and communication_metadata:
             metadata = communication_metadata
             ratings = communication_ratings.get((task.member_snapshot_id, task.target_employee_no), {item["key"]: None for item in metadata})
         elif node.node_type == "calibration" or ((node.config or {}).get("template") or {}).get("include_final_result"):
-            effective = await _effective_member_result(task.project_id, task.cycle_ref, task.member_snapshot_id, task.target_employee_no, db)
+            effective = effective_by_member.get((task.member_snapshot_id, task.target_employee_no), {"answers": {}})
             ratings = _rating_values_from_answers(effective["answers"], metadata)
         else:
             ratings = _task_rating_values(task, metadata)
@@ -6028,7 +6273,36 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             "visible_profile_fields": visible_fields,
         }
         result.append(mask_profile_values(values, visible_fields))
-    return result
+    def sort_value(item):
+        if sort_by.startswith("rating:"):
+            return str((item.get("ratings", {}).get(sort_by) or {}).get("label") or "").casefold()
+        if sort_by == "completion":
+            completed, _, expected = str(item.get("completion") or "0/0").partition("/")
+            return float(completed) / float(expected) if expected and float(expected) else 0
+        if sort_by == "status":
+            return {"pending": 0, "completed": 1, "overdue": 2, "rejected": 3}.get(item.get("status"), 0)
+        value = item.get(sort_by)
+        if sort_by == "rating":
+            value = item.get("rating") or ""
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if sort_by == "due_at":
+            return float("-inf")
+        return str(value or "").casefold() if not isinstance(value, (int, float)) else value
+    if not early_page:
+        result.sort(key=lambda item: (sort_value(item), item.get("task_id") or 0), reverse=sort_order == "desc")
+    if not paged:
+        return result
+    rating_columns = []
+    for _schema, metadata in rating_metadata.values():
+        for item in metadata:
+            column = {"key": item["key"], "label": item["label"]}
+            if column not in rating_columns:
+                rating_columns.append(column)
+    if communication_metadata:
+        rating_columns = [{"key": item["key"], "label": item["label"]} for item in communication_metadata]
+    start = (page - 1) * page_size
+    return {"items": result if early_page else result[start:start + page_size], "total": total, "rating_columns": rating_columns}
 
 
 @router.get("/workbench/tasks/{node_id}/distribution-tips")
@@ -6060,15 +6334,43 @@ async def workbench_task_distribution_tips(node_id: str, project_id: int, contex
     if project is None or not rows:
         return {"enabled": False, "total_people": 0, "rated_people": 0, "rules": [], "lines": []}
     node = rows[0][1]
-    current_phase_id = phase_id or getattr(rows[0][0], "phase_id", "") or None
+    current_phase_id = phase_id if isinstance(phase_id, str) else getattr(rows[0][0], "phase_id", "") or None
+    flow = ((project.settings or {}).get("flow_settings") or {})
+    if node.node_type == "calibration":
+        configured = (flow.get("node_settings") or {}).get(node.node_id, {})
+        configured = configured.get("calibration") or configured
+        if configured.get("force_distribution_enabled") is False:
+            return {"enabled": False, "total_people": len(rows), "rated_people": 0, "rules": [], "lines": []}
     schema = build_self_summary_schema(await _self_summary_template(rows[0][0], node, db))
     metadata = _task_rating_metadata(schema)
+    result_context = None
+    if node.node_type == "calibration" and any(isinstance(task, PerformanceNodeTask) for task, _node in rows):
+        snapshot_ids = {task.member_snapshot_id for task, _node in rows}
+        employee_nos = {task.target_employee_no for task, _node in rows}
+        all_tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id == project_id,
+            PerformanceNodeTask.cycle_ref == project.cycle_ref,
+            PerformanceNodeTask.member_snapshot_id.in_(snapshot_ids),
+            PerformanceNodeTask.target_employee_no.in_(employee_nos),
+            PerformanceNodeTask.revoked_at.is_(None),
+        ).order_by(PerformanceNodeTask.id))).scalars().all())
+        nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+            PerformanceProjectNodeSnapshot.project_id == project_id,
+        ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
+        members = list((await db.execute(select(PerformanceProjectMember).where(
+            PerformanceProjectMember.snapshot_id.in_(snapshot_ids),
+            PerformanceProjectMember.employee_no.in_(employee_nos),
+        ))).scalars().all())
+        grouped = {}
+        for task in all_tasks:
+            grouped.setdefault((task.member_snapshot_id, task.target_employee_no), []).append(task)
+        result_context = (nodes, grouped, {(member.snapshot_id, member.employee_no): member for member in members})
     rating_counts: dict[str, int] = {}
     rated_people = 0
     for task, _node in rows:
         if node.node_type == "calibration":
             try:
-                rating_answers = await _calibration_answers(task, node, schema, db)
+                rating_answers = await _calibration_answers(task, node, schema, db, **({"result_context": result_context} if result_context is not None else {}))
             except HTTPException as error:
                 if error.status_code != 409 or error.detail not in {"CALIBRATION_SOURCE_NOT_READY", "CALIBRATION_SOURCE_CONFLICT"}:
                     raise

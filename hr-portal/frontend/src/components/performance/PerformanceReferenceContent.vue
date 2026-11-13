@@ -3,7 +3,7 @@
     <h2 v-if="showTitle" class="reference-content-title">{{ reference.node_name }}</h2>
     <p v-if="reference.kind === 'okr' && okrLoading" role="status">正在加载 OKR…</p>
     <p v-if="reference.kind === 'okr' && okrError" role="alert">OKR 加载失败 <button type="button" @click="loadOkr">重试</button></p>
-    <PerformanceOkrPanel v-if="reference.kind === 'okr' && !okrLoading && !okrError" :okr="okr" :okrs="okrs" />
+    <PerformanceOkrPanel v-if="reference.kind === 'okr' && (okr || okrs.length || !okrLoading && !okrError)" :okr="okr" :okrs="okrs" />
     <PerformanceReviewer360Preview
       v-else-if="reference.kind === 'reviewer_360'"
       :key="reference.key"
@@ -27,7 +27,8 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { performanceOkrApi, type PerformanceReferenceTab } from '@/api/performance'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
+import { performanceOkrApi, type EmployeeOkrResponse, type PerformanceReferenceTab } from '@/api/performance'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
@@ -40,23 +41,48 @@ const okrs = ref(props.reference.okrs || [])
 const okrLoading = ref(false)
 const okrError = ref('')
 let requestId = 0
+const okrRequests = new Map<string, Promise<EmployeeOkrResponse>>()
+const okrCache = new Map<string, EmployeeOkrResponse>()
 
 async function loadOkr() {
-  if (props.reference.kind !== 'okr' || !props.reference.task_id) return
+  const reference = props.reference
+  if (reference.kind !== 'okr' || !reference.task_id || reference.content_loaded === true) return
   const current = ++requestId
+  const key = `${employeeSwitchEpoch.value}:${reference.task_id}:${reference.employee_no}:${reference.key}`
   okrLoading.value = true
   okrError.value = ''
   try {
-    const result = await performanceOkrApi.taskOkr(props.reference.task_id)
-    if (current === requestId) { okr.value = result.okr || null; okrs.value = result.okrs || [] }
+    let result = okrCache.get(key)
+    if (!result) {
+      let pending = okrRequests.get(key)
+      if (!pending) {
+        pending = performanceOkrApi.taskOkr(reference.task_id)
+        okrRequests.set(key, pending)
+        const request = pending
+        void request.finally(() => { if (okrRequests.get(key) === request) okrRequests.delete(key) }).catch(() => {})
+      }
+      result = await pending
+    }
+    if (current === requestId) {
+      okrCache.set(key, result)
+      okr.value = result.okr || null
+      okrs.value = result.okrs || []
+    }
   } catch (error) {
     if (current === requestId) okrError.value = error instanceof Error ? error.message : 'OKR加载失败'
   } finally {
     if (current === requestId) okrLoading.value = false
   }
 }
-watch(() => props.reference, () => { ++requestId; okr.value = props.reference.okr || null; okrs.value = props.reference.okrs || []; okrLoading.value = false; okrError.value = ''; void loadOkr() }, { immediate: true })
-onBeforeUnmount(() => { ++requestId })
+watch(() => [props.reference, employeeSwitchEpoch.value], () => {
+  ++requestId
+  okr.value = props.reference.okr || null
+  okrs.value = props.reference.okrs || []
+  okrLoading.value = false
+  okrError.value = ''
+  void loadOkr()
+}, { immediate: true })
+onBeforeUnmount(() => { ++requestId; okrRequests.clear(); okrCache.clear() })
 </script>
 
 <style scoped>

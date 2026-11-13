@@ -954,7 +954,7 @@ async def test_workbench_distribution_tips_disabled_when_force_distribution_off(
     })
     task = SimpleNamespace(id=20, project_id=1, cycle_ref="C1", task_kind="calibration", phase_id="phase-1", handler_ref="M1", status="pending", submitted_at=None, target_employee_no="E1", available_at=None, due_at=None, answers={})
     async def actor(*args, **kwargs): return SimpleNamespace(actor_ref="M1")
-    async def answers(*args, **kwargs): return {"grade": "S"}
+    answers = AsyncMock(return_value={"grade": "S"})
     monkeypatch.setattr(routes, "resolve_trusted_performance_actor", actor)
     monkeypatch.setattr(routes, "_calibration_answers", answers)
     class Db:
@@ -963,7 +963,8 @@ async def test_workbench_distribution_tips_disabled_when_force_distribution_off(
     result = await routes.workbench_task_distribution_tips("calibration", 1, context(), Db(), None)
     assert result["enabled"] is False
     assert result["total_people"] == 1
-    assert result["rated_people"] == 1
+    assert result["rated_people"] == 0
+    answers.assert_not_awaited()
     assert result["rules"] == []
 
 
@@ -3401,6 +3402,14 @@ async def test_task_people_returns_dynamic_ratings_from_the_current_task(monkeyp
     assert row["ratings"]["rating:grade"] == {"label": "3星+", "color": "#d9f5d6", "foreground": None}
     assert row["ratings"]["rating:value"]["label"] == "A"
     assert row["rating"] is None
+    for sort_key in ("name", "rating:grade", "completion", "status"):
+        paged = await routes.workbench_task_people("manager", 1, "all", context(), Db(), None, page=1, page_size=1, sort_by=sort_key, sort_order="asc")
+        assert paged["total"] == 1 and paged["items"][0]["employee_no"] == "E1"
+        assert len(paged["rating_columns"]) == 2
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as invalid_sort:
+        await routes.workbench_task_people("manager", 1, "all", context(), Db(), None, page=1, sort_by="rating:missing")
+    assert invalid_sort.value.status_code == 422
     task.submitted_at = None
     task.status = "pending"
     row = (await routes.workbench_task_people("manager", 1, "all", context(), Db(), None))[0]
@@ -3445,11 +3454,16 @@ async def test_calibration_people_returns_inherited_rating_before_calibration_su
     monkeypatch.setattr(routes, "_communication_progress", progress)
     monkeypatch.setattr(routes, "_communication_progress_detail", progress)
     async def effective(*args, **kwargs): return {"answers": {"grade": "good"}, "calibrated": False, "source_task": None, "source_kind": None, "source_tasks": []}
-    monkeypatch.setattr(routes, "_effective_member_result", effective)
+    async def effective_results(*args, **kwargs):
+        return {(7, "E1"): await effective()}
+    monkeypatch.setattr(routes, "_effective_project_results", effective_results)
     monkeypatch.setattr(routes, "_calibration_answers", inherited)
     class Db:
         async def get(self, model, key): return project if model is PerformanceProject else None
-        async def execute(self, query): return SimpleNamespace(all=lambda: [(task, node, member)])
+        async def execute(self, query):
+            entity = query.column_descriptions[0]["entity"]
+            values = [node] if entity is routes.PerformanceProjectNodeSnapshot else [task]
+            return SimpleNamespace(all=lambda: [(task, node, member)], scalars=lambda: SimpleNamespace(all=lambda: values))
     row = (await routes.workbench_task_people("calibration", 1, "all", context(), Db(), None))[0]
     assert row["rating_columns"] == [{"key": "rating:grade", "label": "绩效评级"}]
     assert row["ratings"]["rating:grade"] == {"label": "A", "color": "#d9f5d6", "foreground": None}
@@ -5886,7 +5900,7 @@ async def test_employee_results_bind_published_snapshot_and_visible_ratings(monk
         return
     result = await routes.read_my_project_results(1, context(), Db())
     assert result["results"] == ([] if scenario == "published_revoked" else [{"task_id": 3, "field_id": "grade", "option_id": "a", "label": "Label"}])
-    assert state.call_args.kwargs == {"include_history": True, "member_snapshot_id": 8}
+    assert state.call_args.kwargs == {"include_history": True, "member_snapshot_id": 8, "employee_no": "E1"}
     view.config["template"]["content"][0]["settings"] = {"allowView": False}
     result = await routes.read_my_project_results(1, context(), Db())
     assert result["results"] == [] and result["contents"] == []
@@ -8348,7 +8362,7 @@ async def test_member_lists_keep_supervisor_name_visibility_and_zero_360_rate(mo
     monkeypatch.setattr(projects_router, "load_subject_visibility_rules", rules)
     class Db:
         async def get(self, model, key): return target if model is PerformanceProject else None
-        async def scalar(self, query): return None
+        async def scalar(self, query): return 1 if "SELECT count(*)" in str(query) else None
         async def execute(self, query):
             sql = str(query)
             if "performance_authorization_snapshot_people" in sql:
@@ -8387,7 +8401,7 @@ async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch):
     drilldown = AsyncMock(return_value={"E2"})
     loader = AsyncMock(return_value=([
         routes.ProjectMemberResponse(id=2, root_review_id=2, project_id=7, employee_no="E2", display_name="员工二")
-    ], []))
+    ], [], 1))
     monkeypatch.setattr(routes, "_matrix_drilldown_scope", drilldown)
     monkeypatch.setattr(routes, "_project_member_rows", loader)
 
@@ -8395,7 +8409,7 @@ async def test_matrix_drilldown_members_intersects_data_scope(monkeypatch):
 
     assert [item.employee_no for item in result.items] == ["E2"]
     drilldown.assert_awaited_once_with(project, {"E1", "E2"}, "J6", "three", db)
-    loader.assert_awaited_once_with(project, {"E2"}, None, "name", "asc", actor, db)
+    loader.assert_awaited_once_with(project, {"E2"}, None, "name", "asc", actor, db, page=1, page_size=50)
 
 
 @pytest.mark.asyncio
@@ -8466,7 +8480,7 @@ async def test_member_task_map_skips_non_delegatable_stage_without_key_error(mon
     monkeypatch.setattr(projects_router, "load_subject_visibility_rules", rules)
     class Db:
         async def get(self, model, key): return target if model is PerformanceProject else None
-        async def scalar(self, query): return None
+        async def scalar(self, query): return 1 if "SELECT count(*)" in str(query) else None
         async def execute(self, query):
             sql = str(query)
             if "performance_authorization_snapshot_people" in sql:
@@ -9836,6 +9850,8 @@ def management_member_data(monkeypatch):
         async def scalar(self, query):
             self.queries.append(query)
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
+            if "SELECT count(*)" in sql:
+                return len(members)
             if "performance_result_openings" in sql: return None
             if "performance_cycles" in sql:
                 return SimpleNamespace(name="测试周期", start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
@@ -9862,6 +9878,9 @@ def management_member_data(monkeypatch):
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []), all=lambda: [], first=lambda: None)
             values = nodes if entity is models.PerformanceProjectNodeSnapshot else tasks if entity is models.PerformanceNodeTask else members
             rows = list(values)
+            if entity is models.PerformanceProjectMember and query._limit_clause is not None:
+                start = query._offset_clause.value if query._offset_clause is not None else 0
+                rows = rows[start:start + query._limit_clause.value]
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows), all=lambda: rows, first=lambda: rows[0] if rows else None)
     monkeypatch.setattr(routes, "_get_project", AsyncMock(return_value=target))
     monkeypatch.setattr(routes, "_project_data_scope", AsyncMock(return_value=None))
@@ -10088,6 +10107,21 @@ async def test_management_detail_okr_loaded_only_when_configured_without_handler
     okr = detail["management_tabs"][-1]
     assert okr["kind"] == "okr" and okr["task_id"] is None and okr["okr"].period_label == "本期"
     assert okr["okrs"] == periods
+    fetch.reset_mock()
+    original = data.routes._task_visible_content
+    visible = AsyncMock(side_effect=original)
+    monkeypatch.setattr(data.routes, "_task_visible_content", visible)
+    lazy = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer")
+    assert [tab["key"] for tab in lazy["management_tabs"] if tab["content_loaded"]] == ["management-node-30"]
+    assert visible.await_count == 2
+    fetch.assert_not_awaited()
+    visible.reset_mock()
+    lazy_okr = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-okr")
+    fetch.assert_awaited_once_with(data.db, "E1")
+    visible.assert_not_awaited()
+    assert lazy_okr["management_tabs"][-1]["content_loaded"]
+    assert lazy_okr["management_tabs"][-1]["okrs"] == periods
+    assert all(not tab["content_loaded"] for tab in lazy_okr["management_tabs"][:-1])
 
 
 @pytest.mark.asyncio
@@ -10234,6 +10268,32 @@ async def test_management_list_dynamic_final_ratings_empty_page_and_sort_validat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("project_count", [2, 10])
+async def test_completion_batch_query_count_does_not_scale_with_projects(monkeypatch, project_count):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceResultOpening
+    projects = [_pm_project(index, f"项目{index}", 1) for index in range(1, project_count + 1)]
+    nodes = [SimpleNamespace(id=index, project_id=index, node_id="summary", name="工作总结", node_type="work_summary", config={}) for index in range(1, project_count + 1)]
+    async def template(_db, _project, node):
+        return {"node_type": node.node_type, "name": node.name}
+    monkeypatch.setattr(routes, "_completion_node_template", template)
+    class Db:
+        def __init__(self):
+            self.queries = []
+        async def execute(self, query):
+            self.queries.append(query)
+            entity = query.column_descriptions[0]["entity"]
+            values = ([(index, index * 10) for index in range(1, project_count + 1)] if entity is PerformanceProjectMemberSnapshot else
+                nodes if entity is PerformanceProjectNodeSnapshot else [])
+            assert entity in {PerformanceProjectMemberSnapshot, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceNodeTask, PerformanceResultOpening}
+            return SimpleNamespace(all=lambda: values, scalars=lambda: SimpleNamespace(all=lambda: values))
+    db = Db()
+    result = await routes._project_completion_nodes(projects, db)
+    assert len(db.queries) == 5
+    assert next(item for item in result if item["key"] == "work-summary")["configured"]
+
+
+@pytest.mark.asyncio
 async def test_cycle_member_endpoints_union_projects_and_keep_view_export_intersection(monkeypatch):
     from unittest.mock import AsyncMock
     from app.performance import projects_router as routes
@@ -10255,12 +10315,22 @@ async def test_cycle_member_endpoints_union_projects_and_keep_view_export_inters
             return {"E1", "E2"}
         return {"E2"} if project.id == 11 else None
     monkeypatch.setattr(routes, "_project_data_scope", scope)
-    async def rows(project, scope_value, keyword, sort_by, sort_order, _context, _db):
+    enriched = []
+    async def rows(project, scope_value, keyword, sort_by, sort_order, _context, _db, *, employee_nos=None):
         assert sort_by is None and sort_order is None
         candidates = [row_a] if project.id == 11 else [row_b]
-        return ([row for row in candidates if scope_value is None or row.employee_no in scope_value], [{"key": "rating:a", "label": "项目评级"}] if project.id == 11 else [{"key": "rating:b", "label": "阶段评级"}])
+        selected = [row for row in candidates if (scope_value is None or row.employee_no in scope_value)
+            and (employee_nos is None or row.employee_no in employee_nos)]
+        enriched.extend(row.employee_no for row in selected)
+        return (selected, [{"key": "rating:a", "label": "项目评级"}] if project.id == 11 else [{"key": "rating:b", "label": "阶段评级"}])
     monkeypatch.setattr(routes, "_project_member_rows", rows)
-    result = await routes.cycle_project_members(77, None, 1, 1, "name", "asc", context(), object())
+    class Db:
+        async def execute(self, statement):
+            project_id = next(value for key, value in statement.compile().params.items() if key.startswith("project_id"))
+            values = [row_a] if project_id == 11 else [row_b]
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
+    result = await routes.cycle_project_members(77, None, 1, 1, "name", "asc", context(), Db())
+    assert enriched == ["E1"]
     assert result.total == 2 and [item.employee_no for item in result.items] == ["E1"]
     assert {column.key for column in result.rating_columns} == {"rating:a", "rating:b"}
     assert all(item.can_view_detail is False or item.project_id in {11, 12} for item in result.items)
@@ -10442,6 +10512,12 @@ async def test_calibration_deadline_extension_survives_backfill_validation_and_r
     service = PerformanceProjectService(Db())
     monkeypatch.setattr(service, "_validate_distribution_template_options", AsyncMock())
     monkeypatch.setattr(service, "_validate_manual_opening_policy", AsyncMock())
+    from app.performance import project_service
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now
+    monkeypatch.setattr(project_service, "datetime", Clock)
     monkeypatch.setattr(projects_router, "datetime", SimpleNamespace(now=lambda tz: now))
     assert projects_router._self_summary_state(task, *projects_router._task_window(task, node, target), False) == (False, False)
     updated = deepcopy(flow)

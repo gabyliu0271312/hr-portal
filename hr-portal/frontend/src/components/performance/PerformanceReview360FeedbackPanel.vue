@@ -24,6 +24,7 @@ import { type PerformanceTableColumn } from './performanceTableColumns'
 import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTableSort'
 import { communicationColumns } from './performanceReviewDisplay'
 import { formatDisplayDateTime } from '@/utils/datetime'
+import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 const props = withDefaults(defineProps<{
   projectId: number | string
@@ -34,6 +35,7 @@ const emit = defineEmits<{
   'open-task': [{ task_id: number; employee_no: string; display_name: string; status: string }]
 }>()
 
+const projectContext = usePerformanceProjectContextStore()
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
@@ -92,7 +94,10 @@ function canViewProfile(item: FeedbackRow, key: string) {
 const hiddenColumnCount = computed(() => Math.max(0, activeColumns.value.length - selectedColumnKeys.value.length))
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => activeColumns.value.find(column => column.key === key)).filter((column): column is MemberColumnOption => Boolean(column)))
 
+const remotePaging = ref(true)
+let requestSequence = 0
 async function load() {
+  const sequence = ++requestSequence
   loading.value = true
   error.value = ''
   allowVoluntary.value = false
@@ -100,15 +105,21 @@ async function load() {
   voluntaryDisabledReason.value = ''
   try {
     if (communicationMode.value) {
-      const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.nodeId, 'all', keyword.value.trim() || undefined)
-      if (result.some(item => Array.isArray(item.rating_columns))) {
-        updateRatingColumns(Array.from(new Map(result.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
+      const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.nodeId, 'all', keyword.value.trim() || undefined, undefined, page.value, pageSize.value, sortKey.value || undefined, sortOrder.value || undefined)
+      if (sequence !== requestSequence) return
+      remotePaging.value = !Array.isArray(result)
+      const rows = Array.isArray(result) ? result : result.items
+      if (!Array.isArray(result) && result.rating_columns) updateRatingColumns(result.rating_columns)
+      else if (rows.some(item => Array.isArray(item.rating_columns))) {
+        updateRatingColumns(Array.from(new Map(rows.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
       }
-      items.value = result.map(item => ({ ...item, source_label: '', relationship: '' }))
-      total.value = items.value.length
+      items.value = rows.map(item => ({ ...item, source_label: '', relationship: '' }))
+      total.value = Array.isArray(result) ? items.value.length : result.total
       allowVoluntary.value = false
     } else {
-      const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined, props.nodeId)
+      const result = await performanceReview360FeedbackApi.list(props.projectId, keyword.value.trim() || undefined, props.nodeId, page.value, pageSize.value, sortKey.value || undefined, sortOrder.value || undefined)
+      if (sequence !== requestSequence) return
+      remotePaging.value = true
       items.value = result.items
       total.value = result.total
       allowVoluntary.value = result.allow_voluntary_evaluation
@@ -116,12 +127,13 @@ async function load() {
       voluntaryDisabledReason.value = result.voluntary_evaluation_disabled_reason || ''
     }
   } catch {
+    if (sequence !== requestSequence) return
     items.value = []
     total.value = 0
     allowVoluntary.value = false
     error.value = communicationMode.value ? '结果沟通列表加载失败，请稍后重试' : '360° 评估列表加载失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (sequence === requestSequence) loading.value = false
   }
 }
 
@@ -158,6 +170,7 @@ async function confirmVoluntary() {
   try {
     const target = candidates.value.find(candidate => candidate.employee_no === selectedTarget.value)
     const result = await performanceReview360FeedbackApi.start(props.projectId, selectedTarget.value, props.nodeId)
+    projectContext.invalidate()
     dialogOpen.value = false
     void load()
     emit('open-task', {
@@ -226,6 +239,16 @@ function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder
   sortKey.value = order ? key : ''
   sortOrder.value = order
   page.value = 1
+  void load()
+}
+function changePage(nextPage: number) {
+  page.value = nextPage
+  void load()
+}
+function changePageSize(size: number) {
+  pageSize.value = size
+  page.value = 1
+  void load()
 }
 function sortValue(item: FeedbackRow, key: string) {
   if (key.startsWith('rating:')) return item.ratings?.[key]?.label || ''
@@ -250,8 +273,8 @@ function sortValue(item: FeedbackRow, key: string) {
     default: return ''
   }
 }
-const sortedItems = computed(() => sortPerformanceRows(items.value, sortKey.value, sortOrder.value, sortValue))
-const pagedItems = computed(() => sortedItems.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
+const sortedItems = computed(() => remotePaging.value ? items.value : sortPerformanceRows(items.value, sortKey.value, sortOrder.value, sortValue))
+const pagedItems = computed(() => remotePaging.value ? items.value : sortedItems.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
 watch(() => [props.projectId, props.nodeId, props.mode], () => { page.value = 1; void load() })
 onMounted(() => void load())
@@ -288,10 +311,11 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
       clickable-rows
       :sort-key="sortKey"
       :sort-order="sortOrder"
+      sort-mode="remote"
       sticky-header-top="var(--performance-table-sticky-top, 0px)"
       @sort-change="onSortChange"
-      @page-change="page = $event"
-      @page-size-change="pageSize = $event; page = 1"
+      @page-change="changePage"
+      @page-size-change="changePageSize"
       @row-click="openItem"
     >
       <template #cell="{ row, column }">

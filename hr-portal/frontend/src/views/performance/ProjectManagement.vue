@@ -68,7 +68,7 @@
       @transfer="openDrawerDelegation('TRANSFER', $event)"
       @delete="removeDrawerMember"
     />
-    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="viewRefreshKey++" />
+    <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="projectContext.invalidate(); viewRefreshKey++" />
     <RevieweeAddDialog
       v-model="revieweeAddOpen"
       :project-id="revieweeAddProjectId"
@@ -138,7 +138,10 @@ const drawerActiveTab = ref(String(route.query.activeTab || ''))
 const drawerSourceTab = ref('')
 const memberDetailLoader = computed(() => {
   const member = drawerMember.value
-  return member ? () => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id) : undefined
+  return member ? (tab?: string) => projectContext.loadDrawerDetail(
+    JSON.stringify(['management', member.project_id, member.employee_no, member.root_review_id, tab || '']),
+    () => projectManagementApi.memberDetail(member.project_id, member.employee_no, member.root_review_id, tab ?? ''),
+  ) : undefined
 })
 function memberQuery() {
   return { ...route.query, member_project_id: String(drawerMember.value?.project_id || ''), employee_no: drawerMember.value?.employee_no, rootReviewId: String(drawerMember.value?.root_review_id || ''), activeTab: drawerActiveTab.value || undefined }
@@ -181,6 +184,7 @@ async function fillFromDrawer(payload: { task_id: string | number; employee_no: 
     node: payload.node_id || '',
     employee_no: payload.employee_no,
   }
+  projectContext.invalidateDrawerDetails()
   drawerOpen.value = false
   await router.push({ path, query })
 }
@@ -260,6 +264,7 @@ async function removeDrawerMember(payload: { project_id: number; employee_no: st
   deletingMember.value = true
   try {
     await projectManagementApi.removeMember(payload.project_id, payload.employee_no, payload.root_review_id)
+    projectContext.invalidate()
   } catch (failure: any) {
     const detail = failure?.response?.data?.detail
     ElMessage.error(typeof detail === 'string' ? detail : detail?.message || '删除失败，请稍后重试')
@@ -280,6 +285,7 @@ async function removeDrawerMember(payload: { project_id: number; employee_no: st
 }
 
 function delegationCompleted(count: number, _notificationStatus: string | undefined, recordId?: number, skippedCount = 0) {
+  projectContext.invalidateDrawerDetails()
   delegationOpen.value = false
   delegationTasks.value = []
   selectedDelegationMembers.value = []
@@ -408,6 +414,7 @@ function onRevieweeAdded() {
   // 成员列表/总览完成率/矩阵/统计均查同一快照。这里只重绘当前所在视图一次。
   const currentCycleId = activeCycleId.value
   viewRefreshKey.value += 1
+  projectContext.invalidateDrawerDetails()
   void loadOverview(currentCycleId)
 }
 

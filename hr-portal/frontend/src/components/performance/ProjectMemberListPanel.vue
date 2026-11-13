@@ -42,7 +42,16 @@ const emit = defineEmits<{
 }>()
 const selectedKeys = ref<string[]>([])
 const memberSelectionKey = (member: MemberRow) => props.cycleId ? String(member.root_review_id || `${member.project_id}:${member.employee_no}`) : member.employee_no
-const selectedMembers = computed(() => members.value.filter(member => selectedKeys.value.includes(memberSelectionKey(member))))
+const selectedRows = ref<Record<string, MemberRow>>({})
+const selectedMembers = computed(() => selectedKeys.value.map(key => selectedRows.value[key]).filter((member): member is MemberRow => Boolean(member)))
+watch(selectedKeys, keys => {
+  const next: Record<string, MemberRow> = {}
+  for (const key of keys) {
+    const member = members.value.find(row => memberSelectionKey(row) === key) || selectedRows.value[key]
+    if (member) next[key] = member
+  }
+  selectedRows.value = next
+})
 const keyword = ref('')
 const members = ref<MemberRow[]>([])
 const total = ref(0)
@@ -131,26 +140,30 @@ const memberSortValue = (member: MemberRow, key: string) => {
     default: return (member[key as keyof MemberRow] ?? null) as unknown
   }
 }
-const sortedMembers = computed(() => props.reviewContext
+const remoteReviewPaging = ref(true)
+const sortedMembers = computed(() => props.reviewContext && !remoteReviewPaging.value
   ? sortPerformanceRows(members.value, sortBy.value, sortOrder.value, memberSortValue)
   : members.value)
-const displayRows = computed(() => props.reviewContext
+const displayRows = computed(() => props.reviewContext && !remoteReviewPaging.value
   ? sortedMembers.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value)
   : members.value)
 
+let requestSequence = 0
 const loadMembers = async () => {
+  const sequence = ++requestSequence
   loading.value = true
   error.value = ''
-  selectedKeys.value = []
   try {
     if (props.reviewContext) {
-      const result = props.reviewContext.phaseId
-        ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId)
-        : await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined)
-      if (result.some(item => Array.isArray(item.rating_columns))) {
-        updateRatingColumns(Array.from(new Map(result.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
-      } else if (result.length) updateRatingColumns(null)
-      members.value = result.map((item: PerformanceWorkbenchTaskPerson) => ({
+      const result = await performanceWorkbenchApi.taskPeople(Number(props.projectId), props.reviewContext.nodeId, props.reviewContext.state, keyword.value.trim() || undefined, props.reviewContext.phaseId, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
+      if (sequence !== requestSequence) return
+      remoteReviewPaging.value = !Array.isArray(result)
+      const rows = Array.isArray(result) ? result : result.items
+      if (!Array.isArray(result) && result.rating_columns) updateRatingColumns(result.rating_columns)
+      else if (rows.some(item => Array.isArray(item.rating_columns))) {
+        updateRatingColumns(Array.from(new Map(rows.flatMap(item => item.rating_columns || []).map(column => [column.key, column])).values()))
+      } else if (rows.length) updateRatingColumns(null)
+      members.value = rows.map((item: PerformanceWorkbenchTaskPerson) => ({
         id: item.task_id,
         employee_no: item.employee_no,
         display_name: item.display_name,
@@ -177,11 +190,12 @@ const loadMembers = async () => {
         status: item.status,
         due_at: item.due_at,
       }))
-      total.value = members.value.length
+      total.value = Array.isArray(result) ? members.value.length : result.total
     } else {
       const result = props.cycleId
         ? await projectManagementApi.cycleMembers(props.cycleId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
         : await projectManagementApi.members(props.projectId, keyword.value.trim() || undefined, page.value, pageSize.value, sortBy.value || undefined, sortOrder.value || undefined)
+      if (sequence !== requestSequence) return
       members.value = result.items
       total.value = result.total
       if (result.rating_columns) updateRatingColumns(result.rating_columns)
@@ -191,10 +205,14 @@ const loadMembers = async () => {
     }
     const availableKeys = new Set(availableColumns.value.map(column => column.key))
     selectedColumnKeys.value = selectedColumnKeys.value.filter(key => availableKeys.has(key))
+    for (const member of members.value) {
+      const key = memberSelectionKey(member)
+      if (selectedKeys.value.includes(key)) selectedRows.value[key] = member
+    }
   } catch {
-    error.value = '成员列表加载失败，请稍后重试'
+    if (sequence === requestSequence) error.value = '成员列表加载失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (sequence === requestSequence) loading.value = false
   }
 }
 
@@ -218,8 +236,12 @@ const tableColumns = computed<PerformanceTableColumn[]>(() => visibleColumns.val
 })))
 
 async function exportRows() {
-  const rows = props.reviewContext
-    ? sortedMembers.value
+  const context = props.reviewContext
+  const result = context
+    ? await performanceWorkbenchApi.taskPeople(Number(props.projectId), context.nodeId, context.state, keyword.value.trim() || undefined, context.phaseId)
+    : null
+  const rows: MemberRow[] = context
+    ? sortPerformanceRows((Array.isArray(result) ? result : ((result as { items?: PerformanceWorkbenchTaskPerson[] } | null)?.items || [])) as MemberRow[], sortBy.value, sortOrder.value, memberSortValue)
     : (props.cycleId
       ? await projectManagementApi.cycleExportMembers(props.cycleId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)
       : await projectManagementApi.exportMembers(props.projectId, keyword.value.trim() || undefined, sortBy.value || undefined, sortOrder.value || undefined)).items
@@ -233,19 +255,19 @@ function onSortChange({ key, order }: { key: string; order: PerformanceSortOrder
   sortBy.value = order ? key : ''
   sortOrder.value = order
   page.value = 1
-  if (!props.reviewContext) void loadMembers()
+  void loadMembers()
 }
 
 function changePage(nextPage: number) {
   if (nextPage < 1 || nextPage === page.value) return
   page.value = nextPage
-  if (!props.reviewContext) void loadMembers()
+  void loadMembers()
 }
 
 function changePageSize(nextPageSize: number) {
   pageSize.value = nextPageSize
   page.value = 1
-  if (!props.reviewContext) void loadMembers()
+  void loadMembers()
 }
 
 function onRowClick(member: MemberRow) {
@@ -258,6 +280,10 @@ function onEvaluateRemind(member: MemberRow, pendingCount: number) {
 
 watch(() => [props.projectId, props.cycleId, props.reviewContext?.nodeId, props.reviewContext?.state, props.reviewContext?.phaseId], () => {
   page.value = 1
+  selectedKeys.value = []
+  selectedRows.value = {}
+  members.value = []
+  total.value = 0
   void loadMembers()
 })
 
@@ -295,6 +321,7 @@ onMounted(() => void loadMembers())
       :total="total"
       :sort-key="sortBy"
       :sort-order="sortOrder"
+      sort-mode="remote"
       scroll-mode="page"
       :columns="tableColumns"
       sticky-header-top="var(--performance-table-sticky-top, 0px)"

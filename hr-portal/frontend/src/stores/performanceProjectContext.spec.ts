@@ -50,6 +50,62 @@ describe('performance cycle context', () => {
     expect(store.navigation?.active_cycle?.cycle_id).toBe(1)
   })
 
+  it('merges drawer requests and isolates tab, cycle and identity cache keys', async () => {
+    const store = usePerformanceProjectContextStore()
+    store.setActiveCycleId(1)
+    let resolve!: (value: { answer: string }) => void
+    const loader = vi.fn(() => new Promise<{ answer: string }>(done => { resolve = done }))
+    const first = store.loadDrawerDetail('project:1:employee:E1:tab:A', loader)
+    const second = store.loadDrawerDetail('project:1:employee:E1:tab:A', loader)
+    expect(loader).toHaveBeenCalledOnce()
+    resolve({ answer: 'first' })
+    await Promise.all([first, second])
+    await store.loadDrawerDetail('project:1:employee:E1:tab:A', loader)
+    expect(loader).toHaveBeenCalledOnce()
+    const next = vi.fn().mockResolvedValue({ answer: 'next' })
+    await store.loadDrawerDetail('project:1:employee:E1:tab:B', next)
+    store.setActiveCycleId(2)
+    await store.loadDrawerDetail('project:1:employee:E1:tab:A', next)
+    clearEmployeeSwitch()
+    await store.loadDrawerDetail('project:1:employee:E1:tab:A', next)
+    expect(next).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not restore invalidated inflight drawer results', async () => {
+    const store = usePerformanceProjectContextStore()
+    let resolve!: (value: string) => void
+    const old = store.loadDrawerDetail('member', () => new Promise<string>(done => { resolve = done }))
+    store.invalidate()
+    resolve('old')
+    await old
+    const loader = vi.fn().mockResolvedValue('fresh')
+    expect(await store.loadDrawerDetail('member', loader)).toBe('fresh')
+    expect(loader).toHaveBeenCalledOnce()
+  })
+
+  it('shares report inflight work with a 30 second TTL and rejects invalidated results', async () => {
+    const store = usePerformanceProjectContextStore()
+    let now = 1000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const loader = vi.fn().mockResolvedValue({ total: 3 })
+    await Promise.all([store.loadReport('cycle:1:department', loader), store.loadReport('cycle:1:department', loader)])
+    await store.loadReport('cycle:1:department', loader)
+    expect(loader).toHaveBeenCalledOnce()
+    now += 30_001
+    await store.loadReport('cycle:1:department', loader)
+    expect(loader).toHaveBeenCalledTimes(2)
+    let resolve!: (value: number) => void
+    const old = store.loadReport('cycle:1:level', () => new Promise<number>(done => { resolve = done }))
+    const version = store.cacheVersion
+    store.invalidateReviewOverview(1)
+    expect(store.cacheVersion).toBe(version + 1)
+    resolve(1)
+    await old
+    const fresh = vi.fn().mockResolvedValue(2)
+    expect(await store.loadReport('cycle:1:level', fresh)).toBe(2)
+    expect(fresh).toHaveBeenCalledOnce()
+  })
+
   it('does not persist the tested identity cycle', () => {
     setEmployeeSwitch({ session_id: 'session', session_token: 'token', expires_at: '2099-01-01', effective_identity: { employee_no: 'E2', display_name: '员工二' }, mode: 'TARGET_POLICY' })
     const store = usePerformanceProjectContextStore()

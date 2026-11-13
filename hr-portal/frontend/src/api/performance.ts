@@ -133,6 +133,12 @@ export interface PerformanceWorkbenchTaskPerson extends PerformanceMemberProfile
   visible_profile_fields?: string[]
 }
 
+export interface PerformanceWorkbenchTaskPeoplePage {
+  items: PerformanceWorkbenchTaskPerson[]
+  total: number
+  rating_columns: Array<{ key: string; label: string }>
+}
+
 export interface PerformanceCalibrationCompletion {
   scope_version: string
   total_count: number
@@ -404,9 +410,9 @@ export interface PerformanceReview360VoluntaryResult {
 }
 
 export const performanceReview360FeedbackApi = {
-  async list(projectId: number | string, keyword?: string, nodeId?: string): Promise<PerformanceReview360FeedbackList> {
+  async list(projectId: number | string, keyword?: string, nodeId?: string, page?: number, pageSize?: number, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<PerformanceReview360FeedbackList> {
     const { data } = await api.get<PerformanceReview360FeedbackList>(`/performance/review-360/feedback/projects/${projectId}`, {
-      params: { ...(keyword ? { keyword } : {}), ...(nodeId ? { node_id: nodeId } : {}) },
+      params: { ...(keyword ? { keyword } : {}), ...(nodeId ? { node_id: nodeId } : {}), ...(page === undefined ? {} : { page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder }) },
     })
     return data
   },
@@ -450,8 +456,13 @@ export const performanceReviewApi = {
     const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/self-summary/submit`, { answers, version }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async templateTask(taskId: number | string, employeeNo?: string): Promise<PerformanceTemplateTask> {
-    const { data } = await api.get<PerformanceTemplateTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task`, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async templateTask(taskId: number | string, employeeNo?: string, options?: { view?: 'drawer'; tab?: string }): Promise<PerformanceTemplateTask> {
+    const params = {
+      ...(employeeNo ? { employee_no: employeeNo } : {}),
+      ...(options?.view ? { view: options.view } : {}),
+      ...(options?.tab ? { tab: options.tab } : {}),
+    }
+    const { data } = await api.get<PerformanceTemplateTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task`, { params: Object.keys(params).length ? params : undefined })
     return data
   },
   async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null): Promise<SelfSummarySaveResult> {
@@ -1186,8 +1197,12 @@ export const projectManagementApi = {
     })
     return data
   },
-  async memberDetail(projectId: number | string, employeeNo: string, rootReviewId?: number): Promise<PerformanceManagementDetail> {
-    const { data } = await api.get<PerformanceManagementDetail>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/detail`, { params: rootReviewId ? { root_review_id: rootReviewId } : undefined })
+  async memberDetail(projectId: number | string, employeeNo: string, rootReviewId?: number, activeTab?: string): Promise<PerformanceManagementDetail> {
+    const params = {
+      ...(rootReviewId ? { root_review_id: rootReviewId } : {}),
+      ...(activeTab !== undefined ? { view: 'drawer' as const, ...(activeTab ? { tab: activeTab } : {}) } : {}),
+    }
+    const { data } = await api.get<PerformanceManagementDetail>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/detail`, { params })
     return data
   },
   async calibrationCompletionPreview(projectId: number, nodeId: string, phaseId?: string | null): Promise<PerformanceCalibrationCompletion> {
@@ -1329,6 +1344,7 @@ export type EmployeeOkrResponse = {
 }
 export type PerformanceReferenceTab = {
   key: string
+  content_loaded?: boolean
   /** node=引用其他环节内容；okr=内置 OKR；reviewer_360=逐人360参考内容 */
   kind?: 'node' | 'okr' | 'reviewer_360'
   node_id: string
@@ -1473,8 +1489,8 @@ export const performanceWorkbenchApi = {
     const { data } = await api.get<PerformanceWorkbenchTaskGroup[]>('/performance/workbench/tasks', { params: { project_id: projectId, state } })
     return data
   },
-  async taskPeople(projectId: number, nodeId: string, state: 'pending' | 'completed' | 'all', keyword?: string, phaseId?: string | null): Promise<PerformanceWorkbenchTaskPerson[]> {
-    const { data } = await api.get<PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}), ...(phaseId ? { phase_id: phaseId } : {}) } })
+  async taskPeople<TPage extends number | undefined = undefined>(projectId: number, nodeId: string, state: 'pending' | 'completed' | 'all', keyword?: string, phaseId?: string | null, page?: TPage, pageSize?: number, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<TPage extends number ? PerformanceWorkbenchTaskPeoplePage : PerformanceWorkbenchTaskPerson[]> {
+    const { data } = await api.get<TPage extends number ? PerformanceWorkbenchTaskPeoplePage : PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}), ...(phaseId ? { phase_id: phaseId } : {}), ...(page === undefined ? {} : { page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder }) } })
     return data
   },
   async taskDistributionTips(projectId: number, nodeId: string, phaseId?: string | null): Promise<PerformanceDistributionTips> {

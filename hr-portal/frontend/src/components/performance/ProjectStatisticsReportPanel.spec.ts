@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { api } from '@/api/client'
 import ProjectReportMatrix from './ProjectReportMatrix.vue'
 import ProjectStatisticsReportPanel from './ProjectStatisticsReportPanel.vue'
@@ -16,7 +17,8 @@ const levelReport = (): ProjectStatisticsReport => ({
     { id: 'level:--', name: '--', counts: { good: 0 } },
   ],
 })
-afterEach(() => vi.restoreAllMocks())
+beforeEach(() => setActivePinia(createPinia()))
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('ProjectStatisticsReportPanel', () => {
   it('renders captured chapters with the api overview and self-final comparison', async () => {

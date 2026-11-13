@@ -28,6 +28,14 @@ from app.users.models import User
 router = APIRouter()
 
 
+def _request_cache(db: AsyncSession, name: str) -> dict:
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return {}
+    cache = info.setdefault(name, {})
+    return cache if isinstance(cache, dict) else {}
+
+
 class MemberReminderBatchPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_task_id: int | None = Field(default=None, ge=1)
@@ -36,57 +44,126 @@ class MemberReminderBatchPayload(BaseModel):
     skip_recently_reminded: bool = True
 
 
-async def _member_scope(project, employee_no, context, db, source_task_id=None):
+async def preload_member_reminders(project, members, context, db):
+    if not members or not isinstance(getattr(db, "info", None), dict):
+        return
+    from app.performance import projects_router as shared
+
+    snapshot_ids = {member.snapshot_id for member in members}
+    employee_nos = {member.employee_no for member in members}
+    rows = list((await db.execute(select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
+        PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
+    ).where(
+        PerformanceNodeTask.project_id == project.id,
+        PerformanceNodeTask.cycle_ref == project.cycle_ref,
+        PerformanceNodeTask.member_snapshot_id.in_(snapshot_ids),
+        PerformanceNodeTask.target_employee_no.in_(employee_nos),
+        PerformanceNodeTask.revoked_at.is_(None),
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+    ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id))).all())
+    task_ids = [task.id for task, _node in rows]
+    grants = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+        PerformanceNodeTaskAuthorization.task_id.in_(task_ids),
+        PerformanceNodeTaskAuthorization.project_id == project.id,
+        PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
+        PerformanceNodeTaskAuthorization.status == "ACTIVE",
+    ).order_by(PerformanceNodeTaskAuthorization.created_at, PerformanceNodeTaskAuthorization.id))).scalars().all()) if task_ids else []
+    by_task = {}
+    for grant in grants:
+        by_task.setdefault(grant.task_id, []).append(grant)
+    by_member = {(member.snapshot_id, member.employee_no): [] for member in members}
+    for task, node in rows:
+        by_member.setdefault((task.member_snapshot_id, task.target_employee_no), []).append((task, node))
+    snapshots = {key: await db.get(PerformanceProjectMemberSnapshot, key) for key in snapshot_ids}
+    authorizations = {
+        snapshot.source_snapshot_id: await db.get(PerformanceAuthorizationSnapshot, snapshot.source_snapshot_id)
+        for snapshot in snapshots.values() if snapshot is not None
+    }
+    key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    _request_cache(db, "performance_member_reminder_preload")[key] = {
+        "actor": await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref),
+        "snapshots": snapshots, "authorizations": authorizations,
+        "members": {(member.snapshot_id, member.employee_no): member for member in members},
+        "rows": by_member, "tasks": {task.id: task for task, _node in rows},
+        "nodes": {node.id: node for _task, node in rows}, "grants": by_task,
+        "latest_snapshot_id": await db.scalar(select(shared._latest_member_snapshot_statement(project.id))),
+    }
+
+
+def _preloaded_edit_allowed(task, actor_ref, preloaded):
+    if task.revoked_at is not None:
+        return False
+    active = preloaded["grants"].get(task.id, [])
+    return (not any(item.authorization_type == "TRANSFER" for item in active) and str(task.handler_ref) == str(actor_ref)
+            or any(item.recipient_employee_no == str(actor_ref) and not item.read_only for item in active))
+
+
+async def _member_scope(project, employee_no, context, db, source_task_id=None, *, preloaded=None):
     from app.performance import projects_router as shared
 
     if getattr(project, "status", None) != PROJECT_STATUS_STARTED:
         raise HTTPException(404, "PROJECT_NOT_FOUND")
-    actor = await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
+    actor = preloaded["actor"] if preloaded else await shared.resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
     source = None
     if source_task_id is not None:
-        source = await db.get(PerformanceNodeTask, source_task_id)
+        source = preloaded["tasks"].get(source_task_id) if preloaded else await db.get(PerformanceNodeTask, source_task_id)
         if (source is None or source.project_id != project.id or source.cycle_ref != project.cycle_ref
                 or source.target_employee_no != employee_no or source.revoked_at is not None
                 or source.task_kind != "evaluation" or actor.actor_type != "EMPLOYEE"):
             raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
-        source_node = await db.get(PerformanceProjectNodeSnapshot, source.node_snapshot_id)
+        source_node = preloaded["nodes"].get(source.node_snapshot_id) if preloaded else await db.get(PerformanceProjectNodeSnapshot, source.node_snapshot_id)
+        source_editable = _preloaded_edit_allowed(source, actor.actor_ref, preloaded) if preloaded else await shared._task_edit_allowed(db, source, actor.actor_ref)
         if (source_node is None or source_node.project_id != project.id
                 or shared.node_role_code({"node_type": source_node.node_type, **((source_node.config or {}).get("template") or {})}) not in shared.MANAGER_ROLE_CODES
-                or not await shared._task_edit_allowed(db, source, actor.actor_ref)
+                or not source_editable
                 or not shared._task_is_available(source, source_node, project)):
             raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
-    snapshot_id = source.member_snapshot_id if source is not None else await db.scalar(select(shared._latest_member_snapshot_statement(project.id)))
-    snapshot = await db.get(PerformanceProjectMemberSnapshot, snapshot_id) if snapshot_id is not None else None
+    snapshot_id = source.member_snapshot_id if source is not None else (preloaded["latest_snapshot_id"] if preloaded else await db.scalar(select(shared._latest_member_snapshot_statement(project.id))))
+    snapshot = preloaded["snapshots"].get(snapshot_id) if preloaded else await db.get(PerformanceProjectMemberSnapshot, snapshot_id) if snapshot_id is not None else None
     if snapshot is None or snapshot.project_id != project.id or snapshot.cycle_ref != project.cycle_ref:
         raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
-    authorization_snapshot = await db.get(PerformanceAuthorizationSnapshot, snapshot.source_snapshot_id)
+    authorization_snapshot = preloaded["authorizations"].get(snapshot.source_snapshot_id) if preloaded else await db.get(PerformanceAuthorizationSnapshot, snapshot.source_snapshot_id)
     if authorization_snapshot is None or authorization_snapshot.cycle_ref != project.cycle_ref:
         raise HTTPException(404, "PROJECT_MEMBER_NOT_FOUND")
 
-    managed = await shared._can_manage_project_like_overview(context, project, db)
-    if managed:
-        try:
-            scope = await shared._project_data_scope(context, project, db, "performance.frontend.data-view")
-            managed = scope is None or employee_no in scope
-        except HTTPException as exc:
-            if exc.status_code != 403:
-                raise
-            managed = False
+    scope_cache = _request_cache(db, "performance_member_reminder_management")
+    scope_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    management = scope_cache.get(scope_key)
+    if management is None:
+        managed = await shared._can_manage_project_like_overview(context, project, db)
+        scope = None
+        if managed:
+            try:
+                scope = await shared._project_data_scope(context, project, db, "performance.frontend.data-view")
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+                managed = False
+        management = (managed, scope)
+        scope_cache[scope_key] = management
+    managed, scope = management
+    managed = managed and (scope is None or employee_no in scope)
     manager_task = source
     if not managed:
         if actor.actor_type != "EMPLOYEE":
             raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
-        manager_task = await shared._member_manager_task_for_actor(db, project.id, employee_no, actor.actor_ref, snapshot_id)
+        if preloaded:
+            manager_task = next((task for task, node in preloaded["rows"].get((snapshot_id, employee_no), [])
+                if task.task_kind == "evaluation" and shared.node_role_code({"node_type": node.node_type, **((node.config or {}).get("template") or {})}) in shared.MANAGER_ROLE_CODES
+                and str(actor.actor_ref) in shared.effective_handlers(task.handler_ref, preloaded["grants"].get(task.id, []))), None)
+        else:
+            manager_task = await shared._member_manager_task_for_actor(db, project.id, employee_no, actor.actor_ref, snapshot_id)
+        editable = manager_task is not None and (_preloaded_edit_allowed(manager_task, actor.actor_ref, preloaded) if preloaded else await shared._task_edit_allowed(db, manager_task, actor.actor_ref))
         if (manager_task is None or manager_task.project_id != project.id
                 or manager_task.member_snapshot_id != snapshot_id or manager_task.cycle_ref != project.cycle_ref
                 or manager_task.target_employee_no != employee_no or manager_task.revoked_at is not None
-                or not await shared._task_edit_allowed(db, manager_task, actor.actor_ref)):
+                or not editable):
             raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
-        manager_node = await db.get(PerformanceProjectNodeSnapshot, manager_task.node_snapshot_id)
+        manager_node = preloaded["nodes"].get(manager_task.node_snapshot_id) if preloaded else await db.get(PerformanceProjectNodeSnapshot, manager_task.node_snapshot_id)
         if (manager_node is None or manager_node.project_id != project.id
                 or not shared._task_is_available(manager_task, manager_node, project)):
             raise HTTPException(403, "PROJECT_MEMBER_REMIND_FORBIDDEN")
-    member = await db.scalar(select(PerformanceProjectMember).where(
+    member = preloaded["members"].get((snapshot_id, employee_no)) if preloaded else await db.scalar(select(PerformanceProjectMember).where(
         PerformanceProjectMember.snapshot_id == snapshot_id,
         PerformanceProjectMember.employee_no == employee_no,
     ))
@@ -99,7 +176,16 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
     from app.performance import projects_router as shared
     from app.integrations.feishu.notification_service import _global_delivery_mode
 
-    actor, snapshot, member, manager_task = await _member_scope(project, employee_no, context, db, source_task_id)
+    preload_cache = _request_cache(db, "performance_member_reminder_preload")
+    preload_key = (project.id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    preloaded = preload_cache.get(preload_key) if first_only else None
+    scope_cache = _request_cache(db, "performance_member_reminder_scope") if first_only else {}
+    scope_key = (project.id, employee_no, source_task_id, context.subject_type, context.subject_id, context.effective_employee_no, context.switch_session_id)
+    scoped = scope_cache.get(scope_key)
+    if scoped is None:
+        scoped = await _member_scope(project, employee_no, context, db, source_task_id, preloaded=preloaded)
+        scope_cache[scope_key] = scoped
+    actor, snapshot, member, manager_task = scoped
     statement = select(PerformanceNodeTask, PerformanceProjectNodeSnapshot).join(
         PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id,
     ).where(
@@ -110,11 +196,14 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
         PerformanceNodeTask.revoked_at.is_(None),
         PerformanceProjectNodeSnapshot.project_id == project.id,
     ).order_by(PerformanceProjectNodeSnapshot.node_order, PerformanceNodeTask.id)
-    if node_id is not None:
-        statement = statement.where(PerformanceProjectNodeSnapshot.node_id == node_id)
-    if task_id is not None:
-        statement = statement.where(PerformanceNodeTask.id == task_id)
-    rows = (await db.execute(statement)).all()
+    if preloaded and node_id is None and task_id is None:
+        rows = preloaded["rows"].get((snapshot.id, employee_no), [])
+    else:
+        if node_id is not None:
+            statement = statement.where(PerformanceProjectNodeSnapshot.node_id == node_id)
+        if task_id is not None:
+            statement = statement.where(PerformanceNodeTask.id == task_id)
+        rows = (await db.execute(statement)).all()
     rows = [(task, node) for task, node in rows if (
         task.project_id == project.id and task.cycle_ref == project.cycle_ref
         and task.member_snapshot_id == snapshot.id and task.target_employee_no == employee_no
@@ -124,29 +213,39 @@ async def _member_tasks(project, employee_no, context, db, source_task_id=None, 
     )]
     if task_id is not None and not rows:
         raise HTTPException(404, "REMINDER_TARGET_NOT_FOUND")
-    people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
-        PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
-    ))).scalars().all())
-    people_by_no = {person.employee_no: person for person in people}
-    active_people = {person.employee_no for person in people if person.employment_status not in {"离职", "已离职"}}
-    delivery_mode = await _global_delivery_mode(db)
-    deliverable = active_people
-    if delivery_mode == "normal":
-        deliverable = set((await db.execute(select(PerformanceIdentityLink.employee_no).join(
-            User, User.id == PerformanceIdentityLink.portal_user_id,
-        ).where(
-            PerformanceIdentityLink.employee_no.in_(active_people), PerformanceIdentityLink.is_active.is_(True),
-            User.is_active.is_(True), User.feishu_user_id.is_not(None), User.feishu_user_id != "",
-        ))).scalars().all()) & active_people
-    delegations = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
-        PerformanceNodeTaskAuthorization.task_id.in_([task.id for task, _node in rows]),
-        PerformanceNodeTaskAuthorization.project_id == project.id,
-        PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
-        PerformanceNodeTaskAuthorization.status == "ACTIVE",
-    ))).scalars().all()) if rows else []
-    by_task = {}
-    for delegation in delegations:
-        by_task.setdefault(delegation.task_id, []).append(delegation)
+    people_cache = _request_cache(db, "performance_member_reminder_people")
+    people_key = snapshot.source_snapshot_id
+    people_data = people_cache.get(people_key)
+    if people_data is None:
+        people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).where(
+            PerformanceAuthorizationSnapshotPerson.snapshot_id == snapshot.source_snapshot_id,
+        ))).scalars().all())
+        people_by_no = {person.employee_no: person for person in people}
+        active_people = {person.employee_no for person in people if person.employment_status not in {"离职", "已离职"}}
+        delivery_mode = await _global_delivery_mode(db)
+        deliverable = active_people
+        if delivery_mode == "normal":
+            deliverable = set((await db.execute(select(PerformanceIdentityLink.employee_no).join(
+                User, User.id == PerformanceIdentityLink.portal_user_id,
+            ).where(
+                PerformanceIdentityLink.employee_no.in_(active_people), PerformanceIdentityLink.is_active.is_(True),
+                User.is_active.is_(True), User.feishu_user_id.is_not(None), User.feishu_user_id != "",
+            ))).scalars().all()) & active_people
+        people_data = (people_by_no, deliverable)
+        people_cache[people_key] = people_data
+    people_by_no, deliverable = people_data
+    if preloaded:
+        by_task = preloaded["grants"]
+    else:
+        delegations = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(
+            PerformanceNodeTaskAuthorization.task_id.in_([task.id for task, _node in rows]),
+            PerformanceNodeTaskAuthorization.project_id == project.id,
+            PerformanceNodeTaskAuthorization.cycle_ref == project.cycle_ref,
+            PerformanceNodeTaskAuthorization.status == "ACTIVE",
+        ))).scalars().all()) if rows else []
+        by_task = {}
+        for delegation in delegations:
+            by_task.setdefault(delegation.task_id, []).append(delegation)
     candidates = []
     for task, node in rows:
         if task.status != "pending" or shared._task_completed(task) or not shared._task_is_available(task, node, project):

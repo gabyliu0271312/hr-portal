@@ -145,6 +145,46 @@ async def sending(db, context, task_ids=None, **kwargs):
 
 
 @pytest.mark.asyncio
+async def test_reminder_checks_share_snapshot_queries_and_revalidate_tasks(environment):
+    db, context, _sender = environment
+    db.info = {}
+    assert await adapter.can_remind_member(db.project, "E1", context, db)
+    assert await adapter.can_remind_member(db.project, "E1", context, db)
+    entities = [query.column_descriptions[0]["entity"] for query in db.queries]
+    assert entities.count(PerformanceAuthorizationSnapshotPerson) == 1
+    assert entities.count(PerformanceIdentityLink) == 1
+    shared._can_manage_project_like_overview.assert_awaited_once()
+    shared._project_data_scope.assert_awaited_once()
+    for item in db.tasks.values():
+        item.status = "completed"
+    assert not await adapter.can_remind_member(db.project, "E1", context, db)
+    db.info.clear()
+    assert not await adapter.can_remind_member(db.project, "E1", context, db)
+    entities = [query.column_descriptions[0]["entity"] for query in db.queries]
+    assert entities.count(PerformanceAuthorizationSnapshotPerson) == 2
+    assert entities.count(PerformanceIdentityLink) == 2
+
+
+@pytest.mark.asyncio
+async def test_preloaded_reminder_checks_batch_queries_and_sending_revalidates(environment):
+    db, context, sender = environment
+    db.info = {}
+    await adapter.preload_member_reminders(db.project, [db.member], context, db)
+    assert await adapter.can_remind_member(db.project, "E1", context, db)
+    first_count = len(db.queries)
+    assert await adapter.can_remind_member(db.project, "E1", context, db)
+    assert len(db.queries) == first_count
+    entities = [query.column_descriptions[0]["entity"] for query in db.queries]
+    assert entities.count(PerformanceNodeTask) == 1
+    assert entities.count(PerformanceNodeTaskAuthorization) == 1
+    db.delegations = [delegation(1, "UNKNOWN", "TRANSFER")]
+    response = await sending(db, context, [1])
+    assert response["accepted_task_ids"] == []
+    sender.assert_not_awaited()
+    assert len(db.queries) > first_count
+
+
+@pytest.mark.asyncio
 async def test_all_member_task_types_are_listed_and_sent_without_self_or_profile_leaks(environment):
     db, context, sender = environment
     response = await listing(db, context)

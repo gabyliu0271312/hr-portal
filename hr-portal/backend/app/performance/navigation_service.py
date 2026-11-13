@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.performance.assessment_roles import MANAGER_ROLE_CODES, ROLE_METRIC_EVALUATOR, ROLE_REVIEWEE, ROLE_REVIEWER_360, node_role_code
 from app.performance.auth_context import PerformanceAccessContext, PerformanceIdentityMappingConflict, employee_no_in_cycle, resolve_performance_employee_no
@@ -68,7 +69,38 @@ def _voluntary_360_node_ids(project, nodes):
     return {node.id for node in nodes if _is_360_evaluation_node(node)}
 
 
+def _request_cache(db: AsyncSession, name: str) -> dict:
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return {}
+    cache = info.setdefault(name, {})
+    return cache if isinstance(cache, dict) else {}
+
+
+def _context_cache_key(context: PerformanceAccessContext) -> tuple:
+    return (
+        context.subject_type,
+        context.subject_id,
+        context.effective_employee_no,
+        context.switch_session_id,
+        context.role_grants,
+        context.permission_codes,
+        context.display_name,
+    )
+
+
 async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessContext) -> FrontendAccess:
+    cache = _request_cache(db, "performance_frontend_access")
+    cache_key = _context_cache_key(context)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = await _resolve_frontend_access(db, context)
+    cache[cache_key] = result
+    return result
+
+
+async def _resolve_frontend_access(db: AsyncSession, context: PerformanceAccessContext) -> FrontendAccess:
     result = FrontendAccess()
     if context.subject_type == "SYSTEM_ACCOUNT":
         return result
@@ -77,10 +109,22 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
     except PerformanceIdentityMappingConflict:
         return result
 
-    people_rows = list((await db.execute(
-        select(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshot)
-        .join(PerformanceAuthorizationSnapshot, PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id)
-    )).all())
+    people_query = select(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshot).join(
+        PerformanceAuthorizationSnapshot,
+        PerformanceAuthorizationSnapshot.id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    )
+    if not context.effective_employee_no:
+        related_snapshots = select(PerformanceAuthorizationSnapshotPerson.snapshot_id).where(or_(
+            PerformanceAuthorizationSnapshotPerson.employee_no == result.actor_ref if result.actor_ref else False,
+            PerformanceAuthorizationSnapshotPerson.portal_user_id == context.subject_id,
+        ))
+        people_query = people_query.where(PerformanceAuthorizationSnapshot.id.in_(related_snapshots))
+    people_query = people_query.options(load_only(
+        PerformanceAuthorizationSnapshotPerson.id, PerformanceAuthorizationSnapshotPerson.snapshot_id,
+        PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name,
+        PerformanceAuthorizationSnapshotPerson.portal_user_id,
+    ), load_only(PerformanceAuthorizationSnapshot.id, PerformanceAuthorizationSnapshot.cycle_ref))
+    people_rows = list((await db.execute(people_query)).all())
     people_by_cycle = {}
     for person, snapshot in people_rows:
         people_by_cycle.setdefault(snapshot.cycle_ref, []).append(person)
@@ -94,17 +138,43 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
     roles = list((await db.execute(select(PerformanceRole))).scalars().all())
     management_roles = {role.code: set(role.function_permission_keys or []) for role in roles if role.is_active and role.role_type == "MANAGEMENT"}
     assessment_roles = {role.code for role in roles if role.is_active and role.role_type == "ASSESSMENT" and role.is_system}
-    cycles = list((await db.execute(select(PerformanceCycle).order_by(PerformanceCycle.start_at.desc(), PerformanceCycle.id.desc()))).scalars().all())
+    cycles = list((await db.execute(select(PerformanceCycle).where(
+        PerformanceCycle.cycle_ref.in_(result.actor_refs_by_cycle),
+    ).order_by(PerformanceCycle.start_at.desc(), PerformanceCycle.id.desc()))).scalars().all())
     cycles.sort(key=lambda cycle: (cycle.start_at, cycle.id), reverse=True)
     cycles_by_ref = {cycle.cycle_ref: cycle for cycle in cycles}
-    projects = list((await db.execute(select(PerformanceProject).where(PerformanceProject.status == PROJECT_STATUS_STARTED).order_by(PerformanceProject.id))).scalars().all())
+    projects = list((await db.execute(select(PerformanceProject).where(
+        PerformanceProject.status == PROJECT_STATUS_STARTED,
+        PerformanceProject.cycle_ref.in_(cycles_by_ref),
+    ).order_by(PerformanceProject.id))).scalars().all())
     projects = [project for project in projects if project.status == PROJECT_STATUS_STARTED and project.cycle_ref in cycles_by_ref]
     project_ids = [project.id for project in projects]
     if project_ids:
-        member_rows = list((await db.execute(select(PerformanceProjectMember, PerformanceProjectMemberSnapshot).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id).where(PerformanceProjectMemberSnapshot.project_id.in_(project_ids)))).all())
+        latest_member_snapshots = select(func.max(PerformanceProjectMemberSnapshot.id)).where(
+            PerformanceProjectMemberSnapshot.project_id.in_(project_ids),
+        ).group_by(PerformanceProjectMemberSnapshot.project_id)
+        member_rows = list((await db.execute(select(PerformanceProjectMember, PerformanceProjectMemberSnapshot).join(
+            PerformanceProjectMemberSnapshot,
+            PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
+        ).where(
+            PerformanceProjectMemberSnapshot.project_id.in_(project_ids),
+            PerformanceProjectMemberSnapshot.id.in_(latest_member_snapshots),
+        ).options(load_only(
+            PerformanceProjectMember.id, PerformanceProjectMember.snapshot_id,
+            PerformanceProjectMember.employee_no, PerformanceProjectMember.organization_ref,
+        ), load_only(
+            PerformanceProjectMemberSnapshot.id, PerformanceProjectMemberSnapshot.project_id,
+        )))).all())
         nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(PerformanceProjectNodeSnapshot.project_id.in_(project_ids)).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
         conditions = [and_(PerformanceNodeTask.cycle_ref == cycle_ref, task_handler_condition(actor_ref)) for cycle_ref, actor_ref in result.actor_refs_by_cycle.items()]
-        tasks = list((await db.execute(select(PerformanceNodeTask).where(PerformanceNodeTask.project_id.in_(project_ids), PerformanceNodeTask.revoked_at.is_(None), or_(*conditions)))).scalars().all()) if conditions else []
+        tasks = list((await db.execute(select(PerformanceNodeTask).where(
+            PerformanceNodeTask.project_id.in_(project_ids), PerformanceNodeTask.revoked_at.is_(None), or_(*conditions),
+        ).options(load_only(
+            PerformanceNodeTask.id, PerformanceNodeTask.project_id, PerformanceNodeTask.cycle_ref,
+            PerformanceNodeTask.node_snapshot_id, PerformanceNodeTask.handler_ref,
+            PerformanceNodeTask.target_employee_no, PerformanceNodeTask.task_kind,
+            PerformanceNodeTask.phase_id, PerformanceNodeTask.revoked_at,
+        )))).scalars().all()) if conditions else []
     else:
         member_rows, nodes, tasks = [], [], []
     latest_snapshots = {}
@@ -121,7 +191,19 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
     tasks_by_project = {}
     for task in tasks:
         tasks_by_project.setdefault(task.project_id, []).append(task)
-    hrbp_permissions = list((await db.execute(select(PerformanceHrbpPermission))).scalars().all()) if "performance.hrbp" in management_roles else []
+    hrbp_permissions = list((await db.execute(select(PerformanceHrbpPermission).where(
+        PerformanceHrbpPermission.cycle_ref.in_(result.actor_refs_by_cycle),
+        PerformanceHrbpPermission.hrbp_employee_no.in_(set(result.actor_refs_by_cycle.values())),
+    ))).scalars().all()) if "performance.hrbp" in management_roles else []
+    reconsideration_ids = [task.id for task in tasks
+        if nodes_by_id.get(task.node_snapshot_id) is not None
+        and nodes_by_id[task.node_snapshot_id].node_type == "result_reconsideration"]
+    valid_reconsiderations = set()
+    if reconsideration_ids:
+        from app.performance.reconsideration_service import valid_reconsideration_task
+        valid_reconsiderations = set((await db.execute(select(PerformanceNodeTask.id).where(
+            PerformanceNodeTask.id.in_(reconsideration_ids), valid_reconsideration_task(),
+        ))).scalars().all())
     related_refs = set()
     frontend_features = {"performance.frontend.progress", "performance.frontend.data-view", "performance.frontend.result-open"}
     custom_task_features = {"performance.frontend.authorize-evaluation-tasks", "performance.frontend.authorize-calibration-tasks"}
@@ -157,10 +239,8 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
                     continue
                 if node is None or node.project_id != project.id or task.cycle_ref != project.cycle_ref:
                     continue
-                if node.node_type == "result_reconsideration":
-                    from app.performance.reconsideration_service import valid_reconsideration_task
-                    if not await db.scalar(select(PerformanceNodeTask.id).where(PerformanceNodeTask.id == task.id, valid_reconsideration_task())):
-                        continue
+                if node.node_type == "result_reconsideration" and task.id not in valid_reconsiderations:
+                    continue
                 result.own_task_project_ids.add(project.id)
                 role = node_role_code({"node_type": node.node_type, **((node.config or {}).get("template") or {})})
                 if role and role not in assessment_roles:
@@ -217,4 +297,8 @@ async def resolve_frontend_access(db: AsyncSession, context: PerformanceAccessCo
 
 
 async def _global_hrbp_invisible_people(db: AsyncSession, *, scopes=()) -> set[str]:
-    return await global_hrbp_invisible_people(db, scopes=scopes)
+    cache = _request_cache(db, "performance_hrbp_invisible_people")
+    key = tuple(sorted(scopes))
+    if key not in cache:
+        cache[key] = await global_hrbp_invisible_people(db, scopes=scopes)
+    return cache[key]

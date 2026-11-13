@@ -1,6 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { performanceOkrApi, performanceReviewApi, projectManagementApi } from '@/api/performance'
+import { performanceOkrApi, performanceReviewApi, projectManagementApi, type PerformanceManagementDetail, type PerformanceReferenceTab } from '@/api/performance'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
+import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 import previewCardSource from './PerformanceReminderPreviewCard.vue?raw'
@@ -31,6 +33,73 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
   })
 
+  it('loads only selected tab content, merges pending revisits and keeps loaded tabs cached', async () => {
+    const tab = (key: string, loaded: boolean): PerformanceReferenceTab => ({ key, node_id: key, node_name: key, employee_no: 'E001', status: 'completed', can_remind: false, content_loaded: loaded, form_schema: loaded ? task.form_schema : [], answers: loaded ? { good: key } : {} })
+    const detail = (key: string): PerformanceManagementDetail => ({ ...structuredClone(task), management_tabs: [tab('first', key === 'first'), tab('second', key === 'second')], default_active_tab: 'first' })
+    let resolveSecond!: (value: PerformanceManagementDetail) => void
+    const loader = vi.fn((key?: string) => key === 'second' ? new Promise<PerformanceManagementDetail>(resolve => { resolveSecond = resolve }) : Promise.resolve(detail('first')))
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader: loader } })
+    const select = async (index: number) => {
+      ;(document.body.querySelectorAll('.performance-drawer .line-tab')[index] as HTMLButtonElement).click()
+      await flushPromises()
+    }
+    try {
+      await flushPromises()
+      expect(loader).toHaveBeenCalledTimes(1)
+      await select(1)
+      expect(loader).toHaveBeenLastCalledWith('second')
+      await select(0)
+      expect(document.body.textContent).toContain('first')
+      await select(1)
+      expect(loader).toHaveBeenCalledTimes(2)
+      resolveSecond(detail('second'))
+      await flushPromises()
+      expect(document.body.querySelector('.performance-review-evaluation-drawer__card')?.textContent).toContain('second')
+      await select(0)
+      await select(1)
+      expect(loader).toHaveBeenCalledTimes(2)
+    } finally { wrapper.unmount() }
+  })
+
+  it('discards pending drawer data when effective identity changes', async () => {
+    let resolveOld!: (value: PerformanceManagementDetail) => void
+    const loader = vi.fn().mockImplementationOnce(() => new Promise<PerformanceManagementDetail>(resolve => { resolveOld = resolve })).mockResolvedValue({ ...structuredClone(task), person: { employee_no: 'E002', display_name: '新身份可见人员' } })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader: loader } })
+    try {
+      employeeSwitchEpoch.value++
+      await flushPromises()
+      resolveOld({ ...structuredClone(task), person: { employee_no: 'E001', display_name: '旧身份敏感人员' } })
+      await flushPromises()
+      expect(document.body.textContent).toContain('新身份可见人员')
+      expect(document.body.textContent).not.toContain('旧身份敏感人员')
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps inline OKR visible while fetching periods and after a supplement failure', async () => {
+    const okr = { source: 'feishu', okr_id: 'okr-1', period_id: 'period-1', period_label: '本期', objectives: [{ id: 'o-1', content: '已有目标', key_results: [] }] }
+    let rejectRequest!: (error: Error) => void
+    vi.spyOn(performanceOkrApi, 'taskOkr').mockImplementation(() => new Promise((_resolve, reject) => { rejectRequest = reject }))
+    const reference: PerformanceReferenceTab = { key: 'reference-okr', kind: 'okr', node_id: '', node_name: 'OKR', task_id: 145, employee_no: 'E001', status: 'completed', can_remind: false, form_schema: [], answers: {}, okr }
+    const wrapper = mount(PerformanceReferenceContent, { props: { reference } })
+    try {
+      expect(wrapper.text()).toContain('已有目标')
+      expect(wrapper.text()).toContain('正在加载')
+      rejectRequest(new Error('unavailable'))
+      await flushPromises()
+      expect(wrapper.text()).toContain('已有目标')
+      expect(wrapper.text()).toContain('OKR 加载失败')
+    } finally { wrapper.unmount() }
+  })
+
+  it('uses complete authorized drawer OKR periods without a generic task request', async () => {
+    const request = vi.spyOn(performanceOkrApi, 'taskOkr')
+    const wrapper = mount(PerformanceReferenceContent, { props: { reference: { key: 'management-okr', kind: 'okr', content_loaded: true, node_id: '', node_name: 'OKR', task_id: 145, employee_no: 'E001', status: 'not_started', can_remind: false, form_schema: [], answers: {}, okr: null, okrs: [] } } })
+    try {
+      await flushPromises()
+      expect(request).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
   it('loads the selected task and renders its readonly template content', async () => {
     const wrapper = mount(PerformanceReviewEvaluationDrawer, {
       props: { modelValue: true, taskId: 145, employeeNo: 'E001', nodeName: '上级评估', person: task.person },
@@ -38,7 +107,7 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     })
     await flushPromises()
 
-    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(145, 'E001')
+    expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(145, 'E001', { view: 'drawer' })
     expect(document.body.textContent).toContain('alice.xiao肖惠方')
     expect(document.body.textContent).toContain('价值贡献 11')
     expect(document.body.textContent).toContain('你可在 2026-10-03 23:59（GMT+8） 前继续编辑')

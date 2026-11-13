@@ -11,7 +11,7 @@
             <PerformanceReviewCompletionNotice v-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
-            <PerformanceReferenceContent v-else-if="managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="emit('remind', $event)" />
+            <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="emit('remind', $event)" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
               <p>暂未提交</p>
@@ -52,7 +52,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import { ElMessage } from 'element-plus'
 import { performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type SelfSummaryPerson } from '@/api/performance'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
@@ -75,7 +76,7 @@ const props = withDefaults(defineProps<{
   nodeName?: string
   activeTab?: string
   person?: Partial<DrawerPerson>
-  detailLoader?: () => Promise<PerformanceManagementDetail>
+  detailLoader?: (tab?: string) => Promise<PerformanceManagementDetail>
   member?: PerformanceMemberContext | null
 }>(), { readonly: false, taskId: null, employeeNo: '', projectId: undefined, nodeName: '', person: () => ({}), member: null })
 const emit = defineEmits<{
@@ -98,6 +99,8 @@ const activeTab = ref(props.activeTab || 'evaluation')
 const deleteOpen = ref(false)
 const selectedTab = computed({ get: () => activeReference.value?.key || activeTab.value, set: value => { activeTab.value = value; emit('update:activeTab', value) } })
 let loadSequence = 0
+let contextSequence = 0
+const pendingDetails = new Map<string, Promise<PerformanceManagementDetail>>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const title = computed(() => task.value?.node_name || props.nodeName || '上级评估')
 const referenceTabs = computed(() => task.value?.reference_tabs || [])
@@ -171,18 +174,46 @@ function formatDate(value?: string | null) {
   const part = (type: string) => parts.find(item => item.type === type)?.value || ''
   return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}（GMT+8）`
 }
+function mergeTabs(previous: PerformanceReferenceTab[] | undefined, next: PerformanceReferenceTab[] | undefined) {
+  return next?.map(tab => {
+    const cached = previous?.find(item => item.key === tab.key)
+    return tab.content_loaded === false && cached && cached.content_loaded !== false ? cached : tab
+  })
+}
 async function load() {
   const taskId = props.taskId
   if (!props.modelValue || (!props.detailLoader && (taskId === null || taskId === undefined || taskId === ''))) return
+  const requestedTab = activeTab.value
+  const selected = managementTab.value || activeReference.value
   const sequence = ++loadSequence
+  if (task.value && (selected ? selected.content_loaded !== false : requestedTab === 'evaluation')) {
+    loading.value = false
+    error.value = ''
+    return
+  }
+  const context = contextSequence
+  const tab = requestedTab === 'evaluation' ? undefined : requestedTab
+  const key = tab || ''
   loading.value = true
   error.value = ''
   try {
-    const loaded = props.detailLoader
-      ? await props.detailLoader()
-      : props.employeeNo ? await performanceReviewApi.templateTask(taskId!, props.employeeNo) : await performanceReviewApi.templateTask(taskId!)
+    let pending = pendingDetails.get(key)
+    if (!pending) {
+      pending = props.detailLoader
+        ? props.detailLoader(tab)
+        : performanceReviewApi.templateTask(taskId!, props.employeeNo || undefined, { view: 'drawer', ...(tab ? { tab } : {}) })
+      pendingDetails.set(key, pending)
+      const request = pending
+      void request.finally(() => { if (pendingDetails.get(key) === request) pendingDetails.delete(key) }).catch(() => {})
+    }
+    const loaded = await pending
+    if (context !== contextSequence || !props.modelValue) return
+    task.value = {
+      ...loaded,
+      management_tabs: mergeTabs(task.value?.management_tabs, loaded.management_tabs),
+      reference_tabs: mergeTabs(task.value?.reference_tabs, loaded.reference_tabs),
+    }
     if (sequence !== loadSequence) return
-    task.value = loaded
     if (loaded.management_tabs) {
       const selected = loaded.management_tabs.find(tab => tab.key === activeTab.value || tab.node_id === activeTab.value)
       selectedTab.value = selected?.key || loaded.default_active_tab || loaded.management_tabs[0]?.key || 'evaluation'
@@ -226,15 +257,21 @@ function confirmDelete() {
   deleteOpen.value = false
   emit('delete', { ...props.member })
 }
-watch(() => [props.modelValue, props.taskId, props.employeeNo, props.detailLoader], () => {
+watch(() => [props.modelValue, props.taskId, props.employeeNo, props.projectId, props.detailLoader, employeeSwitchEpoch.value], () => {
+  ++contextSequence
+  ++loadSequence
+  pendingDetails.clear()
+  task.value = null
+  loading.value = false
+  error.value = ''
   if (props.modelValue) {
-    task.value = null
     activeTab.value = props.activeTab || 'evaluation'
     void load()
   }
-  else { loadSequence++ }
 }, { immediate: true })
+watch(activeTab, () => { if (props.modelValue) void load() })
 watch(() => props.activeTab, value => { activeTab.value = value || 'evaluation' })
+onBeforeUnmount(() => { ++contextSequence; ++loadSequence; pendingDetails.clear() })
 </script>
 
 <style scoped>

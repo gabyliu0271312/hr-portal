@@ -78,7 +78,7 @@
           <div class="r360-runtime-card__main">
             <div class="r360-card__first"><ReviewerAvatar :row="runtimeRow(reviewer)" /><span class="r360-runtime-card__name">{{ reviewer.reviewer.display_name }}</span></div>
             <div v-show="isReviewerExpanded(reviewer.task_id)" class="r360-runtime-card__details">
-              <PerformanceTemplateRenderer mode="readonly" :sections="reviewer.form_schema" :answers="reviewer.answers" />
+              <PerformanceTemplateRenderer v-if="isReviewerExpanded(reviewer.task_id)" mode="readonly" :sections="reviewer.form_schema" :answers="reviewer.answers" />
             </div>
           </div>
         </article>
@@ -119,14 +119,14 @@
                   </div>
                 </td>
               </tr>
-              <tr class="r360-table__expanded-row" :class="{ 'is-expanded': rowExpanded(row) }"><td colspan="2"><div v-show="rowExpanded(row)" class="r360-table__details"><PerformanceTemplateRenderer v-if="row.review" mode="readonly" :sections="row.review.form_schema" :answers="row.review.answers" /><template v-else><div v-for="content in contents" :key="contentKey(content)" class="r360-form__item"><div class="r360-form__review"><div class="r360-form__root"><div class="r360-form__root-title">{{ content.name }}</div><div v-if="contentDescription(content)" class="r360-form__root-description">{{ contentDescription(content) }}</div></div><PerformanceTemplateRenderer mode="readonly" :show-header="false" :sections="sectionsFor(content)" :answers="{}" /></div></div></template></div></td></tr>
+              <tr class="r360-table__expanded-row" :class="{ 'is-expanded': rowExpanded(row) }"><td colspan="2"><div v-show="rowExpanded(row)" class="r360-table__details"><template v-if="rowExpanded(row)"><PerformanceTemplateRenderer v-if="row.review" mode="readonly" :sections="row.review.form_schema" :answers="row.review.answers" /><template v-else><div v-for="content in contents" :key="contentKey(content)" class="r360-form__item"><div class="r360-form__review"><div class="r360-form__root"><div class="r360-form__root-title">{{ content.name }}</div><div v-if="contentDescription(content)" class="r360-form__root-description">{{ contentDescription(content) }}</div></div><PerformanceTemplateRenderer mode="readonly" :show-header="false" :sections="sectionsFor(content)" :answers="{}" /></div></div></template></template></div></td></tr>
             </template>
           </tbody>
         </table>
       </div>
 
       <!-- 表单区：保留 REA 的灰底条目外壳，内部复用普通参考内容的 root 标题与 readonly renderer -->
-      <div v-if="!hasRuntimeReviewers" v-show="expanded && viewMode === 'card'" class="r360-form">
+      <div v-if="!hasRuntimeReviewers && viewMode === 'card'" v-show="expanded" class="r360-form">
         <div v-for="content in contents" :key="contentKey(content)" class="r360-form__item">
           <div class="r360-form__review">
             <div class="r360-form__root">

@@ -197,6 +197,60 @@ describe('PerformanceWorkbench project context', () => {
     expect(performanceWorkbenchApi.timeline).toHaveBeenCalledWith(1)
   })
 
+  it('shows cached todos immediately while the project list refresh is pending', async () => {
+    const context = usePerformanceProjectContextStore()
+    context.setActiveProjectId(1)
+    context.setWorkbenchProjects([projects[0]])
+    context.setWorkbenchSnapshot(1, { timeline, pending, completed: [] })
+    vi.mocked(performanceWorkbenchApi.listProjects).mockReturnValue(new Promise(() => {}))
+    const wrapper = mountView()
+    expect(wrapper.findAll('.todo-item')).toHaveLength(1)
+    await flushPromises()
+    expect(wrapper.get('.todo-name').text()).toBe('工作总结')
+    wrapper.unmount()
+  })
+
+  it('renders the timeline as soon as it resolves even when pending tasks never resolve', async () => {
+    let resolveTimeline!: (value: PerformanceWorkbenchTimelineNode[]) => void
+    vi.mocked(performanceWorkbenchApi.timeline).mockReturnValue(new Promise(resolve => { resolveTimeline = resolve }))
+    vi.mocked(performanceWorkbenchApi.tasks).mockImplementation(async (_projectId, state) => state === 'pending' ? new Promise(() => {}) : [])
+    const wrapper = mountView()
+    await flushPromises()
+    resolveTimeline(timeline)
+    await flushPromises()
+    expect(wrapper.findAll('.timeline-node')).toHaveLength(1)
+    expect(wrapper.get('.timeline-node').text()).toContain('工作总结')
+    wrapper.unmount()
+  })
+
+  it('loads project data without waiting for announcements and isolates failed sections', async () => {
+    vi.mocked(performanceWorkbenchApi.announcements).mockReturnValue(new Promise(() => {}))
+    vi.mocked(performanceWorkbenchApi.timeline).mockRejectedValue(new Error('timeline'))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(performanceWorkbenchApi.tasks).toHaveBeenCalledWith(1, 'pending')
+    expect(wrapper.findAll('.todo-item')).toHaveLength(1)
+    expect(wrapper.text()).toContain('部分工作台数据加载失败')
+    wrapper.unmount()
+  })
+
+  it('drops an older cycle project response after switching cycles', async () => {
+    let resolveFirst!: (value: PerformanceWorkbenchTimelineNode[]) => void
+    vi.mocked(performanceWorkbenchApi.timeline).mockImplementation(projectId => projectId === 1
+      ? new Promise(resolve => { resolveFirst = resolve })
+      : Promise.resolve([{ ...timeline[0], node_name: '新周期节点' }]))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('.select-cycle-two').trigger('click')
+    await flushPromises()
+    resolveFirst([{ ...timeline[0], node_name: '旧周期节点' }])
+    await flushPromises()
+    expect(wrapper.text()).toContain('新周期节点')
+    expect(wrapper.text()).not.toContain('旧周期节点')
+    expect(usePerformanceProjectContextStore().workbenchSnapshot(1)).toBeNull()
+    wrapper.unmount()
+  })
+
   it('switches the shared cycle from the workbench selector and reloads that cycle projects', async () => {
     const context = usePerformanceProjectContextStore()
     const wrapper = mountView()
