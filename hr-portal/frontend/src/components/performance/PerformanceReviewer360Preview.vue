@@ -6,12 +6,12 @@
       <div class="r360-info">
         <span class="r360-info__label">已评估</span>
         <span ref="evaluatedAnchor" class="r360-info__num" tabindex="0" @mouseenter="evaluatedTooltipOpen = true" @mouseleave="evaluatedTooltipOpen = false" @focusin="evaluatedTooltipOpen = true" @focusout="evaluatedTooltipOpen = false">{{ evaluatedProgress }}</span>
-        <span class="r360-info__colon">：</span>
-        <span class="r360-info__relation">{{ relationLabel }}</span>
-        <span ref="relationAnchor" class="r360-info__num" tabindex="0" @mouseenter="relationTooltipOpen = true" @mouseleave="relationTooltipOpen = false" @focusin="relationTooltipOpen = true" @focusout="relationTooltipOpen = false">{{ relationTotal }}</span>
+        <span v-if="!hasRuntimeReviewers" class="r360-info__colon">：</span>
+        <span v-if="!hasRuntimeReviewers" class="r360-info__relation">{{ relationLabel }}</span>
+        <span v-if="!hasRuntimeReviewers" ref="relationAnchor" class="r360-info__num" tabindex="0" @mouseenter="relationTooltipOpen = true" @mouseleave="relationTooltipOpen = false" @focusin="relationTooltipOpen = true" @focusout="relationTooltipOpen = false">{{ relationTotal }}</span>
       </div>
       <PerformancePopover :visible="evaluatedTooltipOpen" :anchor="evaluatedAnchor" width="auto" :gap="8" name="r360-evaluated-tooltip" class="is-dark" @close="evaluatedTooltipOpen = false">
-        <div class="r360-tooltip__stat">已评估: {{ evaluatedCount }}</div>
+        <div class="r360-tooltip__stat">已评估: {{ effectiveEvaluatedCount }}</div>
         <div class="r360-tooltip__people" aria-hidden="true"><ReviewerAvatar v-for="(row, index) in visibleEvaluatedReviewers" :key="`evaluated-${index}`" :row="row" /></div>
       </PerformancePopover>
       <PerformancePopover :visible="relationTooltipOpen" :anchor="relationAnchor" width="auto" :gap="8" name="r360-relation-tooltip" class="is-dark" @close="relationTooltipOpen = false">
@@ -61,15 +61,30 @@
           <span class="r360-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M17 1.333h-1.803s-.419.137-.498.343l-3.664 9.598a.533.533 0 0 0 .498.724h.978a.533.533 0 0 0 .5-.347l.664-1.785h4.841l.663 1.786c.078.21.277.348.5.348h.987a.533.533 0 0 0 .498-.724l-3.666-9.6A.533.533 0 0 0 17 1.333Zm.725 6.4h-3.264l1.605-4.316h.05l1.61 4.316Zm-6.175 6.4c0-.294.238-.533.533-.533h8.522c.295 0 .534.239.534.534v.703c0 .154-.067.3-.183.402l-6.068 5.298h5.717c.295 0 .534.24.534.534v1.063a.533.533 0 0 1-.534.533h-8.522a.533.533 0 0 1-.534-.534v-.973c0-.154.067-.3.183-.402l5.763-5.027h-5.412a.533.533 0 0 1-.534-.534v-1.063Zm-8.923 2.534h2.705V3.2c0-.294.238-.533.533-.533h.933c.295 0 .534.239.534.533v19.16a.533.533 0 0 1-.965.314l-4-5.499a.32.32 0 0 1 .26-.508Z" fill="currentColor"/></svg></span>
           排序
         </button>
-        <button type="button" class="r360-tools__btn r360-tools__btn--collapse" :aria-expanded="expanded" :aria-label="expanded ? '收起详情' : '展开详情'" @click="toggleExpanded">
-          <svg v-if="expanded" class="r360-collapse-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.468 5a.25.25 0 0 1 .25.25v2.419h1.572a.2.2 0 0 1 .08.017l.036.02a.2.2 0 0 1 .076.222l-.028.057-2.307 3.265a.2.2 0 0 1-.282.045l-.044-.045-2.307-3.265a.2.2 0 0 1 .11-.308l.053-.007 1.572-.001V5.25a.25.25 0 0 1 .25-.25h.969Zm0 13.5a.25.25 0 0 0 .25-.25v-2.419h1.572a.2.2 0 0 0 .08-.017l.036-.02a.2.2 0 0 0 .076-.222l-.028-.057-2.307-3.265a.2.2 0 0 0-.282-.045l-.044.045-2.307 3.265a.2.2 0 0 0 .11.308l.053.007 1.572.001v2.419c0 .138.112.25.25.25h.969Zm-4.53-2.073c.18 0 .332.128.367.299l.007.076v.679a.375.375 0 0 1-.3.367l-.075.008H4.875a.375.375 0 0 1-.367-.3l-.008-.075v-.68c0-.18.129-.332.3-.367l.075-.007h8.062Zm0-5.479c.18 0 .332.129.367.3l.007.075v.68a.375.375 0 0 1-.3.367l-.075.007H4.875a.375.375 0 0 1-.367-.299l-.008-.076v-.679c0-.181.129-.332.3-.367l.075-.008h8.062Zm0-5.478c.18 0 .332.128.367.3l.007.075v.68a.375.375 0 0 1-.3.366l-.075.008H4.875a.375.375 0 0 1-.367-.3L4.5 6.525v-.68c0-.18.129-.331.3-.366l.075-.008h8.062z" fill="currentColor"/></svg>
+        <button type="button" class="r360-tools__btn r360-tools__btn--collapse" :aria-expanded="allExpanded" :aria-label="allExpanded ? '收起详情' : '展开详情'" :disabled="hasRuntimeReviewers && !runtimeReviewers.length" @click="toggleExpanded">
+          <svg v-if="allExpanded" class="r360-collapse-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.468 5a.25.25 0 0 1 .25.25v2.419h1.572a.2.2 0 0 1 .08.017l.036.02a.2.2 0 0 1 .076.222l-.028.057-2.307 3.265a.2.2 0 0 1-.282.045l-.044-.045-2.307-3.265a.2.2 0 0 1 .11-.308l.053-.007 1.572-.001V5.25a.25.25 0 0 1 .25-.25h.969Zm0 13.5a.25.25 0 0 0 .25-.25v-2.419h1.572a.2.2 0 0 0 .08-.017l.036-.02a.2.2 0 0 0 .076-.222l-.028-.057-2.307-3.265a.2.2 0 0 0-.282-.045l-.044.045-2.307 3.265a.2.2 0 0 0 .11.308l.053.007 1.572.001v2.419c0 .138.112.25.25.25h.969Zm-4.53-2.073c.18 0 .332.128.367.299l.007.076v.679a.375.375 0 0 1-.3.367l-.075.008H4.875a.375.375 0 0 1-.367-.3l-.008-.075v-.68c0-.18.129-.332.3-.367l.075-.007h8.062Zm0-5.479c.18 0 .332.129.367.3l.007.075v.68a.375.375 0 0 1-.3.367l-.075.007H4.875a.375.375 0 0 1-.367-.299l-.008-.076v-.679c0-.181.129-.332.3-.367l.075-.008h8.062Zm0-5.478c.18 0 .332.128.367.3l.007.075v.68a.375.375 0 0 1-.3.366l-.075.008H4.875a.375.375 0 0 1-.367-.3L4.5 6.525v-.68c0-.18.129-.331.3-.366l.075-.008h8.062z" fill="currentColor"/></svg>
           <svg v-else class="r360-collapse-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M17.468 11a.25.25 0 0 0 .25-.25V8.665h1.572a.2.2 0 0 0 .08-.017l.036-.02a.2.2 0 0 0 .076-.221l-.028-.058-2.307-3.264a.201.201 0 0 0-.282-.046l-.044.046-2.307 3.264a.2.2 0 0 0 .11.308l.053.008h1.572v2.085c0 .138.112.25.25.25h.969Zm0 1.5a.25.25 0 0 1 .25.25v2.085h1.572a.2.2 0 0 1 .08.017l.036.02a.2.2 0 0 1 .076.222l-.028.057-2.307 3.265a.2.2 0 0 1-.282.046l-.044-.046-2.307-3.265a.2.2 0 0 1 .11-.308l.053-.007h1.572V12.75a.25.25 0 0 1 .25-.25h.969Zm-4.53 3.927c.18 0 .332.128.367.299l.007.076v.679a.375.375 0 0 1-.3.367l-.075.008H4.875a.375.375 0 0 1-.367-.3l-.008-.075v-.68c0-.18.129-.332.3-.367l.075-.007h8.062Zm0-5.479c.18 0 .332.129.367.3l.007.075v.68a.375.375 0 0 1-.3.367l-.075.007H4.875a.375.375 0 0 1-.367-.299l-.008-.076v-.679c0-.181.129-.332.3-.367l.075-.008h8.062Zm0-5.478c.18 0 .332.128.367.3l.007.075v.68a.375.375 0 0 1-.3.366l-.075.008H4.875a.375.375 0 0 1-.367-.3L4.5 6.525v-.68c0-.18.129-.331.3-.366l.075-.008h8.062Z" fill="currentColor"/></svg>
-          {{ expanded ? '收起详情' : '展开详情' }}
+          {{ allExpanded ? '收起详情' : '展开详情' }}
         </button>
       </div>
 
-      <!-- 卡片视图：三角按钮与信息主体共享 expanded；头像第一行，描述下一行并同左缘 -->
-      <div v-if="viewMode === 'card'" class="r360-card">
+      <!-- 卡片视图：模板预览保留单卡；运行态按评估人独立展开并渲染真实答案 -->
+      <div v-if="viewMode === 'card' && hasRuntimeReviewers" class="r360-runtime-cards">
+        <article v-for="reviewer in runtimeReviewers" :key="reviewer.task_id" class="r360-runtime-card">
+          <button type="button" class="r360-card__toggle" :aria-expanded="isReviewerExpanded(reviewer.task_id)" :aria-label="isReviewerExpanded(reviewer.task_id) ? '收起详情' : '展开详情'" @click="toggleReviewer(reviewer.task_id)">
+            <svg v-if="isReviewerExpanded(reviewer.task_id)" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
+            <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
+          </button>
+          <div class="r360-runtime-card__main">
+            <div class="r360-card__first"><ReviewerAvatar :row="runtimeRow(reviewer)" /><span class="r360-runtime-card__name">{{ reviewer.reviewer.display_name }}</span></div>
+            <div v-show="isReviewerExpanded(reviewer.task_id)" class="r360-runtime-card__details">
+              <PerformanceTemplateRenderer mode="readonly" :sections="reviewer.form_schema" :answers="reviewer.answers" />
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div v-else-if="viewMode === 'card' && !hasRuntimeReviewers" class="r360-card">
         <button type="button" class="r360-card__toggle" :aria-expanded="expanded" :aria-label="expanded ? '收起详情' : '展开详情'" @click="toggleExpanded">
           <svg v-if="expanded" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
           <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
@@ -88,11 +103,11 @@
           <colgroup><col class="r360-table__expand-col"><col></colgroup>
           <thead><tr><th class="r360-table__expand-cell"></th><th class="r360-table__head-cell">姓名</th></tr></thead>
           <tbody>
-            <template v-for="(row, index) in visibleReviewers" :key="index">
-              <tr class="r360-table__row" role="button" tabindex="0" :aria-expanded="expanded" @click="toggleExpanded" @keydown.enter.prevent="toggleExpanded" @keydown.space.prevent="toggleExpanded">
+            <template v-for="(row, index) in visibleReviewers" :key="row.review?.task_id ?? index">
+              <tr class="r360-table__row" role="button" tabindex="0" :aria-expanded="rowExpanded(row)" @click="toggleRow(row)" @keydown.enter.prevent="toggleRow(row)" @keydown.space.prevent="toggleRow(row)">
                 <td class="r360-table__expand-cell">
-                  <button type="button" class="r360-table__expand-btn" :aria-expanded="expanded" :aria-label="expanded ? '收起详情' : '展开详情'" @click.stop="toggleExpanded">
-                    <svg v-if="expanded" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
+                  <button type="button" class="r360-table__expand-btn" :aria-expanded="rowExpanded(row)" :aria-label="rowExpanded(row) ? '收起详情' : '展开详情'" @click.stop="toggleRow(row)">
+                    <svg v-if="rowExpanded(row)" width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11.22 18.46a1 1 0 0 0 1.56 0l8.305-10.334a1 1 0 0 0-.78-1.626H3.696a1 1 0 0 0-.78 1.626L11.22 18.46Z" fill="currentColor"/></svg>
                     <svg v-else width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18.627 11.22a1 1 0 0 1 0 1.56L8.291 21.084a1 1 0 0 1-1.626-.78V3.696a1 1 0 0 1 1.626-.78l10.335 8.305Z" fill="currentColor"/></svg>
                   </button>
                 </td>
@@ -100,18 +115,18 @@
                   <div class="r360-table__person">
                     <img v-if="row.avatarUrl" class="r360-table__avatar" :src="row.avatarUrl" alt="">
                     <span v-else class="r360-table__avatar r360-table__avatar--fallback" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 13H9c-2.761 0-6 1.931-6 5.4V20c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-1.6c0-3.471-3.239-5.4-6-5.4ZM7 7a5 5 0 1 0 10 0A5 5 0 0 0 7 7Z" fill="currentColor"/></svg></span>
-                    <div class="r360-table__info"><div class="r360-table__name">{{ row.name }}</div><div class="r360-table__sub">{{ row.sub }}</div></div>
+                    <div class="r360-table__info"><div class="r360-table__name">{{ row.name }}</div><div v-if="row.sub" class="r360-table__sub">{{ row.sub }}</div></div>
                   </div>
                 </td>
               </tr>
-              <tr class="r360-table__expanded-row" :class="{ 'is-expanded': expanded }"><td colspan="2"><div v-show="expanded" class="r360-table__details"><div v-for="content in contents" :key="contentKey(content)" class="r360-form__item"><div class="r360-form__review"><div class="r360-form__root"><div class="r360-form__root-title">{{ content.name }}</div><div v-if="contentDescription(content)" class="r360-form__root-description">{{ contentDescription(content) }}</div></div><PerformanceTemplateRenderer mode="readonly" :show-header="false" :sections="sectionsFor(content)" :answers="{}" /></div></div></div></td></tr>
+              <tr class="r360-table__expanded-row" :class="{ 'is-expanded': rowExpanded(row) }"><td colspan="2"><div v-show="rowExpanded(row)" class="r360-table__details"><PerformanceTemplateRenderer v-if="row.review" mode="readonly" :sections="row.review.form_schema" :answers="row.review.answers" /><template v-else><div v-for="content in contents" :key="contentKey(content)" class="r360-form__item"><div class="r360-form__review"><div class="r360-form__root"><div class="r360-form__root-title">{{ content.name }}</div><div v-if="contentDescription(content)" class="r360-form__root-description">{{ contentDescription(content) }}</div></div><PerformanceTemplateRenderer mode="readonly" :show-header="false" :sections="sectionsFor(content)" :answers="{}" /></div></div></template></div></td></tr>
             </template>
           </tbody>
         </table>
       </div>
 
       <!-- 表单区：保留 REA 的灰底条目外壳，内部复用普通参考内容的 root 标题与 readonly renderer -->
-      <div v-show="expanded && viewMode === 'card'" class="r360-form">
+      <div v-if="!hasRuntimeReviewers" v-show="expanded && viewMode === 'card'" class="r360-form">
         <div v-for="content in contents" :key="contentKey(content)" class="r360-form__item">
           <div class="r360-form__review">
             <div class="r360-form__root">
@@ -127,6 +142,10 @@
           </div>
         </div>
       </div>
+      <div v-if="hasRuntimeReviewers && !runtimeReviewers.length" class="performance-reference-empty">
+        <img src="/performance-no-submit.svg" alt="" width="120" height="120">
+        <p>暂无可查看内容</p>
+      </div>
     </div>
   </div>
 </template>
@@ -138,12 +157,13 @@
  * 360°只拥有自己的统计、筛选和人员卡片外壳；展开后的内容仍然消费来源
  * root/content 与统一 readonly sections，不能在这里伪造固定数量的占位条目。
  */
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from 'vue'
-import type { PerformanceTemplateContent, PerformanceTemplateSection } from '@/api/performance'
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from 'vue'
+import type { PerformanceReferenceTab, PerformanceTemplateContent, PerformanceTemplateSection } from '@/api/performance'
 import PerformancePopover from './PerformancePopover.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 
-type ReviewerRow = { name: string; sub: string; avatarUrl?: string }
+type RuntimeReviewer = NonNullable<PerformanceReferenceTab['reviewers']>[number]
+type ReviewerRow = { name: string; sub: string; avatarUrl?: string; review?: RuntimeReviewer }
 type FilterKey = 'dimension' | 'relation' | 'personType'
 
 const ReviewerAvatar = defineComponent({
@@ -165,10 +185,10 @@ const props = withDefaults(defineProps<{
   evaluatedReviewers?: ReviewerRow[]
   contents?: PerformanceTemplateContent[]
   readonlySections?: Record<string, PerformanceTemplateSection[]>
+  reviewers?: PerformanceReferenceTab['reviewers']
 }>(), {
   relationLabel: '直属上级',
   evaluatedCount: 1,
-  expectedCount: 1,
   relationTotal: 1,
   avatarUrl: '',
   tableRows: () => [],
@@ -190,13 +210,33 @@ const evaluatedAnchor = ref<HTMLElement | null>(null)
 const relationAnchor = ref<HTMLElement | null>(null)
 const evaluatedTooltipOpen = ref(false)
 const relationTooltipOpen = ref(false)
-const evaluatedProgress = computed(() => `${props.evaluatedCount}/${props.expectedCount}`)
-const visibleReviewers = computed<ReviewerRow[]>(() => props.tableRows.length ? props.tableRows : [{ name: '评估人', sub: `${props.relationLabel}  |  所属部门  |  系统默认邀请`, avatarUrl: props.avatarUrl }])
-const visibleEvaluatedReviewers = computed<ReviewerRow[]>(() => props.evaluatedReviewers.length ? props.evaluatedReviewers : visibleReviewers.value.slice(0, props.evaluatedCount))
+const hasRuntimeReviewers = computed(() => props.reviewers !== undefined)
+const runtimeReviewers = computed(() => (props.reviewers || []).map(reviewer => ({
+  ...reviewer,
+  form_schema: reviewer.form_schema.map(section => ({
+    ...section,
+    fields: section.fields.map(({ previewValue: _previewValue, ...field }) => field),
+  })),
+})))
+function runtimeRow(reviewer: RuntimeReviewer): ReviewerRow { return { name: reviewer.reviewer.display_name, sub: '', review: reviewer } }
+const effectiveEvaluatedCount = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length : props.evaluatedCount)
+const evaluatedProgress = computed(() => hasRuntimeReviewers.value && props.expectedCount === undefined ? String(effectiveEvaluatedCount.value) : `${effectiveEvaluatedCount.value}/${props.expectedCount ?? 1}`)
+const visibleReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? runtimeReviewers.value.map(runtimeRow) : props.tableRows.length ? props.tableRows : [{ name: '评估人', sub: `${props.relationLabel}  |  所属部门  |  系统默认邀请`, avatarUrl: props.avatarUrl }])
+const visibleEvaluatedReviewers = computed<ReviewerRow[]>(() => hasRuntimeReviewers.value ? visibleReviewers.value : props.evaluatedReviewers.length ? props.evaluatedReviewers : visibleReviewers.value.slice(0, props.evaluatedCount))
+const collapsedReviewers = ref<number[]>([])
+function isReviewerExpanded(taskId: number) { return !collapsedReviewers.value.includes(taskId) }
+function toggleReviewer(taskId: number) { collapsedReviewers.value = isReviewerExpanded(taskId) ? [...collapsedReviewers.value, taskId] : collapsedReviewers.value.filter(id => id !== taskId) }
+function rowExpanded(row: ReviewerRow) { return row.review ? isReviewerExpanded(row.review.task_id) : expanded.value }
+function toggleRow(row: ReviewerRow) { if (row.review) toggleReviewer(row.review.task_id); else toggleExpanded() }
+const allExpanded = computed(() => hasRuntimeReviewers.value ? runtimeReviewers.value.length > 0 && runtimeReviewers.value.every(reviewer => isReviewerExpanded(reviewer.task_id)) : expanded.value)
+watch(() => props.reviewers, () => { collapsedReviewers.value = [] })
 /** 视图模式：card（详情视图）/ table（表格视图），REA 默认详情视图 */
 const viewMode = ref<'card' | 'table'>('card')
 const viewMenuOpen = ref(false)
-function toggleExpanded() { expanded.value = !expanded.value }
+function toggleExpanded() {
+  if (hasRuntimeReviewers.value) collapsedReviewers.value = allExpanded.value ? runtimeReviewers.value.map(reviewer => reviewer.task_id) : []
+  else expanded.value = !expanded.value
+}
 function toggleFilter(key: FilterKey) { openFilter.value = openFilter.value === key ? null : key }
 function selectAllFilter() { openFilter.value = null }
 function closeFilter(event: MouseEvent) {
@@ -207,6 +247,7 @@ onBeforeUnmount(() => document.removeEventListener('click', closeFilter))
 function switchView(mode: 'card' | 'table') {
   viewMode.value = mode
   expanded.value = mode === 'card'
+  if (hasRuntimeReviewers.value) collapsedReviewers.value = mode === 'card' ? [] : runtimeReviewers.value.map(reviewer => reviewer.task_id)
   viewMenuOpen.value = false
 }
 function contentKey(content: PerformanceTemplateContent) {
@@ -297,6 +338,12 @@ function sectionsFor(content: PerformanceTemplateContent) {
 .r360-collapse-icon { display: block; color: #1f2329; }
 
 /* ---------- 卡片视图：591.3×66.2 ---------- */
+.r360-runtime-card { display: flex; align-items: flex-start; margin-top: 16px; }
+.r360-runtime-card__main { flex: 1; min-width: 0; padding: 12px 0 4px 8px; }
+.r360-runtime-card__name { margin-left: 8px; overflow-wrap: anywhere; }
+.r360-runtime-card__details { margin-top: 16px; padding: 16px 24px; border-radius: 6px; background: var(--color-bg-secondary, #f5f6f7); }
+.performance-reference-empty { display: flex; min-height: 240px; flex-direction: column; align-items: center; justify-content: center; color: var(--color-text-secondary); }
+.r360-tools__btn--collapse:disabled { cursor: default; opacity: .5; }
 .r360-card { display: flex; align-items: flex-start; margin-top: 16px; }
 .r360-card__toggle {
   display: flex; align-items: center; justify-content: center; flex: none;

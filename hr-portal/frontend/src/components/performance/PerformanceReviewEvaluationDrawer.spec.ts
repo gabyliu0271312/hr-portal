@@ -200,6 +200,42 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     } finally { wrapper.unmount() }
   })
 
+  it.each([false, true])('renders pending management 360 references with partial submissions or a permission empty state: empty=%s', async empty => {
+    const detailLoader = vi.fn().mockResolvedValue({
+      ...structuredClone(task), task_id: null, editable: false, submit_allowed: false,
+      management_tabs: [{ key: 'management-feedback', kind: 'reviewer_360', node_id: 'feedback', node_name: '360°反馈', employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_remind: false, expected_count: empty ? undefined : 3, reviewers: empty ? [] : [
+        { task_id: 20, reviewer: { employee_no: 'E020', display_name: '真实评估人甲' }, form_schema: task.form_schema, answers: { good: '真实反馈甲' } },
+        { task_id: 21, reviewer: { employee_no: 'E021', display_name: '真实评估人乙' }, form_schema: task.form_schema, answers: { good: '真实反馈乙' } },
+      ] }],
+      default_active_tab: 'management-feedback',
+      stage_views: [{ node_id: 'feedback', node_type: 'evaluation', status: 'pending', can_fill: true, task_id: 99, anonymous: false }],
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', readonly: true, detailLoader } })
+    try {
+      await flushPromises()
+      expect(document.body.querySelector('.r360-preview')).not.toBeNull()
+      expect(document.body.querySelector('.performance-stage-empty')).toBeNull()
+      expect(document.body.querySelector('.performance-stage-empty__fill')).toBeNull()
+      expect(document.body.querySelector('[contenteditable="true"]')).toBeNull()
+      if (empty) {
+        expect(document.body.textContent).toContain('暂无可查看内容')
+        expect(document.body.querySelector('.r360-runtime-card')).toBeNull()
+        expect(document.body.textContent).not.toContain('评估人甲')
+      } else {
+        expect(document.body.textContent).toContain('已评估2/3')
+        const cards = Array.from(document.body.querySelectorAll('.r360-runtime-card'))
+        expect(cards).toHaveLength(2)
+        expect(cards[0].textContent).toContain('真实评估人甲')
+        expect(cards[0].textContent).toContain('真实反馈甲')
+        expect(cards[0].textContent).not.toContain('真实反馈乙')
+        expect(cards[1].textContent).toContain('真实评估人乙')
+        expect(cards[1].textContent).toContain('真实反馈乙')
+        expect(cards[1].textContent).not.toContain('真实反馈甲')
+      }
+      expect(wrapper.emitted('edit')).toBeUndefined()
+    } finally { wrapper.unmount() }
+  })
+
   it('renders only configured reference tabs and shows unsubmitted reminder action', async () => {
     vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
       ...structuredClone(task),

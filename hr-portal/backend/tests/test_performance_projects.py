@@ -2772,7 +2772,7 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     evaluation = await projects_router.get_template_task(9, context(), Db())
     assert detail.await_count == 1
     assert detail.await_args.args[1] == "E001"
-    assert detail.await_args.kwargs == {"root_review_id": 21, "skip_scope": True, "visibility_role": "leader"}
+    assert detail.await_args.kwargs == {"root_review_id": 21, "skip_scope": True, "visibility_role": "leader", "reference_node_id": "summary"}
     assert all(evaluation[key] == value for key, value in management_detail.items())
     assert evaluation["task_kind"] == "evaluation"
     assert evaluation["entry_mode"] == "template_task"
@@ -10091,14 +10091,85 @@ async def test_management_detail_okr_loaded_only_when_configured_without_handler
 
 
 @pytest.mark.asyncio
-async def test_management_detail_masks_360_until_anonymous_projection_is_available(management_member_data):
+async def test_management_detail_360_without_configured_reference_stays_hidden(management_member_data):
     data = management_member_data
     data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
     detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
-    feedback = detail["management_tabs"][1]
-    assert feedback["form_schema"] == [] and feedback["answers"] == {}
-    assert feedback["task_id"] is None and feedback["submitted_by"] is None and feedback["submitted_at"] is None
+    assert all(tab["node_id"] != "node-20" for tab in detail["management_tabs"])
     assert "M2" not in str(detail) and "冻结处理人2" not in str(detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["allowed", "denied", "wrong_project", "wrong_cycle", "wrong_snapshot", "wrong_employee", "wrong_node", "revoked", "pending", "missing_submitted"])
+async def test_manager_360_references_project_each_submitted_reviewer(management_member_data, monkeypatch, scenario):
+    from copy import deepcopy
+    data = management_member_data
+    feedback_node = data.nodes[1]
+    feedback_node.config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    feedback_node.config["template"]["include_final_result"] = False
+    feedback_node.config["template"]["content"][0]["items"].append({"id": "hidden", "kind": "fill", "label": "隐藏题目"})
+    relation = {"content_slot": "reference", "reference_kind": "node", "reference_value": "node-20",
+        "reference_settings": {"content_settings": {"content": {"root": {"allowView": scenario != "denied"},
+            "items": {"hidden": {"allowView": False}}}}}}
+    data.nodes[-1].config["template"]["content"].append(relation)
+    for task in data.tasks:
+        if task.node_snapshot_id == 20:
+            task.answers["hidden"] = "不允许泄露"
+    candidate = data.tasks[2]
+    candidate.answers["text"] = "第二人独立答案"
+    changes = {"wrong_project": ("project_id", 99), "wrong_cycle": ("cycle_ref", "OTHER"),
+        "wrong_snapshot": ("member_snapshot_id", 99), "wrong_employee": ("target_employee_no", "OTHER"),
+        "wrong_node": ("node_snapshot_id", 99), "revoked": ("revoked_at", "revoked"),
+        "pending": ("status", "pending"), "missing_submitted": ("submitted_at", None)}
+    if scenario in changes:
+        setattr(candidate, *changes[scenario])
+    original = deepcopy([(node.config) for node in data.nodes])
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    tabs = [tab for tab in detail["management_tabs"] if tab["node_id"] == "node-20"]
+    if scenario == "denied":
+        assert tabs == []
+    else:
+        tab = tabs[0]
+        assert tab["kind"] == "reviewer_360" and tab["form_schema"] == [] and tab["answers"] == {}
+        assert len(tab["reviewers"]) == (2 if scenario == "allowed" else 1)
+        assert tab["reviewers"][0]["reviewer"] == {"employee_no": "M2", "display_name": "冻结处理人2"}
+        assert tab["reviewers"][0]["answers"] == {"text": "已提交2"}
+        if scenario == "allowed":
+            assert tab["reviewers"][1]["answers"] == {"text": "第二人独立答案"}
+        assert tab["task_id"] is None
+        assert "不允许泄露" not in str(tab) and "未提交秘密" not in str(tab) and "草稿秘密" not in str(tab)
+    assert original == [node.config for node in data.nodes]
+
+
+@pytest.mark.asyncio
+async def test_manager_360_reference_uses_current_stage_not_later_communication(management_member_data):
+    data = management_member_data
+    feedback_node = data.node(15, "evaluation", "assessment.reviewer_360")
+    data.nodes.insert(1, feedback_node)
+    feedback_task = data.task(7, 15)
+    data.tasks.append(feedback_task)
+    relation = {"content_slot": "reference", "reference_kind": "node", "reference_value": "node-15"}
+    data.nodes[2].config["template"]["content"].append(relation)
+    data.nodes[-1].config["template"]["content"].append({**relation, "settings": {"allowView": False}})
+    current = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, reference_node_id="node-20")
+    feedback = next(tab for tab in current["management_tabs"] if tab["node_id"] == "node-15")
+    assert feedback["reviewers"][0]["answers"] == {"text": "已提交7"}
+    later = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    assert not any(tab["node_id"] == "node-15" for tab in later["management_tabs"])
+
+
+@pytest.mark.asyncio
+async def test_filling_360_reference_uses_same_projection(management_member_data):
+    data = management_member_data
+    data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    relation = {"content_slot": "reference", "reference_kind": "node", "reference_value": "node-20"}
+    template = {"content": [relation]}
+    tabs = await data.routes._node_reference_tabs(data.tasks[-1], data.nodes[-1], data.project, "M6", data.db, template, ["node-20"])
+    tab = tabs[0]
+    assert tab["kind"] == "reviewer_360" and tab["expected_count"] == 3
+    assert [entry["task_id"] for entry in tab["reviewers"]] == [2, 3]
+    assert tab["form_schema"] == [] and tab["answers"] == {}
+    assert "未提交秘密" not in str(tab) and "草稿秘密" not in str(tab)
 
 
 @pytest.mark.asyncio

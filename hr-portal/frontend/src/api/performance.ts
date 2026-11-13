@@ -1329,8 +1329,8 @@ export type EmployeeOkrResponse = {
 }
 export type PerformanceReferenceTab = {
   key: string
-  /** node=引用其他环节内容；okr=内置 OKR 参考内容（数据来自 OKR 数据源） */
-  kind?: 'node' | 'okr'
+  /** node=引用其他环节内容；okr=内置 OKR；reviewer_360=逐人360参考内容 */
+  kind?: 'node' | 'okr' | 'reviewer_360'
   node_id: string
   node_name: string
   task_id?: number | null
@@ -1345,6 +1345,8 @@ export type PerformanceReferenceTab = {
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
   can_remind: boolean
+  reviewers?: Array<{ task_id: number; reviewer: { employee_no: string; display_name: string }; form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>
+  expected_count?: number
   /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
   okr?: PerformanceOkrView | null
   okrs?: PerformanceOkrView[]

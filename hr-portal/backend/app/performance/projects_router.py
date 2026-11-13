@@ -425,6 +425,43 @@ async def _reference_tabs(
     return [by_key[key] for key in order if key in by_key]
 
 
+async def _reviewer_360_reference(project, snapshot_id, employee_no, node, tasks, relation, db):
+    payload = {"kind": "reviewer_360", "reviewers": [], "expected_count": 0}
+    if not relation or (relation.get("settings") or {}).get("allowView") is False:
+        return payload
+    tasks = [task for task in tasks if task.project_id == project.id
+             and task.cycle_ref == project.cycle_ref and task.member_snapshot_id == snapshot_id
+             and task.target_employee_no == employee_no and task.node_snapshot_id == node.id
+             and getattr(task, "revoked_at", None) is None]
+    template = await _reference_template(next(iter(tasks), None), node, project, db)
+    schema, _ = project_reference_content(template, relation, {})
+    if not schema:
+        return payload
+    payload["expected_count"] = len(tasks)
+    completed = [task for task in tasks if task.status == "completed" and task.submitted_at is not None]
+    if not completed:
+        return payload
+    names = dict((await db.execute(select(
+        PerformanceAuthorizationSnapshotPerson.employee_no, PerformanceAuthorizationSnapshotPerson.display_name,
+    ).join(PerformanceProjectMemberSnapshot,
+        PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+    ).where(
+        PerformanceProjectMemberSnapshot.id == snapshot_id,
+        PerformanceProjectMemberSnapshot.project_id == project.id,
+        PerformanceProjectMemberSnapshot.cycle_ref == project.cycle_ref,
+        PerformanceAuthorizationSnapshotPerson.employee_no.in_([task.handler_ref for task in completed]),
+    ))).all())
+    for task in completed:
+        schema, answers = project_reference_content(template, relation, task.answers or {})
+        if schema:
+            payload["reviewers"].append({
+                "task_id": task.id,
+                "reviewer": {"employee_no": str(task.handler_ref), "display_name": names.get(str(task.handler_ref)) or str(task.handler_ref)},
+                "form_schema": schema, "answers": answers,
+            })
+    return payload
+
+
 async def _node_reference_tabs(
     task: PerformanceNodeTask,
     node: PerformanceProjectNodeSnapshot,
@@ -464,6 +501,7 @@ async def _node_reference_tabs(
                 PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
                 PerformanceNodeTask.node_snapshot_id == reference_node.id,
                 PerformanceNodeTask.target_employee_no == task.target_employee_no,
+                PerformanceNodeTask.revoked_at.is_(None),
             )
             .order_by(PerformanceNodeTask.id)
         )).scalars().all()
@@ -476,6 +514,17 @@ async def _node_reference_tabs(
             and item.get("reference_kind") == "node"
             and str(item.get("reference_value") or "").strip() == reference_node_id
         ), {})
+        reference_template = (reference_node.config or {}).get("template") or {}
+        if node_role_code(reference_template) == ROLE_REVIEWER_360 or reference_template.get("executor_label") == "360°评估人":
+            feedback = await _reviewer_360_reference(project, task.member_snapshot_id, task.target_employee_no, reference_node, source_task, relation, db)
+            result.append({
+                "key": f"reference-{reference_node.node_id}", "node_id": reference_node.node_id,
+                "node_name": (relation.get("reference_settings") or {}).get("page_name") or reference_node.name,
+                "task_id": None, "employee_no": task.target_employee_no, "status": status,
+                "submitted_at": None, "form_schema": [], "answers": {}, "can_remind": False,
+                **feedback,
+            })
+            continue
         final_locked = source is not None and await _final_result_locked(source, reference_node, db)
         if source is not None and (completed or final_locked):
             _, visible_answers = await _task_visible_content(source, reference_node, db)
@@ -856,6 +905,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         management_detail = await _project_member_detail(
             project, task.target_employee_no, context, db,
             root_review_id=member.id, skip_scope=True, visibility_role=visibility_role,
+            reference_node_id=node.node_id,
         )
     shared = isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node)
     shared_state = getattr(member, "shared_result_state", None) if shared and member is not None else None
@@ -2949,6 +2999,7 @@ async def _project_member_detail(
     *,
     skip_scope: bool = False,
     visibility_role: str | None = None,
+    reference_node_id: str | None = None,
 ):
     """被评估人管理详情（management_tabs + stage_views）。
 
@@ -2996,8 +3047,10 @@ async def _project_member_detail(
     selected_tasks = by_node[selected_node.id]
     selected_task = max(selected_tasks, key=lambda task: (task.submitted_at is not None, task.submitted_at.isoformat() if task.submitted_at else "", task.id), default=None)
     templates = {node.id: await _reference_template(next(iter(by_node[node.id]), None), node, project, db) for node in nodes}
+    reference_node = next((node for node in nodes if node.node_id == reference_node_id), selected_node)
     selected_template = templates[selected_node.id]
-    relations = {str(content.get("reference_value")): content for content in selected_template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "node"}
+    reference_template = templates[reference_node.id]
+    relations = {str(content.get("reference_value")): content for content in reference_template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "node"}
     handler_refs = {str(task.handler_ref) for node in nodes for task in by_node[node.id] if task.handler_ref is not None}
     handler_names = {}
     if handler_refs:
@@ -3016,7 +3069,13 @@ async def _project_member_detail(
         if node is final_node and completed and getattr(member, "shared_result_state", None) is not None:
             completed = completed[:1]
         schema, answers = [], {}
-        anonymous = node_role_code(templates[node.id]) == ROLE_REVIEWER_360
+        anonymous = node_role_code(templates[node.id]) == ROLE_REVIEWER_360 or templates[node.id].get("executor_label") == "360°评估人"
+        if anonymous:
+            feedback = await _reviewer_360_reference(project, snapshot_id, employee_no, node, related, relations.get(node.node_id), db)
+            if not feedback["expected_count"] and node is not selected_node:
+                continue
+        else:
+            feedback = {}
         for index, task in enumerate((completed or related[:1] if final_locked and node is final_node else completed) if not anonymous else []):
             _, visible_answers = await _task_visible_content(task, node, db)
             projected, visible_answers = project_reference_content(templates[node.id], relations.get(node.node_id, {}), visible_answers)
@@ -3062,6 +3121,7 @@ async def _project_member_detail(
             "answer_submissions": submissions,
             "final_result_locked": bool(final_locked and final_node is not None and node.id == final_node.id),
             "form_schema": schema, "answers": answers, "can_remind": False,
+            **feedback,
         })
     okr_relation = next((content for template in templates.values() for content in template.get("content") or [] if content.get("content_slot") == "reference" and content.get("reference_kind") == "more" and content.get("reference_value") == "okr"), None)
     if okr_relation is not None:

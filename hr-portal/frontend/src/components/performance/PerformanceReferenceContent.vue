@@ -4,6 +4,12 @@
     <p v-if="reference.kind === 'okr' && okrLoading" role="status">正在加载 OKR…</p>
     <p v-if="reference.kind === 'okr' && okrError" role="alert">OKR 加载失败 <button type="button" @click="loadOkr">重试</button></p>
     <PerformanceOkrPanel v-if="reference.kind === 'okr' && !okrLoading && !okrError" :okr="okr" :okrs="okrs" />
+    <PerformanceReviewer360Preview
+      v-else-if="reference.kind === 'reviewer_360'"
+      :key="reference.key"
+      :reviewers="reference.reviewers || []"
+      :expected-count="reference.expected_count"
+    />
     <PerformanceTemplateRenderer
       v-else-if="(reference.status === 'completed' || reference.final_result_locked) && reference.form_schema.length"
       mode="readonly"
@@ -23,6 +29,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { performanceOkrApi, type PerformanceReferenceTab } from '@/api/performance'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
+import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 
