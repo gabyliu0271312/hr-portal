@@ -10,6 +10,8 @@ export type ReminderContext = {
   title: string
   sectionTitle: string
   employeeNo?: string
+  targetKind?: 'reviewer_360'
+  reminderTarget?: string
   sourceTaskId?: number
   targetTaskId?: number
   departmentPath?: string

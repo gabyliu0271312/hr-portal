@@ -133,7 +133,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Component } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { Document, Tickets, User } from '@element-plus/icons-vue'
@@ -270,7 +270,10 @@ function applyProjectSnapshot(snapshot: PerformanceWorkbenchSnapshot) {
 const initialSnapshot = projectContext.workbenchSnapshot(activeProjectId.value)
 if (initialSnapshot) applyProjectSnapshot(initialSnapshot)
 
+const disposed = ref(false)
+onBeforeUnmount(() => { disposed.value = true; selectionVersion += 1 })
 async function loadProject(projectId: number) {
+  if (disposed.value) return
   const cycleId = activeCycleId.value
   const version = selectionVersion
   const cacheVersion = projectContext.cacheVersion
@@ -326,6 +329,7 @@ function openTodo(todo: Todo, event?: MouseEvent) {
   void router.push(todoHref(todo))
 }
 async function loadCycle() {
+  if (disposed.value) return
   const version = ++selectionVersion
   const cycleId = projectContext.activeCycleId
   if (!cycleId) { error.value = '当前没有可用的绩效周期'; loading.value = false; return }
@@ -338,6 +342,7 @@ async function loadCycle() {
   try {
     const loadedProjects = await performanceWorkbenchApi.listProjects(undefined, cycleId)
     if (version !== selectionVersion || cycleId !== projectContext.activeCycleId) return
+    if (disposed.value) return
     projects.value = loadedProjects
     projectContext.setWorkbenchProjects(loadedProjects)
     const preferredId = activeProjectId.value && loadedProjects.some(project => project.project_id === activeProjectId.value)
@@ -353,6 +358,7 @@ async function loadCycle() {
     const snapshot = projectContext.workbenchSnapshot(preferredId)
     applyProjectSnapshot(snapshot || { timeline: [], pending: [], completed: [] })
     if (String(route.query.project_id || '') !== String(preferredId)) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined, project_id: String(preferredId) } })
+    if (disposed.value) return
     void loadAnnouncements(preferredProject?.cycle_ref)
     await loadProject(preferredId)
   } catch {
@@ -378,6 +384,7 @@ onMounted(async () => {
   try {
     const routeCycleId = Number(route.query.cycle_id)
     if (!projectContext.navigationReady) await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
+    if (disposed.value) return
     const cycleId = projectContext.activeCycleId
     if (String(route.query.cycle_id || '') !== String(cycleId || '')) await router.replace({ query: { ...route.query, cycle_id: cycleId ? String(cycleId) : undefined } })
     await loadCycle()

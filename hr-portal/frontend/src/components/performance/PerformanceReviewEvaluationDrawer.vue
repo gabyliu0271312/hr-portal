@@ -11,13 +11,13 @@
             <PerformanceReviewCompletionNotice v-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
-            <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="emit('remind', $event)" />
+            <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="forwardReminder" />
             <div v-else-if="stageView" class="performance-stage-empty">
               <img src="/performance-no-submit.svg" alt="" width="120" height="120">
               <p>暂未提交</p>
               <div class="performance-stage-empty__actions">
                 <button v-if="stageView.can_fill" type="button" class="performance-stage-empty__fill" @click="fillStage">填写评估</button>
-                <PerformanceReminderButton v-else-if="stageView.reminder_target" @click="openRemind" />
+                <PerformanceReminderButton v-else-if="stageView.can_remind" @click="openRemind" />
               </div>
             </div>
           </div>
@@ -41,7 +41,7 @@
             <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked && activeReference.answer_submissions?.length" :editable="false" variant="evaluation-drawer" :message="referenceSubmissionMessage" />
             <PerformanceTemplateRenderer v-if="activeReference.final_result_locked" mode="readonly" :sections="activeReference.form_schema" :answers="activeReference.answers" />
-            <PerformanceReferenceContent v-else :reference="activeReference" @remind="emit('remind', $event)" />
+            <PerformanceReferenceContent v-else :reference="activeReference" @remind="forwardReminder" />
           </div>
         </section>
         <section v-else class="performance-review-evaluation-drawer__tab-content performance-review-evaluation-drawer__tab-placeholder">该页签内容将在后续迭代中开发</section>
@@ -86,7 +86,7 @@ const emit = defineEmits<{
   closed: []
   edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; draft_choice?: 'use' | 'discard' }]
   'copy-link': []
-  remind: [reference: PerformanceReferenceTab]
+  remind: [reference: PerformanceReferenceTab, sourceTaskId?: number]
   authorize: [payload: PerformanceMemberContext]
   transfer: [payload: PerformanceMemberContext]
   delete: [payload: PerformanceMemberContext]
@@ -240,11 +240,15 @@ function fillStage() {
   if (!stage || !task.value || managementTabLocked.value || stage.final_result_locked || !stage.can_fill || stage.task_id == null) return
   emit('edit', { task_id: stage.task_id, employee_no: displayPerson.value.employee_no, node_id: stage.node_id })
 }
+function forwardReminder(reference: PerformanceReferenceTab) {
+  const source = task.value
+  emit('remind', { ...reference, employee_no: reference.employee_no || displayPerson.value.employee_no }, source && ['evaluation', 'calibration', 'result_communication'].includes(source.task_kind || '') ? Number(source.task_id) || undefined : undefined)
+}
 function openRemind() {
   const stage = stageView.value
   const tab = managementTab.value
-  if (!stage?.reminder_target || !tab) return
-  emit('remind', { ...tab, can_remind: true })
+  if (!stage?.can_remind || !tab) return
+  forwardReminder({ ...tab, task_id: stage.task_id ?? tab.task_id, can_remind: stage.can_remind })
 }
 function onMoreAuthorize(payload: PerformanceMemberContext) {
   emit('authorize', payload)

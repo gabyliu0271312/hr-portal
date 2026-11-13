@@ -144,7 +144,7 @@ import { sortPerformanceRows, type PerformanceSortOrder } from './performanceTab
 import { defaultReminderColumns, reminderCellValue as defaultReminderCellValue, reminderColumnsForVisibility, type ReminderCapabilities, type ReminderColumn, type ReminderContext, type ReminderListResult, type ReminderProvider } from './performanceReminder'
 import { REMINDER_DELEGATION_HIDDEN_NODE_KEYS } from './performanceReminderDelegation'
 
-const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'member-remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
+const props = withDefaults(defineProps<{ context: ReminderContext; provider?: ReminderProvider; description?: string; mode?: 'remind' | 'cycle-remind' | 'open-result' | 'preview'; selectAllAvailable?: boolean; selectionBarTarget?: string }>(), { provider: undefined, description: '仅展示当前尚未完成上级评估的被评估人', mode: 'remind', selectAllAvailable: undefined })
 const emit = defineEmits<{ filter: []; loaded: [total: number]; action: [action: 'authorize' | 'transfer'] }>()
 const keyword = ref('')
 const loadedKeyword = ref('')
@@ -244,25 +244,6 @@ function openingColumns(items: ReminderListResult['items'], ratingColumns: Array
 }
 
 async function defaultProvider(query: Parameters<ReminderProvider>[0]): Promise<ReminderListResult> {
-  if (props.mode === 'member-remind') {
-    const context = query.context
-    const result = await projectManagementApi.memberReminderTasks(context.projectId, context.employeeNo || '', { source_task_id: context.sourceTaskId, node_id: context.nodeId || undefined, task_id: context.targetTaskId })
-    const matching = result.items.filter(item => !query.keyword.trim() || `${item.display_name} ${item.node_name} ${item.reminder_target || ''}`.includes(query.keyword.trim()))
-    const start = (query.page - 1) * query.pageSize
-    return {
-      items: matching.slice(start, start + query.pageSize).map(item => ({
-        job_family: null, job_category: null, standard_position: null, position_level: null, job_sequence: null, hire_date: null, department: null, employee_type: null, employment_status: null,
-        ...item,
-      })), total: matching.length,
-      columns: [
-        { key: 'node_name', label: '环节', locked: true, minWidth: 184 },
-        { key: 'reminder_target', label: '催办对象', minWidth: 184 },
-        { key: 'status', label: '状态', minWidth: 144 },
-        { key: 'due_at', label: '截止时间', minWidth: 184 },
-      ],
-      capabilities: { canRemind: result.can_remind, canAuthorize: false, canTransfer: false, canExport: false },
-    }
-  }
   if (props.mode === 'cycle-remind') {
     const result = await projectManagementApi.reminderPeople(query.context.cycleId, query.context.nodeId, query.keyword.trim(), query.page, query.pageSize, query.context.departmentPath)
     return {
@@ -448,9 +429,7 @@ async function confirmRemind() {
   actionLoading.value = true
   notice.value = ''
   try {
-    const result = props.mode === 'member-remind'
-      ? await projectManagementApi.memberRemindBatch(props.context.projectId, props.context.employeeNo || '', { source_task_id: props.context.sourceTaskId, node_id: props.context.nodeId || undefined, task_ids: submittedKeys.map(Number), skip_recently_reminded: skipRecentlyReminded.value })
-      : props.mode === 'cycle-remind'
+    const result = props.mode === 'cycle-remind'
       ? await projectManagementApi.remindCycleTasks(props.context.cycleId, props.context.nodeId, submittedKeys.map(Number), props.context.departmentPath, skipRecentlyReminded.value)
       : await projectManagementApi.remindTasks(props.context.projectId, props.context.nodeId, submittedKeys.map(Number))
     if (disposed) return

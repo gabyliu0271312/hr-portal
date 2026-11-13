@@ -2677,7 +2677,13 @@ async def test_reference_tabs_include_unsubmitted_node_and_manager_reminder(monk
 
     monkeypatch.setattr(projects_router, "_self_summary_template", current_template)
     monkeypatch.setattr(projects_router, "_reference_template", reference_template)
-    tabs = await projects_router._reference_tabs(task, node, project, "M001", Db())
+    from app.performance import member_reminders
+    from unittest.mock import AsyncMock
+    reminder = AsyncMock(return_value=True)
+    monkeypatch.setattr(member_reminders, "can_remind_member", reminder)
+    tabs = await projects_router._reference_tabs(task, node, project, "M001", Db(), context=context())
+    reminder.assert_awaited_once()
+    assert reminder.await_args.kwargs == {"source_task_id": 10, "node_id": "work-summary", "task_id": 11}
 
     assert len(tabs) == 1
     assert tabs[0]["node_name"] == "工作总结环节"
@@ -2773,7 +2779,7 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     evaluation = await projects_router.get_template_task(9, context(), Db())
     assert detail.await_count == 1
     assert detail.await_args.args[1] == "E001"
-    assert detail.await_args.kwargs == {"root_review_id": 21, "skip_scope": True, "visibility_role": "leader", "reference_node_id": "summary"}
+    assert detail.await_args.kwargs == {"root_review_id": 21, "skip_scope": True, "visibility_role": "leader", "reference_node_id": "summary", "source_task_id": 9}
     assert all(evaluation[key] == value for key, value in management_detail.items())
     assert evaluation["task_kind"] == "evaluation"
     assert evaluation["entry_mode"] == "template_task"
@@ -10257,7 +10263,7 @@ async def test_filling_360_reference_uses_same_projection(management_member_data
 
 
 @pytest.mark.asyncio
-async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anonymous_node(management_member_data):
+async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anonymous_node(management_member_data, monkeypatch):
     from unittest.mock import AsyncMock
     data = management_member_data
     data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
@@ -10267,7 +10273,10 @@ async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anony
     # actor 是 360 任务的处理人：应显示「填写评估」
     for index in (2, 3, 4):
         data.tasks[index - 1].handler_ref = "ADMIN"
-    data.routes.resolve_trusted_performance_actor = AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN"))
+    data.routes.resolve_trusted_performance_actor = AsyncMock(return_value=SimpleNamespace(actor_ref="ADMIN", actor_type="PORTAL_USER"))
+    from app.performance import member_reminders
+    reminder = AsyncMock(return_value=False)
+    monkeypatch.setattr(member_reminders, "can_remind_member", reminder)
     detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
     stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
     assert stage["anonymous"] is True
@@ -10276,10 +10285,12 @@ async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anony
     # actor 非处理人：应显示「催办」
     for index in (2, 3, 4):
         data.tasks[index - 1].handler_ref = "M4"
+    reminder.return_value = True
     detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
     stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
     assert stage["can_fill"] is False
-    assert stage["reminder_target"]
+    assert stage["reminder_target"] == "360°评估人"
+    assert any(call.kwargs.get("target_kind") == "reviewer_360" for call in reminder.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -10631,17 +10642,22 @@ async def test_sync_node_task_times_updates_all_tasks_including_calibration_and_
 
 
 @pytest.mark.asyncio
-async def test_management_member_reminder_preview_returns_bot_card_fields(management_member_data):
+async def test_management_member_reminder_preview_returns_bot_card_fields(management_member_data, monkeypatch):
+    from app.performance import member_reminders
+    from unittest.mock import AsyncMock
     data = management_member_data
-    data.tasks[:] = [task for task in data.tasks if not (task.node_snapshot_id == 20 and task.submitted_at is not None)]
+    target = next(task for task in data.tasks if task.id == 4)
+    resolver = AsyncMock(return_value=(None, None, None, None, {}, [(target, data.nodes[1], ["M4"], {"M4"})]))
+    monkeypatch.setattr(member_reminders, "_member_tasks", resolver)
     preview = await data.routes.project_member_reminder_preview(1, "E1", "node-20", 4, context(), data.db)
+    assert resolver.await_args.args[-3:] == (None, "node-20", 4)
     assert preview["title"] == "绩效任务提醒"
     assert "为@员工1完成环节20" in preview["description"]
     assert preview["stage_label"] == "环节20"
     assert preview["cycle_name"] == "测试周期"
     assert preview["cycle_start_at"] == "2026-01-01T00:00:00+00:00"
     assert preview["cycle_end_at"] == "2026-12-31T00:00:00+00:00"
-    assert preview["reminder_name"] in {"M4", "冻结处理人4"}
+    assert preview["reminder_name"] == context().display_name
     assert preview["stage_type"] == "环节20"
 
 
@@ -10658,10 +10674,12 @@ async def test_management_member_reminder_preview_denies_self_or_missing_target(
 @pytest.mark.asyncio
 async def test_management_member_remind_forwards_to_shared_sender(management_member_data, monkeypatch):
     from unittest.mock import AsyncMock
-    from app.performance import models as pm_models
+    from app.performance import models as pm_models, member_reminders
     data = management_member_data
     data.project.status = "STARTED"
     task = data.task(4, submitted=False)
+    resolver = AsyncMock(return_value=(SimpleNamespace(actor_ref="ADMIN", actor_type="PORTAL_USER"), None, None, None, {}, [(task, data.nodes[1], ["M4"], {"M4"})]))
+    monkeypatch.setattr(member_reminders, "_member_tasks", resolver)
     sending = AsyncMock(return_value=(True, None))
     monkeypatch.setattr(data.routes, "_task_handlers", AsyncMock(return_value=["M4"]))
     monkeypatch.setattr(data.routes, "_send_performance_task_reminder", sending)
@@ -10671,10 +10689,7 @@ async def test_management_member_remind_forwards_to_shared_sender(management_mem
     monkeypatch.setattr(data.routes, "PerformanceAuditService", lambda _db: audit)
     class Db:
         async def execute(self, query):
-            entity = query.column_descriptions[0]["entity"]
-            rows = [task] if entity is pm_models.PerformanceNodeTask else []
-            node = data.nodes[1]
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows), all=lambda: rows, first=lambda: (task, node))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
         async def get(self, model, key):
             return data.project if model is pm_models.PerformanceProject else None
         async def commit(self): pass

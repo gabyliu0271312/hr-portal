@@ -10,6 +10,7 @@ export interface EmployeeSwitchSession {
 
 export const employeeSwitchSession = shallowRef<EmployeeSwitchSession | null>(null)
 export const employeeSwitchEpoch = ref(0)
+export const employeeSwitchTransitioning = ref(false)
 export const employeeSwitchNotice = ref('')
 export const employeeSwitchRequests = new Set<AbortController>()
 

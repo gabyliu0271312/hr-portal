@@ -20,7 +20,7 @@
       <img v-if="reference.status === 'not_started'" src="/performance-not-started.svg" alt="" width="120" height="121">
       <img v-else src="/performance-no-submit.svg" alt="" width="120" height="120">
       <p>{{ reference.status === 'completed' ? '暂无可查看内容' : '暂未提交' }}</p>
-      <PerformanceReminderButton v-if="reference.can_remind" variant="icon" @click="$emit('remind', reference)" />
+      <PerformanceReminderButton v-if="reference.can_remind" @click="$emit('remind', reference)" />
     </div>
   </section>
 </template>

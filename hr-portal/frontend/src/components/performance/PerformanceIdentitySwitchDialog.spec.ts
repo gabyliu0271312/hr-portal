@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ElementPlus from 'element-plus'
 import PerformanceIdentitySwitchDialog from './PerformanceIdentitySwitchDialog.vue'
-import { clearEmployeeSwitch, employeeSwitchNotice, employeeSwitchSession, setEmployeeSwitch } from '@/stores/identitySwitch'
+import { clearEmployeeSwitch, employeeSwitchTransitioning, employeeSwitchNotice, employeeSwitchSession, setEmployeeSwitch } from '@/stores/identitySwitch'
 
 const mocks = vi.hoisted(() => ({ people: vi.fn(), favorites: vi.fn(), addFavorite: vi.fn(), removeFavorite: vi.fn(), capability: vi.fn(), create: vi.fn(), end: vi.fn(), replace: vi.fn() }))
 vi.mock('@/api/identitySwitch', () => ({ identitySwitchApi: mocks }))
@@ -29,6 +29,26 @@ describe('performance employee switch dialog', () => {
     mocks.capability.mockResolvedValue({ generation: 7, can_switch: true })
     mocks.create.mockResolvedValue({ session_id: 's', session_token: 'secret', expires_at: '2099-01-01', mode: 'TARGET_POLICY', effective_identity: saved })
     mocks.replace.mockResolvedValue(undefined)
+  })
+
+  it.each([true, false])('holds the page transition until session creation finishes (success=%s)', async succeeds => {
+    let resolve!: (value: unknown) => void
+    let reject!: (error: Error) => void
+    mocks.create.mockImplementationOnce(() => new Promise((done, fail) => { resolve = done; reject = fail }))
+    mocks.favorites.mockResolvedValue([saved])
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('.favorite-person').trigger('click')
+    await flushPromises()
+    expect(employeeSwitchTransitioning.value).toBe(true)
+    expect(mocks.replace).not.toHaveBeenCalled()
+    if (succeeds) resolve({ session_id: 's', session_token: 'secret', expires_at: '2099-01-01', mode: 'TARGET_POLICY', effective_identity: saved })
+    else reject(new Error('creation failed'))
+    await flushPromises()
+    expect(employeeSwitchTransitioning.value).toBe(false)
+    if (succeeds) expect(employeeSwitchSession.value?.session_id).toBe('s')
+    else expect(employeeSwitchSession.value).toBeNull()
+    wrapper.unmount()
   })
 
   it('switches to a saved person by clicking it, without creating a Portal account or assigning a role', async () => {

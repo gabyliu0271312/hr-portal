@@ -7,9 +7,10 @@ const api = vi.hoisted(() => ({
   delete: vi.fn(),
 }))
 
-vi.mock('./client', () => ({ api }))
+vi.mock('./client', () => ({ api, getToken: () => localStorage.getItem('hr_portal.token') }))
 
-import { performanceTagFillQuestionApi } from './performance'
+import { clearPerformanceInFlightRequests, performanceNavigationApi, performanceReviewApi, performanceWorkbenchApi, performanceTagFillQuestionApi } from './performance'
+import { clearEmployeeSwitch } from '@/stores/identitySwitch'
 
 const wire = {
   id: 301,
@@ -24,7 +25,54 @@ const wire = {
 }
 
 describe('performanceTagFillQuestionApi', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks(); clearPerformanceInFlightRequests(); localStorage.clear() })
+
+  it('merges concurrent people calls but reloads after completion and preserves parameter boundaries', async () => {
+    let resolve!: (value: { data: unknown }) => void
+    api.get.mockImplementation(() => new Promise(done => { resolve = done }))
+    const load = (node = 'manager', page = 1, keyword?: string) => performanceWorkbenchApi.taskPeople(29, node, 'all', keyword, undefined, page, 50)
+    const calls = [load(), load(), load()]
+    expect(api.get).toHaveBeenCalledTimes(1)
+    resolve({ data: { items: [], total: 0, rating_columns: [] } })
+    await Promise.all(calls)
+    api.get.mockResolvedValue({ data: {} })
+    await Promise.all([load(), load('other'), load('manager', 2), load('manager', 1, 'a&phase_id=b'), load('manager', 1, 'a')])
+    expect(api.get).toHaveBeenCalledTimes(6)
+  })
+
+  it('merges overview and navigation separately and evicts failed requests for retry', async () => {
+    let reject!: (error: Error) => void
+    api.get.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail }))
+    const first = performanceReviewApi.overview(29, undefined, 9)
+    const duplicate = performanceReviewApi.overview(29, undefined, 9)
+    expect(api.get).toHaveBeenCalledTimes(1)
+    const failures = Promise.allSettled([first, duplicate])
+    reject(new Error('retry'))
+    await failures
+    api.get.mockResolvedValue({ data: {} })
+    await Promise.all([performanceReviewApi.overview(29, undefined, 9), performanceReviewApi.overview(29, undefined, 9), performanceNavigationApi.get(9), performanceNavigationApi.get(9)])
+    expect(api.get).toHaveBeenCalledTimes(3)
+  })
+
+  it('never shares an inflight response across identity, login or explicit invalidation', async () => {
+    const resolves: Array<(value: { data: unknown }) => void> = []
+    api.get.mockImplementation(() => new Promise(done => { resolves.push(done) }))
+    const load = () => performanceWorkbenchApi.taskPeople(29, 'manager', 'all', undefined, undefined, 1, 50)
+    const first = load()
+    clearEmployeeSwitch()
+    const next = load()
+    resolves[0]({ data: {} })
+    await first
+    const duplicate = load()
+    expect(api.get).toHaveBeenCalledTimes(2)
+    localStorage.setItem('hr_portal.token', 'replacement')
+    const login = load()
+    clearPerformanceInFlightRequests()
+    const invalidated = load()
+    expect(api.get).toHaveBeenCalledTimes(4)
+    resolves.slice(1).forEach(done => done({ data: {} }))
+    await Promise.all([next, duplicate, login, invalidated])
+  })
 
   it('uses the captured tag_text list and options parameters', async () => {
     api.get.mockResolvedValueOnce({ data: { items: [wire], total: 1 } })

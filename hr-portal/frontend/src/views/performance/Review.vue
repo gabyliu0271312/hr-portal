@@ -62,7 +62,7 @@
       @edit="editDrawerTask"
       @remind="openDrawerReminder"
     />
-    <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '催办'"><PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" mode="member-remind" description="仅展示当前员工可催办的未完成任务" /></PerformanceTaskOverlay>
+    <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
     <PerformanceConfirmDialog v-model="calibrationConfirmOpen" appearance="calibration-completion" message="确定要完成校准吗？" :description="calibrationDescription" cancel-text="取消" confirm-text="确定" confirm-variant="primary" :loading="calibrationBusy" :error-message="calibrationError" @confirm="confirmCalibrationCompletion" />
   </div>
 </template>
@@ -83,8 +83,7 @@ import {
 } from '@/api/performance'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
-import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
-import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
+import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceResultReconsideration from '@/components/performance/PerformanceResultReconsideration.vue'
 import PerformanceResultReconsiderationMenu from '@/components/performance/PerformanceResultReconsiderationMenu.vue'
@@ -323,11 +322,14 @@ function routeTaskId() {
   return Number.isFinite(taskId) && taskId > 0 ? taskId : undefined
 }
 let overviewRequest = 0
+let disposed = false
+onBeforeUnmount(() => { disposed = true; ++overviewRequest; ++calibrationRequest })
 async function loadOverview(projectId?: number, silent = false) {
+  if (disposed) return
   const request = ++overviewRequest
   const cycleId = projectContext.activeCycleId
   const cacheVersion = projectContext.cacheVersion
-  const current = () => request === overviewRequest && cycleId === projectContext.activeCycleId && cacheVersion === projectContext.cacheVersion && (!projectId || activeProjectId.value === projectId)
+  const current = () => !disposed && request === overviewRequest && cycleId === projectContext.activeCycleId && cacheVersion === projectContext.cacheVersion && (!projectId || activeProjectId.value === projectId)
   if (!silent) loading.value = true
   if (!silent) error.value = ''
   try {
@@ -415,11 +417,13 @@ async function openMember(payload: { node: PerformanceReviewNode; member: Perfor
 }
 const { reminderOpen, reminderContext, openMemberReminder } = usePerformanceMemberReminder()
 function openEvaluateReminder(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext; pendingCount: number }) {
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, sourceTaskId: payload.node.node_type === 'evaluation' && !isSelfEvaluationNode(payload.node) && !isReviewer360Node(payload.node) ? payload.member.task_id || payload.member.aggregate_task_id || undefined : undefined })
+  if (!payload.pendingCount) return
+  const sourceTaskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id || undefined
+  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(payload.node.task_kind || payload.node.node_type) ? sourceTaskId : undefined, targetKind: 'reviewer_360' })
 }
-function openDrawerReminder(reference: PerformanceReferenceTab) {
+function openDrawerReminder(reference: PerformanceReferenceTab, sourceTaskId?: number) {
   const member = drawerMember.value
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: member?.node.node_type === 'evaluation' && !isSelfEvaluationNode(member.node) && !isReviewer360Node(member.node) ? member.task_id : undefined, nodeId: reference.node_id, taskId: reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && ['evaluation', 'calibration', 'result_communication'].includes(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, taskId: reference.task_id || undefined })
 }
 async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }) {
   const current = drawerMember.value
@@ -437,8 +441,10 @@ onMounted(async () => {
     if (!projectContext.navigationReady || (routeCycleId > 0 && routeCycleId !== projectContext.activeCycleId)) {
       await projectContext.ensureNavigation(Number.isFinite(routeCycleId) && routeCycleId > 0 ? routeCycleId : undefined)
     }
+    if (disposed) return
     if (Number.isFinite(routeProjectId) && routeProjectId > 0) projectContext.setActiveProjectId(routeProjectId)
-  } catch { error.value = projectContext.navigationError || '绩效评估加载失败，请稍后重试'; loading.value = false; return }
+  } catch { if (!disposed) { error.value = projectContext.navigationError || '绩效评估加载失败，请稍后重试'; loading.value = false }; return }
+  if (disposed) return
   if (projectContext.navigation && !projectContext.navigation.can_review) { await router.replace('/performance/workbench'); return }
   if (projectContext.navigation && !projectContext.navigation.review_projects.some(project => project.project_id === activeProjectId.value)) {
     if (routeProjectId > 0) { error.value = '当前项目不存在或无权查看'; loading.value = false; return }

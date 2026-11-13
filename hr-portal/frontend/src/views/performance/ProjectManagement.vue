@@ -46,6 +46,7 @@
         </div>
       </template>
     </section>
+    <PerformanceMemberReminderDialog v-model="memberReminderOpen" :context="memberReminderContext" />
     <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '上级评估'" :description="reminderContext?.description" @close="closeReminder">
       <PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" :mode="reminderMode" :description="reminderContext.description" @filter="handleReminderFilter" />
     </PerformanceTaskOverlay>
@@ -102,6 +103,8 @@ import AuthorizationManagementPanel from '@/components/performance/Authorization
 import FrontFocusGroupManagementDialog from '@/components/performance/focus-group/FrontFocusGroupManagementDialog.vue'
 import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
+import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
+import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceTaskDelegationDialog from '@/components/performance/PerformanceTaskDelegationDialog.vue'
 import RevieweeAddDialog from '@/components/performance/RevieweeAddDialog.vue'
 import MemberAddIcon from '@/components/performance/MemberAddIcon.vue'
@@ -220,7 +223,8 @@ watch(overviewViewMode, (value) => {
   void router.replace({ query })
 })
 const reminderOpen = ref(false)
-const reminderMode = ref<'remind' | 'member-remind' | 'open-result'>('remind')
+const reminderMode = 'open-result'
+const { reminderOpen: memberReminderOpen, reminderContext: memberReminderContext, openMemberReminder } = usePerformanceMemberReminder()
 type ReminderContextWithDescription = ReminderContext & { description?: string; nodeKey?: string }
 const reminderContext = ref<ReminderContextWithDescription | null>(null)
 
@@ -299,28 +303,12 @@ function delegationCompleted(count: number, _notificationStatus: string | undefi
 function handleDrawerRemind(reference: PerformanceReferenceTab) {
   const member = drawerMember.value
   if (!member) return
-  handleEvaluateRemind({ member, pendingCount: 1 })
-  if (reminderContext.value) {
-    reminderContext.value.nodeId = reference.node_id
-    reminderContext.value.targetTaskId = reference.task_id || undefined
-  }
+  openMemberReminder({ projectId: member.project_id, cycleId: activeCycle.value?.cycle_id, employeeNo: reference.employee_no || member.employee_no, displayName: member.display_name, nodeId: reference.node_id, taskId: reference.task_id || undefined })
 }
 function handleEvaluateRemind(payload: { member: { project_id?: number; employee_no: string; display_name?: string }; pendingCount: number }) {
   const cycle = activeCycle.value
   if (!cycle || !payload.pendingCount) return
-  reminderMode.value = 'member-remind'
-  reminderContext.value = {
-    projectId: Number(payload.member.project_id || memberProjectId.value),
-    cycleId: cycle.cycle_id,
-    employeeNo: payload.member.employee_no,
-    nodeId: '',
-    nodeType: 'member',
-    reviewType: 'member-remind',
-    title: payload.member.display_name ? `${payload.member.display_name} · 催办` : '催办',
-    sectionTitle: '未完成的任务',
-    description: '仅展示当前员工可催办的未完成任务',
-  }
-  reminderOpen.value = true
+  openMemberReminder({ projectId: Number(payload.member.project_id || memberProjectId.value), cycleId: cycle.cycle_id, employeeNo: payload.member.employee_no, displayName: payload.member.display_name, targetKind: 'reviewer_360' })
 }
 
 function formatDeadline(value: string | null) {
@@ -472,7 +460,6 @@ async function selectNode(node: PerformanceReviewNode) {
 async function handleCompletionAction(payload: { action: 'remind' | 'enable-result'; nodeKey: string; title: string; description?: string; departmentPath?: string }) {
   emit('completion-action', payload)
   if (payload.action === 'enable-result' && activeCycle.value) {
-    reminderMode.value = 'open-result'
     reminderContext.value = {
       projectId: 0, cycleId: activeCycle.value.cycle_id, nodeId: 'result-view', nodeType: 'result_view',
       reviewType: 'result_opening', title: '开通绩效结果', sectionTitle: '未开通的被评估人',

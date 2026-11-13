@@ -24,26 +24,11 @@ const result = (): ReminderListResult => ({
 const context = { projectId: 3, cycleId: 1, nodeId: 'evaluation-1', nodeType: 'evaluation', reviewType: 'leader_review', title: '上级评估', sectionTitle: '未完成的被评估人' }
 
 describe('PerformanceReminderPanel', () => {
-  it('lists employee tasks and uses the shared confirmation, six-hour checkbox and batch result', async () => {
-    const api = await import('@/api/performance')
-    const people = vi.spyOn(api.projectManagementApi, 'memberReminderTasks').mockResolvedValue({ items: [{ task_id: 71, project_id: 3, employee_no: 'E001', display_name: '张三', node_id: 'summary', node_name: '工作总结', task_kind: 'work_summary', status: 'pending', due_at: null, reminder_target: '填写人', selectable: true, can_authorize: false }], total: 1, can_remind: true })
-    const send = vi.spyOn(api.projectManagementApi, 'memberRemindBatch').mockResolvedValue({ accepted_task_ids: [71], skipped_task_ids: [], delivery_status: 'success' })
-    const wrapper = mount(PerformanceReminderPanel, { attachTo: document.body, props: { context: { ...context, nodeId: '', employeeNo: 'E001', sourceTaskId: 11 }, mode: 'member-remind' } })
-    await flushPromises()
-    expect(people).toHaveBeenCalledWith(3, 'E001', { source_task_id: 11, node_id: undefined, task_id: undefined })
-    expect(wrapper.text()).toContain('工作总结')
-    expect(wrapper.text()).not.toContain('授权他人处理')
-    await wrapper.get('tbody input[type="checkbox"]').setValue(true)
-    await wrapper.get('.selection-bar .performance-button--primary').trigger('click')
-    await flushPromises()
-    expect(send).not.toHaveBeenCalled()
-    const checkbox = document.body.querySelector<HTMLInputElement>('.performance-confirm-dialog input[type="checkbox"]')!
-    checkbox.click()
-    await flushPromises()
-    document.body.querySelector<HTMLButtonElement>('.performance-confirm-dialog__button--danger')!.click()
-    await flushPromises()
-    expect(send).toHaveBeenCalledWith(3, 'E001', { source_task_id: 11, node_id: undefined, task_ids: [71], skip_recently_reminded: true })
-    expect(document.body.textContent).toContain('催办成功')
+  it('keeps employee-scoped reminder APIs out of the batch workspace', async () => {
+    const source = (await import('./PerformanceReminderPanel.vue?raw')).default
+    expect(source).not.toContain("'member-remind'")
+    expect(source).not.toContain('memberReminderTasks(')
+    expect(source).not.toContain('memberRemindBatch(')
   })
   it('uses the shared toolbar, renders configured columns, and selects task rows', async () => {
     const provider = vi.fn().mockResolvedValue(result())

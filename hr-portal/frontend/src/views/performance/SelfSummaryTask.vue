@@ -47,7 +47,7 @@
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
-  <PerformanceTaskOverlay v-model="reminderOpen" :title="reminderContext?.title || '催办'"><PerformanceReminderPanel v-if="reminderContext" :context="reminderContext" mode="member-remind" description="仅展示当前员工可催办的未完成任务" /></PerformanceTaskOverlay>
+  <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
   <PerformanceConfirmDialog v-model="overdueConfirmOpen" appearance="submit" confirm-variant="primary" message="确定提交吗？" description="当前环节已过截止时间，提交后将无法修改内容。" cancel-text="取消" confirm-text="确定" :loading="submitting" :error-message="overdueConfirmError" @confirm="submit(true)" />
   <PerformanceConfirmDialog v-model="giveupConfirmOpen" appearance="submit" confirm-variant="primary" message="确定放弃评估？" description="放弃后将从你的 360° 评估列表中移除，重新评估需再次发起自愿评估。" cancel-text="取消" confirm-text="确定" :loading="givingUp" :error-message="giveupError" @confirm="giveup()" />
 </template>
@@ -62,8 +62,7 @@ import PerformanceConfirmDialog from '@/components/performance/PerformanceConfir
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
 import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
-import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
-import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
+import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
 import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
@@ -272,7 +271,7 @@ function saveDraft() {
 }
 
 function openReminder(reference: PerformanceReferenceTab) {
-  openMemberReminder({ projectId: Number(task.value.project_id || route.query.project_id), cycleId: Number(route.query.cycle_id), employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: props.taskKind === 'evaluation' && task.value.task_kind === 'evaluation' ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, taskId: reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(task.value.project_id || route.query.project_id), cycleId: Number(route.query.cycle_id), employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(task.value.task_kind || '') ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, taskId: reference.task_id || undefined })
 }
 function selectedTags(value: unknown) { return Array.isArray(value) ? value as string[] : (value as { tags?: string[] } | undefined)?.tags || [] }
 function tagNotes(value: unknown) { return (value as { notes?: Record<string, string> } | undefined)?.notes || {} }

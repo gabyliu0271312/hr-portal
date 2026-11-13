@@ -16,6 +16,7 @@ import PerformanceManagementTable from './PerformanceManagementTable.vue'
 import PerformanceTableSummary from './PerformanceTableSummary.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from './PerformanceTaskStatus.vue'
+import PerformanceEvaluateRatioPopover from './PerformanceEvaluateRatioPopover.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from './performanceTaskStatus'
 import MetricTemplateEmptyIllustration from './MetricTemplateEmptyIllustration.vue'
@@ -32,6 +33,7 @@ const props = withDefaults(defineProps<{
   mode?: 'feedback' | 'communication'
 }>(), { mode: 'feedback' })
 const emit = defineEmits<{
+  'remind-evaluate': [{ member: FeedbackRow; pendingCount: number }]
   'open-task': [{ task_id: number; employee_no: string; display_name: string; status: string }]
 }>()
 
@@ -39,7 +41,7 @@ const projectContext = usePerformanceProjectContextStore()
 const loading = ref(false)
 const error = ref('')
 const keyword = ref('')
-type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<PerformanceWorkbenchTaskPerson> & { status: string }
+type FeedbackRow = Omit<PerformanceReview360FeedbackItem, 'status'> & Partial<Omit<PerformanceWorkbenchTaskPerson, 'employee_no' | 'task_id'>> & { status: string }
 const items = ref<FeedbackRow[]>([])
 const total = ref(0)
 const allowVoluntary = ref(false)
@@ -322,7 +324,10 @@ defineExpose({ allowVoluntary, voluntaryEnabled, voluntaryDisabledReason, openVo
         <PerformanceMemberIdentity v-if="column.key === 'name'" :display-name="row.display_name" />
         <PerformanceTaskStatus v-else-if="column.key === 'status'" :status="row.status" :due-at="row.due_at" :allow-rejected="!communicationMode" />
         <PerformanceRatingTag v-else-if="column.key.startsWith('rating:') && row.ratings?.[column.key]" :label="row.ratings[column.key].label" :color="row.ratings[column.key].color || undefined" :foreground="row.ratings[column.key].foreground || undefined" />
-        <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">{{ cellValue(row, column.key) }}</span>
+        <span v-else-if="column.key === 'completion'" class="feedback-panel__completion">
+          <PerformanceEvaluateRatioPopover v-if="communicationMode && row.evaluate_ratio" :completion="cellValue(row, column.key)" :ratio="row.evaluate_ratio" :can-remind="row.can_remind === true" @remind="emit('remind-evaluate', { member: row, pendingCount: $event })" />
+          <template v-else>{{ cellValue(row, column.key) }}</template>
+        </span>
         <span v-else>{{ cellValue(row, column.key) }}</span>
       </template>
       <template #empty="{ loading: emptyLoading, text }">

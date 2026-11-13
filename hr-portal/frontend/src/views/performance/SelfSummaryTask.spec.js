@@ -7,6 +7,8 @@ import PerformanceRichTextEditor from '@/components/performance/PerformanceRichT
 import PerformanceTagRichTextInput from '@/components/performance/PerformanceTagRichTextInput.vue'
 import PerformanceWriteModeSwitch from '@/components/performance/PerformanceWriteModeSwitch.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
+import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
+import PerformanceReminderButton from '@/components/performance/PerformanceReminderButton.vue'
 import { performanceReviewApi } from '@/api/performance'
 import { api } from '@/api/client'
 import { clearEmployeeSwitch, employeeSwitchSession, employeeSwitchNotice, setEmployeeSwitch } from '@/stores/identitySwitch'
@@ -144,10 +146,23 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.findAll('.split-single-tabs .summary-tabs button').map(button => button.text())).toEqual(['模板维护的总结名称', '上级评估'])
     await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
     expect(wrapper.text()).toContain('暂未提交')
-    expect(wrapper.find('.performance-reminder-button').exists()).toBe(true)
-    await wrapper.get('.performance-reminder-button').trigger('click')
+    expect(wrapper.find('.performance-remind-button').exists()).toBe(true)
+    await wrapper.get('.performance-remind-button').trigger('click')
     expect(push).not.toHaveBeenCalled()
-    expect(wrapper.getComponent({ name: 'PerformanceReminderPanel' }).props('context')).toEqual(expect.objectContaining({ projectId: 1, employeeNo: 'E001', nodeId: 'evaluation-1', targetTaskId: 77 }))
+    expect(wrapper.getComponent({ name: 'PerformanceMemberReminderDialog' }).props('context')).toEqual(expect.objectContaining({ projectId: 1, employeeNo: 'E001', nodeId: 'evaluation-1', targetTaskId: 77 }))
+  })
+
+  it.each(['evaluation', 'calibration', 'result_communication', 'work_summary'])('binds reminders to the loaded %s task rather than the route prop', async taskKind => {
+    const reference = { key: 'ref', node_id: 'summary', node_name: '工作总结', task_id: 77, employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_remind: true }
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), task_id: 42, task_kind: taskKind, project_id: 1, reference_tabs: [reference] })
+    const wrapper = mount(SelfSummaryTask, { global: { stubs: { PerformanceMemberReminderDialog: true } } })
+    await flushPromises()
+    await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
+    const button = wrapper.getComponent(PerformanceReminderButton)
+    expect(button.props('variant')).toBe('outline')
+    await button.trigger('click')
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { employeeNo: 'E001', nodeId: 'summary', targetTaskId: 77, sourceTaskId: taskKind === 'work_summary' ? undefined : 42 } })
+    expect(wrapper.findComponent({ name: 'PerformanceTaskOverlay' }).exists()).toBe(false)
   })
 
   it.each([undefined, { tags: [], notes: {} }])('applies default tags only to missing editable answers: %o', async value => {
@@ -839,7 +854,7 @@ describe('SelfSummaryTask', () => {
     await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
     expect(wrapper.text()).toContain('暂无可查看内容')
     expect(wrapper.text()).not.toContain('暂未提交')
-    expect(wrapper.find('.performance-reminder-button').exists()).toBe(false)
+    expect(wrapper.find('.performance-remind-button').exists()).toBe(false)
     wrapper.unmount()
   })
 

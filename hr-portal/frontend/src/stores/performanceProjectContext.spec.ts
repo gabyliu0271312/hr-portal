@@ -106,6 +106,22 @@ describe('performance cycle context', () => {
     expect(fresh).toHaveBeenCalledOnce()
   })
 
+  it('drops old navigation synchronously when identity changes', async () => {
+    const store = usePerformanceProjectContextStore()
+    store.setNavigation(context(2))
+    let resolve!: (value: PerformanceNavigationContext) => void
+    vi.spyOn(performanceNavigationApi, 'get').mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const previous = store.refreshNavigation(2, true)
+    clearEmployeeSwitch()
+    expect(store.navigationReady).toBe(false)
+    expect(store.navigation).toBeNull()
+    expect(store.activeCycleId).toBeNull()
+    resolve(context(2))
+    await previous
+    expect(store.navigation).toBeNull()
+    expect(store.activeCycleId).toBeNull()
+  })
+
   it('does not persist the tested identity cycle', () => {
     setEmployeeSwitch({ session_id: 'session', session_token: 'token', expires_at: '2099-01-01', effective_identity: { employee_no: 'E2', display_name: '员工二' }, mode: 'TARGET_POLICY' })
     const store = usePerformanceProjectContextStore()

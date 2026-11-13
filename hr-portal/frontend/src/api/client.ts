@@ -26,10 +26,9 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     config.headers = config.headers || {}
     config.headers.Authorization = `Bearer ${token}`
   }
+  const isPerformanceRequest = config.url?.startsWith('/performance/')
   const session = employeeSwitchSession.value
-  if (session && config.url?.startsWith('/performance/') && !config.url.startsWith('/performance/identity-switch/')) {
-    config.headers.set('X-App-Switch-Session', session.session_token)
-    if (!config.headers.has('X-App-Switch-Request')) config.headers.set('X-App-Switch-Request', `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+  if (isPerformanceRequest) {
     const tracked = config as SwitchRequestConfig
     tracked.switchEpoch = employeeSwitchEpoch.value
     if (!config.signal) {
@@ -37,8 +36,12 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
       config.signal = tracked.switchAbort.signal
       employeeSwitchRequests.add(tracked.switchAbort)
     }
+    if (session && !config.url?.startsWith('/performance/identity-switch/')) {
+      config.headers.set('X-App-Switch-Session', session.session_token)
+      if (!config.headers.has('X-App-Switch-Request')) config.headers.set('X-App-Switch-Request', `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    }
   }
-  if (config.url?.startsWith('/performance/') || config.url?.startsWith('/identity-switch/')) {
+  if (isPerformanceRequest || config.url?.startsWith('/identity-switch/')) {
     config.headers = config.headers || {}
     config.headers.set('Cache-Control', 'no-cache')
     config.headers.set('Pragma', 'no-cache')

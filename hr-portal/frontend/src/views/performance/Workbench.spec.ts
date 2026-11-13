@@ -197,6 +197,20 @@ describe('PerformanceWorkbench project context', () => {
     expect(performanceWorkbenchApi.timeline).toHaveBeenCalledWith(1)
   })
 
+  it('does not start project requests after leaving while navigation is pending', async () => {
+    const store = usePerformanceProjectContextStore()
+    store.resetIdentity()
+    let resolve!: (value: PerformanceNavigationContext) => void
+    vi.mocked(performanceNavigationApi.get).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const wrapper = mountView()
+    wrapper.unmount()
+    resolve(navigationOf(1))
+    await flushPromises()
+    expect(performanceWorkbenchApi.listProjects).not.toHaveBeenCalled()
+    expect(performanceWorkbenchApi.timeline).not.toHaveBeenCalled()
+    expect(performanceWorkbenchApi.tasks).not.toHaveBeenCalled()
+  })
+
   it('shows cached todos immediately while the project list refresh is pending', async () => {
     const context = usePerformanceProjectContextStore()
     context.setActiveProjectId(1)

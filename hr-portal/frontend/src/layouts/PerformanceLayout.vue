@@ -59,7 +59,8 @@
       </el-aside>
 
       <el-main :class="['performance-main', { 'review-main': isReview || isProjectManagement }]">
-        <router-view :key="employeeSwitchEpoch" />
+        <div v-if="employeeSwitchTransitioning" role="status">正在切换绩效用户…</div>
+        <router-view v-else :key="employeeSwitchEpoch" />
       </el-main>
     </el-container>
     <GlobalAiAssistant v-if="!employeeSwitchSession" />
@@ -81,7 +82,7 @@ import AppSwitcher from '@/components/app-switcher/AppSwitcher.vue'
 import PerformanceIdentitySwitchDialog from '@/components/performance/PerformanceIdentitySwitchDialog.vue'
 import PerformanceIdentitySwitchRecords from '@/components/performance/PerformanceIdentitySwitchRecords.vue'
 import { identitySwitchApi, type SwitchCapability } from '@/api/identitySwitch'
-import { employeeSwitchSession, employeeSwitchEpoch, employeeSwitchNotice, clearEmployeeSwitch } from '@/stores/identitySwitch'
+import { employeeSwitchSession, employeeSwitchEpoch, employeeSwitchTransitioning, employeeSwitchNotice, clearEmployeeSwitch } from '@/stores/identitySwitch'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 
 interface PerformanceMenuItem {
@@ -196,15 +197,21 @@ async function refreshIdentity() {
   } catch { if (version === employeeSwitchEpoch.value) switchCapability.value = null }
 }
 async function restoreIdentity() {
+  employeeSwitchTransitioning.value = true
   const previous = employeeSwitchSession.value
   clearEmployeeSwitch()
-  if (previous) {
-    try { await identitySwitchApi.end(previous.session_id) }
-    catch { employeeSwitchNotice.value = '本页已恢复本人；服务端会话结束未确认，请勿继续使用旧会话' }
+  try {
+    if (previous) {
+      try { await identitySwitchApi.end(previous.session_id) }
+      catch { employeeSwitchNotice.value = '本页已恢复本人；服务端会话结束未确认，请勿继续使用旧会话' }
+    }
+    await router.replace('/performance/workbench')
+  } finally {
+    employeeSwitchTransitioning.value = false
   }
-  await router.replace('/performance/workbench')
 }
-watch(employeeSwitchEpoch, () => {
+watch([employeeSwitchEpoch, employeeSwitchTransitioning], () => {
+  if (employeeSwitchTransitioning.value) return
   projectContext.resetIdentity()
   performanceContext.value = null
   void refreshIdentity()

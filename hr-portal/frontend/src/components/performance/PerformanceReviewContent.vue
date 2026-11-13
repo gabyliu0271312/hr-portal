@@ -46,6 +46,7 @@
           :project-id="props.projectId"
           :node-id="node.node_id"
           @open-task="emit('open-member', { node, member: $event })"
+          @remind-evaluate="emit('remind-evaluate', { node, ...$event })"
         />
         <template v-else-if="showsEvaluationWorkspace">
           <div class="evaluation-workspace">

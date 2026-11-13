@@ -5,7 +5,7 @@ import { usePerformanceProjectContextStore } from '@/stores/performanceProjectCo
 import PerformanceLayout from './PerformanceLayout.vue'
 import { api } from '@/api/client'
 import { identitySwitchApi } from '@/api/identitySwitch'
-import { clearEmployeeSwitch, employeeSwitchNotice, employeeSwitchSession, setEmployeeSwitch } from '@/stores/identitySwitch'
+import { clearEmployeeSwitch, employeeSwitchTransitioning, employeeSwitchNotice, employeeSwitchSession, setEmployeeSwitch } from '@/stores/identitySwitch'
 
 enableAutoUnmount(afterEach)
 
@@ -103,6 +103,20 @@ describe('PerformanceLayout identity recovery', () => {
     clearEmployeeSwitch()
     vi.mocked(identitySwitchApi.capability).mockReset().mockResolvedValue({ can_switch: true, can_manage_control: false, others_enabled: true, generation: 7, test_delivery_enabled: false })
     vi.mocked(api.get).mockReset().mockResolvedValue({ data: { expires_at: '2099-02-01' } })
+  })
+
+  it('unmounts business pages throughout the session transition and restores them afterward', async () => {
+    const wrapper = mountLayout()
+    await flushPromises()
+    expect(wrapper.find('main > div').exists()).toBe(true)
+    employeeSwitchTransitioning.value = true
+    clearEmployeeSwitch()
+    await flushPromises()
+    expect(wrapper.get('main').text()).toContain('正在切换绩效用户')
+    expect(wrapper.find('main > div').attributes('role')).toBe('status')
+    employeeSwitchTransitioning.value = false
+    await flushPromises()
+    expect(wrapper.get('main').text()).not.toContain('正在切换绩效用户')
   })
 
   it('checks immediately on focus and keeps the server renewal expiry', async () => {

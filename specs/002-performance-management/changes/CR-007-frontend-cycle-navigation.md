@@ -230,6 +230,19 @@
 - PC 证据：真实 Vite Vue 组件、1280×800、合成人员和浏览器拦截 API；双人相同环节只展示一次，二次确认前写请求0、二次确定后发两条对应任务请求、转交二次取消无新增写请求、pageerror0。截图 `ui-blueprints/CR-007-F07-implemented-authorization.png`、`CR-007-F07-implemented-authorization-confirm.png`、`CR-007-F07-implemented-transfer-confirm.png` 已查看。仅组件集成验证，不是原入口真实后端端到端验收；合成数据及“打开转交”按钮不加入正式页面。
 - 边界与停止：未操作飞书或生产、未实际外发消息、未执行迁移／部署／commit／push。Docker守护进程不可用，不反复重试。批量保持既有逐任务 API，不承诺原子批量；结果复议通知重试器 reconsideration_service.dispatch_notifications 仍按原 task.handler_ref 投递，不随有效授权人变化，这一通知重试限制未扩文件处理。后继须在本地真库可用时补原入口→真实 API→新连接回读，不能以组件截图或 ORM 测试替代 PostgreSQL 验收。
 
+## 2026-11-13 CR-007-F14 单个催办与批量催办分离
+
+- [ ] CR-007-F14：本地实现、定向自动化与隔离浏览器交互已验证；真实鉴权 API／PostgreSQL／通知投递及生产部署未验收，不勾选整体完成。
+- Goal／依据：用户确认修复单个与周期批量催办混用，统一项目管理成员列表、上级评估、校准、绩效沟通及编辑／阅读态的按钮与催办功能。沿用 CR-011 既有确认＋hover 预览交互，无新增页面或信息架构，不要求新蓝图。
+- 契约：一个被评估员工不等于一个通知接收人。具体环节用 node_id/task_id；360入口用 target_kind=reviewer_360 与 node/task 严格交集，GET取得该员工可用任务集合，确认才向成员级 remind-batch 提交明确 task_ids。单任务走原成员 remind；周期去催办仍走 cycle-remind 独立路由。结果开通独立，禁止借催办执行开通。
+- 前端：新增 PerformanceMemberReminderDialog.vue 及其组件测试，复用 ConfirmDialog／Popover／PreviewCard／Checkbox；编辑／阅读空态统一 outline 铃铛＋催办，360统计浮层保留文本按钮。三个页面共用 composable，抽屉使用真实 stage.task_id 及加载后的来源任务；沟通列表增加评估率浮层，普通360评估人界面不增加催办。删除批量面板 member-remind 模式及其 API 分支，防止重新误接。预览与发送响应按上下文和身份代次丢弃，关闭清理浮层，发送完成只保留一个结果弹窗；success／partial／preview／failed／skipped不混称成功。
+- 后端：成员列表、预览、单次与集合发送共用 resolver；source 支持上级评估／校准／沟通可写任务，绑定项目、周期、员工、历史快照及时间窗，校准使用既有对象授权与阶段校验。source 命中不再管理回退；只读／转交原处理人／撤销／越界拒绝。预览和发送共享消息构建及截止时间，reminder_name 是操作者，reminder_target 是收件人说明；360通用称谓不泄漏实名。旧单次增加 source_task_id、skip_recently_reminded 并委托统一发送；保留通知日志六小时去重及审计。
+- 允许改动：backend/app/performance/{member_reminders,projects_router}.py、既有两个后端测试；frontend/src/api/performance.ts、performanceReminder.ts、usePerformanceMemberReminder.ts、新 Dialog及spec、ReminderPanel及spec、ReferenceContent／ReviewContent／Review360FeedbackPanel／ReviewEvaluationDrawer、ProjectManagement／Review／SelfSummaryTask及既有测试。共享 API 保留并行请求去重改动；未修改其它会话身份切换、Layout、store、Workbench或用户 router diff。不改模型／迁移／快照／角色配置／生产，不新建脚本、报告或测试文档，不自动提交推送。
+- 前端最终命令：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceMemberReminderDialog.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/SelfSummaryTask.spec.js --silent` → **7文件356 passed**。单线程早期组合运行出现 enableAutoUnmount 二次注册收集失败，正常隔离的最终七文件命令已通过，不修改业务以规避。`npm --prefix hr-portal/frontend run build` → vue-tsc＋Vite exit0、3700模块；既有VueUse PURE与chunk体积告警。
+- 后端主线程命令：`DB_HOST=127.0.0.1 DB_PORT=1 hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_member_reminders.py hr-portal/backend/tests/test_performance_projects.py -q --tb=short` → **851 passed／5 skipped／1 python_multipart弃用警告**。仅测试替身与传输mock，不连接真实业务数据库；跳过项不计通过。覆盖来源允许拒绝、阶段／授权／快照、360交集与预加载、预览零写与消息一致、单次接口去重。
+- 浏览器：本地Vite真实Vue路由、Chrome headless、1440×900，所有 `/api/v1/*` 响应隔离为合成数据。阅读抽屉、编辑校准参考、成员360浮层均进入共享确认与预览；预览／取消写请求0，具体任务POST携带 node_id/task_id，校准来源 source_task_id=11，360仅task_ids=[81,82]且target_kind=reviewer_360，成功／部分成功反馈正确。关闭后alertdialog=0、body overflow为空、pageerror=0、未匹配API=0。不是实际外发或真实鉴权API验收。
+- 独立UI证据（已查看）：`ui-blueprints/CR-007-F14-implemented-member-reminder-20261113.png`、`CR-007-F14-implemented-edit-reminder-20261113.png`、`CR-007-F14-implemented-360-reminder-20261113.png`。既有组件/token复用、无新增视觉体系；未宣称像素完全一致。未执行生产、真实数据库／飞书投递、并发幂等实测。停止仅撤销本卡增量，不整包回滚或删除任务／审计。
+
 ## 2026-11-13 CR-007-F13 前台读链路性能优化
 
 - [ ] CR-007-F13：本地实现及自动化回归通过；真实登录/API/PostgreSQL、运行时前后对比与生产验收未完成，不勾选整体验收。

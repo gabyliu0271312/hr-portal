@@ -1,4 +1,25 @@
-import { api } from './client'
+import { watch } from 'vue'
+import { employeeSwitchEpoch } from '@/stores/identitySwitch'
+import { api, getToken } from './client'
+
+const inFlightRequests = new Map<string, Promise<unknown>>()
+watch(employeeSwitchEpoch, () => inFlightRequests.clear(), { flush: 'sync' })
+
+function requestKey(path: string, params?: Record<string, unknown>) {
+  return JSON.stringify([employeeSwitchEpoch.value, getToken(), path, Object.entries(params || {}).filter(([, value]) => value !== undefined && value !== null).sort(([a], [b]) => a.localeCompare(b))])
+}
+
+function mergeInFlight<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key)
+  if (existing) return existing as Promise<T>
+  const request = loader().finally(() => {
+    if (inFlightRequests.get(key) === request) inFlightRequests.delete(key)
+  })
+  inFlightRequests.set(key, request)
+  return request
+}
+
+export function clearPerformanceInFlightRequests() { inFlightRequests.clear() }
 
 export interface PerformanceReconsiderationStatus {
   id: number | null
@@ -51,11 +72,12 @@ export interface PerformanceNavigationContext {
 }
 
 export const performanceNavigationApi = {
-  async get(cycleId?: number): Promise<PerformanceNavigationContext> {
-    const { data } = await api.get<PerformanceNavigationContext>('/performance/navigation', {
-      params: cycleId ? { cycle_id: cycleId } : undefined,
+  get(cycleId?: number): Promise<PerformanceNavigationContext> {
+    const params = cycleId ? { cycle_id: cycleId } : undefined
+    return mergeInFlight(requestKey('/performance/navigation', params), async () => {
+      const { data } = await api.get<PerformanceNavigationContext>('/performance/navigation', { params })
+      return data
     })
-    return data
   },
 }
 
@@ -439,10 +461,11 @@ export const performanceReviewApi = {
     return data
   },
   async overview(projectId?: number, taskId?: number, cycleId?: number): Promise<PerformanceReviewOverview> {
-    const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', {
-      params: projectId || taskId || cycleId ? { ...(projectId ? { project_id: projectId } : {}), ...(taskId ? { task_id: taskId } : {}), ...(cycleId ? { cycle_id: cycleId } : {}) } : undefined,
+    const params = projectId || taskId || cycleId ? { ...(projectId ? { project_id: projectId } : {}), ...(taskId ? { task_id: taskId } : {}), ...(cycleId ? { cycle_id: cycleId } : {}) } : undefined
+    return mergeInFlight(requestKey('/performance/review/overview', params), async () => {
+      const { data } = await api.get<PerformanceReviewOverview>('/performance/review/overview', { params })
+      return data
     })
-    return data
   },
   async selfSummary(taskId: number | string, employeeNo?: string): Promise<SelfSummaryTask> {
     const { data } = await api.get<SelfSummaryTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/self-summary`, { params: employeeNo ? { employee_no: employeeNo } : undefined })
@@ -1213,20 +1236,20 @@ export const projectManagementApi = {
     const { data } = await api.post<PerformanceCalibrationCompletion>(`/performance/projects/${projectId}/calibration-completion/confirm`, { node_id: nodeId, scope_version: scopeVersion, ...(phaseId ? { phase_id: phaseId } : {}) })
     return data
   },
-  async memberReminderTasks(projectId: number, employeeNo: string, context: { source_task_id?: number; node_id?: string; task_id?: number } = {}): Promise<{ items: PerformanceMemberReminderTask[]; total: number; can_remind: boolean }> {
+  async memberReminderTasks(projectId: number, employeeNo: string, context: { source_task_id?: number; node_id?: string; task_id?: number; target_kind?: 'reviewer_360' } = {}): Promise<{ items: PerformanceMemberReminderTask[]; total: number; can_remind: boolean }> {
     const { data } = await api.get(`/performance/projects/${projectId}/members/${encodeURIComponent(employeeNo)}/reminder-tasks`, { params: context })
     return data
   },
-  async memberRemindBatch(projectId: number, employeeNo: string, context: { source_task_id?: number; node_id?: string; task_ids: number[]; skip_recently_reminded: boolean }): Promise<PerformanceReminderResult> {
+  async memberRemindBatch(projectId: number, employeeNo: string, context: { source_task_id?: number; node_id?: string; target_kind?: 'reviewer_360'; task_ids: number[]; skip_recently_reminded: boolean }): Promise<PerformanceReminderResult> {
     const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${projectId}/members/${encodeURIComponent(employeeNo)}/remind-batch`, context)
     return data
   },
-  async memberReminderPreview(projectId: number | string, employeeNo: string, nodeId: string, taskId: number): Promise<PerformanceReminderPreview> {
-    const { data } = await api.get<PerformanceReminderPreview>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/reminder-preview`, { params: { node_id: nodeId, task_id: taskId } })
+  async memberReminderPreview(projectId: number | string, employeeNo: string, context: { node_id: string; task_id: number; source_task_id?: number }): Promise<PerformanceReminderPreview> {
+    const { data } = await api.get<PerformanceReminderPreview>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/reminder-preview`, { params: context })
     return data
   },
-  async memberRemind(projectId: number | string, employeeNo: string, nodeId: string, taskId: number): Promise<PerformanceReminderResult> {
-    const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/remind`, { node_id: nodeId, task_id: taskId })
+  async memberRemind(projectId: number | string, employeeNo: string, context: { node_id: string; task_id: number; source_task_id?: number; skip_recently_reminded?: boolean }): Promise<PerformanceReminderResult> {
+    const { data } = await api.post<PerformanceReminderResult>(`/performance/projects/${encodeURIComponent(String(projectId))}/members/${encodeURIComponent(employeeNo)}/remind`, context)
     return data
   },
   async matrix(projectId: number | string): Promise<ProjectMatrix> {
@@ -1444,6 +1467,7 @@ export type PerformanceStageView = {
   submitted_at?: string | null
   empty: boolean
   can_fill: boolean
+  can_remind?: boolean
   final_result_locked?: boolean
   reminder_target?: string | null
   anonymous: boolean
@@ -1462,6 +1486,7 @@ export type PerformanceReminderPreview = {
   cycle_start_at?: string | null
   cycle_end_at?: string | null
   reminder_name: string
+  reminder_target?: string
   stage_type: string
   assessee_name: string
 }
@@ -1490,8 +1515,12 @@ export const performanceWorkbenchApi = {
     return data
   },
   async taskPeople<TPage extends number | undefined = undefined>(projectId: number, nodeId: string, state: 'pending' | 'completed' | 'all', keyword?: string, phaseId?: string | null, page?: TPage, pageSize?: number, sortBy?: string, sortOrder?: 'asc' | 'desc'): Promise<TPage extends number ? PerformanceWorkbenchTaskPeoplePage : PerformanceWorkbenchTaskPerson[]> {
-    const { data } = await api.get<TPage extends number ? PerformanceWorkbenchTaskPeoplePage : PerformanceWorkbenchTaskPerson[]>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`, { params: { project_id: projectId, state, ...(keyword ? { keyword } : {}), ...(phaseId ? { phase_id: phaseId } : {}), ...(page === undefined ? {} : { page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder }) } })
-    return data
+    const path = `/performance/workbench/tasks/${encodeURIComponent(nodeId)}/people`
+    const params = { project_id: projectId, state, ...(keyword ? { keyword } : {}), ...(phaseId ? { phase_id: phaseId } : {}), ...(page === undefined ? {} : { page, page_size: pageSize, sort_by: sortBy, sort_order: sortOrder }) }
+    return mergeInFlight(requestKey(path, params), async () => {
+      const { data } = await api.get<TPage extends number ? PerformanceWorkbenchTaskPeoplePage : PerformanceWorkbenchTaskPerson[]>(path, { params })
+      return data
+    })
   },
   async taskDistributionTips(projectId: number, nodeId: string, phaseId?: string | null): Promise<PerformanceDistributionTips> {
     const { data } = await api.get<PerformanceDistributionTips>(`/performance/workbench/tasks/${encodeURIComponent(nodeId)}/distribution-tips`, { params: { project_id: projectId, ...(phaseId ? { phase_id: phaseId } : {}) } })

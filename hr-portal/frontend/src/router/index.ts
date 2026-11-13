@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
         meta: { label: '首页', menuCode: null },
       },
       {
+        path: 'dev/gallery/performance',
+        name: 'DevGalleryPerformance',
+        component: () => import('@/components/performance/dev-gallery/GalleryPage.vue'),
+        meta: { label: '绩效组件陈列页（Figma 导入用）', menuCode: null, dev: true },
+      },
+      {
         path: 'system/users',
         name: 'SystemUsers',
         component: () => import('@/views/system/Users.vue'),

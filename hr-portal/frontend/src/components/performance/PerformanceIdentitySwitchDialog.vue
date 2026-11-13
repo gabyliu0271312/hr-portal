@@ -36,7 +36,7 @@ import UiButton from '../ui/UiButton.vue'
 import PerformanceDialogShell from './PerformanceDialogShell.vue'
 import PerformancePersonSelect from './PerformancePersonSelect.vue'
 import { identitySwitchApi, type SwitchPerson } from '@/api/identitySwitch'
-import { employeeSwitchSession, clearEmployeeSwitch, setEmployeeSwitch } from '@/stores/identitySwitch'
+import { employeeSwitchSession, employeeSwitchTransitioning, clearEmployeeSwitch, setEmployeeSwitch } from '@/stores/identitySwitch'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
@@ -115,6 +115,7 @@ async function removeFavorite(person: SwitchPerson) {
 async function switchTo(person: SwitchPerson) {
   if (switching.value) return
   switching.value = true
+  employeeSwitchTransitioning.value = true
   error.value = ''
   try {
     const old = employeeSwitchSession.value
@@ -129,6 +130,7 @@ async function switchTo(person: SwitchPerson) {
     error.value = errorMessage(e, '切换失败，当前已恢复本人')
   } finally {
     switching.value = false
+    employeeSwitchTransitioning.value = false
   }
 }
 

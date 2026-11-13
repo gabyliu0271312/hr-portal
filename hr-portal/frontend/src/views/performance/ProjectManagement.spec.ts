@@ -19,6 +19,9 @@ vi.mock('@/api/performance', async () => {
 })
 
 import ProjectManagement from './ProjectManagement.vue'
+import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
+import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
+import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
 import sidebarSource from '@/components/performance/PerformanceReviewCategorySidebar.vue?raw'
 import lineTabsSource from '@/components/performance/PerformanceLineTabs.vue?raw'
 import memberListPanelSource from '@/components/performance/ProjectMemberListPanel.vue?raw'
@@ -107,6 +110,22 @@ describe('ProjectManagement', () => {
     })
     push.mockReset()
     replace.mockReset()
+  })
+
+  it('keeps member 360 reminders separate from the result-opening overlay and scopes detail reminders', async () => {
+    Object.assign(routeQuery, { rootReviewId: '5', member_project_id: '3', employee_no: 'E001' })
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, PerformanceReviewEvaluationDrawer: { props: ['modelValue', 'taskId', 'detailLoader', 'employeeNo', 'nodeName', 'person', 'activeTab', 'readonly', 'member', 'projectId'], template: '<div />' }, ProjectMemberListPanel: true, PerformanceMemberReminderDialog: true, CompletionRatePanel: true } } })
+    await flushPromises()
+    wrapper.getComponent(ProjectMemberListPanel).vm.$emit('remind-evaluate', { member: { project_id: 3, employee_no: 'E001' }, pendingCount: 1 })
+    await flushPromises()
+    const dialog = wrapper.getComponent(PerformanceMemberReminderDialog)
+    expect(dialog.props()).toMatchObject({ modelValue: true, context: { projectId: 3, employeeNo: 'E001', targetKind: 'reviewer_360' } })
+    expect(wrapper.getComponent({ name: 'PerformanceTaskOverlay' }).props('modelValue')).toBe(false)
+    wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { node_id: 'summary', task_id: 77, employee_no: 'E001' })
+    await flushPromises()
+    expect(dialog.props('context')).toMatchObject({ nodeId: 'summary', targetTaskId: 77, targetKind: undefined })
+    wrapper.unmount()
   })
 
   it.each([false, true])('keeps member selection delegation buttons visible with capability=%s', async allowed => {

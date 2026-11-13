@@ -1,10 +1,24 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AxiosError, AxiosHeaders, type AxiosAdapter } from 'axios'
 import { api } from '@/api/client'
 import { clearEmployeeSwitch, employeeSwitchEpoch, employeeSwitchRequests, employeeSwitchSession, setEmployeeSwitch } from './identitySwitch'
 
 describe('employee identity session isolation', () => {
   beforeEach(() => { clearEmployeeSwitch(); localStorage.clear() })
+  it('drops normal identity responses that finish after a switch starts', async () => {
+    let release!: () => void
+    const entered = vi.fn()
+    const request = api.get('/performance/navigation', { adapter: config => {
+      entered()
+      return new Promise(resolve => { release = () => resolve({ config, data: {}, status: 200, statusText: 'OK', headers: new AxiosHeaders() }) })
+    } })
+    const rejected = expect(request).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+    await vi.waitFor(() => expect(entered).toHaveBeenCalledOnce())
+    clearEmployeeSwitch()
+    release()
+    await rejected
+  })
+
   it('keeps the Portal token and never persists the employee session', () => {
     localStorage.setItem('hr_portal.token', 'original-portal-token')
     setEmployeeSwitch({ session_id: 's', session_token: 'private-switch-token', expires_at: '2099-01-01', effective_identity: { employee_no: 'E001', display_name: 'Employee' }, mode: 'TARGET_POLICY' })

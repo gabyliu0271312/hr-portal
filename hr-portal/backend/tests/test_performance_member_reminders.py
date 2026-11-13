@@ -22,7 +22,10 @@ from app.performance.models import (
     PerformanceProjectMember,
     PerformanceProjectMemberSnapshot,
     PerformanceProjectNodeSnapshot,
+    PerformanceCycle,
+    PerformanceOtherPermissionSetting,
 )
+from app.users.models import User
 
 
 def result(values):
@@ -68,6 +71,9 @@ class Db:
         self.events = []
         self.queries = []
         self.mapped = {person.employee_no for person in self.people}
+        self.permission_setting = None
+        self.user = User(id=8, is_active=True, feishu_user_id="fixture")
+        self.cycle = SimpleNamespace(name="周期", start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
         self.commit = AsyncMock()
         self.flush = AsyncMock()
 
@@ -80,12 +86,18 @@ class Db:
             return SimpleNamespace(cycle_ref=self.snapshot.cycle_ref)
         if model is PerformanceProjectNodeSnapshot:
             return self.nodes.get(key)
+        if model is PerformanceOtherPermissionSetting:
+            return self.permission_setting
         if model is PerformanceNodeTask:
             return self.tasks.get(key)
         return None
 
     async def scalar(self, statement):
         entity = statement.column_descriptions[0]["entity"]
+        if entity is PerformanceCycle:
+            return self.cycle
+        if entity is User:
+            return self.user
         if entity is PerformanceProjectMember:
             values = statement.compile().params
             return self.member if self.member.employee_no in values.values() and self.snapshot.id in values.values() else None
@@ -130,13 +142,15 @@ def environment(monkeypatch):
     monkeypatch.setattr(shared, "resolve_subject_visibility_role", AsyncMock(return_value="leader"))
     monkeypatch.setattr(notification_service, "_global_delivery_mode", AsyncMock(return_value="normal"))
     sender = AsyncMock(return_value=(True, None))
+    sender.real_sender = shared._send_performance_task_reminder
     monkeypatch.setattr(shared, "_send_performance_task_reminder", sender)
     return db, context, sender
 
 
 async def listing(db, context, **kwargs):
     return await adapter.project_member_reminder_tasks(1, "E1", context=context, db=db,
-        source_task_id=kwargs.get("source_task_id"), node_id=kwargs.get("node_id"), task_id=kwargs.get("task_id"))
+        source_task_id=kwargs.get("source_task_id"), node_id=kwargs.get("node_id"), task_id=kwargs.get("task_id"),
+        target_kind=kwargs.get("target_kind"))
 
 
 async def sending(db, context, task_ids=None, **kwargs):
@@ -190,7 +204,7 @@ async def test_all_member_task_types_are_listed_and_sent_without_self_or_profile
     response = await listing(db, context)
     assert response["total"] == 2 and response["can_remind"] is True
     assert {item["task_kind"] for item in response["items"]} == {"work_summary", "evaluation"}
-    assert {item["reminder_target"] for item in response["items"]} == {"姓名E1", "姓名R1"}
+    assert {item["reminder_target"] for item in response["items"]} == {"姓名E1", "360°评估人"}
     assert all(item["display_name"] == "冻结姓名" and item["department"] == "研发" for item in response["items"])
     assert all(item["position_level"] is None and item["hire_date"] is None and item["can_authorize"] is False for item in response["items"])
     response = await sending(db, context, [1, 2, 3, 1])
@@ -397,3 +411,149 @@ def test_empty_prefix_router_contract_and_client_receivers_are_rejected():
         adapter.MemberReminderBatchPayload(task_ids=[1], receivers=["CLIENT_EMPLOYEE"])
     with pytest.raises(ValidationError):
         adapter.MemberReminderBatchPayload(task_ids=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["calibration", "result_communication"])
+async def test_non_management_source_uses_its_own_permission_without_manager_fallback(environment, monkeypatch, kind):
+    db, context, sender = environment
+    db.nodes[13] = node(13, kind)
+    db.tasks[3].task_kind = kind
+    db.tasks[3].phase_id = "phase-1" if kind == "calibration" else ""
+    db.nodes[13].config["calibration"] = {"role_code": "assessment.calibrator", "phases": [
+        {"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": "E1"}]}]}
+    monkeypatch.setattr(shared, "_can_manage_project_like_overview", AsyncMock(return_value=False))
+    fallback = AsyncMock(side_effect=AssertionError("source must not be replaced"))
+    monkeypatch.setattr(shared, "_member_manager_task_for_actor", fallback)
+    authorize = AsyncMock()
+    monkeypatch.setattr(shared.PerformanceObjectAuthorizationService, "authorize", authorize)
+    assert (await listing(db, context, source_task_id=3))["can_remind"]
+    response = await sending(db, context, [1], source_task_id=3)
+    assert response["accepted_task_ids"] == [1]
+    fallback.assert_not_awaited()
+    if kind == "calibration":
+        assert authorize.await_args.args[0].phase_id == "phase-1"
+    else:
+        authorize.assert_not_awaited()
+    sender.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["phase", "assignment", "object_authorization", "readonly", "transfer", "snapshot", "expired"])
+async def test_invalid_calibration_source_has_no_delivery_or_audit(environment, monkeypatch, reason):
+    db, context, sender = environment
+    db.nodes[13] = node(13, "calibration")
+    db.tasks[3].task_kind = "calibration"
+    db.tasks[3].phase_id = "phase-1"
+    db.nodes[13].config["calibration"] = {"role_code": "assessment.calibrator", "phases": [
+        {"phase_id": "phase-1", "assignments": [{"handler_ref": "M1", "employee_no": "E1"}]}]}
+    authorize = AsyncMock(side_effect=shared.PerformanceObjectAuthorizationDenied() if reason == "object_authorization" else None)
+    monkeypatch.setattr(shared.PerformanceObjectAuthorizationService, "authorize", authorize)
+    if reason == "phase":
+        db.tasks[3].phase_id = "other"
+    elif reason == "assignment":
+        db.nodes[13].config["calibration"]["phases"][0]["assignments"][0]["employee_no"] = "OTHER"
+    elif reason == "readonly":
+        db.tasks[3].handler_ref = "A1"
+        db.delegations = [delegation(3, "M1", read_only=True)]
+    elif reason == "transfer":
+        db.delegations = [delegation(3, "A1", "TRANSFER")]
+    elif reason == "snapshot":
+        db.tasks[3].member_snapshot_id = 99
+    elif reason == "expired":
+        db.tasks[3].due_at = datetime.now(UTC) - timedelta(days=1)
+    with pytest.raises(HTTPException):
+        await sending(db, context, [1], source_task_id=3)
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+    assert db.events == []
+
+
+@pytest.mark.asyncio
+async def test_360_filter_intersects_task_node_and_preloaded_scope_without_display_name_fallback(environment):
+    db, context, sender = environment
+    db.nodes[11].name = "360°评估人"
+    db.nodes[12].name = "任意名字"
+    assert [item["task_id"] for item in (await listing(db, context, target_kind="reviewer_360"))["items"]] == [2]
+    assert (await listing(db, context, target_kind="reviewer_360", node_id="node-11"))["items"] == []
+    with pytest.raises(HTTPException) as exc:
+        await listing(db, context, target_kind="reviewer_360", task_id=1)
+    assert exc.value.status_code == 404
+    db.info = {}
+    await adapter.preload_member_reminders(db.project, [db.member], context, db)
+    assert not await adapter.can_remind_member(db.project, "E1", context, db, node_id="node-11", target_kind="reviewer_360")
+    response = await sending(db, context, [1, 2], target_kind="reviewer_360")
+    assert response["accepted_task_ids"] == [2] and response["skipped_task_ids"] == [1]
+    assert sender.await_args.args[0].handler_ref == "R1"
+
+
+@pytest.mark.asyncio
+async def test_manager_reminder_settings_apply_to_source_not_management_scope(environment):
+    db, context, sender = environment
+    db.permission_setting = SimpleNamespace(manager_reminder_enabled=False, manager_reminder_node_types=["work_summary", "evaluation"])
+    assert not (await listing(db, context, source_task_id=3))["can_remind"]
+    assert (await listing(db, context))["can_remind"]
+    sender.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_preview_and_actual_message_share_content_deadline_and_actual_actor_without_preview_writes(environment, monkeypatch):
+    db, context, sender = environment
+    db.tasks[1].due_at = datetime(2026, 12, 20, tzinfo=UTC)
+    preview = await shared.project_member_reminder_preview(1, "E1", "node-11", 1, context, db, source_task_id=3)
+    assert preview["reminder_name"] == "操作者" and preview["assessee_name"] == "冻结姓名"
+    assert preview["deadline_at"] == db.tasks[1].due_at.isoformat()
+    db.commit.assert_not_awaited()
+    db.flush.assert_not_awaited()
+    sender.assert_not_awaited()
+    assert db.events == []
+    transport = AsyncMock(return_value=SimpleNamespace(status="success", success_count=1))
+    monkeypatch.setattr(shared, "send_notification", transport)
+    ok, _error = await sender.real_sender(db.tasks[1], db.project, db.nodes[11], context, db)
+    assert ok
+    config, values, _db = transport.await_args.args
+    assert config.message.title_template == "{{title}}" and config.message.content_template == "{{content}}"
+    assert {key: values[key] for key in preview if key != "reminder_target"} == {
+        key: preview[key] for key in preview if key != "reminder_target"
+    }
+    assert preview["reminder_target"] == "姓名E1"
+    anonymous_preview = await shared.project_member_reminder_preview(1, "E1", "node-12", 2, context, db, source_task_id=3)
+    assert anonymous_preview["reminder_target"] == "360°评估人"
+    assert anonymous_preview["reminder_name"] == "操作者"
+    assert "姓名R1" not in str(anonymous_preview)
+    assert "提醒人：@操作者" in values["content"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["readonly", "cross_snapshot", "completed", "self"])
+async def test_old_single_endpoint_and_preview_reject_unsafe_target_without_side_effect(environment, reason):
+    db, context, sender = environment
+    if reason == "readonly":
+        db.delegations = [delegation(1, "A1", "TRANSFER", True)]
+    elif reason == "cross_snapshot":
+        db.tasks[1].member_snapshot_id = 99
+    elif reason == "completed":
+        db.tasks[1].status = "completed"
+    else:
+        db.tasks[1].handler_ref = "M1"
+    with pytest.raises(HTTPException):
+        await shared.project_member_reminder_preview(1, "E1", "node-11", 1, context, db, source_task_id=3)
+    with pytest.raises(HTTPException):
+        await shared.project_member_remind(1, "E1", shared.MemberRemindPayload(node_id="node-11", task_id=1, source_task_id=3), context, db)
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+    assert db.events == []
+
+
+@pytest.mark.asyncio
+async def test_old_single_endpoint_uses_source_and_shared_six_hour_dedup(environment):
+    db, context, sender = environment
+    db.logs = [SimpleNamespace(biz_id="1", biz_type="performance_task_reminder", is_test=False,
+        status="success", created_at=datetime.now(UTC))]
+    payload = shared.MemberRemindPayload(node_id="node-11", task_id=1, source_task_id=3)
+    response = await shared.project_member_remind(1, "E1", payload, context, db)
+    assert response["skipped_task_ids"] == [1] and response["accepted_task_ids"] == []
+    sender.assert_not_awaited()
+    payload.skip_recently_reminded = False
+    response = await shared.project_member_remind(1, "E1", payload, context, db)
+    assert response["accepted_task_ids"] == [1]

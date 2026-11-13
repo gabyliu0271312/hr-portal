@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef, watch } from 'vue'
 import { employeeSwitchEpoch, employeeSwitchSession } from './identitySwitch'
-import { performanceNavigationApi, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
+import { performanceNavigationApi, clearPerformanceInFlightRequests, type PerformanceCycleNavigationItem, type PerformanceNavigationContext, type PerformanceReviewOverview, type PerformanceWorkbenchProject, type PerformanceWorkbenchTaskGroup, type PerformanceWorkbenchTimelineNode } from '@/api/performance'
 
 const STORAGE_KEY = 'performance.active-cycle-id'
 
@@ -38,6 +38,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
   const reports = new Map<string, { value: unknown; expiresAt: number }>()
   const reportRequests = new Map<string, Promise<unknown>>()
   function invalidate() {
+    clearPerformanceInFlightRequests()
     cacheVersion.value += 1
     drawerDetails.clear()
     drawerRequests.clear()
@@ -79,7 +80,7 @@ export const usePerformanceProjectContextStore = defineStore('performance-projec
     drawerRequests.set(scopedKey, request)
     return request
   }
-  watch(employeeSwitchEpoch, invalidateDrawerDetails, { flush: 'sync' })
+  watch(employeeSwitchEpoch, resetIdentity, { flush: 'sync' })
 
   function setActiveCycleId(cycleId: number | null) {
     if (activeCycleId.value !== cycleId) {

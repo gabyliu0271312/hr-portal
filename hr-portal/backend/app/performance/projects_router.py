@@ -406,7 +406,7 @@ async def _reference_tabs(
         has_okr_reference = True
         order.append("reference-okr")
 
-    result = await _node_reference_tabs(task, node, project, actor_ref, db, template, references, **({"view": view, "tab": tab} if view == "drawer" else {})) if references else []
+    result = await _node_reference_tabs(task, node, project, actor_ref, db, template, references, context=context, **({"view": view, "tab": tab} if view == "drawer" else {})) if references else []
     if has_okr_reference:
         from app.performance.okr_policy import task_okr_access_allowed
         has_okr_reference = await task_okr_access_allowed(db, task, node, project)
@@ -551,6 +551,7 @@ async def _node_reference_tabs(
     *,
     view=None,
     tab=None,
+    context=None,
 ) -> list[dict]:
     """引用其他环节内容的参考页签。"""
     node_rows = (await db.execute(
@@ -560,16 +561,8 @@ async def _node_reference_tabs(
         )
     )).scalars().all()
     nodes_by_id = {item.node_id: item for item in node_rows}
-    setting = await db.get(PerformanceOtherPermissionSetting, 1)
-    reminder_enabled = setting.manager_reminder_enabled if setting is not None else True
-    reminder_node_types = set(setting.manager_reminder_node_types) if setting is not None else set(_DEFAULT_REMINDER_NODE_TYPES)
-    current_template = (node.config or {}).get("template") or {}
-    current_role_code = node_role_code(current_template)
-    viewer_can_remind = (
-        str(task.handler_ref) == actor_ref
-        and str(task.target_employee_no) != actor_ref
-        and (node.node_type == "calibration" or current_role_code in MANAGER_ROLE_CODES)
-    )
+    from app.performance.member_reminders import can_remind_member
+
     result: list[dict] = []
     for reference_node_id in references:
         reference_node = nodes_by_id.get(reference_node_id)
@@ -603,7 +596,10 @@ async def _node_reference_tabs(
                 "key": f"reference-{reference_node.node_id}", "node_id": reference_node.node_id,
                 "node_name": (relation.get("reference_settings") or {}).get("page_name") or reference_node.name,
                 "task_id": None, "employee_no": task.target_employee_no, "status": status,
-                "submitted_at": None, "form_schema": [], "answers": {}, "can_remind": False,
+                "submitted_at": None, "form_schema": [], "answers": {},
+                "can_remind": bool(context is not None and await can_remind_member(
+                    project, task.target_employee_no, context, db, source_task_id=task.id,
+                    node_id=reference_node.node_id, target_kind="reviewer_360")),
                 "content_loaded": content_loaded,
                 **feedback,
             })
@@ -631,11 +627,9 @@ async def _node_reference_tabs(
             "answers": visible_answers,
             "content_loaded": content_loaded,
             "can_remind": bool(
-                source is not None
-                and not completed
-                and reminder_enabled
-                and reference_node.node_type in reminder_node_types
-                and viewer_can_remind
+                source is not None and not completed and context is not None
+                and await can_remind_member(project, task.target_employee_no, context, db,
+                    source_task_id=task.id, node_id=reference_node.node_id, task_id=source.id)
             ),
         })
     return result
@@ -1012,7 +1006,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         management_detail = await _project_member_detail(
             project, task.target_employee_no, context, db,
             root_review_id=member.id, skip_scope=True, visibility_role=visibility_role,
-            reference_node_id=node.node_id,
+            reference_node_id=node.node_id, source_task_id=task.id,
             **({"view": view, "tab": tab} if view == "drawer" else {}),
         )
     if manager_drawer:
@@ -1071,7 +1065,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "draft_answers": {} if final_result_locked else {**project_self_summary_answers(schema, visible_draft or {}), **({"keep_result": visible_draft["keep_result"]} if visible_draft and task.task_kind == "result_reconsideration" and "keep_result" in visible_draft else {})},
         "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
-        "reference_tabs": [] if management_detail is not None and view == "drawer" else await _reference_tabs(task, node, project, actor_ref, db, **({"view": view, "tab": tab, "context": context} if view == "drawer" else {})),
+        "reference_tabs": [] if management_detail is not None and view == "drawer" else await _reference_tabs(task, node, project, actor_ref, db, context=context, **({"view": view, "tab": tab} if view == "drawer" else {})),
         **({
             key: management_detail[key]
             for key in ("management_tabs", "default_active_tab", "stage_views", "root_review_id", "opened_at", "cycle")
@@ -3195,6 +3189,7 @@ async def _project_member_detail(
     skip_scope: bool = False,
     visibility_role: str | None = None,
     reference_node_id: str | None = None,
+    source_task_id: int | None = None,
     view: str | None = None,
     tab: str | None = None,
 ):
@@ -3346,6 +3341,9 @@ async def _project_member_detail(
     opened_at = await db.scalar(select(PerformanceResultOpening.opened_at).where(PerformanceResultOpening.project_id == project.id, PerformanceResultOpening.employee_no == employee_no))
     cycle_row = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     stage_views = []
+    from app.performance.member_reminders import can_remind_member, preload_member_reminders
+    if getattr(project, "status", None) == PROJECT_STATUS_STARTED:
+        await preload_member_reminders(project, [member], context, db)
     now = datetime.now(UTC)
     for node in reversed(nodes):
         related = by_node[node.id]
@@ -3364,8 +3362,12 @@ async def _project_member_detail(
         if task is not None and task.submitted_at is None and not _task_completed(task):
             can_fill = await _task_edit_allowed(db, task, str(actor.actor_ref)) and task.status == "pending" and _task_is_available(task, node, project)
         reminder_target = None
-        if task is not None and task.submitted_at is None and not _task_completed(task) and str(task.handler_ref) != str(actor.actor_ref):
-            reminder_target = handler_names_for_view.get(str(task.handler_ref)) or str(task.handler_ref)
+        reminder_allowed = bool(task is not None and not (final_locked and node is final_node)
+            and await can_remind_member(project, employee_no, context, db,
+                source_task_id=source_task_id, node_id=node.node_id,
+                **({"target_kind": "reviewer_360"} if anonymous else {"task_id": task.id})))
+        if reminder_allowed:
+            reminder_target = "360°评估人" if anonymous else handler_names_for_view.get(str(task.handler_ref)) or str(task.handler_ref)
         stage_views.append({
             "node_id": node.node_id, "node_type": node.node_type, "node_name": node.name,
             "key": f"management-{node.node_id}",
@@ -3421,8 +3423,11 @@ async def project_member_detail(
 
 
 class MemberRemindPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     node_id: str = Field(min_length=1, max_length=128)
     task_id: int = Field(ge=1)
+    source_task_id: int | None = Field(default=None, ge=1)
+    skip_recently_reminded: bool = True
 
 
 async def _member_manager_task_for_actor(
@@ -3462,67 +3467,24 @@ async def project_member_reminder_preview(
     task_id: int = Query(ge=1),
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
+    source_task_id: int | None = Query(default=None, ge=1),
 ):
-    """项目管理成员弹窗催办预览：返回飞书 Bot 卡片所需字段（不发通知）。"""
+    from app.performance.member_reminders import _member_tasks
+
     project = await _get_project(db, project_id)
-    try:
-        detail = await _project_member_detail(project, employee_no, context, db)
-    except HTTPException as exc:
-        if exc.status_code != 403:
-            raise
-        # 评估人（handler）视角：与 _template_task_detail 同一授权语义——
-        # 该评估人正为被评估人完成 evaluation 任务时，可预览该成员其他环节催办。
-        actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
-        requested_task = (await db.execute(
-            select(PerformanceNodeTask)
-            .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
-            .where(
-                PerformanceNodeTask.id == task_id,
-                PerformanceNodeTask.project_id == project.id,
-                PerformanceNodeTask.target_employee_no == employee_no,
-                PerformanceNodeTask.revoked_at.is_(None),
-                PerformanceProjectNodeSnapshot.node_id == node_id,
-            )
-        )).scalars().first()
-        if requested_task is None:
-            raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
-        handler_task = await _member_manager_task_for_actor(
-            db, project.id, employee_no, actor.actor_ref, requested_task.member_snapshot_id,
-        )
-        if handler_task is None:
-            raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
-        member = await db.scalar(select(PerformanceProjectMember).join(
-            PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.id == PerformanceProjectMember.snapshot_id,
-        ).where(
-            PerformanceProjectMemberSnapshot.project_id == project.id,
-            PerformanceProjectMember.snapshot_id == requested_task.member_snapshot_id,
-            PerformanceProjectMember.employee_no == employee_no,
-        ))
-        if member is None:
-            raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
-        handler_node = await db.get(PerformanceProjectNodeSnapshot, handler_task.node_snapshot_id)
-        detail = await _project_member_detail(
-            project, employee_no, context, db,
-            root_review_id=member.id, skip_scope=True,
-            visibility_role=await resolve_subject_visibility_role(db, context, actor.actor_ref, member, handler_node, project),
-        )
-    stage = next((view for view in detail.get("stage_views") or [] if view["node_id"] == node_id and view["task_id"] == task_id), None)
-    if stage is None or not stage.get("reminder_target"):
-        raise HTTPException(status_code=404, detail="REMINDER_TARGET_NOT_FOUND")
-    cycle = detail.get("cycle") or {}
-    assessee_name = (detail.get("person") or {}).get("display_name") or employee_no
-    return {
-        "title": "绩效任务提醒",
-        "description": f"请尽快前往绩效系统为@{assessee_name}完成{stage['node_name']}。",
-        "stage_label": stage["node_name"],
-        "deadline_at": stage["deadline_at"],
-        "cycle_name": cycle.get("name") or "",
-        "cycle_start_at": cycle.get("start_at"),
-        "cycle_end_at": cycle.get("end_at"),
-        "reminder_name": stage["reminder_target"],
-        "stage_type": "自评" if stage["node_type"] in {"work_summary", "evaluation"} and stage.get("anonymous") else stage["node_name"],
-        "assessee_name": assessee_name,
-    }
+    actor, _snapshot, _member, _manager_task, people, candidates = await _member_tasks(
+        project, employee_no, context, db,
+        source_task_id if isinstance(source_task_id, int) else None, node_id, task_id,
+    )
+    target = next(((task, node, receivers, handlers) for task, node, receivers, handlers in candidates if receivers), None)
+    if target is None:
+        raise HTTPException(404, "REMINDER_TARGET_NOT_FOUND")
+    task, node, receivers, _handlers = target
+    reminder_target = "360°评估人" if node_role_code({
+        "node_type": node.node_type, **((node.config or {}).get("template") or {}),
+    }) == ROLE_REVIEWER_360 else "、".join(people.get(handler).display_name if people.get(handler) else handler for handler in receivers)
+    message = await _performance_task_reminder_message(task, project, node, context, db)
+    return {**message, "reminder_target": reminder_target}
 
 
 @router.post("/projects/{project_id}/members/{employee_no}/remind")
@@ -3533,62 +3495,19 @@ async def project_member_remind(
     context: PerformanceAccessContext = Depends(get_performance_access_context),
     db: AsyncSession = Depends(get_session),
 ):
-    """项目管理成员弹窗催办：对指定任务的实际接收人发送飞书通知。"""
+    from app.performance.member_reminders import MemberReminderBatchPayload, _member_tasks, project_member_remind_batch
+
     project = await _get_project(db, project_id)
-    if project is None or project.status != PROJECT_STATUS_STARTED:
-        raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
-    row = (await db.execute(
-        select(PerformanceNodeTask, PerformanceProjectNodeSnapshot)
-        .join(PerformanceProjectNodeSnapshot, PerformanceProjectNodeSnapshot.id == PerformanceNodeTask.node_snapshot_id)
-        .where(
-            PerformanceNodeTask.id == payload.task_id,
-            PerformanceNodeTask.project_id == project.id,
-            PerformanceNodeTask.target_employee_no == employee_no,
-            PerformanceNodeTask.revoked_at.is_(None),
-            PerformanceProjectNodeSnapshot.node_id == payload.node_id,
-        )
-    )).first()
-    if row is None:
-        raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-    task, node = row
-    actor = await resolve_trusted_performance_actor(db, context, cycle_ref=project.cycle_ref)
-    if not await _can_manage_project_like_overview(context, project, db):
-        # 评估人（handler）视角催办：复用 templateTask 的 handler 授权语义，
-        # 不新增权限点——仅当该评估人正为被评估人完成 evaluation 任务时，
-        # 可催办该成员的其他未提交环节（本人任务除外）。
-        handler_task = await _member_manager_task_for_actor(
-            db, project.id, employee_no, actor.actor_ref, task.member_snapshot_id,
-        )
-        if handler_task is None:
-            raise HTTPException(status_code=403, detail="PROJECT_MEMBER_REMIND_FORBIDDEN")
-    if task.status != "pending" or _task_completed(task) or not _task_is_available(task, node, project):
-        raise HTTPException(status_code=422, detail="TASK_NOT_REMINDABLE")
-    if await _task_handler_allowed(db, task, actor.actor_ref):
-        raise HTTPException(status_code=422, detail="TASK_SELF_REMIND_FORBIDDEN")
-    outcomes = []
-    for handler_ref in sorted(await _task_handlers(db, task)):
-        delivery_key = (project.id, node.id, handler_ref, getattr(task, "phase_id", ""))
-        notification_task = SimpleNamespace(id=task.id, handler_ref=handler_ref, member_snapshot_id=task.member_snapshot_id, target_employee_no=task.target_employee_no)
-        outcomes.append(await _send_performance_task_reminder(notification_task, project, node, context, db))
-    ok = bool(outcomes) and all(item[0] for item in outcomes)
-    error = next((item[1] for item in outcomes if not item[0]), None)
-    if ok:
-        PerformanceAuditService(db).append_event(AuditEventInput(
-            event_type="PERFORMANCE_TASK_REMINDER_REQUESTED",
-            cycle_ref=project.cycle_ref,
-            employee_no=task.target_employee_no,
-            actor_type=actor.actor_type,
-            actor_ref=actor.actor_ref,
-            subject_type="PERFORMANCE_NODE_TASK",
-            subject_ref=str(task.id),
-            after_state={"action": "remind", "node_id": payload.node_id, "delivery_status": "sent"},
-        ))
-        await db.commit()
-        return {"delivery_status": "success", "accepted_task_ids": [task.id], "skipped_task_ids": [], "failed_task_ids": []}
-    if outcomes and all(item[0] or item[1] == "NOTIFICATION_PREVIEW_ONLY" for item in outcomes):
-        await db.commit()
-        return {"delivery_status": "preview_only", "accepted_task_ids": [], "skipped_task_ids": [], "failed_task_ids": []}
-    return {"delivery_status": "failed", "accepted_task_ids": [], "skipped_task_ids": [], "failed_task_ids": [task.id], "errors": [{"task_id": task.id, "error": error or "NOTIFICATION_FAILED"}]}
+    source_task_id = getattr(payload, "source_task_id", None)
+    *_scope, candidates = await _member_tasks(
+        project, employee_no, context, db, source_task_id, payload.node_id, payload.task_id,
+    )
+    if not any(receivers for _task, _node, receivers, _handlers in candidates):
+        raise HTTPException(422, "TASK_NOT_REMINDABLE")
+    return await project_member_remind_batch(project_id, employee_no, MemberReminderBatchPayload(
+        node_id=payload.node_id, task_ids=[payload.task_id], source_task_id=source_task_id,
+        skip_recently_reminded=getattr(payload, "skip_recently_reminded", True),
+    ), context, db)
 
 
 def _project_scope_refs(context: PerformanceAccessContext) -> set[str]:
@@ -5039,6 +4958,38 @@ async def project_management_reminder_people(
     return {"items": rows[start:start + page_size], "total": len(rows), "page": page, "page_size": page_size}
 
 
+async def _performance_task_reminder_message(task, project, node, actor, db):
+    member = await db.scalar(select(PerformanceProjectMember).where(
+        PerformanceProjectMember.snapshot_id == task.member_snapshot_id,
+        PerformanceProjectMember.employee_no == getattr(task, "target_employee_no", ""),
+    ))
+    cycle_ref = getattr(project, "cycle_ref", None)
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == cycle_ref)) if cycle_ref else None
+    assessee_name = getattr(member, "display_name", None) or getattr(task, "target_employee_no", "")
+    deadline = _task_window(SimpleNamespace(
+        task_kind=getattr(task, "task_kind", None), phase_id=getattr(task, "phase_id", ""),
+        available_at=getattr(task, "available_at", None), due_at=getattr(task, "due_at", None),
+    ), SimpleNamespace(node_id=getattr(node, "node_id", ""), config=getattr(node, "config", {})),
+        SimpleNamespace(settings=getattr(project, "settings", {})))[1]
+    values = {
+        "title": "绩效任务提醒",
+        "description": f"请尽快前往绩效系统为@{assessee_name}完成{node.name}。",
+        "stage_label": node.name, "stage_type": node.name,
+        "deadline_at": deadline.isoformat() if deadline else None,
+        "cycle_name": getattr(cycle, "name", "") or "",
+        "cycle_start_at": cycle.start_at.isoformat() if getattr(cycle, "start_at", None) else None,
+        "cycle_end_at": cycle.end_at.isoformat() if getattr(cycle, "end_at", None) else None,
+        "reminder_name": actor.display_name if getattr(actor, "display_name", None) else getattr(actor, "effective_employee_no", None) or getattr(actor, "subject_id", ""), "assessee_name": assessee_name,
+    }
+    values["content"] = "\n".join([
+        values["description"], values["stage_type"],
+        f"截止时间：{values['deadline_at'] or '--'}", f"{values['cycle_name']}绩效考核",
+        f"周期范围：{values['cycle_start_at'] or '--'} - {values['cycle_end_at'] or '--'}",
+        f"提醒人：@{values['reminder_name']}",
+    ])
+    return values
+
+
 async def _send_performance_task_reminder(task: PerformanceNodeTask, project: PerformanceProject, node: PerformanceProjectNodeSnapshot, actor: PerformanceAccessContext, db: AsyncSession) -> tuple[bool, str | None]:
     user = await db.scalar(select(User).join(PerformanceIdentityLink, PerformanceIdentityLink.portal_user_id == User.id).join(PerformanceAuthorizationSnapshotPerson, PerformanceAuthorizationSnapshotPerson.employee_no == PerformanceIdentityLink.employee_no).join(PerformanceProjectMemberSnapshot, PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id).where(PerformanceIdentityLink.employee_no == str(task.handler_ref), PerformanceIdentityLink.is_active.is_(True), PerformanceAuthorizationSnapshotPerson.snapshot_id == PerformanceProjectMemberSnapshot.source_snapshot_id, PerformanceProjectMemberSnapshot.project_id == project.id, PerformanceProjectMemberSnapshot.id == task.member_snapshot_id))
     if user is None or not user.is_active or not user.feishu_user_id:
@@ -5046,10 +4997,11 @@ async def _send_performance_task_reminder(task: PerformanceNodeTask, project: Pe
         if await _global_delivery_mode(db) == "normal":
             return False, "TASK_HANDLER_IDENTITY_NOT_FOUND"
         from app.integrations.feishu.models import FeishuNotificationLog
+        message = await _performance_task_reminder_message(task, project, node, actor, db)
         db.add(FeishuNotificationLog(
             biz_type="performance_task_reminder", biz_id=str(task.id), is_test=True,
-            message_format="markdown", title="绩效任务催办",
-            rendered_content=f"请及时完成项目“{project.name}”中的“{node.name}”任务。",
+            message_format="markdown", title=message["title"],
+            rendered_content=message["content"],
             receiver_snapshot=[{"employee_no": str(task.handler_ref), "identity_status": "unmapped"}],
             result_snapshot=[{"employee_no": str(task.handler_ref), "status": "preview_only"}],
             status="skipped", success_count=0, failed_count=0,
@@ -5058,16 +5010,17 @@ async def _send_performance_task_reminder(task: PerformanceNodeTask, project: Pe
         ))
         await db.flush()
         return False, "NOTIFICATION_PREVIEW_ONLY"
+    message = await _performance_task_reminder_message(task, project, node, actor, db)
     config = NotificationConfig(
         receivers=[FixedUsersRule(type="fixed_users", user_ids=[user.id])],
         message=MessageConfig(
-            title_template="绩效任务催办",
-            content_template="请及时完成项目“{{project_name}}”中的“{{node_name}}”任务。",
+            title_template="{{title}}",
+            content_template="{{content}}",
         ),
     )
     result = await send_notification(
         config,
-        {"employee_no": task.target_employee_no, "project_id": project.id, "task_id": task.id, "project_name": project.name, "node_name": node.name},
+        {**message, "employee_no": task.target_employee_no, "project_id": project.id, "task_id": task.id, "project_name": project.name, "node_name": node.name},
         db,
         biz_type="performance_task_reminder",
         biz_id=str(task.id),
@@ -6279,8 +6232,8 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         ).order_by(PerformanceProjectNodeSnapshot.node_order))).scalars().all())
         effective_members = [member for _task, _node, member in effective_needed if member]
         effective_by_member = await _effective_project_results(project, effective_nodes, effective_tasks, db, members=effective_members)
-    from app.performance.member_reminders import preload_member_reminders
-    reminder_members = [member for _task, node, member in rows if member and node.node_type == "evaluation" and node_role_code((node.config or {}).get("template") or {}) in MANAGER_ROLE_CODES]
+    from app.performance.member_reminders import preload_member_reminders, reminder_source_node
+    reminder_members = [member for _task, node, member in rows if member and reminder_source_node(node)]
     if reminder_members and project:
         await preload_member_reminders(project, reminder_members, context, db)
     result = []
@@ -6298,7 +6251,7 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             ratings = _task_rating_values(task, metadata)
         single_rating = ratings[metadata[0]["key"]] if len(metadata) == 1 else None
         can_remind = False
-        if isinstance(task, PerformanceNodeTask) and node.node_type == "evaluation" and node_role_code((node.config or {}).get("template") or {}) in MANAGER_ROLE_CODES:
+        if isinstance(task, PerformanceNodeTask) and reminder_source_node(node):
             from app.performance.member_reminders import can_remind_member
             can_remind = await can_remind_member(project, task.target_employee_no, context, db, source_task_id=task.id)
         values = {

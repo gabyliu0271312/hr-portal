@@ -278,7 +278,7 @@ function onEvaluateRemind(member: MemberRow, pendingCount: number) {
   emit('remind-evaluate', { member, pendingCount })
 }
 
-watch(() => [props.projectId, props.cycleId, props.reviewContext?.nodeId, props.reviewContext?.state, props.reviewContext?.phaseId], () => {
+watch([() => props.projectId, () => props.cycleId, () => props.reviewContext?.nodeId, () => props.reviewContext?.state, () => props.reviewContext?.phaseId], () => {
   page.value = 1
   selectedKeys.value = []
   selectedRows.value = {}

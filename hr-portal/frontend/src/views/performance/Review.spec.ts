@@ -20,6 +20,9 @@ import PerformanceReviewContent from '@/components/performance/PerformanceReview
 import ProjectMemberListPanel from '@/components/performance/ProjectMemberListPanel.vue'
 import PerformanceReview360FeedbackPanel from '@/components/performance/PerformanceReview360FeedbackPanel.vue'
 import PerformanceReview360InvitePanel from '@/components/performance/PerformanceReview360InvitePanel.vue'
+import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
+import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
+import PerformanceEvaluateRatioPopover from '@/components/performance/PerformanceEvaluateRatioPopover.vue'
 import PerformanceMemberIdentity from '@/components/performance/PerformanceMemberIdentity.vue'
 import PerformanceTaskStatus from '@/components/performance/PerformanceTaskStatus.vue'
 import { normalizePerformanceTaskStatus, performanceTaskStatusLabel } from '@/components/performance/performanceTaskStatus'
@@ -113,7 +116,7 @@ describe('PerformanceReview', () => {
   })
 
   it('uses the identity epoch as the view key without remounting on query navigation', () => {
-    expect(performanceLayoutSource).toContain('<router-view :key="employeeSwitchEpoch" />')
+    expect(performanceLayoutSource).toMatch(/<router-view\b[^>]*:key="employeeSwitchEpoch"/)
     expect(performanceLayoutSource).not.toContain('route.fullPath')
   })
 
@@ -149,6 +152,89 @@ describe('PerformanceReview', () => {
     vi.spyOn(projectManagementApi, 'calibrationCompletionPreview').mockResolvedValue({ scope_version: 'scope-1', total_count: 2, completed_count: 0, missing_result_count: 1, can_complete: true, completed: false })
     vi.spyOn(projectManagementApi, 'memberReminderTasks').mockResolvedValue({ items: [], total: 0, can_remind: true })
     vi.spyOn(performanceWorkbenchApi, 'taskPeople').mockResolvedValue([])
+  })
+
+  it.each(['evaluation', 'calibration', 'result_communication'])('passes the real %s source and 360 scope to the member dialog', async taskKind => {
+    const wrapper = mount(Review, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, PerformanceReviewContent: true, PerformanceMemberReminderDialog: true } } })
+    await flushPromises()
+    const node = { ...overview.categories[2].nodes[0], node_type: taskKind, task_kind: taskKind, task_id: 999 }
+    wrapper.getComponent(PerformanceReviewContent).vm.$emit('remind-evaluate', { node, member: { employee_no: 'E001', task_id: 42 }, pendingCount: 2 })
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { employeeNo: 'E001', sourceTaskId: 42, targetKind: 'reviewer_360' } })
+    expect(wrapper.findComponent({ name: 'PerformanceTaskOverlay' }).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['evaluation', 'calibration', 'result_communication'])('restores %s drawer reminders with reference employee and actual loaded source', async taskKind => {
+    const loaded = structuredClone(overview)
+    const node = { ...loaded.categories[2].nodes[0], node_type: taskKind, task_kind: taskKind, status: 'completed' as const }
+    loaded.categories[2].nodes = [node]
+    Object.assign(routeQuery, { project_id: '1', node: node.node_id, rootReviewId: '22' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue(loaded)
+    const wrapper = mount(Review, { global: { plugins: [pinia], stubs: { PerformanceReviewCategorySidebar: true, PerformanceReviewContent: true, PerformanceReviewEvaluationDrawer: { props: ['modelValue', 'taskId', 'detailLoader', 'employeeNo', 'nodeName', 'person', 'activeTab', 'readonly'], template: '<div />' }, PerformanceMemberReminderDialog: true } } })
+    await flushPromises()
+    wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { employee_no: 'E001', node_id: 'summary', task_id: 77 }, 42)
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props('context')).toMatchObject({ employeeNo: 'E001', sourceTaskId: 42, nodeId: 'summary', targetTaskId: 77 })
+    wrapper.unmount()
+  })
+
+  it('forwards communication completion reminders through the review content', async () => {
+    const node = { ...overview.categories[2].nodes[0], node_type: 'result_communication', status: 'pending' as const }
+    const wrapper = mount(PerformanceReviewContent, { props: { loading: false, error: '', templateName: '', projectId: 1, node }, global: { stubs: { PerformanceReview360FeedbackPanel: true } } })
+    const payload = { member: { task_id: 42, employee_no: 'E001' }, pendingCount: 1 }
+    wrapper.getComponent(PerformanceReview360FeedbackPanel).vm.$emit('remind-evaluate', payload)
+    expect(wrapper.emitted('remind-evaluate')).toEqual([[{ node, ...payload }]])
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('uses completion popovers only for communication rows: allowed=%s', async allowed => {
+    const member = { task_id: 42, employee_no: 'E001', display_name: '成员', status: 'pending', completion: '0/1', can_remind: allowed, evaluate_ratio: { evaluated: [], pending: [{ name: '评估人' }], dimission_count: 0, invite_stage: 'in_progress' } }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue([member] as any)
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'communication', mode: 'communication' }, global: { plugins: [pinia], stubs: { PerformancePopover: { template: '<div><slot /></div>' } } } })
+    await flushPromises()
+    const popover = wrapper.getComponent(PerformanceEvaluateRatioPopover)
+    expect(popover.props('canRemind')).toBe(allowed)
+    if (allowed) {
+      await wrapper.get('.performance-remind-button').trigger('click')
+      expect(wrapper.emitted('remind-evaluate')).toEqual([[{ member: expect.objectContaining({ task_id: 42, employee_no: 'E001' }), pendingCount: 1 }]])
+    } else expect(wrapper.find('.performance-remind-button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('never exposes completion reminder popovers in the reviewer feedback interface', async () => {
+    vi.spyOn(performanceReview360FeedbackApi, 'list').mockResolvedValue({ items: [{ task_id: 42, employee_no: 'E001', display_name: '成员', status: 'pending', department: null, job_sequence: null, position_level: null, source_label: '', relationship: '', due_at: null, can_remind: true, evaluate_ratio: { evaluated: [], pending: [{ name: '评估人' }], invite_stage: 'in_progress', dimission_count: 0 } }], total: 1, node_id: 'feedback', allow_voluntary_evaluation: false } as any)
+    const wrapper = mount(PerformanceReview360FeedbackPanel, { props: { projectId: 1, nodeId: 'feedback' }, global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(wrapper.findComponent(PerformanceEvaluateRatioPopover).exists()).toBe(false)
+    expect(wrapper.emitted('remind-evaluate')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('does not reload a member list when its parent recreates identical context props', async () => {
+    const wrapper = mount(ProjectMemberListPanel, { props: { projectId: 29, reviewContext: { nodeId: 'manager', state: 'all' } } })
+    await flushPromises()
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ reviewContext: { nodeId: 'manager', state: 'all' } })
+    await flushPromises()
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ reviewContext: { nodeId: 'manager', state: 'all', phaseId: 'next' } })
+    await flushPromises()
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('does not continue loading overview after leaving while navigation is pending', async () => {
+    const store = usePerformanceProjectContextStore()
+    store.resetIdentity()
+    let resolve!: (value: PerformanceNavigationContext) => void
+    vi.mocked(performanceNavigationApi.get).mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const wrapper = mountView()
+    wrapper.unmount()
+    resolve(navigationOf(1))
+    await flushPromises()
+    expect(performanceReviewApi.overview).not.toHaveBeenCalled()
+    expect(performanceWorkbenchApi.taskPeople).not.toHaveBeenCalled()
   })
 
   it('maps the legacy results shortcut to the real result submenu and renders its readonly content', async () => {
