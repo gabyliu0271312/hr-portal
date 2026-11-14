@@ -86,6 +86,12 @@ class TableColumn(Base):
     # 取值：'cc_code' / 'org_node_code' / 'employment_type' / 'employment_entity' / None
     scope_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
+    # 树字段角色（配置驱动建树：建树器只认角色，不认列名）
+    # 取值：'tree_code'(节点编码) / 'tree_name'(节点名称) / 'tree_parent'(上级编码)
+    #       / 'tree_active'(启用状态) / 'tree_leaf'(叶子判定，预留) / 'tree_effective'(生效，预留)
+    #       / 'tree_expire'(失效，预留) / None(普通列，不参与建树)
+    tree_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -140,6 +146,9 @@ class OrgNode(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     manager: Mapped[str | None] = mapped_column(String(64), nullable=True)
     path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # 阶段 A：UCP 数据连接直接写入的业务字段段（建树器按 tree_role 配置读取，不硬编码角色）
+    parent_org_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    org_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

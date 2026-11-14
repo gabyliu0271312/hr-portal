@@ -1052,6 +1052,46 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
     await _recompute_tree_paths(CostCenterNode, db)
 
 
+# ===== 配置驱动建树：从 table_columns.tree_role 解析列角色 =====
+
+# 树字段角色枚举（代码常量，沿 scope_role 模式；绑定靠元数据不硬编码列名）
+_TREE_ROLE_CODE = "tree_code"
+_TREE_ROLE_NAME = "tree_name"
+_TREE_ROLE_PARENT = "tree_parent"
+_TREE_ROLE_ACTIVE = "tree_active"
+_TREE_ROLE_LEAF = "tree_leaf"  # 预留：末级部门判定（本期 is_leaf 现算）
+_TREE_ROLE_EFFECTIVE = "tree_effective"  # 预留：生效时间
+_TREE_ROLE_EXPIRE = "tree_expire"  # 预留：失效时间
+
+# 组织树默认 active_values（按树配置，org = 启用/停用 两类）
+_ORG_ACTIVE_VALUES = ("启用", "生效", "正常")
+
+
+async def _resolve_tree_roles(
+    table_name: str, db: AsyncSession
+) -> dict[str, str]:
+    """读 table_columns.tree_role，返回 {role: column_code}。
+
+    建树器只认角色不认列名——即使换列名（org_code→org_id 等），
+    只要 table_columns 里把新列标成对应 tree_role，建树器零改动。
+    """
+    cols = (
+        await db.execute(
+            select(TableColumn).where(
+                TableColumn.table_name == table_name,
+                TableColumn.tree_role.is_not(None),
+            )
+        )
+    ).scalars().all()
+    mapping: dict[str, str] = {}
+    for c in cols:
+        role = getattr(c, "tree_role", None)
+        if not role:
+            continue  # 防御：普通列（tree_role=None）不参与建树
+        mapping[role] = c.column_code
+    return mapping
+
+
 # ===== 组织架构树（基于组织单元表 org_unit 的「行政上级组织编码」显式建树）=====
 
 
@@ -1073,6 +1113,14 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
     if rows is None:
         rows = []
 
+    # 阶段 A：按 tree_role 配置解析列角色（不硬编码列名）
+    # 兼容默认：org_tree 未配置 tree_role 时回退到 org_code/org_name/parent_org_code/org_status
+    tree_roles = await _resolve_tree_roles("org_tree", db)
+    col_code = tree_roles.get(_TREE_ROLE_CODE, "org_code")
+    col_name = tree_roles.get(_TREE_ROLE_NAME, "org_name")
+    col_parent = tree_roles.get(_TREE_ROLE_PARENT, "parent_org_code")
+    col_active = tree_roles.get(_TREE_ROLE_ACTIVE, "org_status")
+
     root_name = app_settings.ORG_ROOT_NAME
 
     # 收集有效单元行：org_code -> (name, parent_code, is_active)
@@ -1080,16 +1128,16 @@ async def _sync_org_tree(rows: list[dict], db: AsyncSession) -> None:
     for r in rows:
         if not isinstance(r, dict):
             continue
-        code = str(r.get("org_code") or "").strip()
+        code = str(r.get(col_code) or "").strip()
         if not code:
-            logger.warning("[org_tree] 跳过 org_code 为空的组织单元行")
+            logger.warning("[org_tree] 跳过 %s 为空的树来源行", col_code)
             continue
         if code == _ORG_ROOT_CODE:
             continue  # 虚拟根由系统固定生成，源端同名行忽略
-        parent_code = str(r.get("parent_org_code") or "").strip()
-        is_active = str(r.get("org_status") or "").strip() in ("启用", "生效", "正常")
+        parent_code = str(r.get(col_parent) or "").strip()
+        is_active = str(r.get(col_active) or "").strip() in _ORG_ACTIVE_VALUES
         units[code] = {
-            "name": str(r.get("org_name") or code).strip() or code,
+            "name": str(r.get(col_name) or code).strip() or code,
             "parent_code": parent_code,
             "is_active": is_active,
         }
