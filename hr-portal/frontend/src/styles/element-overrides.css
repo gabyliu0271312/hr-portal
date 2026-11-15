@@ -2,6 +2,11 @@
  * Element Plus Theme Overrides
  * ============================================================ */
 
+/* Element dropdowns teleported from the shared dialog must sit above its overlay. */
+.el-popper.ui-dialog-tree-popper {
+  z-index: var(--ui-dialog-popper-z-index) !important;
+}
+
 :root {
   --el-color-primary: var(--color-primary);
   --el-color-primary-light-3: #6691ff;

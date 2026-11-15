@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import PerformanceListToolbar from './PerformanceListToolbar.vue'
-import toolbarSource from './PerformanceListToolbar.vue?raw'
+import toolbarSource from '../ui/UiListToolbar.vue?raw'
 import SearchInput from '../common/SearchInput.vue'
 
 function mountToolbar(props = {}, slots = {}) {
@@ -81,7 +81,7 @@ describe('PerformanceListToolbar', () => {
     expect(wrapper.find('.toolbar-spacer').exists()).toBe(false)
     expect(toolbarSource).toMatch(/\.toolbar-group\s*\{[^}]*flex: 0 0 auto;[^}]*gap: inherit;/)
     expect(toolbarSource).toMatch(/\.toolbar-group > :deep\(\*\)\s*\{\s*flex-shrink: 0;/)
-    expect(toolbarSource).toMatch(/\.filter-button\s*\{\s*flex-shrink: 0;/)
+    expect(toolbarSource).toContain(':slotted(.filter-button) { flex-shrink: 0; }')
   })
 
   it.each([

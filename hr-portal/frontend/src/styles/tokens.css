@@ -6,6 +6,55 @@
  * ============================================================ */
 
 :root {
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --ui-control-border-width: 1px;
+  --ui-control-disabled-opacity: .6;
+  --ui-toolbar-control-height: var(--control-height);
+  --ui-toolbar-gap: var(--spacing-5);
+  --ui-search-height: var(--control-height);
+  --ui-search-padding-y: var(--spacing-1);
+  --ui-search-padding-right: var(--spacing-2);
+  --ui-checkbox-size: var(--performance-checkbox-size);
+  --ui-checkbox-radius: var(--radius-sm);
+  --ui-checkbox-gap: var(--spacing-2);
+  --ui-checkbox-line-height: var(--input-line-height);
+  --ui-checkbox-border: #8f959e;
+  --ui-checkbox-checked: #1456f0;
+  --ui-checkbox-hover: #336df4;
+  --ui-checkbox-active: #0442d2;
+  --ui-checkbox-disabled: #bbbfc4;
+  --ui-dialog-width: var(--performance-dialog-wide-width);
+  --ui-dialog-padding: var(--performance-dialog-padding);
+  --ui-dialog-header-height: var(--performance-dialog-header-height);
+  --ui-dialog-header-padding-y: var(--performance-dialog-header-padding-y);
+  --ui-dialog-header-padding-right: var(--performance-dialog-header-padding-right);
+  --ui-dialog-title-size: var(--performance-dialog-header-title-size);
+  --ui-dialog-title-weight: var(--performance-dialog-header-title-weight);
+  --ui-dialog-title-line-height: var(--performance-dialog-header-title-line-height);
+  --ui-dialog-line-height: var(--performance-dialog-header-desc-line-height);
+  --ui-dialog-radius: var(--performance-dialog-radius);
+  --ui-dialog-shadow: var(--performance-dialog-shadow);
+  --ui-dialog-overlay: var(--performance-dialog-overlay);
+  --ui-dialog-z-index: var(--performance-confirm-z-index);
+  --ui-dialog-popper-z-index: calc(var(--ui-dialog-z-index) + 1);
+  --ui-dialog-viewport-inset: var(--performance-dialog-viewport-inset);
+  --ui-dialog-content-gap: var(--performance-dialog-content-gap);
+  --ui-dialog-close-size: var(--performance-dialog-close-size);
+  --ui-dialog-close-icon-size: var(--performance-header-icon-size);
+  --ui-dialog-close-margin: -2px -4px;
+  --ui-dialog-fullscreen-header-height: 56px;
+  --ui-dialog-footer-gap: var(--spacing-6);
+  --ui-form-item-gap: var(--spacing-5);
+  --ui-form-label-gap: var(--spacing-2);
+  --ui-form-label-line-height: var(--input-line-height);
+  --ui-form-label-weight: var(--font-weight-medium);
+  --ui-form-label-height: var(--control-height);
+  --ui-form-required-gap: var(--performance-required-mark-gap);
+  --ui-form-error-gap: var(--spacing-1);
+  --ui-form-field-radius: var(--control-radius);
+  --ui-feedback-list-indent: 18px;
+
   /* Semantic surface and control aliases */
   --color-surface-page: var(--color-bg-page);
   --color-surface-card: var(--color-bg-card);

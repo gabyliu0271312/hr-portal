@@ -949,6 +949,17 @@ _CC_LEVEL_NAME_FIELDS = {
 
 
 async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
+    from app.trees.service import lock_cost_center_tree
+
+    try:
+        await lock_cost_center_tree(db)
+        await _sync_cc_tree_locked(rows, db)
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def _sync_cc_tree_locked(rows: list[dict], db: AsyncSession) -> None:
     """成本中心树：按 code 稳定 upsert（节点 id 跨同步不漂移）。
 
     源端 `cost_center_monthly` 字段语义（北森导出）：
@@ -986,8 +997,39 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
             "raw": r,
         })
 
-    existing = (await db.execute(select(CostCenterNode))).scalars().all()
+    existing = (await db.execute(
+        select(CostCenterNode).execution_options(populate_existing=True)
+    )).scalars().all()
     existing_by_code = {n.code: n for n in existing}
+    local_nodes = [node for node in existing if node.source_mode == "local"]
+    parsed_by_code = {item["code"]: item for item in parsed}
+    if len(parsed_by_code) != len(parsed):
+        raise ValueError("外部成本中心编码重复")
+    if any(node.code in parsed_by_code for node in local_nodes):
+        raise ValueError("外部来源编码与本地成本中心冲突")
+    from app.trees.service import cost_center_structure, recompute_cost_center_structure
+
+    if local_nodes:
+        structure = cost_center_structure(existing)
+        for local in local_nodes:
+            for ancestor in structure[local.id][2][1:]:
+                if ancestor.source_mode == "local":
+                    continue
+                incoming = parsed_by_code.get(ancestor.code)
+                if incoming is None or not incoming["is_active"]:
+                    raise ValueError("外部同步不能删除或停用本地成本中心的上级链")
+                candidates = []
+                if incoming["level"] > 1:
+                    field = _CC_LEVEL_NAME_FIELDS.get(incoming["level"] - 1)
+                    parent_name = _first(incoming["raw"], field) if field else None
+                    candidates = [p for p in parsed if p["level"] == incoming["level"] - 1
+                                  and p["name"] == str(parent_name)] if parent_name else []
+                    if len(candidates) != 1:
+                        raise ValueError("本地成本中心的外部上级链存在父节点歧义")
+                old_parent = next((n for n in existing if n.id == ancestor.parent_id), None)
+                parent_code = candidates[0]["code"] if candidates else None
+                if parent_code != (old_parent.code if old_parent else None):
+                    raise ValueError("外部同步不能重新挂接本地成本中心的上级链")
 
     # upsert 节点（复用旧 id）
     nodes_by_code: dict[str, CostCenterNode] = {}
@@ -1004,6 +1046,7 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
                 level=p["level"],
                 is_leaf=False,  # 第二遍根据 children 数推算
                 is_active=p["is_active"],
+                source_mode="external_sync",
                 synced_at=now,
             )
             db.add(node)
@@ -1034,22 +1077,15 @@ async def _sync_cc_tree(rows: list[dict], db: AsyncSession) -> None:
         candidates = by_level_name.get((parent_level, str(parent_name)), [])
         node.parent_id = candidates[0].id if candidates else None
 
-    # 标记 is_leaf：没有 child 的节点
-    parents_with_children: set[int] = set()
-    for n in nodes_by_code.values():
-        if n.parent_id is not None:
-            parents_with_children.add(n.parent_id)
-    for n in nodes_by_code.values():
-        n.is_leaf = n.id not in parents_with_children
-
-    # 删孤儿：code 不在源端的节点
-    valid_codes = {p["code"] for p in parsed}
+    # 缺行只清理外部节点，本地节点保留。
+    valid_codes = set(nodes_by_code)
     for n in existing:
-        if n.code not in valid_codes:
+        if n.source_mode != "local" and n.code not in valid_codes:
             await db.delete(n)
 
+    retained = [*nodes_by_code.values(), *local_nodes]
+    recompute_cost_center_structure(retained)
     await db.flush()
-    await _recompute_tree_paths(CostCenterNode, db)
 
 
 # ===== 配置驱动建树：从 table_columns.tree_role 解析列角色 =====

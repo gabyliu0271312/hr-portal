@@ -238,6 +238,23 @@ HR Portal 是平台入口，不是单一工具页面集合。绩效管理、招�
 - 接受 Element Plus button props
 - 图标用 slot 内的 `<el-icon>`，不使用 `:icon`
 
+### 主数据工具栏、勾选项与弹窗（B06.cc，2026-11-15）
+
+- `UiListToolbar.vue` 为共享搜索/动作布局，提供 `left / search / filters / actions` 插槽；`PerformanceListToolbar` 继续复用它，并在 `search` 插槽保留 `PerformanceSearchInput` 入口，绩效消费保持原行为。成本中心搜索占剩余宽度，动作按内容收缩，控件行 32px、项间距 20px，窗口不足可换行；不把 32px 当作文字行高。
+- `UiCheckbox.vue` 的视觉方块 16px、圆角 4px、图文间距 8px、外层最低 32px；当前成本中心保留“含停用成本中心”的业务语义，不因设计稿占位“包含下级部门”改业务含义。
+- `UiDialogShell.vue` 是跨模块弹窗内核，`PerformanceDialogShell` 仍为绩效消费入口；新增成本中心弹窗默认 600px，头部 `24px 56px 24px 24px`，内容区 `0 24px`、底部外间距 24px，操作区 `0 24px 24px`。表单项间距20px；标签行高22px、标签区32px含底部8px间距；输入/树选择32px。操作按钮间距24px按本次Ardot稿，不全局改变绩效按钮间距。
+- `tokens.css` 维护 `--ui-toolbar-* / --ui-search-* / --ui-checkbox-* / --ui-dialog-* / --ui-form-*` 组件Token，优先引用现有绩效Token，不在业务组件定义另一套色板。Ardot集合/变量路径对应组件用途；代码唯一数值源仍为 `tokens.css`，Ardot变量间alias未建立，不宣称已自动同步。
+- 弹窗支持焦点约束、Escape关闭、loading阻止关闭及视口尺寸限制；调用方只组装业务表单，不复制弹窗三段壳。Element树选择器使用 `popper-class="ui-dialog-tree-popper"`，由 `element-overrides.css` 消费 `--ui-dialog-popper-z-index` 保证浮层高于弹窗遮罩，不在业务组件写 z-index。
+
+### 主数据树与维护表单（成本中心实例）
+
+- 成本中心目录复用 `OrganizationTree.vue` 的 `mode="cc"`，页面只负责组装，不在页面内复制树展开、搜索和健康提示逻辑。
+- 成本中心新增使用共享 `UiListToolbar.vue`、`UiDialogShell.vue`、`PermissionButton.vue` 和 `el-tree-select`；工具栏高度、搜索框高度、表单控件高度、弹窗三段 padding 只能消费 `tokens.css`，不在业务页面写硬编码尺寸。
+- 新建表单字段为名称、编码、上级成本中心；编码由服务端做含停用节点的全局唯一校验，前端校验仅用于即时反馈，不能替代服务端拒绝。
+- 上级候选必须来自成本中心树接口，保存稳定 `parent_id`，不得按名称自行拼接父级；上级停用、孤儿、跨树父或结构异常由服务端拒绝。
+- 页面正常态不额外添加设计稿没有的成功 toast、引导文案或字段说明；错误只在输入校验、权限拒绝和保存失败时显示。
+- 成本中心新增属于获准 `local` 维护子集；`external_sync` 节点不得由页面手工覆盖，创建后目录刷新显示稳定节点。
+
 ## 已废弃
 
 以下旧实现已从代码中删除或不再使用，后续不要恢复：

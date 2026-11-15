@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import SearchInput from '@/components/common/SearchInput.vue'
+import UiListToolbar from '@/components/ui/UiListToolbar.vue'
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import PermissionButton from '@/components/PermissionButton.vue'
+import CostCenterCreateDialog from '@/components/master-data/CostCenterCreateDialog.vue'
 import OrganizationTree from '@/components/master-data/OrganizationTree.vue'
 import PageTitle from '@/components/common/PageTitle.vue'
 import UiSurface from '@/components/ui/UiSurface.vue'
@@ -13,6 +16,11 @@ const includeInactive = ref(false)
 const keyword = ref('')
 const trees = ref<TreeNode[]>([])
 const loading = ref(false)
+const creating = ref(false)
+function created() {
+  keyword.value = ''
+  load()
+}
 const error = ref('')
 const issues = ref<HealthIssue[]>([])
 const warnings = ref<TreeHealthWarning[]>([])
@@ -100,15 +108,21 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
             </li>
           </ul>
         </el-alert>
-        <div class="cost-center__toolbar">
-          <SearchInput v-model="keyword" placeholder="搜索" />
-          <el-checkbox v-model="includeInactive" :disabled="loading">含停用成本中心</el-checkbox>
-        </div>
+        <UiListToolbar v-model:keyword="keyword" search-placeholder="通过名称、编码搜索" search-aria-label="搜索成本中心" search-fill wrap gap="var(--ui-toolbar-gap)">
+          <template #actions>
+            <UiCheckbox v-model="includeInactive" :disabled="loading">含停用成本中心</UiCheckbox>
+            <PermissionButton menu="people.cost_center" op="C" type="primary" class="cost-center__create" @click="creating = true">
+              <svg class="cost-center__add-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
+              新建成本中心
+            </PermissionButton>
+          </template>
+        </UiListToolbar>
         <div v-loading="loading" class="cost-center__tree">
           <OrganizationTree v-if="visibleTrees.length || error" :nodes="visibleTrees" :searching="searching" mode="cc" />
-          <el-empty v-else-if="!loading" description="暂无成本中心。成本中心由后端同步后显示在此。" />
+          <el-empty v-else-if="!loading" description="暂无成本中心" />
         </div>
       </template>
+      <CostCenterCreateDialog v-model="creating" @created="created" />
     </UiSurface>
   </div>
 </template>
@@ -132,8 +146,9 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
   min-width: 0;
 }
 .cost-center__card > .el-alert { margin-top: var(--spacing-4); }
-.cost-center__issues { margin: 4px 0 0; padding-left: 18px; color: var(--color-text-secondary); font-size: 13px; line-height: 20px; }
-.cost-center__issues code { margin-right: 6px; color: var(--color-danger, #f53f3f); font-size: 12px; }
-.cost-center__toolbar { display: flex; flex-wrap: wrap; align-items: center; flex: 0 0 auto; gap: var(--page-gap-toolbar-items); margin-bottom: var(--page-gap-toolbar-table); }
+.cost-center__issues { margin: var(--spacing-1) 0 0; padding-left: var(--ui-feedback-list-indent); color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: var(--input-line-height); }
+.cost-center__issues code { margin-right: var(--spacing-1); color: var(--color-text-danger-strong); font-size: var(--font-size-sm); }
+.cost-center__create { height: var(--ui-toolbar-control-height); border-radius: var(--button-radius); font-size: var(--font-size-md); }
+.cost-center__add-icon { width: var(--icon-size); height: var(--icon-size); margin-right: var(--spacing-1); }
 .cost-center__tree { display: flex; flex-direction: column; min-width: 0; }
 </style>

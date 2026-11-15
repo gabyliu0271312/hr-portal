@@ -2,11 +2,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
 import CostCenter from './CostCenter.vue'
+import CostCenterCreateDialog from '@/components/master-data/CostCenterCreateDialog.vue'
 
-const api = vi.hoisted(() => ({ costCenterDirectory: vi.fn() }))
+const api = vi.hoisted(() => ({ costCenterDirectory: vi.fn(), createCostCenter: vi.fn() }))
 vi.mock('@/api/data', () => ({ treesApi: api, TreeNode: undefined }))
 
-const store = reactive({ user: { id: 1 }, menus: [{ code: 'people.cost_center' }] })
+const store = reactive({ user: { id: 1 }, menus: [{ code: 'people.cost_center', can_create: true }], hasOp: (_menu: string, _op: string) => store.menus.some(m => m.code === _menu && m.can_create) })
 vi.mock('@/stores/user', () => ({ useUserStore: () => store }))
 
 const stubs = {
@@ -17,6 +18,7 @@ const stubs = {
   ElAlert: defineComponent({ props: ['title', 'type'], template: '<p class="alert">{{ title }}</p>' }),
   ElCheckbox: defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />' }),
   ElEmpty: defineComponent({ props: ['description'], template: '<p class="empty">{{ description }}</p>' }),
+  ElTreeSelect: defineComponent({ props: ['modelValue', 'data'], emits: ['update:modelValue'], template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', Number($event.target.value))"><option v-for="item in data" :key="item.value" :value="item.value" :disabled="item.disabled">{{ item.label }}</option></select>' }),
 }
 const options = { global: { stubs, directives: { loading: () => {} } } }
 const tree = [
@@ -25,11 +27,54 @@ const tree = [
 
 beforeEach(() => {
   vi.resetAllMocks()
-  store.menus = [{ code: 'people.cost_center' }]
+  store.menus = [{ code: 'people.cost_center', can_create: true }]
   api.costCenterDirectory.mockResolvedValue({ tree, warnings: [] })
 })
 
 describe('cost center directory shell', () => {
+  it('opens the form, saves a trimmed code and stable parent id, then refreshes the directory', async () => {
+    api.createCostCenter.mockResolvedValueOnce({ ...tree[0], id: 2, code: 'C2' })
+    const wrapper = mount(CostCenter, { ...options, attachTo: document.body }); await flushPromises()
+    await wrapper.get('.cost-center__create').trigger('click'); await flushPromises()
+    const dialog = wrapper.getComponent(CostCenterCreateDialog)
+    const vm = dialog.vm as any
+    vm.name = ' 新中心 '; vm.code = ' C2 '; vm.parentId = 1
+    await flushPromises()
+    const confirm = document.querySelector<HTMLButtonElement>('.cost-center-form__actions button:last-child')!
+    expect(confirm.disabled).toBe(false)
+    confirm.click(); await flushPromises()
+    expect(api.createCostCenter).toHaveBeenCalledWith({ name: '新中心', code: 'C2', parent_id: 1 })
+    expect(api.costCenterDirectory).toHaveBeenCalledWith(true)
+    expect(api.costCenterDirectory.mock.calls.filter(([inactive]) => inactive === false)).toHaveLength(2)
+    expect((wrapper.vm as any).creating).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps duplicate-code errors in the open form without refreshing the tree', async () => {
+    api.createCostCenter.mockRejectedValueOnce({ response: { status: 409, data: { detail: '成本中心编码已存在' } } })
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    await wrapper.get('.cost-center__create').trigger('click'); await flushPromises()
+    const vm = wrapper.getComponent(CostCenterCreateDialog).vm as any
+    vm.name = '新中心'; vm.code = 'C1'
+    await vm.save(); await flushPromises()
+    expect(vm.codeError).toContain('编码已存在')
+    expect((wrapper.vm as any).creating).toBe(true)
+    expect(api.costCenterDirectory.mock.calls.filter(([inactive]) => inactive === false)).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not send a create request without create permission or required fields', async () => {
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    await wrapper.get('.cost-center__create').trigger('click'); await flushPromises()
+    const vm = wrapper.getComponent(CostCenterCreateDialog).vm as any
+    await vm.save()
+    expect(vm.nameError).toBeTruthy(); expect(vm.codeError).toBeTruthy()
+    store.menus = [{ code: 'people.cost_center', can_create: false }]
+    vm.name = '新中心'; vm.code = 'C2'
+    await vm.save()
+    expect(api.createCostCenter).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('loads tree and renders with cc mode when authorized', async () => {
     const wrapper = mount(CostCenter, options); await flushPromises()
     expect(api.costCenterDirectory).toHaveBeenCalledTimes(1)

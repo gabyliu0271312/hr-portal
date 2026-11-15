@@ -97,6 +97,8 @@ export const treesApi = {
     api
       .get<TreeNode[]>('/trees/cost-center', { params: { include_inactive } })
       .then((r) => r.data),
+  createCostCenter: (body: { name: string; code: string; parent_id: number | null }) =>
+    api.post<TreeNode>('/trees/cost-center/directory', body).then(r => r.data),
   costCenterDirectory: (include_inactive = false) =>
     api
       .get<TreeDirectory>('/trees/cost-center/directory', { params: { include_inactive } })

@@ -111,6 +111,7 @@ class CostCenterNode(Base):
     __table_args__ = (
         UniqueConstraint("code", name="uq_cc_tree_code"),
         Index("ix_cc_tree_parent", "parent_id"),
+        CheckConstraint("source_mode IN ('external_sync', 'local')", name="ck_cc_tree_source_mode"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -123,6 +124,9 @@ class CostCenterNode(Base):
     is_leaf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="external_sync", server_default="external_sync"
+    )
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -46,6 +46,8 @@ class FakeSession:
         self.added_all = []
         self.flushed = 0
         self.expired = False
+        self.deleted = []
+        self.rolled_back = False
 
     async def execute(self, statement, params=None):
         self.executed.append((statement, params))
@@ -56,6 +58,15 @@ class FakeSession:
 
     def add_all(self, objs):
         self.added_all.extend(objs)
+
+    def add(self, obj):
+        self.added_all.append(obj)
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
+
+    async def rollback(self):
+        self.rolled_back = True
 
     async def flush(self):
         self.flushed += 1
@@ -144,6 +155,66 @@ def make_entity_model(table_name: str):
         Column("status", String),
     )
     return _make_model_from_table(table_name, table)
+
+
+def cc_node(id_, code, name, parent_id=None, source_mode="external_sync", active=True):
+    return SimpleNamespace(id=id_, code=code, name=name, parent_id=parent_id,
+                           source_mode=source_mode, is_active=active, level=1,
+                           is_leaf=True, path=f"/{name}/", synced_at=None)
+
+
+def cc_source(code="P", name="父", level=1, active=True, **path):
+    return {"编码": code, "名称": name, "业务层级Id": level,
+            "status": "启用" if active else "停用", **path}
+
+
+async def test_cc_sync_preserves_local_children_and_recomputes_paths():
+    parent = cc_node(1, "P", "父")
+    local = cc_node(2, "L", "本地", 1, "local")
+    stale = cc_node(3, "OLD", "缺行")
+    db = FakeSession([FakeResult(), FakeResult(rows=[parent, local, stale])])
+    await sync_service._sync_cc_tree([cc_source(name="新父名")], db)
+    assert db.deleted == [stale]
+    assert not parent.is_leaf and local.is_leaf
+    assert parent.path == "/新父名/" and local.path == "/新父名/本地/"
+    assert local.parent_id == 1 and local.level == 2 and local.source_mode == "local"
+    assert "pg_advisory_xact_lock" in str(db.executed[0][0])
+    assert not db.rolled_back
+
+
+async def test_cc_sync_empty_source_preserves_local_root():
+    local = cc_node(1, "L", "本地", source_mode="local")
+    db = FakeSession([FakeResult(), FakeResult(rows=[local])])
+    await sync_service._sync_cc_tree([], db)
+    assert not db.deleted and local.path == "/本地/" and local.is_leaf
+
+
+@pytest.mark.parametrize("incoming", [
+    [cc_source("L", "覆盖本地")],
+    [],
+    [cc_source(active=False)],
+    [cc_source("Q", "新根"), cc_source(level=2, **{"一级成本中心": "新根"})],
+])
+async def test_cc_sync_rejects_local_code_or_ancestor_conflicts_without_writes(incoming):
+    parent = cc_node(1, "P", "父")
+    local = cc_node(2, "L", "本地", 1, "local")
+    db = FakeSession([FakeResult(), FakeResult(rows=[parent, local])])
+    with pytest.raises(ValueError):
+        await sync_service._sync_cc_tree(incoming, db)
+    assert db.rolled_back and not db.deleted and not db.added_all
+    assert parent.name == "父" and local.parent_id == 1
+
+
+async def test_cc_sync_retains_external_identity_and_new_ownership_default():
+    parent = cc_node(10, "P", "父")
+    db = FakeSession([FakeResult(), FakeResult(rows=[parent])])
+    await sync_service._sync_cc_tree([
+        cc_source(), cc_source("C", "子", 2, **{"一级成本中心": "父"}),
+    ], db)
+    assert parent.id == 10 and not parent.is_leaf
+    child = db.added_all[0]
+    assert child.parent_id == 10 and child.path == "/父/子/"
+    assert child.source_mode == "external_sync"
 
 
 async def test_ensure_columns_adds_physical_column_and_metadata(monkeypatch):

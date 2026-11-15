@@ -6,9 +6,13 @@
 - GET /trees/employment-entity  用工主体 distinct 值
 - GET /trees/persons            人员姓名 distinct 值（支持 keyword 搜索）
 """
+from datetime import datetime, timezone
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import String, cast, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any
 
@@ -109,7 +113,8 @@ async def get_cc_directory(
 
     仅菜单授权用户可访问（require_op people.cost_center V）。
     以 tree_health.analyze_tree 做健康校验，按问题类别分级：
-    - 结构性问题（孤儿 / 循环 / 重复身份 / 重复编码 / 空树 / 无根）→ 409，
+    - 空目录返回空树，供首次创建根节点使用；
+    - 非空树结构性问题（孤儿 / 循环 / 重复身份 / 重复编码 / 无根）→ 409，
       绝不静默构树扩大授权；
     - 规范性问题（层级不连续 / 启停冲突 / 同名路径 / 深度不一致等）→ 降级为
       warnings 随树返回，读权限入口不被数据形态阻断（执行/授权链仍严格校验）。
@@ -118,6 +123,8 @@ async def get_cc_directory(
 
     stmt = select(CostCenterNode).order_by(CostCenterNode.level, CostCenterNode.code)
     rows = (await db.execute(stmt)).scalars().all()
+    if not rows:
+        return TreeDirectoryOut(tree=[], warnings=[])
     health = analyze_tree("cost_center", rows)
     structural = [issue for issue in health.issues if issue.code in _CC_STRUCTURAL_ISSUES]
     if structural:
@@ -132,6 +139,72 @@ async def get_cc_directory(
     else:
         kept = [row for row in rows if row.is_active]
     return TreeDirectoryOut(tree=_build_tree(kept), warnings=warnings)
+
+
+class CostCenterCreate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+    code: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64)]
+    parent_id: int | None = Field(default=None, gt=0)
+
+
+@router.post(
+    "/cost-center/directory", response_model=TreeNodeOut, status_code=201,
+    dependencies=[Depends(require_op("people.cost_center", "V"))],
+)
+async def create_cc_directory(
+    body: CostCenterCreate,
+    _: User = Depends(require_op("people.cost_center", "C")),
+    db: AsyncSession = Depends(get_session),
+) -> TreeNodeOut:
+    from app.trees.service import (
+        cost_center_structure, lock_cost_center_tree, recompute_cost_center_structure,
+    )
+
+    try:
+        await lock_cost_center_tree(db)
+        rows = (await db.execute(select(CostCenterNode).execution_options(populate_existing=True))).scalars().all()
+        if any(node.code == body.code for node in rows):
+            raise HTTPException(status_code=409, detail="成本中心编码已存在")
+        try:
+            structure = cost_center_structure(rows)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        parent = next((node for node in rows if node.id == body.parent_id), None)
+        if body.parent_id is not None and parent is None:
+            raise HTTPException(status_code=422, detail="上级成本中心不存在")
+        chain = structure[parent.id][2] if parent is not None else []
+        if any(not node.is_active for node in chain):
+            raise HTTPException(status_code=409, detail="上级成本中心及其祖先必须启用")
+        if len(chain) >= 50:
+            raise HTTPException(status_code=422, detail="成本中心树超过现有路径计算支持的50级深度")
+        path = (structure[parent.id][1] if parent is not None else "/") + body.name + "/"
+        if len(path) > 1024:
+            raise HTTPException(status_code=422, detail="成本中心路径不能超过1024个字符")
+        if "/" in body.name or any(value[1] == path for value in structure.values()):
+            raise HTTPException(status_code=409, detail="成本中心名称产生重复或有歧义的路径")
+        node = CostCenterNode(
+            code=body.code, name=body.name, parent_id=body.parent_id,
+            level=len(chain) + 1, path=path, is_leaf=True, is_active=True,
+            source_mode="local", synced_at=datetime.now(timezone.utc),
+        )
+        db.add(node)
+        await db.flush()
+        recompute_cost_center_structure([*rows, node])
+        out = TreeNodeOut(
+            id=node.id, code=node.code, name=node.name, parent_id=node.parent_id,
+            level=node.level, is_leaf=node.is_leaf, is_active=node.is_active,
+            synced_at=node.synced_at.isoformat(), children=[],
+        )
+        await db.commit()
+        return out
+    except IntegrityError as exc:
+        await db.rollback()
+        if "uq_cc_tree_code" in str(exc.orig):
+            raise HTTPException(status_code=409, detail="成本中心编码已存在") from exc
+        raise
+    except Exception:
+        await db.rollback()
+        raise
 
 
 @router.get("/org/directory", response_model=list[TreeNodeOut])

@@ -45,6 +45,9 @@ class FakeResult:
     def scalars(self):
         return self
 
+    def first(self):
+        return self.rows[0] if self.rows else None
+
 
 class FakeSession:
     def __init__(self, rows):
@@ -193,3 +196,140 @@ def test_cc_directory_declares_people_cost_center_view_permission():
     source = inspect.getsource(trees_router.get_cc_directory)
     assert "require_op(\"people.cost_center\", \"V\")" in source
     assert "analyze_tree" in source
+
+
+class WriteSession(FakeSession):
+    def __init__(self, rows, integrity_error=None):
+        super().__init__(rows)
+        self.added = []
+        self.committed = False
+        self.rolled_back = False
+        self.integrity_error = integrity_error
+
+    def add(self, node):
+        self.added.append(node)
+
+    async def flush(self):
+        if self.integrity_error:
+            raise self.integrity_error
+        for node in self.added:
+            node.id = max([row.id for row in self.rows] + [0]) + 1
+
+    async def commit(self):
+        self.committed = True
+
+    async def rollback(self):
+        self.rolled_back = True
+
+
+@pytest.mark.asyncio
+async def test_empty_directory_allows_first_root_creation():
+    out = await trees_router.get_cc_directory(include_inactive=True, _=ACTOR, db=FakeSession([]))
+    assert out.model_dump() == {"tree": [], "warnings": []}
+    db = WriteSession([])
+    out = await trees_router.create_cc_directory(
+        trees_router.CostCenterCreate(name=" 根中心 ", code=" CC01 "), _=ACTOR, db=db,
+    )
+    assert (out.code, out.name, out.parent_id, out.level, out.is_leaf) == ("CC01", "根中心", None, 1, True)
+    assert db.added[0].source_mode == "local"
+    assert db.added[0].path == "/根中心/"
+    assert db.committed and not db.rolled_back
+    assert "pg_advisory_xact_lock" in str(db.executed[0][0])
+
+
+@pytest.mark.asyncio
+async def test_create_child_uses_real_parent_chain_and_updates_leaf():
+    parent = _cc_node(1, "P", "父", None, 99, True, path="错误缓存")
+    db = WriteSession([parent])
+    out = await trees_router.create_cc_directory(
+        trees_router.CostCenterCreate(name="子", code="C", parent_id=1), _=ACTOR, db=db,
+    )
+    assert out.level == 2 and out.parent_id == 1
+    assert db.added[0].path == "/父/子/"
+    assert parent.level == 1 and parent.path == "/父/" and not parent.is_leaf
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows,parent_id,code,status", [
+    ([_cc_node(1, "DUP", "停用", None, 1, False)], None, "DUP", 409),
+    ([], 99, "NEW", 422),
+    ([_cc_node(1, "P", "父", None, 1, False)], 1, "NEW", 409),
+    ([_cc_node(1, "P", "父", 99, 2, True)], None, "NEW", 409),
+    ([_cc_node(1, "P", "父", 2, 1, True), _cc_node(2, "Q", "祖", 1, 2, True)], None, "NEW", 409),
+    ([_cc_node(1, "P", "祖", None, 1, False), _cc_node(2, "Q", "父", 1, 2, True)], 2, "NEW", 409),
+])
+async def test_create_rejects_duplicate_or_invalid_parent(rows, parent_id, code, status):
+    db = WriteSession(rows)
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.create_cc_directory(
+            trees_router.CostCenterCreate(name="新", code=code, parent_id=parent_id), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == status
+    assert not db.added and db.rolled_back and not db.committed
+
+
+@pytest.mark.parametrize("payload", [
+    {"name": "  ", "code": "C"}, {"name": "N", "code": "  "},
+    {"name": "N" * 256, "code": "C"}, {"name": "N", "code": "C" * 65},
+    {"name": "N", "code": "C", "parent_id": 0},
+])
+def test_create_validates_required_lengths_and_parent_id(payload):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        trees_router.CostCenterCreate(**payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("depth,name_length", [(50, 1), (4, 254)])
+async def test_create_rejects_path_and_existing_depth_guard(depth, name_length):
+    rows = [_cc_node(i, str(i), "N" * name_length, i - 1 if i > 1 else None, i, True)
+            for i in range(1, depth + 1)]
+    db = WriteSession(rows)
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.create_cc_directory(
+            trees_router.CostCenterCreate(name="NEW", code="NEW", parent_id=depth), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 422
+    assert not db.added and db.rolled_back
+
+
+@pytest.mark.asyncio
+async def test_database_unique_conflict_rolls_back_as_409():
+    from sqlalchemy.exc import IntegrityError
+
+    db = WriteSession([], IntegrityError("INSERT", {}, Exception('duplicate key violates "uq_cc_tree_code"')))
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.create_cc_directory(
+            trees_router.CostCenterCreate(name="新", code="DUP"), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 409
+    assert db.rolled_back and not db.committed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("denied_op", ["V", "C"])
+async def test_create_http_rejects_missing_view_or_create_permission(denied_op):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from app.core.db import get_session
+    from app.core.deps import current_user
+
+    app = FastAPI()
+    app.include_router(trees_router.router)
+    db = FakeSession([])
+    app.dependency_overrides[current_user] = lambda: ACTOR
+    app.dependency_overrides[get_session] = lambda: db
+    route = next(route for route in app.routes if getattr(route, "path", None) == "/trees/cost-center/directory"
+                 and "POST" in route.methods)
+    for dependency in route.dependant.dependencies:
+        if not dependency.call.__closure__:
+            continue
+        closure = dict(zip(dependency.call.__code__.co_freevars,
+                           [cell.cell_contents for cell in dependency.call.__closure__]))
+        if closure["op"] != denied_op:
+            app.dependency_overrides[dependency.call] = lambda: ACTOR
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/trees/cost-center/directory", json={"name": "N", "code": "C"})
+    assert response.status_code == 403
+    assert not any("pg_advisory" in str(statement) for statement, _ in db.executed)
