@@ -8,6 +8,17 @@ import { resolvePageTitle } from '@/utils/pageTitle'
 import { employeeSwitchSession, clearEmployeeSwitch } from '@/stores/identitySwitch'
 import { identitySwitchApi } from '@/api/identitySwitch'
 
+const developmentRoutes: RouteRecordRaw[] = []
+if (import.meta.env.DEV) {
+  const gallery = import.meta.glob('../components/performance/dev-gallery/GalleryPage.vue')['../components/performance/dev-gallery/GalleryPage.vue']
+  if (gallery) developmentRoutes.push({
+    path: 'dev/gallery/performance',
+    name: 'DevGalleryPerformance',
+    component: gallery,
+    meta: { label: '绩效组件陈列页（Figma 导入用）', menuCode: null, dev: true },
+  })
+}
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/login',
@@ -35,12 +46,7 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/Home.vue'),
         meta: { label: '首页', menuCode: null },
       },
-      {
-        path: 'dev/gallery/performance',
-        name: 'DevGalleryPerformance',
-        component: () => import('@/components/performance/dev-gallery/GalleryPage.vue'),
-        meta: { label: '绩效组件陈列页（Figma 导入用）', menuCode: null, dev: true },
-      },
+      ...developmentRoutes,
       {
         path: 'system/users',
         name: 'SystemUsers',
