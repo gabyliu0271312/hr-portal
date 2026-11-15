@@ -6,6 +6,57 @@
 3. 不出现明文/占位凭证
 """
 import pytest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+
+@pytest.mark.asyncio
+async def test_resource_menu_is_seeded_and_super_admin_grant_is_idempotent():
+    from app.seed import MENU_TREE, _ensure_super_role
+    from app.users.models import Menu
+
+    ucp = next(node for node in MENU_TREE if node['code'] == 'ucp')
+    resource = next(node for node in ucp['children'] if node['code'] == 'ucp.resources')
+    menu = Menu(id=9001, code=resource['code'], label=resource['label'])
+    role = SimpleNamespace(id=1, name='超级管理员')
+    role_result = Mock()
+    role_result.scalar_one_or_none.return_value = role
+    empty_links = Mock()
+    empty_links.scalars.return_value.all.return_value = []
+    db = SimpleNamespace(execute=AsyncMock(side_effect=[role_result, empty_links]), add=Mock(), commit=AsyncMock())
+
+    await _ensure_super_role(db, {menu.code: menu})
+
+    grant = db.add.call_args.args[0]
+    assert grant.menu_id == menu.id
+    assert grant.role_id == role.id
+    assert all(getattr(grant, flag) for flag in ('can_view', 'can_create', 'can_update', 'can_delete', 'can_export'))
+
+    existing_links = Mock()
+    existing_links.scalars.return_value.all.return_value = [grant]
+    db.execute.side_effect = [role_result, existing_links]
+    db.add.reset_mock()
+    await _ensure_super_role(db, {menu.code: menu})
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('allowed', [True, False])
+async def test_resource_permission_still_rejects_users_without_grants(allowed):
+    from fastapi import HTTPException
+    from app.core.deps import require_op
+
+    result = Mock()
+    result.first.return_value = (object(),) if allowed else None
+    db = SimpleNamespace(execute=AsyncMock(return_value=result))
+    user = SimpleNamespace(id=1)
+    check = require_op('ucp.resources', 'V')
+    if allowed:
+        assert await check(user=user, db=db) is user
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await check(user=user, db=db)
+        assert exc.value.status_code == 403
 
 
 # ── 加密验证 ──

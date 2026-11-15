@@ -95,6 +95,7 @@ MENU_TREE: list[dict] = [
         "icon": "Connection",
         "children": [
             {"code": "ucp.systems", "label": "接入系统", "icon": "DataBoard"},
+            {"code": "ucp.resources", "label": "资源管理", "icon": "Grid"},
             {"code": "ucp.connector_catalog", "label": "接入类型管理", "icon": "Collection"},
             {"code": "ucp.pipelines", "label": "流程编排", "icon": "Share"},
             {"code": "ucp.executions", "label": "运行中心", "icon": "Clock"},

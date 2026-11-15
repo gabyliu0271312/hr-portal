@@ -162,6 +162,39 @@ describe('PipelineDesignerView canvas interaction', () => {
     expect(node.config.retry).toEqual({ max_attempts: 1 })
   })
 
+  it('keeps system options available when the resource API returns 403', async () => {
+    mocks.systems.mockResolvedValue({ items: [{ id: 1, system_code: 'BEISEN', system_name: '北森系统' }] })
+    mocks.resources.mockRejectedValue(new Error('Request failed with status code 403'))
+
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    await wrapper.findAll('.node-card')[1].trigger('click'); await flushPromises()
+
+    expect(wrapper.findAll('option').some(option => option.text() === 'BEISEN - 北森系统')).toBe(true)
+    expect((wrapper.vm as any).allResources).toEqual([])
+    expect((wrapper.vm as any).resourcesLoading).toBe(false)
+    const { ElMessage } = await import('element-plus')
+    expect(ElMessage.warning).toHaveBeenCalledWith('加载资源失败: Request failed with status code 403')
+    wrapper.unmount()
+  })
+
+  it('keeps system and resource options available when the capability API fails', async () => {
+    mocks.systems.mockResolvedValue({ items: [{ id: 1, system_code: 'BEISEN', system_name: '北森系统' }] })
+    mocks.resources.mockResolvedValue({ items: [{ id: 1, system_id: 1, resource_code: 'REPORT', resource_name: '北森报表' }] })
+    mocks.capabilityCatalog.mockRejectedValue(new Error('能力目录暂不可用'))
+
+    const wrapper = mountView(); await flushPromises(); await flushPromises()
+    const vm = wrapper.vm as any
+    vm.form.nodes.find((node: any) => node.id === 'source').config.system_id = 1
+    await wrapper.findAll('.node-card')[1].trigger('click'); await flushPromises()
+
+    const optionLabels = wrapper.findAll('option').map(option => option.text())
+    expect(optionLabels).toContain('BEISEN - 北森系统')
+    expect(optionLabels).toContain('REPORT - 北森报表')
+    expect(vm.capabilityCatalog).toEqual([])
+    expect(vm.resourcesLoading).toBe(false)
+    wrapper.unmount()
+  })
+
   it('loads enabled unverified capabilities for lookup configuration', async () => {
     mocks.getTemplate.mockResolvedValue({
       template_code: 'PENDING_HIRE_OFFER_ENRICHMENT', name: 'Offer 补充', description: '', version: '1.0.0',

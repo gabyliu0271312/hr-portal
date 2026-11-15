@@ -263,9 +263,18 @@ const capabilitySystems = computed(() => Array.from(new Map(capabilityCatalog.va
 const capabilityObjects = computed(() => Array.from(new Set(capabilityCatalog.value.filter(item => item.system_id === selectedNode.value?.config?.system_id).map(item => item.object_code))))
 const capabilityOperations = computed(() => capabilityCatalog.value.filter(item => item.system_id === selectedNode.value?.config?.system_id && item.object_code === selectedNode.value?.config?.object_code))
 async function loadSystemsAndResources(): Promise<void> {
-  try { resourcesLoading.value = true; const [sysRes, resRes, capabilityRes] = await Promise.all([ucpApi.systems(), ucpApi.resources({}), ucpApi.capabilityCatalog({ include_unverified: true })]); systems.value = sysRes.items as SystemItem[]; allResources.value = resRes.items as ResourceItem[]; capabilityCatalog.value = capabilityRes }
-  catch (e: unknown) { ElMessage.warning(`加载系统/资源失败: ${e instanceof Error ? e.message : String(e)}`) }
-  finally { resourcesLoading.value = false }
+  try {
+    resourcesLoading.value = true
+    const [systemResult, resourceResult, capabilityResult] = await Promise.allSettled([ucpApi.systems(), ucpApi.resources({}), ucpApi.capabilityCatalog({ include_unverified: true })])
+    if (systemResult.status === 'fulfilled') systems.value = systemResult.value.items
+    else ElMessage.warning(`加载系统失败: ${systemResult.reason instanceof Error ? systemResult.reason.message : String(systemResult.reason)}`)
+    if (resourceResult.status === 'fulfilled') allResources.value = resourceResult.value.items
+    else ElMessage.warning(`加载资源失败: ${resourceResult.reason instanceof Error ? resourceResult.reason.message : String(resourceResult.reason)}`)
+    if (capabilityResult.status === 'fulfilled') capabilityCatalog.value = capabilityResult.value
+    else ElMessage.warning(`加载业务能力失败: ${capabilityResult.reason instanceof Error ? capabilityResult.reason.message : String(capabilityResult.reason)}`)
+  } finally {
+    resourcesLoading.value = false
+  }
 }
 function resourcesOf(systemId: number | undefined | null): ResourceItem[] { if (!systemId) return []; return allResources.value.filter((r) => r.system_id === systemId) }
 function capabilityOptionLabel(item: any): string { return item.verification_status === 'VERIFIED' ? item.operation_name : `${item.operation_name}（待验证）` }
