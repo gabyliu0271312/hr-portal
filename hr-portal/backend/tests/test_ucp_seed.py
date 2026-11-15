@@ -59,6 +59,46 @@ async def test_resource_permission_still_rejects_users_without_grants(allowed):
         assert exc.value.status_code == 403
 
 
+def test_org_tree_metadata_migration_binds_asyncpg_parameter_types(monkeypatch):
+    import importlib.util
+    from pathlib import Path
+    import sqlalchemy as sa
+    from sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg
+
+    path = Path(__file__).parents[1] / 'alembic' / 'versions' / '0303_tree_role_configurable_build.py'
+    spec = importlib.util.spec_from_file_location('tree_role_migration', path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    statements = []
+    bind = SimpleNamespace(execute=lambda statement, params: statements.append((statement, params)))
+    monkeypatch.setattr(migration.op, 'get_bind', lambda: bind)
+    monkeypatch.setattr(migration.op, 'add_column', Mock())
+
+    migration.upgrade()
+
+    inserts = [(statement, params) for statement, params in statements if str(statement).startswith('INSERT')]
+    assert len(inserts) == 4
+    assert {params['code'] for _, params in inserts} == {'org_code', 'org_name', 'parent_org_code', 'org_status'}
+    for statement, _ in inserts:
+        compiled = statement.compile(dialect=PGDialect_asyncpg())
+        assert str(compiled).count('$1::VARCHAR') == 2
+        assert all(not isinstance(param.type, sa.types.NullType) for param in compiled.binds.values())
+
+    engine = sa.create_engine('sqlite://')
+    with engine.begin() as connection:
+        connection.execute(sa.text('CREATE TABLE table_columns ('
+                                   'table_name VARCHAR(64), column_code VARCHAR(128), column_label VARCHAR(128), '
+                                   'data_type VARCHAR(16), is_pk_part BOOLEAN, is_sensitive BOOLEAN, '
+                                   'auto_discovered BOOLEAN, display_order INTEGER, agg_role VARCHAR(32), tree_role VARCHAR(32))'))
+        for _ in range(2):
+            for statement, params in statements:
+                connection.execute(statement, params)
+        rows = connection.execute(sa.text('SELECT column_code, tree_role FROM table_columns')).all()
+        assert len(rows) == 4
+        assert dict(rows)['org_code'] == 'tree_code'
+    engine.dispose()
+
+
 # ── 加密验证 ──
 
 class TestSeedEncryptSecrets:

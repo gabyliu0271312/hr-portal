@@ -54,6 +54,11 @@ def upgrade() -> None:
                 "SELECT 'org_tree', :code, :label, 'string', false, false, false, :order, 'dimension', :role "
                 "WHERE NOT EXISTS (SELECT 1 FROM table_columns "
                 "WHERE table_name = 'org_tree' AND column_code = :code)"
+            ).bindparams(
+                sa.bindparam("code", type_=sa.String(128)),
+                sa.bindparam("label", type_=sa.String(128)),
+                sa.bindparam("order", type_=sa.Integer()),
+                sa.bindparam("role", type_=sa.String(32)),
             ),
             {"code": column_code, "label": label, "order": order, "role": tree_role},
         )
