@@ -859,17 +859,10 @@ async def _task_visible_content(task: PerformanceNodeTask, node: PerformanceProj
         result_options = {"nodes": context_nodes, "tasks": context_tasks, "member": context_member}
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task
-        from app.performance.reconsideration_result_service import task_result
+        from app.performance.reconsideration_result_service import task_result, submitted_answers
         appeal = await reconsideration_for_task(db, task)
-        schema, baseline = task_result(appeal, node, filling=filling and getattr(appeal, "closed_at", None) is None)
-        answers = {**baseline, **project_self_summary_answers(schema, task.answers or {})}
-        for section in schema:
-            for field in section["fields"]:
-                if not field.get("readonly") and field["id"] in (task.answers or {}) and task.answers[field["id"]] in (None, ""):
-                    answers[field["id"]] = task.answers[field["id"]]
-        if (task.answers or {}).get("keep_result") in {"keep", "change"}:
-            answers["keep_result"] = task.answers["keep_result"]
-        return schema, answers
+        schema, _baseline = task_result(appeal, node, filling=filling)
+        return schema, submitted_answers(appeal.result_snapshot, task.answers)
     template = template if template is not None else await _self_summary_template(task, node, db)
     schema = build_self_summary_schema(template, include_prompts=True, filling=filling)
     result = None
@@ -964,6 +957,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         actor_ref = str(actor.actor_ref)
     except (AttributeError, AssertionError, IndexError):
         actor_ref = str(getattr(task, "handler_ref", context.subject_id))
+        actor = SimpleNamespace(actor_type=context.subject_type, actor_ref=actor_ref)
     if isinstance(task, PerformanceNodeTask) and not await _task_edit_allowed(db, task, actor_ref):
         editable, submit_allowed = False, False
     can_giveup = False
@@ -985,9 +979,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         from app.performance.reconsideration_service import reconsideration_for_task
         appeal = await reconsideration_for_task(db, task)
         reconsideration_reason = appeal.reason
-        reconsideration_closed = getattr(appeal, "closed_at", None) is not None
-        if reconsideration_closed:
-            editable, submit_allowed = False, False
+        reconsideration_closed = not editable
         template = ((node.config or {}).get("template") or {})
         show_result_and_modify = bool(template.get("show_result_and_modify", True))
         keep_result = ((getattr(task, "draft_answers", None) or {}).get("keep_result") or (task.answers or {}).get("keep_result") or "change") if show_result_and_modify else "keep"
@@ -999,7 +991,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     manager_evaluation = task.task_kind == "evaluation" and current_role_code in MANAGER_ROLE_CODES
     if manager_evaluation and task.submitted_at is not None:
         answer_submissions = await _calibration_answer_submissions(task, [task], db)
-    if manager_evaluation and member is not None:
+    if (manager_evaluation or task.task_kind == "result_reconsideration" and view == "drawer") and member is not None:
         # 评估人（handler）视角：复用被评估人管理详情（management_tabs/stage_views），
         # 成员已由 _self_summary_task 的 handler 授权保证可见，跳过管理范围检查；
         # 可见性沿用本环节 resolve_subject_visibility_role 的结果（leader 等）。
@@ -1009,6 +1001,16 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
             reference_node_id=node.node_id, source_task_id=task.id,
             **({"view": view, "tab": tab} if view == "drawer" else {}),
         )
+    reconsideration_detail = None
+    if task.task_kind == "result_reconsideration":
+        if management_detail is not None:
+            reconsideration_detail = next((item.get("reconsideration") for item in management_detail.get("management_tabs", []) if item["node_id"] == node.node_id), None)
+        elif member is not None:
+            from app.performance.reconsideration_service import reconsideration_tasks
+            related = await reconsideration_tasks(db, appeal)
+            reconsideration_detail, _ = await _reconsideration_detail(project, member, node, related, context, actor, db, source_task_id=task.id)
+        if reconsideration_detail is not None:
+            answer_submissions = [{"display_name": reconsideration_detail["submitted_by"], "submitted_at": reconsideration_detail["submitted_at"]}] if reconsideration_detail["submitted_by"] and reconsideration_detail["submitted_at"] else []
     if manager_drawer:
         if management_detail is None:
             schema, answers = await _task_visible_content(task, node, db, filling=editable and submit_allowed)
@@ -1026,12 +1028,13 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "draft_base_result_version": (draft_entry or {}).get("base_result_version") if shared else None,
         "reconsideration_reason": reconsideration_reason,
         "reconsideration_closed": reconsideration_closed,
+        **({"reconsideration": reconsideration_detail} if task.task_kind == "result_reconsideration" else {}),
         "show_result_and_modify": show_result_and_modify,
         "keep_result": keep_result,
         "task_id": task.id,
         "project_id": task.project_id,
         "node_id": node.node_id,
-        "return_view": "page" if task.task_kind == "result_reconsideration" else ("node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer"),
+        "return_view": "node" if task.task_kind == "work_summary" or node_role_code({"node_type": getattr(node, "node_type", task.task_kind), **((node.config or {}).get("template") or {})}) == ROLE_REVIEWEE else "drawer",
         "task_kind": task.task_kind,
         "executor_role_code": ((node.config or {}).get("template") or {}).get("executor_role_code"),
         "phase_id": getattr(task, "phase_id", "") or None,
@@ -1060,9 +1063,9 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         },
         "form_schema": schema,
         "answers": answers,
-        **({"answer_submissions": answer_submissions} if shared or task.task_kind == "calibration" or manager_evaluation else {}),
+        **({"answer_submissions": answer_submissions} if shared or task.task_kind in {"calibration", "result_reconsideration"} or manager_evaluation else {}),
         "has_draft": not final_result_locked and visible_draft is not None,
-        "draft_answers": {} if final_result_locked else {**project_self_summary_answers(schema, visible_draft or {}), **({"keep_result": visible_draft["keep_result"]} if visible_draft and task.task_kind == "result_reconsideration" and "keep_result" in visible_draft else {})},
+        "draft_answers": {} if final_result_locked else ({key: deepcopy(value) for key, value in (visible_draft or {}).items() if key == "keep_result" or any(field["id"] == key for section in schema for field in section.get("fields") or [])} if task.task_kind == "result_reconsideration" else project_self_summary_answers(schema, visible_draft or {})),
         "prompts": [],
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
         "reference_tabs": [] if management_detail is not None and view == "drawer" else await _reference_tabs(task, node, project, actor_ref, db, context=context, **({"view": view, "tab": tab} if view == "drawer" else {})),
@@ -1214,8 +1217,6 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
         appeal = await reconsideration_for_task(db, task, lock=True)
-        if getattr(appeal, "closed_at", None) is not None:
-            raise HTTPException(409, "RECONSIDERATION_CLOSED")
         shared_tasks = await reconsideration_tasks(db, appeal, lock=True)
     project = await db.get(PerformanceProject, task.project_id)
     if await _final_result_locked(task, node, db):
@@ -1279,7 +1280,10 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         task.status = "completed"
         task.completed_at = task.submitted_at
         if reconsideration:
-            from app.performance.reconsideration_result_service import effective_result
+            from app.performance.reconsideration_result_service import effective_result, result_adjustments, submitted_answers
+            from fastapi.encoders import jsonable_encoder
+            previous_answers = submitted_answers(appeal.result_snapshot, before_answers)
+            previous_result = deepcopy(getattr(appeal, "effective_result", None) or appeal.result_snapshot.get("source_result"))
             appeal.effective_result = effective_result(appeal.result_snapshot, task.answers)
             appeal.closed_at = task.submitted_at
             appeal.closed_by_type, appeal.closed_by_ref = actor.actor_type, str(actor.actor_ref)
@@ -1288,8 +1292,12 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
                 event_type="PERFORMANCE_RECONSIDERATION_CLOSED", cycle_ref=task.cycle_ref,
                 employee_no=task.target_employee_no, actor_type=actor.actor_type, actor_ref=actor.actor_ref,
                 subject_type="PERFORMANCE_RECONSIDERATION", subject_ref=str(appeal.id),
-                before_state={"result": appeal.result_snapshot.get("source_result")},
-                after_state={"decision": task.answers["keep_result"], "result": appeal.effective_result},
+                before_state={"result": previous_result, "answers": previous_answers},
+                after_state={"decision": task.answers["keep_result"], "result": appeal.effective_result,
+                    "answers": task.answers, "project_id": task.project_id, "node_id": node.node_id,
+                    "task_id": task.id, "submitted_at": task.submitted_at.isoformat(),
+                    "display_name": context.display_name or str(actor.actor_ref),
+                    "adjustments": jsonable_encoder(result_adjustments(schema, previous_answers, task.answers))},
             ))
         elif project is not None:
             await _sync_automatic_openings(db, project)
@@ -1304,9 +1312,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
         shared.status = task.status
     await db.commit()
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
-    if reconsideration and getattr(appeal, "closed_at", None) is not None:
-        editable, submit_allowed = False, False
-    return {"answers": task.answers if reconsideration else project_self_summary_answers(schema, task.answers, include_readonly=calibration), "has_draft": task.draft_answers is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed, "reconsideration_closed": reconsideration and getattr(appeal, "closed_at", None) is not None}
+    return {"answers": task.answers if reconsideration else project_self_summary_answers(schema, task.answers, include_readonly=calibration), "has_draft": task.draft_answers is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed, "reconsideration_closed": reconsideration and not editable}
 
 
 @router.patch("/tasks/{task_id}/self-summary/draft")
@@ -1352,8 +1358,6 @@ async def _discard_task_draft(task_id: int, payload: TaskDraftVersionPayload, co
     if getattr(task, "task_kind", None) == "result_reconsideration":
         from app.performance.reconsideration_service import reconsideration_for_task, reconsideration_tasks
         appeal = await reconsideration_for_task(db, task, lock=True)
-        if getattr(appeal, "closed_at", None) is not None:
-            raise HTTPException(409, "RECONSIDERATION_CLOSED")
         shared_tasks = await reconsideration_tasks(db, appeal, lock=True)
     project = await db.get(PerformanceProject, task.project_id)
     if await _final_result_locked(task, node, db):
@@ -3179,6 +3183,77 @@ async def _project_member_rows(project, scope, keyword, sort_by, sort_order, con
     return (items, rating_columns, member_total) if page is not None else (items, rating_columns)
 
 
+async def _reconsideration_detail(project, member, node, tasks, context, actor, db, *, source_task_id=None):
+    from app.performance.reconsideration_service import reconsideration_for_task
+    from app.performance.reconsideration_result_service import task_result, submitted_answers, result_adjustments
+    from app.performance.member_reminders import can_remind_member
+
+    related = [task for task in tasks if task.node_snapshot_id == node.id
+               and task.task_kind == "result_reconsideration" and getattr(task, "revoked_at", None) is None]
+    if not related:
+        return None, None
+    latest = max(related, key=lambda task: (task.submitted_at is not None,
+                 task.submitted_at.isoformat() if task.submitted_at else "", task.id))
+    appeal = await reconsideration_for_task(db, latest)
+    schema, baseline = task_result(appeal)
+    answers = submitted_answers(appeal.result_snapshot, latest.answers)
+    cache = {}
+    stages = {node.id: {"node": node, "key": f"management-{node.node_id}", "label": node.name}}
+    options = await _member_task_options(member, related, stages, None, None, project, context, str(actor.actor_ref), db, cache)
+    people = await _delegation_snapshot_people(db, member.snapshot_id, cache)
+    handlers = []
+    editable_task = None
+    window_open = False
+    deadline = _task_window(latest, node, project)[1]
+    for task in related:
+        editable, allowed = _self_summary_state(task, *_task_window(task, node, project), False)
+        window_open = window_open or editable and allowed
+        if (editable and allowed and actor.actor_type == "EMPLOYEE"
+                and await _task_edit_allowed(db, task, str(actor.actor_ref)) and editable_task is None):
+            editable_task = task
+        roles = [option for option in options if option.task_id == task.id]
+        for handler in sorted(await _task_handlers(db, task)):
+            for role in roles:
+                handlers.append({"task_id": task.id, "employee_no": handler,
+                    "display_name": getattr(people.get(handler), "display_name", None) or handler,
+                    "role_key": role.role_key, "role_label": role.role_label,
+                    "can_remind": await can_remind_member(project, member.employee_no, context, db,
+                        source_task_id=source_task_id, node_id=node.node_id, task_id=task.id)})
+    events = list((await db.execute(select(PerformanceAuditEvent).where(
+        PerformanceAuditEvent.subject_type == "PERFORMANCE_RECONSIDERATION",
+        PerformanceAuditEvent.subject_ref == str(appeal.id),
+        PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+        PerformanceAuditEvent.employee_no == member.employee_no,
+        PerformanceAuditEvent.event_type == "PERFORMANCE_RECONSIDERATION_CLOSED",
+    ).order_by(PerformanceAuditEvent.event_at, PerformanceAuditEvent.id))).scalars().all())
+    history = []
+    last_actor_ref = getattr(appeal, "closed_by_ref", None)
+    for event in events:
+        state = event.after_state or {}
+        before = event.before_state or {}
+        switched = state.get("identity_switch") or {}
+        actual_ref = str(switched.get("business_actor_ref") or event.actor_ref)
+        last_actor_ref = actual_ref
+        before_values = before.get("answers")
+        after_values = state.get("answers")
+        if before_values is None:
+            before_values = next(iter((before.get("result") or {}).get("contents") or []), {}).get("answers") or baseline
+        if after_values is None:
+            after_values = next(iter((state.get("result") or {}).get("contents") or []), {}).get("answers") or baseline
+        history.append({"submitted_at": state.get("submitted_at") or event.event_at.isoformat(),
+            "display_name": getattr(people.get(actual_ref), "display_name", None) or state.get("display_name") or actual_ref,
+            "adjustments": result_adjustments(schema, before_values, after_values)})
+    history.sort(key=lambda item: _parse_time(item["submitted_at"]))
+    submitted_at = history[-1]["submitted_at"] if history else latest.submitted_at.isoformat() if latest.submitted_at else None
+    submitted_by = history[-1]["display_name"] if history else getattr(people.get(str(last_actor_ref)), "display_name", None) or last_actor_ref
+    return {"reason": appeal.reason,
+        "status": "deadline_locked" if not window_open else "submitted_editable" if submitted_at else "pending",
+        "handlers": handlers, "adjustments": result_adjustments(schema, baseline, answers), "history": history,
+        "form_schema": schema, "answers": answers, "submitted_at": submitted_at, "submitted_by": submitted_by,
+        "deadline_at": deadline.isoformat() if deadline else None,
+        "can_edit": editable_task is not None, "edit_task_id": editable_task.id if editable_task else None}, appeal
+
+
 async def _project_member_detail(
     project: PerformanceProject,
     employee_no: str,
@@ -3229,7 +3304,13 @@ async def _project_member_detail(
         PerformanceNodeTask.revoked_at.is_(None),
     ).order_by(PerformanceNodeTask.id))).scalars().all())
     all_nodes, all_tasks = nodes, tasks
-    nodes = [node for node in nodes if node.node_type in {"work_summary", "evaluation", "result_communication"}]
+    frozen_result = None
+    reconsideration_task = next((task for task in tasks if task.task_kind == "result_reconsideration"), None)
+    if reconsideration_task is not None:
+        from app.performance.reconsideration_service import reconsideration_for_task
+        appeal = await reconsideration_for_task(db, reconsideration_task)
+        frozen_result = (appeal.result_snapshot or {}).get("full_result_answers")
+    nodes = [node for node in nodes if node.node_type in {"work_summary", "evaluation", "result_communication", "result_reconsideration"}]
     by_node = {node.id: [] for node in nodes}
     for task in tasks:
         if task.node_snapshot_id in by_node:
@@ -3237,6 +3318,9 @@ async def _project_member_detail(
     submitted_communications = [(task, node) for node in nodes if node.node_type == "result_communication" for task in by_node[node.id] if task.submitted_at is not None]
     selected_node = max(submitted_communications, key=lambda pair: (pair[0].submitted_at, pair[0].id))[1] if submitted_communications else _final_result_snapshot(nodes)
     selected_node = selected_node or next((node for node in reversed(nodes) if by_node[node.id]), None)
+    if reference_node_id is not None:
+        selected_node = next((node for node in nodes if node.node_type == "result_reconsideration"
+                              and node.node_id == reference_node_id and by_node[node.id]), selected_node)
     if selected_node is None:
         raise HTTPException(status_code=404, detail="PROJECT_MEMBER_DETAIL_NOT_FOUND")
     selected_tasks = by_node[selected_node.id]
@@ -3260,6 +3344,21 @@ async def _project_member_detail(
     for node in reversed(nodes):
         content_loaded = view != "drawer" or active_tab == f"management-{node.node_id}"
         related = by_node[node.id]
+        if node.node_type == "result_reconsideration":
+            detail, _appeal = await _reconsideration_detail(project, member, node, all_tasks, context, actor, db, source_task_id=source_task_id)
+            if detail is None:
+                continue
+            representative = max(related, key=lambda task: (task.submitted_at is not None, task.submitted_at.isoformat() if task.submitted_at else "", task.id))
+            tabs.append({"key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
+                "node_name": node.name, "task_id": detail["edit_task_id"] or representative.id,
+                "task_kind": node.node_type, "employee_no": employee_no,
+                "status": "completed" if detail["submitted_at"] else "overdue" if detail["status"] == "deadline_locked" else "pending",
+                "deadline_at": detail["deadline_at"], "submitted_at": detail["submitted_at"],
+                "submitted_by": detail["submitted_by"], "answer_submissions": [{"display_name": detail["submitted_by"], "submitted_at": detail["submitted_at"]}] if detail["submitted_at"] and detail["submitted_by"] else [],
+                "form_schema": detail["form_schema"], "answers": detail["answers"], "reconsideration": detail,
+                "editable": detail["can_edit"], "submit_allowed": detail["can_edit"],
+                "can_remind": any(handler["can_remind"] for handler in detail["handlers"]), "content_loaded": True})
+            continue
         shared_final = node is final_node and bool((getattr(member, "shared_result_state", None) or {}).get("calibrated"))
         completed = [task for task in related if task.submitted_at is not None or shared_final]
         completed_total = len(completed)
@@ -3274,7 +3373,10 @@ async def _project_member_detail(
         else:
             feedback = {}
         for index, task in enumerate((completed or related[:1] if final_locked and node is final_node else completed) if content_loaded and not anonymous else []):
-            _, visible_answers = await _task_visible_content(task, node, db, result_context=(all_nodes, all_tasks, member), template=templates[node.id])
+            if node is final_node and isinstance(frozen_result, dict):
+                visible_answers = frozen_result
+            else:
+                _, visible_answers = await _task_visible_content(task, node, db, result_context=(all_nodes, all_tasks, member), template=templates[node.id])
             projected, visible_answers = project_reference_content(templates[node.id], relations.get(node.node_id, {}), visible_answers)
             for source_section in projected:
                 section = deepcopy(source_section)
@@ -3305,7 +3407,7 @@ async def _project_member_detail(
         deadline = _task_window(representative, node, project)[1] if representative else _parse_time((_node_timing(project, node) or {}).get("end_at"))
         relation = relations.get(node.node_id, {})
         submissions = await _calibration_answer_submissions(representative, completed, db) if completed and not anonymous and content_loaded else []
-        if node is final_node and representative is not None and not anonymous and content_loaded:
+        if node is final_node and representative is not None and not anonymous and content_loaded and not isinstance(frozen_result, dict):
             effective = await _effective_member_result(project.id, project.cycle_ref, snapshot_id, employee_no, db, nodes=all_nodes, tasks=all_tasks, member=member)
             submissions = await _shared_answer_submissions(representative, effective, db)
         tabs.append({
@@ -3347,6 +3449,17 @@ async def _project_member_detail(
     now = datetime.now(UTC)
     for node in reversed(nodes):
         related = by_node[node.id]
+        if node.node_type == "result_reconsideration":
+            reference = next((item for item in tabs if item["node_id"] == node.node_id), None)
+            if reference is not None:
+                stage_views.append({"node_id": node.node_id, "node_type": node.node_type, "node_name": node.name,
+                    "key": reference["key"], "status": reference["status"], "task_id": reference["task_id"],
+                    "task_kind": node.node_type, "deadline_at": reference["deadline_at"],
+                    "submitted_at": reference["submitted_at"], "empty": False,
+                    "can_fill": reference["editable"], "can_remind": reference["can_remind"],
+                    "final_result_locked": False, "reminder_target": "、".join(dict.fromkeys(handler["display_name"] for handler in reference["reconsideration"]["handlers"])),
+                    "anonymous": False})
+            continue
         role_code = node_role_code(templates[node.id])
         anonymous = role_code == ROLE_REVIEWER_360
         task = max(related, key=lambda item: (item.submitted_at is not None, item.submitted_at.isoformat() if item.submitted_at else "", item.id), default=None)

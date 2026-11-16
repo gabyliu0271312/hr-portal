@@ -1,5 +1,21 @@
 # PM-T004 原子任务
 
+- [ ] PM-T004-T02-F41 复议详情、立即生效与处理截止前再编辑（2026-11-16）
+  - Goal/确认：用户确认每次正式提交立即生效、原最终结果Tab不变、角色分类取后台模板后要求完成开发；覆盖F40处理人提交即锁定，员工处理后申请锁定保留。
+  - Required reading：Spec002启动/基线/本目录/CR010、012 UI门禁及既有UI；execution-contract/task-card-template/acceptance-evidence/migration-coordination；ui-interaction F41 V1和用户Ardot/REA交互，视为本轮已确认原界面交互版本。
+  - Allowed：后端performance projects_router/reconsideration_service/reconsideration_result_service/result_service/member_reminders及既有相关测试；前端api/performance、共享复议详情组件、EvaluationDrawer、Review/SelfSummaryTask/ProjectManagement及既有测试；本任务、ui-interaction、既有spec更新。必要业务组件可以新增，不创建独立调研报告/脚本/测试文档。
+  - Forbidden/shared：不修改旧迁移/021/UCP/真实生产/发通知/提交推送；后端与前端不同文件分工，共享API由主线程唯一维护，保留既有360催办未提交修改。
+  - Contract：保持既有成员detail、template-task及draft/submit/discard URL；复议Tab与任务增加reconsideration（status/handlers/adjustments/history/form_schema/answers/submitted_at/submitted_by/deadline_at/can_edit/edit_task_id）；handlers为模板角色及有效任务身份，can_remind逐任务后端判定。status为pending/submitted_editable/deadline_locked，任务completed不等于截止锁；答卷version仍强制匹配。
+  - State/data：正式提交更新effective_result并记录既有审计，草稿独立；原final Tab按完整冻结基线受权限投影，其他正式结果接口保留复议覆盖；员工首次处理后不可变。项目→申请→任务锁同序，协作任务同步版本，实际提交人不从handler猜测。拟复用既有审计无需新迁移，缺可信历史基线409。
+  - UI：见ui-interaction F41 V1；成员详情未申请不出现tab/待处理信息+催办/已提交截止前编辑/截止后只读；Review首次填写弹窗和重开侧栏；实现PNG PM-T004-T02-F41-implemented-reconsideration.png，真实实现与受控数据说明分开。
+  - Tests：Given实际处理人/管理查看/只读授权/过期/旧版本/多人/已有处理/无基线；When首次提交→草稿→再提交→重开→原终评读取；Then正式结果即时更新、草稿隔离、基线不漂移、真实操作者和逐次历史、权限与截止拒绝。扩展test_performance_reconsideration_results/effective_results/projects/member_reminders和Drawer/Review/SelfSummaryTask/ProjectManagement既有spec，运行pytest/Vitest/vue-tsc/Vite/diff检查。
+  - Evidence（2026-11-16）：后端命令 `DB_HOST=127.0.0.1 DB_PORT=1 DB_NAME=pm_reconsideration_unit_tests PYTHONPATH=hr-portal/backend hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_reconsideration_results.py hr-portal/backend/tests/test_performance_effective_results.py hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_member_reminders.py -q --tb=short` → **972 passed、5 skipped、1 warning**（python_multipart弃用，skip非通过）；覆盖二次提交、草稿不覆盖正式结果、截止拒绝、实际处理人历史、冻结终评及催办来源权限。
+  - Frontend evidence：`npm --prefix hr-portal/frontend test -- src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceResultReconsideration.spec.ts` → **5文件314 passed**。新增项目管理用例的导航事件/匿名stub/Boolean prop测试替身已修正后联合复跑通过；先前失败不隐瞒，非最终通过替代。存在既有Vue stub告警和未mock XHR AggregateError stderr；最终vue-tsc与Vite构建通过（3713模块，40.88s，仅既有VueUse PURE提示）；py_compile/compileall与git diff --check通过。
+  - UI evidence：真实Vite组件+隔离Chromium、受控示例数据，1440×1000已验复议调整内容、变更记录弹窗及原final Tab保持原内容；独立实现图 `../../ui-blueprints/PM-T004-T02-F41-implemented-reconsideration.png` 已读取确认非空白。真实 `/performance/review?cycle_id=1&project_id=3&node=appeal` 路由受控API验首次成员点击→填写弹窗（HRBP真实配置标签）→输入→提交payload仅good/keep_result/version→弹窗关闭→重开侧栏展示新正式值和继续编辑提示，pageerrors=0。受控API不等于真实数据库持久化。
+  - Acceptance/blockers：代码与本地回归已完成；本轮未执行真实隔离PostgreSQL持久化新连接回读/双事务并发、真实通知或部署。无新增模型/迁移，既有审计保存逐次提交。真实SQL/API验收缺口未消除，F41保持未勾选，不声称生产可发布。
+  - Non-scope/rollback：不重建历史任务/冻结关系、不改变员工发起截止与模板配置结构；未发布。回退不可删除已生效结果和审计，部署另行授权。
+
+
 - [ ] PM-T004-T02-F40 结果复议处理统一模板、冻结结果与提交闭环（2026-11-10）
   - Goal: 在现有成员表格、template-task 工作区、Renderer 与版本机制内修复复议处理，并使保持/变更后的结果可稳定回读。
   - Type: contract/backend/frontend/API/migration/test；承接 F38/F39、CR-008、CR-010-F13、CR-012/013。

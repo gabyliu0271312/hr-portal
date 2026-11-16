@@ -414,7 +414,7 @@ def test_empty_prefix_router_contract_and_client_receivers_are_rejected():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["calibration", "result_communication"])
+@pytest.mark.parametrize("kind", ["calibration", "result_communication", "result_reconsideration"])
 async def test_non_management_source_uses_its_own_permission_without_manager_fallback(environment, monkeypatch, kind):
     db, context, sender = environment
     db.nodes[13] = node(13, kind)
@@ -427,6 +427,11 @@ async def test_non_management_source_uses_its_own_permission_without_manager_fal
     monkeypatch.setattr(shared, "_member_manager_task_for_actor", fallback)
     authorize = AsyncMock()
     monkeypatch.setattr(shared.PerformanceObjectAuthorizationService, "authorize", authorize)
+    if kind == "result_reconsideration":
+        from app.performance import reconsideration_service
+        monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=SimpleNamespace(closed_at=datetime.now(UTC))))
+        db.tasks[3].status = "completed"
+        db.tasks[3].submitted_at = datetime.now(UTC)
     assert (await listing(db, context, source_task_id=3))["can_remind"]
     response = await sending(db, context, [1], source_task_id=3)
     assert response["accepted_task_ids"] == [1]

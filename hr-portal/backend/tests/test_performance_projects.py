@@ -2836,6 +2836,9 @@ async def test_reconsideration_template_task_passes_show_result_and_keep_result(
     async def fake_reconsideration(db, t, **kwargs):
         return SimpleNamespace(reason="对评级有异议", result_snapshot={"schema_version": 1, "source_result": {}, "form_schema": [], "answers": {}})
     monkeypatch.setattr(projects_router, "_self_summary_task", fake_task)
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(projects_router, "_reconsideration_detail", AsyncMock(return_value=(None, None)))
+    monkeypatch.setattr(reconsideration_service, "reconsideration_tasks", AsyncMock(return_value=[]))
     monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", fake_reconsideration)
 
     result = await projects_router.get_template_task(9, context(), Db())
@@ -2955,7 +2958,7 @@ async def test_reconsideration_submit_persists_keep_result(monkeypatch):
 
     assert task.answers["keep_result"] == "keep"
     assert "feedback" not in task.answers
-    assert result["reconsideration_closed"] and not result["editable"]
+    assert not result["reconsideration_closed"] and result["editable"]
 
 
 @pytest.mark.asyncio
@@ -8276,6 +8279,8 @@ async def test_task_detail_uses_source_snapshot_supervisor_name(monkeypatch, kin
     monkeypatch.setattr(routes, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
     monkeypatch.setattr(routes, "load_subject_visibility_rules", AsyncMock(return_value={"other": ["direct_supervisor"] if visible else []}))
     monkeypatch.setattr(routes, "_project_member_detail", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "_reconsideration_detail", AsyncMock(return_value=(None, None)))
+    monkeypatch.setattr(reconsideration_service, "reconsideration_tasks", AsyncMock(return_value=[]))
     monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=SimpleNamespace(reason="复议")))
 
     class Db:
@@ -9897,6 +9902,32 @@ def management_member_data(monkeypatch):
     monkeypatch.setattr(routes, "_communication_progress_detail", AsyncMock(return_value={}))
     monkeypatch.setattr(routes, "_delegatable_stages", AsyncMock(return_value={}))
     return SimpleNamespace(routes=routes, project=target, members=members, nodes=nodes, tasks=tasks, db=Db(), task=task, node=node)
+
+
+@pytest.mark.asyncio
+async def test_management_reconsideration_tab_keeps_frozen_final_and_separate_edit_permission(management_member_data, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.performance import reconsideration_service
+    data = management_member_data
+    data.nodes.append(data.node(40, "result_reconsideration"))
+    task = data.task(7, 40)
+    task.answers = {"text": "复议最新正式结果"}
+    data.tasks.append(task)
+    appeal = SimpleNamespace(result_snapshot={"full_result_answers": {"text": "复议前校准结果", "unknown": "内部秘密"}})
+    monkeypatch.setattr(reconsideration_service, "reconsideration_for_task", AsyncMock(return_value=appeal))
+    recon = {"reason": "原因", "status": "submitted_editable", "edit_task_id": 7, "can_edit": True,
+        "handlers": [], "submitted_at": task.submitted_at.isoformat(), "submitted_by": "实际处理人",
+        "deadline_at": None, "form_schema": [], "answers": {"text": "复议最新正式结果"}, "history": [], "adjustments": []}
+    monkeypatch.setattr(data.routes, "_reconsideration_detail", AsyncMock(return_value=(recon, appeal)))
+    result = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, reference_node_id="node-40")
+    final = next(tab for tab in result["management_tabs"] if tab["node_id"] == "node-20")
+    reconsideration = next(tab for tab in result["management_tabs"] if tab["node_id"] == "node-40")
+    assert set(final["answers"].values()) == {"复议前校准结果"}
+    assert "内部秘密" not in str(final)
+    assert reconsideration["answers"]["text"] == "复议最新正式结果"
+    assert reconsideration["editable"] and reconsideration["submit_allowed"]
+    assert not result["editable"] and not result["submit_allowed"]
+    assert result["default_active_tab"] == "management-node-40"
 
 
 @pytest.mark.asyncio

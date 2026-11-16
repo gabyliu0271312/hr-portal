@@ -559,6 +559,34 @@ describe('ProjectManagement', () => {
     wrapper.unmount()
   })
 
+  it('opens reconsideration edits inside the existing task dialog and reloads member details after submitting', async () => {
+    vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
+    vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 0 } as any)
+    const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: {
+      PerformanceReviewCategorySidebar: true, ProjectMemberListPanel: true, CompletionRatePanel: true,
+      PerformanceReviewEvaluationDrawer: { name: 'PerformanceReviewEvaluationDrawer', props: ['modelValue', 'detailLoader'], template: '<div />' },
+      SelfSummaryTask: { name: 'SelfSummaryTask', props: { embedded: Boolean, taskKind: String, taskId: [String, Number], employeeNo: String, projectId: Number, cycleId: Number, draftChoice: String }, template: '<div class="embedded-reconsideration" />' },
+    } } })
+    await flushPromises()
+    await wrapper.findAll('.line-tab')[1].trigger('click')
+    await flushPromises()
+    wrapper.getComponent({ name: 'ProjectMemberListPanel' }).vm.$emit('select-member', { project_id: 3, employee_no: 'E1', root_review_id: 10, display_name: '员工', can_view_detail: true })
+    await flushPromises()
+    const drawer = wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' })
+    drawer.vm.$emit('edit', { task_id: 901, employee_no: 'E1', node_id: 'appeal', node_name: '自定义申诉处理', task_kind: 'result_reconsideration', draft_choice: 'use' })
+    await flushPromises()
+    const embedded = wrapper.getComponent({ name: 'SelfSummaryTask' })
+    expect(embedded.props()).toMatchObject({ embedded: true, taskKind: 'evaluation', taskId: 901, employeeNo: 'E1', projectId: 3, draftChoice: 'use' })
+    expect(push).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('自定义申诉处理')
+    const oldLoader = drawer.props('detailLoader')
+    embedded.vm.$emit('submitted')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'SelfSummaryTask' }).exists()).toBe(false)
+    expect(drawer.props('detailLoader')).not.toBe(oldLoader)
+    wrapper.unmount()
+  })
+
   it('opens scoped management details through the shared drawer with dynamic final ratings', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     const member = { id: 71, root_review_id: 71, project_id: 3, employee_no: 'E1', display_name: '管理可见员工', can_view_detail: true, avatar_url: null, rating: null, rating_tone: null, completion: '0/0', job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null, department: null, employee_type: null, employment_status: null, ratings: { 'rating:grade': { label: '3星+' }, 'rating:value': { label: 'A' } } }

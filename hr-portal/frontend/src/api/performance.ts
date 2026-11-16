@@ -1365,6 +1365,31 @@ export type EmployeeOkrResponse = {
   okr?: PerformanceOkrView | null
   okrs?: PerformanceOkrView[]
 }
+export type PerformanceReconsiderationAdjustment = {
+  section_id: string
+  section_name: string
+  field_id: string
+  field_label: string
+  field_type: string
+  instance_index?: number
+  before: unknown
+  after: unknown
+  options?: Array<{ id: string; label: string }>
+}
+export type PerformanceReconsiderationDetail = {
+  reason: string
+  status: 'pending' | 'submitted_editable' | 'deadline_locked'
+  handlers: Array<{ task_id: number; employee_no: string; display_name: string; role_key: string; role_label: string; can_remind: boolean }>
+  adjustments: PerformanceReconsiderationAdjustment[]
+  history: Array<{ submitted_at: string; display_name: string; adjustments: PerformanceReconsiderationAdjustment[] }>
+  form_schema: PerformanceTemplateSection[]
+  answers: Record<string, unknown>
+  submitted_at?: string | null
+  submitted_by?: string | null
+  deadline_at?: string | null
+  can_edit: boolean
+  edit_task_id?: number | null
+}
 export type PerformanceReferenceTab = {
   key: string
   content_loaded?: boolean
@@ -1384,6 +1409,7 @@ export type PerformanceReferenceTab = {
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
   can_remind: boolean
+  reconsideration?: PerformanceReconsiderationDetail | null
   reviewers?: Array<{ task_id: number; reviewer: { employee_no: string; display_name: string; relationship?: string; department?: string; source_label?: string }; form_schema: PerformanceTemplateSection[]; answers: Record<string, unknown> }>
   expected_count?: number
   /** kind='okr' 时下发的被评估人 OKR（无数据/未启用数据源为 null） */
@@ -1446,6 +1472,7 @@ export type PerformanceTemplateTask = {
   calibration_notice?: string | null
   reconsideration_reason?: string | null
   reconsideration_closed?: boolean
+  reconsideration?: PerformanceReconsiderationDetail | null
   /** 结果复议处理：模板节点「显示绩效结果并允许修改」开关透传 */
   show_result_and_modify?: boolean | null
   /** 结果复议处理：处理人「是否保持复议前结果」选择（keep=保持原结果 隐藏绩效结果 / change=变更结果 展示，默认 change） */

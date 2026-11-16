@@ -47,6 +47,40 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
+  it('shows template role labels and sends a reminder for the actual pending reconsideration task', async () => {
+    const reconsideration = { reason: '<p>申请核对</p>', status: 'pending' as const, handlers: [{ task_id: 901, employee_no: 'E900', display_name: '真实HRBP', role_key: 'HRBP', role_label: 'HRBP', can_remind: true }, { task_id: 902, employee_no: 'E901', display_name: '实际指定人', role_key: 'SPECIFIED_PERSON', role_label: '指定人员', can_remind: false }], adjustments: [], history: [], form_schema: [], answers: {}, deadline_at: '2026-10-03T15:59:00Z', can_edit: false }
+    const reference = { key: 'appeal', node_id: 'appeal', node_name: '模板自定义复议', employee_no: 'E001', task_id: 901, status: 'pending' as const, can_remind: true, form_schema: [], answers: {}, reconsideration }
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, detailLoader: vi.fn().mockResolvedValue({ ...structuredClone(task), management_tabs: [reference], default_active_tab: 'appeal' }) } })
+    await flushPromises()
+    expect(document.body.textContent).toContain('模板自定义复议')
+    expect(document.body.textContent).toContain('HRBP 真实HRBP')
+    expect(document.body.textContent).toContain('指定人员 实际指定人')
+    const buttons = wrapper.findAllComponents(PerformanceReminderButton)
+    expect(buttons).toHaveLength(1)
+    buttons[0].vm.$emit('click')
+    expect(wrapper.emitted('remind')?.[0]?.[0]).toMatchObject({ task_id: 901, employee_no: 'E001', node_id: 'appeal' })
+  })
+
+  it('edits reconsideration only through the server-authorized handler task and hides editing across the deadline', async () => {
+    vi.useRealTimers()
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-09-23T00:00:00Z'))
+    const reconsideration = { reason: '申请核对', status: 'submitted_editable' as const, handlers: [], adjustments: [{ section_id: 'value', section_name: '价值贡献', field_id: 'good', field_label: '做得好的', field_type: 'rich_text', before: '<p>原结果</p>', after: '<p>调整结果</p>' }], history: [{ submitted_at: '2026-09-22T07:29:00Z', display_name: '真实提交人', adjustments: [] }], form_schema: task.form_schema, answers: { good: '调整结果' }, submitted_at: '2026-09-22T07:29:00Z', submitted_by: '真实提交人', deadline_at: '2026-09-23T00:00:02Z', can_edit: true, edit_task_id: 902 }
+    const detail = { ...structuredClone(task), management_tabs: [{ key: 'appeal', node_id: 'appeal', node_name: '模板复议', employee_no: 'E001', task_id: 901, status: 'completed', can_remind: false, form_schema: [], answers: {}, reconsideration }], default_active_tab: 'appeal' }
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, readonly: true, detailLoader: vi.fn().mockResolvedValue(detail) } })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 902 })
+    await flushPromises()
+    expect(document.body.textContent).toContain('真实提交人')
+    expect(document.body.textContent).toContain('调整前')
+    expect(document.body.textContent).toContain('原结果')
+    const edit = document.body.querySelector<HTMLButtonElement>('[aria-label="编辑已提交内容"]')!
+    edit.click()
+    await flushPromises()
+    expect(wrapper.emitted('edit')).toEqual([[{ task_id: 902, employee_no: 'E001', node_id: 'appeal', node_name: '模板复议', task_kind: 'result_reconsideration', draft_choice: undefined }]])
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(document.body.querySelector('[aria-label="编辑已提交内容"]')).toBeNull()
+  })
+
   it('does not infer reminder permission from a target label', async () => {
     const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), management_tabs: [{ key: 'summary', node_id: 'summary', node_name: '工作总结', task_id: null, employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_remind: false }], default_active_tab: 'summary', stage_views: [{ node_id: 'summary', task_id: 77, can_fill: false, can_remind: false, reminder_target: '某处理人' }] })
     const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })

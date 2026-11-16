@@ -1,12 +1,12 @@
 <template>
-  <PerformanceTaskWorkspace split-mode>
-    <template #header>
-      <PerformanceSelfSummaryHeader :person="task.person" @back="router.back()">
+  <PerformanceTaskWorkspace split-mode :class="{ 'task-workspace--embedded': embedded }">
+    <template v-if="!embedded" #header>
+      <PerformanceSelfSummaryHeader :person="task.person" @back="closeTask">
         <template #actions><PerformanceWriteModeSwitch :model-value="displayMode" :disabled="loading || Boolean(loadError)" :split-available="splitAvailable" @update:model-value="changeMode" /></template>
       </PerformanceSelfSummaryHeader>
     </template>
     <template #split>
-      <PerformanceSplitWorkspace :enabled="mode === 'basicWriteMode' && !loading && !loadError" @available="splitAvailable = $event">
+      <PerformanceSplitWorkspace :enabled="!embedded && mode === 'basicWriteMode' && !loading && !loadError" @available="splitAvailable = $event">
         <template #tabs>
           <nav class="summary-tabs" aria-label="绩效填写页签">
             <button v-for="tab in tabs" :key="tab.key" :class="{ active: activeTab === tab.key }" type="button" @click="activeTab = tab.key">{{ tab.label }}</button>
@@ -35,6 +35,10 @@
                 <PerformanceReviewCompletionNotice v-if="!isReconsiderationTask && (viewing || latestSubmission)" :editable="viewing && task.editable && task.submit_allowed && !task.final_result_locked" :task-id="task.task_id" :task-kind="task.task_kind || props.taskKind" :employee-no="task.person.employee_no" :message="submissionMessage" @edit="choice => load(choice || 'edit')" />
               </div>
               <PerformanceDraftChoice :visible="draftOpen" :anchor="draftAnchor" :task="task" :employee-no="task.person.employee_no" @close="draftOpen = false; viewing = true; draftPending = false" @choose="choice => load(choice)" />
+              <section v-if="isReconsiderationTask && task.reconsideration?.handlers.length" class="task-reconsideration-handlers">
+                <h2>处理人</h2>
+                <p v-for="handler in task.reconsideration.handlers" :key="`${handler.task_id}-${handler.role_key}`">{{ handler.role_label }} {{ handler.display_name }}</p>
+              </section>
               <PerformanceReconsiderationContent v-if="isReconsiderationTask" class="task-reconsideration" :title="task.content_page_name || task.node_name" :reason="task.reconsideration_reason" :model-value="keepResultChoice" :show-result-and-modify="showResultAndModify" :interactive="canEdit && !submitting" @update:model-value="changeKeepResult">
                 <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
               </PerformanceReconsiderationContent>
@@ -43,7 +47,7 @@
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
         </template>
-        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed && !task.final_result_locked" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !task.final_result_locked && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="router.back()" @giveup="giveupConfirmOpen = true" /></template>
+        <template #footer><PerformanceSelfSummaryFooter v-if="!loading && !loadError && !viewing && !draftPending && !reconsiderationClosed && !task.final_result_locked" v-show="isSplit || activeTab === 'current'" :submitting="submitting" :submit-allowed="task.submit_allowed && !task.final_result_locked && !loading" :editable="canEdit" :can-giveup="canGiveup && !submitting" :message="saveMessage" @submit="submit()" @cancel="closeTask" @giveup="giveupConfirmOpen = true" /></template>
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
@@ -76,9 +80,15 @@ import PerformanceReconsiderationContent from '@/components/performance/Performa
 import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
 import { performanceTemplateFieldErrorKey, performanceTemplateFieldValue, performanceTemplateInstanceCount, performanceTemplateInitialAnswers, performanceTemplateInstanceUnknown, performanceTemplateWritableAnswers } from '@/components/performance/performanceTemplateAnswers'
 
-const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation' }>(), { taskKind: 'work_summary' })
+const props = withDefaults(defineProps<{ taskKind?: 'work_summary' | 'evaluation'; embedded?: boolean; taskId?: string | number; employeeNo?: string; projectId?: number; cycleId?: number; draftChoice?: 'use' | 'discard' }>(), { taskKind: 'work_summary', embedded: false })
+const emit = defineEmits<{ close: []; submitted: [] }>()
 const route = useRoute()
 const router = useRouter()
+const contextTaskId = computed(() => String(props.taskId ?? (props.embedded ? '' : route.query.task_id) ?? ''))
+const contextEmployeeNo = computed(() => props.employeeNo ?? (!props.embedded && typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined))
+const contextProjectId = computed(() => props.projectId ?? (props.embedded ? undefined : Number(route.query.project_id)))
+const contextCycleId = computed(() => props.cycleId ?? (props.embedded ? undefined : Number(route.query.cycle_id)))
+function closeTask() { if (props.embedded) { resetTaskContext(); emit('close') } else router.back() }
 const loading = ref(true)
 const loadError = ref('')
 const saving = ref(false)
@@ -88,12 +98,12 @@ const overdueConfirmOpen = ref(false)
 const overdueConfirmError = ref('')
 const giveupConfirmOpen = ref(false)
 const giveupError = ref('')
-const viewing = ref(route.query.view === '1')
+const viewing = ref(!props.embedded && route.query.view === '1')
 const draftOpen = ref(false)
 const draftPending = ref(false)
 const draftAnchor = ref<HTMLElement | null>(null)
 const saveMessage = ref('草稿将实时保存到云端')
-const task = ref<SelfSummaryTask & { reconsideration_closed?: boolean }>({ task_id: String(route.query.task_id || ''), task_kind: props.taskKind, entry_mode: 'template_task', node_name: '', person: { employee_no: '', display_name: '当前用户' }, editable: false, submit_allowed: false, form_schema: [], answers: {} })
+const task = ref<SelfSummaryTask>({ task_id: contextTaskId.value, task_kind: props.taskKind, entry_mode: 'template_task', node_name: '', person: { employee_no: '', display_name: '当前用户' }, editable: false, submit_allowed: false, form_schema: [], answers: {} })
 const latestSubmission = computed(() => task.value.answer_submissions?.at(-1))
 const submissionMessage = computed(() => {
   const latest = latestSubmission.value
@@ -116,11 +126,18 @@ const splitAvailable = ref(false)
 const referenceKey = ref('')
 const selectedReference = computed(() => task.value.reference_tabs?.find(reference => reference.key === referenceKey.value) || task.value.reference_tabs?.[0] || null)
 const displayMode = computed<PerformanceWriteMode>(() => mode.value === 'basicWriteMode' && splitAvailable.value ? 'basicWriteMode' : 'fullScreenMode')
-const isSplit = computed(() => displayMode.value === 'basicWriteMode')
+const isSplit = computed(() => !props.embedded && displayMode.value === 'basicWriteMode')
 function changeMode(value: PerformanceWriteMode) { mode.value = value; activeTab.value = 'current' }
 const isReconsiderationTask = computed(() => task.value.task_kind === 'result_reconsideration')
 const showResultAndModify = computed(() => task.value.show_result_and_modify !== false)
-const reconsiderationClosed = computed(() => isReconsiderationTask.value && (task.value.reconsideration_closed === true || Boolean(task.value.submitted_at)))
+const clock = ref(Date.now())
+const reconsiderationClosed = computed(() => {
+  if (!isReconsiderationTask.value) return false
+  const detail = task.value.reconsideration
+  const deadline = detail?.deadline_at || task.value.deadline_at
+  const due = deadline ? Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(deadline) ? deadline : `${deadline}Z`) : NaN
+  return task.value.reconsideration_closed === true || detail?.status === 'deadline_locked' || Number.isFinite(due) && clock.value > due
+})
 const keepResultChoice = ref<'keep' | 'change'>('change')
 const effectiveKeepResult = computed(() => showResultAndModify.value ? keepResultChoice.value : 'keep')
 function changeKeepResult(value: 'keep' | 'change') {
@@ -135,13 +152,33 @@ function writableAnswers(includeHiddenResults = false) {
   return writable
 }
 watch(() => task.value.reference_tabs, references => { if (!references?.some(reference => reference.key === referenceKey.value)) referenceKey.value = references?.[0]?.key || '' }, { immediate: true })
-const canEdit = computed(() => !task.value.final_result_locked && !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed)
+const canEdit = computed(() => !task.value.final_result_locked && !viewing.value && !draftPending.value && !reconsiderationClosed.value && !loading.value && !loadError.value && (isReconsiderationTask.value || task.value.form_schema.some(section => section.fields.length > 0)) && task.value.editable && task.value.submit_allowed && (!isReconsiderationTask.value || task.value.reconsideration?.can_edit !== false))
 const canGiveup = computed(() => !viewing.value && !draftPending.value && !loading.value && !loadError.value && Boolean(task.value.can_giveup) && !task.value.submitted_at)
 let saveTimer: number | undefined
 let saveChain: Promise<void> = Promise.resolve()
 let pendingSave = false
 let disposed = false
+let taskEpoch = 0
+let loadRequest = 0
 let savedAnswers = ''
+const clockTimer = window.setInterval(() => { clock.value = Date.now() }, 1000)
+function resetTaskContext() {
+  ++taskEpoch
+  ++loadRequest
+  window.clearTimeout(saveTimer)
+  pendingSave = false
+  saveChain = Promise.resolve()
+  saving.value = false
+  submitting.value = false
+  viewing.value = !props.embedded && route.query.view === '1'
+  draftOpen.value = false
+  draftPending.value = false
+  overdueConfirmOpen.value = false
+  giveupConfirmOpen.value = false
+  reminderOpen.value = false
+  saveMessage.value = '草稿将实时保存到云端'
+  Object.keys(errors).forEach(key => delete errors[key])
+}
 
 function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
@@ -181,14 +218,27 @@ async function lockFinalResultOnConflict(error: unknown) {
   await load()
 }
 async function load(choice?: 'use' | 'discard' | 'edit') {
+  const request = ++loadRequest
+  const epoch = taskEpoch
+  const current = () => !disposed && epoch === taskEpoch && request === loadRequest
+  window.clearTimeout(saveTimer)
+  pendingSave = false
   loading.value = true
   loadError.value = ''
   try {
-    const taskId = String(route.query.task_id || '')
-    const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
-    const loaded = props.taskKind === 'work_summary'
+    const taskId = contextTaskId.value
+    const employeeNo = contextEmployeeNo.value
+    const loaded = !props.embedded && props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.selfSummary(taskId, employeeNo) : await performanceReviewApi.selfSummary(taskId)
       : employeeNo ? await performanceReviewApi.templateTask(taskId, employeeNo) : await performanceReviewApi.templateTask(taskId)
+    if (!current()) return
+    if (loaded.task_kind === 'result_reconsideration' && loaded.reconsideration) {
+      loaded.form_schema = loaded.reconsideration.form_schema
+      loaded.answers = loaded.reconsideration.answers
+      loaded.reconsideration_reason = loaded.reconsideration.reason
+      loaded.submitted_at = loaded.reconsideration.submitted_at
+      loaded.deadline_at = loaded.reconsideration.deadline_at
+    }
     task.value = loaded
     activeTab.value = 'current'
     Object.keys(answers).forEach(key => delete answers[key])
@@ -205,13 +255,14 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
       draftPending.value = false
     } else if (choice) {
       viewing.value = false
-      if (route.query.view === '1') {
+      if (!props.embedded && route.query.view === '1') {
         const { view: _view, draft_choice: _choice, ...query } = route.query
         await router.replace({ query })
       }
     }
-    const decision = choice || route.query.draft_choice
-    draftPending.value = !loaded.final_result_locked && !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use')
+    if (!current()) return
+    const decision = choice || props.draftChoice || (!props.embedded ? route.query.draft_choice : undefined)
+    draftPending.value = !loaded.final_result_locked && !reconsiderationClosed.value && !viewing.value && Boolean(loaded.submitted_at && loaded.has_draft && decision !== 'use' && decision !== 'discard')
     draftOpen.value = draftPending.value
     const useDraft = !loaded.final_result_locked && !viewing.value && !draftPending.value && loaded.has_draft && decision !== 'discard'
     baseResultVersion.value = useDraft ? loaded.draft_base_result_version : loaded.result_version
@@ -222,9 +273,9 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
     Object.assign(answers, loaded.editable && loaded.submit_allowed && !viewing.value && !draftPending.value ? performanceTemplateInitialAnswers(loaded.form_schema, values) : values)
     savedAnswers = JSON.stringify(writableAnswers(true))
   } catch (error) {
-    loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
+    if (current()) loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 function updateAnswer(id: string, value: unknown) { if (canEdit.value) answers[id] = value }
@@ -235,28 +286,33 @@ function queueSave() {
   saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, 350)
 }
 function saveDraft() {
+  clock.value = Date.now()
   if (disposed || !canEdit.value) return saveChain
   pendingSave = true
   if (saving.value) return saveChain
+  const epoch = taskEpoch
+  const current = () => !disposed && epoch === taskEpoch
   saving.value = true
   saveChain = (async () => {
     try {
-      while (pendingSave && !disposed && !submitting.value && canEdit.value) {
+      while (pendingSave && current() && !submitting.value && canEdit.value) {
         pendingSave = false
         const writable = writableAnswers(true)
         const serialized = JSON.stringify(writable)
         if (serialized === savedAnswers) continue
         const snapshot = JSON.parse(serialized) as Record<string, unknown>
         saveMessage.value = '正在保存…'
-        const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
-        const result = props.taskKind === 'work_summary'
+        const employeeNo = contextEmployeeNo.value
+        const result = !props.embedded && props.taskKind === 'work_summary'
           ? employeeNo ? await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version)
           : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value)
+        if (!current()) return
         task.value.version = result.version ?? task.value.version
         savedAnswers = serialized
         saveMessage.value = '已自动保存'
       }
     } catch (error) {
+      if (!current()) return
       pendingSave = false
       if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
       saveMessage.value = errorMessage(error, '自动保存失败，内容已保留')
@@ -264,14 +320,14 @@ function saveDraft() {
       await lockFinalResultOnConflict(error)
       throw error
     } finally {
-      saving.value = false
+      if (current()) saving.value = false
     }
   })()
   return saveChain
 }
 
 function openReminder(reference: PerformanceReferenceTab) {
-  openMemberReminder({ projectId: Number(task.value.project_id || route.query.project_id), cycleId: Number(route.query.cycle_id), employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(task.value.task_kind || '') ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(task.value.project_id || contextProjectId.value), cycleId: contextCycleId.value, employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(task.value.task_kind || '') ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 function selectedTags(value: unknown) { return Array.isArray(value) ? value as string[] : (value as { tags?: string[] } | undefined)?.tags || [] }
 function tagNotes(value: unknown) { return (value as { notes?: Record<string, string> } | undefined)?.notes || {} }
@@ -310,7 +366,7 @@ async function giveup() {
   givingUp.value = true
   giveupError.value = ''
   try {
-    const projectId = task.value.project_id || Number(route.query.project_id) || 0
+    const projectId = Number(task.value.project_id || contextProjectId.value || 0)
     const nodeId = task.value.node_id || String(route.query.node || '')
     if (!projectId || !nodeId) throw new Error('missing context')
     await performanceReview360FeedbackApi.giveup(projectId, task.value.task_id, nodeId)
@@ -318,7 +374,7 @@ async function giveup() {
     ElMessage.success('已放弃评估')
     if (getActivePinia()) usePerformanceProjectContextStore().invalidateReviewOverview(Number(projectId))
     const query: Record<string, string> = { project_id: String(projectId), node: nodeId }
-    if (route.query.cycle_id) query.cycle_id = String(route.query.cycle_id)
+    if (contextCycleId.value) query.cycle_id = String(contextCycleId.value)
     await router.push({ path: '/performance/review', query })
   } catch (error) {
     giveupError.value = errorMessage(error, '放弃评估失败，请稍后重试')
@@ -328,7 +384,10 @@ async function giveup() {
 }
 
 async function submit(overdueConfirmed = false) {
+  clock.value = Date.now()
   if (submitting.value || !canEdit.value || !validate()) return
+  const epoch = taskEpoch
+  const current = () => !disposed && epoch === taskEpoch
   const due = task.value.deadline_at ? new Date(task.value.deadline_at).getTime() : NaN
   if (Number.isFinite(due) && Date.now() > due) {
     if (task.value.submitted_at) { saveMessage.value = '当前环节已过截止时间，不允许提交内容'; return }
@@ -343,12 +402,13 @@ async function submit(overdueConfirmed = false) {
   pendingSave = false
   try {
     await saveChain.catch(() => undefined)
-    if (reconsiderationClosed.value || !canEdit.value || sharedResultConflict.value) return
+    if (!current() || reconsiderationClosed.value || !canEdit.value || sharedResultConflict.value) return
     const payload = JSON.parse(JSON.stringify(writableAnswers()))
-    const employeeNo = typeof route.query.employee_no === 'string' ? route.query.employee_no : undefined
-    const result = props.taskKind === 'work_summary'
+    const employeeNo = contextEmployeeNo.value
+    const result = !props.embedded && props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
       : await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value)
+    if (!current()) return
     baseResultVersion.value = result.result_version
     task.value.answer_submissions = result.answer_submissions
     task.value.submitted_at = result.submitted_at
@@ -357,9 +417,7 @@ async function submit(overdueConfirmed = false) {
     task.value.version = result.version ?? task.value.version
     task.value.answers = task.value.task_kind === 'calibration' || isReconsiderationTask.value ? result.answers : { ...task.value.answers, ...result.answers, ...payload }
     if (isReconsiderationTask.value) {
-      task.value.reconsideration_closed = true
-      task.value.editable = false
-      task.value.submit_allowed = false
+      task.value.reconsideration_closed = result.reconsideration_closed ?? task.value.reconsideration_closed
       keepResultChoice.value = result.answers?.keep_result === 'keep' ? 'keep' : 'change'
     }
     overdueConfirmOpen.value = false
@@ -379,39 +437,48 @@ async function submit(overdueConfirmed = false) {
     viewing.value = true
     Object.keys(answers).forEach(key => delete answers[key])
     Object.assign(answers, task.value.answers)
-    const projectId = String(task.value.project_id || route.query.project_id || '')
+    const projectId = String(task.value.project_id || contextProjectId.value || '')
     if (getActivePinia()) usePerformanceProjectContextStore().invalidateReviewOverview(Number(projectId))
     const nodeId = task.value.node_id || String(route.query.node || '')
     const query: Record<string, string> = { project_id: projectId, node: nodeId, task_id: String(task.value.task_id) }
-    if (route.query.cycle_id) query.cycle_id = String(route.query.cycle_id)
+    if (contextCycleId.value) query.cycle_id = String(contextCycleId.value)
     if (task.value.return_view === 'drawer') {
       query.rootReviewId = String(task.value.task_id)
       query.activeTab = nodeId
     }
     if (employeeNo) query.employee_no = employeeNo
+    emit('submitted')
+    if (props.embedded) { closeTask(); return }
     try {
       if (isReconsiderationTask.value) {
         const listQuery: Record<string, string> = { project_id: projectId, node: nodeId }
-        if (route.query.cycle_id) listQuery.cycle_id = String(route.query.cycle_id)
+        if (contextCycleId.value) listQuery.cycle_id = String(contextCycleId.value)
         await router.push({ path: '/performance/review', query: listQuery })
-      } else if (task.value.return_view === 'page' || !nodeId) await router.push({ path: route.path || (props.taskKind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'), query: { ...query, view: '1' } })
+      } else if (task.value.return_view === 'page' || !nodeId) await router.push({ path: route.path || (!props.embedded && props.taskKind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'), query: { ...query, view: '1' } })
       else await router.push({ path: '/performance/review', query })
     } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }
   } catch (error) {
+    if (!current()) return
     if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
     closeReconsiderationOnConflict(error)
     await lockFinalResultOnConflict(error)
     if (overdueConfirmOpen.value) overdueConfirmError.value = saveMessage.value
   } finally {
-    submitting.value = false
+    if (current()) submitting.value = false
   }
 }
+watch([contextTaskId, contextEmployeeNo, contextProjectId, contextCycleId, () => props.taskKind], () => { resetTaskContext(); void load() })
 onMounted(() => load())
-onBeforeUnmount(() => { disposed = true; pendingSave = false; window.clearTimeout(saveTimer) })
+onBeforeUnmount(() => { disposed = true; ++taskEpoch; ++loadRequest; pendingSave = false; window.clearTimeout(saveTimer); window.clearInterval(clockTimer) })
 </script>
 
 <style scoped>
+.task-workspace--embedded{height:min(760px,calc(100dvh - 180px));min-height:0}
+.task-workspace--embedded .narrow-mode-notice{display:none}
+.task-reconsideration-handlers{padding:20px 30px 0}
+.task-reconsideration-handlers h2{margin:0 0 8px;font-size:14px;font-weight:600;line-height:22px}
+.task-reconsideration-handlers p{margin:0 0 4px;color:var(--color-text-secondary);font-size:14px;line-height:22px}
 .task-content{display:flex;flex-direction:column;min-width:0;gap:12px}
 .performance-split-workspace.is-split .task-template-renderer{padding:16px 20px 12px;background:transparent}
 .task-form-shell{display:flex;flex:1 0 auto;min-width:0;flex-direction:column;border-radius:8px;background:var(--color-bg-card)}

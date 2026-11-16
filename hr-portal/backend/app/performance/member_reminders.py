@@ -103,7 +103,7 @@ def _preloaded_edit_allowed(task, actor_ref, preloaded):
 def reminder_source_node(node):
     from app.performance import projects_router as shared
 
-    return node.node_type in {"calibration", "result_communication"} or (
+    return node.node_type in {"calibration", "result_communication", "result_reconsideration"} or (
         node.node_type == "evaluation" and shared.node_role_code({
             "node_type": node.node_type, **((node.config or {}).get("template") or {}),
         }) in shared.MANAGER_ROLE_CODES
@@ -130,6 +130,14 @@ async def _source_allowed(task, node, project, actor, db, preloaded=None):
         preloaded = {"grants": {task.id: grants}}
     if not _preloaded_edit_allowed(task, actor.actor_ref, preloaded):
         return False
+    if node.node_type == "result_reconsideration":
+        from app.performance.reconsideration_service import reconsideration_for_task
+        try:
+            await reconsideration_for_task(db, task)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                return False
+            raise
     if node.node_type == "calibration":
         if not task.phase_id or not shared.calibration_task_scope(task, node):
             return False

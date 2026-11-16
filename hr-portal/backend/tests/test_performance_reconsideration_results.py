@@ -379,22 +379,29 @@ def decision_runtime(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_runtime_draft_change_close_and_reject_further_writes(decision_runtime):
+async def test_runtime_draft_submit_resubmit_and_draft_do_not_change_effective_result(decision_runtime):
     data = decision_runtime
     payload = data.router.SelfSummaryAnswersPayload(answers={"rating-1": "B", "keep_result": "change"}, version=1)
     draft = await data.router._save_self_summary(8, payload, False, data.context, data.db, "evaluation")
     assert draft["version"] == 2 and data.other.draft_answers["rating-1"] == "B"
     assert data.appeal.closed_at is None
     submitted = await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "change"}, version=2), True, data.context, data.db, "evaluation")
-    assert submitted["reconsideration_closed"] and not submitted["editable"] and not submitted["submit_allowed"]
+    assert not submitted["reconsideration_closed"] and submitted["editable"] and submitted["submit_allowed"]
     assert data.appeal.effective_result["contents"][0]["answers"]["rating-1"] == "B"
     assert data.other.status == "completed" and data.other.answer_version == 3
     assert data.appeal.result_snapshot["answers"]["rating-1"] == "A"
     assert data.events[-1].event_type == "PERFORMANCE_RECONSIDERATION_CLOSED"
-    with pytest.raises(HTTPException, match="RECONSIDERATION_CLOSED"):
-        await data.router._save_self_summary(8, payload, True, data.context, data.db, "evaluation")
-    with pytest.raises(HTTPException, match="RECONSIDERATION_CLOSED"):
-        await data.router._discard_task_draft(8, data.router.TaskDraftVersionPayload(version=3), data.context, data.db, "evaluation", None)
+    first = data.events[-1]
+    assert first.actor_ref == "H1" and first.after_state["display_name"] == "处理人"
+    assert first.after_state["adjustments"][0]["before"] == "A"
+    assert first.after_state["adjustments"][0]["after"] == "B"
+    await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "keep"}, version=3), False, data.context, data.db, "evaluation")
+    assert data.appeal.effective_result["contents"][0]["answers"]["rating-1"] == "B"
+    await data.router._discard_task_draft(8, data.router.TaskDraftVersionPayload(version=4), data.context, data.db, "evaluation", None)
+    second = await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "keep"}, version=5), True, data.context, data.db, "evaluation")
+    assert second["editable"] and data.appeal.effective_result["contents"][0]["answers"]["rating-1"] == "A"
+    assert data.events[-1].before_state["answers"]["rating-1"] == "B"
+    assert data.events[-1].after_state["adjustments"][0]["after"] == "A"
 
 
 @pytest.mark.asyncio
@@ -464,11 +471,13 @@ async def test_http_draft_submit_reopen_result_and_closed_rejection(decision_run
         draft = await client.patch(url + "/draft", json={"answers": {"rating-1": "B", "keep_result": "change"}, "version": 1})
         assert draft.status_code == 200 and draft.json()["version"] == 2
         submitted = await client.post(url + "/submit", json={"answers": {"keep_result": "change"}, "version": 2})
-        assert submitted.status_code == 200 and submitted.json()["reconsideration_closed"]
+        assert submitted.status_code == 200 and not submitted.json()["reconsideration_closed"]
         schema, answers = await data.router._task_visible_content(data.task, data.node, data.db)
         assert answers["rating-1"] == "B"
+        from datetime import timedelta
+        data.task.due_at = datetime.now(UTC) - timedelta(seconds=1)
         refused = await client.patch(url + "/draft", json={"answers": {"keep_result": "keep"}, "version": 3})
-        assert refused.status_code == 409 and refused.json()["detail"] == "RECONSIDERATION_CLOSED"
+        assert refused.status_code == 409 and refused.json()["detail"] == "SUBMISSION_NOT_ALLOWED"
         data.db.scalar = AsyncMock(side_effect=[data.appeal, SimpleNamespace(id=22)])
         monkeypatch.setattr(data.router, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_type="EMPLOYEE", actor_ref="E001")))
         reopened = await client.get("/performance/workbench/projects/3/results")
@@ -520,3 +529,128 @@ def test_result_migration_linear_nullable_legacy_and_protected_downgrade(monkeyp
     monkeypatch.setattr(migration.op, "get_bind", lambda: SimpleNamespace(execute=lambda query: SimpleNamespace(scalar=lambda: False)))
     migration.downgrade()
     assert set(removed) == {column.name for column in columns}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["draft", "submit", "discard"])
+async def test_processed_reconsideration_rejects_writes_after_task_deadline(decision_runtime, action):
+    from datetime import timedelta
+    data = decision_runtime
+    data.appeal.closed_at = datetime.now(UTC)
+    data.task.due_at = datetime.now(UTC) - timedelta(seconds=1)
+    with pytest.raises(HTTPException, match="SUBMISSION_NOT_ALLOWED"):
+        if action == "discard":
+            await data.router._discard_task_draft(8, data.router.TaskDraftVersionPayload(version=1), data.context, data.db, "evaluation", None)
+        else:
+            await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "keep"}, version=1), action == "submit", data.context, data.db, "evaluation")
+    data.db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_read_only_task_authorization_cannot_submit_reconsideration(decision_runtime, monkeypatch):
+    data = decision_runtime
+    monkeypatch.setattr(data.router, "_task_edit_allowed", AsyncMock(return_value=False))
+    with pytest.raises(HTTPException, match="TASK_AUTHORIZATION_READ_ONLY"):
+        await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "keep"}, version=1), True, data.context, data.db, "evaluation")
+    data.db.commit.assert_not_called()
+
+
+def test_adjustments_preserve_repeated_instances_clears_and_rating_options():
+    from app.performance.reconsideration_result_service import result_adjustments, submitted_answers
+    snapshot = _rich_snapshot(repeated=True)
+    answers = {"rating-1": ["B", ""], "text-1": ["first", ""]}
+    changes = result_adjustments(snapshot["form_schema"], snapshot["answers"], answers)
+    rating = [row for row in changes if row["field_id"] == "rating-1"]
+    assert [(row["instance_index"], row["before"], row["after"]) for row in rating] == [(0, "A", "B"), (1, "B", "")]
+    assert rating[0]["options"] == [{"id": "A", "label": "优秀"}, {"id": "B", "label": "良好"}]
+    assert submitted_answers(snapshot, answers)["text-1"] == ["first", ""]
+    result = effective_result(snapshot, {"keep_result": "change", "rating-1": ["B", "A"], "text-1": ["one", "two"]})
+    assert [(item["option_id"], item["instance_index"]) for item in result["results"]] == [("B", 0), ("A", 1)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("actor_ref,allowed,expected_task", [("H2", True, 9), ("ADMIN", False, None), ("READONLY", False, None)])
+async def test_detail_uses_actual_submitter_history_and_only_own_edit_task(decision_runtime, monkeypatch, actor_ref, allowed, expected_task):
+    from app.performance import member_reminders
+    from app.performance.models import PerformanceAuditEvent
+    data = decision_runtime
+    data.appeal.closed_at = datetime.now(UTC)
+    data.appeal.closed_by_ref = "ACTUAL"
+    data.task.answers = data.other.answers = {"keep_result": "change", "rating-1": "B"}
+    data.task.submitted_at = data.other.submitted_at = data.appeal.closed_at
+    data.task.status = data.other.status = "completed"
+    member = SimpleNamespace(snapshot_id=11, employee_no="E001")
+    options = [SimpleNamespace(task_id=task.id, role_key="REAL_LINE_MANAGER", role_label="直属上级") for task in [data.task, data.other]]
+    people = {no: SimpleNamespace(display_name=name) for no, name in [("H1", "协作一"), ("H2", "协作二"), ("ACTUAL", "真实提交者")]}
+    event = PerformanceAuditEvent(id=1, event_at=data.appeal.closed_at, actor_type="EMPLOYEE", actor_ref="ACTUAL",
+        before_state={"answers": {"rating-1": "A"}}, after_state={"answers": data.task.answers})
+    data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [event])))
+    monkeypatch.setattr(data.router, "_member_task_options", AsyncMock(return_value=options))
+    monkeypatch.setattr(data.router, "_delegation_snapshot_people", AsyncMock(return_value=people))
+    monkeypatch.setattr(data.router, "_task_handlers", AsyncMock(side_effect=lambda db, task: {task.handler_ref}))
+    monkeypatch.setattr(data.router, "_task_edit_allowed", AsyncMock(side_effect=lambda db, task, actor: allowed and task.handler_ref == actor))
+    monkeypatch.setattr(member_reminders, "can_remind_member", AsyncMock(return_value=False))
+    detail, _ = await data.router._reconsideration_detail(data.project, member, data.node, [data.task, data.other], data.context,
+        SimpleNamespace(actor_type="EMPLOYEE", actor_ref=actor_ref), data.db)
+    assert detail["status"] == "submitted_editable"
+    assert detail["can_edit"] is allowed and detail["edit_task_id"] == expected_task
+    assert detail["submitted_by"] == "真实提交者"
+    assert detail["history"][0]["display_name"] == "真实提交者"
+    assert detail["history"][0]["adjustments"][0]["after"] == "B"
+    assert all(handler["role_label"] == "直属上级" for handler in detail["handlers"])
+    assert detail["answers"]["rating-1"] == "B"
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_drawer_reuses_member_tabs_and_keeps_edit_schema(decision_runtime, monkeypatch):
+    data = decision_runtime
+    member = SimpleNamespace(id=21, snapshot_id=11, employee_no="E001", display_name="员工")
+    data.db.scalar = AsyncMock(return_value=member)
+    detail = {"reason": "核对事实", "can_edit": True, "edit_task_id": 8,
+        "submitted_by": "实际处理人", "submitted_at": "2026-11-15T10:00:00+00:00"}
+    tabs = [{"node_id": "appeal", "key": "management-appeal", "reconsideration": detail}]
+    management = AsyncMock(return_value={"management_tabs": tabs, "default_active_tab": "management-appeal",
+        "stage_views": [], "root_review_id": 21})
+    monkeypatch.setattr(data.router, "_project_member_detail", management)
+    monkeypatch.setattr(data.router, "_snapshot_supervisor_names", AsyncMock(return_value={}))
+    monkeypatch.setattr(data.router, "resolve_subject_visibility_role", AsyncMock(return_value="other"))
+    monkeypatch.setattr(data.router, "load_subject_visibility_rules", AsyncMock(return_value={"other": []}))
+    monkeypatch.setattr(data.router, "_reference_tabs", AsyncMock(return_value=[]))
+    result = await data.router._template_task_detail(data.task, data.node, data.context, data.db, view="drawer")
+    assert result["return_view"] == "drawer" and result["default_active_tab"] == "management-appeal"
+    assert result["reconsideration"] == detail and result["management_tabs"] == tabs
+    assert result["form_schema"][0]["fields"][0]["readonly"] is False
+    assert result["answer_submissions"][0]["display_name"] == "实际处理人"
+    assert management.await_args.kwargs["skip_scope"] is True
+    assert management.await_args.kwargs["source_task_id"] == 8
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["readonly", "other_employee", "other_snapshot", "expired", "withdrawn"])
+async def test_reconsideration_reminder_source_is_scoped_and_deadline_bound(decision_runtime, monkeypatch, invalid):
+    from datetime import timedelta
+    from app.performance import member_reminders
+    data = decision_runtime
+    from app.performance.models import PerformanceNodeTaskAuthorization, PerformanceProjectNodeSnapshot
+    data.project.status = "STARTED"
+    source = data.task
+    source.handler_ref = "H1"
+    source.available_at = None
+    source.due_at = datetime.now(UTC) + timedelta(days=1)
+    data.db.get = AsyncMock(side_effect=lambda model, key: data.node if model is PerformanceProjectNodeSnapshot else source)
+    grants = []
+    if invalid == "readonly":
+        source.handler_ref = "OTHER"
+        grants = [PerformanceNodeTaskAuthorization(recipient_employee_no="H1", read_only=True, authorization_type="AUTHORIZE")]
+    elif invalid == "other_employee":
+        source.target_employee_no = "OTHER"
+    elif invalid == "other_snapshot":
+        source.project_id = 99
+    elif invalid == "expired":
+        source.due_at = datetime.now(UTC) - timedelta(seconds=1)
+    else:
+        monkeypatch.setattr(data.service, "reconsideration_for_task", AsyncMock(side_effect=HTTPException(404, "TASK_NOT_FOUND")))
+    data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: grants)))
+    with pytest.raises(HTTPException, match="PROJECT_MEMBER_REMIND_FORBIDDEN"):
+        await member_reminders._member_scope(data.project, "E001", data.context, data.db, source_task_id=8)
+    data.db.commit.assert_not_called()

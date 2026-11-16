@@ -14,6 +14,7 @@
     >
     </PerformanceReviewCategorySidebar>
     <PerformanceReviewContent
+      :key="reconsiderationRevision"
       :loading="loading"
       :error="error"
       :template-name="overview?.template_name || ''"
@@ -62,6 +63,9 @@
       @edit="editDrawerTask"
       @remind="openDrawerReminder"
     />
+    <PerformanceDialogShell v-if="reconsiderationTask" :model-value="true" :title="reconsiderationTask.node.node_name" width="960px" dialog-class="review-reconsideration-dialog" @close="reconsiderationTask = null">
+      <SelfSummaryTask :key="`${reconsiderationTask.project_id}-${reconsiderationTask.task_id}-${reconsiderationTask.member.employee_no}`" embedded task-kind="evaluation" :task-id="reconsiderationTask.task_id" :employee-no="reconsiderationTask.member.employee_no" :project-id="reconsiderationTask.project_id" :cycle-id="reconsiderationTask.cycle_id" :draft-choice="reconsiderationTask.draft_choice" @close="reconsiderationTask = null" @submitted="reconsiderationSubmitted" />
+    </PerformanceDialogShell>
     <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
     <PerformanceConfirmDialog v-model="calibrationConfirmOpen" appearance="calibration-completion" message="确定要完成校准吗？" :description="calibrationDescription" cancel-text="取消" confirm-text="确定" confirm-variant="primary" :loading="calibrationBusy" :error-message="calibrationError" @confirm="confirmCalibrationCompletion" />
   </div>
@@ -93,6 +97,8 @@ import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vu
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
 import PerformanceReviewEvaluationDrawer from '@/components/performance/PerformanceReviewEvaluationDrawer.vue'
+import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
+import SelfSummaryTask from './SelfSummaryTask.vue'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import { performanceTaskEntryRoute } from '@/components/performance/performanceTaskEntry'
 import { isReviewer360Node, isSelfEvaluationNode } from '@/components/performance/performanceExecutorOptions'
@@ -234,6 +240,24 @@ watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.va
 watch([activeProjectId, () => selectedNode.value?.node_id, () => selectedNode.value?.node_type], () => { void loadMyResults() })
 const drawerMember = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number; active_tab: string } | null>(null)
 const drawerOpen = ref(false)
+const reconsiderationRevision = ref(0)
+const reconsiderationTask = ref<{ node: PerformanceReviewNode; member: PerformanceReviewMemberContext; task_id: number; project_id?: number; cycle_id?: number; draft_choice?: 'use' | 'discard' } | null>(null)
+watch([activeProjectId, () => projectContext.activeCycleId, selectedNodeId], () => { reconsiderationTask.value = null })
+function openReconsiderationTask(node: PerformanceReviewNode, member: PerformanceReviewMemberContext, taskId: number, draftChoice?: 'use' | 'discard') {
+  drawerOpen.value = false
+  drawerMember.value = null
+  reconsiderationTask.value = { node, member, task_id: taskId, project_id: activeProjectId.value, cycle_id: projectContext.activeCycleId || undefined, draft_choice: draftChoice }
+}
+async function reconsiderationSubmitted() {
+  const projectId = reconsiderationTask.value?.project_id
+  reconsiderationTask.value = null
+  projectContext.invalidateDrawerDetails()
+  if (projectId) {
+    projectContext.invalidateReviewOverview(projectId)
+    await loadOverview(projectId)
+    if (!disposed && activeProjectId.value === projectId) ++reconsiderationRevision.value
+  }
+}
 const drawerDetailLoader = computed(() => {
   const member = drawerMember.value
   const projectId = activeProjectId.value
@@ -400,6 +424,10 @@ async function openNode(node: PerformanceReviewNode) {
 async function openMember(payload: { node: PerformanceReviewNode; member: PerformanceReviewMemberContext }) {
   const taskId = payload.member.task_id || payload.member.aggregate_task_id || payload.node.task_id
   if (!taskId) return
+  if (payload.node.node_type === 'result_reconsideration' && payload.member.status !== 'completed') {
+    openReconsiderationTask(payload.node, payload.member, taskId)
+    return
+  }
   if (payload.node.node_type === 'calibration' || payload.member.status === 'completed' && ((payload.node.task_kind === 'evaluation' && !isSelfEvaluationNode(payload.node)) || performanceReviewDisplay(payload.node.node_type)?.completedView === 'drawer')) {
     drawerMember.value = { node: payload.node, member: payload.member, task_id: taskId, active_tab: 'evaluation' }
     drawerOpen.value = true
@@ -425,11 +453,17 @@ function openDrawerReminder(reference: PerformanceReferenceTab, sourceTaskId?: n
   const member = drawerMember.value
   openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && ['evaluation', 'calibration', 'result_communication'].includes(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
-async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }) {
+async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard'; task_kind?: string; node_id?: string }) {
   const current = drawerMember.value
   projectContext.invalidateDrawerDetails()
   drawerMember.value = null
   if (!current) return
+  if (payload.task_kind === 'result_reconsideration' || (!payload.task_kind && current.node.node_type === 'result_reconsideration')) {
+    const node = allNodes.value.find(item => item.node_id === payload.node_id) || { ...current.node, node_id: payload.node_id || current.node.node_id, node_type: 'result_reconsideration', task_kind: 'result_reconsideration' }
+    openReconsiderationTask(node, { ...current.member, employee_no: payload.employee_no }, Number(payload.task_id), payload.draft_choice)
+    await router.replace({ query: clearDrawerQuery() })
+    return
+  }
   const taskRoute = performanceTaskEntryRoute({ ...current.node, task_id: Number(payload.task_id), draft_choice: payload.draft_choice }, activeProjectId.value, payload.employee_no)
   if (!taskRoute) return
   await router.replace({ query: { ...clearDrawerQuery(), project_id: String(activeProjectId.value || ''), node: current.node.node_id, task_id: String(payload.task_id), employee_no: payload.employee_no } })
@@ -460,6 +494,8 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+:global(.review-reconsideration-dialog .performance-dialog__body){display:flex;min-height:0;padding:0;overflow:hidden}
+:global(.review-reconsideration-dialog .performance-dialog__footer){display:none}
 .review-results{min-width:0;width:100%;color:var(--color-text-primary)}
 .result-region{min-width:0}.result-region + .result-region{margin-top:var(--spacing-4)}
 .result-region h3{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:600}

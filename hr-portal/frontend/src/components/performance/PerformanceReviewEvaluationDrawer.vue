@@ -8,7 +8,9 @@
         <section v-if="task?.management_tabs && !loading && !error && managementTab" class="performance-review-evaluation-drawer__tab-content">
           <div class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ managementTab.node_name }}</div>
-            <PerformanceReviewCompletionNotice v-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
+            <PerformanceReconsiderationDetail v-if="managementTab.reconsideration" :detail="managementTab.reconsideration" :employee-no="displayPerson.employee_no" :node-name="managementTab.node_name" @edit="editReconsideration" @remind="remindReconsideration" />
+            <PerformanceReviewCompletionNotice v-else-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
+            <template v-if="!managementTab.reconsideration">
             <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
             <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="forwardReminder" />
@@ -20,6 +22,7 @@
                 <PerformanceReminderButton v-else-if="stageView.can_remind" @click="openRemind" />
               </div>
             </div>
+            </template>
           </div>
         </section>
         <section v-else-if="loading || error || activeTab === 'evaluation'" class="performance-review-evaluation-drawer__tab-content">
@@ -30,9 +33,12 @@
           </div>
           <div v-else class="performance-review-evaluation-drawer__card">
             <div class="performance-review-evaluation-drawer__card-title">{{ title }}</div>
+            <PerformanceReconsiderationDetail v-if="task?.reconsideration" :detail="task.reconsideration" :employee-no="displayPerson.employee_no" :node-name="title" @edit="editReconsideration" @remind="remindReconsideration" />
+            <template v-else>
             <PerformanceReviewCompletionNotice v-if="task?.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-for="(message, index) in completionMessages" :key="index" :task-id="task?.task_id ?? undefined" :task-kind="task?.task_kind" :employee-no="displayPerson.employee_no" variant="evaluation-drawer" :editable="taskEditable && index === completionMessages.length - 1" :message="message" @edit="edit" />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
+            </template>
           </div>
         </section>
         <section v-else-if="activeReference" class="performance-review-evaluation-drawer__tab-content">
@@ -64,6 +70,7 @@ import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
 import PerformanceConfirmDialog from './PerformanceConfirmDialog.vue'
 import PerformanceMemberMoreMenu, { type PerformanceMemberContext } from './PerformanceMemberMoreMenu.vue'
+import PerformanceReconsiderationDetail from './PerformanceReconsiderationDetail.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 
 type DrawerPerson = SelfSummaryPerson & PerformanceReviewMemberContext
@@ -84,7 +91,7 @@ const emit = defineEmits<{
   'update:activeTab': [value: string]
   close: []
   closed: []
-  edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; draft_choice?: 'use' | 'discard' }]
+  edit: [payload: { task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; draft_choice?: 'use' | 'discard' }]
   'copy-link': []
   remind: [reference: PerformanceReferenceTab, sourceTaskId?: number]
   authorize: [payload: PerformanceMemberContext]
@@ -231,9 +238,22 @@ async function load() {
     if (sequence === loadSequence) loading.value = false
   }
 }
+const activeReconsideration = computed(() => managementTab.value?.reconsideration || (!task.value?.management_tabs ? task.value?.reconsideration : null))
+function editReconsideration(choice?: 'use' | 'discard') {
+  const detail = activeReconsideration.value
+  if (!detail?.can_edit || detail.edit_task_id == null || detail.deadline_at && Date.parse(detail.deadline_at) < Date.now()) return
+  emit('edit', { task_id: detail.edit_task_id, employee_no: displayPerson.value.employee_no, node_id: managementTab.value?.node_id || task.value?.node_id, node_name: managementTab.value?.node_name || title.value, task_kind: 'result_reconsideration', draft_choice: choice })
+}
+function remindReconsideration(taskId: number) {
+  const tab = managementTab.value
+  const detail = activeReconsideration.value
+  if (!detail?.handlers.some(handler => handler.task_id === taskId && handler.can_remind)) return
+  forwardReminder({ ...(tab || { key: 'evaluation', node_id: task.value?.node_id || '', node_name: title.value, status: 'pending' as const, form_schema: [], answers: {} }), employee_no: displayPerson.value.employee_no, task_id: taskId, can_remind: true })
+}
 function edit(choice?: 'use' | 'discard') {
-  if (!task.value || task.value.task_id == null || !taskEditable.value) return
-  emit('edit', { task_id: task.value.task_id, employee_no: displayPerson.value.employee_no, draft_choice: choice })
+  const current = task.value
+  if (!current || current.task_id == null || !taskEditable.value) return
+  emit('edit', { task_id: current.task_id, employee_no: displayPerson.value.employee_no, draft_choice: choice })
 }
 function fillStage() {
   const stage = stageView.value

@@ -136,6 +136,37 @@ def task_result(appeal, node=None, filling=False):
     return baseline_schema(snapshot, filling=filling), deepcopy(snapshot["answers"])
 
 
+def submitted_answers(snapshot, answers):
+    schema, baseline = task_result(snapshot)
+    return {**baseline, **{key: deepcopy(value) for key, value in (answers or {}).items()
+                           if key in _fields(schema) or key == "keep_result"}}
+
+
+def result_adjustments(schema, before, after):
+    changes = []
+    for section in schema:
+        for field in section.get("fields") or []:
+            key = field["id"]
+            old, new = (before or {}).get(key), (after or {}).get(key)
+            repeated = bool(section.get("allow_multiple"))
+            old_values = old if repeated and isinstance(old, list) else [old]
+            new_values = new if repeated and isinstance(new, list) else [new]
+            for index in range(max(len(old_values), len(new_values))):
+                old_value = old_values[index] if index < len(old_values) else None
+                new_value = new_values[index] if index < len(new_values) else None
+                if old_value == new_value:
+                    continue
+                changes.append({
+                    "section_id": section["id"], "section_name": section.get("name") or "",
+                    "field_id": key, "field_label": field.get("label") or field.get("name") or key,
+                    "before": deepcopy(old_value), "after": deepcopy(new_value), "field_type": field["type"],
+                    **({"instance_index": index} if repeated else {}),
+                    **({"options": [{"id": str(option["id"]), "label": str(option.get("label") or "")}
+                                    for option in field.get("options") or []]} if field.get("options") else {}),
+                })
+    return changes
+
+
 def _sanitize(schema, values):
     sanitized = sanitize_self_summary_answers(schema, values)
     projected = project_self_summary_answers(schema, sanitized)
@@ -219,14 +250,13 @@ def effective_result(snapshot, decision_answers):
             region["contents"] = deepcopy(result.get("contents") or [])
     results = []
     for content in result.get("contents") or []:
-        for section in content.get("form_schema") or []:
-            for field in section.get("fields") or []:
-                if field["type"] != "rating":
-                    continue
-                value = (content.get("answers") or {}).get(field["id"])
-                option = next((item for item in field.get("options") or [] if str(item["id"]) == value), None)
-                if option is not None:
-                    results.append({"task_id": content["task_id"], "field_id": field["id"],
-                                    "option_id": str(option["id"]), "label": str(option.get("label") or "")})
+        for section, field, index, value in iter_self_summary_field_instances(content.get("form_schema") or [], content.get("answers") or {}):
+            if field["type"] != "rating":
+                continue
+            option = next((item for item in field.get("options") or [] if str(item["id"]) == value), None)
+            if option is not None:
+                results.append({"task_id": content["task_id"], "field_id": field["id"],
+                                "option_id": str(option["id"]), "label": str(option.get("label") or ""),
+                                **({"instance_index": index} if section.get("allow_multiple") else {})})
     result["results"] = results
     return result

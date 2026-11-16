@@ -1,7 +1,7 @@
 const displays = {
   result_communication: { table: 'communication', completedView: 'drawer', completedReadonly: true },
   calibration: { table: 'manager', completedView: 'drawer', completedReadonly: false },
-  result_reconsideration: { table: 'members', completedView: 'page', completedReadonly: true },
+  result_reconsideration: { table: 'members', completedView: 'drawer', completedReadonly: false },
 } as const
 
 export function performanceReviewDisplay(nodeType: string) {

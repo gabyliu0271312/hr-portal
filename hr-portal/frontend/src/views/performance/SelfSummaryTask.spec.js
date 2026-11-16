@@ -447,7 +447,7 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
-  it.each([{ reconsideration_closed: true }, { submitted_at: '2026-11-10T00:00:00Z' }])('opens a closed reconsideration entirely readonly without a draft chooser: %o', async closed => {
+  it.each([{ reconsideration_closed: true }, { reconsideration: { status: 'deadline_locked', reason: '理由', handlers: [], form_schema: task.form_schema, answers: { keep_result: 'change', work: '正式结果' }, can_edit: false } }])('opens a closed reconsideration entirely readonly without a draft chooser: %o', async closed => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', ...closed, reconsideration_reason: '理由', keep_result: 'keep', has_draft: true, draft_answers: { keep_result: 'keep', work: '草稿' }, answers: { keep_result: 'change', work: '正式结果' } })
     const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, attachTo: document.body })
     await flushPromises()
@@ -460,6 +460,141 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('继续编辑')
     wrapper.unmount()
+  })
+
+  it('loads an embedded submitted reconsideration from explicit context and submits without routing', async () => {
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'route-task', employee_no: 'ROUTE', view: '1', draft_choice: 'use' } })
+    const schema = [{ id: 'result', name: '结果', fields: [{ id: 'text', type: 'rich_text', label: '结果说明' }] }]
+    const detail = { reason: 'DTO复议理由', status: 'submitted_editable', handlers: [{ task_id: 8, employee_no: 'HR', display_name: '处理人甲', role_key: 'HRBP', role_label: 'HRBP', can_remind: false }, { task_id: 9, employee_no: 'MANAGER', display_name: '处理人乙', role_key: 'DIRECT_MANAGER', role_label: '直属上级', can_remind: false }], form_schema: schema, answers: { text: '正式答案', keep_result: 'change' }, can_edit: true, submitted_at: '2026-11-10T00:00:00Z', deadline_at: '2099-12-31T00:00:00Z' }
+    const load = vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, task_kind: 'result_reconsideration', reconsideration: detail, has_draft: true, draft_answers: { text: '不使用的草稿', keep_result: 'keep' }, answers: { text: '旧顶层答案' } })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { text: '修改后结果', keep_result: 'change' }, submitted_at: '2026-11-16T00:00:00Z', editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask, { props: { embedded: true, taskId: 8, employeeNo: 'E002', projectId: 3, cycleId: 2, draftChoice: 'discard' } })
+    try {
+      await flushPromises()
+      expect(load).toHaveBeenCalledWith('8', 'E002')
+      expect(wrapper.get('.task-form-shell .task-reconsideration-handlers').text()).toBe('处理人HRBP 处理人甲直属上级 处理人乙')
+      expect(wrapper.get('.reconsideration-reason').text()).toBe('DTO复议理由')
+      expect(wrapper.get('[data-field-id="text"] .rich-input').text()).toBe('正式答案')
+      const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+      renderer.vm.$emit('update-answer', 'text', '修改后结果')
+      await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+      await flushPromises()
+      expect(submit).toHaveBeenCalledWith(8, { text: '修改后结果', keep_result: 'change' }, 1, 'E002', undefined)
+      expect(wrapper.emitted('submitted')).toHaveLength(1)
+      expect(wrapper.emitted('close')).toHaveLength(1)
+      expect(push).not.toHaveBeenCalled()
+      expect(back).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } }) }
+  })
+
+  it('retains embedded input after a failed submit and prevents duplicate submissions', async () => {
+    let rejectSubmit
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, task_kind: 'result_reconsideration', reconsideration_reason: '理由', form_schema: [{ id: 'c', name: '结果', fields: [{ id: 'text', type: 'rich_text', label: '结果说明' }] }], answers: {} })
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockImplementation(() => new Promise((_resolve, reject) => { rejectSubmit = reject }))
+    const wrapper = mount(SelfSummaryTask, { props: { embedded: true, taskId: 8, employeeNo: 'E001' } })
+    await flushPromises()
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    renderer.vm.$emit('update-answer', 'text', '保留的输入')
+    renderer.vm.$emit('submit')
+    await flushPromises()
+    renderer.vm.$emit('submit')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledTimes(1)
+    rejectSubmit(new Error('offline'))
+    await flushPromises()
+    expect(renderer.props('answers').text).toBe('保留的输入')
+    expect(wrapper.get('.self-summary-footer').text()).toContain('提交失败')
+    expect(wrapper.emitted('submitted')).toBeUndefined()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('ignores a previous employee submit response after switching embedded context', async () => {
+    let finishSubmit
+    vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async id => ({ ...structuredClone(task), task_id: Number(id), task_kind: 'result_reconsideration', reconsideration_reason: `员工${id}`, form_schema: [], answers: {} }))
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockImplementationOnce(() => new Promise(resolve => { finishSubmit = resolve })).mockResolvedValue({ answers: { keep_result: 'change' } })
+    const wrapper = mount(SelfSummaryTask, { props: { embedded: true, taskId: 8, employeeNo: 'E001' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({ taskId: 9, employeeNo: 'E002' })
+    await flushPromises()
+    finishSubmit({ answers: { keep_result: 'keep' }, version: 99, submitted_at: '2026-11-16T00:00:00Z' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('员工9')
+    expect(wrapper.get('.reconsideration-choice input[value="change"]').element.checked).toBe(true)
+    expect(wrapper.emitted('submitted')).toBeUndefined()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(push).not.toHaveBeenCalled()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(submit).toHaveBeenLastCalledWith(9, { keep_result: 'change' }, 1, 'E002', undefined)
+  })
+
+  it('turns an open reconsideration readonly when its deadline passes and cancels queued writes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-16T00:00:00Z'))
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, task_kind: 'result_reconsideration', deadline_at: '2026-11-16T00:00:00.200Z', reconsideration_reason: '理由', form_schema: [], answers: {} })
+    const save = vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft')
+    const submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask')
+    const wrapper = mount(SelfSummaryTask, { props: { embedded: true, taskId: 8, employeeNo: 'E001' } })
+    try {
+      await flushPromises()
+      await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+      await vi.advanceTimersByTimeAsync(1200)
+      await flushPromises()
+      expect(wrapper.find('.self-summary-footer').exists()).toBe(false)
+      expect(wrapper.findAll('.reconsideration-choice input').every(input => input.element.disabled)).toBe(true)
+      expect(save).not.toHaveBeenCalled()
+      expect(submit).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+  it('ignores a previous employee load after embedded context changes', async () => {
+    let resolveOld
+    const load = vi.spyOn(performanceReviewApi, 'templateTask').mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve })).mockResolvedValueOnce({ ...structuredClone(task), task_id: 9, task_kind: 'result_reconsideration', reconsideration_reason: '新员工理由', form_schema: [] })
+    const wrapper = mount(SelfSummaryTask, { props: { embedded: true, taskId: 8, employeeNo: 'E001' } })
+    await wrapper.setProps({ taskId: 9, employeeNo: 'E002' })
+    await flushPromises()
+    resolveOld({ ...structuredClone(task), task_id: 8, task_kind: 'result_reconsideration', reconsideration_reason: '旧员工理由' })
+    await flushPromises()
+    expect(load).toHaveBeenLastCalledWith('9', 'E002')
+    expect(wrapper.text()).toContain('新员工理由')
+    expect(wrapper.text()).not.toContain('旧员工理由')
+  })
+
+  it('ignores an old autosave result and cancels the pending timer when switching employees', async () => {
+    vi.useFakeTimers()
+    let finishSave
+    const load = { ...structuredClone(task), task_kind: 'result_reconsideration', reconsideration_reason: '理由', form_schema: [] }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockImplementation(async id => ({ ...load, task_id: Number(id) }))
+    const save = vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve })).mockResolvedValue({ version: 2 })
+    const wrapper = mount(SelfSummaryTask, { props: { embedded: true, taskId: 8, employeeNo: 'E001' } })
+    try {
+      await flushPromises()
+      await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+      await vi.advanceTimersByTimeAsync(350)
+      await wrapper.setProps({ taskId: 9, employeeNo: 'E002' })
+      await flushPromises()
+      finishSave({ version: 99 })
+      await flushPromises()
+      await wrapper.get('.reconsideration-choice input[value="keep"]').setValue(true)
+      await vi.advanceTimersByTimeAsync(350)
+      expect(save).toHaveBeenLastCalledWith(9, { keep_result: 'keep' }, 1, 'E002', undefined)
+      await wrapper.get('.reconsideration-choice input[value="change"]').setValue(true)
+      await wrapper.get('.self-summary-footer .performance-button--secondary').trigger('click')
+      await vi.advanceTimersByTimeAsync(400)
+      expect(save).toHaveBeenCalledTimes(2)
+      expect(back).not.toHaveBeenCalled()
+    } finally { wrapper.unmount(); vi.useRealTimers() }
+  })
+
+  it('allows a submitted reconsideration to stay editable until its deadline', async () => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_kind: 'result_reconsideration', submitted_at: '2026-11-10T00:00:00Z', deadline_at: '2099-12-31T00:00:00Z', reconsideration_reason: '理由', form_schema: [], answers: { keep_result: 'keep' } })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    expect(wrapper.get('.self-summary-footer .performance-button--primary').element.disabled).toBe(false)
+    expect(wrapper.get('.reconsideration-choice input[value="change"]').element.disabled).toBe(false)
   })
 
   it.each([true, false])('allows authorized zero-field reconsideration submission, show=%s', async show => {
