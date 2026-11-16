@@ -72,6 +72,9 @@ class _FakeDb:
         self.group_rows = group_rows
         self._call = 0
 
+    async def rollback(self):
+        pass
+
     async def execute(self, stmt):
         self._call += 1
         if self._call == 1:
@@ -142,3 +145,56 @@ async def test_list_people_fields_handles_empty_catalog():
     result = await list_people_fields(db, user=None)
     assert result.total == 0
     assert result.items == []
+
+
+@pytest.mark.asyncio
+async def test_reorder_standard_fields_persists_display_order(monkeypatch):
+    """拖拽排序：按传入顺序重写 display_order，并记录审计。"""
+    from app.warehouse.service.standard_fields import reorder_standard_fields
+    fields = [_field(1, "a", "A"), _field(2, "b", "B"), _field(3, "c", "C")]
+    by_id = {f.id: f for f in fields}
+
+    class _ReorderDb:
+        def __init__(self):
+            self.logs = []
+            self.calls = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            return _ScalarsResult([f.id for f in fields])
+
+        async def get(self, model, field_id):
+            return by_id[field_id]
+
+        def add(self, obj):
+            self.logs.append(obj)
+
+        async def flush(self):
+            pass
+
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    monkeypatch.setattr("app.warehouse.service.standard_fields.user_has_op", AsyncMock(return_value=True))
+    db = _ReorderDb()
+    user = MagicMock(); user.id = 42
+    result = await reorder_standard_fields(db, [3, 1, 2], user=user)
+    assert result == {"ok": True}
+    assert fields[2].display_order == 0  # id=3 → position 0
+    assert fields[0].display_order == 1  # id=1 → position 1
+    assert fields[1].display_order == 2  # id=2 → position 2
+    assert any(getattr(log, "action", "") == "standard_field_reordered" for log in db.logs)
+
+
+@pytest.mark.asyncio
+async def test_reorder_standard_fields_denied_without_permission(monkeypatch):
+    from app.warehouse.service.standard_fields import reorder_standard_fields
+    from fastapi import HTTPException
+    monkeypatch.setattr("app.warehouse.service.standard_fields.user_has_op", AsyncMock(return_value=False))
+    user = MagicMock(); user.id = 42
+    with pytest.raises(HTTPException) as exc:
+        await reorder_standard_fields(_FakeDb([], [], []), [1], user=user)
+    assert exc.value.status_code == 403

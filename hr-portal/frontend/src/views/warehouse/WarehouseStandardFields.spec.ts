@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive } from 'vue'
 import WarehouseStandardFields from './WarehouseStandardFields.vue'
 
-const fieldsApi = vi.hoisted(() => ({ list: vi.fn(), groups: vi.fn() }))
+const fieldsApi = vi.hoisted(() => ({ list: vi.fn(), groups: vi.fn(), reorder: vi.fn() }))
 const masterApi = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/api/standardFields', () => ({ standardFieldsApi: fieldsApi }))
 vi.mock('@/api/masterData', () => ({ masterDataApi: masterApi }))
@@ -30,7 +30,8 @@ const stubs = {
   PerformanceFilterButton: defineComponent({ props: ['label', 'disabled'], emits: ['click'], template: '<button class="filter-button" :disabled="disabled" @click="$emit(\'click\')">{{ label }}</button>' }),
   PerformanceSearchInput: defineComponent({ template: '<input class="search-input" />' }),
   PerformanceLineTabs: defineComponent({ props: ['tabs', 'modelValue'], emits: ['update:modelValue'], template: '<div class="line-tabs-stub"><button v-for="tab in tabs" :key="tab.key" @click="$emit(\'update:modelValue\', tab.key)">{{ tab.label }}</button></div>' }),
-  UiTable: defineComponent({ props: ['columns', 'rows', 'loading', 'emptyText'], template: '<div class="ui-table-stub"><span>{{ columns.length }} 列 / {{ rows.length }} 行</span></div>' }),
+  UiSortableList: defineComponent({ props: ['items', 'itemKey', 'disabled'], emits: ['reorder'], template: '<div class="sortable-stub"><template v-for="(item, index) in items" :key="String(item.id)"><slot :item="item" :index="index" :dragging="false" :over="false" :position="null" :item-style="{}"><span class="sortable-item">{{ item.field_name }}</span></slot></template><button class="sortable-reorder" @click="$emit(\'reorder\', 0, 1)">reorder</button></div>' }),
+  UiDragHandle: defineComponent({ props: ['label', 'dragging'], template: '<span class="drag-handle-stub">{{ label }}</span>' }),
   UiPagination: defineComponent({ template: '<div class="pagination-stub" />' }),
   UiDialogShell: defineComponent({ props: ['modelValue', 'title'], emits: ['update:modelValue'], template: '<div v-if="modelValue" class="dialog-shell"><h3>{{ title }}</h3><slot /><slot name="footer" /></div>' }),
   UiButton: defineComponent({ props: ['variant'], emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' }),
@@ -43,8 +44,8 @@ const stubs = {
 const options = { global: { stubs, directives: { loading: () => {} } } }
 
 const sampleFields = [
-  { id: 1, field_code: 'employee_no', field_name: '工号', data_type: 'string', entity_id: 1, entity_name: '人员(person)', group_id: 1, group_name: '工作信息', category_ids: [], revision: 1, is_active: true, business_definition: '员工工号' },
-  { id: 2, field_code: 'chinese_name', field_name: '姓名', data_type: 'string', entity_id: 1, entity_name: '人员(person)', group_id: 1, group_name: '工作信息', category_ids: [1], revision: 1, is_active: true, business_definition: '中文姓名' },
+  { id: 1, field_code: 'employee_no', field_name: '工号', data_type: 'string', entity_id: 1, entity_name: '人员(person)', group_id: 1, group_name: '工作信息', category_ids: [], revision: 1, display_order: 0, is_active: true, business_definition: '员工工号' },
+  { id: 2, field_code: 'chinese_name', field_name: '姓名', data_type: 'string', entity_id: 1, entity_name: '人员(person)', group_id: 1, group_name: '工作信息', category_ids: [1], revision: 1, display_order: 1, is_active: true, business_definition: '中文姓名' },
 ]
 const sampleGroups = [{ id: 1, name: '工作信息', display_order: 1, is_active: true, field_count: 2 }]
 
@@ -54,6 +55,7 @@ beforeEach(() => {
   hasOpMap['warehouse.standard_fields.catalog'] = { C: true, U: true }
   fieldsApi.list.mockResolvedValue({ items: sampleFields, total: 2 })
   fieldsApi.groups.mockResolvedValue({ items: sampleGroups, total: 1 })
+  fieldsApi.reorder.mockResolvedValue({ ok: true })
   masterApi.list.mockResolvedValue({ items: [{ id: 1, entity_code: 'person', name: '人员(person)', description: '', revision: 1, is_active: true, published_at: null }], total: 1 })
 })
 
@@ -74,11 +76,18 @@ describe('warehouse standard fields page', () => {
     wrapper.unmount()
   })
 
-  it('uses unified table component with field columns', async () => {
+  it('renders sortable rows with drag handles and column headers', async () => {
     const wrapper = mount(WarehouseStandardFields, options); await flushPromises()
-    const table = wrapper.find('.ui-table-stub')
-    expect(table.exists()).toBe(true)
-    expect(table.text()).toContain('8 列')
+    expect(wrapper.find('.standard-fields__header').exists()).toBe(true)
+    expect(wrapper.find('.drag-handle-stub').exists()).toBe(true)
+    expect(wrapper.findAll('.standard-fields__row')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('persists reorder to backend with full ordered id list', async () => {
+    const wrapper = mount(WarehouseStandardFields, options); await flushPromises()
+    await wrapper.find('.sortable-reorder').trigger('click'); await flushPromises()
+    expect(fieldsApi.reorder).toHaveBeenCalledWith([2, 1]) // 拖拽后 0→1，id 顺序变为 2,1
     wrapper.unmount()
   })
 
@@ -106,6 +115,7 @@ describe('warehouse standard fields page', () => {
 
   it('shows permission notice without catalog permission', async () => {
     menus.length = 0
+    vi.clearAllMocks()
     const wrapper = mount(WarehouseStandardFields, options); await flushPromises()
     expect(fieldsApi.list).not.toHaveBeenCalled()
     wrapper.unmount()

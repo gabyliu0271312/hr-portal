@@ -315,7 +315,7 @@ const standardStubs = {
   PerformanceNumberInput: { props: ['modelValue', 'ariaLabel', 'min', 'precision'], emits: ['update:modelValue'], template: '<input type="number" :aria-label="ariaLabel" :min="min" :value="modelValue" @input="$emit(\'update:modelValue\', Number($event.target.value))" />' },
 }
 function definition(overrides: Partial<StandardFieldSummary> = {}): StandardFieldSummary {
-  return { id: 1, field_code: 'field_type', revision: 4, field_name: '匹配类型', business_definition: '来源匹配字段类型', data_type: 'enum', category_ids: [], value_domain: { items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] }, is_active: true, ...overrides }
+  return { id: 1, field_code: 'field_type', revision: 4, field_name: '匹配类型', business_definition: '来源匹配字段类型', data_type: 'enum', category_ids: [], value_domain: { items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] }, display_order: 0, is_active: true, ...overrides }
 }
 function standardDetail(item = definition()): StandardFieldDetail {
   return { ...item, bindings: [] }

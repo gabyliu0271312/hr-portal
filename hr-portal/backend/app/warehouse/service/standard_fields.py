@@ -85,6 +85,7 @@ def _summary(field, categories):
         group_id=getattr(field, "group_id", None), group_name=getattr(field, "_group_name", None),
         business_definition=field.business_definition, data_type=field.data_type,
         value_domain=field.value_domain, category_ids=categories,
+        display_order=field.display_order,
         revision=field.revision, is_active=field.is_active,
     )
 
@@ -109,7 +110,7 @@ async def list_standard_fields(db, keyword=None, is_active=None, offset=0, limit
     if is_active is not None:
         stmt = stmt.where(StandardField.is_active == is_active)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    fields = (await db.execute(stmt.order_by(StandardField.field_code).offset(offset).limit(limit))).scalars().all()
+    fields = (await db.execute(stmt.order_by(StandardField.display_order, StandardField.id).offset(offset).limit(limit))).scalars().all()
     ids = {field.entity_id for field in fields if getattr(field, "entity_id", None) is not None}
     if ids:
         names = dict((await db.execute(select(EntityDefinition.id, EntityDefinition.name).where(EntityDefinition.id.in_(ids)))).all())
@@ -199,13 +200,31 @@ async def create_standard_field(db, payload, user):
         entity_id = await _definition_entity(db, payload, user)
         if await db.scalar(select(StandardField.id).where(StandardField.field_code == payload.field_code)):
             _error(409, "standard_field_code_exists", "标准字段编码已存在")
-        field = StandardField(field_code=payload.field_code, created_by=user.id, entity_id=entity_id, group_id=payload.group_id)
+        next_order = await db.scalar(select(func.coalesce(func.max(StandardField.display_order), -1))) + 1
+        field = StandardField(field_code=payload.field_code, created_by=user.id, entity_id=entity_id, group_id=payload.group_id, display_order=next_order)
         _apply_definition(field, payload)
         db.add(field)
         await db.flush()
         await _replace_categories(db, field.id, payload.category_ids)
         _audit(db, "created", field, user)
         return await read_standard_field(db, field.id, user=user)
+
+
+async def reorder_standard_fields(db, ordered_ids, user):
+    """按用户拖拽后的全量顺序重排字段 display_order。"""
+    async with _transaction(db):
+        if not await user_has_op(user, db, "warehouse.standard_fields.catalog", "U"):
+            _error(403, "standard_field_reorder_denied", "无标准字段排序权限")
+        rows = (await db.execute(select(StandardField.id).where(StandardField.id.in_(ordered_ids)))).scalars().all()
+        if len(rows) != len(set(ordered_ids)):
+            _error(409, "standard_field_reorder_invalid", "排序列表包含未知字段")
+        for position, field_id in enumerate(ordered_ids):
+            field = await db.get(StandardField, field_id)
+            field.display_order = position
+            await db.flush()
+        db.add(SystemLog(category="scope_governance", action="standard_field_reordered", status="success", user_id=user.id,
+            metadata_json={"ordered_ids": ordered_ids}))
+        return {"ok": True}
 
 
 async def update_standard_field(db, field_id, payload, user):
@@ -571,7 +590,7 @@ async def list_people_fields(db, *, user=None):
     只返回展示所需元数据，不返回敏感分类/枚举明细，避免配置细节泄露。
     """
     stmt = select(StandardField).where(StandardField.is_active.is_(True))
-    fields = (await db.execute(stmt.order_by(StandardField.field_code))).scalars().all()
+    fields = (await db.execute(stmt.order_by(StandardField.display_order, StandardField.id))).scalars().all()
     entity_ids = {field.entity_id for field in fields if getattr(field, "entity_id", None) is not None}
     entity_names = {}
     if entity_ids:
@@ -586,6 +605,7 @@ async def list_people_fields(db, *, user=None):
         id=field.id, field_code=field.field_code, field_name=field.display_name, data_type=field.data_type,
         entity_id=getattr(field, "entity_id", None), entity_name=getattr(field, "_entity_name", None),
         group_id=getattr(field, "group_id", None), group_name=getattr(field, "_group_name", None),
+        display_order=field.display_order,
         is_active=field.is_active,
     ) for field in fields])
 

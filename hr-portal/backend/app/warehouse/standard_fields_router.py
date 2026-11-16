@@ -18,6 +18,7 @@ from app.warehouse.schemas import (
     StandardFieldUpdateIn,
     StandardFieldDetailOut,
     StandardFieldListOut,
+    StandardFieldReorderIn,
 )
 from app.warehouse.service import standard_fields as service
 
@@ -78,6 +79,16 @@ async def list_people_fields(
     只返回展示所需元数据（编码/名称/类型/分组/归属实体），不含敏感分类与枚举明细。
     """
     return await service.list_people_fields(db, user=user)
+
+
+@router.put("/order", response_model=dict)
+async def reorder_fields(
+    payload: StandardFieldReorderIn,
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    """字段拖拽排序：按全量有序字段 ID 重排 display_order。"""
+    return await service.reorder_standard_fields(db, payload.ordered_ids, user)
 
 
 @router.get("/{field_id}", response_model=StandardFieldDetailOut)

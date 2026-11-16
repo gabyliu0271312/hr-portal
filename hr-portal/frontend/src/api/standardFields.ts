@@ -28,6 +28,7 @@ export interface StandardFieldSummary {
   data_type: string
   category_ids: number[]
   value_domain: StandardFieldValueDomain | null
+  display_order: number
   revision: number
   is_active: boolean
 }
@@ -123,6 +124,7 @@ export interface PeopleField {
   entity_name?: string | null
   group_id?: number | null
   group_name?: string | null
+  display_order: number
   is_active: boolean
 }
 
@@ -134,6 +136,9 @@ export interface PeopleFieldsResponse {
 export const standardFieldsApi = {
   list(params: { entity_id?: number; group_id?: number; keyword?: string; is_active?: boolean; offset?: number; limit?: number } = {}) {
     return api.get<StandardFieldListResponse>('/warehouse/standard-fields', { params }).then(r => r.data)
+  },
+  reorder(orderedIds: number[]) {
+    return api.put<{ ok: boolean }>('/warehouse/standard-fields/order', { ordered_ids: orderedIds }).then(r => r.data)
   },
   peopleFields() {
     return api.get<PeopleFieldsResponse>('/warehouse/standard-fields/people-fields').then(r => r.data)

@@ -1767,6 +1767,7 @@ class StandardFieldSummaryOut(BaseModel):
     data_type: str
     value_domain: dict | None = None
     category_ids: list[int] = Field(default_factory=list)
+    display_order: int = 0
     revision: int
     is_active: bool
 
@@ -1827,7 +1828,14 @@ class PeopleFieldOut(BaseModel):
     entity_name: str | None = None
     group_id: int | None = None
     group_name: str | None = None
+    display_order: int = 0
     is_active: bool
+
+
+class StandardFieldReorderIn(BaseModel):
+    """字段拖拽排序入参：接收全量有序字段 ID 列表。"""
+    model_config = {"extra": "forbid"}
+    ordered_ids: list[int] = Field(min_length=1, max_length=1000)
 
 
 class PeopleFieldsOut(BaseModel):

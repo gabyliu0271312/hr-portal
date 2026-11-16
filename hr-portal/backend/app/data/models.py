@@ -289,6 +289,7 @@ class StandardField(Base):
     business_definition: Mapped[str] = mapped_column(Text, nullable=False)
     data_type: Mapped[str] = mapped_column(String(16), nullable=False)
     value_domain: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     grain_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
