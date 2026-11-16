@@ -45,7 +45,15 @@ function confirmDelete() {
 }
 function onEdit(row: TreeNode) { target.value = row; editing.value = true }
 function onAddChild(row: TreeNode) { target.value = row; addingChild.value = true }
-function onDelete(row: TreeNode) { target.value = row; deleting.value = true }
+function onDelete(row: TreeNode) {
+  // 有子成本中心：不允许删除，直接弹单按钮「删除失败」提示（对齐 UI 17:1703）
+  if (row.children?.length) {
+    removeFailed.value = true
+    return
+  }
+  target.value = row
+  deleting.value = true
+}
 const error = ref('')
 const issues = ref<HealthIssue[]>([])
 const warnings = ref<TreeHealthWarning[]>([])

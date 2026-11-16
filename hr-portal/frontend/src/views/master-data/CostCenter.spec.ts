@@ -198,14 +198,16 @@ describe('cost center directory shell', () => {
     wrapper.unmount()
   })
 
-  it('shows failure dialog when deleting a cost center with children', async () => {
-    api.deleteCostCenter.mockRejectedValueOnce({ response: { status: 409, data: { detail: '该成本中心包含下级成本中心，不允许删除' } } })
+  it('blocks delete with a single-button failure dialog when the cost center has children', async () => {
     const wrapper = mount(CostCenter, options); await flushPromises()
-    await wrapper.get('.act-del').trigger('click'); await flushPromises()
     const vm = wrapper.vm as any
-    expect(vm.deleting).toBe(true)
-    await vm.confirmDelete(); await flushPromises()
+    const parent = { id: 5, code: 'P', name: '父中心', parent_id: null, level: 1, is_leaf: false, is_active: true, synced_at: null, children: [{ id: 6, code: 'C6', name: '子', parent_id: 5, level: 2, is_leaf: true, is_active: true, synced_at: null, children: [] }] }
+    vm.onDelete(parent)
+    await flushPromises()
+    // 有子节点：不弹确认，直接弹失败弹窗
+    expect(vm.deleting).toBe(false)
     expect(vm.removeFailed).toBe(true)
+    expect(api.deleteCostCenter).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })
