@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import UiSortableList from './UiSortableList.vue'
 import UiDragHandle from './UiDragHandle.vue'
 
@@ -50,8 +49,11 @@ function keyOf(row: any, index: number) {
   return value === undefined || value === null || value === '' ? `row-${index}` : String(value)
 }
 
-function declaredWidth(column: UiSortableColumn) {
-  return column.width ?? column.minWidth ?? 160
+/** 列宽：有 width 则固定，否则 flex 均分（minWidth 兜底防挤压），实现自适应撑满容器。 */
+function columnWidthStyle(column: UiSortableColumn) {
+  if (column.width) return { flex: `0 0 ${column.width}px`, minWidth: `${column.width}px` }
+  if (column.minWidth) return { flex: '1 1 0', minWidth: `${column.minWidth}px` }
+  return { flex: '1 1 0', minWidth: '120px' }
 }
 
 function displayValue(value: unknown) {
@@ -82,7 +84,7 @@ function onReorder(from: number, to: number) {
         :key="column.key"
         class="ui-sortable-table__cell ui-sortable-table__cell--head"
         :class="cellAlign(column)"
-        :style="{ width: `${declaredWidth(column)}px` }"
+        :style="columnWidthStyle(column)"
       >{{ column.label }}</div>
     </div>
 
@@ -117,7 +119,7 @@ function onReorder(from: number, to: number) {
             :key="column.key"
             class="ui-sortable-table__cell"
             :class="cellAlign(column)"
-            :style="{ width: `${declaredWidth(column)}px` }"
+            :style="columnWidthStyle(column)"
           >
             <div class="ui-sortable-table__cell-content">
               <slot name="cell" :row="row" :column="column" :value="(row as any)[column.key]">
@@ -133,7 +135,7 @@ function onReorder(from: number, to: number) {
 
 <style scoped>
 /* 视觉完全对齐 UiTable token（--ui-table-*）：表头 46 #f2f3f5/#646a73、行高 51、cell padding 12、分隔线、hover。 */
-.ui-sortable-table { min-width: 0; }
+.ui-sortable-table { width: 100%; min-width: 0; }
 .ui-sortable-table.is-sticky-header > .ui-sortable-table__header {
   position: sticky;
   top: var(--ui-sortable-sticky-top, 0px);
@@ -143,6 +145,7 @@ function onReorder(from: number, to: number) {
 .ui-sortable-table__header {
   display: flex;
   align-items: center;
+  width: 100%;
   min-width: 0;
   border-top: 1px solid var(--ui-table-border-color);
   border-bottom: 1px solid var(--ui-table-border-color);
@@ -152,6 +155,7 @@ function onReorder(from: number, to: number) {
 .ui-sortable-table__row {
   display: flex;
   align-items: center;
+  width: 100%;
   min-width: 0;
   border-bottom: 1px solid var(--ui-table-border-color);
   background: var(--ui-surface-background);
@@ -180,13 +184,14 @@ function onReorder(from: number, to: number) {
 }
 .ui-sortable-table__cell--drag {
   flex: 0 0 auto;
-  padding: 0 0 0 var(--ui-table-cell-padding-inline);
+  padding: 0;
   display: flex;
   align-items: center;
+  justify-content: center;
   min-width: 0;
   overflow: visible;
 }
-.ui-sortable-table__cell--drag :deep(.performance-drag-handle) { flex: 0 0 16px; width: 16px; margin-right: 4px; }
+.ui-sortable-table__cell--drag :deep(.performance-drag-handle) { flex: 0 0 16px; width: 16px; margin: 0; }
 .ui-sortable-table__cell.is-align-right { text-align: right; }
 .ui-sortable-table__cell-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ui-sortable-table__state { height: var(--ui-table-empty-height); display: flex; align-items: center; justify-content: center; color: var(--ui-table-placeholder-color); border-bottom: 1px solid var(--ui-table-border-color); background: var(--ui-surface-background); }

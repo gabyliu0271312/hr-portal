@@ -126,13 +126,13 @@ const groupTabs = computed(() => [
 ])
 
 const tableColumns = computed<UiSortableColumn[]>(() => [
-  { key: 'field_code', label: '字段编码', width: 160 },
-  { key: 'field_name', label: '字段名称', width: 170 },
-  { key: 'entity_name', label: '归属实体', width: 130 },
-  { key: 'group_name', label: '业务分组', width: 120 },
-  { key: 'data_type', label: '数据类型', width: 105 },
-  { key: 'business_definition', label: '业务定义', width: 260 },
-  { key: 'category', label: '敏感分类', width: 110 },
+  { key: 'field_code', label: '字段编码', minWidth: 160 },
+  { key: 'field_name', label: '字段名称', minWidth: 170 },
+  { key: 'entity_name', label: '归属实体', minWidth: 130 },
+  { key: 'group_name', label: '业务分组', minWidth: 120 },
+  { key: 'data_type', label: '数据类型', minWidth: 105 },
+  { key: 'business_definition', label: '业务定义', minWidth: 260 },
+  { key: 'category', label: '敏感分类', minWidth: 110 },
   { key: 'action', label: '操作', width: 80 },
 ])
 function cellValue(row: StandardFieldSummary, column: UiSortableColumn) {
