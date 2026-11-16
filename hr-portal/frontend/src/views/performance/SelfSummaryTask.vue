@@ -271,7 +271,7 @@ function saveDraft() {
 }
 
 function openReminder(reference: PerformanceReferenceTab) {
-  openMemberReminder({ projectId: Number(task.value.project_id || route.query.project_id), cycleId: Number(route.query.cycle_id), employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(task.value.task_kind || '') ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, taskId: reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(task.value.project_id || route.query.project_id), cycleId: Number(route.query.cycle_id), employeeNo: reference.employee_no || task.value.person.employee_no, displayName: task.value.person.display_name, sourceTaskId: ['evaluation', 'calibration', 'result_communication'].includes(task.value.task_kind || '') ? Number(task.value.task_id) || undefined : undefined, nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 function selectedTags(value: unknown) { return Array.isArray(value) ? value as string[] : (value as { tags?: string[] } | undefined)?.tags || [] }
 function tagNotes(value: unknown) { return (value as { notes?: Record<string, string> } | undefined)?.notes || {} }

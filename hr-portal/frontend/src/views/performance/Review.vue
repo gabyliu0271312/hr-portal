@@ -423,7 +423,7 @@ function openEvaluateReminder(payload: { node: PerformanceReviewNode; member: Pe
 }
 function openDrawerReminder(reference: PerformanceReferenceTab, sourceTaskId?: number) {
   const member = drawerMember.value
-  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && ['evaluation', 'calibration', 'result_communication'].includes(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, taskId: reference.task_id || undefined })
+  openMemberReminder({ projectId: Number(activeProjectId.value), cycleId: projectContext.activeCycleId || undefined, employeeNo: reference.employee_no || member?.member.employee_no || '', displayName: member?.member.display_name, sourceTaskId: sourceTaskId || (member && ['evaluation', 'calibration', 'result_communication'].includes(member.node.task_kind || member.node.node_type) ? member.task_id : undefined), nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 async function editDrawerTask(payload: { task_id: string | number; employee_no: string; draft_choice?: 'use' | 'discard' }) {
   const current = drawerMember.value

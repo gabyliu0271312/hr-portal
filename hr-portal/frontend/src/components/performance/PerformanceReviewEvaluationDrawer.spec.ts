@@ -327,6 +327,24 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     } finally { wrapper.unmount() }
   })
 
+  it.each([false, true])('exposes the shared outline reminder for an allowed team-review 360 reference: allowed=%s', async allowed => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
+      ...structuredClone(task), task_kind: 'evaluation',
+      management_tabs: [{ key: 'management-feedback', kind: 'reviewer_360', node_id: 'feedback', node_name: '360°反馈', employee_no: 'E001', task_id: null, status: 'pending', can_remind: allowed, form_schema: [], answers: {}, reviewers: [], expected_count: 2 }],
+      default_active_tab: 'management-feedback',
+    })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145, employeeNo: 'E001' } })
+    await flushPromises()
+    const button = document.body.querySelector<HTMLButtonElement>('.performance-remind-button--outline')
+    expect(Boolean(button)).toBe(allowed)
+    if (button) {
+      button.click()
+      await flushPromises()
+      expect(wrapper.emitted('remind')).toEqual([[expect.objectContaining({ kind: 'reviewer_360', node_id: 'feedback', task_id: null, employee_no: 'E001' }), 145]])
+    }
+    wrapper.unmount()
+  })
+
   it('renders only configured reference tabs and shows unsubmitted reminder action', async () => {
     vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({
       ...structuredClone(task),

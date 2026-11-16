@@ -125,6 +125,9 @@ describe('ProjectManagement', () => {
     wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { node_id: 'summary', task_id: 77, employee_no: 'E001' })
     await flushPromises()
     expect(dialog.props('context')).toMatchObject({ nodeId: 'summary', targetTaskId: 77, targetKind: undefined })
+    wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { kind: 'reviewer_360', node_id: 'feedback', task_id: null, employee_no: 'E001' })
+    await flushPromises()
+    expect(dialog.props('context')).toMatchObject({ nodeId: 'feedback', targetTaskId: undefined, targetKind: 'reviewer_360' })
     wrapper.unmount()
   })
 

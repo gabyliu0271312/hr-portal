@@ -303,7 +303,7 @@ function delegationCompleted(count: number, _notificationStatus: string | undefi
 function handleDrawerRemind(reference: PerformanceReferenceTab) {
   const member = drawerMember.value
   if (!member) return
-  openMemberReminder({ projectId: member.project_id, cycleId: activeCycle.value?.cycle_id, employeeNo: reference.employee_no || member.employee_no, displayName: member.display_name, nodeId: reference.node_id, taskId: reference.task_id || undefined })
+  openMemberReminder({ projectId: member.project_id, cycleId: activeCycle.value?.cycle_id, employeeNo: reference.employee_no || member.employee_no, displayName: member.display_name, nodeId: reference.node_id, targetKind: reference.kind === 'reviewer_360' ? 'reviewer_360' : undefined, taskId: reference.kind === 'reviewer_360' ? undefined : reference.task_id || undefined })
 }
 function handleEvaluateRemind(payload: { member: { project_id?: number; employee_no: string; display_name?: string }; pendingCount: number }) {
   const cycle = activeCycle.value

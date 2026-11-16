@@ -3368,6 +3368,9 @@ async def _project_member_detail(
                 **({"target_kind": "reviewer_360"} if anonymous else {"task_id": task.id})))
         if reminder_allowed:
             reminder_target = "360°评估人" if anonymous else handler_names_for_view.get(str(task.handler_ref)) or str(task.handler_ref)
+        for reference in tabs:
+            if reference["node_id"] == node.node_id:
+                reference["can_remind"] = reminder_allowed
         stage_views.append({
             "node_id": node.node_id, "node_type": node.node_type, "node_name": node.name,
             "key": f"management-{node.node_id}",

@@ -165,6 +165,16 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.findComponent({ name: 'PerformanceTaskOverlay' }).exists()).toBe(false)
   })
 
+  it('opens a 360 reference in the shared single-employee dialog with the loaded manager source', async () => {
+    const reference = { key: 'feedback', kind: 'reviewer_360', node_id: 'feedback', node_name: '360°反馈', task_id: null, employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_remind: true, reviewers: [], expected_count: 2 }
+    vi.mocked(performanceReviewApi.selfSummary).mockResolvedValue({ ...structuredClone(task), task_id: 42, task_kind: 'evaluation', project_id: 1, reference_tabs: [reference] })
+    const wrapper = mount(SelfSummaryTask, { global: { stubs: { PerformanceMemberReminderDialog: true } } })
+    await flushPromises()
+    await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
+    await wrapper.get('.performance-remind-button--outline').trigger('click')
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { sourceTaskId: 42, employeeNo: 'E001', nodeId: 'feedback', targetKind: 'reviewer_360', targetTaskId: undefined } })
+  })
+
   it.each([undefined, { tags: [], notes: {} }])('applies default tags only to missing editable answers: %o', async value => {
     const loaded = structuredClone(task)
     loaded.form_schema = [{ id: 'tags', name: '标签', fields: [{ id: 'value', type: 'tag_with_followup', label: '默认标签', default_all: true, options: [{ id: 'good', label: '亮点' }] }] }]

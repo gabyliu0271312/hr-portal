@@ -176,6 +176,9 @@ describe('PerformanceReview', () => {
     wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { employee_no: 'E001', node_id: 'summary', task_id: 77 }, 42)
     await flushPromises()
     expect(wrapper.getComponent(PerformanceMemberReminderDialog).props('context')).toMatchObject({ employeeNo: 'E001', sourceTaskId: 42, nodeId: 'summary', targetTaskId: 77 })
+    wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('remind', { kind: 'reviewer_360', employee_no: 'E001', node_id: 'feedback', task_id: null }, 42)
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props('context')).toMatchObject({ employeeNo: 'E001', sourceTaskId: 42, nodeId: 'feedback', targetKind: 'reviewer_360', targetTaskId: undefined })
     wrapper.unmount()
   })
 

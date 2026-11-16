@@ -10263,10 +10263,12 @@ async def test_filling_360_reference_uses_same_projection(management_member_data
 
 
 @pytest.mark.asyncio
-async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anonymous_node(management_member_data, monkeypatch):
+@pytest.mark.parametrize("source_task_id", [None, 1])
+async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anonymous_node(management_member_data, monkeypatch, source_task_id):
     from unittest.mock import AsyncMock
     data = management_member_data
     data.nodes[1].config["template"]["executor_role_code"] = "assessment.reviewer_360"
+    data.nodes[-1].config["template"]["content"].append({"content_slot": "reference", "reference_kind": "node", "reference_value": "node-20"})
     for index in (2, 3, 4):
         data.tasks[index - 1].submitted_at = None
         data.tasks[index - 1].status = "pending"
@@ -10277,7 +10279,7 @@ async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anony
     from app.performance import member_reminders
     reminder = AsyncMock(return_value=False)
     monkeypatch.setattr(member_reminders, "can_remind_member", reminder)
-    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, source_task_id=source_task_id)
     stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
     assert stage["anonymous"] is True
     assert stage["can_fill"] is True and stage["reminder_target"] is None
@@ -10287,12 +10289,14 @@ async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anony
     for index in (2, 3, 4):
         data.tasks[index - 1].handler_ref = "M4"
     reminder.return_value = True
-    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, source_task_id=source_task_id)
     stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
     assert stage["can_fill"] is False
     assert stage["can_remind"] is True
     assert stage["reminder_target"] == "360°评估人"
-    assert any(call.kwargs.get("target_kind") == "reviewer_360" for call in reminder.await_args_list)
+    tab = next(tab for tab in detail["management_tabs"] if tab["node_id"] == "node-20")
+    assert tab["can_remind"] is True and tab["task_id"] is None
+    assert any(call.kwargs.get("target_kind") == "reviewer_360" and call.kwargs.get("source_task_id") == source_task_id for call in reminder.await_args_list)
 
 
 @pytest.mark.asyncio
