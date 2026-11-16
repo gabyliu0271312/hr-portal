@@ -10281,6 +10281,7 @@ async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anony
     stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
     assert stage["anonymous"] is True
     assert stage["can_fill"] is True and stage["reminder_target"] is None
+    assert stage["can_remind"] is False
     assert stage["task_id"] == 4
     # actor 非处理人：应显示「催办」
     for index in (2, 3, 4):
@@ -10289,6 +10290,7 @@ async def test_management_detail_360_stage_view_exposes_fill_or_remind_for_anony
     detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
     stage = next(view for view in detail["stage_views"] if view["node_id"] == "node-20")
     assert stage["can_fill"] is False
+    assert stage["can_remind"] is True
     assert stage["reminder_target"] == "360°评估人"
     assert any(call.kwargs.get("target_kind") == "reviewer_360" for call in reminder.await_args_list)
 

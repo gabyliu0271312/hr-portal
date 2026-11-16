@@ -3377,6 +3377,7 @@ async def _project_member_detail(
             "deadline_at": deadline, "submitted_at": task.submitted_at if task else None,
             "empty": not related,
             "can_fill": can_fill and not (final_locked and node is final_node),
+            "can_remind": reminder_allowed,
             "final_result_locked": bool(final_locked and node is final_node),
             "reminder_target": reminder_target,
             "anonymous": anonymous,
