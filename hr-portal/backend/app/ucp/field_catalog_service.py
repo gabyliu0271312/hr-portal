@@ -67,9 +67,12 @@ async def _discover_via_client(
     try:
         return await client.discover_fields()
     except Exception as error:
-        raise FieldCatalogError(
-            f"字段发现失败：{error}"
-        ) from error
+        message = str(error)
+        if "BEISEN_REPORT_ID" in message:
+            raise FieldCatalogError(
+                "北森报表缺少 Report ID：请在「资源数据对象」配置中填写 report_id 后重试"
+            ) from error
+        raise FieldCatalogError(f"字段发现失败：{message}") from error
 
 
 def _discover_via_adapter_schema(

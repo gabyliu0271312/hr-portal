@@ -281,6 +281,7 @@ function capabilityOptionLabel(item: any): string { return item.verification_sta
 function selectConnectorResource(value: number): void {
   if (!selectedNode.value) return
   const resource = allResources.value.find((item) => item.id === value)
+  const needsObject = resource?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER' || resource?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'
   selectedNode.value.config = {
     ...(selectedNode.value.config || {}), resource_id: value,
     resource_name: resource?.resource_name || '', resource_code: resource?.resource_code || '',
@@ -288,17 +289,23 @@ function selectConnectorResource(value: number): void {
     output_field_catalog: [],
   }
   resourceDataObjects.value = []
-  void refreshConnectorFieldCatalog(value)
+  // 数据对象型资源（北森报表/飞书多维表格）：选资源只拉对象列表，选对象后再发现字段。
+  // 非对象型资源（通用HTTP等）：选资源即可发现字段。
   if (resource?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER') void loadResourceDataObjects(value)
+  if (!needsObject) void refreshConnectorFieldCatalog(value)
 }
 /** 通用设计期字段发现：把当前 CONNECTOR 的真实响应字段写入 config.output_field_catalog。
- *  下游 TRANSFORM / 资产写入 / 条件分支 统一从 output_field_catalog 读取源字段。 */
+ *  下游 TRANSFORM / 资产写入 / 条件分支 统一从 output_field_catalog 读取源字段。
+ *  数据对象型资源需先选数据对象（北森报表/飞书多维表格）；非对象型资源选资源即可。 */
 async function refreshConnectorFieldCatalog(resourceId?: number | null, dataObjectId?: number | null): Promise<void> {
   if (!selectedNode.value || selectedNode.value.type !== 'CONNECTOR') return
   const rid = resourceId ?? Number(selectedNode.value.config?.resource_id || 0)
   if (!rid) return
+  const adapterCode = selectedNode.value.config?.adapter_code
+  const objectId = (dataObjectId ?? Number(selectedNode.value.config?.data_object_id || 0)) || null
+  // 数据对象型资源必须先选数据对象，避免只选资源就报"配置缺失"。
+  if ((adapterCode === 'BEISEN_REPORT_PULL_ADAPTER' || adapterCode === 'FEISHU_BITABLE_PULL_ADAPTER') && !objectId) return
   try {
-    const objectId = (dataObjectId ?? Number(selectedNode.value.config?.data_object_id || 0)) || null
     const result = await ucpApi.resourceFieldCatalog(rid, objectId)
     const config = selectedNode.value.config as Record<string, any>
     config.output_field_catalog = (result.items || []).map((field) => ({
