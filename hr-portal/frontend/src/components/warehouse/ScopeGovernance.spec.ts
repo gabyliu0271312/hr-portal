@@ -306,6 +306,8 @@ const standardStubs = {
   ...stubs, 'el-table': standardTable, 'el-table-column': standardColumn,
   'el-input-number': { props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="number" :value="modelValue" @input="$emit(\'update:modelValue\', Number($event.target.value))" />' },
   'el-switch': { props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />' },
+  UiDrawerShell: { props: ['modelValue', 'title'], template: '<aside v-if="modelValue"><h3>{{ title }}</h3><slot /><slot name="footer" /></aside>' },
+  UiButton: { props: ['variant', 'disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
 }
 function definition(overrides: Partial<StandardFieldSummary> = {}): StandardFieldSummary {
   return { id: 1, field_code: 'field_type', revision: 4, field_name: '匹配类型', business_definition: '来源匹配字段类型', data_type: 'enum', category_ids: [], value_domain: { items: [{ code: 'org', name: '组织', enabled: true, sort_order: 0 }] }, is_active: true, ...overrides }
