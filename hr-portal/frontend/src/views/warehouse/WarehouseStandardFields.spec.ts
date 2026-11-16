@@ -63,7 +63,7 @@ describe('warehouse standard fields page', () => {
     expect(wrapper.text()).toContain('标准字段目录')
     expect(wrapper.find('.list-toolbar-stub').exists()).toBe(true)
     expect(wrapper.find('.filter-button').exists()).toBe(true)
-    expect(wrapper.text()).toContain('新建标准字段')
+    expect(wrapper.text()).toContain('新建字段')
     wrapper.unmount()
   })
 

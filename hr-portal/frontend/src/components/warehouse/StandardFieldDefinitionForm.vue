@@ -11,7 +11,7 @@ const dataTypes = [{ value: 'string', label: '字符串' }, { value: 'number', l
 </script>
 
 <template>
-  <el-form label-position="top" @submit.prevent="emit('submit')">
+  <el-form label-position="top" class="standard-field-form" @submit.prevent="emit('submit')">
     <el-form-item label="字段编码" required><el-input :model-value="modelValue.field_code" :disabled="mode !== 'create'" maxlength="64" placeholder="例如 employee_no" @update:model-value="update('field_code', $event)" /></el-form-item>
     <el-form-item label="字段名称" required><el-input :model-value="modelValue.field_name" maxlength="128" @update:model-value="update('field_name', $event)" /></el-form-item>
     <el-form-item label="业务定义" required><el-input :model-value="modelValue.business_definition" type="textarea" :rows="3" maxlength="4000" @update:model-value="update('business_definition', $event)" /></el-form-item>
@@ -22,3 +22,31 @@ const dataTypes = [{ value: 'string', label: '字符串' }, { value: 'number', l
     <el-form-item label="业务分组"><el-select :model-value="modelValue.group_id" clearable :disabled="saving" placeholder="按创梦人力字段设置分组组织（可选）" style="width: 100%" @update:model-value="update('group_id', $event || null)"><el-option v-for="group in groups || []" :key="group.id" :value="group.id" :label="group.name" /></el-select></el-form-item>
   </el-form>
 </template>
+
+<style scoped>
+/* 对齐 Ardot 13:60 新建弹窗字段布局：上标签 + 下输入框，间距/左右 padding 全部消费 token。 */
+.standard-field-form :deep(.el-form-item) { margin-bottom: var(--ui-form-item-gap); }
+.standard-field-form :deep(.el-form-item:last-child) { margin-bottom: 0; }
+.standard-field-form :deep(.el-form-item__label) {
+  height: var(--ui-form-label-height);
+  padding: 0;
+  margin-bottom: var(--ui-form-label-gap);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--ui-form-label-weight);
+  line-height: var(--ui-form-label-line-height);
+}
+.standard-field-form :deep(.el-input__wrapper),
+.standard-field-form :deep(.el-select__wrapper) {
+  border-radius: var(--ui-form-field-radius);
+  box-shadow: var(--control-border) inset;
+}
+.standard-field-form :deep(.el-input__wrapper.is-focus),
+.standard-field-form :deep(.el-select__wrapper.is-focused) {
+  box-shadow: var(--control-focus-border) inset;
+}
+.standard-field-form :deep(.el-textarea__inner) {
+  border-radius: var(--ui-form-field-radius);
+  box-shadow: var(--control-border) inset;
+}
+</style>

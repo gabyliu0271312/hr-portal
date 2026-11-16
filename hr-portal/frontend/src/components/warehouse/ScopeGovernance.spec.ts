@@ -306,7 +306,7 @@ const standardStubs = {
   ...stubs, 'el-table': standardTable, 'el-table-column': standardColumn,
   'el-input-number': { props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="number" :value="modelValue" @input="$emit(\'update:modelValue\', Number($event.target.value))" />' },
   'el-switch': { props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />' },
-  UiDrawerShell: { props: ['modelValue', 'title'], template: '<aside v-if="modelValue"><h3>{{ title }}</h3><slot /><slot name="footer" /></aside>' },
+  UiDialogShell: { props: ['modelValue', 'title'], template: '<aside v-if="modelValue"><h3>{{ title }}</h3><slot /><slot name="footer" /></aside>' },
   UiButton: { props: ['variant', 'disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot /></button>' },
 }
 function definition(overrides: Partial<StandardFieldSummary> = {}): StandardFieldSummary {

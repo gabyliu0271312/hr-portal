@@ -160,7 +160,7 @@ function cellValue(row: StandardFieldSummary, column: UiTableColumn) {
             <template #actions>
               <PermissionButton menu="warehouse.standard_fields.catalog" op="C" type="primary" class="standard-fields__create" @click="openCreate">
                 <svg class="standard-fields__add-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></svg>
-                新建标准字段
+                新建字段
               </PermissionButton>
             </template>
           </UiListToolbar>
@@ -170,7 +170,7 @@ function cellValue(row: StandardFieldSummary, column: UiTableColumn) {
               :rows="rows"
               row-key="id"
               :loading="loading"
-              :empty-text="'暂无标准字段，可新建字段定义。'"
+              :empty-text="'暂无字段，可新建字段定义。'"
               :min-width="tableColumns.length * 140"
               sticky-header-top="0px"
               aria-label="标准字段表格"

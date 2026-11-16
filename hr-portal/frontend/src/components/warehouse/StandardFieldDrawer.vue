@@ -8,7 +8,7 @@ import { useUserStore } from '@/stores/user'
 import { masterDataApi, type EntityDefinition } from '@/api/masterData'
 import StandardFieldDefinitionForm from './StandardFieldDefinitionForm.vue'
 import StandardFieldValueDomain from './StandardFieldValueDomain.vue'
-import UiDrawerShell from '@/components/ui/UiDrawerShell.vue'
+import UiDialogShell from '@/components/ui/UiDialogShell.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 
 const props = defineProps<{ modelValue: boolean; fieldId: number | null; entityId?: number; groupId?: number }>()
@@ -137,7 +137,7 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
 </script>
 
 <template>
-  <UiDrawerShell :model-value="modelValue" :title="mode === 'create' ? '新建标准字段' : '标准字段详情'" width="var(--drawer-wide-width)" :close-disabled="saving" @close="close">
+  <UiDialogShell :model-value="modelValue" :title="mode === 'create' ? '新建字段' : '字段详情'" width="var(--ui-dialog-width)" :loading="saving" @close="close">
     <div v-loading="loading" class="standard-field-drawer">
       <el-alert v-if="error" :title="String(error)" type="error" :closable="false" show-icon />
       <p class="standard-field-drawer__note">此处维护字段定义和敏感分类；来源映射由资产/Mapping流程负责，发布和查询权限由服务端统一校验。</p>
@@ -162,13 +162,12 @@ onBeforeUnmount(() => { ++contextId; ++requestId })
     </div>
     <template #footer>
       <div class="standard-field-drawer__footer">
-        <UiButton variant="secondary" @click="close">关闭</UiButton>
         <PermissionButton v-if="detail && mode === 'view'" menu="warehouse.standard_fields.catalog" op="U" :disabled="saving || !detail.is_active || migrationRequired" @click="beginEdit">编辑</PermissionButton>
         <UiButton v-if="writable()" variant="secondary" @click="cancel">取消</UiButton>
         <PermissionButton v-if="writable()" menu="warehouse.standard_fields.catalog" :op="mode === 'edit' ? 'U' : 'C'" type="primary" :disabled="saving || migrationRequired" @click="save">{{ saving ? '保存中…' : '保存字段' }}</PermissionButton>
       </div>
     </template>
-  </UiDrawerShell>
+  </UiDialogShell>
 </template>
 
 <style scoped>
