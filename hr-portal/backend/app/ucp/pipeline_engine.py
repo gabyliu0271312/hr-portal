@@ -1233,22 +1233,31 @@ async def _execute_warehouse_asset_sink_step(
         if not target_whitelist or not set(target_whitelist).issubset(set(target_fields)):
             raise RuntimeError("warehouse asset sink field whitelist is not approved by target asset")
         source_asset = config.get("source_asset") or config.get("source_table")
-        if not isinstance(source_asset, str) or not source_asset:
-            raise RuntimeError("warehouse asset sink component mapping requires source_asset")
-        source_registered = await db.scalar(
-            select(RegisteredTable).where(RegisteredTable.table_name == source_asset)
-        )
-        if source_registered is None or source_registered.asset_status != "published":
-            raise RuntimeError("warehouse asset sink source asset is unavailable")
-        source_columns = list((await db.execute(
-            select(TableColumn).where(TableColumn.table_name == source_asset)
-        )).scalars())
-        source_fields = {column.column_code for column in source_columns}
+        # 上游字段目录优先：前端在 sink 配置第一步把上游（CONNECTOR/接口）
+        # 的字段目录写入 mapping_source_catalog，运行时不再强制源为已发布资产。
+        source_catalog = config.get("mapping_source_catalog")
+        if isinstance(source_catalog, list) and source_catalog:
+            source_fields = {str(item["field_id"]) for item in source_catalog if isinstance(item, dict) and isinstance(item.get("field_id"), str)}
+        else:
+            source_fields = set()
+        if not source_fields:
+            if not isinstance(source_asset, str) or not source_asset:
+                raise RuntimeError("warehouse asset sink component mapping requires source_asset or mapping_source_catalog")
+            source_registered = await db.scalar(
+                select(RegisteredTable).where(RegisteredTable.table_name == source_asset)
+            )
+            if source_registered is None or source_registered.asset_status != "published":
+                raise RuntimeError("warehouse asset sink source asset is unavailable")
+            source_columns = list((await db.execute(
+                select(TableColumn).where(TableColumn.table_name == source_asset)
+            )).scalars())
+            source_fields = {column.column_code for column in source_columns}
         if not source_fields:
             raise RuntimeError("warehouse asset sink source asset has no approved fields")
         config["mapping_source_catalog"] = [{"field_id": field} for field in sorted(source_fields)]
         config["mapping_target_catalog"] = [{"field_id": field} for field in target_whitelist]
-        config["source_asset"] = source_asset
+        if isinstance(source_asset, str) and source_asset:
+            config["source_asset"] = source_asset
         config["target_asset"] = target_asset
         mapping_result = await _execute_mapping_component(
             config,

@@ -1,34 +1,116 @@
 <template>
   <div class="warehouse-sink-config">
-    <el-alert v-if="config.write_mode === 'replace'" title="危险：每次运行会清空目标资产全部数据后重写。" type="error" :closable="false" style="margin-bottom:12px" />
-    <el-alert v-if="config.write_mode === 'period_full_snapshot'" title="本批次会替换目标期间数据，并删除该期间未出现的业务键；历史期间保持不变。" type="warning" :closable="false" style="margin-bottom:12px" />
-    <el-form-item label="目标资产"><el-select :model-value="modelValue.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectAsset"><el-option v-for="asset in assets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" /></el-select></el-form-item>
-    <IngestionModeSelect v-model="ingestionMode" :is-period="assetIsPeriod" :period-label="periodLabel" :key-labels="businessKeyLabels" />
-    <el-form-item v-if="config.write_mode === 'period_full_snapshot'" label="期间字段"><el-input :model-value="config.period_field" disabled /></el-form-item>
-    <el-form-item label="业务主键"><el-tag v-for="column in columns.filter(item => item.is_pk_part)" :key="column.column_code" size="small" style="margin-right:6px">{{ column.column_label }}</el-tag></el-form-item>
-    <el-form-item label="允许写入字段"><el-select v-model="config.field_whitelist" multiple filterable style="width:100%"><el-option v-for="column in columns" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select></el-form-item>
-    <el-form-item label="事件补充字段"><el-select v-model="config.event_fields" multiple allow-create filterable default-first-option placeholder="例如 period" style="width:100%" /></el-form-item>
-    <el-divider content-position="left">字段映射</el-divider>
-    <el-alert v-if="lossyWriteBlocked" class="lossy-write-blocked" type="error" :closable="false" show-icon>
-      <template #title>lossy_write_blocked：{{ mappingSaveState.message }}</template>
-    </el-alert>
-    <MappingWorkspace
-      :model-value="mappingDocument"
-      :policy="mappingPolicy"
-      :compatibility="compatibility"
-      :source-fields="sourceFields"
-      :target-fields="targetFields"
-      @update:model-value="handleMappingDocumentUpdate"
-      @dirty="handleMappingDirty"
-    />
-    <el-divider content-position="left">聚合校验</el-divider>
-    <div v-for="(rule, index) in config.validations" :key="index" class="mapping-row"><el-input v-model="rule.group_by_text" placeholder="分组字段，逗号分隔" @change="syncRules" /><el-select v-model="rule.sum_field" placeholder="汇总字段"><el-option v-for="column in columns" :key="column.column_code" :label="column.column_label" :value="column.column_code" /></el-select><el-input-number v-model="rule.expected" :precision="4" /><el-input-number v-model="rule.tolerance" :precision="4" :step="0.0001" /><el-button link type="danger" @click="config.validations.splice(index, 1)">删除</el-button></div>
-    <el-button size="small" @click="config.validations.push({ type: 'group_sum_equals', group_by_text: '', sum_field: '', expected: 1, tolerance: 0.0001 })">添加聚合校验</el-button>
+    <el-button type="primary" plain @click="openDialog">配置资产写入</el-button>
+
+    <UiFullScreenModal v-if="dialogVisible" title="资产写入配置" :show-footer="false" @back="closeDialog">
+      <template #subtitle>配置目标资产、上游字段映射与聚合校验；字段映射支持七类规则，运行时统一按公共映射文档执行。</template>
+      <template #actions>
+        <UiStepFlow :steps="dialogSteps" :current-step="dialogStep" aria-label="资产写入配置步骤" />
+        <el-button v-if="dialogStep > 0" @click="prevStep">上一步</el-button>
+        <el-button v-if="dialogStep < dialogSteps.length - 1" type="primary" @click="nextStep">下一步</el-button>
+        <el-button v-else type="primary" :disabled="!canSave" @click="finishDialog">完成配置</el-button>
+      </template>
+
+      <div class="sink-onboarding-body">
+        <section class="sink-onboarding-panel" :style="{ maxWidth: dialogPanelWidth }">
+          <header class="panel-header">
+            <h2>{{ currentStep.label }}</h2>
+            <p>{{ currentStep.hint }}</p>
+          </header>
+
+          <div v-show="dialogStep === 0" class="panel-body">
+            <el-alert v-if="config.write_mode === 'replace'" title="危险：每次运行会清空目标资产全部数据后重写。" type="error" :closable="false" />
+            <el-alert v-if="config.write_mode === 'period_full_snapshot'" title="本批次会替换目标期间数据，并删除该期间未出现的业务键；历史期间保持不变。" type="warning" :closable="false" />
+
+            <div class="field-grid">
+              <label class="field field--wide">
+                <span class="field-label">目标资产<i class="required">*</i></span>
+                <el-select :model-value="modelValue.target_asset" filterable placeholder="选择已发布数据资产" style="width:100%" @change="selectAsset">
+                  <el-option v-for="asset in assets" :key="asset.table_name" :label="asset.table_label" :value="asset.table_name" />
+                </el-select>
+              </label>
+            </div>
+
+            <div class="field-grid">
+              <label class="field">
+                <span class="field-label">写入模式<i class="required">*</i></span>
+                <IngestionModeSelect v-model="ingestionMode" :is-period="assetIsPeriod" :period-label="periodLabel" :key-labels="businessKeyLabels" />
+              </label>
+              <label v-if="config.write_mode === 'period_full_snapshot'" class="field">
+                <span class="field-label">期间字段</span>
+                <el-input :model-value="config.period_field" disabled />
+              </label>
+            </div>
+
+            <label class="field field--wide">
+              <span class="field-label">业务主键</span>
+              <div class="tag-list">
+                <el-tag v-for="column in columns.filter(item => item.is_pk_part)" :key="column.column_code" size="small">{{ column.column_label }}</el-tag>
+              </div>
+            </label>
+
+            <label class="field field--wide">
+              <span class="field-label">允许写入字段<i class="required">*</i></span>
+              <el-select v-model="config.field_whitelist" multiple filterable style="width:100%">
+                <el-option v-for="column in columns" :key="column.column_code" :label="column.column_label" :value="column.column_code" />
+              </el-select>
+              <span class="field-hint">仅白名单内字段可写入目标资产；映射后的目标字段必须都在此名单内。</span>
+            </label>
+
+            <label class="field field--wide">
+              <span class="field-label">事件补充字段</span>
+              <el-select v-model="config.event_fields" multiple allow-create filterable default-first-option placeholder="例如 period" style="width:100%" />
+              <span class="field-hint">来自触发事件的附加字段（如期间、来源标识），可参与字段映射。</span>
+            </label>
+          </div>
+
+          <div v-show="dialogStep === 1" class="panel-body panel-body--mapping">
+            <div v-if="upstreamSummary" class="upstream-banner">
+              <el-icon><Connection /></el-icon>
+              <span>上游字段目录：{{ upstreamSummary }}</span>
+            </div>
+            <el-alert v-if="lossyWriteBlocked" class="lossy-write-blocked" type="error" :closable="false" show-icon>
+              <template #title>lossy_write_blocked：{{ mappingSaveState.message }}</template>
+            </el-alert>
+            <MappingWorkspace
+              :model-value="mappingDocument"
+              :policy="mappingPolicy"
+              :compatibility="compatibility"
+              :source-fields="sourceFields"
+              :target-fields="targetFields"
+              @update:model-value="handleMappingDocumentUpdate"
+              @dirty="handleMappingDirty"
+            />
+            <div v-if="componentV1Hint" class="component-v1-hint">
+              {{ componentV1Hint }}
+            </div>
+          </div>
+
+          <div v-show="dialogStep === 2" class="panel-body">
+            <div class="panel-actions">
+              <el-button size="small" @click="config.validations.push({ type: 'group_sum_equals', group_by_text: '', sum_field: '', expected: 1, tolerance: 0.0001 })">添加聚合校验</el-button>
+              <span class="field-hint">校验写入行按分组汇总值是否与期望一致，保障入仓数据质量。</span>
+            </div>
+            <div v-for="(rule, index) in config.validations" :key="index" class="validation-row">
+              <el-input v-model="rule.group_by_text" placeholder="分组字段，逗号分隔" @change="syncRules" />
+              <el-select v-model="rule.sum_field" placeholder="汇总字段">
+                <el-option v-for="column in columns" :key="column.column_code" :label="column.column_label" :value="column.column_code" />
+              </el-select>
+              <el-input-number v-model="rule.expected" :precision="4" />
+              <el-input-number v-model="rule.tolerance" :precision="4" :step="0.0001" />
+              <el-button link type="danger" @click="config.validations.splice(index, 1)">删除</el-button>
+            </div>
+            <el-empty v-if="!config.validations.length" description="暂未配置聚合校验" :image-size="48" />
+          </div>
+        </section>
+      </div>
+    </UiFullScreenModal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { Connection } from '@element-plus/icons-vue'
 import {
   RULE_TYPES,
   type MappingCallerPolicy,
@@ -39,6 +121,8 @@ import {
 import MappingWorkspace from '@/components/mapping/MappingWorkspace.vue'
 import { getAsset, listAssets, listAssetColumns, type Asset, type AssetColumn } from '@/api/warehouse'
 import IngestionModeSelect, { type IngestionMode } from '@/components/warehouse/IngestionModeSelect.vue'
+import UiFullScreenModal from '@/components/ui/UiFullScreenModal.vue'
+import UiStepFlow from '@/components/ui/UiStepFlow.vue'
 
 interface MappingSaveState {
   canSave: boolean
@@ -49,12 +133,25 @@ interface MappingSaveState {
 
 type LegacyMapping = Record<string, any>
 
-const props = defineProps<{ modelValue: Record<string, any> }>()
+const props = defineProps<{
+  modelValue: Record<string, any>
+  upstreamFields?: Array<{ code: string; label: string; type?: string }>
+}>()
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, any>]
   'lossy-write-blocked': [state: MappingSaveState]
   'save-state': [state: MappingSaveState]
 }>()
+
+const dialogVisible = ref(false)
+const dialogStep = ref(0)
+const dialogSteps = [
+  { key: 'target', label: '目标资产与写入模式', hint: '选择已发布数据资产，确定写入模式与允许写入字段；白名单即目标字段全集。' },
+  { key: 'mapping', label: '字段映射', hint: '上游字段映射到目标字段；每条规则可升级为值映射、参考 Lookup、类型/格式转换、拆分合并等。' },
+  { key: 'validation', label: '聚合校验', hint: '可选配置分组汇总校验，保障入仓数据质量；不配置也可直接完成。' },
+]
+const currentStep = computed(() => dialogSteps[dialogStep.value])
+const dialogPanelWidth = computed(() => (dialogStep.value === 1 ? '1040px' : '720px'))
 const assets = ref<Asset[]>([])
 const columns = ref<AssetColumn[]>([])
 const assetIsPeriod = ref(false)
@@ -94,9 +191,26 @@ const protectedKeyFields = computed(() => {
 })
 const readonlyFields = computed(() => columns.value.filter(column => column.is_computed || (!column.is_pk_part && !fieldWhitelist.value.includes(column.column_code))).map(column => column.column_code))
 const sourceFields = computed(() => {
-  const codes = new Set<string>(Array.isArray(config.value.event_fields) ? config.value.event_fields : [])
-  mappingDocument.value.ruleSet.rules.forEach(rule => rule.sourceFields.forEach(field => field && codes.add(field)))
-  return Array.from(codes).map(code => ({ code, label: code }))
+  const codes = new Map<string, { code: string; label: string; type?: string }>()
+  ;(props.upstreamFields || []).forEach((field) => {
+    if (field?.code) codes.set(field.code, { code: field.code, label: field.label || field.code, type: field.type })
+  })
+  ;(Array.isArray(config.value.event_fields) ? config.value.event_fields : []).forEach((code) => {
+    if (code && !codes.has(code)) codes.set(code, { code, label: code })
+  })
+  mappingDocument.value.ruleSet.rules.forEach((rule) => rule.sourceFields.forEach((field) => {
+    if (field && !codes.has(field)) codes.set(field, { code: field, label: field })
+  }))
+  return Array.from(codes.values())
+})
+const upstreamSummary = computed(() => {
+  const fields = props.upstreamFields || []
+  return fields.length ? `${fields.length} 个上游字段（来自上游节点）` : '未识别到上游字段，可从事件补充字段手动添加'
+})
+const componentV1Hint = computed(() => {
+  if (!isComponentV1.value) return ''
+  const ruleCount = mappingDocument.value.ruleSet.rules.length
+  return `当前使用公共映射文档（component_v1）存储，${ruleCount} 条规则完整保留，支持七类规则（字段映射、值映射、参考 Lookup、默认映射+例外、类型转换、格式转换、拆分/合并）。`
 })
 const targetFields = computed(() => columns.value
   .filter(column => fieldWhitelist.value.includes(column.column_code))
@@ -230,6 +344,24 @@ function collectUnknownFields(snapshot: Record<string, any>, rawMapping: any[]):
 
 function initializeMappingAdapter(): void {
   ensureConfig()
+  // 优先读 component_v1（已保存的新流程）；否则读 legacy mapping 兼容旧流程。
+  const component = config.value.mapping_component
+  if (component && typeof component === 'object') {
+    mappingDocument.value = clone(component) as MappingDocument
+    legacyMappingSnapshot.value = Array.isArray(config.value.mapping) ? clone(config.value.mapping) : []
+    adapterReadLossyFields.value = []
+    adapterUnknownFields.value = collectUnknownFields(clone(config.value), legacyMappingSnapshot.value)
+    compatibility.value = {
+      sourceFormat: 'warehouse_asset_sink_component_v1',
+      readable: true,
+      writable: true,
+      requiresMigration: false,
+      lossyFields: [],
+      unknownFields: adapterUnknownFields.value,
+    }
+    syncDocumentToLegacy(false)
+    return
+  }
   const rawMapping = clone(Array.isArray(config.value.mapping) ? config.value.mapping : [])
   const lossyFields: string[] = []
   const rules = rawMapping.map((rule, index) => legacyRuleToPublic(rule, index, lossyFields)).filter((rule): rule is MappingRule => rule !== null)
@@ -333,10 +465,44 @@ function buildLegacyMapping(document: MappingDocument): { mapping?: LegacyMappin
   return lossyFields.length ? { lossyFields } : { mapping: output, lossyFields: [] }
 }
 
+const isComponentV1 = computed(() => dialogVisible.value && Boolean(config.value.mapping_component && typeof config.value.mapping_component === 'object'))
+
+/** 目标字段业务校验（与存储模式无关）：目标必须在白名单、非只读、不得覆盖主键既有映射。 */
+function validateTargetContract(document: MappingDocument): string[] {
+  const problems: string[] = []
+  document.ruleSet.rules.forEach((rule) => {
+    rule.targetFields.forEach((target) => {
+      if (!target) return
+      if (!fieldWhitelist.value.includes(target)) {
+        problems.push(`目标字段 ${target} 不在 Sink field_whitelist 中`)
+        return
+      }
+      if (readonlyFields.value.includes(target)) {
+        problems.push(`目标字段 ${target} 是 Sink 只读字段，Workspace 不得写入`)
+        return
+      }
+      if (protectedKeyFields.value.includes(target)) {
+        const original = legacyMappingSnapshot.value.find((raw: LegacyMapping, index: number) => String(index) === String(rule.id))
+        // 首次建立主键映射允许；已有主键映射更换源字段才视为覆盖并阻断。
+        const changedExistingMapping = original
+          && (original.source !== rule.sourceFields[0] || original.target !== target)
+        if (changedExistingMapping) problems.push(`目标字段 ${target} 是 Sink 主键，Workspace 不得覆盖既有映射`)
+      }
+    })
+  })
+  return problems
+}
+
 function updateSaveState(lossyFields: string[]): void {
-  const next: MappingSaveState = lossyFields.length
-    ? { canSave: false, code: 'lossy_write_blocked', message: lossyFields.join('；'), lossyFields: [...lossyFields] }
-    : { canSave: true, code: null, message: '', lossyFields: [] }
+  // component_v1 模式下，legacy 表达的有损不阻断（component 可表达），但目标字段业务校验仍执行。
+  const contractProblems = isComponentV1.value ? validateTargetContract(mappingDocument.value) : []
+  const next: MappingSaveState = isComponentV1.value
+    ? contractProblems.length
+      ? { canSave: false, code: 'lossy_write_blocked', message: contractProblems.join('；'), lossyFields: contractProblems }
+      : { canSave: true, code: null, message: '', lossyFields: [] }
+    : lossyFields.length
+      ? { canSave: false, code: 'lossy_write_blocked', message: lossyFields.join('；'), lossyFields: [...lossyFields] }
+      : { canSave: true, code: null, message: '', lossyFields: [] }
   const changed = JSON.stringify(next) !== JSON.stringify(mappingSaveState.value)
   mappingSaveState.value = next
   compatibility.value = {
@@ -354,8 +520,12 @@ function updateSaveState(lossyFields: string[]): void {
 function syncDocumentToLegacy(emitUpdate = true): void {
   const result = buildLegacyMapping(mappingDocument.value)
   updateSaveState(result.lossyFields)
-  if (!result.mapping) return
-  config.value.mapping.splice(0, config.value.mapping.length, ...clone(result.mapping))
+  // component_v1 运行时来源仅在弹窗打开时同步（旧流程保持 legacy 不受影响）。
+  if (isComponentV1.value) {
+    config.value.mapping_component = clone(mappingDocument.value)
+    config.value.storageMode = 'component_v1'
+  }
+  if (result.mapping) config.value.mapping.splice(0, config.value.mapping.length, ...clone(result.mapping))
   if (emitUpdate) emit('update:modelValue', config.value)
 }
 
@@ -378,6 +548,11 @@ async function selectAsset(value: string): Promise<void> {
   config.value.field_whitelist = []
   config.value.mapping = []
   config.value.validations = []
+  // 同步 component_v1 文档的目标资产，保证运行时 source/target 校验一致。
+  if (config.value.mapping_component && typeof config.value.mapping_component === 'object') {
+    config.value.mapping_component.ruleSet.targetAsset = value
+    mappingDocument.value.ruleSet.targetAsset = value
+  }
   if (asset.is_period) ingestionMode.value = 'period_full_snapshot'
 }
 
@@ -401,6 +576,31 @@ watch(() => props.modelValue.target_asset, async (value) => {
 }, { immediate: true })
 listAssets({ asset_status: 'published', page_size: 200 }).then((result: any) => { assets.value = result.items || result }).catch(() => { assets.value = [] })
 
+function openDialog(): void {
+  ensureConfig()
+  ensureComponentV1()
+  dialogStep.value = 0
+  dialogVisible.value = true
+}
+function closeDialog(): void { dialogVisible.value = false }
+function prevStep(): void { if (dialogStep.value > 0) dialogStep.value -= 1 }
+function nextStep(): void { if (dialogStep.value < dialogSteps.length - 1) dialogStep.value += 1 }
+function finishDialog(): void { dialogVisible.value = false }
+
+/** 确保 sink 配置以 component_v1 存储：mapping_component 为运行时来源，legacy mapping 保留为快照。
+ * 仅当 legacy 映射可无损表达时升级；有损 legacy（含无法表达的自定义 transform）保持 legacy 模式并阻断保存，不静默丢字段。 */
+function ensureComponentV1(): void {
+  if (config.value.mapping_component && typeof config.value.mapping_component === 'object') return
+  if (config.value.storageMode === 'component_v1') return
+  if (adapterReadLossyFields.value.length) return
+  const legacyResult = buildLegacyMapping(mappingDocument.value)
+  if (legacyResult.lossyFields.length) return
+  const snapshot = Array.isArray(config.value.mapping) ? clone(config.value.mapping) : []
+  config.value.mapping_component = clone(mappingDocument.value)
+  config.value.legacy_mapping_snapshot = snapshot.length ? snapshot : null
+  config.value.storageMode = 'component_v1'
+}
+
 defineExpose({
   canSave,
   lossyWriteBlocked,
@@ -409,12 +609,123 @@ defineExpose({
   mappingPolicy,
   compatibility,
   syncDocumentToLegacy,
+  openDialog,
 })
 </script>
 
 <style scoped>
-.mapping-row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:8px }
-.mapping-row .el-input,.mapping-row .el-select { flex:1; min-width:140px }
-.lossy-write-blocked { margin-bottom: 10px }
-@media (max-width: 768px) { .mapping-row > * { flex: 1 1 100% } }
+.warehouse-sink-config { min-width: 0 }
+.sink-onboarding-body {
+  display: flex;
+  flex: 1 1 auto;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--spacing-6);
+  box-sizing: border-box;
+}
+.sink-onboarding-panel {
+  width: 100%;
+  padding: var(--spacing-7) var(--spacing-8) var(--spacing-8);
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-card);
+}
+.panel-header h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+}
+.panel-header p {
+  margin: var(--spacing-2) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-base);
+}
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-5);
+  margin-top: var(--spacing-6);
+}
+.panel-body--mapping { gap: var(--spacing-4) }
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-5) var(--spacing-6);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+.field--wide { grid-column: 1 / -1 }
+.field :deep(.el-select) { width: 100% }
+.field-label {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  line-height: 22px;
+}
+.required {
+  margin-left: var(--spacing-1);
+  color: var(--color-text-danger-strong);
+  font-style: normal;
+}
+.field-hint {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+.tag-list { display: flex; flex-wrap: wrap; gap: var(--spacing-2); align-items: center; min-height: var(--control-height) }
+.upstream-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--performance-tag-blue-background);
+  border-radius: var(--radius-md);
+  background: var(--performance-notice-info-background);
+  color: var(--performance-text-secondary);
+  font-size: var(--font-size-md);
+  line-height: 22px;
+}
+.component-v1-hint {
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--radius-md);
+  background: var(--performance-tag-blue-background);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+.validation-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+  align-items: center;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-card);
+}
+.validation-row .el-input,
+.validation-row .el-select { flex: 1; min-width: 140px }
+.lossy-write-blocked { margin-bottom: var(--spacing-2) }
+@media (max-width: 900px) {
+  .field-grid { grid-template-columns: minmax(0, 1fr) }
+  .sink-onboarding-body { padding: var(--spacing-3) }
+  .sink-onboarding-panel { padding: var(--spacing-5) }
+}
+@media (max-width: 768px) { .validation-row > * { flex: 1 1 100% } }
 </style>

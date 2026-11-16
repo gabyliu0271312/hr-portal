@@ -142,7 +142,7 @@
               <div class="text-muted">只补全空字段，北森原始字段保持优先。</div>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'WAREHOUSE_ASSET_SINK'">
-              <WarehouseAssetSinkConfig v-model="selectedNode.config" />
+              <WarehouseAssetSinkConfig v-model="selectedNode.config" :upstream-fields="sinkUpstreamFields" />
             </template>
             <template v-else-if="(selectedNode.type as string) === 'LOOP_RESOURCE' || selectedNode.type === 'LOOP'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
@@ -759,6 +759,7 @@ function transformTargetCatalog(): Array<{ code: string; label: string; type?: s
   return catalogFields(config?.target_field_catalog || config?.mapping?.target_field_catalog || transformMappingDocument.value.ruleSet.rules.flatMap((rule) => rule.targetFields.map((code) => ({ code }))))
 }
 const transformSourceFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.name, type: field.type })))
+const sinkUpstreamFields = computed(() => upstreamFields.value.map((field) => ({ code: field.name, label: field.name, type: field.type })))
 const transformTargetFields = computed(() => transformTargetCatalog())
 const transformMappingCaller = computed<MappingCaller>(() => selectedTransformConfig()?.mapping_caller === 'workflow' ? 'workflow' : 'ucp_transform')
 const transformMappingPolicy = computed<MappingCallerPolicy>(() => {
@@ -895,7 +896,18 @@ watch(selectedNodeId, async (newId) => {
   await loadUpstreamFields(newId)
   if (selectedNode.value?.type === 'TRANSFORM') syncTransformMappingContext()
   const node = selectedNode.value
-  if ((node?.type as string) === 'START_TRIGGER') resetStartTriggerSelection()
+  if (node && (node.type as string) === 'WAREHOUSE_ASSET_SINK') {
+    // 将上游字段目录写入 sink 节点配置，供 component_v1 运行时消费并持久化。
+    const config = node.config as Record<string, any>
+    config.mapping_source_catalog = upstreamFields.value.map((field, ordinal) => ({
+      field_id: field.name, label: field.name, type: field.type || 'string', sensitive: false, parent_field_id: null, ordinal,
+    }))
+    if (config.mapping_component && typeof config.mapping_component === 'object') {
+      config.mapping_component.ruleSet.sourceAsset = upstreamSourceName.value || null
+    }
+    node.config = config
+  }
+  if (node && (node.type as string) === 'START_TRIGGER') resetStartTriggerSelection()
   if ((node?.type as string) === 'RECORD_MERGE') {
     const sinkNode = form.nodes.find(item => (item.type as string) === 'WAREHOUSE_ASSET_SINK')
     const targetAsset = String(sinkNode?.config?.target_asset || '')

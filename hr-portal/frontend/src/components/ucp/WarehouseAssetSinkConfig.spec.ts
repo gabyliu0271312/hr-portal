@@ -14,10 +14,14 @@ const MappingWorkspaceStub = {
 const stubs = {
   MappingWorkspace: MappingWorkspaceStub,
   IngestionModeSelect: true,
+  UiFullScreenModal: { template: '<div class="full-screen-modal-stub"><slot /></div>' },
+  UiStepFlow: true,
+  'el-icon': true,
   'el-alert': { template: '<div class="el-alert"><slot name="title" /></div>' },
   'el-form-item': { template: '<div><slot /></div>' },
   'el-select': true,
   'el-option': true,
+  'el-empty': true,
   'el-tag': true,
   'el-divider': true,
   'el-input': true,
@@ -45,7 +49,9 @@ function sinkConfig(overrides: Record<string, any> = {}) {
 }
 
 function mountConfig(config: Record<string, any>) {
-  return mount(WarehouseAssetSinkConfig, { props: { modelValue: config }, global: { stubs } })
+  const wrapper = mount(WarehouseAssetSinkConfig, { props: { modelValue: config }, global: { stubs } })
+  ;(wrapper.vm as any).openDialog()
+  return wrapper
 }
 
 describe('WarehouseAssetSinkConfig', () => {
@@ -65,7 +71,7 @@ describe('WarehouseAssetSinkConfig', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(MappingWorkspaceStub).exists()).toBe(true)
-    expect(wrapper.findAll('.mapping-row')).toHaveLength(1)
+    expect(wrapper.findAll('.validation-row')).toHaveLength(1)
     const workspace = wrapper.findComponent(MappingWorkspaceStub)
     expect(workspace.props('policy')).toMatchObject({
       caller: 'warehouse_sink',
@@ -128,6 +134,47 @@ describe('WarehouseAssetSinkConfig', () => {
     expect(wrapper.emitted('lossy-write-blocked')?.at(-1)?.[0]).toMatchObject({ code: 'lossy_write_blocked', canSave: false })
     expect(wrapper.find('.lossy-write-blocked').text()).toContain('lossy_write_blocked')
     expect(workspace.props('policy').effects.allowSave).toBe(false)
+  })
+
+  it('首次建立业务主键映射时允许保存为 component_v1', async () => {
+    const config: Record<string, any> = sinkConfig({ mapping: [] })
+    const wrapper = mountConfig(config)
+    await flushPromises()
+
+    const workspace = wrapper.findComponent(MappingWorkspaceStub)
+    const document = JSON.parse(JSON.stringify(workspace.props('modelValue')))
+    document.ruleSet.rules.push({
+      id: 'new-key', type: 'field', enabled: true, displayOrder: 0,
+      sourceFields: ['period'], targetFields: ['cost_period'], config: { mode: 'rename' },
+    })
+    await workspace.vm.$emit('update:modelValue', document)
+    await flushPromises()
+
+    expect((wrapper.vm as any).canSave).toBe(true)
+    expect(config.storageMode).toBe('component_v1')
+    expect(config.mapping_component.ruleSet.rules[0]).toMatchObject({ sourceFields: ['period'], targetFields: ['cost_period'] })
+  })
+
+  it('component_v1 完整保存 value_map 且不覆盖 legacy 快照', async () => {
+    const config: Record<string, any> = sinkConfig()
+    const legacySnapshot = structuredClone(config.mapping)
+    const wrapper = mountConfig(config)
+    await flushPromises()
+
+    const workspace = wrapper.findComponent(MappingWorkspaceStub)
+    const document = JSON.parse(JSON.stringify(workspace.props('modelValue')))
+    document.ruleSet.rules[1] = {
+      id: '1', type: 'value_map', enabled: true, displayOrder: 1,
+      sourceFields: ['allocation_percentage'], targetFields: ['headcount'],
+      config: { mappings: { '100': '1' }, unmatched: 'reject' },
+    }
+    await workspace.vm.$emit('update:modelValue', document)
+    await flushPromises()
+
+    expect((wrapper.vm as any).canSave).toBe(true)
+    expect(config.storageMode).toBe('component_v1')
+    expect(config.mapping_component.ruleSet.rules[1]).toMatchObject({ type: 'value_map', config: { mappings: { '100': '1' } } })
+    expect(config.mapping).toEqual(legacySnapshot)
   })
 
   it('unsupported legacy transform 初次读取即阻断无损写回且不丢原 mapping', async () => {
