@@ -30,8 +30,7 @@ const stubs = {
   PerformanceFilterButton: defineComponent({ props: ['label', 'disabled'], emits: ['click'], template: '<button class="filter-button" :disabled="disabled" @click="$emit(\'click\')">{{ label }}</button>' }),
   PerformanceSearchInput: defineComponent({ template: '<input class="search-input" />' }),
   PerformanceLineTabs: defineComponent({ props: ['tabs', 'modelValue'], emits: ['update:modelValue'], template: '<div class="line-tabs-stub"><button v-for="tab in tabs" :key="tab.key" @click="$emit(\'update:modelValue\', tab.key)">{{ tab.label }}</button></div>' }),
-  UiSortableList: defineComponent({ props: ['items', 'itemKey', 'disabled'], emits: ['reorder'], template: '<div class="sortable-stub"><template v-for="(item, index) in items" :key="String(item.id)"><slot :item="item" :index="index" :dragging="false" :over="false" :position="null" :item-style="{}"><span class="sortable-item">{{ item.field_name }}</span></slot></template><button class="sortable-reorder" @click="$emit(\'reorder\', 0, 1)">reorder</button></div>' }),
-  UiDragHandle: defineComponent({ props: ['label', 'dragging'], template: '<span class="drag-handle-stub">{{ label }}</span>' }),
+  UiSortableTable: defineComponent({ props: ['columns', 'rows', 'loading', 'emptyText', 'disabled'], emits: ['reorder'], template: '<div class="sortable-table-stub"><span>{{ columns.length }} 列 / {{ rows.length }} 行</span><button class="sortable-reorder" @click="$emit(\'reorder\', 0, 1)">reorder</button></div>' }),
   UiPagination: defineComponent({ template: '<div class="pagination-stub" />' }),
   UiDialogShell: defineComponent({ props: ['modelValue', 'title'], emits: ['update:modelValue'], template: '<div v-if="modelValue" class="dialog-shell"><h3>{{ title }}</h3><slot /><slot name="footer" /></div>' }),
   UiButton: defineComponent({ props: ['variant'], emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' }),
@@ -76,15 +75,15 @@ describe('warehouse standard fields page', () => {
     wrapper.unmount()
   })
 
-  it('renders sortable rows with drag handles and column headers', async () => {
+  it('uses sortable table component with field columns', async () => {
     const wrapper = mount(WarehouseStandardFields, options); await flushPromises()
-    expect(wrapper.find('.standard-fields__header').exists()).toBe(true)
-    expect(wrapper.find('.drag-handle-stub').exists()).toBe(true)
-    expect(wrapper.findAll('.standard-fields__row')).toHaveLength(2)
+    const table = wrapper.find('.sortable-table-stub')
+    expect(table.exists()).toBe(true)
+    expect(table.text()).toContain('8 列')
     wrapper.unmount()
   })
 
-  it('persists reorder to backend with full ordered id list', async () => {
+  it('persists drag reorder to backend with full ordered id list', async () => {
     const wrapper = mount(WarehouseStandardFields, options); await flushPromises()
     await wrapper.find('.sortable-reorder').trigger('click'); await flushPromises()
     expect(fieldsApi.reorder).toHaveBeenCalledWith([2, 1]) // 拖拽后 0→1，id 顺序变为 2,1
@@ -115,7 +114,6 @@ describe('warehouse standard fields page', () => {
 
   it('shows permission notice without catalog permission', async () => {
     menus.length = 0
-    vi.clearAllMocks()
     const wrapper = mount(WarehouseStandardFields, options); await flushPromises()
     expect(fieldsApi.list).not.toHaveBeenCalled()
     wrapper.unmount()

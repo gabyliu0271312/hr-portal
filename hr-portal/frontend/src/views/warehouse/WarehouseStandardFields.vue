@@ -9,8 +9,7 @@ import StandardFieldDrawer from '@/components/warehouse/StandardFieldDrawer.vue'
 import PageTitle from '@/components/common/PageTitle.vue'
 import UiSurface from '@/components/ui/UiSurface.vue'
 import UiListToolbar from '@/components/ui/UiListToolbar.vue'
-import UiSortableList from '@/components/ui/UiSortableList.vue'
-import UiDragHandle from '@/components/ui/UiDragHandle.vue'
+import UiSortableTable, { type UiSortableColumn } from '@/components/ui/UiSortableTable.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import UiDialogShell from '@/components/ui/UiDialogShell.vue'
 import PerformanceFilterButton from '@/components/performance/PerformanceFilterButton.vue'
@@ -126,7 +125,7 @@ const groupTabs = computed(() => [
   ...groups.value.map(group => ({ key: String(group.id), label: `${group.name} (${group.field_count})` })),
 ])
 
-const tableColumns = [
+const tableColumns = computed<UiSortableColumn[]>(() => [
   { key: 'field_code', label: '字段编码', width: 160 },
   { key: 'field_name', label: '字段名称', width: 170 },
   { key: 'entity_name', label: '归属实体', width: 130 },
@@ -134,13 +133,14 @@ const tableColumns = [
   { key: 'data_type', label: '数据类型', width: 105 },
   { key: 'business_definition', label: '业务定义', width: 260 },
   { key: 'category', label: '敏感分类', width: 110 },
-]
-function cellValue(row: StandardFieldSummary, key: string) {
-  if (key === 'data_type') return types[row.data_type] || row.data_type
-  if (key === 'category') return row.category_ids?.length ? `${row.category_ids.length} 个` : '未分类'
-  if (key === 'entity_name') return row.entity_name || '未归属'
-  if (key === 'group_name') return row.group_name || '未分组'
-  return (row as any)[key] ?? '--'
+  { key: 'action', label: '操作', width: 80 },
+])
+function cellValue(row: StandardFieldSummary, column: UiSortableColumn) {
+  if (column.key === 'data_type') return types[row.data_type] || row.data_type
+  if (column.key === 'category') return row.category_ids?.length ? `${row.category_ids.length} 个` : '未分类'
+  if (column.key === 'entity_name') return row.entity_name || '未归属'
+  if (column.key === 'group_name') return row.group_name || '未分组'
+  return (row as any)[column.key] ?? '--'
 }
 const reordering = ref(false)
 async function reorderFields(from: number, to: number) {
@@ -184,26 +184,23 @@ async function reorderFields(from: number, to: number) {
             </template>
           </UiListToolbar>
           <div v-loading="loading" class="standard-fields__table">
-            <div v-if="rows.length" class="standard-fields__header" aria-hidden="true">
-              <div class="standard-fields__drag-slot"></div>
-              <div v-for="column in tableColumns" :key="column.key" class="standard-fields__header-cell" :style="{ width: `${column.width}px` }">{{ column.label }}</div>
-              <div class="standard-fields__header-cell standard-fields__header-cell--action" style="width: 80px">操作</div>
-            </div>
-            <UiSortableList v-if="rows.length" :items="rows" item-key="id" class="standard-fields__sortable" :gap="0" :disabled="reordering" @reorder="reorderFields">
-              <template #default="{ item: row, index, dragging, itemStyle }">
-                <div class="standard-fields__row" :class="{ 'is-dragging': dragging }" :style="itemStyle" :data-sortable-index="index">
-                  <UiDragHandle :label="`拖拽第${index + 1}个字段`" :dragging="dragging" />
-                  <div v-for="column in tableColumns" :key="column.key" class="standard-fields__cell" :style="{ width: `${column.width}px` }">
-                    <span v-if="column.key === 'business_definition'" class="standard-fields__ellipsis" :title="cellValue(row, column.key)">{{ cellValue(row, column.key) }}</span>
-                    <span v-else>{{ cellValue(row, column.key) }}</span>
-                  </div>
-                  <div class="standard-fields__cell standard-fields__cell--action" style="width: 80px">
-                    <button v-if="!row.entity_id || (canEntityView && userStore.hasOp('system.master_entities', 'U'))" class="standard-fields__action" type="button" @click="openDetail(row.id)">编辑</button>
-                  </div>
-                </div>
+            <UiSortableTable
+              :columns="tableColumns"
+              :rows="rows"
+              row-key="id"
+              :loading="loading"
+              :empty-text="'暂无字段，可新建字段定义。'"
+              sticky-header-top="0px"
+              aria-label="标准字段表格"
+              @reorder="reorderFields"
+            >
+              <template #cell="{ row, column }">
+                <template v-if="column.key === 'action'">
+                  <button v-if="!row.entity_id || (canEntityView && userStore.hasOp('system.master_entities', 'U'))" class="standard-fields__action" type="button" @click="openDetail(row.id)">编辑</button>
+                </template>
+                <template v-else>{{ cellValue(row, column) }}</template>
               </template>
-            </UiSortableList>
-            <div v-else-if="!loading" class="standard-fields__empty">暂无字段，可新建字段定义。</div>
+            </UiSortableTable>
           </div>
           <UiPagination class="standard-fields__pagination" :page="page" :page-size="pageSize" :total="total" @page-change="page = $event" @page-size-change="pageSize = $event; page = 1" />
         </template>
@@ -254,24 +251,6 @@ async function reorderFields(from: number, to: number) {
 .standard-fields__create { height: var(--ui-toolbar-control-height); border-radius: var(--button-radius); font-size: var(--font-size-md); }
 .standard-fields__add-icon { width: var(--icon-size); height: var(--icon-size); margin-right: var(--spacing-1); }
 .standard-fields__table { display: flex; flex-direction: column; min-width: 0; }
-.standard-fields__header, .standard-fields__row {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--ui-table-border-color);
-}
-.standard-fields__header { height: var(--ui-table-header-height); background: var(--ui-table-header-background); color: var(--ui-table-header-color); }
-.standard-fields__row { height: var(--ui-table-row-height); color: var(--ui-table-text-color); }
-.standard-fields__row:hover { background: var(--ui-table-row-hover-background); }
-.standard-fields__row.is-dragging { opacity: .72; }
-.standard-fields__drag-slot { flex: 0 0 16px; }
-.standard-fields__row > .performance-drag-handle { flex: 0 0 16px; }
-.standard-fields__header-cell, .standard-fields__cell { flex: 0 0 auto; padding: 0 var(--ui-table-cell-padding-inline); box-sizing: border-box; overflow: hidden; white-space: nowrap; }
-.standard-fields__header-cell { font-weight: var(--ui-form-label-weight); }
-.standard-fields__header-cell--action, .standard-fields__cell--action { text-align: left; }
-.standard-fields__ellipsis { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.standard-fields__empty { padding: 32px 0; color: var(--color-text-placeholder); text-align: center; }
 .standard-fields__pagination { margin-top: var(--page-gap-toolbar-table); }
 .standard-fields__action {
   height: var(--ui-tree-action-height);
