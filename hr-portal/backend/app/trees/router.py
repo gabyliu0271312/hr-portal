@@ -332,6 +332,7 @@ async def delete_cc_directory(
         db.delete(node)
         remaining = [item for item in rows if item.id != node_id]
         recompute_cost_center_structure(remaining)
+        await db.flush()
         await db.commit()
     except Exception:
         await db.rollback()

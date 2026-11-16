@@ -48,6 +48,9 @@ class FakeResult:
     def first(self):
         return self.rows[0] if self.rows else None
 
+    def scalar_one_or_none(self):
+        return self.rows[0] if len(self.rows) == 1 else (self.rows[0] if self.rows else None)
+
 
 class FakeSession:
     def __init__(self, rows):

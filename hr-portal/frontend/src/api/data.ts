@@ -105,7 +105,10 @@ export const treesApi = {
     api.delete<void>(`/trees/cost-center/${nodeId}`).then(r => r.data),
   costCenterDirectory: (include_inactive = false) =>
     api
-      .get<TreeDirectory>('/trees/cost-center/directory', { params: { include_inactive } })
+      .get<TreeDirectory>('/trees/cost-center/directory', {
+        params: { include_inactive, _t: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      })
       .then((r) => r.data),
   org: (include_inactive = false) =>
     api.get<TreeNode[]>('/trees/org', { params: { include_inactive } }).then((r) => r.data),

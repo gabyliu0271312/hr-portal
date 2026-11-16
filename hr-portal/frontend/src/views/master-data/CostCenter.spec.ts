@@ -205,9 +205,25 @@ describe('cost center directory shell', () => {
     const wrapper = mount(CostCenter, options); await flushPromises()
     const vm = wrapper.vm as any
     const parent = { id: 5, code: 'P', name: '父中心', parent_id: null, level: 1, is_leaf: false, is_active: true, synced_at: null, children: [{ id: 6, code: 'C6', name: '子', parent_id: 5, level: 2, is_leaf: true, is_active: true, synced_at: null, children: [] }] }
+    vm.trees = [parent]
     vm.onDelete(parent)
     await flushPromises()
     // 有子节点：不弹确认，直接弹失败弹窗
+    expect(vm.deleting).toBe(false)
+    expect(vm.removeFailed).toBe(true)
+    expect(api.deleteCostCenter).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('blocks delete based on full tree children even when the row came from a filtered search view', async () => {
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    const vm = wrapper.vm as any
+    const parent = { id: 5, code: 'P', name: '父中心', parent_id: null, level: 1, is_leaf: false, is_active: true, synced_at: null, children: [{ id: 6, code: 'C6', name: '子', parent_id: 5, level: 2, is_leaf: true, is_active: true, synced_at: null, children: [] }] }
+    // 搜索过滤裁剪了 children（visible 行看起来是叶子），但完整树里该节点仍有子
+    vm.trees = [parent]
+    const visibleLeaf = { ...parent, children: [] }
+    vm.onDelete(visibleLeaf)
+    await flushPromises()
     expect(vm.deleting).toBe(false)
     expect(vm.removeFailed).toBe(true)
     expect(api.deleteCostCenter).not.toHaveBeenCalled()

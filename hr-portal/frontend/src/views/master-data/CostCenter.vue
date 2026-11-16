@@ -57,9 +57,18 @@ function confirmDelete() {
 }
 function onEdit(row: TreeNode) { target.value = row; editing.value = true }
 function onAddChild(row: TreeNode) { target.value = row; addingChild.value = true }
+function findInTree(list: TreeNode[], id: number): TreeNode | null {
+  for (const node of list) {
+    if (node.id === id) return node
+    const found = node.children?.length ? findInTree(node.children, id) : null
+    if (found) return found
+  }
+  return null
+}
 function onDelete(row: TreeNode) {
-  // 有子成本中心：不允许删除，直接弹单按钮「删除失败」提示（对齐 UI 17:1703）
-  if (row.children?.length) {
+  // 有子判断基于完整树（避免搜索裁剪 children 导致误判为叶子）
+  const full = findInTree(trees.value, row.id)
+  if (full?.children?.length) {
     removeFailed.value = true
     return
   }
