@@ -814,3 +814,17 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **自动化**：前端六组定向回归33 passed（含真实确定按钮点击、保存刷新、重复码保留表单、缺权限/必填拒绝、组织树、工具栏、弹窗及两个绩效消费者）；后端 `test_cc_directory_router.py test_sync_service_entity.py test_org_tree_level_alignment.py test_tree_role_configurable_build.py` 48 passed、1 skipped、1 warning；后端编译通过。前端最终版本 vue-tsc+Vite 构建通过（含树浮层修复，Vite 40.62s）；git diff --check 通过。
 - **PC证据（合成接口，非真库验收）**：本地Vite + Chromium 1440×1024真实打开页面、填名称/编码、展开上级树并选择、点击确定、列表刷新通过，无pageerror；截屏 `%TEMP%/cc-create-dialog-pc.png`。实测弹窗600×384、工具栏高32/gap20、表单gap20、label区32含下padding8；发现并修正Element树浮层被弹窗遮挡，通过 `--ui-dialog-popper-z-index` 与共享popper类解决。
 - **未完成/停止**：Docker daemon未运行，无可用本地PostgreSQL；未做真实PG持久化/并发/API验收，未连接生产、未部署、未commit/push，不以模拟会话和合成API的PC证明真库保存已验收。
+
+### 9.15 人员信息页前端表格（2026-11-16，开发+单测+构建完成，未走查PC、未部署）
+
+- **目标/授权**：用户要求创梦人力「人员」tab →「人员信息」实现前端表格：复用组织表格壳（不建树）、与后台字段设置分组联动、复用绩效隐藏列（localStorage 持久化）。用户确认：字段列由**字段目录分组字段**驱动（`/standard-fields` 52 字段×10 分组），普通 HR 用户无需后台字段目录权限即可读取分组元数据；落点 = 现有 `/people/overview`（该路由原先挂主数据概览，本轮替换为人员信息页）；隐藏列 localStorage 按用户持久化。关联 FR-B01/B04/B12 与 AC-B01/B04/B12 的字段分组消费子项；不新建后端主数据接口、不改字段设置/分组/目录、不归属/发布字段、不动组织树。
+- **后端（新增只读端点）**：`GET /warehouse/people-fields`（权限 `people.app:V`，人员信息页查看者可访问，**不要求** `warehouse.standard_fields.catalog` 后台权限）。新增 schema `PeopleFieldOut`/`PeopleFieldsOut`（只含 id/field_code/field_name/data_type/entity_id/entity_name/group_id/group_name/is_active，**不含** category_ids/value_domain，避免向普通人员页用户泄露敏感分类与枚举明细）；service `list_people_fields` 复用 `_group_map`/实体名回填，`where(is_active.is_(True))` 过滤停用字段。
+- **前端（人员信息页）**：新建 `views/master-data/PeopleRoster.vue` 挂 `/people/overview`（路由组件替换原主数据概览 Overview.vue，主数据概览仍保留在 `/master-data/overview` 系统设置入口）。页面：分组 tab 栏（全部+各分组，含 field_count，与后台字段设置一致）+ 搜索 + 绩效 `PerformanceTableSummary`/`PerformanceColumnVisibilityDrawer`（隐藏列）+ `UiTable` 平铺表格（非树）+ `UiPagination`。列 = 字段目录字段（`standardFieldsApi.peopleFields()`），值 = 花名册 `emp_realtime_roster` 行按 `field_code` 匹配物理列（`dataApi.query('emp_realtime_roster', ...)`，已含字段隐藏/脱敏/范围过滤）；无值列显示 `--`。隐藏列偏好按 `user.id` 维度存 `localStorage['people.roster.columns']`，重开保留；列排序按字段值 `localeCompare('zh-CN')`。`api/standardFields.ts` 增 `peopleFields()`。
+- **权限边界**：人员信息页与 `/people-fields` 端点门槛均用 `people.app`（创梦人力应用入口），与组织页 `people.organization` 解耦；普通人员查看者即使无组织/后台目录权也能读分组字段元数据。
+- **自动化证据**：
+  - 后端 `tests/test_people_fields.py`（新建 3 用例，DB-free fake session）：有效字段含分组名/实体名回填、空目录返回空、SQL 层 `is_active.is_(True)` 过滤断言 → **3 passed**。
+  - 后端回归 `test_standard_field_catalog.py` + `test_standard_field_direct_identity.py` + `test_people_fields.py` → **69 passed / 158 skipped**（PG 用例按无库模式跳过），无回归。
+  - 前端 `PeopleRoster.spec.ts`（新建 6 用例）：授权加载分组与行、停用字段过滤、localStorage 按用户持久化、无 `people.app` 权限不发请求、加载失败降级、分组失败降级为全字段 → **6 passed**；相关回归 PeopleLayout/Overview/CostCenter → **26 passed**。
+  - `vue-tsc --noEmit` 全量通过（EXIT 0）；`npx vite build` 成功，`PeopleRoster-*.js/css` chunk 生成并含「人员信息」文本。
+- **PC 证据（待补）**：Docker daemon 未运行，无 dev 栈可用；未做真实登录 PC 走查（人员信息页 → 分组 tab → 搜索 → 隐藏列 → localStorage 刷新保留截图）。留待用户登录 dev 栈确认后补入。
+- **未做/停止**：不接真实来源、不改字段设置/分组/目录、不归属/发布 Person 字段（52 候选字段中仅 work_location 已归属发布，其余字段在表格中显示 `--`，待后续主数据卡归属）、不动组织树、不开放 Person 编辑、不提交推送/未部署（并行绩效会话有未提交改动，本轮不打包提交）。

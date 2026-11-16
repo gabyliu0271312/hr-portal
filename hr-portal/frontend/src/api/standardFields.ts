@@ -114,9 +114,29 @@ export interface StandardFieldDefinitionPayload {
   expected_revision?: number
 }
 
+export interface PeopleField {
+  id: number
+  field_code: string
+  field_name: string
+  data_type: string
+  entity_id?: number | null
+  entity_name?: string | null
+  group_id?: number | null
+  group_name?: string | null
+  is_active: boolean
+}
+
+export interface PeopleFieldsResponse {
+  items: PeopleField[]
+  total: number
+}
+
 export const standardFieldsApi = {
   list(params: { entity_id?: number; group_id?: number; keyword?: string; is_active?: boolean; offset?: number; limit?: number } = {}) {
     return api.get<StandardFieldListResponse>('/warehouse/standard-fields', { params }).then(r => r.data)
+  },
+  peopleFields() {
+    return api.get<PeopleFieldsResponse>('/warehouse/people-fields').then(r => r.data)
   },
   groups() {
     return api.get<FieldGroupListResponse>('/warehouse/standard-fields/groups').then(r => r.data)

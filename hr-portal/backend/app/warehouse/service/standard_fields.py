@@ -14,6 +14,7 @@ from app.field_category.models import FieldCategory
 from app.system.models import SystemLog
 from app.warehouse.schemas import (
     FieldGroupCreateIn, FieldGroupListOut, FieldGroupOut, FieldGroupUpdateIn,
+    PeopleFieldOut, PeopleFieldsOut,
     StandardFieldBindingCandidateOut, StandardFieldBindingOut, StandardFieldBindingRefOut,
     StandardFieldDetailOut, StandardFieldListOut, StandardFieldSummaryOut,
 )
@@ -561,6 +562,32 @@ async def list_field_groups(db, *, user=None):
     groups = (await db.execute(select(FieldGroup).order_by(FieldGroup.display_order, FieldGroup.id))).scalars().all()
     counts = await _field_group_counts(db)
     return FieldGroupListOut(items=[_group_out(group, counts) for group in groups], total=len(groups))
+
+
+async def list_people_fields(db, *, user=None):
+    """人员信息页只读字段清单：所有有效标准字段（含已归属实体），按分组顺序。
+
+    面向普通人员页用户，不需要 warehouse.standard_fields.catalog 权限；
+    只返回展示所需元数据，不返回敏感分类/枚举明细，避免配置细节泄露。
+    """
+    stmt = select(StandardField).where(StandardField.is_active.is_(True))
+    fields = (await db.execute(stmt.order_by(StandardField.field_code))).scalars().all()
+    entity_ids = {field.entity_id for field in fields if getattr(field, "entity_id", None) is not None}
+    entity_names = {}
+    if entity_ids:
+        entity_names = dict((await db.execute(
+            select(EntityDefinition.id, EntityDefinition.name).where(EntityDefinition.id.in_(entity_ids)))).all())
+        for field in fields:
+            field._entity_name = entity_names.get(field.entity_id)
+    group_names = await _group_map(db, [field.id for field in fields])
+    for field in fields:
+        field._group_name = group_names.get(field.id)
+    return PeopleFieldsOut(total=len(fields), items=[PeopleFieldOut(
+        id=field.id, field_code=field.field_code, field_name=field.display_name, data_type=field.data_type,
+        entity_id=getattr(field, "entity_id", None), entity_name=getattr(field, "_entity_name", None),
+        group_id=getattr(field, "group_id", None), group_name=getattr(field, "_group_name", None),
+        is_active=field.is_active,
+    ) for field in fields])
 
 
 async def create_field_group(db, payload, user):

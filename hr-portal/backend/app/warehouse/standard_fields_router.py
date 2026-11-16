@@ -9,6 +9,7 @@ from app.warehouse.schemas import (
     FieldGroupListOut,
     FieldGroupOut,
     FieldGroupUpdateIn,
+    PeopleFieldsOut,
     StandardFieldBindingActionIn,
     StandardFieldBindingCandidateOut,
     StandardFieldBindingCreateIn,
@@ -64,6 +65,19 @@ async def list_fields(
     db: AsyncSession = Depends(get_session),
 ):
     return await service.list_standard_fields(db, keyword, is_active, offset, limit, user=user, entity_id=entity_id, group_id=group_id)
+
+
+@router.get("/people-fields", response_model=PeopleFieldsOut)
+async def list_people_fields(
+    user: User = Depends(require_op("people.app", "V")),
+    db: AsyncSession = Depends(get_session),
+):
+    """人员信息页只读字段清单（分组联动）。
+
+    面向创梦人力人员信息页的普通查看者（people.app 入口权限），无需后台字段目录权限；
+    只返回展示所需元数据（编码/名称/类型/分组/归属实体），不含敏感分类与枚举明细。
+    """
+    return await service.list_people_fields(db, user=user)
 
 
 @router.get("/{field_id}", response_model=StandardFieldDetailOut)

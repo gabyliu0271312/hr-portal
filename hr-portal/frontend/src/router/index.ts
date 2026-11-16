@@ -795,8 +795,8 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'overview',
         name: 'PeopleOverview',
-        component: () => import('@/views/master-data/Overview.vue'),
-        meta: { label: '主数据概览', menuCode: 'people.app' },
+        component: () => import('@/views/master-data/PeopleRoster.vue'),
+        meta: { label: '人员信息', menuCode: 'people.app' },
       },
       {
         path: 'organization',

@@ -1817,6 +1817,24 @@ class FieldGroupListOut(BaseModel):
     total: int
 
 
+class PeopleFieldOut(BaseModel):
+    """人员信息页只读字段元数据，不含敏感分类与枚举明细，避免向普通人员页用户泄露配置细节。"""
+    id: int
+    field_code: str
+    field_name: str
+    data_type: str
+    entity_id: int | None = None
+    entity_name: str | None = None
+    group_id: int | None = None
+    group_name: str | None = None
+    is_active: bool
+
+
+class PeopleFieldsOut(BaseModel):
+    items: list[PeopleFieldOut]
+    total: int
+
+
 class StandardFieldBindingCandidateOut(BaseModel):
     target_kind: Literal["table_column", "dataset_output_field"]
     target_id: int
