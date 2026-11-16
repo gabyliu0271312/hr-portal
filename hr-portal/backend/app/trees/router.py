@@ -329,7 +329,7 @@ async def delete_cc_directory(
             raise HTTPException(status_code=409, detail="固定根节点不允许删除")
         if any(item.parent_id == node.id for item in rows):
             raise HTTPException(status_code=409, detail="该成本中心包含下级成本中心，不允许删除")
-        db.delete(node)
+        await db.delete(node)
         remaining = [item for item in rows if item.id != node_id]
         recompute_cost_center_structure(remaining)
         await db.flush()

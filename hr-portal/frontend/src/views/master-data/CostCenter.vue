@@ -25,6 +25,8 @@ const editing = ref(false)
 const addingChild = ref(false)
 const deleting = ref(false)
 const removeFailed = ref(false)
+const removeFailedMessage = ref('')
+const removeFailedDesc = ref('')
 const target = ref<TreeNode | null>(null)
 function created() {
   keyword.value = ''
@@ -53,7 +55,14 @@ function confirmDelete() {
       target.value = null
       load()
     })
-    .catch(() => { target.value = null; removeFailed.value = true })
+    .catch((cause: any) => {
+      target.value = null
+      removeFailedMessage.value = '删除失败'
+      removeFailedDesc.value = cause?.response?.data?.detail
+        ? (typeof cause.response.data.detail === 'string' ? cause.response.data.detail : cause.response.data.detail?.message)
+        : '删除未成功，请重试。'
+      removeFailed.value = true
+    })
 }
 function onEdit(row: TreeNode) { target.value = row; editing.value = true }
 function onAddChild(row: TreeNode) { target.value = row; addingChild.value = true }
@@ -69,6 +78,8 @@ function onDelete(row: TreeNode) {
   // 有子判断基于完整树（避免搜索裁剪 children 导致误判为叶子）
   const full = findInTree(trees.value, row.id)
   if (full?.children?.length) {
+    removeFailedMessage.value = '删除失败'
+    removeFailedDesc.value = '该成本中心包含下级成本中心，不允许删除。'
     removeFailed.value = true
     return
   }
@@ -181,8 +192,8 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
       />
       <PerformanceConfirmDialog
         v-model="removeFailed"
-        :message="'删除失败'"
-        description="该成本中心包含下级成本中心，不允许删除。"
+        :message="removeFailedMessage"
+        :description="removeFailedDesc"
         :show-cancel="false"
         confirm-text="确定"
         confirm-variant="primary"

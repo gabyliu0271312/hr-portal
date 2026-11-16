@@ -212,7 +212,7 @@ class WriteSession(FakeSession):
     def add(self, node):
         self.added.append(node)
 
-    def delete(self, node):
+    async def delete(self, node):
         self.rows = [row for row in self.rows if row.id != node.id]
 
     async def flush(self):
@@ -359,7 +359,7 @@ class UpdateWriteSession(FakeSession):
     async def rollback(self):
         self.rolled_back = True
 
-    def delete(self, node):
+    async def delete(self, node):
         self.rows = [row for row in self.rows if row.id != node.id]
 
 

@@ -115,7 +115,7 @@ class RootSession:
     async def rollback(self):
         self.rolled_back = True
 
-    def delete(self, node):
+    async def delete(self, node):
         self.rows = [row for row in self.rows if row.id != node.id]
 
 
