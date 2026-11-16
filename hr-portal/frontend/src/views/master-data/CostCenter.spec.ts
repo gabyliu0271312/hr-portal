@@ -145,25 +145,29 @@ describe('cost center directory shell', () => {
     wrapper.unmount()
   })
 
-  it('edits a cost center: opens the edit dialog with code disabled and saves', async () => {
+  it('edits a cost center: pre-fills name and parent, code disabled, saves', async () => {
     api.updateCostCenter.mockResolvedValueOnce({ ...tree[0], name: '改名中心' })
     const wrapper = mount(CostCenter, options); await flushPromises()
-    await wrapper.get('.act-edit').trigger('click'); await flushPromises()
+    // 直接触发 onEdit：传含父级的节点，验证上级回显
     const vm = wrapper.vm as any
+    vm.onEdit({ id: 2, code: 'C2', name: '子中心', parent_id: 1, level: 2, is_leaf: true, is_active: true, synced_at: null, children: [] })
+    await flushPromises()
     expect(vm.editing).toBe(true)
-    expect(vm.target).toMatchObject({ id: 1, name: '一级成本中心', code: 'C1' })
+    expect(vm.target).toMatchObject({ id: 2, parent_id: 1 })
     const dialog = wrapper.findAllComponents(CostCenterCreateDialog).find(d => d.vm.mode === 'edit')!
     expect(dialog.exists()).toBe(true)
     const dvm = dialog.vm as any
-    expect(dvm.code).toBe('C1')
+    expect(dvm.name).toBe('子中心')
+    expect(dvm.code).toBe('C2')
+    expect(dvm.parentId).toBe(1)
     dvm.name = '改名中心'
     await dvm.save(); await flushPromises()
-    expect(api.updateCostCenter).toHaveBeenCalledWith(1, { name: '改名中心', parent_id: null })
+    expect(api.updateCostCenter).toHaveBeenCalledWith(2, { name: '改名中心', parent_id: 1 })
     expect(api.costCenterDirectory).toHaveBeenCalledWith(false)
     wrapper.unmount()
   })
 
-  it('adds a child: opens dialog with parent auto-set and creates with parent_id', async () => {
+  it('adds a child: parent auto-set, name/code empty for the new child, creates with parent_id', async () => {
     api.createCostCenter.mockResolvedValueOnce({ ...tree[0], id: 3, code: 'C3' })
     const wrapper = mount(CostCenter, options); await flushPromises()
     await wrapper.get('.act-add').trigger('click'); await flushPromises()
@@ -173,7 +177,10 @@ describe('cost center directory shell', () => {
     const dialog = wrapper.findAllComponents(CostCenterCreateDialog).find(d => d.vm.mode === 'addChild')!
     expect(dialog.exists()).toBe(true)
     const dvm = dialog.vm as any
+    // 上级自动带出当前节点 id；名称/编码是新建子节点的填写项，应为空
     expect(dvm.parentId).toBe(1)
+    expect(dvm.name).toBe('')
+    expect(dvm.code).toBe('')
     dvm.name = '子中心'; dvm.code = 'C3'
     await dvm.save(); await flushPromises()
     expect(api.createCostCenter).toHaveBeenCalledWith({ name: '子中心', code: 'C3', parent_id: 1 })

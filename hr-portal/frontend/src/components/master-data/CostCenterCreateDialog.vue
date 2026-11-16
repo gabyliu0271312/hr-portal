@@ -35,19 +35,26 @@ function message(cause: any) {
 async function loadParents() {
   const current = ++generation
   loading.value = true; parentError.value = ''; nodes.value = []
-  try { const data = await treesApi.costCenterDirectory(true); if (current === generation) nodes.value = data.tree }
-  catch (cause) { if (current === generation) parentError.value = message(cause) }
+  try {
+    const data = await treesApi.costCenterDirectory(true)
+    if (current === generation) {
+      nodes.value = data.tree
+      // 数据就绪后再回显上级：el-tree-select 需在 data 中存在对应节点才会显示
+      const initial = props.initial
+      parentId.value = props.mode === 'addChild'
+        ? initial?.id
+        : initial?.parent_id ?? undefined
+    }
+  } catch (cause) { if (current === generation) parentError.value = message(cause) }
   finally { if (current === generation) loading.value = false }
 }
 watch(() => props.modelValue, opened => {
   ++generation
   if (!opened) return
   const initial = props.initial
-  name.value = initial?.name ?? ''
-  code.value = initial?.code ?? ''
-  parentId.value = props.mode === 'addChild'
-    ? initial?.id
-    : initial?.parent_id ?? undefined
+  // 添加子：名称/编码是新建子节点的填写项，置空；仅上级带出当前节点
+  name.value = props.mode === 'addChild' ? '' : (initial?.name ?? '')
+  code.value = props.mode === 'addChild' ? '' : (initial?.code ?? '')
   error.value = ''; nameError.value = ''; codeError.value = ''
   loadParents()
 }, { immediate: true })
