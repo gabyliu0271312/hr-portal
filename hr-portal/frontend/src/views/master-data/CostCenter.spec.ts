@@ -128,7 +128,7 @@ describe('cost center directory shell', () => {
     wrapper.unmount()
   })
 
-  it('renders tree with warnings banner when health issues are non-blocking', async () => {
+  it('renders tree without showing non-blocking health warnings banner', async () => {
     api.costCenterDirectory.mockResolvedValueOnce({
       tree,
       warnings: [
@@ -138,10 +138,10 @@ describe('cost center directory shell', () => {
     const wrapper = mount(CostCenter, options); await flushPromises()
     const vm = wrapper.vm as any
     expect(vm.error).toBe('')
-    expect(vm.warnings).toHaveLength(1)
-    // 树照常渲染 + 黄条（slot 内）展示规范提示
+    // 树照常渲染，不再展示规范提示横幅
     expect(wrapper.find('.org-tree').exists()).toBe(true)
-    expect(wrapper.text()).toContain('duplicate_path')
+    expect(wrapper.text()).not.toContain('成本中心树存在数据规范提示')
+    expect(wrapper.text()).not.toContain('duplicate_path')
     wrapper.unmount()
   })
 
