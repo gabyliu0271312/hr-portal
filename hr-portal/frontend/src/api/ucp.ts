@@ -414,6 +414,13 @@ export const ucpApi = {
 
   resourceDataObjects: (resourceId: number) =>
     api.get<{ total: number; items: any[] }>(`/ucp/resources/${resourceId}/data-objects`).then((r) => r.data),
+
+  /** 通用设计期字段发现：任意已接入资源的真实响应字段目录（北森/飞书/通用HTTP 等）。 */
+  resourceFieldCatalog: (resourceId: number, dataObjectId?: number | null) =>
+    api.get<{ items: Array<{ source_key: string; label: string; sample_values: any[]; type: string }> }>(
+      `/ucp/resources/${resourceId}/field-catalog`,
+      { params: dataObjectId ? { data_object_id: dataObjectId } : {} },
+    ).then((r) => r.data),
   createResourceDataObject: (resourceId: number, payload: Record<string, any>) =>
     api.post<any>(`/ucp/resources/${resourceId}/data-objects`, payload).then((r) => r.data),
   updateResourceDataObject: (resourceId: number, objectId: number, payload: Record<string, any>) =>

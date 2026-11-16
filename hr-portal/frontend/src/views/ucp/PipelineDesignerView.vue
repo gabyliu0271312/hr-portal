@@ -22,7 +22,7 @@
           <span>{{ nt.label }}</span>
           <small>&#25302;&#25341;&#28155;&#21152;&#65288;&#27599;&#20010;&#27969;&#31243;&#20165;&#19968;&#20010;&#65289;</small>
         </div>
-        <el-divider style="margin: 12px 0" />
+        <el-divider class="palette-divider" />
         <h4>&#21487;&#32534;&#25490;&#33410;&#28857;</h4>
         <div v-for="nt in paletteNodeTypes" :key="nt.type" class="node-palette-item" :style="{ borderLeft: `4px solid ${nt.color}` }" draggable="true" @dragstart="onPaletteDragStart($event, nt.type)">
           <el-icon><component :is="resolveIcon(nt.icon)" /></el-icon>
@@ -38,16 +38,16 @@
         <svg class="edge-layer" :viewBox="`0 0 ${canvasW} ${canvasH}`" :width="canvasW" :height="canvasH">
           <defs>
             <marker id="arrowhead" viewBox="0 0 10 10" markerWidth="8" markerHeight="8" refX="10" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker>
-            <pattern id="dotgrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="#e4e7ed" /></pattern>
+            <pattern id="dotgrid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse"><circle class="dotgrid-dot" cx="2" cy="2" r="1" /></pattern>
           </defs>
           <rect :width="canvasW" :height="canvasH" fill="url(#dotgrid)" />
-          <path v-for="(edge, i) in drawingEdges" :key="`draw-edge-${i}`" :d="edgePath(edge)" stroke="#909399" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowhead)" />
+          <path v-for="(edge, i) in drawingEdges" :key="`draw-edge-${i}`" :d="edgePath(edge)" class="draw-edge" stroke-width="2" fill="none" stroke-dasharray="5,3" marker-end="url(#arrowhead)" />
           <path v-for="(edge, i) in form.edges" :key="`edge-${i}`" :d="edgePath(storedEdge(edge))" :stroke="edgeStroke(edge)" stroke-width="2.5" fill="none" marker-end="url(#arrowhead)" />
         </svg>
         <div v-for="node in form.nodes" :key="node.id" class="node-card" :class="{ selected: selectedNodeId === node.id, 'is-error': nodeHasError(node), 'start-trigger': node.type === 'START_TRIGGER' }" :style="{ left: node.x + 'px', top: node.y + 'px', borderColor: getNodeColor(node.type) }" :data-node-id="node.id" @mousedown="startDrag($event, node)" @click.stop="selectNode(node)">
           <div class="node-header" :style="{ background: getNodeColor(node.type) }">
             <span>{{ getNodeLabel(node.type) }}</span>
-            <el-button link size="small" @click.stop="removeNode(node.id)" style="color: #fff"><el-icon><Delete /></el-icon></el-button>
+            <el-button link size="small" class="node-remove" @click.stop="removeNode(node.id)"><el-icon><Delete /></el-icon></el-button>
           </div>
           <div class="node-body">
             <div class="node-title" :title="node.label || getNodeLabel(node.type)">{{ node.label || getNodeLabel(node.type) }}</div>
@@ -79,7 +79,7 @@
             <el-col :span="12"><el-form-item label="变更" class="compact-item"><el-input v-model="form.change_note" placeholder="更新原因" size="small" /></el-form-item></el-col>
           </el-row>
         </el-form>
-        <el-divider style="margin: 8px 0" />
+        <el-divider class="panel-divider" />
         <h4>节点配置</h4>
         <div v-if="!selectedNode" class="empty-tip"><el-icon><Aim /></el-icon><p>点击画布上的节点进行配置</p></div>
         <div v-else>
@@ -95,7 +95,7 @@
                 <el-form-item label="执行计划"><ScheduleSelector v-model:schedule="scheduledPlanSchedule" :show-start-time="false" :allow-advanced="false" :allow-manual="false" :show-hint="false" /></el-form-item>
                 <el-form-item label="计划状态"><el-switch v-model="scheduledPlanEnabled" active-text="启用" inactive-text="停用" /></el-form-item>
                 <div class="start-trigger-hint">选择后会立即预览；点击保存后才会创建或更新该流程的调度计划。</div>
-                <el-button type="primary" plain style="width: 100%" :disabled="!scheduledPlanSchedule" :loading="schedulePlanSaving" @click="saveInlineSchedulePlan">{{ selectedScheduledPlan ? '保存调度计划' : '创建调度计划' }}</el-button>
+                <el-button type="primary" plain class="full-width-btn" :disabled="!scheduledPlanSchedule" :loading="schedulePlanSaving" @click="saveInlineSchedulePlan">{{ selectedScheduledPlan ? '保存调度计划' : '创建调度计划' }}</el-button>
               </template>
               <template v-else-if="startTriggerMode === 'PLATFORM_EVENT'">
                 <el-form-item v-if="platformEventTriggers.length > 1" label="&#24050;&#37197;&#20107;&#20214;"><el-select v-model="selectedPlatformEventTriggerCode" clearable placeholder="&#36873;&#25321;&#24050;&#26377;&#24179;&#21488;&#20107;&#20214;" style="width:100%" @change="syncSelectedPlatformEventTrigger"><el-option v-for="trigger in platformEventTriggers" :key="trigger.trigger_code" :label="trigger.trigger_name" :value="trigger.trigger_code" /></el-select></el-form-item>
@@ -106,21 +106,21 @@
                 <el-form-item label="&#23383;&#27573;&#20540;"><el-input v-model.trim="platformEventFilterValue" :disabled="!platformEventFilterField" placeholder="&#36755;&#20837;&#31579;&#36873;&#20540;" /></el-form-item>
                 <el-form-item label="&#21551;&#29992;&#29366;&#24577;"><el-switch v-model="platformEventEnabled" active-text="&#21551;&#29992;" inactive-text="&#20572;&#29992;" /></el-form-item>
                 <div class="start-trigger-hint">&#24179;&#21488;&#20107;&#20214;&#30001;&#31995;&#32479;&#20869;&#37096;&#21457;&#24067;&#12290;&#25968;&#25454;&#21464;&#26356;&#26159;&#24179;&#21488;&#20107;&#20214;&#30340;&#19968;&#31867;&#65292;&#24403;&#21069;&#21487;&#35746;&#38405;&#25968;&#25454;&#20179;&#24211;&#30340;&#20837;&#20179;&#21516;&#27493;&#23436;&#25104;&#21644;&#20837;&#20179;&#25968;&#25454;&#21464;&#26356;&#20107;&#20214;&#12290;</div>
-                <el-button type="primary" plain style="width: 100%" :disabled="!currentTpl || !selectedPlatformEventDefinition" :loading="platformEventSaving" @click="savePlatformEventTrigger">{{ selectedPlatformEventTrigger ? '&#20445;&#23384;&#24179;&#21488;&#20107;&#20214;' : '&#21019;&#24314;&#24179;&#21488;&#20107;&#20214;' }}</el-button>
+                <el-button type="primary" plain class="full-width-btn" :disabled="!currentTpl || !selectedPlatformEventDefinition" :loading="platformEventSaving" @click="savePlatformEventTrigger">{{ selectedPlatformEventTrigger ? '&#20445;&#23384;&#24179;&#21488;&#20107;&#20214;' : '&#21019;&#24314;&#24179;&#21488;&#20107;&#20214;' }}</el-button>
               </template>
               <template v-else>
                 <el-form-item v-if="startTriggerNeedsResource" label="&#26469;&#28304;&#31995;&#32479;"><el-select v-model="startTriggerSystemId" clearable filterable placeholder="&#36873;&#25321;&#26469;&#28304;&#31995;&#32479;" style="width:100%" @change="changeStartTriggerSystem"><el-option v-for="system in systems" :key="system.id" :label="system.system_name" :value="system.id" /></el-select></el-form-item>
                 <el-form-item v-if="startTriggerNeedsResource" label="&#26469;&#28304;&#36164;&#28304;"><el-select v-model="startTriggerResourceId" clearable filterable :disabled="!startTriggerSystemId" placeholder="&#20808;&#36873;&#25321;&#26469;&#28304;&#31995;&#32479;" style="width:100%" @change="changeStartTriggerResource"><el-option v-for="resource in startTriggerResources" :key="resource.id" :label="resource.resource_name" :value="resource.id" /></el-select></el-form-item>
-                <el-form-item label="&#24050;&#32465;&#35302;&#21457;&#22120;"><el-select v-model="selectedStartTriggerCode" clearable filterable :loading="triggerLoading" placeholder="&#25353;&#19978;&#36848;&#26465;&#20214;&#36873;&#25321;&#24050;&#32465;&#35302;&#21457;&#22120;" style="width:100%"><el-option v-for="trigger in filteredStartTriggers" :key="trigger.trigger_code" :label="trigger.trigger_name" :value="trigger.trigger_code"><span>{{ trigger.trigger_name }}</span><span style="float:right;color:#909399">{{ trigger.is_active ? '已启用' : '已停用' }}</span></el-option></el-select></el-form-item>
+                <el-form-item label="&#24050;&#32465;&#35302;&#21457;&#22120;"><el-select v-model="selectedStartTriggerCode" clearable filterable :loading="triggerLoading" placeholder="&#25353;&#19978;&#36848;&#26465;&#20214;&#36873;&#25321;&#24050;&#32465;&#35302;&#21457;&#22120;" style="width:100%"><el-option v-for="trigger in filteredStartTriggers" :key="trigger.trigger_code" :label="trigger.trigger_name" :value="trigger.trigger_code"><span>{{ trigger.trigger_name }}</span><span class="trigger-state">{{ trigger.is_active ? '已启用' : '已停用' }}</span></el-option></el-select></el-form-item>
                 <div class="start-trigger-hint">一个流程可绑定多个触发器；实际绑定以触发器配置为准。数据变更触发正在建设中。</div>
-                <el-button type="primary" plain style="width: 100%; margin-top: 8px" @click="openStartTriggerConfig">配置触发器</el-button>
+                <el-button type="primary" plain class="full-width-btn panel-gap-top" @click="openStartTriggerConfig">配置触发器</el-button>
               </template>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'CONNECTOR'">
               <el-form-item label="系统"><el-select :model-value="selectedNode.config?.system_id" @change="(v: any) => { if (selectedNode) { const cfg = selectedNode.config || {}; cfg.system_id = v; cfg.system_code = systems.find(x=>x.id===v)?.system_code || ''; selectedNode.config = cfg } }" clearable placeholder="选择系统" style="width:100%"><el-option v-for="s in systems" :key="s.id" :label="`${s.system_code} - ${s.system_name}`" :value="s.id" /></el-select></el-form-item>
               <el-form-item label="资源"><el-select :model-value="selectedNode.config?.resource_id" @change="selectConnectorResource" clearable placeholder="选择资源" style="width:100%" :loading="resourcesLoading"><el-option v-for="r in resourcesOf(selectedNode.config?.system_id as number | null | undefined)" :key="r.id" :label="`${r.resource_code} - ${r.resource_name}`" :value="r.id" /></el-select></el-form-item>
-              <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
-              <el-form-item v-if="selectedNode.config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER'" label="北森报表"><el-select v-model="selectedNode.config.data_object_id" clearable filterable placeholder="选择待入职人员报表" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadResourceDataObjects(Number(selectedNode.config?.resource_id) || null)"><el-option v-for="item in resourceDataObjects" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
+              <el-form-item v-if="selectedNode.config?.adapter_code === 'FEISHU_BITABLE_PULL_ADAPTER'" label="数据对象"><el-select v-model="selectedNode.config.bitable_table_id" clearable filterable placeholder="选择具体多维表格" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadBitableTablesForNode(Number(selectedNode.config?.resource_id) || null)" @change="selectBitableTableForNode"><el-option v-for="item in bitableTableOptions" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
+              <el-form-item v-if="selectedNode.config?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER'" label="北森报表"><el-select v-model="selectedNode.config.data_object_id" clearable filterable placeholder="选择待入职人员报表" style="width:100%" @visible-change="(v: boolean) => v && selectedNode && loadResourceDataObjects(Number(selectedNode.config?.resource_id) || null)" @change="selectBeisenDataObject"><el-option v-for="item in resourceDataObjects" :key="item.id" :label="`${item.object_code} - ${item.object_name}`" :value="item.id" /></el-select></el-form-item>
               <el-form-item label="????"><el-input :model-value="connectorParamsText" @update:model-value="updateConnectorParams" type="textarea" :rows="3" placeholder="{&quot;key&quot;: &quot;value&quot;}" /></el-form-item>
             </template>
             <template v-else-if="(selectedNode.type as string) === 'CAPABILITY'">
@@ -164,8 +164,8 @@
               <el-form-item label="匹配方式"><el-radio-group v-model="branchConditionAst.mode"><el-radio value="ALL">同时满足</el-radio><el-radio value="ANY">满足任一</el-radio></el-radio-group></el-form-item>
               <el-form-item v-for="(rule, index) in branchConditionAst.rules" :key="index" :label="`条件 ${index + 1}`"><div class="mapping-row"><el-select v-model="rule.left_field_id" filterable placeholder="上游字段" style="width:150px"><el-option v-for="field in upstreamFields" :key="field.name" :label="field.name" :value="field.name" /></el-select><el-select v-model="rule.operator" style="width:125px"><el-option label="等于" value="EQ" /><el-option label="不等于" value="NE" /><el-option label="包含" value="CONTAINS" /><el-option label="大于" value="GT" /><el-option label="大于等于" value="GTE" /><el-option label="小于" value="LT" /><el-option label="小于等于" value="LTE" /><el-option label="为空" value="IS_EMPTY" /><el-option label="不为空" value="NOT_EMPTY" /></el-select><el-input v-if="!['IS_EMPTY','NOT_EMPTY'].includes(rule.operator)" v-model="rule.right" placeholder="固定值" style="width:150px" /><el-button link type="danger" @click="removeBranchRule(index)">删除</el-button></div></el-form-item>
               <el-button size="small" @click="addBranchRule">添加条件</el-button>
-              <el-alert title="条件只可选择上游字段、运算符和固定值；不支持代码或表达式。" type="info" :closable="false" style="margin-top: 10px" />
-              <el-form-item v-for="edge in selectedBranchEdges" :key="`${edge.from}-${edge.to}`" :label="`? ${branchTargetName(edge.to)}`" style="margin-top: 10px">
+              <el-alert title="条件只可选择上游字段、运算符和固定值；不支持代码或表达式。" type="info" :closable="false" class="panel-gap-top" />
+              <el-form-item v-for="edge in selectedBranchEdges" :key="`${edge.from}-${edge.to}`" :label="`? ${branchTargetName(edge.to)}`" class="panel-gap-top">
                 <el-select :model-value="branchRouteForEdge(edge)" @update:model-value="updateBranchEdgeRoute(edge, $event as string)" style="width: 100%">
                   <el-option v-for="option in branchRouteOptions" :key="option.value" :label="option.label" :value="option.value" />
                 </el-select>
@@ -285,9 +285,35 @@ function selectConnectorResource(value: number): void {
     ...(selectedNode.value.config || {}), resource_id: value,
     resource_name: resource?.resource_name || '', resource_code: resource?.resource_code || '',
     adapter_code: resource?.adapter_code || null, data_object_id: null,
+    output_field_catalog: [],
   }
   resourceDataObjects.value = []
+  void refreshConnectorFieldCatalog(value)
   if (resource?.adapter_code === 'BEISEN_REPORT_PULL_ADAPTER') void loadResourceDataObjects(value)
+}
+/** 通用设计期字段发现：把当前 CONNECTOR 的真实响应字段写入 config.output_field_catalog。
+ *  下游 TRANSFORM / 资产写入 / 条件分支 统一从 output_field_catalog 读取源字段。 */
+async function refreshConnectorFieldCatalog(resourceId?: number | null, dataObjectId?: number | null): Promise<void> {
+  if (!selectedNode.value || selectedNode.value.type !== 'CONNECTOR') return
+  const rid = resourceId ?? Number(selectedNode.value.config?.resource_id || 0)
+  if (!rid) return
+  try {
+    const objectId = (dataObjectId ?? Number(selectedNode.value.config?.data_object_id || 0)) || null
+    const result = await ucpApi.resourceFieldCatalog(rid, objectId)
+    const config = selectedNode.value.config as Record<string, any>
+    config.output_field_catalog = (result.items || []).map((field) => ({
+      code: field.source_key, label: field.label, type: field.type || 'string',
+    }))
+    selectedNode.value.config = config
+  } catch { /* 字段发现失败不阻断节点选择 */ }
+}
+function selectBitableTableForNode(): void {
+  if (!selectedNode.value) return
+  void refreshConnectorFieldCatalog(Number(selectedNode.value.config?.resource_id || 0), null)
+}
+function selectBeisenDataObject(): void {
+  if (!selectedNode.value) return
+  void refreshConnectorFieldCatalog(Number(selectedNode.value.config?.resource_id || 0), Number(selectedNode.value.config?.data_object_id || null))
 }
 function selectCapabilitySystem(value: number) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), system_id: value, object_code: null, capability_id: null, capability_name: '' } }
 function selectCapabilityObject(value: string) { if (!selectedNode.value) return; selectedNode.value.config = { ...(selectedNode.value.config || {}), object_code: value, capability_id: null, capability_name: '' } }
@@ -1236,36 +1262,153 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.pipeline-designer-page { height: 100%; display: flex; flex-direction: column; background: var(--color-bg-page) }
-.designer-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--color-bg-card); border-bottom: 1px solid var(--color-border); flex-shrink: 0 }
-.toolbar-left { display: flex; align-items: center; gap: 12px } .toolbar-title { font-size: 16px; font-weight: 600; color: var(--color-text-primary) } .toolbar-right { display: flex; gap: 8px }
-.designer-body { display: grid; grid-template-columns: 220px 1fr 320px; flex: 1; min-height: 0; gap: 0 }
-.designer-left, .designer-right { background: #fafafa; padding: 12px; overflow: auto; border-right: 1px solid #ebeef5 } .designer-right { border-right: none; border-left: 1px solid #ebeef5 }
-.designer-left h4, .designer-right h4 { margin: 0 0 8px; font-size: 14px } .summary-heading { display: flex; align-items: center; justify-content: space-between; } .trigger-row { display: flex; align-items: center; gap: 6px; padding: 5px 0; font-size: 12px; }
-.node-palette-item { background: #fff; border: 1px solid #dcdfe6; border-radius: 4px; padding: 8px; margin-bottom: 6px; cursor: grab; display: flex; align-items: center; gap: 6px }
-.node-palette-item:hover { background: #f0f9ff } .node-palette-item small { margin-left: auto; color: #909399 }
-.canvas-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #fafbfc }.designer-canvas { position: relative; width: 100%; height: 100%; min-width: 0; overflow: auto; cursor: grab; background-image: radial-gradient(circle, #e4e7ed 1px, transparent 1px); background-size: 20px 20px }.designer-canvas.is-panning { cursor: grabbing; user-select: none }
-.canvas-scaler { position: relative; min-width: 100%; min-height: 100% }.canvas-content { position: relative; transform-origin: top left }.canvas-controls { position: absolute; right: 18px; bottom: 18px; z-index: 8; display: flex; align-items: center; gap: 6px; padding: 6px; background: rgba(255,255,255,.96); border: 1px solid #dbe3ee; border-radius: 8px; box-shadow: 0 4px 12px rgba(15,23,42,.14) }.zoom-value { min-width: 42px; text-align: center; color: #475569; font-size: 12px; font-variant-numeric: tabular-nums }
+.pipeline-designer-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--ui-page-background);
+}
+/* ===== 顶栏 ===== */
+.designer-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-4);
+  padding: var(--spacing-3) var(--spacing-5);
+  background: var(--color-bg-card);
+  border-bottom: 1px solid var(--color-border-light);
+  flex-shrink: 0;
+}
+.toolbar-left { display: flex; align-items: center; gap: var(--spacing-3); min-width: 0 }
+.toolbar-title { font-size: var(--page-title-size); font-weight: var(--page-title-weight); line-height: var(--page-title-line-height); color: var(--page-title-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.toolbar-right { display: flex; gap: var(--spacing-2); flex-shrink: 0 }
+/* ===== 三栏骨架 ===== */
+.designer-body { display: grid; grid-template-columns: 220px minmax(0, 1fr) 320px; flex: 1; min-height: 0; gap: 0 }
+.designer-left, .designer-right { background: var(--color-bg-subtle); padding: var(--spacing-3); overflow: auto; }
+.designer-left { border-right: 1px solid var(--color-border-light) }
+.designer-right { border-left: 1px solid var(--color-border-light) }
+.designer-left h4, .designer-right h4 { margin: 0 0 var(--spacing-2); font-size: var(--font-size-md); font-weight: 600; line-height: 22px; color: var(--color-text-primary) }
+.summary-heading { display: flex; align-items: center; justify-content: space-between }
+.trigger-row { display: flex; align-items: center; gap: var(--spacing-2); padding: var(--spacing-1) 0; font-size: var(--font-size-xs) }
+.palette-divider { margin: var(--spacing-3) 0 }
+.panel-divider { margin: var(--spacing-2) 0 }
+.trigger-state { float: right; color: var(--color-text-tertiary) }
+.full-width-btn { width: 100% }
+.panel-gap-top { margin-top: var(--spacing-2) }
+/* ===== 左侧节点面板 ===== */
+.node-palette-item {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-2) var(--spacing-3);
+  margin-bottom: var(--spacing-2);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+}
+.node-palette-item:hover { background: var(--color-bg-hover); border-color: var(--color-primary-light) }
+.node-palette-item small { margin-left: auto; color: var(--color-text-tertiary); font-size: var(--font-size-xs) }
+/* ===== 画布 ===== */
+.canvas-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--ui-page-background) }
+.designer-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  cursor: grab;
+  background-image: radial-gradient(circle, var(--color-border-lighter) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+.designer-canvas.is-panning { cursor: grabbing; user-select: none }
+.canvas-scaler { position: relative; min-width: 100%; min-height: 100% }
+.canvas-content { position: relative; transform-origin: top left }
+.canvas-controls {
+  position: absolute;
+  right: var(--spacing-5);
+  bottom: var(--spacing-5);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.zoom-value { min-width: 42px; text-align: center; color: var(--color-text-regular); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums }
 .edge-layer { position: absolute; top: 0; left: 0; pointer-events: none }
-.node-card { position: absolute; width: 188px; height: 96px; box-sizing: border-box; overflow: visible; background: #fff; border: 2px solid #dcdfe6; border-radius: 8px; box-shadow: 0 2px 6px rgba(15,23,42,.08); cursor: move; user-select: none }
-.node-card.start-trigger { width: 188px; height: 96px }
-.node-card.selected { box-shadow: 0 0 0 3px rgba(64,158,255,.3) } .node-card.is-error { border-color: #f56c6c!important; box-shadow: 0 0 0 2px rgba(245,108,108,.2) }
-.node-header { height: 30px; box-sizing: border-box; padding: 6px 8px; color: #fff; border-radius: 6px 6px 0 0; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center }
-.node-body { height: 62px; box-sizing: border-box; padding: 6px 8px; font-size: 12px; display: flex; flex-direction: column; gap: 2px }
-.node-title, .node-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap } .node-title { color: #1f2937; font-weight: 600 } .node-summary { color: #64748b; font-size: 11px; line-height: 16px; min-height: 16px }
-.node-status { margin-top: auto; display: flex; align-items: center; gap: 5px; color: #64748b; font-size: 11px }.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #94a3b8 }.status-dot.success { background: #22c55e }.status-dot.warning { background: #f59e0b }.status-dot.danger { background: #ef4444 }
-.start-trigger-hint { margin-top: -2px; color: #909399; font-size: 12px; line-height: 1.5 } .schedule-plan-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 24px }
-.node-ports { position: absolute; inset: 0; pointer-events: none } .port { position: absolute; width: 10px; height: 10px; box-sizing: border-box; background: #22c55e; border: 2px solid #fff; border-radius: 50%; cursor: crosshair; pointer-events: auto } .port-left { left: -7px; top: calc(50% - 5px) } .port-right { right: -7px; top: calc(50% - 5px) } .port-top { top: -7px; left: calc(50% - 5px) } .port-bottom { bottom: -7px; left: calc(50% - 5px) } .port:hover { background: #409eff; transform: scale(1.3) }
-.empty-tip { text-align: center; padding: 60px 0; color: #c0c4cc } .empty-tip p { margin: 8px 0 0; font-size: 13px }
-.pipeline-info-form :deep(.el-form-item) { margin-bottom: 8px } .pipeline-info-form .compact-item :deep(.el-form-item) { margin-bottom: 0 }
-.field-mappings { margin-bottom: 8px } .mapping-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px } .mapping-arrow { color: #909399; font-size: 14px }
-.upstream-ref { background: #f5f7fa; border-radius: 4px; padding: 8px; max-height: 200px; overflow: auto }
-.upstream-ref.empty { color: #c0c4cc; font-size: 12px; text-align: center }
-.upstream-title { font-size: 12px; color: #909399; margin-bottom: 6px }
-.upstream-field { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; cursor: pointer; border-radius: 3px; font-size: 12px }
-.upstream-field:hover { background: #ecf5ff } .upstream-field small { color: #909399 }
-.mapping-migration-hint, .mapping-lossy-blocked { margin-top: 8px; padding: 8px 10px; border-radius: 4px; font-size: 12px; line-height: 1.5 }
-.mapping-migration-hint { color: #7c5c00; background: #fdf6ec; border: 1px solid #faecd8 }
-.mapping-lossy-blocked { color: #b42318; background: #fef3f2; border: 1px solid #fecdca }
-.condition-hints { background: #f5f7fa; border-radius: 4px; padding: 8px; margin-top: 4px } .hint-title { font-size: 12px; color: #909399; margin-bottom: 4px }
+.dotgrid-dot { fill: var(--color-border-lighter) }
+.draw-edge { stroke: var(--color-text-tertiary) }
+/* ===== 节点卡片 ===== */
+.node-card {
+  position: absolute;
+  width: 188px;
+  height: 96px;
+  box-sizing: border-box;
+  overflow: visible;
+  background: var(--color-bg-card);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  cursor: move;
+  user-select: none;
+}
+.node-card.selected { box-shadow: var(--shadow-focus) }
+.node-card.is-error { border-color: var(--color-danger) !important; box-shadow: 0 0 0 2px var(--color-danger-light) }
+.node-header {
+  height: 30px;
+  box-sizing: border-box;
+  padding: var(--spacing-1) var(--spacing-2);
+  color: var(--color-bg-card);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.node-remove { color: var(--color-bg-card) !important }
+.node-body { height: 62px; box-sizing: border-box; padding: var(--spacing-1) var(--spacing-2); font-size: var(--font-size-xs); display: flex; flex-direction: column; gap: var(--spacing-1) }
+.node-title, .node-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.node-title { color: var(--color-text-primary); font-weight: 600 }
+.node-summary { color: var(--color-text-secondary); font-size: 11px; line-height: var(--font-size-md); min-height: var(--font-size-md) }
+.node-status { margin-top: auto; display: flex; align-items: center; gap: var(--spacing-1); color: var(--color-text-secondary); font-size: 11px }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-text-placeholder) }
+.status-dot.success { background: var(--color-success) }
+.status-dot.warning { background: var(--color-warning) }
+.status-dot.danger { background: var(--color-danger) }
+.start-trigger-hint { margin-top: -2px; color: var(--color-text-tertiary); font-size: var(--font-size-xs); line-height: 1.5 }
+.schedule-plan-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2); min-height: 24px }
+.node-ports { position: absolute; inset: 0; pointer-events: none }
+.port { position: absolute; width: 10px; height: 10px; box-sizing: border-box; background: var(--color-success); border: 2px solid var(--color-bg-card); border-radius: 50%; cursor: crosshair; pointer-events: auto }
+.port-left { left: -7px; top: calc(50% - 5px) }
+.port-right { right: -7px; top: calc(50% - 5px) }
+.port-top { top: -7px; left: calc(50% - 5px) }
+.port-bottom { bottom: -7px; left: calc(50% - 5px) }
+.port:hover { background: var(--color-primary); transform: scale(1.3) }
+/* ===== 右侧配置面板 ===== */
+.empty-tip { text-align: center; padding: 60px 0; color: var(--color-text-placeholder) }
+.empty-tip p { margin: var(--spacing-2) 0 0; font-size: var(--font-size-sm) }
+.pipeline-info-form :deep(.el-form-item) { margin-bottom: var(--spacing-2) }
+.pipeline-info-form .compact-item :deep(.el-form-item) { margin-bottom: 0 }
+.field-mappings { margin-bottom: var(--spacing-2) }
+.mapping-row { display: flex; align-items: center; gap: var(--spacing-2); margin-bottom: var(--spacing-2) }
+.mapping-arrow { color: var(--color-text-tertiary); font-size: var(--font-size-md) }
+.upstream-ref { background: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--spacing-2); max-height: 200px; overflow: auto }
+.upstream-ref.empty { color: var(--color-text-placeholder); font-size: var(--font-size-xs); text-align: center }
+.upstream-title { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-bottom: var(--spacing-2) }
+.upstream-field { display: flex; justify-content: space-between; align-items: center; padding: 3px var(--spacing-2); cursor: pointer; border-radius: var(--radius-sm); font-size: var(--font-size-xs) }
+.upstream-field:hover { background: var(--color-bg-hover) }
+.upstream-field small { color: var(--color-text-tertiary) }
+.mapping-migration-hint, .mapping-lossy-blocked { margin-top: var(--spacing-2); padding: var(--spacing-2) var(--spacing-3); border-radius: var(--radius-md); font-size: var(--font-size-xs); line-height: 1.5 }
+.mapping-migration-hint { color: var(--color-text-tertiary); background: var(--color-warning-light); border: 1px solid var(--color-warning-border) }
+.mapping-lossy-blocked { color: var(--color-text-danger-strong); background: var(--color-danger-light); border: 1px solid var(--color-danger-border) }
+.condition-hints { background: var(--color-bg-subtle); border-radius: var(--radius-md); padding: var(--spacing-2); margin-top: var(--spacing-1) }
+.hint-title { font-size: var(--font-size-xs); color: var(--color-text-tertiary); margin-bottom: var(--spacing-1) }
 </style>

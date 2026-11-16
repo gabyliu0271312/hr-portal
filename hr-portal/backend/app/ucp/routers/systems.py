@@ -664,3 +664,27 @@ async def route_bridge_push_targets(
 ):
     items = await list_bridge_push_targets(db)
     return {"items": items}
+
+
+@router.get("/resources/{resource_id}/field-catalog")
+async def route_resource_field_catalog(
+    resource_id: int,
+    data_object_id: int | None = Query(None, description="北森报表等数据对象 ID，可选"),
+    db: AsyncSession = Depends(get_session),
+    _user: User = Depends(require_op("ucp.resources", "V")),
+):
+    """通用设计期字段发现：任意已接入 UCP 资源的真实响应字段目录。
+
+    北森报表/北森API/飞书表格/飞书多维表格/通用HTTP 走 client.discover_fields()；
+    其余接入类型回退 adapter schema 静态字段目录。
+    前端 CONNECTOR 节点把结果持久化到 config.output_field_catalog 作为流程模板一部分。
+    """
+    from app.ucp.field_catalog_service import FieldCatalogError, list_resource_field_catalog
+
+    try:
+        fields = await list_resource_field_catalog(
+            db, resource_id, data_object_id=data_object_id
+        )
+    except FieldCatalogError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return {"items": fields}
