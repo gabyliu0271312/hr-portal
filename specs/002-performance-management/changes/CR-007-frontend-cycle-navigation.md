@@ -230,6 +230,15 @@
 - PC 证据：真实 Vite Vue 组件、1280×800、合成人员和浏览器拦截 API；双人相同环节只展示一次，二次确认前写请求0、二次确定后发两条对应任务请求、转交二次取消无新增写请求、pageerror0。截图 `ui-blueprints/CR-007-F07-implemented-authorization.png`、`CR-007-F07-implemented-authorization-confirm.png`、`CR-007-F07-implemented-transfer-confirm.png` 已查看。仅组件集成验证，不是原入口真实后端端到端验收；合成数据及“打开转交”按钮不加入正式页面。
 - 边界与停止：未操作飞书或生产、未实际外发消息、未执行迁移／部署／commit／push。Docker守护进程不可用，不反复重试。批量保持既有逐任务 API，不承诺原子批量；结果复议通知重试器 reconsideration_service.dispatch_notifications 仍按原 task.handler_ref 投递，不随有效授权人变化，这一通知重试限制未扩文件处理。后继须在本地真库可用时补原入口→真实 API→新连接回读，不能以组件截图或 ORM 测试替代 PostgreSQL 验收。
 
+## 2026-11-16 CR-007-F14 绩效沟通编辑态与阅读态催办接入
+
+- 用户明确要求绩效沟通并开通结果沿用上级评估单个催办逻辑。来源资格解除沟通任务end_at对催办动作的误限制，仍校验已开始、可写处理人、授权/转交/撤销、项目/员工/周期/快照及催办开关；未提交/已提交沟通来源均可催办原有未完成目标。校准/复议来源期限、评分/沟通编辑权限、结果开通逻辑不变，无迁移或生产数据修改。
+- 阅读态template-task view=drawer为result_communication复用既有_project_member_detail，透传management_tabs/stage_views和真实source_task_id；编辑态继续按配置reference_tabs复用共享按钮、MemberReminderDialog及通知预览。具体目标走node_id/task_id；360走限定员工/节点的target_kind，不复制第二套弹窗或通知服务。
+- 后端：扩充normal/test_receiver、普通/预加载、evaluation/communication、pending/completed来源组合，保留6类拒绝。修复前沟通四组合失败、原上级四组合通过；最终 `DB_HOST=127.0.0.1 DB_PORT=1 hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_member_reminders.py hr-portal/backend/tests/test_performance_projects.py hr-portal/backend/tests/test_performance_reconsideration_results.py -q --tb=short` →948 passed/5 skipped/1第三方python_multipart警告。仅替身/传输mock，不代表真实数据库或外发验收。
+- 前端：`npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceMemberReminderDialog.spec.ts --silent` →4文件275 passed，覆盖真实只读抽屉及编辑页工作总结/自评/360按钮事件到共享Dialog、精确来源及目标参数。`npm --prefix hr-portal/frontend run build` →vue-tsc+Vite exit0，3719模块，既有VueUse PURE/包体告警。
+- 浏览器：真实Vue路由、Chrome headless1440×900、全部API隔离合成。沟通编辑工作总结、阅读自评均可打开outline催办/预览，取消无写请求；各确定一次POST /members/E001/remind，source_task_id=22，目标summary/71、self/72。无开通结果请求，pageerror=0、关闭后alertdialog=0/body overflow恢复。独立截图已查看：ui-blueprints/CR-007-F14-communication-edit-reminder-20261116.png、CR-007-F14-communication-read-reminder-20261116.png；不视为生产鉴权/API/数据库/飞书验收。
+- 本轮仅member_reminders.py、projects_router.py、两个既有后端测试、Review.spec.ts/SelfSummaryTask.spec.js及本记录/截图；保留并行复议组件样式和其它会话修改。无提交推送/部署/外发；F14真实环境验收仍未完成，不勾选整体完成。
+
 ## 2026-11-16 CR-007-F14 上级评估截止后催办资格纠偏
 
 - 用户提供只读生产 SQL：周期12、项目24、成员快照8；工作总结14260及自评14670为pending且未提交，上级评估15080已提交、未撤销、截止2026-11-11 15:59 UTC；无ACTIVE转交或授权，催办开关开启且允许work_summary/evaluation。本文不记录人员姓名或其它快照内容。

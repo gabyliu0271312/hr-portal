@@ -175,6 +175,19 @@ describe('SelfSummaryTask', () => {
     expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { sourceTaskId: 42, employeeNo: 'E001', nodeId: 'feedback', targetKind: 'reviewer_360', targetTaskId: undefined } })
   })
 
+  it.each(['summary', 'self', 'feedback'])('opens the communication edit-mode %s reference through the shared reminder', async nodeId => {
+    const is360 = nodeId === 'feedback'
+    const reference = { key: nodeId, kind: is360 ? 'reviewer_360' : 'node', node_id: nodeId, node_name: nodeId, task_id: is360 ? null : 77, employee_no: 'E001', status: 'pending', form_schema: [], answers: {}, can_remind: true, reviewers: [] }
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 42, task_kind: 'result_communication', project_id: 1, reference_tabs: [reference] })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' }, global: { stubs: { PerformanceMemberReminderDialog: true } } })
+    await flushPromises()
+    await wrapper.findAll('.split-single-tabs .summary-tabs button')[1].trigger('click')
+    expect(wrapper.getComponent(PerformanceReminderButton).props('variant')).toBe('outline')
+    await wrapper.get('.performance-remind-button--outline').trigger('click')
+    expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { sourceTaskId: 42, employeeNo: 'E001', nodeId, targetTaskId: is360 ? undefined : 77, targetKind: is360 ? 'reviewer_360' : undefined } })
+    expect(push).not.toHaveBeenCalled()
+  })
+
   it.each([undefined, { tags: [], notes: {} }])('applies default tags only to missing editable answers: %o', async value => {
     const loaded = structuredClone(task)
     loaded.form_schema = [{ id: 'tags', name: '标签', fields: [{ id: 'value', type: 'tag_with_followup', label: '默认标签', default_all: true, options: [{ id: 'good', label: '亮点' }] }] }]

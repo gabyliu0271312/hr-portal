@@ -118,7 +118,7 @@ async def _source_allowed(task, node, project, actor, db, preloaded=None):
             or not shared._task_is_available(task, node, project)):
         return False
     _start, end = shared._task_window(task, node, project)
-    if end is not None and datetime.now(UTC) > end and node.node_type != "evaluation":
+    if end is not None and datetime.now(UTC) > end and node.node_type not in {"evaluation", "result_communication"}:
         return False
     if preloaded is None:
         grants = list((await db.execute(select(PerformanceNodeTaskAuthorization).where(

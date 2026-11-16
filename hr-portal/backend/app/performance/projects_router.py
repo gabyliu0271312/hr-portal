@@ -991,7 +991,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
     manager_evaluation = task.task_kind == "evaluation" and current_role_code in MANAGER_ROLE_CODES
     if manager_evaluation and task.submitted_at is not None:
         answer_submissions = await _calibration_answer_submissions(task, [task], db)
-    if (manager_evaluation or task.task_kind == "result_reconsideration" and view == "drawer") and member is not None:
+    if (manager_evaluation or task.task_kind in {"result_communication", "result_reconsideration"} and view == "drawer") and member is not None:
         # 评估人（handler）视角：复用被评估人管理详情（management_tabs/stage_views），
         # 成员已由 _self_summary_task 的 handler 授权保证可见，跳过管理范围检查；
         # 可见性沿用本环节 resolve_subject_visibility_role 的结果（leader 等）。

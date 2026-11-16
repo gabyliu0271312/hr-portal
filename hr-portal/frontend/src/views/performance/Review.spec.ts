@@ -1105,6 +1105,31 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('opens communication summary, self-review and 360 reminders from the real readonly drawer', async () => {
+    const node = { ...overview.categories[0].nodes[0], node_id: 'communicate', node_name: '绩效沟通并开通结果', node_type: 'result_communication', task_kind: 'result_communication', status: 'completed' as const }
+    Object.assign(routeQuery, { project_id: '1', node: 'communicate' })
+    vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...overview, categories: [{ key: 'team', label: '我团队的绩效', nodes: [node] }] })
+    const reference = (id: string, name: string, taskId: number | null, kind: 'node' | 'reviewer_360' = 'node') => ({ key: `reference-${id}`, node_id: id, node_name: name, task_id: taskId, employee_no: 'E2', kind, status: 'pending' as const, form_schema: [], answers: {}, can_remind: true, reviewers: [] })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 22, project_id: 1, node_id: 'communicate', task_kind: 'result_communication', entry_mode: 'template_task', node_name: node.node_name, editable: false, submit_allowed: false, person: { employee_no: 'E2', display_name: '沟通员工' }, form_schema: [], answers: {}, reference_tabs: [reference('summary', '工作总结', 71), reference('self', '自评', 72), reference('feedback', '360°反馈', null, 'reviewer_360')] })
+    const wrapper = mount(Review, { global: { plugins: [pinia], stubs: { PerformanceMemberReminderDialog: true } } })
+    try {
+      await flushPromises()
+      wrapper.getComponent(PerformanceReviewContent).vm.$emit('open-member', { node, member: { task_id: 22, employee_no: 'E2', display_name: '沟通员工', status: 'completed' } })
+      await flushPromises()
+      for (const [index, nodeId, targetTaskId, targetKind] of [[1, 'summary', 71, undefined], [2, 'self', 72, undefined], [3, 'feedback', undefined, 'reviewer_360']] as const) {
+        document.body.querySelectorAll<HTMLButtonElement>('.performance-drawer .line-tab')[index]!.click()
+        await flushPromises()
+        document.body.querySelector<HTMLButtonElement>('.performance-drawer .performance-remind-button--outline')!.click()
+        await flushPromises()
+        expect(wrapper.getComponent(PerformanceMemberReminderDialog).props()).toMatchObject({ modelValue: true, context: { employeeNo: 'E2', sourceTaskId: 22, nodeId, targetTaskId, targetKind } })
+        wrapper.getComponent(PerformanceMemberReminderDialog).vm.$emit('update:modelValue', false)
+        await flushPromises()
+      }
+      expect(wrapper.getComponent(PerformanceReviewEvaluationDrawer).props('readonly')).toBe(true)
+      expect(push).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
   it('opens a newly created voluntary 360 task even when the overview node has no existing task metadata', async () => {
     const node = {
       node_id: 'evaluation-1',

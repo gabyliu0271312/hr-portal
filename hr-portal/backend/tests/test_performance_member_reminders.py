@@ -446,7 +446,9 @@ async def test_non_management_source_uses_its_own_permission_without_manager_fal
 @pytest.mark.asyncio
 @pytest.mark.parametrize("preload", [False, True])
 @pytest.mark.parametrize("delivery_mode", ["normal", "test_receiver"])
-async def test_completed_expired_manager_source_can_remind_overdue_summary_and_self_review(environment, monkeypatch, preload, delivery_mode):
+@pytest.mark.parametrize("source_kind", ["evaluation", "result_communication"])
+@pytest.mark.parametrize("submitted", [False, True])
+async def test_completed_expired_manager_source_can_remind_overdue_summary_and_self_review(environment, monkeypatch, preload, delivery_mode, source_kind, submitted):
     db, context, sender = environment
     monkeypatch.setattr(notification_service, "_global_delivery_mode", AsyncMock(return_value=delivery_mode))
     if delivery_mode == "test_receiver":
@@ -454,8 +456,10 @@ async def test_completed_expired_manager_source_can_remind_overdue_summary_and_s
     monkeypatch.setattr(shared, "_can_manage_project_like_overview", AsyncMock(return_value=False))
     now = datetime.now(UTC)
     source = db.tasks[3]
-    source.status = "completed"
-    source.submitted_at = source.completed_at = now - timedelta(days=5)
+    source.task_kind = source_kind
+    db.nodes[13].node_type = source_kind
+    source.status = "completed" if submitted else "pending"
+    source.submitted_at = source.completed_at = now - timedelta(days=5) if submitted else None
     source.available_at = now - timedelta(days=9)
     source.due_at = now - timedelta(days=4)
     db.nodes[12] = node(12, "evaluation", shared.ROLE_REVIEWEE)
@@ -483,15 +487,19 @@ async def test_completed_expired_manager_source_can_remind_overdue_summary_and_s
     assert sent["accepted_task_ids"] == [1, 2]
     assert sender.await_count == 2
     assert {call.args[0].handler_ref for call in sender.await_args_list} == {"E1"}
-    assert source.status == "completed" and source.submitted_at == now - timedelta(days=5)
+    assert source.status == ("completed" if submitted else "pending")
+    assert source.submitted_at == (now - timedelta(days=5) if submitted else None)
     assert all(db.tasks[key].submitted_at is None for key in (1, 2))
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reason", ["readonly", "transferred", "wrong_actor", "revoked", "other_snapshot", "disabled"])
-async def test_expired_manager_source_still_enforces_authorization_and_settings(environment, monkeypatch, reason):
+@pytest.mark.parametrize("source_kind", ["evaluation", "result_communication"])
+async def test_expired_manager_source_still_enforces_authorization_and_settings(environment, monkeypatch, reason, source_kind):
     db, context, sender = environment
     monkeypatch.setattr(shared, "_can_manage_project_like_overview", AsyncMock(return_value=False))
+    db.tasks[3].task_kind = source_kind
+    db.nodes[13].node_type = source_kind
     db.tasks[3].status = "completed"
     db.tasks[3].submitted_at = datetime.now(UTC) - timedelta(days=5)
     db.tasks[3].due_at = datetime.now(UTC) - timedelta(days=4)

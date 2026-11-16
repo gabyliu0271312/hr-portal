@@ -2787,6 +2787,16 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     assert evaluation["content_page_name"] == (page_name or "模板手动维护名称")
     assert evaluation["answers"] == {"work": "已完成"}
 
+    task.task_kind = "result_communication"
+    detail.reset_mock()
+    communication = await projects_router.get_template_task(9, context(), Db(), view="drawer")
+    detail.assert_awaited_once()
+    assert detail.await_args.kwargs["source_task_id"] == 9
+    assert detail.await_args.kwargs["reference_node_id"] == "summary"
+    assert detail.await_args.kwargs["view"] == "drawer"
+    assert all(communication[key] == value for key, value in management_detail.items())
+    assert communication["task_kind"] == "result_communication"
+
 
 @pytest.mark.asyncio
 async def test_reconsideration_template_task_passes_show_result_and_keep_result(monkeypatch):
