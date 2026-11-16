@@ -33,11 +33,23 @@ function created() {
 function edited() {
   load()
 }
+function removeNodeLocal(id: number) {
+  const walk = (list: TreeNode[]): boolean => {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id === id) { list.splice(i, 1); return true }
+      if (list[i].children?.length && walk(list[i].children)) return true
+    }
+    return false
+  }
+  walk(trees.value)
+}
 function confirmDelete() {
   deleting.value = false
   if (!target.value) return
   treesApi.deleteCostCenter(target.value.id)
     .then(() => {
+      // 先本地移除节点（按钮立即消失，无闪屏），再后台对齐树
+      removeNodeLocal(target.value!.id)
       target.value = null
       load()
     })
@@ -73,7 +85,7 @@ function parseError(cause: any): { text: string; issues: HealthIssue[] } {
 }
 async function load() {
   const current = ++request
-  trees.value = []; error.value = ''; issues.value = []; loading.value = false
+  error.value = ''; issues.value = []; loading.value = false
   if (!canView.value) return
   loading.value = true
   try {

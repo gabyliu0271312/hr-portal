@@ -187,7 +187,7 @@ describe('cost center directory shell', () => {
     wrapper.unmount()
   })
 
-  it('deletes a leaf: confirms and calls delete API', async () => {
+  it('deletes a leaf: confirms and calls delete API, removes row locally without clearing the tree', async () => {
     api.deleteCostCenter.mockResolvedValueOnce(undefined)
     const wrapper = mount(CostCenter, options); await flushPromises()
     await wrapper.get('.act-del').trigger('click'); await flushPromises()
@@ -195,6 +195,9 @@ describe('cost center directory shell', () => {
     expect(vm.deleting).toBe(true)
     await vm.confirmDelete(); await flushPromises()
     expect(api.deleteCostCenter).toHaveBeenCalledWith(1)
+    // 删除成功后：本地立即移除该节点，树不清空（避免闪屏）
+    expect(vm.trees).toHaveLength(0)
+    expect(vm.deleting).toBe(false)
     wrapper.unmount()
   })
 
