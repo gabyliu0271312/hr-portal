@@ -191,7 +191,8 @@ function onReorder(from: number, to: number) {
   min-width: 0;
   overflow: visible;
 }
-.ui-sortable-table__cell--drag :deep(.performance-drag-handle) { flex: 0 0 16px; width: 16px; margin: 0; }
+.ui-sortable-table__cell--drag :deep(.performance-drag-handle) { flex: 0 0 16px; width: 16px; margin: 0; align-self: center; height: 32px; }
+.ui-sortable-table__cell--drag :deep(.universe-icon) { display: flex; align-items: center; justify-content: center; vertical-align: middle; }
 .ui-sortable-table__cell.is-align-right { text-align: right; }
 .ui-sortable-table__cell-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ui-sortable-table__state { height: var(--ui-table-empty-height); display: flex; align-items: center; justify-content: center; color: var(--ui-table-placeholder-color); border-bottom: 1px solid var(--ui-table-border-color); background: var(--ui-surface-background); }
