@@ -5,7 +5,6 @@ import PeopleRoster from './PeopleRoster.vue'
 
 const fieldsApi = vi.hoisted(() => ({
   peopleFields: vi.fn(),
-  groups: vi.fn(),
 }))
 const dataApi = vi.hoisted(() => ({
   query: vi.fn(),
@@ -38,16 +37,11 @@ const sampleFields = [
   { id: 3, field_code: 'work_location', field_name: '工作地', data_type: 'enum', group_id: 2, group_name: '个人信息', entity_id: 1, entity_name: '人员(person)', is_active: true },
   { id: 4, field_code: 'disabled_field', field_name: '停用字段', data_type: 'string', group_id: 2, group_name: '个人信息', entity_id: null, entity_name: null, is_active: false },
 ]
-const sampleGroups = [
-  { id: 1, name: '工作信息', display_order: 1, is_active: true, field_count: 2 },
-  { id: 2, name: '个人信息', display_order: 2, is_active: true, field_count: 1 },
-]
 
 beforeEach(() => {
   vi.resetAllMocks()
   menus.length = 0; menus.push({ code: 'people.app' })
   fieldsApi.peopleFields.mockResolvedValue({ items: sampleFields, total: sampleFields.length })
-  fieldsApi.groups.mockResolvedValue({ items: sampleGroups, total: sampleGroups.length })
   dataApi.query.mockResolvedValue({
     items: [{ id: 101, employee_no: 'EMP001', chinese_name: '张三', work_location: 'site-a' }],
     total: 1,
@@ -58,13 +52,15 @@ beforeEach(() => {
 })
 
 describe('people roster page', () => {
-  it('renders grouped tabs and loads roster rows when authorized', async () => {
+  it('renders flat field table and loads roster rows when authorized', async () => {
     const wrapper = mount(PeopleRoster, options); await flushPromises()
     expect(fieldsApi.peopleFields).toHaveBeenCalledTimes(1)
     expect(dataApi.query).toHaveBeenCalledWith('emp_realtime_roster', expect.objectContaining({ page: 1 }))
     expect(wrapper.text()).toContain('人员信息')
-    expect(wrapper.text()).toContain('工作信息')
-    expect(wrapper.text()).toContain('个人信息')
+    // 表格平铺全部有效字段列，不再有分组 tab
+    const vm = wrapper.vm as any
+    expect(vm.tableColumns.length).toBe(3)
+    expect(wrapper.text()).not.toContain('工作信息（')
     wrapper.unmount()
   })
 
@@ -86,7 +82,7 @@ describe('people roster page', () => {
     wrapper.unmount()
   })
 
-  it('shows permission notice without people.organization', async () => {
+  it('shows permission notice without people.app', async () => {
     menus.length = 0
     const wrapper = mount(PeopleRoster, options); await flushPromises()
     expect(fieldsApi.peopleFields).not.toHaveBeenCalled()
@@ -102,15 +98,6 @@ describe('people roster page', () => {
     const wrapper = mount(PeopleRoster, options); await flushPromises()
     const vm = wrapper.vm as any
     expect(vm.error).toBeTruthy()
-    wrapper.unmount()
-  })
-
-  it('groups load failure degrades to all fields without breaking', async () => {
-    fieldsApi.groups.mockRejectedValueOnce({ response: { data: { detail: '无权' } } })
-    const wrapper = mount(PeopleRoster, options); await flushPromises()
-    const vm = wrapper.vm as any
-    expect(vm.groups).toHaveLength(0)
-    expect(vm.fields.length).toBe(3)
     wrapper.unmount()
   })
 })

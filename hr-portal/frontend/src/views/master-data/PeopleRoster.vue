@@ -7,7 +7,7 @@ import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import PerformanceColumnVisibilityDrawer, { type PerformanceColumnOption } from '@/components/performance/PerformanceColumnVisibilityDrawer.vue'
 import PerformanceTableSummary from '@/components/performance/PerformanceTableSummary.vue'
-import { standardFieldsApi, type PeopleField, type FieldGroup } from '@/api/standardFields'
+import { standardFieldsApi, type PeopleField } from '@/api/standardFields'
 import { dataApi, type DataPage } from '@/api/data'
 import { useUserStore } from '@/stores/user'
 import { formatDisplayDateTime } from '@/utils/datetime'
@@ -15,8 +15,6 @@ import { formatDisplayDateTime } from '@/utils/datetime'
 const store = useUserStore()
 const canView = computed(() => store.menus.some(m => m.code === 'people.app'))
 const fields = ref<PeopleField[]>([])
-const groups = ref<FieldGroup[]>([])
-const activeGroupId = ref<number | ''>('')
 const keyword = ref('')
 const page = ref(1)
 const pageSize = ref(20)
@@ -86,13 +84,6 @@ const columnOptions = computed<PerformanceColumnOption[]>(() => fields.value.map
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columnOptions.value.find(column => column.key === key)).filter((column): column is PerformanceColumnOption => Boolean(column)))
 const hiddenColumnCount = computed(() => Math.max(0, fields.value.length - visibleColumns.value.length))
 
-/** 分组 tab：全部 + 各分组（含 field_count），与后台字段设置一致。 */
-const filteredFields = computed(() => {
-  const list = fields.value
-  if (activeGroupId.value === '') return list
-  return list.filter(field => field.group_id === activeGroupId.value)
-})
-
 async function loadFields() {
   const current = ++request
   fields.value = []
@@ -103,13 +94,6 @@ async function loadFields() {
     const response = await standardFieldsApi.peopleFields()
     if (current !== request) return
     fields.value = response.items.filter(field => field.is_active)
-    const counts = new Map<number, number>()
-    fields.value.forEach(field => {
-      if (field.group_id != null) counts.set(field.group_id, (counts.get(field.group_id) ?? 0) + 1)
-    })
-    groups.value = (await standardFieldsApi.groups().catch(() => ({ items: [], total: 0 }))).items
-      .filter(group => group.is_active)
-      .map(group => ({ ...group, field_count: counts.get(group.id) ?? group.field_count }))
     if (!columnsInitialized.value) {
       loadPreference()
       const retained = selectedColumnKeys.value.filter(key => fields.value.some(field => String(field.id) === key))
@@ -148,11 +132,6 @@ function load() {
     .finally(() => { if (current === request) loading.value = false })
 }
 
-function switchGroup(id: number | '') {
-  activeGroupId.value = id
-  page.value = 1
-  // 切换分组后表格列变化，隐藏列偏好仍按全量字段 key 持久化
-}
 function search() {
   page.value = 1
   void loadRows()
@@ -166,12 +145,12 @@ function cellValue(row: any, field: PeopleField) {
   return raw
 }
 
-const tableColumns = computed<UiTableColumn[]>(() => filteredFields.value.map(field => ({
+const tableColumns = computed<UiTableColumn[]>(() => fields.value.map(field => ({
   key: String(field.id),
   label: field.field_name,
   minWidth: 140,
 })))
-const fieldByKey = computed(() => new Map(filteredFields.value.map(field => [String(field.id), field])))
+const fieldByKey = computed(() => new Map(fields.value.map(field => [String(field.id), field])))
 
 function onSort(payload: { key: string; order: 'asc' | 'desc' | '' }) {
   sortKey.value = payload.key
@@ -185,16 +164,12 @@ onBeforeUnmount(() => { ++request })
 
 <template>
   <div class="people-roster">
-    <PageTitle title="人员信息" description="员工花名册数据，字段与后台字段设置分组联动；不常用字段可隐藏。" />
+    <PageTitle title="人员信息" description="员工花名册数据，字段由后台字段设置维护；不常用字段可隐藏。" />
     <UiSurface class="people-roster__card">
       <el-alert v-if="!canView" title="需要人员查看权限。" type="info" :closable="false" />
       <template v-else>
         <el-alert v-if="error" :title="error" type="error" :closable="false" />
         <div v-else>
-          <div v-if="groups.length" class="people-roster__tabs">
-            <button type="button" class="people-roster__tab" :class="{ 'is-active': activeGroupId === '' }" @click="switchGroup('')">全部</button>
-            <button v-for="group in groups" :key="group.id" type="button" class="people-roster__tab" :class="{ 'is-active': activeGroupId === group.id }" @click="switchGroup(group.id)">{{ group.name }}（{{ group.field_count }}）</button>
-          </div>
           <div class="people-roster__toolbar">
             <SearchInput v-model="keyword" placeholder="搜索姓名、工号等" @keyup.enter="search" />
             <button type="button" class="people-roster__search" @click="search">查询</button>
@@ -206,7 +181,7 @@ onBeforeUnmount(() => { ++request })
               :rows="sortedRows"
               :row-key="row => String(row.id ?? row._id)"
               :loading="loading"
-              :empty-text="filteredFields.length ? '暂无人员数据。' : '当前分组暂无字段，可在后台字段设置中添加。'"
+              :empty-text="fields.length ? '暂无人员数据。' : '暂无字段，可在后台字段设置中添加。'"
               :min-width="tableColumns.length * 140"
               sticky-header-top="0px"
               :sort-key="sortKey"
@@ -241,19 +216,6 @@ onBeforeUnmount(() => { ++request })
 }
 .people-roster__card { display: flex; flex-direction: column; flex: 0 0 auto; min-width: 0; }
 .people-roster__card > .el-alert { margin-top: var(--spacing-4); }
-.people-roster__tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: var(--page-gap-toolbar-table); }
-.people-roster__tab {
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text-regular);
-  cursor: pointer;
-  font: 400 14px/32px var(--font-sans);
-}
-.people-roster__tab:hover { background: var(--color-bg-hover); }
-.people-roster__tab.is-active { background: var(--color-primary-light); color: var(--color-primary); font-weight: 500; }
 .people-roster__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--page-gap-toolbar-items); margin-bottom: var(--page-gap-toolbar-table); }
 .people-roster__search {
   height: 32px;
