@@ -6,6 +6,7 @@ import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 import PerformanceReconsiderationAdjustments from './PerformanceReconsiderationAdjustments.vue'
+import PerformanceReconsiderationDetail from './PerformanceReconsiderationDetail.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 import previewCardSource from './PerformanceReminderPreviewCard.vue?raw'
 
@@ -75,6 +76,25 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     expect(wrapper.find('ins').text()).toBe('新')
     expect(wrapper.text()).toContain('共同🙂')
     expect(wrapper.text()).toContain('句尾')
+  })
+
+  it('opens history with creator and time on separate rows and shows ordered inline field changes', async () => {
+    const changes = [{ section_id: 'value', section_name: '价值贡献', field_id: 'good', field_label: '做得好的', field_type: 'rich_text', before: '<p>2变更结果</p>', after: '<p>4变更结果</p>' }, { section_id: 'value', section_name: '价值贡献', field_id: 'improve', field_label: '待改进的', field_type: 'rich_text', before: '<p>3变更结果</p>', after: '<p>6变更结果</p>' }]
+    const wrapper = mount(PerformanceReconsiderationDetail, { props: { employeeNo: 'E001', nodeName: '模板复议处理', detail: { reason: '核对', status: 'submitted_editable', handlers: [], adjustments: changes, history: [{ display_name: '实际提交人', submitted_at: '2026-09-22T07:29:00Z', adjustments: changes }, { display_name: '另一处理人', submitted_at: '2026-09-21T07:29:00Z', adjustments: [] }], form_schema: [], answers: {}, submitted_at: '2026-09-22T07:29:00Z', submitted_by: '实际提交人', can_edit: false } } })
+    await wrapper.get('.reconsideration-detail__history-link button').trigger('click')
+    const dialog = document.body.querySelector<HTMLElement>('.reconsideration-history-dialog')!
+    expect(dialog.style.width).toBe('800px')
+    expect(dialog.querySelector('.reconsideration-detail__history-creator')?.textContent).toContain('实际提交人')
+    expect(dialog.querySelector('.reconsideration-detail__history-time')?.textContent).toBe('2026-09-22 15:29（GMT+8）')
+    expect(dialog.querySelectorAll('details')[0].open).toBe(true)
+    expect(dialog.querySelectorAll('details')[1].open).toBe(false)
+    expect([...dialog.querySelectorAll('.reconsideration-adjustments__field-label')].map(item => item.textContent)).toEqual(['做得好的', '待改进的'])
+    expect([...dialog.querySelectorAll('del')].map(item => item.textContent)).toEqual(['2', '3'])
+    expect([...dialog.querySelectorAll('ins')].map(item => item.textContent)).toEqual(['4', '6'])
+    expect(dialog.textContent).not.toContain('变更前')
+    ;(dialog.querySelector('.performance-dialog__footer button') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-history-dialog')).toBeNull()
   })
 
   it('shows template role labels and sends a reminder for the actual pending reconsideration task', async () => {

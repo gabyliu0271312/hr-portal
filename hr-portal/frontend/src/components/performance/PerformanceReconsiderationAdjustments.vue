@@ -1,8 +1,10 @@
 <template>
-  <div class="reconsideration-adjustments">
+  <div class="reconsideration-adjustments" :class="{ 'reconsideration-adjustments--history': history }">
     <section v-for="group in groups" :key="group.key" class="reconsideration-adjustments__group">
-      <PerformanceAssessmentPreviewHeader :name="group.name" heading-tag="h3" />
+      <h3 v-if="history" class="reconsideration-adjustments__history-title">{{ group.name }}</h3>
+      <PerformanceAssessmentPreviewHeader v-else :name="group.name" heading-tag="h3" />
       <div v-for="(adjustment, index) in group.items" :key="`${adjustment.field_id}:${adjustment.instance_index ?? index}`" class="reconsideration-adjustments__field">
+        <div v-if="history" class="reconsideration-adjustments__field-label">{{ adjustment.field_label }}</div>
         <div v-if="adjustment.field_type === 'rating' || adjustment.field_type === 'single_select'" class="reconsideration-adjustments__rating" :aria-label="adjustment.field_label">
           <PerformanceRatingTag :label="option(adjustment, adjustment.before).label" :color="option(adjustment, adjustment.before).color" :foreground="option(adjustment, adjustment.before).foreground" />
           <svg class="reconsideration-adjustments__arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21.707 11.293a1 1 0 0 1 0 1.414l-7 7a1 1 0 0 1-1.414-1.414L18.586 13H2a1 1 0 1 1 0-2h16.586l-5.293-5.293a1 1 0 0 1 1.414-1.414l7 7Z" fill="currentColor" /></svg>
@@ -18,7 +20,7 @@ import { computed } from 'vue'
 import type { PerformanceReconsiderationAdjustment, PerformanceTemplateSection } from '@/api/performance'
 import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
 import PerformanceRatingTag from './PerformanceRatingTag.vue'
-const props = defineProps<{ adjustments: PerformanceReconsiderationAdjustment[]; sections: PerformanceTemplateSection[] }>()
+const props = withDefaults(defineProps<{ adjustments: PerformanceReconsiderationAdjustment[]; sections: PerformanceTemplateSection[]; history?: boolean }>(), { history: false })
 const groups = computed(() => {
   const groups = new Map<string, { key: string; name: string; items: PerformanceReconsiderationAdjustment[] }>()
   for (const adjustment of props.adjustments) {
@@ -26,7 +28,7 @@ const groups = computed(() => {
     if (!groups.has(key)) groups.set(key, { key, name: `${adjustment.section_name}${adjustment.instance_index != null ? ` ${adjustment.instance_index + 1}` : ''}`, items: [] })
     groups.get(key)!.items.push(adjustment)
   }
-  return [...groups.values()].map(group => ({ ...group, items: [...group.items].reverse() }))
+  return [...groups.values()].map(group => ({ ...group, items: props.history ? group.items : [...group.items].reverse() }))
 })
 function option(adjustment: PerformanceReconsiderationAdjustment, value: unknown) {
   const field = props.sections.find(section => section.id === adjustment.section_id)?.fields.find(field => field.id === adjustment.field_id)
@@ -78,4 +80,5 @@ function differences(adjustment: PerformanceReconsiderationAdjustment): Differen
 </script>
 <style scoped>
 .reconsideration-adjustments__group{display:flex;min-width:0;flex-direction:column;padding:16px;border-radius:4px;background:var(--perf-n-100,#f5f6f7)}.reconsideration-adjustments__group+.reconsideration-adjustments__group{margin-top:32px}.reconsideration-adjustments__group :deep(.performance-assessment-preview-header){margin-bottom:4px;padding-left:10px}.reconsideration-adjustments__group :deep(.performance-assessment-preview-header::before){top:4px;height:16px}.reconsideration-adjustments__field{min-width:0;padding-top:8px}.reconsideration-adjustments__field+.reconsideration-adjustments__field{margin-top:20px;padding-top:20px;border-top:1px solid var(--perf-n-300,#dee0e3)}.reconsideration-adjustments__text{min-width:0;color:var(--color-text-primary);font:400 14px/24px var(--font-sans);white-space:pre-wrap;overflow-wrap:anywhere}.reconsideration-adjustments__text del{color:#621c18;background:rgba(245,74,69,.1);text-decoration:line-through}.reconsideration-adjustments__text ins{background:rgba(52,199,36,.1);text-decoration:none}.reconsideration-adjustments__rating{display:flex;min-width:0;align-items:center;min-height:24px}.reconsideration-adjustments__arrow{flex:none;margin:0 12px;color:var(--perf-n-600,#646a73)}
+.reconsideration-adjustments--history .reconsideration-adjustments__group{border-radius:6px}.reconsideration-adjustments--history .reconsideration-adjustments__group+.reconsideration-adjustments__group{margin-top:8px}.reconsideration-adjustments__history-title{margin:0 0 4px;color:var(--color-text-primary);font-size:14px;font-weight:600;line-height:24px}.reconsideration-adjustments--history .reconsideration-adjustments__field{padding:0}.reconsideration-adjustments--history .reconsideration-adjustments__field:not(:last-child){margin:0 0 8px;padding-bottom:8px;border-bottom:1px dashed rgba(31,35,41,.15)}.reconsideration-adjustments--history .reconsideration-adjustments__field+.reconsideration-adjustments__field{margin-top:0;border-top:0}.reconsideration-adjustments__field-label{margin-bottom:8px;color:var(--perf-n-600,#646a73);font-size:14px;font-weight:400;line-height:22px}
 </style>
