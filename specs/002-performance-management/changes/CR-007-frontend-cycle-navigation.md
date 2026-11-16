@@ -230,6 +230,15 @@
 - PC 证据：真实 Vite Vue 组件、1280×800、合成人员和浏览器拦截 API；双人相同环节只展示一次，二次确认前写请求0、二次确定后发两条对应任务请求、转交二次取消无新增写请求、pageerror0。截图 `ui-blueprints/CR-007-F07-implemented-authorization.png`、`CR-007-F07-implemented-authorization-confirm.png`、`CR-007-F07-implemented-transfer-confirm.png` 已查看。仅组件集成验证，不是原入口真实后端端到端验收；合成数据及“打开转交”按钮不加入正式页面。
 - 边界与停止：未操作飞书或生产、未实际外发消息、未执行迁移／部署／commit／push。Docker守护进程不可用，不反复重试。批量保持既有逐任务 API，不承诺原子批量；结果复议通知重试器 reconsideration_service.dispatch_notifications 仍按原 task.handler_ref 投递，不随有效授权人变化，这一通知重试限制未扩文件处理。后继须在本地真库可用时补原入口→真实 API→新连接回读，不能以组件截图或 ORM 测试替代 PostgreSQL 验收。
 
+## 2026-11-16 CR-007-F14 上级评估截止后催办资格纠偏
+
+- 用户提供只读生产 SQL：周期12、项目24、成员快照8；工作总结14260及自评14670为pending且未提交，上级评估15080已提交、未撤销、截止2026-11-11 15:59 UTC；无ACTIVE转交或授权，催办开关开启且允许work_summary/evaluation。本文不记录人员姓名或其它快照内容。
+- 根因：`member_reminders._source_allowed` 将来源任务评分截止时间作为催办资格到期时间，故上级评估阅读详情返回can_remind=false。项目管理无source使用独立管理范围，不受此截止检查，因此两入口表现不同。SQL中的来源handler与冻结直接上级一致；姓名模糊身份映射查询0行不能推定工号映射缺失，真实API/接收人投递可用性仍待验证。
+- 最小修复：仅对已通过MANAGER_ROLE_CODES及可写处理人检查的evaluation来源，不因评分end_at过去而拒绝催办；未开始、无关/自评/360来源、只读、转交原人、撤销、快照越界和催办设置继续校验。校准、沟通、复议来源的期限限制不变；目标须为原有可催办未完成任务，不修改其截止时间/状态/答案，不触发真实通知。无模型或迁移变更。
+- 证据：新增已提交且过期上级来源＋逾期未提交工作总结/自评的普通及预加载路径、预览零写、发送目标断言与六类拒绝测试；修复前2 failed/6 passed，修复后 `DB_HOST=127.0.0.1 DB_PORT=1 hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_member_reminders.py hr-portal/backend/tests/test_performance_projects.py -q --tb=short` →862 passed/5 skipped/1第三方python_multipart警告。测试使用替身，不是生产API/真实库/真实投递验收。
+- 补充生产SQL确认投递模式test_receiver、指定测试接收账号有效；两员工无显式映射且快照未绑定Portal，但已知登录账号均在用且有飞书身份。因此缺映射不是当前测试接收模式的候选过滤原因，不据此补映射或改变投递模式。新增normal/test_receiver × 普通/预加载四组合测试，test_receiver清空映射复现生产条件；最终同一两文件命令864 passed/5 skipped/1第三方警告，发送传输仍mock，不视为真实投递验收。
+- 本轮仅member_reminders.py、test_performance_member_reminders.py及本记录；保留其它会话成本中心/仓库/复议diff。用户执行SQL为只读证据；未改生产数据、未部署或外发，本轮提交/推送须另行明确指令。整体F14仍不勾选。
+
 ## 2026-11-13 CR-007-F14 单个催办与批量催办分离
 
 - [ ] CR-007-F14：本地实现、定向自动化与隔离浏览器交互已验证；真实鉴权 API／PostgreSQL／通知投递及生产部署未验收，不勾选整体完成。

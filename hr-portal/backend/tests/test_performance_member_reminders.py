@@ -444,6 +444,79 @@ async def test_non_management_source_uses_its_own_permission_without_manager_fal
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("preload", [False, True])
+@pytest.mark.parametrize("delivery_mode", ["normal", "test_receiver"])
+async def test_completed_expired_manager_source_can_remind_overdue_summary_and_self_review(environment, monkeypatch, preload, delivery_mode):
+    db, context, sender = environment
+    monkeypatch.setattr(notification_service, "_global_delivery_mode", AsyncMock(return_value=delivery_mode))
+    if delivery_mode == "test_receiver":
+        db.mapped.clear()
+    monkeypatch.setattr(shared, "_can_manage_project_like_overview", AsyncMock(return_value=False))
+    now = datetime.now(UTC)
+    source = db.tasks[3]
+    source.status = "completed"
+    source.submitted_at = source.completed_at = now - timedelta(days=5)
+    source.available_at = now - timedelta(days=9)
+    source.due_at = now - timedelta(days=4)
+    db.nodes[12] = node(12, "evaluation", shared.ROLE_REVIEWEE)
+    db.tasks[2].handler_ref = "E1"
+    for target in (db.tasks[1], db.tasks[2]):
+        target.available_at = now - timedelta(days=8)
+        target.due_at = now - timedelta(days=6)
+    db.permission_setting = SimpleNamespace(manager_reminder_enabled=True,
+        manager_reminder_node_types=["work_summary", "evaluation"])
+    if preload:
+        db.info = {}
+        await adapter.preload_member_reminders(db.project, [db.member], context, db)
+    for task_id in (1, 2):
+        target = db.tasks[task_id]
+        assert await adapter.can_remind_member(db.project, "E1", context, db,
+            source_task_id=3, node_id=db.nodes[target.node_snapshot_id].node_id, task_id=task_id)
+        preview = await shared.project_member_reminder_preview(1, "E1",
+            db.nodes[target.node_snapshot_id].node_id, task_id, context, db, source_task_id=3)
+        assert preview["reminder_target"] == "姓名E1"
+    db.commit.assert_not_awaited()
+    sender.assert_not_awaited()
+    response = await listing(db, context, source_task_id=3)
+    assert {item["task_id"] for item in response["items"]} == {1, 2}
+    sent = await sending(db, context, [1, 2], source_task_id=3)
+    assert sent["accepted_task_ids"] == [1, 2]
+    assert sender.await_count == 2
+    assert {call.args[0].handler_ref for call in sender.await_args_list} == {"E1"}
+    assert source.status == "completed" and source.submitted_at == now - timedelta(days=5)
+    assert all(db.tasks[key].submitted_at is None for key in (1, 2))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["readonly", "transferred", "wrong_actor", "revoked", "other_snapshot", "disabled"])
+async def test_expired_manager_source_still_enforces_authorization_and_settings(environment, monkeypatch, reason):
+    db, context, sender = environment
+    monkeypatch.setattr(shared, "_can_manage_project_like_overview", AsyncMock(return_value=False))
+    db.tasks[3].status = "completed"
+    db.tasks[3].submitted_at = datetime.now(UTC) - timedelta(days=5)
+    db.tasks[3].due_at = datetime.now(UTC) - timedelta(days=4)
+    if reason == "readonly":
+        db.tasks[3].handler_ref = "OTHER"
+        db.delegations = [delegation(3, "M1", read_only=True)]
+    elif reason == "transferred":
+        db.delegations = [delegation(3, "A1", "TRANSFER")]
+    elif reason == "wrong_actor":
+        db.tasks[3].handler_ref = "OTHER"
+    elif reason == "revoked":
+        db.tasks[3].revoked_at = datetime.now(UTC)
+    elif reason == "other_snapshot":
+        db.tasks[3].member_snapshot_id = 99
+    else:
+        db.permission_setting = SimpleNamespace(manager_reminder_enabled=False,
+            manager_reminder_node_types=["work_summary", "evaluation"])
+    assert not await adapter.can_remind_member(db.project, "E1", context, db, source_task_id=3)
+    with pytest.raises(HTTPException):
+        await shared.project_member_reminder_preview(1, "E1", "node-11", 1, context, db, source_task_id=3)
+    sender.assert_not_awaited()
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("reason", ["phase", "assignment", "object_authorization", "readonly", "transfer", "snapshot", "expired"])
 async def test_invalid_calibration_source_has_no_delivery_or_audit(environment, monkeypatch, reason):
     db, context, sender = environment
