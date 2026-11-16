@@ -5,6 +5,7 @@ import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
+import PerformanceReconsiderationAdjustments from './PerformanceReconsiderationAdjustments.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 import previewCardSource from './PerformanceReminderPreviewCard.vue?raw'
 
@@ -47,6 +48,35 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     wrapper.unmount()
   })
 
+  it('renders grouped inline differences with shared rating colors and never executes rich-text markup', () => {
+    const rich = { section_id: 'value', section_name: '价值贡献', field_id: 'good', field_label: '做得好的', field_type: 'rich_text' }
+    const rating = { section_id: 'rating', section_name: '综合评级', field_id: 'grade', field_label: '绩效评级', field_type: 'rating' }
+    const wrapper = mount(PerformanceReconsiderationAdjustments, { props: {
+      adjustments: [{ ...rich, before: '<p>2</p>', after: '<p>4变更结果</p><script>bad()</script>' }, { ...rich, field_id: 'improve', before: '<p>3</p>', after: '<p>6变更结果</p>' }, { ...rating, before: 'old', after: 'new' }],
+      sections: [{ id: 'rating', name: '综合评级', fields: [{ id: 'grade', type: 'rating', label: '绩效评级', options: [{ id: 'old', code: '5星', label: '卓越', color: 'rgb(205, 178, 250)' }, { id: 'new', code: '4星', label: '超出预期', color: 'rgb(183, 237, 177)' }] }] }],
+    } })
+    const groups = wrapper.findAll('.reconsideration-adjustments__group')
+    expect(groups).toHaveLength(2)
+    expect(groups[0].findAll('del').map(item => item.text())).toEqual(['3', '2'])
+    expect(groups[0].findAll('ins').map(item => item.text())).toEqual(['6变更结果', '4变更结果'])
+    expect(wrapper.findAll('.performance-rating-tag').map(item => item.text())).toEqual(['5星', '4星'])
+    expect(wrapper.findAll('.performance-rating-tag')[0].attributes('style')).toContain('rgb(236, 226, 254)')
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('bad()')
+    expect(wrapper.text()).not.toContain('调整前')
+  })
+
+  it('preserves equal text, unicode and explicit clears in inline changes', () => {
+    const wrapper = mount(PerformanceReconsiderationAdjustments, { props: { sections: [], adjustments: [
+      { section_id: 'a', section_name: '工作', field_id: 'a1', field_label: '说明', field_type: 'rich_text', before: '<p>共同🙂旧句尾</p>', after: '<p>共同🙂新句尾</p>' },
+      { section_id: 'a', section_name: '工作', field_id: 'a2', field_label: '清空', field_type: 'rich_text', before: '<p>已删除</p>', after: null },
+    ] } })
+    expect(wrapper.findAll('del').map(item => item.text())).toEqual(['已删除', '旧'])
+    expect(wrapper.find('ins').text()).toBe('新')
+    expect(wrapper.text()).toContain('共同🙂')
+    expect(wrapper.text()).toContain('句尾')
+  })
+
   it('shows template role labels and sends a reminder for the actual pending reconsideration task', async () => {
     const reconsideration = { reason: '<p>申请核对</p>', status: 'pending' as const, handlers: [{ task_id: 901, employee_no: 'E900', display_name: '真实HRBP', role_key: 'HRBP', role_label: 'HRBP', can_remind: true }, { task_id: 902, employee_no: 'E901', display_name: '实际指定人', role_key: 'SPECIFIED_PERSON', role_label: '指定人员', can_remind: false }], adjustments: [], history: [], form_schema: [], answers: {}, deadline_at: '2026-10-03T15:59:00Z', can_edit: false }
     const reference = { key: 'appeal', node_id: 'appeal', node_name: '模板自定义复议', employee_no: 'E001', task_id: 901, status: 'pending' as const, can_remind: true, form_schema: [], answers: {}, reconsideration }
@@ -71,8 +101,8 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 902 })
     await flushPromises()
     expect(document.body.textContent).toContain('真实提交人')
-    expect(document.body.textContent).toContain('调整前')
-    expect(document.body.textContent).toContain('原结果')
+    expect(document.body.querySelector('[aria-label="结果调整"] del')?.textContent).toContain('原')
+    expect(document.body.querySelector('[aria-label="结果调整"] ins')?.textContent).toContain('调整')
     const edit = document.body.querySelector<HTMLButtonElement>('[aria-label="编辑已提交内容"]')!
     edit.click()
     await flushPromises()

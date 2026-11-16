@@ -11,15 +11,8 @@
     </PerformancePromptNotice>
     <PerformanceReviewCompletionNotice v-else :editable="editable" :task-id="detail.edit_task_id ?? undefined" task-kind="result_reconsideration" :employee-no="employeeNo" :message="completionMessage" variant="evaluation-drawer" @edit="choice => emit('edit', choice)" />
     <section v-if="detail.submitted_at && detail.adjustments.length" class="reconsideration-detail__section" aria-label="结果调整">
-      <h3>结果调整</h3>
-      <div v-for="(adjustment, index) in detail.adjustments" :key="`${adjustment.section_id}:${adjustment.field_id}:${adjustment.instance_index ?? index}`" class="reconsideration-detail__adjustment">
-        <h4>{{ adjustment.section_name }} · {{ adjustment.field_label }}{{ adjustment.instance_index != null ? ` ${adjustment.instance_index + 1}` : '' }}</h4>
-        <div class="reconsideration-detail__comparison">
-          <div><span class="reconsideration-detail__label">调整前</span><PerformanceReadonlyAnswer :field="fieldFor(adjustment)" :value="adjustment.before" empty-answer-text="—" /></div>
-          <span aria-hidden="true">→</span>
-          <div><span class="reconsideration-detail__label">调整后</span><PerformanceReadonlyAnswer :field="fieldFor(adjustment)" :value="adjustment.after" empty-answer-text="—" /></div>
-        </div>
-      </div>
+      <PerformanceAssessmentPreviewHeader name="结果调整" heading-tag="h3" />
+      <PerformanceReconsiderationAdjustments :adjustments="detail.adjustments" :sections="detail.form_schema" />
     </section>
     <section class="reconsideration-detail__section"><h3>复议理由</h3><PerformanceReadonlyAnswer :field="reasonField" :value="detail.reason" /></section>
     <section v-if="detail.submitted_at && detail.form_schema.length" class="reconsideration-detail__section"><h3>绩效结果</h3><PerformanceTemplateRenderer mode="readonly" :sections="detail.form_schema" :answers="detail.answers" /></section>
@@ -50,6 +43,8 @@ import PerformanceReadonlyAnswer from './PerformanceReadonlyAnswer.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
+import PerformanceAssessmentPreviewHeader from './PerformanceAssessmentPreviewHeader.vue'
+import PerformanceReconsiderationAdjustments from './PerformanceReconsiderationAdjustments.vue'
 const props = defineProps<{ detail: PerformanceReconsiderationDetail; employeeNo: string; nodeName: string }>()
 const emit = defineEmits<{ edit: [choice?: 'use' | 'discard']; remind: [taskId: number] }>()
 const historyOpen = ref(false)
@@ -77,5 +72,5 @@ function formatDate(value?: string | null) {
 }
 </script>
 <style scoped>
-.reconsideration-detail{min-width:0}.reconsideration-detail__history-link{display:flex;justify-content:flex-end;margin-top:-8px;margin-bottom:8px}.reconsideration-detail__handler{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px}.reconsideration-detail__section{margin-top:24px}.reconsideration-detail h3{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:600}.reconsideration-detail h4{margin:0 0 8px;font-size:14px;line-height:22px;font-weight:500}.reconsideration-detail__adjustment{margin-block:16px}.reconsideration-detail__comparison{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:start}.reconsideration-detail__comparison>div{min-width:0}.reconsideration-detail__label{display:block;margin-bottom:6px;color:var(--color-text-secondary);font-size:12px}.reconsideration-detail__history{padding-block:12px;border-bottom:1px solid var(--color-border)}.reconsideration-detail__history summary{cursor:pointer;line-height:24px;overflow-wrap:anywhere}@media(max-width:600px){.reconsideration-detail__comparison{grid-template-columns:minmax(0,1fr)}.reconsideration-detail__comparison>span{display:none}}
+.reconsideration-detail{min-width:0}.reconsideration-detail__history-link{display:flex;justify-content:flex-end;margin-top:-8px;margin-bottom:8px}.reconsideration-detail__handler{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px}.reconsideration-detail__section{margin-top:24px}.reconsideration-detail__section[aria-label="结果调整"]{margin-top:16px;margin-bottom:32px}.reconsideration-detail__section[aria-label="结果调整"]>:deep(.performance-assessment-preview-header)::before{top:4px;height:16px}.reconsideration-detail__section>h3{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:600}.reconsideration-detail h4{margin:0 0 8px;font-size:14px;line-height:22px;font-weight:500}.reconsideration-detail__adjustment{margin-block:16px}.reconsideration-detail__comparison{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:start}.reconsideration-detail__comparison>div{min-width:0}.reconsideration-detail__label{display:block;margin-bottom:6px;color:var(--color-text-secondary);font-size:12px}.reconsideration-detail__history{padding-block:12px;border-bottom:1px solid var(--color-border)}.reconsideration-detail__history summary{cursor:pointer;line-height:24px;overflow-wrap:anywhere}@media(max-width:600px){.reconsideration-detail__comparison{grid-template-columns:minmax(0,1fr)}.reconsideration-detail__comparison>span{display:none}}
 </style>
