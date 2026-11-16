@@ -136,7 +136,7 @@ export const standardFieldsApi = {
     return api.get<StandardFieldListResponse>('/warehouse/standard-fields', { params }).then(r => r.data)
   },
   peopleFields() {
-    return api.get<PeopleFieldsResponse>('/warehouse/people-fields').then(r => r.data)
+    return api.get<PeopleFieldsResponse>('/warehouse/standard-fields/people-fields').then(r => r.data)
   },
   groups() {
     return api.get<FieldGroupListResponse>('/warehouse/standard-fields/groups').then(r => r.data)
