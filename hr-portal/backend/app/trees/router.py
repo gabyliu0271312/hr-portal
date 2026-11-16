@@ -119,13 +119,14 @@ async def get_cc_directory(
     - 规范性问题（层级不连续 / 启停冲突 / 同名路径 / 深度不一致等）→ 降级为
       warnings 随树返回，读权限入口不被数据形态阻断（执行/授权链仍严格校验）。
     """
+    from app.trees.service import CC_ROOT_EXEMPT_CODES
     from app.warehouse.service.tree_health import analyze_tree
 
     stmt = select(CostCenterNode).order_by(CostCenterNode.level, CostCenterNode.code)
     rows = (await db.execute(stmt)).scalars().all()
     if not rows:
         return TreeDirectoryOut(tree=[], warnings=[])
-    health = analyze_tree("cost_center", rows)
+    health = analyze_tree("cost_center", rows, CC_ROOT_EXEMPT_CODES)
     structural = [issue for issue in health.issues if issue.code in _CC_STRUCTURAL_ISSUES]
     if structural:
         raise HTTPException(status_code=409, detail={
@@ -157,11 +158,14 @@ async def create_cc_directory(
     db: AsyncSession = Depends(get_session),
 ) -> TreeNodeOut:
     from app.trees.service import (
-        cost_center_structure, lock_cost_center_tree, recompute_cost_center_structure,
+        business_path_of, chain_depth, cost_center_structure,
+        lock_cost_center_tree, recompute_cost_center_structure,
     )
 
     try:
         await lock_cost_center_tree(db)
+        if body.code == "root costcenter":
+            raise HTTPException(status_code=409, detail="成本中心编码已存在")
         rows = (await db.execute(select(CostCenterNode).execution_options(populate_existing=True))).scalars().all()
         if any(node.code == body.code for node in rows):
             raise HTTPException(status_code=409, detail="成本中心编码已存在")
@@ -169,22 +173,27 @@ async def create_cc_directory(
             structure = cost_center_structure(rows)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        parent = next((node for node in rows if node.id == body.parent_id), None)
-        if body.parent_id is not None and parent is None:
+        # 未指定上级时挂到固定根下（固定根存在时）；否则直接作为业务根
+        parent_id = body.parent_id
+        if parent_id is None:
+            root = next((node for node in rows if node.code == "root costcenter"), None)
+            parent_id = root.id if root else None
+        parent = next((node for node in rows if node.id == parent_id), None)
+        if parent_id is not None and parent is None:
             raise HTTPException(status_code=422, detail="上级成本中心不存在")
         chain = structure[parent.id][2] if parent is not None else []
         if any(not node.is_active for node in chain):
             raise HTTPException(status_code=409, detail="上级成本中心及其祖先必须启用")
-        if len(chain) >= 50:
+        if chain_depth(chain) >= 50:
             raise HTTPException(status_code=422, detail="成本中心树超过现有路径计算支持的50级深度")
-        path = (structure[parent.id][1] if parent is not None else "/") + body.name + "/"
+        path = business_path_of(parent, body.name, structure)
         if len(path) > 1024:
             raise HTTPException(status_code=422, detail="成本中心路径不能超过1024个字符")
         if "/" in body.name or any(value[1] == path for value in structure.values()):
             raise HTTPException(status_code=409, detail="成本中心名称产生重复或有歧义的路径")
         node = CostCenterNode(
-            code=body.code, name=body.name, parent_id=body.parent_id,
-            level=len(chain) + 1, path=path, is_leaf=True, is_active=True,
+            code=body.code, name=body.name, parent_id=parent_id,
+            level=chain_depth(chain) + 1, path=path, is_leaf=True, is_active=True,
             source_mode="local", synced_at=datetime.now(timezone.utc),
         )
         db.add(node)
@@ -241,7 +250,8 @@ async def update_cc_directory(
     停用祖先链下均拒绝；成功后重算整树 level/path/is_leaf。
     """
     from app.trees.service import (
-        cost_center_structure, lock_cost_center_tree, recompute_cost_center_structure,
+        business_path_of, chain_depth, cost_center_structure,
+        lock_cost_center_tree, recompute_cost_center_structure,
     )
 
     try:
@@ -254,6 +264,10 @@ async def update_cc_directory(
             structure = cost_center_structure(rows)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if node.code == "root costcenter":
+            # 固定根：仅可改名称，不允许重新挂接上级
+            if body.parent_id is not None:
+                raise HTTPException(status_code=422, detail="固定根节点不能重新挂接上级")
         if body.parent_id is not None:
             if body.parent_id == node.id:
                 raise HTTPException(status_code=422, detail="上级成本中心不能是自身")
@@ -264,9 +278,10 @@ async def update_cc_directory(
                 raise HTTPException(status_code=422, detail="上级成本中心不存在")
             if any(not item.is_active for item in structure[parent.id][2]):
                 raise HTTPException(status_code=409, detail="上级成本中心及其祖先必须启用")
-            if len(structure[parent.id][2]) >= 50:
+            if chain_depth(structure[parent.id][2]) >= 50:
                 raise HTTPException(status_code=422, detail="成本中心树超过现有路径计算支持的50级深度")
-        path = (structure[body.parent_id][1] if body.parent_id is not None else "/") + body.name + "/"
+        parent_for_path = next((item for item in rows if item.id == body.parent_id), None) if body.parent_id is not None else None
+        path = business_path_of(parent_for_path, body.name, structure)
         if len(path) > 1024:
             raise HTTPException(status_code=422, detail="成本中心路径不能超过1024个字符")
         if "/" in body.name or any(
@@ -310,6 +325,8 @@ async def delete_cc_directory(
         node = next((item for item in rows if item.id == node_id), None)
         if node is None:
             raise HTTPException(status_code=404, detail="成本中心不存在")
+        if node.code == "root costcenter":
+            raise HTTPException(status_code=409, detail="固定根节点不允许删除")
         if any(item.parent_id == node.id for item in rows):
             raise HTTPException(status_code=409, detail="该成本中心包含下级成本中心，不允许删除")
         db.delete(node)

@@ -3,7 +3,14 @@ from collections import defaultdict
 from app.warehouse.schemas import TreeHealthIssueOut, TreeHealthOut
 
 
-def analyze_tree(kind: str, nodes: list) -> TreeHealthOut:
+def analyze_tree(
+    kind: str, nodes: list, exempt_level_zero_codes: frozenset[str] = frozenset(),
+) -> TreeHealthOut:
+    """健康校验。
+
+    `exempt_level_zero_codes`：固定技术根（如成本中心 root costcenter，level=0）豁免
+    根节点层级/路径/深度检查——它们不计业务层级，仅作树容器。
+    """
     ids = {node.id for node in nodes}
     codes = defaultdict(list)
     paths = defaultdict(list)
@@ -17,10 +24,19 @@ def analyze_tree(kind: str, nodes: list) -> TreeHealthOut:
     if nodes and not any(node.parent_id is None for node in nodes):
         issues.append(TreeHealthIssueOut(code="root_missing", message="权限树缺少根节点"))
     for node in nodes:
+        is_exempt_root = (
+            node.parent_id is None and node.level == 0
+            and node.code in exempt_level_zero_codes
+        )
         codes[node.code].append(node.id)
         if node.path:
             paths[node.path].append(node.id)
         segments = [segment for segment in (node.path or "").split("/") if segment]
+        if is_exempt_root:
+            # 固定技术根：level=0、path 为空，不计业务层级、不参与业务 path 前缀。
+            # 子节点仍按 parent_id 挂它下面（children 登记，层级/路径按无前缀根校验）。
+            children[node.id] = []
+            continue
         if node.parent_id is None:
             if node.level != 1:
                 issues.append(TreeHealthIssueOut(code="root_level_invalid", node_id=node.id, node_code=node.code, message="根节点层级必须为1"))
@@ -36,7 +52,12 @@ def analyze_tree(kind: str, nodes: list) -> TreeHealthOut:
             else:
                 if node.level != parent.level + 1:
                     issues.append(TreeHealthIssueOut(code="level_mismatch", node_id=node.id, node_code=node.code, message="子节点层级与父节点不连续"))
-                expected_path = f"{parent.path}{node.name}/" if parent.path else None
+                parent_is_exempt_root = (
+                    parent.parent_id is None and parent.level == 0
+                    and parent.code in exempt_level_zero_codes
+                )
+                # 父为固定技术根时业务 path 不拼固定根前缀（固定根不计业务层级）
+                expected_path = f"/{node.name}/" if parent_is_exempt_root else (f"{parent.path}{node.name}/" if parent.path else None)
                 if node.path != expected_path:
                     issues.append(TreeHealthIssueOut(code="parent_path_mismatch", node_id=node.id, node_code=node.code, message="子节点路径与父节点及自身名称不一致"))
                 if node.is_active and not parent.is_active:

@@ -454,7 +454,20 @@ async def run_seed(session_factory) -> None:
         await _ensure_ods_dwd_automation_rules(db)
         await _ensure_l4_cascade_rules(db)
         await _ensure_db_realtime_auto_rebuild_rules(db)
+        await _ensure_cost_center_root(db)
         logger.info("[seed] done")
+
+
+async def _ensure_cost_center_root(db) -> None:
+    """幂等确保成本中心固定根（code='root costcenter'，level=0，名称可改）存在。
+
+    树缺固定根时创建，并把现有业务根（parent_id 为空）挂到固定根下。
+    """
+    from app.trees.service import CC_ROOT_CODE, CC_ROOT_DEFAULT_NAME, ensure_cc_root
+
+    root_id = await ensure_cc_root(db)
+    await db.commit()
+    logger.info("[seed] ensured cost center root node id=%s", root_id)
 
 
 # ===== 5 张数据表的初始 datasource 配置（无凭证，待管理员配置）=====

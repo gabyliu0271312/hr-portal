@@ -1001,18 +1001,22 @@ async def _sync_cc_tree_locked(rows: list[dict], db: AsyncSession) -> None:
         select(CostCenterNode).execution_options(populate_existing=True)
     )).scalars().all()
     existing_by_code = {n.code: n for n in existing}
-    local_nodes = [node for node in existing if node.source_mode == "local"]
+    local_nodes = [node for node in existing if node.source_mode == "local" and node.code != "root costcenter"]
     parsed_by_code = {item["code"]: item for item in parsed}
     if len(parsed_by_code) != len(parsed):
         raise ValueError("外部成本中心编码重复")
     if any(node.code in parsed_by_code for node in local_nodes):
         raise ValueError("外部来源编码与本地成本中心冲突")
-    from app.trees.service import cost_center_structure, recompute_cost_center_structure
+    from app.trees.service import (
+        CC_ROOT_CODE, cost_center_structure, recompute_cost_center_structure,
+    )
 
     if local_nodes:
         structure = cost_center_structure(existing)
         for local in local_nodes:
             for ancestor in structure[local.id][2][1:]:
+                if ancestor.code == CC_ROOT_CODE:
+                    continue  # 固定技术根不计业务层级，外部同步不得影响
                 if ancestor.source_mode == "local":
                     continue
                 incoming = parsed_by_code.get(ancestor.code)
@@ -1083,7 +1087,7 @@ async def _sync_cc_tree_locked(rows: list[dict], db: AsyncSession) -> None:
         if n.source_mode != "local" and n.code not in valid_codes:
             await db.delete(n)
 
-    retained = [*nodes_by_code.values(), *local_nodes]
+    retained = [*nodes_by_code.values(), *local_nodes, *[n for n in existing if n.code == CC_ROOT_CODE]]
     recompute_cost_center_structure(retained)
     await db.flush()
 

@@ -971,7 +971,8 @@ async def execution_readiness(db, dataset_id, user=None):
     tree_models.append(("org", OrgNode))
     for kind, model in tree_models:
         from app.warehouse.service.tree_health import analyze_tree
-        tree = analyze_tree(kind, (await db.execute(select(model).order_by(model.id))).scalars().all())
+        exempt = frozenset({"root costcenter"}) if kind == "cost_center" else frozenset()
+        tree = analyze_tree(kind, (await db.execute(select(model).order_by(model.id))).scalars().all(), exempt)
         if not tree.eligible:
             issues.append({"code": f"authorization_{kind}_tree_unhealthy", "message": "授权依赖的权限树健康检查未通过"})
     for fact in definition.facts:

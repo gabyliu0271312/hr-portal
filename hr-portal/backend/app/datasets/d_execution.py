@@ -262,7 +262,8 @@ async def compile_allocation_fact_s_scope(*, user, fact, model, db, table_alias=
         return None, [_s_issue("s_execution_scope_configuration_invalid", "事实或人员授权锚点不可用")]
     for kind, tree in (("org", OrgNode), ("cost_center", CostCenterNode)):
         nodes = (await db.execute(select(tree))).scalars().all()
-        if not analyze_tree(kind, nodes).eligible:
+        exempt = frozenset({"root costcenter"}) if kind == "cost_center" else frozenset()
+        if not analyze_tree(kind, nodes, exempt).eligible:
             return None, [_s_issue("s_execution_tree_invalid", "授权依赖的权限树未通过检查")]
     roster_roles = await scope_filter._get_role_columns(scope_filter.ROSTER_TABLE, db)
     center_roles = await scope_filter._get_role_columns(fact.table_name, db)
