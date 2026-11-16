@@ -99,6 +99,10 @@ export const treesApi = {
       .then((r) => r.data),
   createCostCenter: (body: { name: string; code: string; parent_id: number | null }) =>
     api.post<TreeNode>('/trees/cost-center/directory', body).then(r => r.data),
+  updateCostCenter: (nodeId: number, body: { name: string; parent_id: number | null }) =>
+    api.put<TreeNode>(`/trees/cost-center/${nodeId}`, body).then(r => r.data),
+  deleteCostCenter: (nodeId: number) =>
+    api.delete<void>(`/trees/cost-center/${nodeId}`).then(r => r.data),
   costCenterDirectory: (include_inactive = false) =>
     api
       .get<TreeDirectory>('/trees/cost-center/directory', { params: { include_inactive } })

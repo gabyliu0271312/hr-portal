@@ -207,6 +207,120 @@ async def create_cc_directory(
         raise
 
 
+class CostCenterUpdate(BaseModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+    parent_id: int | None = Field(default=None, gt=0)
+
+
+def _descendant_ids(rows: list[Any], node_id: int) -> set[int]:
+    """返回 node_id 在整棵树中的全部后代 id（不含自身）。"""
+    children: dict[int | None, list[Any]] = {}
+    for node in rows:
+        children.setdefault(node.parent_id, []).append(node)
+    out: set[int] = set()
+    stack = list(children.get(node_id, []))
+    while stack:
+        current = stack.pop()
+        if current.id in out:
+            continue
+        out.add(current.id)
+        stack.extend(children.get(current.id, []))
+    return out
+
+
+@router.put("/cost-center/{node_id}", response_model=TreeNodeOut)
+async def update_cc_directory(
+    node_id: int,
+    body: CostCenterUpdate,
+    _: User = Depends(require_op("people.cost_center", "U")),
+    db: AsyncSession = Depends(get_session),
+) -> TreeNodeOut:
+    """编辑成本中心（改名称 / 重新挂接上级）。
+
+    编码为稳定业务标识，不可修改。新增场景同名冲突 / 路径超长 / 环 / 挂到
+    停用祖先链下均拒绝；成功后重算整树 level/path/is_leaf。
+    """
+    from app.trees.service import (
+        cost_center_structure, lock_cost_center_tree, recompute_cost_center_structure,
+    )
+
+    try:
+        await lock_cost_center_tree(db)
+        rows = (await db.execute(select(CostCenterNode).execution_options(populate_existing=True))).scalars().all()
+        node = next((item for item in rows if item.id == node_id), None)
+        if node is None:
+            raise HTTPException(status_code=404, detail="成本中心不存在")
+        try:
+            structure = cost_center_structure(rows)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if body.parent_id is not None:
+            if body.parent_id == node.id:
+                raise HTTPException(status_code=422, detail="上级成本中心不能是自身")
+            if body.parent_id in _descendant_ids(rows, node.id):
+                raise HTTPException(status_code=422, detail="上级成本中心不能是自己的下级")
+            parent = next((item for item in rows if item.id == body.parent_id), None)
+            if parent is None:
+                raise HTTPException(status_code=422, detail="上级成本中心不存在")
+            if any(not item.is_active for item in structure[parent.id][2]):
+                raise HTTPException(status_code=409, detail="上级成本中心及其祖先必须启用")
+            if len(structure[parent.id][2]) >= 50:
+                raise HTTPException(status_code=422, detail="成本中心树超过现有路径计算支持的50级深度")
+        path = (structure[body.parent_id][1] if body.parent_id is not None else "/") + body.name + "/"
+        if len(path) > 1024:
+            raise HTTPException(status_code=422, detail="成本中心路径不能超过1024个字符")
+        if "/" in body.name or any(
+            item_id != node.id and value[1] == path for item_id, value in structure.items()
+        ):
+            raise HTTPException(status_code=409, detail="成本中心名称产生重复或有歧义的路径")
+        node.name = body.name
+        node.parent_id = body.parent_id
+        await db.flush()
+        recompute_cost_center_structure(rows)
+        out = TreeNodeOut(
+            id=node.id, code=node.code, name=node.name, parent_id=node.parent_id,
+            level=node.level, is_leaf=node.is_leaf, is_active=node.is_active,
+            synced_at=node.synced_at.isoformat(), children=[],
+        )
+        await db.commit()
+        return out
+    except Exception:
+        await db.rollback()
+        raise
+
+
+@router.delete("/cost-center/{node_id}", status_code=204)
+async def delete_cc_directory(
+    node_id: int,
+    _: User = Depends(require_op("people.cost_center", "D")),
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    """删除成本中心叶子节点。
+
+    含下级成本中心时拒绝删除（409）；叶子删除后重算父级 is_leaf。
+    编码唯一约束由 uq_cc_tree_code 兜底，删除不会破坏约束。
+    """
+    from app.trees.service import (
+        lock_cost_center_tree, recompute_cost_center_structure,
+    )
+
+    try:
+        await lock_cost_center_tree(db)
+        rows = (await db.execute(select(CostCenterNode).execution_options(populate_existing=True))).scalars().all()
+        node = next((item for item in rows if item.id == node_id), None)
+        if node is None:
+            raise HTTPException(status_code=404, detail="成本中心不存在")
+        if any(item.parent_id == node.id for item in rows):
+            raise HTTPException(status_code=409, detail="该成本中心包含下级成本中心，不允许删除")
+        db.delete(node)
+        remaining = [item for item in rows if item.id != node_id]
+        recompute_cost_center_structure(remaining)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+
 @router.get("/org/directory", response_model=list[TreeNodeOut])
 async def get_org_directory(
     include_inactive: bool = False,

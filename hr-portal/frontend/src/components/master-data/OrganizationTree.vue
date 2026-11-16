@@ -28,6 +28,11 @@
         <el-tag v-if="!row.is_active" type="info" size="small" class="org-table__inactive">停用</el-tag>
       </div>
       <span v-else-if="column.key === 'synced_at'" class="org-table__time">{{ formatTime(row.synced_at) }}</span>
+      <span v-else-if="column.key === 'action' && mode === 'cc'" class="org-table__actions">
+        <button v-if="canEdit" type="button" class="org-table__action" :aria-label="`编辑${row.name}`" @click.stop="$emit('edit', row as unknown as TreeNode)">编辑</button>
+        <button v-if="canAddChild" type="button" class="org-table__action" :aria-label="`为${row.name}添加子成本中心`" @click.stop="$emit('add-child', row as unknown as TreeNode)">添加子成本中心</button>
+        <button v-if="canDelete" type="button" class="org-table__action" :aria-label="`删除${row.name}`" @click.stop="$emit('delete', row as unknown as TreeNode)">删除</button>
+      </span>
       <span v-else-if="column.key === 'action'" class="org-table__action-placeholder">--</span>
       <template v-else>{{ (row as Row)[column.key as keyof Row] ?? '--' }}</template>
     </template>
@@ -52,10 +57,17 @@ type Row = Omit<TreeNode, 'children'> & {
   __hasSearchDescendant?: boolean
 }
 
-const props = withDefaults(defineProps<{ nodes: TreeNode[]; searching?: boolean; mode?: 'org' | 'cc' }>(), {
+const props = withDefaults(defineProps<{
+  nodes: TreeNode[]; searching?: boolean; mode?: 'org' | 'cc';
+  canEdit?: boolean; canAddChild?: boolean; canDelete?: boolean;
+}>(), {
   searching: false,
   mode: 'org',
+  canEdit: false,
+  canAddChild: false,
+  canDelete: false,
 })
+const emit = defineEmits<{ edit: [row: TreeNode]; 'add-child': [row: TreeNode]; delete: [row: TreeNode] }>()
 
 const expandedKeys = ref<Set<string>>(new Set())
 
@@ -157,4 +169,20 @@ function toggleExpand(row: Row) {
 .org-table__time { color: var(--color-text-regular); font: inherit; }
 .org-table__inactive { margin-left: var(--ui-tree-tag-gap); }
 .org-table__action-placeholder { color: var(--color-text-placeholder); }
+.org-table__actions { display: inline-flex; align-items: center; gap: var(--ui-tree-action-gap); }
+.org-table__action {
+  height: var(--ui-tree-action-height);
+  padding: 0 var(--ui-tree-action-padding-x);
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--ui-tree-action-radius);
+  background: transparent;
+  color: var(--ui-tree-action-color);
+  font: inherit;
+  line-height: var(--ui-tree-action-height);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.org-table__action:hover { background: var(--ui-tree-action-hover-background); }
+.org-table__action:focus-visible { outline: 2px solid var(--performance-button-focus-ring); outline-offset: 2px; }
 </style>

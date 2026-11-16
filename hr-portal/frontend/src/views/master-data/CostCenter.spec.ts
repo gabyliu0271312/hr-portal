@@ -4,17 +4,29 @@ import { defineComponent, reactive } from 'vue'
 import CostCenter from './CostCenter.vue'
 import CostCenterCreateDialog from '@/components/master-data/CostCenterCreateDialog.vue'
 
-const api = vi.hoisted(() => ({ costCenterDirectory: vi.fn(), createCostCenter: vi.fn() }))
+const api = vi.hoisted(() => ({
+  costCenterDirectory: vi.fn(),
+  createCostCenter: vi.fn(),
+  updateCostCenter: vi.fn(),
+  deleteCostCenter: vi.fn(),
+}))
 vi.mock('@/api/data', () => ({ treesApi: api, TreeNode: undefined }))
 
-const store = reactive({ user: { id: 1 }, menus: [{ code: 'people.cost_center', can_create: true }], hasOp: (_menu: string, _op: string) => store.menus.some(m => m.code === _menu && m.can_create) })
+const hasOpField: Record<string, 'can_create' | 'can_update' | 'can_delete' | 'can_export'> = { C: 'can_create', U: 'can_update', D: 'can_delete', E: 'can_export' }
+interface MenuRow { code: string; can_create: boolean; can_update: boolean; can_delete: boolean }
+const menus = reactive<MenuRow[]>([{ code: 'people.cost_center', can_create: true, can_update: true, can_delete: true }])
+const store = reactive<{ user: { id: number }; menus: MenuRow[]; hasOp: (menu: string, op: string) => boolean }>({
+  user: { id: 1 },
+  menus,
+  hasOp: (menu: string, op: string): boolean => menus.some(m => m.code === menu && Boolean(m[hasOpField[op.toUpperCase()] as keyof MenuRow])),
+})
 vi.mock('@/stores/user', () => ({ useUserStore: () => store }))
 
 const stubs = {
   PageTitle: defineComponent({ props: ['title', 'description'], template: '<div class="page-title">{{ title }}<p>{{ description }}</p></div>' }),
   UiSurface: defineComponent({ template: '<div><slot/></div>' }),
   SearchInput: defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' }),
-  OrganizationTree: defineComponent({ props: ['nodes', 'searching', 'mode'], template: '<div class="org-tree" :data-mode="mode">{{ nodes.length }}</div>' }),
+  OrganizationTree: defineComponent({ props: ['nodes', 'searching', 'mode', 'canEdit', 'canAddChild', 'canDelete'], emits: ['edit', 'add-child', 'delete'], template: '<div class="org-tree" :data-mode="mode">{{ nodes.length }}<button class="act-edit" @click="$emit(\'edit\', nodes[0])">编辑</button><button class="act-add" @click="$emit(\'add-child\', nodes[0])">添加子</button><button class="act-del" @click="$emit(\'delete\', nodes[0])">删除</button></div>' }),
   ElAlert: defineComponent({ props: ['title', 'type'], template: '<p class="alert">{{ title }}</p>' }),
   ElCheckbox: defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], template: '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />' }),
   ElEmpty: defineComponent({ props: ['description'], template: '<p class="empty">{{ description }}</p>' }),
@@ -27,7 +39,7 @@ const tree = [
 
 beforeEach(() => {
   vi.resetAllMocks()
-  store.menus = [{ code: 'people.cost_center', can_create: true }]
+  menus.length = 0; menus.push({ code: 'people.cost_center', can_create: true, can_update: true, can_delete: true })
   api.costCenterDirectory.mockResolvedValue({ tree, warnings: [] })
 })
 
@@ -69,7 +81,7 @@ describe('cost center directory shell', () => {
     const vm = wrapper.getComponent(CostCenterCreateDialog).vm as any
     await vm.save()
     expect(vm.nameError).toBeTruthy(); expect(vm.codeError).toBeTruthy()
-    store.menus = [{ code: 'people.cost_center', can_create: false }]
+    menus.length = 0; menus.push({ code: 'people.cost_center', can_create: false, can_update: false, can_delete: false })
     vm.name = '新中心'; vm.code = 'C2'
     await vm.save()
     expect(api.createCostCenter).not.toHaveBeenCalled()
@@ -130,6 +142,63 @@ describe('cost center directory shell', () => {
     // 树照常渲染 + 黄条（slot 内）展示规范提示
     expect(wrapper.find('.org-tree').exists()).toBe(true)
     expect(wrapper.text()).toContain('duplicate_path')
+    wrapper.unmount()
+  })
+
+  it('edits a cost center: opens the edit dialog with code disabled and saves', async () => {
+    api.updateCostCenter.mockResolvedValueOnce({ ...tree[0], name: '改名中心' })
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    await wrapper.get('.act-edit').trigger('click'); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.editing).toBe(true)
+    expect(vm.target).toMatchObject({ id: 1, name: '一级成本中心', code: 'C1' })
+    const dialog = wrapper.findAllComponents(CostCenterCreateDialog).find(d => d.vm.mode === 'edit')!
+    expect(dialog.exists()).toBe(true)
+    const dvm = dialog.vm as any
+    expect(dvm.code).toBe('C1')
+    dvm.name = '改名中心'
+    await dvm.save(); await flushPromises()
+    expect(api.updateCostCenter).toHaveBeenCalledWith(1, { name: '改名中心', parent_id: null })
+    expect(api.costCenterDirectory).toHaveBeenCalledWith(false)
+    wrapper.unmount()
+  })
+
+  it('adds a child: opens dialog with parent auto-set and creates with parent_id', async () => {
+    api.createCostCenter.mockResolvedValueOnce({ ...tree[0], id: 3, code: 'C3' })
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    await wrapper.get('.act-add').trigger('click'); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.addingChild).toBe(true)
+    expect(vm.target).toMatchObject({ id: 1 })
+    const dialog = wrapper.findAllComponents(CostCenterCreateDialog).find(d => d.vm.mode === 'addChild')!
+    expect(dialog.exists()).toBe(true)
+    const dvm = dialog.vm as any
+    expect(dvm.parentId).toBe(1)
+    dvm.name = '子中心'; dvm.code = 'C3'
+    await dvm.save(); await flushPromises()
+    expect(api.createCostCenter).toHaveBeenCalledWith({ name: '子中心', code: 'C3', parent_id: 1 })
+    wrapper.unmount()
+  })
+
+  it('deletes a leaf: confirms and calls delete API', async () => {
+    api.deleteCostCenter.mockResolvedValueOnce(undefined)
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    await wrapper.get('.act-del').trigger('click'); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.deleting).toBe(true)
+    await vm.confirmDelete(); await flushPromises()
+    expect(api.deleteCostCenter).toHaveBeenCalledWith(1)
+    wrapper.unmount()
+  })
+
+  it('shows failure dialog when deleting a cost center with children', async () => {
+    api.deleteCostCenter.mockRejectedValueOnce({ response: { status: 409, data: { detail: '该成本中心包含下级成本中心，不允许删除' } } })
+    const wrapper = mount(CostCenter, options); await flushPromises()
+    await wrapper.get('.act-del').trigger('click'); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.deleting).toBe(true)
+    await vm.confirmDelete(); await flushPromises()
+    expect(vm.removeFailed).toBe(true)
     wrapper.unmount()
   })
 })

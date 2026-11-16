@@ -5,8 +5,12 @@ import PermissionButton from '@/components/PermissionButton.vue'
 import { treesApi, type TreeNode } from '@/api/data'
 import { useUserStore } from '@/stores/user'
 
-const props = defineProps<{ modelValue: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: boolean]; created: [node: TreeNode] }>()
+const props = defineProps<{
+  modelValue: boolean
+  mode?: 'create' | 'edit' | 'addChild'
+  initial?: { id: number; name: string; code: string; parent_id: number | null }
+}>()
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; created: [node: TreeNode]; updated: [node: TreeNode] }>()
 const store = useUserStore()
 const name = ref(''), code = ref(''), parentId = ref<number | undefined>()
 const nodes = ref<TreeNode[]>([])
@@ -14,7 +18,8 @@ const pending = ref(false), loading = ref(false), error = ref(''), parentError =
 const nameError = ref(''), codeError = ref('')
 let generation = 0
 onBeforeUnmount(() => { ++generation })
-const canCreate = computed(() => store.hasOp('people.cost_center', 'C'))
+const title = computed(() => props.mode === 'edit' ? '编辑成本中心' : props.mode === 'addChild' ? '添加子成本中心' : '新建成本中心')
+const canCreate = computed(() => store.hasOp('people.cost_center', props.mode === 'edit' ? 'U' : 'C'))
 const disabled = computed(() => pending.value || loading.value || Boolean(parentError.value) || !canCreate.value)
 const parentOptions = computed(() => {
   const walk = (list: TreeNode[], blocked = false): any[] => list.map(node => ({
@@ -37,30 +42,41 @@ async function loadParents() {
 watch(() => props.modelValue, opened => {
   ++generation
   if (!opened) return
-  name.value = ''; code.value = ''; parentId.value = undefined
+  const initial = props.initial
+  name.value = initial?.name ?? ''
+  code.value = initial?.code ?? ''
+  parentId.value = props.mode === 'addChild'
+    ? initial?.id
+    : initial?.parent_id ?? undefined
   error.value = ''; nameError.value = ''; codeError.value = ''
   loadParents()
-})
+}, { immediate: true })
 async function save() {
   if (disabled.value) return
-  name.value = name.value.trim(); code.value = code.value.trim()
+  name.value = name.value.trim()
+  if (props.mode === 'create' || props.mode === 'addChild') code.value = code.value.trim()
   nameError.value = !name.value ? '请输入成本中心名称' : name.value.length > 255 ? '名称不能超过255个字符' : ''
-  codeError.value = !code.value ? '请输入成本中心编码' : code.value.length > 64 ? '编码不能超过64个字符' : ''
+  codeError.value = props.mode === 'edit' ? '' : !code.value ? '请输入成本中心编码' : code.value.length > 64 ? '编码不能超过64个字符' : ''
   if (nameError.value || codeError.value) return
   pending.value = true; error.value = ''
   try {
-    const node = await treesApi.createCostCenter({ name: name.value, code: code.value, parent_id: parentId.value ?? null })
-    emit('created', node)
+    if (props.mode === 'edit' && props.initial) {
+      const node = await treesApi.updateCostCenter(props.initial.id, { name: name.value, parent_id: parentId.value ?? null })
+      emit('updated', node)
+    } else {
+      const node = await treesApi.createCostCenter({ name: name.value, code: code.value, parent_id: parentId.value ?? null })
+      emit('created', node)
+    }
     emit('update:modelValue', false)
   } catch (cause: any) {
     error.value = message(cause)
-    if (cause?.response?.status === 409 && /编码/.test(error.value)) codeError.value = error.value
+    if (cause?.response?.status === 409 && /编码/.test(error.value) && props.mode !== 'edit') codeError.value = error.value
   } finally { pending.value = false }
 }
 </script>
 
 <template>
-  <UiDialogShell :model-value="modelValue" title="新建成本中心" :loading="pending" dialog-class="cost-center-create" @update:model-value="emit('update:modelValue', $event)">
+  <UiDialogShell :model-value="modelValue" :title="title" :loading="pending" dialog-class="cost-center-create" @update:model-value="emit('update:modelValue', $event)">
     <form id="cost-center-create-form" class="cost-center-form" novalidate @submit.prevent="save">
       <div class="cost-center-form__item">
         <label for="cc-name" class="cost-center-form__label">名称<span class="cost-center-form__required" aria-hidden="true">*</span></label>
@@ -68,8 +84,8 @@ async function save() {
         <p v-if="nameError" id="cc-name-error" class="cost-center-form__error">{{ nameError }}</p>
       </div>
       <div class="cost-center-form__item">
-        <label for="cc-code" class="cost-center-form__label">编码<span class="cost-center-form__required" aria-hidden="true">*</span></label>
-        <input id="cc-code" v-model="code" class="cost-center-form__input" placeholder="请输入编码" maxlength="64" required :disabled="pending" :aria-invalid="Boolean(codeError)" :aria-describedby="codeError ? 'cc-code-error' : undefined" @input="codeError = ''" />
+        <label for="cc-code" class="cost-center-form__label">编码<span v-if="mode !== 'edit'" class="cost-center-form__required" aria-hidden="true">*</span></label>
+        <input id="cc-code" v-model="code" class="cost-center-form__input" placeholder="请输入编码" maxlength="64" required :disabled="pending || mode === 'edit'" :aria-invalid="Boolean(codeError)" :aria-describedby="codeError ? 'cc-code-error' : undefined" @input="codeError = ''" />
         <p v-if="codeError" id="cc-code-error" class="cost-center-form__error">{{ codeError }}</p>
       </div>
       <div class="cost-center-form__item">
@@ -83,7 +99,7 @@ async function save() {
     <template #footer>
       <div class="cost-center-form__actions">
         <PermissionButton menu="people.cost_center" op="V" :disabled="pending" @click="emit('update:modelValue', false)">取消</PermissionButton>
-        <PermissionButton menu="people.cost_center" op="C" type="primary" :disabled="disabled" :loading="pending" @click="save">确定</PermissionButton>
+        <PermissionButton menu="people.cost_center" :op="mode === 'edit' ? 'U' : 'C'" type="primary" :disabled="disabled" :loading="pending" @click="save">确定</PermissionButton>
       </div>
     </template>
   </UiDialogShell>

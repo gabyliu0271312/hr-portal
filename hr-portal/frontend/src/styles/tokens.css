@@ -727,6 +727,13 @@
   --ui-tree-expand-color: var(--color-text-tertiary);
   --ui-tree-expand-hover-background: rgba(31, 35, 41, 0.08);
   --ui-tree-tag-gap: var(--spacing-2);
+  /* 树形表格操作列（成本中心 编辑/添加子成本中心/删除 文字按钮，对齐 REA 按钮/文字/主要） */
+  --ui-tree-action-color: var(--color-primary-hover);
+  --ui-tree-action-hover-background: rgba(20, 86, 240, 0.1);
+  --ui-tree-action-gap: 4px;
+  --ui-tree-action-radius: 6px;
+  --ui-tree-action-height: 22px;
+  --ui-tree-action-padding-x: 4px;
   /* 全局动效基线 */
   --motion-duration-standard: 0.2s;
   --motion-easing-standard: cubic-bezier(0.34, 0.69, 0.1, 1);

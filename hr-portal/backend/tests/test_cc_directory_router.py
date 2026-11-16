@@ -209,6 +209,9 @@ class WriteSession(FakeSession):
     def add(self, node):
         self.added.append(node)
 
+    def delete(self, node):
+        self.rows = [row for row in self.rows if row.id != node.id]
+
     async def flush(self):
         if self.integrity_error:
             raise self.integrity_error
@@ -333,3 +336,151 @@ async def test_create_http_rejects_missing_view_or_create_permission(denied_op):
         response = await client.post("/trees/cost-center/directory", json={"name": "N", "code": "C"})
     assert response.status_code == 403
     assert not any("pg_advisory" in str(statement) for statement, _ in db.executed)
+
+
+# ===== 更新 / 删除 =====
+
+
+class UpdateWriteSession(FakeSession):
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.committed = False
+        self.rolled_back = False
+
+    async def flush(self):
+        pass
+
+    async def commit(self):
+        self.committed = True
+
+    async def rollback(self):
+        self.rolled_back = True
+
+    def delete(self, node):
+        self.rows = [row for row in self.rows if row.id != node.id]
+
+
+def _child(rows, parent_id, code, name):
+    return _cc_node(max(row.id for row in rows) + 1, code, name, parent_id, parent_id + 1, True, path=f"/{name}/")
+
+
+@pytest.mark.asyncio
+async def test_update_cc_renames_and_reparents():
+    root = _cc_node(1, "R", "根", None, 1, True, path="/根/")
+    child = _cc_node(2, "C", "子", 1, 2, True, path="/根/子/")
+    db = UpdateWriteSession([root, child])
+    out = await trees_router.update_cc_directory(
+        2, trees_router.CostCenterUpdate(name="改名", parent_id=None), _=ACTOR, db=db,
+    )
+    assert (out.name, out.parent_id, out.level, out.code) == ("改名", None, 1, "C")
+    assert db.committed and not db.rolled_back
+
+
+@pytest.mark.asyncio
+async def test_update_cc_rejects_missing_node():
+    db = UpdateWriteSession([_cc_node(1, "R", "根", None, 1, True, path="/根/")])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.update_cc_directory(
+            99, trees_router.CostCenterUpdate(name="新"), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 404
+    assert not db.committed and db.rolled_back
+
+
+@pytest.mark.asyncio
+async def test_update_cc_rejects_self_parent():
+    db = UpdateWriteSession([_cc_node(1, "R", "根", None, 1, True, path="/根/")])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.update_cc_directory(
+            1, trees_router.CostCenterUpdate(name="新", parent_id=1), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_cc_rejects_descendant_parent():
+    root = _cc_node(1, "R", "根", None, 1, True, path="/根/")
+    child = _cc_node(2, "C", "子", 1, 2, True, path="/根/子/")
+    db = UpdateWriteSession([root, child])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.update_cc_directory(
+            1, trees_router.CostCenterUpdate(name="根改名", parent_id=2), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_cc_rejects_missing_parent():
+    db = UpdateWriteSession([_cc_node(1, "R", "根", None, 1, True, path="/根/")])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.update_cc_directory(
+            1, trees_router.CostCenterUpdate(name="新", parent_id=99), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_cc_rejects_inactive_ancestor():
+    active = _cc_node(1, "R", "根", None, 1, True, path="/根/")
+    inactive = _cc_node(2, "X", "停用父", 1, 2, False, path="/根/停用父/")
+    child = _cc_node(3, "C", "子", 1, 2, True, path="/根/子/")
+    db = UpdateWriteSession([active, inactive, child])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.update_cc_directory(
+            3, trees_router.CostCenterUpdate(name="子", parent_id=2), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_update_cc_rejects_duplicate_path():
+    a = _cc_node(1, "A", "同名", None, 1, True, path="/同名/")
+    b = _cc_node(2, "B", "同名", None, 1, True, path="/同名/")
+    db = UpdateWriteSession([a, b])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.update_cc_directory(
+            1, trees_router.CostCenterUpdate(name="同名"), _=ACTOR, db=db,
+        )
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_delete_cc_leaf_succeeds():
+    root = _cc_node(1, "R", "根", None, 1, True, path="/根/")
+    child = _cc_node(2, "C", "子", 1, 2, True, path="/根/子/")
+    db = UpdateWriteSession([root, child])
+    out = await trees_router.delete_cc_directory(2, _=ACTOR, db=db)
+    assert out is None
+    assert db.committed and not db.rolled_back
+    # 重算后根重新成为叶子
+    assert root.is_leaf
+
+
+@pytest.mark.asyncio
+async def test_delete_cc_rejects_when_has_children():
+    root = _cc_node(1, "R", "根", None, 1, True, path="/根/")
+    child = _cc_node(2, "C", "子", 1, 2, True, path="/根/子/")
+    db = UpdateWriteSession([root, child])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.delete_cc_directory(1, _=ACTOR, db=db)
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "该成本中心包含下级成本中心，不允许删除"
+    assert not db.committed and db.rolled_back
+
+
+@pytest.mark.asyncio
+async def test_delete_cc_rejects_missing_node():
+    db = UpdateWriteSession([_cc_node(1, "R", "根", None, 1, True, path="/根/")])
+    with pytest.raises(HTTPException) as exc:
+        await trees_router.delete_cc_directory(99, _=ACTOR, db=db)
+    assert exc.value.status_code == 404
+
+
+def test_update_and_delete_declare_people_cost_center_ops():
+    """回归：编辑/删除端点必须通过 require_op 声明 U/D 操作权限。"""
+    import inspect
+
+    update_source = inspect.getsource(trees_router.update_cc_directory)
+    delete_source = inspect.getsource(trees_router.delete_cc_directory)
+    assert 'require_op("people.cost_center", "U")' in update_source
+    assert 'require_op("people.cost_center", "D")' in delete_source

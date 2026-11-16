@@ -5,6 +5,7 @@ import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import PermissionButton from '@/components/PermissionButton.vue'
 import CostCenterCreateDialog from '@/components/master-data/CostCenterCreateDialog.vue'
 import OrganizationTree from '@/components/master-data/OrganizationTree.vue'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PageTitle from '@/components/common/PageTitle.vue'
 import UiSurface from '@/components/ui/UiSurface.vue'
 import { treesApi, type TreeNode, type TreeHealthWarning } from '@/api/data'
@@ -12,15 +13,39 @@ import { useUserStore } from '@/stores/user'
 
 const store = useUserStore()
 const canView = computed(() => store.menus.some(m => m.code === 'people.cost_center'))
+const canEdit = computed(() => store.hasOp('people.cost_center', 'U'))
+const canAddChild = computed(() => store.hasOp('people.cost_center', 'C'))
+const canDelete = computed(() => store.hasOp('people.cost_center', 'D'))
 const includeInactive = ref(false)
 const keyword = ref('')
 const trees = ref<TreeNode[]>([])
 const loading = ref(false)
 const creating = ref(false)
+const editing = ref(false)
+const addingChild = ref(false)
+const deleting = ref(false)
+const removeFailed = ref(false)
+const target = ref<TreeNode | null>(null)
 function created() {
   keyword.value = ''
   load()
 }
+function edited() {
+  load()
+}
+function confirmDelete() {
+  deleting.value = false
+  if (!target.value) return
+  treesApi.deleteCostCenter(target.value.id)
+    .then(() => {
+      target.value = null
+      load()
+    })
+    .catch(() => { target.value = null; removeFailed.value = true })
+}
+function onEdit(row: TreeNode) { target.value = row; editing.value = true }
+function onAddChild(row: TreeNode) { target.value = row; addingChild.value = true }
+function onDelete(row: TreeNode) { target.value = row; deleting.value = true }
 const error = ref('')
 const issues = ref<HealthIssue[]>([])
 const warnings = ref<TreeHealthWarning[]>([])
@@ -118,11 +143,31 @@ const visibleTrees = computed(() => searching.value ? filterTree(trees.value, ke
           </template>
         </UiListToolbar>
         <div v-loading="loading" class="cost-center__tree">
-          <OrganizationTree v-if="visibleTrees.length || error" :nodes="visibleTrees" :searching="searching" mode="cc" />
+          <OrganizationTree v-if="visibleTrees.length || error" :nodes="visibleTrees" :searching="searching" mode="cc" :can-edit="canEdit" :can-add-child="canAddChild" :can-delete="canDelete" @edit="onEdit" @add-child="onAddChild" @delete="onDelete" />
           <el-empty v-else-if="!loading" description="暂无成本中心" />
         </div>
       </template>
-      <CostCenterCreateDialog v-model="creating" @created="created" />
+      <CostCenterCreateDialog v-model="creating" mode="create" @created="created" />
+      <CostCenterCreateDialog v-if="target" v-model="editing" mode="edit" :initial="target" @updated="edited" />
+      <CostCenterCreateDialog v-if="target" v-model="addingChild" mode="addChild" :initial="target" @created="created" />
+      <PerformanceConfirmDialog
+        v-if="target"
+        v-model="deleting"
+        :message="`确定删除成本中心「${target.name}」吗？`"
+        description="成本中心删除后不可恢复，且将在创梦各相关应用生效，请谨慎操作。"
+        cancel-text="保留"
+        confirm-text="删除"
+        @confirm="confirmDelete"
+      />
+      <PerformanceConfirmDialog
+        v-model="removeFailed"
+        :message="'删除失败'"
+        description="该成本中心包含下级成本中心，不允许删除。"
+        :show-cancel="false"
+        confirm-text="确定"
+        confirm-variant="primary"
+        @confirm="removeFailed = false"
+      />
     </UiSurface>
   </div>
 </template>
