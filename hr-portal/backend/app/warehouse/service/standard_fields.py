@@ -722,5 +722,7 @@ async def reorder_form_fields(db, form_key: str, ordered_ids: list[int], *, user
             if binding is not None:
                 binding.display_order = order * 10
         await db.flush()
-        _audit(db, "form_fields_reordered", None, user, reason_supplied=True)
+        db.add(SystemLog(category="scope_governance", action="standard_field_form_fields_reordered",
+            status="success", user_id=user.id,
+            metadata_json={"form_key": form_key, "ordered_ids": ordered_ids}))
         return {"ok": True}
