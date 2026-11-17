@@ -134,7 +134,7 @@ async def reorder_form_fields(
     db: AsyncSession = Depends(get_session),
 ):
     """表单字段排序：按全量有序字段 ID 重排 display_order。"""
-    return await service.reorder_form_fields(db, form_key, payload.ordered_ids, user)
+    return await service.reorder_form_fields(db, form_key, payload.ordered_ids, user=user)
 
 
 @router.put("/order", response_model=dict)
