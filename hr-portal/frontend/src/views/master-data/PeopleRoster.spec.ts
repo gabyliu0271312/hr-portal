@@ -25,8 +25,9 @@ const stubs = {
   SearchInput: defineComponent({ props: ['modelValue'], emits: ['update:modelValue'], template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' }),
   PerformanceColumnVisibilityDrawer: defineComponent({ props: ['modelValue', 'columns', 'selectedKeys'], emits: ['update:modelValue', 'confirm'], template: '<div class="column-drawer-stub" />' }),
   PerformanceTableSummary: defineComponent({ props: ['total', 'hiddenColumnCount'], emits: ['columns'], template: '<div class="table-summary">{{ total }}<button @click="$emit(\'columns\')">列设置</button></div>' }),
-  UiTable: defineComponent({ props: ['columns', 'rows', 'loading', 'emptyText'], template: '<div class="ui-table-stub"><span>{{ columns.length }}</span></div>' }),
+  UiTable: defineComponent({ props: ['columns', 'rows', 'loading', 'emptyText'], template: '<div class="ui-table-stub"><span class="ui-table-columns">{{ columns.length }}</span><span class="ui-table-rows">{{ rows.length }}</span><slot name="empty" :loading="loading" :text="emptyText" /></div>' }),
   UiPagination: defineComponent({ template: '<div class="pagination-stub" />' }),
+  MetricTemplateEmptyIllustration: defineComponent({ template: '<svg class="empty-illustration" />' }),
   ElAlert: defineComponent({ props: ['title', 'type'], template: '<p class="alert">{{ title }}</p>' }),
 }
 const options = { global: { stubs, directives: { loading: () => {} } } }
@@ -79,6 +80,34 @@ describe('people roster page', () => {
     vm.applyColumns(['1', '2'])
     const raw = JSON.parse(window.localStorage.getItem('people.roster.columns') || '{}')
     expect(raw['1']).toEqual(['1', '2'])
+    wrapper.unmount()
+  })
+
+  it('hides hidden columns from the table header', async () => {
+    const wrapper = mount(PeopleRoster, options); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.tableColumns.map((column: any) => column.key)).toEqual(['1', '2', '3'])
+    vm.applyColumns(['1', '2'])
+    await flushPromises()
+    expect(vm.tableColumns.map((column: any) => column.key)).toEqual(['1', '2'])
+    expect(wrapper.find('.ui-table-columns').text()).toBe('2')
+    wrapper.unmount()
+  })
+
+  it('treats all-empty rows as empty state instead of blank rows', async () => {
+    dataApi.query.mockResolvedValue({
+      items: [{ id: 101, employee_no: null, chinese_name: null, work_location: '' }],
+      total: 2217,
+      page: 1,
+      page_size: 20,
+    })
+    const wrapper = mount(PeopleRoster, options); await flushPromises()
+    const vm = wrapper.vm as any
+    expect(vm.displayedRows).toHaveLength(0)
+    expect(vm.hasVisibleData).toBe(false)
+    expect(wrapper.find('.ui-table-rows').text()).toBe('0')
+    expect(wrapper.find('.empty-illustration').exists()).toBe(true)
+    expect(wrapper.find('.pagination-stub').exists()).toBe(false)
     wrapper.unmount()
   })
 

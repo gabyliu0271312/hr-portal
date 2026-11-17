@@ -828,3 +828,18 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
   - `vue-tsc --noEmit` 全量通过（EXIT 0）；`npx vite build` 成功，`PeopleRoster-*.js/css` chunk 生成并含「人员信息」文本。
 - **PC 证据（待补）**：Docker daemon 未运行，无 dev 栈可用；未做真实登录 PC 走查（人员信息页 → 分组 tab → 搜索 → 隐藏列 → localStorage 刷新保留截图）。留待用户登录 dev 栈确认后补入。
 - **未做/停止**：不接真实来源、不改字段设置/分组/目录、不归属/发布 Person 字段（52 候选字段中仅 work_location 已归属发布，其余字段在表格中显示 `--`，待后续主数据卡归属）、不动组织树、不开放 Person 编辑、不提交推送/未部署（并行绩效会话有未提交改动，本轮不打包提交）。
+
+### 9.15b 人员信息页展示缺陷修复（2026-11-17，开发+单测+类型检查通过，未部署）
+
+- **目标/授权**：用户报「人员信息」页两个缺陷：① 隐藏列后表头仍显示全部列；② 无有效数据时仍显示"2217 个结果"+ 大量 `--` 空行 + 多页分页，应进入空态并复用绩效空态图标。本轮只改前端展示，不碰后端 total 统计、不改变字段归属状态。
+- **根因**：
+  - 缺陷①：重构移除分组 tab 时（commit `8e5aa1f3`）`tableColumns` 从"分组过滤字段"改回全量 `fields`，未切换到按隐藏列偏好过滤的 `visibleColumns`——隐藏列设置只影响 drawer 与计数，不影响表格列。
+  - 缺陷②：后端 `total=2217` 是 `emp_realtime_roster` 真实行数（非前端写死）；但 52 标准字段多数未归属/未绑定物理列，`cellValue` 用 `field_code` 取不到值，2217 行全部渲染为 `--`。UiTable 空态仅当 `rows` 为空时触发，全空行永不进入空态。
+- **改动（仅 `PeopleRoster.vue` + `PeopleRoster.spec.ts`）**：
+  - `tableColumns`/`fieldByKey` 改由可见字段驱动，隐藏列后表头列同步消失。
+  - 新增 `visibleFieldList`/`hasVisibleData`/`displayedRows`：当前页无任何可见字段值即视为无数据；表格只渲染有可见字段值的行，全空行不再显示为空行。
+  - 摘要 `total` 无数据时显示 0；分页仅在 `hasVisibleData` 时显示。
+  - `#empty` 插槽复用绩效 `MetricTemplateEmptyIllustration` + "暂无人员数据。"（无字段时保留"暂无字段"文案），样式 token 对齐绩效空态。
+- **自动化证据**：`PeopleRoster.spec.ts` 新增 2 用例（隐藏列后表头列跟随、全空行进入空态且分页隐藏/空态插图出现）→ **7 passed**；`UiTable.spec.ts` → **16 passed**；`vue-tsc --noEmit` 全量通过（EXIT 0）。
+- **PC 证据（待补）**：未登录 dev 栈 PC 走查（隐藏列后表头实际消失、空态插图实际显示）。留待用户确认。
+- **未做/停止**：不改后端 total/查询、不改字段归属状态（数据全空根因是字段未归属，属 021 主数据后续卡范围，非本卡）、不提交推送/未部署。

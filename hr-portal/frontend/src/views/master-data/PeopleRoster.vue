@@ -7,6 +7,7 @@ import UiTable, { type UiTableColumn } from '@/components/ui/UiTable.vue'
 import UiPagination from '@/components/ui/UiPagination.vue'
 import PerformanceColumnVisibilityDrawer, { type PerformanceColumnOption } from '@/components/performance/PerformanceColumnVisibilityDrawer.vue'
 import PerformanceTableSummary from '@/components/performance/PerformanceTableSummary.vue'
+import MetricTemplateEmptyIllustration from '@/components/performance/MetricTemplateEmptyIllustration.vue'
 import { standardFieldsApi, type PeopleField } from '@/api/standardFields'
 import { dataApi, type DataPage } from '@/api/data'
 import { useUserStore } from '@/stores/user'
@@ -39,6 +40,15 @@ const sortedRows = computed(() => {
     return String(left).localeCompare(String(right), 'zh-CN') * dir
   })
 })
+
+/** 可见字段（按隐藏列偏好过滤后的字段定义）。 */
+const visibleFieldList = computed(() => fields.value.filter(field => selectedColumnKeys.value.includes(String(field.id))))
+
+/** 当前页是否存在可见字段值；字段全空时视为无数据，进入空态。 */
+const hasVisibleData = computed(() => sortedRows.value.some(row => visibleFieldList.value.some(field => cellValue(row, field) !== undefined)))
+
+/** 表格只渲染有可见字段值的行；全空行不显示为"空行"。 */
+const displayedRows = computed(() => sortedRows.value.filter(row => visibleFieldList.value.some(field => cellValue(row, field) !== undefined)))
 let request = 0
 
 function message(cause: any) {
@@ -145,12 +155,12 @@ function cellValue(row: any, field: PeopleField) {
   return raw
 }
 
-const tableColumns = computed<UiTableColumn[]>(() => fields.value.map(field => ({
-  key: String(field.id),
-  label: field.field_name,
+const tableColumns = computed<UiTableColumn[]>(() => visibleColumns.value.map(column => ({
+  key: column.key,
+  label: column.label,
   minWidth: 140,
 })))
-const fieldByKey = computed(() => new Map(fields.value.map(field => [String(field.id), field])))
+const fieldByKey = computed(() => new Map(visibleFieldList.value.map(field => [String(field.id), field])))
 
 function onSort(payload: { key: string; order: 'asc' | 'desc' | '' }) {
   sortKey.value = payload.key
@@ -174,11 +184,11 @@ onBeforeUnmount(() => { ++request })
             <SearchInput v-model="keyword" placeholder="搜索姓名、工号等" @keyup.enter="search" />
             <button type="button" class="people-roster__search" @click="search">查询</button>
           </div>
-          <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="drawerOpen = true" />
+          <PerformanceTableSummary :total="hasVisibleData ? total : 0" :hidden-column-count="hiddenColumnCount" @columns="drawerOpen = true" />
           <div v-loading="loading" class="people-roster__table">
             <UiTable
               :columns="tableColumns"
-              :rows="sortedRows"
+              :rows="displayedRows"
               :row-key="row => String(row.id ?? row._id)"
               :loading="loading"
               :empty-text="fields.length ? '暂无人员数据。' : '暂无字段，可在后台字段设置中添加。'"
@@ -192,9 +202,17 @@ onBeforeUnmount(() => { ++request })
               <template #cell="{ row, column }">
                 <span>{{ cellValue(row, fieldByKey.get(column.key)!) ?? '--' }}</span>
               </template>
+              <template #empty="{ loading: isLoading }">
+                <span v-if="isLoading">加载中</span>
+                <div v-else-if="fields.length" class="people-roster__empty">
+                  <MetricTemplateEmptyIllustration />
+                  <span class="people-roster__empty-text">暂无人员数据。</span>
+                </div>
+                <span v-else>暂无字段，可在后台字段设置中添加。</span>
+              </template>
             </UiTable>
           </div>
-          <UiPagination v-if="total > 0" class="people-roster__pagination" :page="page" :page-size="pageSize" :total="total" @page-change="page = $event" @page-size-change="pageSize = $event; page = 1" />
+          <UiPagination v-if="hasVisibleData" class="people-roster__pagination" :page="page" :page-size="pageSize" :total="total" @page-change="page = $event" @page-size-change="pageSize = $event; page = 1" />
         </div>
       </template>
     </UiSurface>
@@ -228,5 +246,7 @@ onBeforeUnmount(() => { ++request })
   font: 400 14px/32px var(--font-sans);
 }
 .people-roster__table { display: flex; flex-direction: column; min-width: 0; }
+.people-roster__empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; }
+.people-roster__empty-text { color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
 .people-roster__pagination { margin-top: var(--page-gap-toolbar-table); }
 </style>
