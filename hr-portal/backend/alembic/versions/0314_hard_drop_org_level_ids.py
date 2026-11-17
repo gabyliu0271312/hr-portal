@@ -42,9 +42,10 @@ HISTORY_TABLES = [
 
 
 def _protect_trigger_names(conn, table: str) -> list[str]:
+    # table 来自 HISTORY_TABLES 常量（非用户输入），可安全内插；
+    # 不能用绑定参数 + ::regclass（SQLAlchemy/asyncpg 语法冲突）。
     rows = conn.execute(
-        sa.text("SELECT tgname FROM pg_trigger WHERE tgrelid = :tbl::regclass AND NOT tgisinternal"),
-        {"tbl": table},
+        sa.text(f"SELECT tgname FROM pg_trigger WHERE tgrelid = '{table}'::regclass AND NOT tgisinternal")
     ).fetchall()
     return [r[0] for r in rows]
 
