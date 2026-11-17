@@ -346,8 +346,9 @@ const completionNodes = computed<CompletionNode[]>(() => {
     openableCount: node.openable_count,
     openedProgress: node.completion_rate == null ? '--' : `${node.completion_rate.toFixed(2)}%`,
     openedCompletionStatus: `${node.completed_count}/${node.total_count}`,
-    reconsideredProgress: `${(node.total_count ? (node.reconsidered_count ?? 0) / node.total_count * 100 : 0).toFixed(2)}%`,
-    reconsideredCompletionStatus: `${node.reconsidered_count ?? 0}/${node.total_count}`,
+    reconsideredProgress: `${(node.completed_count ? (node.reconsidered_count ?? 0) / node.completed_count * 100 : 0).toFixed(2)}%`,
+    reconsideredCompletionStatus: `${node.reconsidered_count ?? 0}/${node.completed_count}`,
+    reconsideredDeadline: formatDeadline(node.reconsideration_deadline_at ?? null),
     reminderTitle: node.reminder_title,
     reminderDescription: node.reminder_description,
   }))

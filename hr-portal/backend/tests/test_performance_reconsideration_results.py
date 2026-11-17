@@ -378,6 +378,103 @@ def decision_runtime(monkeypatch):
                            appeal=appeal, project=project, db=db, context=context, events=events)
 
 
+@pytest.fixture
+def reconsideration_people_runtime(decision_runtime, monkeypatch):
+    data = decision_runtime
+    router = data.router
+    member = SimpleNamespace(snapshot_id=11, employee_no="E001", display_name="复议员工")
+    rows = [(data.task, data.node, member)]
+    monkeypatch.setattr(router, "load_subject_visibility_rules", AsyncMock(return_value={"leader": []}))
+    monkeypatch.setattr(router, "resolve_subject_visibility_role", AsyncMock(return_value="leader"))
+    monkeypatch.setattr(router, "_communication_progress_detail", AsyncMock(return_value={}))
+    monkeypatch.setattr(router, "_snapshot_supervisor_names", AsyncMock(return_value={}))
+    monkeypatch.setattr(router, "_self_summary_template", AsyncMock(wraps=router._self_summary_template))
+    monkeypatch.setattr(router, "_effective_project_results", AsyncMock(side_effect=AssertionError("must not read mutable final result")))
+    queries = []
+    async def execute(query):
+        queries.append(query)
+        return SimpleNamespace(all=lambda: list(rows))
+    data.db.execute = execute
+    data.people_rows = rows
+    data.people_queries = queries
+    async def people(**kwargs):
+        return await router.workbench_task_people("appeal", 3, "all", data.context, data.db, **kwargs)
+    data.people = people
+    return data
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_people_show_frozen_and_formal_results_not_drafts(reconsideration_people_runtime):
+    data = reconsideration_people_runtime
+    frozen = deepcopy(data.appeal.result_snapshot)
+    data.task.draft_answers = {"rating-1": "B", "keep_result": "change"}
+    row = (await data.people())[0]
+    assert row["rating_columns"] == [{"key": "rating:rating-1", "label": "结果"}]
+    assert row["ratings"]["rating:rating-1"]["label"] == "优秀"
+    assert row["status"] == "pending"
+    data.router._self_summary_template.assert_not_awaited()
+    data.task.draft_answers = None
+    await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "change", "rating-1": "B"}, version=1), True, data.context, data.db, "evaluation")
+    assert (await data.people())[0]["ratings"]["rating:rating-1"]["label"] == "良好"
+    await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "keep"}, version=2), False, data.context, data.db, "evaluation")
+    assert (await data.people())[0]["ratings"]["rating:rating-1"]["label"] == "良好"
+    await data.router._save_self_summary(8, data.router.SelfSummaryAnswersPayload(answers={"keep_result": "keep"}, version=3), True, data.context, data.db, "evaluation")
+    assert (await data.people())[0]["ratings"]["rating:rating-1"]["label"] == "优秀"
+    assert data.appeal.result_snapshot == frozen
+    sql = str(data.people_queries[0].compile(compile_kwargs={"literal_binds": True}))
+    for condition in ("performance_result_reconsiderations.withdrawn_at IS NULL", "performance_result_reconsiderations.member_snapshot_id = performance_node_tasks.member_snapshot_id", "performance_result_reconsiderations.node_snapshot_id = performance_node_tasks.node_snapshot_id", "performance_result_reconsiderations.employee_no = performance_node_tasks.target_employee_no"):
+        assert condition in sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["readonly", "hidden", "missing"])
+async def test_reconsideration_people_readonly_hidden_and_missing_baseline(reconsideration_people_runtime, mode):
+    data = reconsideration_people_runtime
+    if mode == "missing":
+        data.appeal.result_snapshot = None
+        with pytest.raises(HTTPException) as exc:
+            await data.people()
+        assert exc.value.detail == "RECONSIDERATION_BASELINE_UNAVAILABLE"
+        return
+    template = _template(allow_modify=False)
+    if mode == "hidden":
+        template["node"]["calibration_settings"]["s1"]["items"]["rating-1"]["mode"] = "hidden"
+    data.appeal.result_snapshot = freeze_result(_result(), 11, 22, {}, template)
+    row = (await data.people())[0]
+    if mode == "hidden":
+        assert row["rating_columns"] == [] and row["ratings"] == {}
+    else:
+        assert row["ratings"]["rating:rating-1"]["label"] == "优秀"
+
+
+@pytest.mark.asyncio
+async def test_reconsideration_people_columns_stable_across_pages_search_sort_and_export(reconsideration_people_runtime, monkeypatch):
+    data = reconsideration_people_runtime
+    second = deepcopy(data.task)
+    second.id = 10
+    second.target_employee_no = "E002"
+    second_snapshot = deepcopy(data.appeal.result_snapshot)
+    second_snapshot["form_schema"][0]["fields"].append({"id": "value", "type": "rating", "label": "价值贡献", "readonly": True, "options": [{"id": "C", "label": "高"}]})
+    second_snapshot["answers"].update({"rating-1": "B", "value": "C"})
+    second_appeal = SimpleNamespace(result_snapshot=second_snapshot)
+    async def appeal(_db, task, **kwargs):
+        return second_appeal if task.id == 10 else data.appeal
+    monkeypatch.setattr(data.service, "reconsideration_for_task", appeal)
+    data.people_rows.append((second, data.node, SimpleNamespace(snapshot_id=11, employee_no="E002", display_name="第二员工")))
+    expected = [{"key": "rating:rating-1", "label": "结果"}, {"key": "rating:value", "label": "价值贡献"}]
+    for page in (1, 2, 3):
+        result = await data.people(page=page, page_size=1, sort_by="task_id", sort_order="asc")
+        assert result["rating_columns"] == expected and result["total"] == 2
+    empty = await data.people(keyword="no-match", page=1)
+    assert empty["items"] == [] and empty["rating_columns"] == expected and empty["total"] == 0
+    sorted_page = await data.people(page=1, page_size=1, sort_by="rating:rating-1", sort_order="asc")
+    assert sorted_page["items"][0]["employee_no"] == "E001"
+    descending = await data.people(page=1, page_size=1, sort_by="rating:rating-1", sort_order="desc")
+    assert descending["items"][0]["employee_no"] == "E002"
+    assert len(await data.people()) == 2
+    assert (await data.people(keyword="E002", page=1))["total"] == 1
+
+
 @pytest.mark.asyncio
 async def test_runtime_draft_submit_resubmit_and_draft_do_not_change_effective_result(decision_runtime):
     data = decision_runtime

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -383,7 +383,7 @@ async def test_result_opening_overview_does_not_leak_progress_nodes(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_result_opening_metrics_use_real_appeals_and_no_view_deadline():
+async def test_result_opening_metrics_use_opened_appeals_and_separate_deadlines():
     from datetime import UTC, datetime
     from app.performance import projects_router as router
     from app.performance.models import PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot, PerformanceResultOpening, PerformanceResultReconsideration
@@ -400,10 +400,45 @@ async def test_result_opening_metrics_use_real_appeals_and_no_view_deadline():
     result = {item["key"]: item for item in await router._project_completion_nodes([project], Db())}
     assert result["view-result"]["deadline_at"] is None
     assert result["view-result"]["status"] == "active"
-    assert result["view-result"]["reconsidered_count"] == 2
+    assert result["view-result"]["reconsidered_count"] == 1
+    assert result["view-result"]["completed_count"] == 1
+    assert result["view-result"]["reconsideration_deadline_at"] == datetime(2020, 1, 3, tzinfo=UTC)
+    assert result["result-reconsideration"]["deadline_at"] == datetime(2020, 1, 2, tzinfo=UTC)
     assert result["view-result"]["total_count"] == 4
     assert result["result-reconsideration"]["total_count"] == 3
     assert result["result-reconsideration"]["can_remind"]
+    values[PerformanceResultOpening] = ["E1", "E2", "E4", "OUTSIDE"]
+    result = {item["key"]: item for item in await router._project_completion_nodes([project], Db())}
+    assert result["view-result"]["reconsidered_count"] == 2
+    assert result["view-result"]["completed_count"] == 3
+    values[PerformanceResultOpening] = []
+    result = {item["key"]: item for item in await router._project_completion_nodes([project], Db())}
+    assert result["view-result"]["reconsidered_count"] == 0
+    assert result["view-result"]["completed_count"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("view_time,overrides,has_node,expected", [
+    ({"appeal_deadline": "2026-11-20T12:00:00Z"}, {}, True, datetime(2026, 11, 20, 12, tzinfo=UTC)),
+    ({}, {}, True, datetime(2026, 11, 22, tzinfo=UTC)),
+    ({"appeal_deadline": None}, {}, True, None),
+    ({"appeal_deadline": "2026-11-20T12:00:00Z"}, {"view": {"appeal_deadline": "2026-11-21T00:00:00Z"}}, True, datetime(2026, 11, 21, tzinfo=UTC)),
+    ({"appeal_deadline": "2026-11-20T12:00:00Z"}, {"view": {"appeal_deadline": None}}, True, None),
+    ({"appeal_deadline": "2026-11-20T12:00:00Z"}, {}, False, None),
+])
+async def test_completion_reconsideration_deadline_reuses_submission_window(view_time, overrides, has_node, expected):
+    from app.performance import projects_router as router
+    project = _pm_project(1, "项目", 1)
+    project.settings = {"flow_settings": {"node_times": overrides}}
+    view = SimpleNamespace(id=1, node_id="view", node_type="result_view", config={"time": view_time})
+    appeal_node = SimpleNamespace(id=2, node_id="appeal", node_type="result_reconsideration", config={"time": {"end_at": "2026-11-22T00:00:00Z"}})
+    values = {router.PerformanceProjectMember: [SimpleNamespace(employee_no="E1")], router.PerformanceProjectNodeSnapshot: [view, appeal_node] if has_node else [view], router.PerformanceNodeTask: [], router.PerformanceResultOpening: ["E1"], router.PerformanceResultReconsideration: []}
+    class Db:
+        async def scalar(self, query): return 10
+        async def execute(self, query): return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values[query.column_descriptions[0]["entity"]]))
+    result = {item["key"]: item for item in await router._project_completion_nodes([project], Db())}
+    assert result["view-result"]["deadline_at"] is None
+    assert result["view-result"]["reconsideration_deadline_at"] == expected
 
 
 @pytest.mark.asyncio

@@ -117,6 +117,40 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
+  it('renders reconsideration frozen and updated results through shared dynamic columns', async () => {
+    const node = { ...overview.categories[3].nodes[0], task_kind: 'result_reconsideration', entry_mode: 'template_task' as const }
+    const row = {
+      task_id: 81, employee_no: 'E001', display_name: '复议成员', status: 'pending', due_at: null,
+      job_family: null, job_category: null, job_sequence: null, position_level: null, hire_date: null,
+      department: null, employee_type: null, employment_status: null,
+      rating_columns: [{ key: 'rating:grade', label: '年度绩效' }, { key: 'rating:value', label: '价值贡献' }],
+      ratings: { 'rating:grade': { label: 'B', color: '#d9f5d6' }, 'rating:value': { label: 'A', color: '#e1eaff' } },
+    }
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [row], total: 1, rating_columns: row.rating_columns })
+    const wrapper = mount(PerformanceReviewContent, { props: { node, projectId: 1, loading: false, error: '', templateName: '模板' } })
+    await flushPromises()
+    expect(performanceWorkbenchApi.taskPeople).toHaveBeenCalledWith(1, 'appeal', 'all', undefined, undefined, 1, 50, undefined, undefined)
+    expect(wrapper.findAll('th').map(cell => cell.text())).toEqual(expect.arrayContaining(['年度绩效', '价值贡献']))
+    expect(wrapper.findAll('.performance-rating-tag').map(tag => tag.text())).toEqual(['B', 'A'])
+    expect(wrapper.text()).not.toContain('矩阵分析')
+    const panel = wrapper.getComponent(ProjectMemberListPanel)
+    expect(panel.findComponent({ name: 'PerformanceExportButton' }).exists()).toBe(false)
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [{ ...row, status: 'completed', ratings: { ...row.ratings, 'rating:grade': { label: 'A', color: '#d9f5d6' } } }], total: 1, rating_columns: row.rating_columns })
+    await panel.get('input').trigger('keyup.enter')
+    await flushPromises()
+    expect(wrapper.findAll('.performance-rating-tag').map(tag => tag.text())).toEqual(['A', 'A'])
+    panel.findComponent({ name: 'ProjectMemberColumnDrawer' }).vm.$emit('confirm', ['name', 'rating:grade'])
+    await flushPromises()
+    vi.mocked(performanceWorkbenchApi.taskPeople).mockResolvedValue({ items: [], total: 0, rating_columns: row.rating_columns })
+    await panel.get('input').setValue('no-match')
+    await panel.get('input').trigger('keyup.enter')
+    await flushPromises()
+    const headers = wrapper.findAll('th').map(cell => cell.text())
+    expect(headers).toContain('年度绩效')
+    expect(headers).not.toContain('价值贡献')
+    wrapper.unmount()
+  })
+
   it('opens pending reconsideration through the full shared task workspace', async () => {
     const node = { ...overview.categories[3].nodes[0], task_kind: 'result_reconsideration', entry_mode: 'template_task' as const }
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...structuredClone(overview), categories: [{ key: 'other', label: '其他事项', nodes: [node] }] })

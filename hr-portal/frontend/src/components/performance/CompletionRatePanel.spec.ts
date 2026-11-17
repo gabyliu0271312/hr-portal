@@ -9,7 +9,7 @@ import gridCardSource from './PerformanceGridCard.vue?raw'
 
 const nodes = [
   { key: 'work-summary', title: '填写工作总结', progress: '98.28%', canRemind: true, deadline: '2026-07-10 23:59（GMT+8）（已截止）' },
-  { key: 'view-result', title: '查看绩效结果', progress: '96.55%', completionStatus: '392/406', openedProgress: '96.55%', openedCompletionStatus: '392/406', reconsideredProgress: '12.32%', reconsideredCompletionStatus: '50/406', canOpenResult: true, openableCount: 4, deadline: null },
+  { key: 'view-result', title: '查看绩效结果', progress: '60.00%', completionStatus: '3/5', openedProgress: '60.00%', openedCompletionStatus: '3/5', reconsideredProgress: '33.33%', reconsideredCompletionStatus: '1/3', reconsideredDeadline: '2026-08-20 23:59（GMT+8）（已截止）', canOpenResult: true, openableCount: 4, deadline: null },
   { key: 'result-reconsideration', title: '结果复议处理', progress: '0.00%', deadline: '2026-08-28 23:59（GMT+8）（已截止）' },
 ]
 
@@ -30,15 +30,35 @@ describe('CompletionRatePanel', () => {
     expect(wrapper.findAll('.segment')[3].attributes('title')).toBeUndefined()
   })
 
-  it('switches result completion statistics without disabling 已复议', async () => {
+  it('switches result completion statistics and deadline without mutating ordinary nodes', async () => {
     const wrapper = mountPanel()
+    const ordinaryCardText = wrapper.findAll('.completion-node-card')[2].text()
     await wrapper.findAll('.segment')[3].trigger('click')
-    expect(wrapper.find('.card-progress').text()).toBe('98.28%')
-    expect(wrapper.findAll('.completion-node-card')[1].find('.card-progress').text()).toBe('12.32%')
-    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('完成情况：50/406')
+    expect(wrapper.findAll('.completion-node-card')[0].find('.card-progress').text()).toBe('98.28%')
+    expect(wrapper.findAll('.completion-node-card')[1].find('.card-progress').text()).toBe('33.33%')
+    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('完成情况：1/3')
+    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('截止时间：2026-08-20 23:59（GMT+8）（已截止）')
+    expect(wrapper.findAll('.completion-node-card')[2].text()).toBe(ordinaryCardText)
     await wrapper.findAll('.segment')[2].trigger('click')
-    expect(wrapper.findAll('.completion-node-card')[1].find('.card-progress').text()).toBe('96.55%')
-    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('完成情况：392/406')
+    expect(wrapper.findAll('.completion-node-card')[1].find('.card-progress').text()).toBe('60.00%')
+    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('完成情况：3/5')
+    expect(wrapper.findAll('.completion-node-card')[1].text()).toContain('截止时间：--')
+    expect(wrapper.findAll('.completion-node-card')[2].text()).toBe(ordinaryCardText)
+    wrapper.unmount()
+  })
+
+  it.each([undefined, null])('does not reuse the opening deadline when reconsideration deadline is %s', async reconsideredDeadline => {
+    const deadline = '2099-08-28 23:59（GMT+8）'
+    const node = { ...nodes[1], deadline, reconsideredDeadline, reconsideredProgress: '0.00%', reconsideredCompletionStatus: '0/0' }
+    const wrapper = mount(CompletionRatePanel, { props: { nodes: [node] } })
+    expect(wrapper.get('.time-text').text()).toBe(`截止时间：${deadline}`)
+    await wrapper.findAll('.segment')[3].trigger('click')
+    expect(wrapper.get('.card-progress').text()).toBe('0.00%')
+    expect(wrapper.get('.status-text').text()).toBe('完成情况：0/0')
+    expect(wrapper.get('.time-text').text()).toBe('截止时间：--')
+    await wrapper.findAll('.segment')[2].trigger('click')
+    expect(wrapper.get('.time-text').text()).toBe(`截止时间：${deadline}`)
+    expect(node.deadline).toBe(deadline)
     wrapper.unmount()
   })
 

@@ -27,6 +27,7 @@ export interface CompletionNode {
   openedCompletionStatus?: string | null
   reconsideredProgress?: string | null
   reconsideredCompletionStatus?: string | null
+  reconsideredDeadline?: string | null
   deadline: string | null
   status?: 'active' | 'completed' | 'not_started' | 'overdue' | 'unavailable'
   canRemind?: boolean

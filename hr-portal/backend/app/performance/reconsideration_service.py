@@ -141,12 +141,12 @@ async def submission_context(db, project_id, employee_no, *, lock=False):
     return project, snapshot, member, opening, node, appeal
 
 
-def submission_window(project, node):
+def submission_window(project, node, *, result_view_node=None):
     flow = (project.settings or {}).get("flow_settings") or {}
     times = flow.get("node_times") or {}
     timing = times.get(node.node_id)
     timing = timing if timing is not None else (node.config or {}).get("time") or {}
-    view_node = getattr(node, "_result_view_node", None)
+    view_node = result_view_node if result_view_node is not None else getattr(node, "_result_view_node", None)
     if view_node is not None:
         view = times.get(view_node.node_id)
         view = view if view is not None else (view_node.config or {}).get("time") or {}

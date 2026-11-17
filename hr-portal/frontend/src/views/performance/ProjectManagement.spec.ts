@@ -430,36 +430,52 @@ describe('ProjectManagement', () => {
     expect(cards[1].find('.text-button').text()).toBe('去催办')
   })
 
-  it('maps result opening facts, latest member totals and reconsiderations without a result deadline', async () => {
+  it.each([
+    { deadline: '2099-08-20T15:59:00Z', expected: '2099-08-20 23:59（GMT+8）' },
+    { deadline: '2000-08-20T15:59:00Z', expected: '2000-08-20 23:59（GMT+8）（已截止）' },
+  ])('uses opened results as the reconsideration denominator and switches deadline $deadline', async ({ deadline, expected }) => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [
-      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 3, total_count: 5, completion_rate: 60, reconsidered_count: 1, can_open_result: false, openable_count: 2, deadline_at: null },
+      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 3, total_count: 5, completion_rate: 60, reconsidered_count: 1, can_open_result: false, openable_count: 2, deadline_at: null, reconsideration_deadline_at: deadline },
       { key: 'result-reconsideration', title: '结果复议处理', status: 'active', completed_count: 0, total_count: 1, completion_rate: 0, can_remind: true, deadline_at: '2099-08-28T15:59:00Z' },
     ] }))
     const wrapper = mountView()
     await flushPromises()
     const cards = wrapper.findAll('.completion-node-card')
+    const ordinaryCard = cards[1].text()
     expect(cards[0].find('.card-progress').text()).toBe('60.00%')
     expect(cards[0].text()).toContain('完成情况：3/5')
     expect(cards[0].text()).toContain('截止时间：--')
     expect(cards[0].find('.node-action').exists()).toBe(false)
     expect(cards[1].text()).toContain('截止时间：2099-08-28 23:59（GMT+8）')
     await cards[0].findAll('.segment')[1].trigger('click')
-    expect(cards[0].find('.card-progress').text()).toBe('20.00%')
-    expect(cards[0].text()).toContain('完成情况：1/5')
+    expect(cards[0].find('.card-progress').text()).toBe('33.33%')
+    expect(cards[0].text()).toContain('完成情况：1/3')
+    expect(cards[0].text()).toContain(`截止时间：${expected}`)
+    expect(cards[1].text()).toBe(ordinaryCard)
+    await cards[0].findAll('.segment')[0].trigger('click')
+    expect(cards[0].find('.card-progress').text()).toBe('60.00%')
+    expect(cards[0].text()).toContain('完成情况：3/5')
+    expect(cards[0].text()).toContain('截止时间：--')
+    expect(cards[1].text()).toBe(ordinaryCard)
     await cards[1].get('.node-action').trigger('click')
     expect(push).toHaveBeenCalledWith(expect.objectContaining({ name: 'PerformanceProjectReminder', query: expect.objectContaining({ node_key: 'result-reconsideration' }) }))
     wrapper.unmount()
   })
 
-  it.each([0, 5])('defaults missing reconsiderations to zero with total=%s', async total => {
+  it.each([
+    { completed: 0, total: 0 },
+    { completed: 0, total: 5 },
+    { completed: 3, total: 5 },
+  ])('defaults missing reconsideration count and deadline with opened=$completed, total=$total', async ({ completed, total }) => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf({ completion_nodes: [
-      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: 0, total_count: total, completion_rate: 0, deadline_at: null },
+      { key: 'view-result', title: '查看绩效结果', status: 'active', completed_count: completed, total_count: total, completion_rate: total ? completed / total * 100 : 0, deadline_at: null },
     ] }))
     const wrapper = mountView()
     await flushPromises()
     await wrapper.findAll('.completion-node-card .segment')[1].trigger('click')
     expect(wrapper.get('.completion-node-card .card-progress').text()).toBe('0.00%')
-    expect(wrapper.get('.completion-node-card').text()).toContain(`完成情况：0/${total}`)
+    expect(wrapper.get('.completion-node-card').text()).toContain(`完成情况：0/${completed}`)
+    expect(wrapper.get('.completion-node-card').text()).toContain('截止时间：--')
     expect(wrapper.find('.completion-node-card .node-action').exists()).toBe(false)
     wrapper.unmount()
   })

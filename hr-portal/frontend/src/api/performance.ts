@@ -944,6 +944,7 @@ export interface ProjectManagementCompletionNode {
   can_open_result?: boolean
   openable_count?: number
   reconsidered_count?: number
+  reconsideration_deadline_at?: string | null
   reminder_title?: string | null
   reminder_description?: string | null
 }

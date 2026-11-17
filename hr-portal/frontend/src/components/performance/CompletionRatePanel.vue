@@ -74,6 +74,7 @@ const displayNodes = computed(() => props.nodes.map(node => {
     ...node,
     progress: (resultView.value === 'reconsidered' ? node.reconsideredProgress : node.openedProgress) ?? node.progress,
     completionStatus: (resultView.value === 'reconsidered' ? node.reconsideredCompletionStatus : node.openedCompletionStatus) ?? node.completionStatus,
+    deadline: resultView.value === 'reconsidered' ? node.reconsideredDeadline ?? null : node.deadline,
   }
 }))
 const departmentLoading = ref(false)

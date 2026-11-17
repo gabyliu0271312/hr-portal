@@ -1688,12 +1688,12 @@ def _matrix_rating_value(value: object, options: list[dict]) -> dict | None:
     return next((option for option in options if text in {str(option.get("id")), str(option.get("label"))}), None)
 
 
-def _task_rating_metadata(schema: list[dict]) -> list[dict]:
+def _task_rating_metadata(schema: list[dict], *, include_readonly=False) -> list[dict]:
     metadata = []
     seen_keys: set[str] = set()
     for section in schema:
         for field in section.get("fields", []):
-            if field.get("type") != "rating" or field.get("readonly"):
+            if field.get("type") != "rating" or (field.get("readonly") and not include_readonly):
                 continue
             answer_key = str(field.get("id") or "")
             if not answer_key:
@@ -4321,7 +4321,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
         key: {
             "configured": 0, "starts": [], "deadlines": [], "completed": 0, "total": 0,
             "available_pending": 0, "title": title, "node_type": None,
-            "openable_count": 0, "reconsidered_count": 0,
+            "openable_count": 0, "reconsidered_count": 0, "reconsideration_deadlines": [],
         }
         for key, title in _COMPLETION_NODE_DEFINITIONS
     }
@@ -4429,7 +4429,14 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
             if node.node_type == "result_view":
                 total = len(members)
                 completed = sum(member.employee_no in opened_people for member in members)
-                state["reconsidered_count"] += len({appeal.employee_no for appeal in appeals})
+                state["reconsidered_count"] += len({appeal.employee_no for appeal in appeals if appeal.employee_no in opened_people})
+                from app.performance.reconsideration_service import submission_window
+                reconsideration_node = next((candidate for index, candidate in enumerate(nodes)
+                    if candidate.node_type == "result_reconsideration" and index > 0 and nodes[index - 1].id == node.id), None)
+                if reconsideration_node is not None:
+                    _, appeal_deadline, _ = submission_window(project, reconsideration_node, result_view_node=node)
+                    if appeal_deadline is not None:
+                        state["reconsideration_deadlines"].append(appeal_deadline)
             else:
                 completed, total = _completion_task_counts(node, node_tasks)
                 state["available_pending"] += sum(
@@ -4449,6 +4456,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
                 "completed_count": 0, "total_count": 0, "completion_rate": None, "deadline_at": None,
                 "configured": False, "can_remind": False, "reminder_title": None, "reminder_description": None,
                 "can_open_result": False, "openable_count": 0, "reconsidered_count": 0,
+                "reconsideration_deadline_at": None,
             })
             continue
         completed = state["completed"]
@@ -4474,6 +4482,7 @@ async def _project_completion_nodes(projects: list[PerformanceProject], db: Asyn
             "can_open_result": state["openable_count"] > 0,
             "openable_count": state["openable_count"],
             "reconsidered_count": state["reconsidered_count"],
+            "reconsideration_deadline_at": min(state["reconsideration_deadlines"]) if state["reconsideration_deadlines"] else None,
         })
     return result
 
@@ -6432,24 +6441,43 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
             & (PerformanceProjectMember.employee_no == PerformanceNodeTask.target_employee_no)
         ), isouter=True)
         .where(*scope)
+        .where(or_(PerformanceProjectNodeSnapshot.node_type != "result_reconsideration", select(PerformanceResultReconsideration.id).where(
+            PerformanceResultReconsideration.project_id == PerformanceNodeTask.project_id,
+            PerformanceResultReconsideration.member_snapshot_id == PerformanceNodeTask.member_snapshot_id,
+            PerformanceResultReconsideration.node_snapshot_id == PerformanceNodeTask.node_snapshot_id,
+            PerformanceResultReconsideration.employee_no == PerformanceNodeTask.target_employee_no,
+            PerformanceResultReconsideration.withdrawn_at.is_(None),
+        ).exists()))
     )
     if not is_admin_preview:
         statement = statement.where(task_handler_condition(handler))
     if isinstance(keyword, str) and keyword.strip():
         value = f"%{keyword.strip()}%"
-        statement = statement.where(or_(PerformanceProjectMember.display_name.ilike(value), PerformanceProjectMember.employee_no.ilike(value), PerformanceNodeTask.target_employee_no.ilike(value)))
+        statement = statement.where(or_(PerformanceProjectNodeSnapshot.node_type == "result_reconsideration", PerformanceProjectMember.display_name.ilike(value), PerformanceProjectMember.employee_no.ilike(value), PerformanceNodeTask.target_employee_no.ilike(value)))
     rows = (await db.execute(statement.order_by(PerformanceNodeTask.id))).all()
     project = await db.get(PerformanceProject, project_id)
     rows = [row for row in rows if getattr(row[0], "revoked_at", None) is None and (row[1].node_type != "calibration" or calibration_task_scope(row[0], row[1]))]
     if state == "pending":
         rows = [row for row in rows if _task_is_available(row[0], row[1], project)]
-    aggregate_task_id = rows[0][0].id if rows else None
-    total = len(rows)
     rating_metadata = {}
+    reconsideration_results = {}
     for task, node, _member in rows:
-        if node.id not in rating_metadata:
+        if node.node_type == "result_reconsideration":
+            schema, answers = await _task_visible_content(task, node, db)
+            metadata = _task_rating_metadata(schema, include_readonly=True)
+            reconsideration_results[task.id] = (schema, metadata, _rating_values_from_answers(answers, metadata))
+            node_metadata = rating_metadata.setdefault(node.id, ([], []))[1]
+            for item in metadata:
+                if not any(existing["key"] == item["key"] for existing in node_metadata):
+                    node_metadata.append(item)
+        elif node.id not in rating_metadata:
             schema = build_self_summary_schema(await _self_summary_template(task, node, db))
             rating_metadata[node.id] = (schema, _task_rating_metadata(schema))
+    if isinstance(keyword, str) and keyword.strip():
+        search = keyword.strip().casefold()
+        rows = [row for row in rows if row[1].node_type != "result_reconsideration" or any(search in str(value or "").casefold() for value in (getattr(row[2], "display_name", None), getattr(row[2], "employee_no", None), row[0].target_employee_no))]
+    aggregate_task_id = rows[0][0].id if rows else None
+    total = len(rows)
     sort_by = "display_name" if sort_by == "name" else sort_by
     allowed_sort_keys = {"task_id", "display_name", "employee_no", "department", "hire_date", "status", "due_at", "rating", "completion", "direct_supervisor", "job_sequence", "position_level", "employee_type", "previous_position_level"}
     allowed_sort_keys.update(item["key"] for _schema, metadata in rating_metadata.values() for item in metadata)
@@ -6500,7 +6528,9 @@ async def workbench_task_people(node_id: str, project_id: int, state: str = Quer
         visibility_role = await resolve_subject_visibility_role(db, context, handler, member, node, project)
         visible_fields = visibility_rules[visibility_role]
         schema, metadata = rating_metadata[node.id]
-        if node.node_type == "result_communication" and communication_metadata:
+        if node.node_type == "result_reconsideration":
+            schema, metadata, ratings = reconsideration_results[task.id]
+        elif node.node_type == "result_communication" and communication_metadata:
             metadata = communication_metadata
             ratings = communication_ratings.get((task.member_snapshot_id, task.target_employee_no), {item["key"]: None for item in metadata})
         elif node.node_type == "calibration" or ((node.config or {}).get("template") or {}).get("include_final_result"):
