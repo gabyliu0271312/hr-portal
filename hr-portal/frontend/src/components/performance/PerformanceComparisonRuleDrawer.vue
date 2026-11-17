@@ -20,7 +20,7 @@
         <PerformancePromptNotice v-for="(warning, index) in visibleWarnings" :key="index" class="comparison-rule-warning" type="warning" multiline role="alert"><template #icon><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M23 12c0 6.075-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1s11 4.925 11 11Z" fill="currentColor"/><path d="M12 7a1 1 0 0 0-1 1v5a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1Zm0 8a1 1 0 1 0 0 2 1 1 0 0 0-2 0 1 1 0 0 0 2 0Z" fill="var(--performance-prompt-icon-inner)"/></svg></template>{{ warning }}</PerformancePromptNotice>
         <div class="comparison-condition-list">
           <div v-for="(rule, index) in draft.rules" :key="rule.key" class="comparison-condition-row">
-            <PerformanceAssessmentSelect v-model="rule.itemKey" label="" aria-label="评估项" placeholder="请选择评估项" :options="itemOptions" :invalid="submitted && !itemOptions.some(item => item.id === rule.itemKey)" :empty-text="loading ? '正在加载可选项...' : loadError || '暂无可选选项'" />
+            <PerformanceAssessmentSelect v-model="rule.itemKey" label="" aria-label="评估项" placeholder="请选择评估项" :options="itemOptions" :invalid="submitted && !itemOptions.some(item => item.id === rule.itemKey && !item.disabled)" :empty-text="loading ? '正在加载可选项...' : loadError || '暂无可选选项'" />
             <span class="comparison-condition-row__operator">相差</span>
             <PerformanceMetricSelect v-model="rule.operator" ariaLabel="差异类型" placeholder="请选择" :options="operatorOptions" />
             <PerformanceNumberInput v-model="rule.threshold" width="100%" suffix="档" suffix-variant="addon" aria-label="差异阈值" :min="1" :step="1" :invalid="submitted && !isPositiveInteger(rule.threshold)" placeholder="请输入数字" />
@@ -51,7 +51,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { performanceCycleApi, type PerformanceComparisonCandidates, type PerformanceComparisonOperator, type PerformanceComparisonRule } from '@/api/performance'
 import UiButton from '../ui/UiButton.vue'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
-import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
+import PerformanceAssessmentSelect, { type PerformanceAssessmentSelectOption } from './PerformanceAssessmentSelect.vue'
 import PerformanceCheckbox from './PerformanceCheckbox.vue'
 import PerformanceDrawerFooter from './PerformanceDrawerFooter.vue'
 import PerformanceIconButton from './PerformanceIconButton.vue'
@@ -62,7 +62,7 @@ import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
 import PerformanceRequiredLabel from './PerformanceRequiredLabel.vue'
 
-const props = withDefaults(defineProps<{ modelValue: boolean; templateIds: number[]; cycleId?: number; initialValue?: PerformanceComparisonRule | null }>(), { initialValue: null })
+const props = withDefaults(defineProps<{ modelValue: boolean; templateIds: number[]; cycleId?: number; initialValue?: PerformanceComparisonRule | null; existingRules?: PerformanceComparisonRule[] }>(), { initialValue: null, existingRules: () => [] })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; cancel: []; submit: [value: PerformanceComparisonRule] }>()
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const operatorOptions = [{ value: 'eq', label: '=' }, { value: 'gt', label: '>' }, { value: 'gte', label: '≥' }, { value: 'lt', label: '<' }, { value: 'lte', label: '≤' }]
@@ -82,7 +82,14 @@ const firstStage = computed(() => stages.value.find(stage => stage.key === draft
 const secondStage = computed(() => stages.value.find(stage => stage.key === draft.secondKey && stage.template_id === firstStage.value?.template_id && stage.key !== draft.firstKey))
 const stageOptions = computed(() => stages.value.map(stage => ({ id: stage.key, label: stage.name, description: candidates.value.templates.length > 1 ? stage.template_name : undefined })))
 const secondStageOptions = computed(() => stages.value.filter(stage => stage.template_id === firstStage.value?.template_id && stage.key !== draft.firstKey).map(stage => ({ id: stage.key, label: stage.name })))
-const itemOptions = computed(() => candidates.value.items.map(item => ({ id: itemKey(item.content_id, item.item_id), label: item.label, ...(loading.value || loadError.value ? { disabled: true } : {}) })))
+const usedItemKeys = computed(() => new Set(props.existingRules.filter(rule => rule.template_id === firstStage.value?.template_id && secondStage.value && (
+  (rule.first_node_id === firstStage.value.node_id && rule.second_node_id === secondStage.value.node_id)
+  || (rule.second_node_id === firstStage.value.node_id && rule.first_node_id === secondStage.value.node_id)
+)).flatMap(rule => rule.indicator_diff_rules.map(item => itemKey(item.content_id, item.item_id)))))
+const itemOptions = computed<PerformanceAssessmentSelectOption[]>(() => candidates.value.items.map(item => {
+  const id = itemKey(item.content_id, item.item_id)
+  return { id, label: item.label, ...(usedItemKeys.value.has(id) ? { disabled: true, disabledReason: '已配置对比' } : loading.value || loadError.value ? { disabled: true } : {}) }
+}))
 const visibleWarnings = computed(() => candidates.value.warnings.flatMap(warning => {
   const item = candidates.value.items.find(item => item.content_id === warning.content_id && item.item_id === warning.item_id)
   if (!item) return [warning.message]
@@ -94,7 +101,7 @@ const visibleWarnings = computed(() => candidates.value.warnings.flatMap(warning
   return [`绩效模板「${template.name}」中，${stage.name}的环节执行人无法查看${reference.name}的「${item.label}」评估项，不会触发对应评估项的差异提示。`]
 }))
 const stageError = computed(() => submitted.value && (!firstStage.value || !secondStage.value) ? '请选择需要对比的评估环节' : '')
-const ruleError = computed(() => submitted.value && draft.rules.some(rule => !itemOptions.value.some(item => item.id === rule.itemKey) || !isPositiveInteger(rule.threshold)) ? '请完善评估项差异规则' : '')
+const ruleError = computed(() => submitted.value && draft.rules.some(rule => !itemOptions.value.some(item => item.id === rule.itemKey && !item.disabled) || !isPositiveInteger(rule.threshold)) ? '请完善评估项差异规则' : '')
 const promptError = computed(() => submitted.value && !draft.show_notice_in_review && !draft.fill_in_diff_reason && !draft.send_notification ? '至少选择一种提示方式' : '')
 function isPositiveInteger(value: string) { return /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) }
 function reset() {
@@ -144,6 +151,7 @@ function submit() {
   })
   open.value = false
 }
+watch(usedItemKeys, keys => { draft.rules.forEach(rule => { if (keys.has(rule.itemKey)) rule.itemKey = '' }) })
 watch(() => props.modelValue, value => { if (value) { reset(); void loadCandidates() } else { ++requestEpoch; loading.value = false } }, { immediate: true })
 watch(() => draft.firstKey, () => { if (draft.secondKey && (!draft.firstKey || draft.firstKey === draft.secondKey || JSON.parse(draft.firstKey)[0] !== JSON.parse(draft.secondKey)[0])) draft.secondKey = '' })
 watch(() => [draft.firstKey, draft.secondKey, props.templateIds.join(','), props.cycleId], () => { if (props.modelValue) void loadCandidates() })

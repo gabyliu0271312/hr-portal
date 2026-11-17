@@ -38,11 +38,13 @@ describe('PerformanceComparisonRuleSettings', () => {
     await wrapper.get('.evaluation-result-rule-add').trigger('click')
     const drawer = wrapper.getComponent(PerformanceComparisonRuleDrawer)
     expect(drawer.props('initialValue')).toBeNull()
+    expect(drawer.props('existingRules')).toEqual([rule, second])
     const third = { ...rule, id: undefined, first_node_id: 'peer' }
     drawer.vm.$emit('submit', third)
     expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([rule, second, third])
     await wrapper.findAll('button').filter(button => button.text() === '编辑')[1]!.trigger('click')
     expect(drawer.props('initialValue')).toEqual(second)
+    expect(drawer.props('existingRules')).toEqual([rule])
     drawer.vm.$emit('submit', { ...second, send_notification: false })
     expect(wrapper.emitted('update:modelValue')?.[1]?.[0]).toEqual([rule, { ...second, send_notification: false }])
     await wrapper.findAll('button').filter(button => button.text() === '删除')[1]!.trigger('click')

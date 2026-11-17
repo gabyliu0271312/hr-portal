@@ -143,6 +143,8 @@
   - 多组本地验证（2026-11-17）：本主线程联合前端7文件（ComparisonRuleSettings/Drawer、CycleManagement、SelfSummaryTask、ReviewEvaluationDrawer、ReferenceContentDrawer、ConfirmDialog）282 passed；最终vue-tsc+Vite生产构建通过3749模块，仅既有VueUse PURE告警。后端comparison_config/runtime/notifications/cycles/projects/shared_results/quality_dependency_hardening七文件联合987 passed、6 skipped，1项既有python_multipart弃用warning；真实PG opt-in跳过不计通过。配置29项包括ID独立、伪造/重复ID拒绝、启动后删子集不改其他组、迁移上下行离线SQL。运行端代理另报runtime+notifications67 passed、shared_results9 passed；前端代理运行端3文件204 passed，均已被上述联合结果覆盖，不叠加计数。
   - 多组浏览器证据：实际Vite编辑周期路由+全部业务API隔离夹具，添加第二组后2行且底部新增按钮仍在；抽屉提交前写请求0，周期保存PATCH携2组，重新打开2行；强确认删除第二组后仅保留r1，pageerror0。独立截图 `../../ui-blueprints/PM-T003-I06-F01-multiple-groups-20261117.png` 已查看。首次模拟保存因夹具遗漏leaver_participation_mode被字段校验阻断，补齐合法夹具后上述链路通过；不是绕过校验。
   - 迁移与边界：0310仅新增check调整，旧0307不改；离线upgrade/downgrade SQL通过，但未在真实PostgreSQL升级/降级或执行实际API→SQL新连接回读、并发锁/回滚验收。并行工作新增0311_field_group_authority_source接0310，当前唯一head0311，未改对方迁移。无真实飞书通知、无生产操作、无commit/push/deploy；F01/F02/F03整体保持未勾选。
+  - 评估项禁选修订（2026-11-17）：新增/编辑抽屉接收其他行规则，按模板ID、无序环节对及content_id+item_id禁选已使用项，保留灰色候选和“已配置对比”提示；编辑当前行排除自身，其他组合/模板不受影响，删除占用组后恢复可选，切换至占用组合时清理不可用选择，提交校验拒绝禁用项。仅前端交互，不改API/后端/迁移，不对历史重复规则批量清理。
+  - 本轮验证：Drawer/Settings/CycleManagement三文件66 passed，vue-tsc+Vite生产构建通过3749模块，仅既有VueUse PURE告警；首轮类型检查在新增测试可空访问及选项联合类型处失败，复用已有Option接口并修正断言后最终通过。真实Vite编辑路由+隔离API验证同组合已用项disabled、未使用项enabled、编辑自身项enabled，pageerror0；最终禁选提示独立组件截图 `../../ui-blueprints/PM-T003-I06-F01-used-item-disabled-20261117.png` 已查看，使用共享禁用项样式及简短文案避免200px菜单文字重叠。无真实API/生产操作，未commit/push/deploy，F01保持未勾选。
   - Non-scope：周期日期锁定、旧项目批量补快照、真实外发。
 
 - [ ] PM-T003-I06-F02 评估中差异与提交理由

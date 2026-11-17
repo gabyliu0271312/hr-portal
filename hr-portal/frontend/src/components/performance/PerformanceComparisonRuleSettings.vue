@@ -19,7 +19,7 @@
         <UiButton class="evaluation-result-rule-add" variant="text" aria-label="添加需对比的环节" :disabled="!editable || disabled || !templateIds.length" @click="add"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2a1 1 0 0 0-1 1v8H3a1 1 0 1 0 0 2h8v8a1 1 0 0 0 2 0v-8h8a1 1 0 0 0 0-2h-8V3a1 1 0 0 0-1-1Z" fill="currentColor" /></svg><span>添加需对比的环节</span></UiButton>
       </PerformanceDisabledReason>
     </div>
-    <PerformanceComparisonRuleDrawer v-model="drawerOpen" :template-ids="templateIds" :cycle-id="cycleId" :initial-value="editingRule" @submit="save" />
+    <PerformanceComparisonRuleDrawer v-model="drawerOpen" :template-ids="templateIds" :cycle-id="cycleId" :initial-value="editingRule" :existing-rules="modelValue.filter((_, index) => index !== editingIndex)" @submit="save" />
     <PerformanceConfirmDialog v-model="deleteOpen" message="确定删除此对比的环节？" description="删除后将不再触发差异提示，若已产生的差异提示也会不再展示。确定删除吗？" require-confirm confirm-label="请输入「确认删除」以确认当前操作" cancel-text="保留" confirm-text="删除" :loading="deleting" :confirm-disabled="disabled" :error-message="deleteError" @confirm="remove" />
   </div>
 </template>
