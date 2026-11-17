@@ -421,6 +421,18 @@
   - 实现PNG：`ui-blueprints/CR-010-F21-review-split-edit.png`、`CR-010-F21-review-fullscreen-edit.png`、`CR-010-F21-management-split-edit.png`、`CR-010-F21-management-fullscreen-edit.png`；已读取评估双屏与管理全屏，显示原公共头部、模式选择、参考内容与复议表单/提交栏。不冒称真实业务库/生产验收。
 - 状态：本地代码/组件回归与受控UI完成；无需数据库迁移。真实业务数据库、生产部署、commit/push未执行；本节不代表前轮多处理人一致性问题已修复。
 
+## 25. CR-010-F22 结果查看公共框架与空360模块隐藏（2026-11-17）
+
+- [x] F22-T01 本地结果查看UI修复与回归
+  - 用户确认：结果查看复用工作总结/自评查看框架；没有可见360反馈时不显示整个模块及空态文案。
+  - 范围：`PerformanceReviewContent.vue`、`PerformanceResultReviewer360Block.vue/.spec.ts`、`Review.vue/.spec.ts`及本节；保留并行人员模块/router变更，不修改后端/API/权限/数据库或生产数据。
+  - 框架：公共PerformanceReviewContent内部持有结果查看的completed-content，解决父级slot传入节点无法消费子级scoped容器样式的问题；结果页不再重复声明容器类。result-region的h3/p样式限定直接子级，不穿透公共Renderer的标题/正文；保留原region顺序、复议状态及未开通/失败空态，不增加虚假提交提示。
+  - 360：父级region过滤与子组件复用同一可见内容判断，空contents/空schema/缺答案/空富文本/仅隐藏字段不输出模块、标题、空态及region间距；真实评级/标签/正文与可见提示保留，忽略previewValue。已有真实反馈的折叠、逐人展开及匿名身份契约不改。
+  - UI门禁：既有查看页面内部修复，沿CR-010-F13及Spec012 N00/N11通用规则，无新信息架构/蓝图，不涉及UCP/021。无迁移、无业务写入。
+  - 自动化：`npm --prefix hr-portal/frontend test -- --run src/views/performance/Review.spec.ts src/components/performance/PerformanceResultReviewer360Block.spec.ts` → **119 passed**。首次新增参数化测试错误解包已修正；首次构建发现测试get().exists类型错误，改为find().exists后测试复验通过；最终vue-tsc+Vite构建通过（56.97s），保留既有jsdom XHR/Vue stub及第三方PURE提示，不称零告警。
+  - 实际页面：本地Vite路由＋隔离API/Chromium，工作总结/自评/结果三种查看态实测completed-content均width984/x358/maxWidth984px，正文14px/22px/rgb(31,35,41)。空360整模块不存在，有反馈时逐人展开正常；390px scrollWidth=390，无横向溢出；pageerror=0，业务写请求0。
+  - 独立截图：`ui-blueprints/CR-010-F22-result-shared-readonly.png`、`CR-010-F22-result-with-feedback.png`、`CR-010-F22-result-mobile.png`；已读取前两张，验证实际实现而非设计稿。非真实数据库或生产验收，未commit/push/部署。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

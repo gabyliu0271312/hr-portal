@@ -1,12 +1,11 @@
 <template>
-  <section class="pr360-block" :aria-label="title">
+  <section v-if="visibleContents.length" class="pr360-block" :aria-label="title">
     <div class="pr360-head">
       <h3 class="pr360-title">{{ title }}</h3>
       <UiButton v-if="visibleContents.length" variant="text" size="small" class="pr360-toggle" :aria-expanded="allExpanded" @click="toggleAll">
         {{ allExpanded ? '收起详情' : '展开详情' }}
       </UiButton>
     </div>
-    <p v-if="!visibleContents.length" class="pr360-empty">暂无可查看内容</p>
     <div v-for="content in visibleContents" :key="content.task_id" class="pr360-reviewer">
       <div class="pr360-comment">
         <button type="button" class="pr360-comment__toggle" :aria-expanded="isExpanded(content.task_id)" :aria-label="`${isExpanded(content.task_id) ? '收起' : '展开'}${reviewerName(content)}的反馈`" @click="toggleReviewer(content.task_id)">
@@ -28,9 +27,39 @@
   </section>
 </template>
 
+<script lang="ts">
+import type { PerformanceResultContent } from '@/api/performance'
+
+export function hasVisibleReviewer360Content(content: PerformanceResultContent) {
+  function hasText(value: unknown): boolean {
+    if (Array.isArray(value)) return value.some(hasText)
+    if (value == null) return false
+    const element = document.createElement('div')
+    element.innerHTML = String(value)
+    element.querySelectorAll('script,style,iframe,object,embed').forEach(node => node.remove())
+    return Boolean(element.textContent?.replace(/[\s​﻿]/g, ''))
+  }
+  return content.form_schema.some(section => (section.elements ?? section.fields.map(field => ({ kind: 'field' as const, id: field.id }))).some(element => {
+    if (element.kind === 'prompt') return element.prompt.allowView !== false && !element.prompt.onlyWhenFilling && (hasText(element.prompt.title) || hasText(element.prompt.content))
+    const field = section.fields.find(field => field.id === element.id)
+    if (!field) return false
+    const value = content.answers[field.id]
+    if (field.type === 'rating' || field.type === 'single_select') {
+      return (Array.isArray(value) ? value : [value]).some(item => field.allow_unknown && item === '__unknown__' || field.options?.some(option => option.id === String(item)))
+    }
+    if (field.type === 'tag_with_followup') {
+      return (Array.isArray(value) ? value : [value]).some(item => {
+        const tags = typeof item === 'string' ? [item] : item?.tags
+        return Array.isArray(tags) && tags.some(tag => field.options?.some(option => option.id === String(tag)))
+      })
+    }
+    return hasText(value)
+  }))
+}
+</script>
+
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { PerformanceResultContent } from '@/api/performance'
 import UiButton from '@/components/ui/UiButton.vue'
 import PerformanceMemberIdentity from './PerformanceMemberIdentity.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'
@@ -41,11 +70,7 @@ const props = withDefaults(defineProps<{
 }>(), { title: '360°反馈（自愿评估）', contents: () => [] })
 
 const expandedIds = ref<number[]>([])
-const visibleContents = computed(() => props.contents.filter(content => content.form_schema.some(section =>
-  section.elements ? section.elements.some(element => element.kind === 'field'
-    ? section.fields.some(field => field.id === element.id)
-    : element.prompt.allowView !== false && !element.prompt.onlyWhenFilling) : section.fields.length > 0,
-)))
+const visibleContents = computed(() => props.contents.filter(hasVisibleReviewer360Content))
 const allExpanded = computed(() => visibleContents.value.length > 0 && visibleContents.value.every(content => isExpanded(content.task_id)))
 function reviewerName(content: PerformanceResultContent) { return content.reviewer?.display_name || content.reviewer?.employee_no || '评估人' }
 function isExpanded(id: number) { return expandedIds.value.includes(id) }

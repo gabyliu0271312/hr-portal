@@ -44,19 +44,29 @@ describe('PerformanceResultReviewer360Block', () => {
     expect(wrapper.find('input, [contenteditable="true"]').exists()).toBe(false)
   })
 
-  it('does not insert preview values into real missing answers and resets expansion when contents change', async () => {
-    const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents: [{ ...contents[0], form_schema: [{ id: 'missing', name: '反馈', fields: [{ id: 'missing', type: 'rich_text', label: '空答案' }] }], answers: {} }] } })
-    await wrapper.get('.pr360-toggle').trigger('click')
-    expect(wrapper.find('.readonly-answer').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('这里展示用户填写的内容')
+  it('hides missing real answers instead of using preview values and resets expansion when contents change', async () => {
+    const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents: [{ ...contents[0], answers: {} }] } })
+    expect(wrapper.find('.pr360-block').exists()).toBe(false)
     await wrapper.setProps({ contents })
+    await wrapper.get('.pr360-toggle').trigger('click')
+    expect(wrapper.find('.pr360-items').exists()).toBe(true)
+    await wrapper.setProps({ contents: [...contents] })
     expect(wrapper.find('.pr360-items').exists()).toBe(false)
     expect(wrapper.get('.pr360-toggle').text()).toBe('展开详情')
+    wrapper.unmount()
   })
 
-  it('renders existing empty state without preview rows', () => {
-    const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents: [] } })
-    expect(wrapper.find('.pr360-empty').text()).toBe('暂无可查看内容')
-    expect(wrapper.findAll('.pr360-reviewer')).toHaveLength(0)
+  it.each([{ contents: [] }, { contents: [{ ...contents[0], form_schema: [] }] }, { contents: [{ ...contents[0], answers: { f1: '<p>​<br></p>' } }] }, { contents: [{ ...contents[0], answers: { f1: '<script>hidden()</script>' } }] }])('omits the whole empty block without a heading or placeholder: %j', ({ contents: emptyContents }) => {
+    const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents: emptyContents } })
+    expect(wrapper.find('.pr360-block').exists()).toBe(false)
+    expect(wrapper.text()).toBe('')
+    wrapper.unmount()
+  })
+
+  it('shows only reviewers with real visible answers and ignores answers outside the schema', () => {
+    const wrapper = mount(PerformanceResultReviewer360Block, { props: { contents: [contents[0], { ...contents[1], answers: { hidden: '不可见内容' } }] } })
+    expect(wrapper.findAll('.member-name').map(item => item.text())).toEqual(['张三'])
+    expect(wrapper.text()).not.toContain('李四')
+    wrapper.unmount()
   })
 })

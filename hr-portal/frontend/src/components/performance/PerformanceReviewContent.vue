@@ -32,7 +32,7 @@
           <div class="state-illustration" aria-hidden="true"><img src="/performance-not-started.svg" alt="" width="120" height="121"></div>
           <p>暂未开通结果</p>
         </template>
-        <slot v-else-if="node.node_type === 'result_view'" />
+        <div v-else-if="node.node_type === 'result_view'" class="completed-content"><slot /></div>
         <PerformanceReview360InvitePanel
           v-else-if="node.node_type === 'reviewer_360_invite' && props.projectId"
           :project-id="props.projectId"

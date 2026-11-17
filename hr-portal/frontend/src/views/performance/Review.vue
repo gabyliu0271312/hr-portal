@@ -27,13 +27,13 @@
       @remind-evaluate="openEvaluateReminder"
     >
       <template #heading-actions><UiButton v-if="selectedNode?.node_type === 'calibration'" variant="primary" :disabled="calibrationCompletion?.completed || calibrationBusy || calibrationCompletion?.can_complete === false" :loading="calibrationBusy" @click="openCalibrationCompletion">{{ calibrationCompletion?.completed ? '已完成校准' : '完成校准' }}</UiButton><PerformanceResultReconsiderationMenu v-if="selectedNode?.node_type === 'result_view' && !resultLoading && !resultError && !reconsiderationError" :status="reconsideration" :expired="reconsiderationExpired" :busy="reconsiderationBusy" @start="reconsiderationPanel?.open()" /></template>
-      <div v-if="selectedNode?.node_type === 'result_view'" class="completed-content review-results" aria-label="我的绩效结果">
+      <div v-if="selectedNode?.node_type === 'result_view'" class="review-results" aria-label="我的绩效结果">
         <div v-if="resultLoading" role="status">正在加载绩效结果…</div>
         <div v-else-if="resultError" role="alert">{{ resultError }} <button type="button" @click="loadMyResults">重新加载</button></div>
         <template v-else>
           <PerformanceResultReconsideration v-if="activeProjectId" :key="`${activeProjectId}-${selectedNodeId}`" ref="reconsiderationPanel" :project-id="activeProjectId" :status="reconsideration" :expired="reconsiderationExpired" :loading="reconsiderationLoading" :load-error="reconsiderationError" @retry="loadReconsideration()" @updated="reconsideration = $event" @busy="reconsiderationBusy = $event" />
           <div v-if="!hasResultContent">暂无可查看的绩效结果</div>
-          <section v-for="region in resultRegions" :key="region.key" class="result-region" :data-region-id="region.key" :aria-label="region.title">
+          <section v-for="region in visibleResultRegions" :key="region.key" class="result-region" :data-region-id="region.key" :aria-label="region.title">
             <h3 v-if="region.kind === 'reference' && region.reference_kind !== 'reviewer_360'">{{ region.title }}</h3>
             <PerformanceResultReviewer360Block v-if="region.reference_kind === 'reviewer_360'" :title="region.title" :contents="region.contents" />
             <PerformanceOkrPanel v-else-if="region.reference_kind === 'okr'" :okr="region.okr || null" :okrs="region.okrs || []" />
@@ -88,7 +88,7 @@ import { usePerformanceMemberReminder } from '@/composables/usePerformanceMember
 import PerformanceResultReconsideration from '@/components/performance/PerformanceResultReconsideration.vue'
 import PerformanceResultReconsiderationMenu from '@/components/performance/PerformanceResultReconsiderationMenu.vue'
 import PerformanceTemplateRenderer from '@/components/performance/PerformanceTemplateRenderer.vue'
-import PerformanceResultReviewer360Block from '@/components/performance/PerformanceResultReviewer360Block.vue'
+import PerformanceResultReviewer360Block, { hasVisibleReviewer360Content } from '@/components/performance/PerformanceResultReviewer360Block.vue'
 import PerformanceOkrPanel from '@/components/performance/PerformanceOkrPanel.vue'
 import PerformanceReviewCategorySidebar from '@/components/performance/PerformanceReviewCategorySidebar.vue'
 import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
@@ -110,7 +110,8 @@ const loading = ref(true)
 const error = ref('')
 const resultRegions = ref<PerformanceResultRegion[]>([])
 const resultPageTitle = ref('')
-const hasResultContent = computed(() => resultRegions.value.some(region => region.reference_kind === 'okr' || region.contents.some(content => content.form_schema.length > 0)))
+const visibleResultRegions = computed(() => resultRegions.value.filter(region => region.reference_kind !== 'reviewer_360' || region.contents.some(hasVisibleReviewer360Content)))
+const hasResultContent = computed(() => visibleResultRegions.value.some(region => region.reference_kind === 'okr' || region.contents.some(content => content.form_schema.length > 0)))
 const resultLoading = ref(false)
 const resultError = ref('')
 const resultUnavailable = ref(false)
@@ -467,9 +468,9 @@ onMounted(async () => {
 <style scoped>
 .review-results{min-width:0;width:100%;color:var(--color-text-primary)}
 .result-region{min-width:0}.result-region + .result-region{margin-top:var(--spacing-4)}
-.result-region h3{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:600}
+.result-region > h3{margin:0 0 16px;font-size:16px;line-height:24px;font-weight:600}
 .result-region > .performance-template-renderer + .performance-template-renderer{margin-top:var(--spacing-4)}
-.result-region p{color:var(--color-text-secondary)}
+.result-region > p{color:var(--color-text-secondary)}
 .result-reconsideration-action{margin-top:24px;padding-top:16px;border-top:1px solid var(--color-border)}
 .result-reconsideration-action p{margin:0 0 12px;line-height:22px;color:var(--color-text-secondary)}
 .result-reconsideration-action span{color:var(--color-text-secondary);font-size:14px}
