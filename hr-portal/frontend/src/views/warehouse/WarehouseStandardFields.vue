@@ -252,20 +252,24 @@ async function reorderFields(from: number, to: number) {
 .standard-fields__add-icon { width: var(--icon-size); height: var(--icon-size); margin-right: var(--spacing-1); }
 .standard-fields__table { display: flex; flex-direction: column; min-width: 0; }
 .standard-fields__pagination { margin-top: var(--page-gap-toolbar-table); }
+/* 操作列「编辑」按钮：设计稿 17:1042 主要文字按钮·无图标·六态组件库
+   高度26 / 行高22 / 上下内边距2 左右4 / 圆角6 / 描边0 / 文字14 Medium
+   默认文字#1456F0透明底；悬停底rgba(20,86,240,.1)；按下底rgba(20,86,240,.2) */
 .standard-fields__action {
-  height: var(--ui-tree-action-height);
-  padding: 0 var(--ui-tree-action-padding-x);
+  height: 26px;
+  padding: 2px 4px;
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--ui-tree-action-radius);
+  border-radius: 6px;
   background: transparent;
-  color: var(--ui-tree-action-color);
-  font: inherit;
-  line-height: var(--ui-tree-action-height);
-  white-space: nowrap;
+  color: #1456f0;
   cursor: pointer;
+  font: 500 14px/22px var(--font-sans);
+  white-space: nowrap;
 }
-.standard-fields__action:hover { background: var(--ui-tree-action-hover-background); }
+.standard-fields__action:hover { background: rgba(20, 86, 240, 0.1); }
+.standard-fields__action:active { background: rgba(20, 86, 240, 0.2); }
+.standard-fields__action:focus-visible { outline: 2px solid var(--performance-button-focus-ring); outline-offset: 2px; }
 .standard-fields__filter { display: grid; gap: var(--ui-form-item-gap); }
 .standard-fields__filter-item { display: grid; grid-template-columns: var(--ui-form-label-height) minmax(0, 1fr); gap: var(--ui-form-label-gap); align-items: center; }
 .standard-fields__filter-label { color: var(--color-text-primary); font-weight: var(--ui-form-label-weight); line-height: var(--ui-form-label-line-height); }
