@@ -785,6 +785,30 @@ describe('CycleManagement', () => {
     wrapper.unmount()
   })
 
+  it('removes only the selected saved group and preserves other unsaved group edits', async () => {
+    const first: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'eq', threshold: 1 }], show_notice_in_review: true, fill_in_diff_reason: false, diff_reason_required: true, send_notification: false }
+    const second = { ...first, id: 'r2', send_notification: true }
+    const saved = { ...cycle, template_ids: [101], semester_diff_rules: [first, second], comparison_rules_revision: 4 }
+    mocks.get.mockResolvedValue(saved)
+    mocks.update.mockResolvedValue({ ...saved, semester_diff_rules: [second], comparison_rules_revision: 5 })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    const settings = wrapper.getComponent(PerformanceComparisonRuleSettings)
+    const changed = { ...second, send_notification: false }
+    const added = { ...first, id: undefined, second_node_id: 'peer' }
+    settings.vm.$emit('update:modelValue', [first, changed, added])
+    await flushPromises()
+    settings.vm.$emit('remove', 0)
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, { semester_diff_rules: [second], comparison_rules_revision: 4 })
+    expect(settings.props('modelValue')).toEqual([changed, added])
+    expect((wrapper.vm as any).$?.setupState.isDirty).toBe(true)
+    settings.vm.$emit('remove', 1)
+    await flushPromises()
+    expect(settings.props('modelValue')).toEqual([changed])
+    expect(mocks.update).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('retains the rule on deletion conflict and keeps new-cycle deletion local without creating a cycle', async () => {
     const rule: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'eq', threshold: 1 }], show_notice_in_review: true, fill_in_diff_reason: false, diff_reason_required: true, send_notification: false }
     mocks.get.mockResolvedValue({ ...cycle, template_ids: [101], semester_diff_rules: [rule], comparison_rules_revision: 4 })

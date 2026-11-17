@@ -50,7 +50,7 @@ class CyclePayload(BaseModel):
     period_subtype: str | None = Field(default=None, max_length=16)
     template_id: int | None = Field(default=None, ge=1)
     template_ids: list[Annotated[int, Field(ge=1)]] | None = None
-    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list, max_length=1)
+    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list)
     comparison_rules_revision: int = Field(default=0, ge=0)
 
     @model_validator(mode="before")
@@ -96,7 +96,7 @@ class CyclePatch(BaseModel):
     period_subtype: str | None = Field(default=None, max_length=16)
     template_id: int | None = Field(default=None, ge=1)
     template_ids: list[Annotated[int, Field(ge=1)]] | None = None
-    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list, max_length=1)
+    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list)
     comparison_rules_revision: int | None = Field(default=None, ge=0)
     start_at: datetime | None = None
     end_at: datetime | None = None

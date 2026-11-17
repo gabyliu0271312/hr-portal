@@ -132,13 +132,17 @@
   - 完成定义：抽屉 UI、组件复用、表单校验、周期草稿回写和前端验证全部完成；后端契约另行任务。
 
 - [ ] PM-T003-I06-F01 差异规则真实候选与持久化
-  - Goal/Type：周期差异规则服务端候选、单组配置、项目启动快照、删除撤销与迁移。
+  - Goal/Type：周期差异规则服务端候选、多组配置、项目启动快照、逐组删除撤销与迁移。
+  - 2026-11-17多组修订：用户明确现有表格下继续添加多组，覆盖早期单组约束。配置表多行、逐行编辑/删除，各组ID与候选隔离；启动后仅删除子集可行且不能顺带改保留组；删除即时PATCH只提交持久化规则子集，其他未保存规则/字段不丢失。新迁移0310_pm_multiple_comparison_rules接唯一head0309，移除数据库最多一组限制，保留JSON数组校验；降级若周期/项目快照有多组则拒绝，不丢历史。F02/F03必须同步逐组理由/草稿、权限投影、通知发送前按rule_id复核，不得只配置多组而静默执行第一组。
   - UI：配置抽屉沿用 I06；真实DOM像素验收 PNG `../../ui-blueprints/PM-T003-I06-F01-config-blueprint-v1.png`，正式实现后另取 implemented PNG；添加/编辑锁定及删除确认。
   - 本轮需求修订（2026-11-17）：当前锁定只看仍存在的 `STARTED` 项目，删除最后一个启动项目后恢复添加/编辑；`ARCHIVED`、历史审计和快照不再单独锁定。锁定文案分别为“已有启动项目，不支持添加”和“已有启动项目，暂不支持修改”。规则删除复用强确认弹窗，精确输入“确认删除”后才可删除，失败保留输入。补充实现截图 `../../ui-blueprints/PM-T003-I06-F01-config-dom-aligned-20261117.png` 与 `../../ui-blueprints/PM-T003-I06-F01-summary-dom-aligned-20261117.png`；均已查看，最终截图为自评/上级评估、单条规则及评估中提示。截图来自本地 Vite + 隔离 API 夹具，不代表真实鉴权/数据库验收。
   - 本轮最终验证：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceComparisonRuleDrawer.spec.ts src/components/performance/PerformanceComparisonRuleSettings.spec.ts src/views/performance/CycleManagement.spec.ts --silent`，3文件60 passed；`npm.cmd --prefix hr-portal/frontend run build` 的vue-tsc+Vite通过，3745模块，仅既有VueUse PURE注释告警。早轮1项失败为旧单行摘要空格断言，改为四列表格/标签/阈值/提示方式及pair请求断言后通过；补充加载中保留选项、warning DOM及阻止提交用例。非silent周期测试仍有既有UiDrawerShell透传attrs警告。
   - 本轮最终验证：`npm.cmd --prefix hr-portal/frontend test -- src/components/performance/PerformanceComparisonRuleSettings.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/views/performance/CycleManagement.spec.ts --silent`，3文件67 passed；`hr-portal/backend/.venv/Scripts/python.exe -m pytest hr-portal/backend/tests/test_performance_comparison_config.py hr-portal/backend/tests/test_performance_cycles.py -q --tb=short`，100 passed、1 skipped；前端生产构建通过，`git diff --check`通过。新增后端SQL回归覆盖两个STARTED项目逐个删除，最后一个删除后仅历史审计仍在时解除锁定；前端覆盖新增/编辑锁定文案、删除弹窗文案、确认输入精确匹配、加载/错误保留输入。
   - 本轮浏览器：上一轮已有1280×800真实Vite编辑路由和延迟响应零位移证据；本轮使用实际周期编辑路由+隔离API验证：编辑按钮禁用；删除弹窗标题、保留/删除按钮及“确认/确认删除”状态正确，输入“确认删除”后才启用并发出1次规则删除PATCH；删除后接口返回 `comparison_rules_editable=true`，刷新周期后添加按钮恢复可用；pageerror0。截图 `../../ui-blueprints/PM-T003-I06-F01-rule-delete-confirm-20261117.png` 已查看。
   - Test contract：Given 模板节点/共有评级题/参考权限/项目启动事实，When 候选、保存、重开、第二组、编辑锁定、删除，Then 身份、revision、权限和 active 交集正确。
+  - 多组本地验证（2026-11-17）：本主线程联合前端7文件（ComparisonRuleSettings/Drawer、CycleManagement、SelfSummaryTask、ReviewEvaluationDrawer、ReferenceContentDrawer、ConfirmDialog）282 passed；最终vue-tsc+Vite生产构建通过3749模块，仅既有VueUse PURE告警。后端comparison_config/runtime/notifications/cycles/projects/shared_results/quality_dependency_hardening七文件联合987 passed、6 skipped，1项既有python_multipart弃用warning；真实PG opt-in跳过不计通过。配置29项包括ID独立、伪造/重复ID拒绝、启动后删子集不改其他组、迁移上下行离线SQL。运行端代理另报runtime+notifications67 passed、shared_results9 passed；前端代理运行端3文件204 passed，均已被上述联合结果覆盖，不叠加计数。
+  - 多组浏览器证据：实际Vite编辑周期路由+全部业务API隔离夹具，添加第二组后2行且底部新增按钮仍在；抽屉提交前写请求0，周期保存PATCH携2组，重新打开2行；强确认删除第二组后仅保留r1，pageerror0。独立截图 `../../ui-blueprints/PM-T003-I06-F01-multiple-groups-20261117.png` 已查看。首次模拟保存因夹具遗漏leaver_participation_mode被字段校验阻断，补齐合法夹具后上述链路通过；不是绕过校验。
+  - 迁移与边界：0310仅新增check调整，旧0307不改；离线upgrade/downgrade SQL通过，但未在真实PostgreSQL升级/降级或执行实际API→SQL新连接回读、并发锁/回滚验收。并行工作新增0311_field_group_authority_source接0310，当前唯一head0311，未改对方迁移。无真实飞书通知、无生产操作、无commit/push/deploy；F01/F02/F03整体保持未勾选。
   - Non-scope：周期日期锁定、旧项目批量补快照、真实外发。
 
 - [ ] PM-T003-I06-F02 评估中差异与提交理由

@@ -38,6 +38,20 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(structuredClone(task))
   })
 
+  it.each(['task', 'reference', 'locked-reference', 'management', 'locked-management'] as const)('shows each authorized historical comparison reason in the %s readonly branch', async entry => {
+    const group = { rule_id: 'r1', matches: [], show_notice_in_review: false, fill_in_diff_reason: false, reason_required: false, context: 'context-1', reason: '第一组历史理由', active: false, historical: true }
+    const comparison = { ...group, reason: '不可使用旧汇总理由', groups: [group, { ...group, rule_id: 'r2', context: 'context-2', reason: '第二组历史理由' }] }
+    const reference: PerformanceReferenceTab = { key: 'reference', node_id: 'reference', node_name: '已提交参考', task_id: 146, employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: task.answers, comparison, final_result_locked: entry.startsWith('locked') }
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), ...(entry === 'task' ? { comparison } : entry.includes('management') ? { management_tabs: [reference], default_active_tab: reference.key } : { reference_tabs: [reference] }) })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader, ...(entry.includes('reference') ? { activeTab: reference.key } : {}) } })
+    await flushPromises()
+    const reasons = document.body.querySelectorAll('.performance-comparison-notice__reason')
+    expect([...reasons].map(reason => reason.textContent)).toEqual(['第一组历史理由', '第二组历史理由'])
+    expect(document.body.querySelector('.performance-comparison-notice')?.textContent).not.toContain('不可使用旧汇总理由')
+    expect(document.body.querySelector('.performance-comparison-notice .prompt-notice')).toBeNull()
+    wrapper.unmount()
+  })
+
   it.each(['evaluation', 'calibration', 'result_communication'])('forwards the loaded %s source and the specific stage task with the outline button', async taskKind => {
     const reference: PerformanceReferenceTab = { key: 'summary', node_id: 'summary', node_name: '工作总结', task_id: null, employee_no: '', status: 'pending', form_schema: [], answers: {}, can_remind: false }
     const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), task_kind: taskKind, task_id: 42, management_tabs: [reference], default_active_tab: 'summary', stage_views: [{ node_id: 'summary', task_id: 77, can_fill: false, can_remind: true, reminder_target: null }] })

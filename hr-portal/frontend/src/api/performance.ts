@@ -1453,6 +1453,7 @@ export type PerformanceTemplateTask = {
   comparison?: PerformanceComparisonResult | null
   draft_diff_reason?: string | null
   draft_comparison_context?: string | null
+  draft_comparison_reasons?: PerformanceComparisonReason[]
   management_tabs?: PerformanceReferenceTab[]
   default_active_tab?: string
   root_review_id?: number
@@ -1531,7 +1532,7 @@ export type PerformanceReminderPreview = {
   assessee_name: string
 }
 export type SelfSummaryTask = PerformanceTemplateTask
-export type SelfSummarySaveResult = { comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
+export type SelfSummarySaveResult = { comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; draft_comparison_reasons?: PerformanceComparisonReason[]; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {
@@ -2454,10 +2455,17 @@ export interface PerformanceComparisonResult {
   reason: string | null
   active?: boolean
   historical?: boolean
+  groups?: PerformanceComparisonResult[]
+}
+export interface PerformanceComparisonReason {
+  rule_id: string
+  diff_reason: string | null
+  comparison_context: string | null
 }
 export interface PerformanceComparisonSubmission {
   diff_reason?: string
   comparison_context?: string
+  comparison_reasons?: PerformanceComparisonReason[]
 }
 
 export interface PerformanceCycle {

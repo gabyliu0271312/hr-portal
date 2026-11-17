@@ -302,6 +302,135 @@ describe('comparison runtime', () => {
     reference.unmount(); overview.unmount()
   })
 
+  it('treats groups=[] as authoritative over the legacy first group and never opens or submits its reason', async () => {
+    const empty = result({ groups: [], reason: '不得回退的旧理由' })
+    preview.mockResolvedValue({ comparison: empty })
+    const wrapper = await open({ comparison: empty })
+    await vi.advanceTimersByTimeAsync(300)
+    expect(preview).not.toHaveBeenCalled()
+    expect(wrapper.find('.performance-comparison-notice').exists()).toBe(false)
+    const dialog = await start(wrapper)
+    expect(dialog.props('modelValue')).toBe(false)
+    expect(submit).toHaveBeenCalledWith(91, { rating: 'one' }, 1, undefined, undefined)
+    const readonly = mount(PerformanceComparisonNotice, { props: { comparison: empty, readonly: true } })
+    expect(readonly.text()).toBe('')
+    readonly.unmount(); wrapper.unmount()
+  })
+
+  it('does not submit a removed group reason when groups become empty during an open dialog', async () => {
+    const comparison = result({ groups: [result()] })
+    preview.mockResolvedValue({ comparison })
+    const wrapper = await open({ comparison })
+    const dialog = await start(wrapper)
+    dialog.findComponent(PerformanceTextField).vm.$emit('update:modelValue', '不得提交已删除理由')
+    await flushPromises()
+    preview.mockResolvedValue({ comparison: result({ groups: [] }) })
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit.mock.calls[0][5]).toEqual({ comparison_reasons: [] })
+    wrapper.unmount()
+  })
+
+  it('projects warning and reason switches per group, validates each required field and cancels without submitting', async () => {
+    const comparison = result({ active: false, groups: [
+      result({ show_notice_in_review: false }),
+      result({ rule_id: 'r2', context: 'context-2', reason_required: false, matches: [{ ...match, label: '第二组' }] }),
+      result({ rule_id: 'r3', fill_in_diff_reason: false, matches: [{ ...match, label: '仅提示' }] }),
+      result({ rule_id: 'r4', active: false, reason: '已删除历史', matches: [{ ...match, label: '不应提示' }] }),
+    ] })
+    preview.mockResolvedValue({ comparison })
+    const wrapper = await open({ comparison, draft_diff_reason: '不可复制到各组' })
+    expect(wrapper.findAll('.performance-comparison-notice .prompt-notice')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('不应提示')
+    const dialog = await start(wrapper)
+    const fields = dialog.findAllComponents(PerformanceTextField)
+    expect(fields).toHaveLength(2)
+    expect(fields.map(field => field.props('modelValue'))).toEqual(['', ''])
+    expect(new Set([...document.querySelectorAll('textarea')].map(field => field.id)).size).toBe(2)
+    document.querySelector('.comparison-reason-actions .performance-button--primary').click()
+    await flushPromises()
+    expect(document.querySelectorAll('[role="dialog"] [role="alert"]')).toHaveLength(1)
+    expect(submit).not.toHaveBeenCalled()
+    fields[0].vm.$emit('update:modelValue', '第一组独立理由')
+    await flushPromises()
+    document.querySelector('.comparison-reason-actions .performance-button--secondary').click()
+    await vi.advanceTimersByTimeAsync(250)
+    expect(submit).not.toHaveBeenCalled()
+    const draft = vi.mocked(performanceReviewApi.saveTemplateTaskDraft).mock.calls.at(-1)[5]
+    expect(draft.comparison_reasons.find(item => item.rule_id === 'r1').diff_reason).toBe('第一组独立理由')
+    expect(draft.comparison_reasons.some(item => item.rule_id === 'r4')).toBe(false)
+    expect(draft.diff_reason).toBeUndefined()
+    await start(wrapper)
+    document.querySelector('.comparison-reason-actions .performance-button--primary').click()
+    await flushPromises()
+    expect(submit.mock.calls[0][5]).toEqual({ comparison_reasons: [
+      { rule_id: 'r1', diff_reason: '第一组独立理由', comparison_context: 'context-1' },
+      { rule_id: 'r2', diff_reason: '', comparison_context: 'context-2' },
+      { rule_id: 'r3', diff_reason: null, comparison_context: 'context-1' },
+    ] })
+    wrapper.unmount()
+  })
+
+  it.each(['use', 'discard'])('restores grouped draft reasons only for their rule and respects draft choice: %s', async choice => {
+    const comparison = result({ groups: [result({ reason: '已提交第一组' }), result({ rule_id: 'r2', context: 'context-2', reason: '已提交第二组' })] })
+    preview.mockResolvedValue({ comparison })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded({ comparison, has_draft: true, draft_answers: {}, draft_comparison_reasons: [
+      { rule_id: 'r2', diff_reason: '第二组私有草稿', comparison_context: 'old-context' },
+      { rule_id: 'removed', diff_reason: '已删除组草稿', comparison_context: 'removed-context' },
+    ] }))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation', draftChoice: choice } })
+    await flushPromises()
+    const dialog = await start(wrapper)
+    expect(dialog.findAllComponents(PerformanceTextField).map(field => field.props('modelValue'))).toEqual(choice === 'use' ? ['已提交第一组', '第二组私有草稿'] : ['已提交第一组', '已提交第二组'])
+    expect(document.querySelector('[role="dialog"]').textContent).not.toContain('已删除组草稿')
+    wrapper.unmount()
+  })
+
+  it('preserves grouped input after save failure, reconfirms changed contexts and never moves a deleted group reason into a new group', async () => {
+    const comparison = result({ groups: [result(), result({ rule_id: 'r2', context: 'context-2' })] })
+    preview.mockResolvedValue({ comparison })
+    const wrapper = await open({ comparison })
+    const dialog = await start(wrapper)
+    const fields = dialog.findAllComponents(PerformanceTextField)
+    fields[0].vm.$emit('update:modelValue', '第一组理由')
+    await flushPromises()
+    fields[1].vm.$emit('update:modelValue', '第二组理由')
+    await flushPromises()
+    vi.mocked(performanceReviewApi.saveTemplateTaskDraft).mockRejectedValueOnce(new Error('offline'))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(wrapper.text()).toContain('自动保存失败')
+    preview.mockResolvedValue({ comparison: result({ groups: [result({ rule_id: 'r3', context: 'context-3' }), result({ rule_id: 'r2', context: 'context-2-new' })] }) })
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    expect(dialog.props('error')).toContain('重新确认')
+    expect(dialog.findAllComponents(PerformanceTextField).map(field => field.props('modelValue'))).toEqual(['', '第二组理由'])
+    dialog.findAllComponents(PerformanceTextField)[0].vm.$emit('update:modelValue', '第三组理由')
+    await flushPromises()
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit.mock.calls[0][5]).toEqual({ comparison_reasons: [
+      { rule_id: 'r3', diff_reason: '第三组理由', comparison_context: 'context-3' },
+      { rule_id: 'r2', diff_reason: '第二组理由', comparison_context: 'context-2-new' },
+    ] })
+    wrapper.unmount()
+  })
+
+  it('renders every authorized historical group independently in readonly reference and overview', () => {
+    const comparison = result({ reason: '不可回退的旧理由', groups: [
+      result({ active: false, historical: true, show_notice_in_review: false, fill_in_diff_reason: false, reason: '第一组历史', matches: [] }),
+      result({ rule_id: 'r2', reason: '第二组历史', matches: [] }),
+    ] })
+    const reference = mount(PerformanceReferenceContent, { props: { reference: { key: 'r', node_id: 'r', node_name: '已提交', status: 'completed', form_schema: [], answers: {}, comparison } } })
+    const overview = mount(PerformanceReviewContent, { props: { loading: false, error: '', templateName: '', node: { node_id: 'r', node_name: '自评', node_type: 'evaluation', executor_role_code: 'assessment.reviewee', task_kind: 'evaluation', status: 'completed', task_id: 91, comparison, form_schema: [] } } })
+    for (const wrapper of [reference, overview]) {
+      expect(wrapper.findAll('.performance-comparison-notice__reason').map(reason => reason.text())).toEqual(['第一组历史', '第二组历史'])
+      expect(wrapper.text()).not.toContain('不可回退的旧理由')
+      expect(wrapper.find('.prompt-notice').exists()).toBe(false)
+      wrapper.unmount()
+    }
+  })
+
   it('uses the shared warning tokens and no private colors in the notice', () => {
     const notice = mount(PerformancePromptNotice, { props: { type: 'warning', multiline: true }, slots: { default: '提示' } })
     expect(notice.get('.prompt-notice').attributes('style')).toContain('var(--performance-prompt-warning-background)')

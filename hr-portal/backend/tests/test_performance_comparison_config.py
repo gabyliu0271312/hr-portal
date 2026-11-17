@@ -147,6 +147,20 @@ async def test_started_cycle_allows_same_value_or_delete_cancels_only_pending_re
 
 
 @pytest.mark.asyncio
+async def test_started_cycle_can_remove_one_group_without_editing_the_others():
+    service = PerformanceComparisonConfigService(Db(started=True))
+    saved = await service.normalize_rules([rule(), rule(send_notification=True)], [1])
+    cycle = SimpleNamespace(cycle_ref="c", semester_diff_rules=saved, comparison_rules_revision=1)
+    with pytest.raises(HTTPException) as exc:
+        await service.update_rules(cycle, {"semester_diff_rules": [{**saved[1], "send_notification": False}], "comparison_rules_revision": 1}, [1])
+    assert exc.value.detail["code"] == "COMPARISON_RULES_LOCKED"
+    await service.update_rules(cycle, {"semester_diff_rules": [saved[1]], "comparison_rules_revision": 1}, [1])
+    assert cycle.semester_diff_rules == [saved[1]] and cycle.comparison_rules_revision == 2
+    sql = str(service.db.executed[-1].compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    assert saved[0]["id"] in sql and saved[1]["id"] not in sql
+
+
+@pytest.mark.asyncio
 async def test_removing_last_started_project_unlocks_add_and_edit():
     db = Db(started=True)
     service = PerformanceComparisonConfigService(db)
@@ -183,14 +197,18 @@ async def test_patch_omission_preserves_rules_and_rejects_template_removal():
 
 
 @pytest.mark.asyncio
-async def test_unrecognized_id_rejected_and_only_one_rule_allowed():
+async def test_unrecognized_ids_rejected_and_multiple_rules_keep_independent_ids():
     service = PerformanceComparisonConfigService(Db())
     with pytest.raises(HTTPException):
         await service.normalize_rules([rule(id="forged")], [1])
+    saved = await service.normalize_rules([rule(), rule(send_notification=True)], [1])
+    assert len(saved) == 2 and saved[0]["id"] != saved[1]["id"]
+    assert len(CyclePatch(semester_diff_rules=saved).semester_diff_rules) == 2
     with pytest.raises(HTTPException):
-        await service.normalize_rules([rule(), rule()], [1])
-    with pytest.raises(ValidationError):
-        CyclePatch(semester_diff_rules=[rule(), rule()])
+        await service.normalize_rules([saved[0], saved[0]], [1], saved)
+    changed = await service.normalize_rules([saved[1], {**saved[0], "send_notification": True}, rule()], [1], saved)
+    assert [value["id"] for value in changed[:2]] == [saved[1]["id"], saved[0]["id"]]
+    assert changed[2]["id"] not in {value["id"] for value in saved}
     assert CyclePatch().model_dump(exclude_unset=True) == {}
     with pytest.raises(ValidationError):
         CyclePatch(semester_diff_rules=None)
@@ -205,6 +223,33 @@ async def test_multi_template_nodes_never_cross_selected_template():
         await service.candidates(ComparisonCandidatesPayload(template_ids=[1, 2], first_node_id="a", second_node_id="b"))
     with pytest.raises(HTTPException):
         await service.normalize_rules([rule(template_id=2)], [1])
+
+
+def test_multiple_group_migration_keeps_array_contract_and_blocks_lossy_downgrade():
+    import io
+    import importlib.util
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+
+    path = Path(__file__).parents[1] / "alembic/versions/0310_pm_multiple_comparison_rules.py"
+    spec = importlib.util.spec_from_file_location("multiple_comparison_rules", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert migration.down_revision == "0309_form_config_menu"
+    for action in ("upgrade", "downgrade"):
+        output = io.StringIO()
+        context = MigrationContext.configure(dialect_name="postgresql", opts={"as_sql": True, "output_buffer": output})
+        with Operations.context(context):
+            getattr(migration, action)()
+        sql = output.getvalue()
+        assert "DROP CONSTRAINT ck_pm_cycle_comparison_rules" in sql
+        assert "jsonb_typeof(semester_diff_rules) = 'array'" in sql
+        if action == "upgrade":
+            assert "<= 1" not in sql
+        else:
+            assert sql.index("RAISE EXCEPTION") < sql.index("DROP CONSTRAINT")
+            assert "comparison_rules_snapshot" in sql and "<= 1" in sql
 
 
 def test_route_permission_and_static_order():

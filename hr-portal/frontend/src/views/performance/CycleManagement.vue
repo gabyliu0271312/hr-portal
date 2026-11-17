@@ -294,7 +294,7 @@ import PerformanceCycleSettingsMenu from '@/components/performance/PerformanceCy
 import PerformanceCycleOverdueSubmissionDialog from '@/components/performance/PerformanceCycleOverdueSubmissionDialog.vue'
 import PerformanceDisabledReason from '@/components/performance/PerformanceDisabledReason.vue'
 import UiPageHeader from '@/components/ui/UiPageHeader.vue'
-import { performanceApi, performanceCycleApi, performanceOtherSettingsApi, performanceProjectApi, performanceTemplateApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType } from '@/api/performance'
+import { performanceApi, performanceCycleApi, performanceOtherSettingsApi, performanceProjectApi, performanceTemplateApi, type PerformanceAccessContext, type PerformanceCycle, type PerformanceCyclePayload, type PerformanceCyclePerson, type PerformanceCycleProjectShell, type PerformanceProjectPayload, type PerformanceTemplateListItem, type PerformanceCyclePeriodSubtype, type PerformanceCyclePeriodType, type PerformanceComparisonRule } from '@/api/performance'
 
 const organizationFields = [{ key: 'company_org', label: '公司级组织' }, { key: 'department', label: '一级部门' }, { key: 'department_2', label: '二级部门' }, { key: 'department_3', label: '三级部门' }, { key: 'department_4', label: '四级部门' }, { key: 'department_5', label: '五级部门' }] as const
 const route = useRoute(); const router = useRouter(); const cycles = ref<PerformanceCycle[]>([]); const selected = ref<PerformanceCycle | null>(null); const loading = ref(false); const saving = ref(false); const deleting = ref(false); const editing = ref(false); const formMode = ref<'create' | 'edit'>('create'); const keyword = ref(''); const page = ref(1); const pageSize = ref(20); const total = ref(0); const formError = ref(''); const saveSuccess = ref(false); const accessContext = ref<PerformanceAccessContext | null>(null); const people = ref<PerformanceCyclePerson[]>([]); const peopleLoading = ref(false); const showPeople = ref(false); const peopleReason = ref(''); const deleteConfirm = ref(false); const initialForm = ref(''); const requestVersion = ref(0); const anchorObserver = ref<IntersectionObserver | null>(null)
@@ -491,14 +491,18 @@ function removeCycleFromMenu(cycle: PerformanceCycle) {
   removeSelected()
 }
 function startCreate() { editBaseline.value = null; resetForm(); formMode.value = 'create'; formError.value = ''; saveSuccess.value = false; editing.value = true; if (route.name !== 'PerformanceCycleCreate') void router.push({ name: 'PerformanceCycleCreate' }) }; async function startEdit() { if (!selected.value) return; await enterEdit(selected.value.id); if (route.name !== 'PerformanceCycleEdit') void router.push({ name: 'PerformanceCycleEdit', params: { id: selected.value.id } }) }; async function enterEdit(id: number) { const cycle = await performanceCycleApi.get(id); editBaseline.value = structuredClone(cycle); selected.value = cycle; comparisonDeleteError.value = ''; clearFormErrors(); formSubmitted.value = false; Object.assign(form, { name: cycle.name, period_year: cycle.period_year, period_type: cycle.period_type, period_subtype: cycle.period_subtype || null, start_at: toLocal(cycle.start_at), end_at: toLocal(cycle.end_at), lock_rule: cycle.lock_rule, lock_at: toLocal(cycle.lock_at), pre_lock_sync_mode: cycle.pre_lock_sync_mode, leaver_enabled: cycle.leaver_enabled, leaver_start_date: cycle.leaver_start_date || '', leaver_end_date: cycle.leaver_end_date || '', leaver_participation_mode: cycle.leaver_participation_mode, overdue_submission_enabled: cycle.overdue_submission_enabled ?? true, overdue_submission_scope: cycle.overdue_submission_scope ?? 'EVALUATION', evaluation_templates: (cycle.template_ids ?? (cycle.template_id ? [cycle.template_id] : [])).map(String), semester_diff_rules: structuredClone(cycle.semester_diff_rules || []), comparison_rules_revision: cycle.comparison_rules_revision ?? 0 }); formMode.value = 'edit'; await loadEvaluationTemplates(); snapshotForm(); editing.value = true }
-async function removeComparisonRule() {
+async function removeComparisonRule(index = 0) {
   if (comparisonDeleting.value) return
-  if (formMode.value === 'create' || !editBaseline.value?.semester_diff_rules?.length) { form.semester_diff_rules = []; return }
+  const target = form.semester_diff_rules[index]
+  if (!target) return
+  const remainingDraft = form.semester_diff_rules.filter((_: PerformanceComparisonRule, position: number) => position !== index)
+  const persisted = editBaseline.value?.semester_diff_rules || []
+  if (formMode.value === 'create' || !target.id || !persisted.some(rule => rule.id === target.id)) { form.semester_diff_rules = remainingDraft; return }
   comparisonDeleting.value = true
   comparisonDeleteError.value = ''
   try {
-    const cycle = await performanceCycleApi.update(editBaseline.value.id, { semester_diff_rules: [], comparison_rules_revision: form.comparison_rules_revision })
-    form.semester_diff_rules = structuredClone(cycle.semester_diff_rules || [])
+    const cycle = await performanceCycleApi.update(editBaseline.value!.id, { semester_diff_rules: persisted.filter(rule => rule.id !== target.id), comparison_rules_revision: form.comparison_rules_revision })
+    form.semester_diff_rules = remainingDraft
     form.comparison_rules_revision = cycle.comparison_rules_revision ?? 0
     editBaseline.value = structuredClone(cycle)
     selected.value = cycle

@@ -49,6 +49,38 @@ def active_rules(project, cycle):
     return [rule for rule in snapshot.get("rules", []) if rule.get("id") in active and str(rule.get("template_id")) == str(template_id)]
 
 
+def _stored_groups(state):
+    if not state:
+        return {}
+    groups = state.get("groups")
+    if isinstance(groups, dict):
+        return {str(key): value for key, value in groups.items() if isinstance(value, dict)}
+    if isinstance(groups, list):
+        return {str(value.get("rule_id")): value for value in groups if isinstance(value, dict) and value.get("rule_id")}
+    if state.get("rule_id"):
+        return {str(state["rule_id"]): state}
+    return {}
+
+
+def _envelope(groups, *, active=True, historical=False):
+    result = deepcopy(groups[0]) if len(groups) == 1 else {
+        "matches": [deepcopy(match) for group in groups for match in group.get("matches", [])],
+        "show_notice_in_review": any(group.get("show_notice_in_review") for group in groups),
+        "fill_in_diff_reason": any(group.get("fill_in_diff_reason") for group in groups),
+        "reason_required": any(group.get("reason_required") for group in groups),
+        "context": _digest([[group["rule_id"], group.get("context")] for group in groups]),
+    }
+    result.update(groups=groups, active=active, historical=historical)
+    return result
+
+
+def _grouped(value):
+    if value is None:
+        return []
+    groups = value.get("groups") if isinstance(value, dict) else None
+    return groups if isinstance(groups, list) else ([value] if isinstance(value, dict) and value.get("rule_id") else [])
+
+
 def compare_ratings(rule, records, previous=None):
     """Compare every formal result pair, using only frozen option order."""
     matches, combinations, contexts = [], [], []
@@ -134,19 +166,31 @@ async def evaluate_task(db, task, node, project, answers=None, *, viewer_templat
         return None, None
     cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     rules = [rule for rule in active_rules(project, cycle) if node.node_id in (rule["first_node_id"], rule["second_node_id"])]
-    historical = None
-    if not rules:
-        if not include_history:
-            return None, None
-        saved = getattr(task, "comparison_state", None) or {}
-        if not saved.get("reason") or not saved.get("matches"):
-            return None, None
-        rule = next((rule for rule in snapshot.get("rules", []) if rule.get("id") == saved.get("rule_id") and node.node_id in (rule["first_node_id"], rule["second_node_id"])), None)
-        if rule is None:
-            return None, None
-        historical = deepcopy(saved)
-    else:
-        rule = rules[0]
+    active_ids = {str(rule["id"]) for rule in rules}
+    saved_groups = _stored_groups(getattr(task, "comparison_state", None))
+    internal_groups, projected_groups = [], []
+    for rule in snapshot.get("rules", []):
+        if node.node_id not in (rule["first_node_id"], rule["second_node_id"]):
+            continue
+        saved = saved_groups.get(str(rule["id"]), {})
+        historical = None
+        if str(rule["id"]) not in active_ids:
+            if not include_history or not saved.get("reason") or not saved.get("matches"):
+                continue
+            historical = deepcopy(saved)
+        internal, projected = await _evaluate_rule(db, task, node, project, rule, saved, historical, answers,
+            viewer_template=viewer_template, viewer_schemas=viewer_schemas, all_formal=all_formal)
+        if internal is not None:
+            internal_groups.append(internal)
+        if projected is not None:
+            projected_groups.append(projected)
+    return (_envelope(internal_groups) if internal_groups else None,
+            _envelope(projected_groups, active=any(group.get("active") for group in projected_groups),
+                      historical=all(group.get("historical") for group in projected_groups)) if projected_groups else None)
+
+
+async def _evaluate_rule(db, task, node, project, rule, previous, historical, answers,
+                         *, viewer_template=None, viewer_schemas=None, all_formal=False):
     from app.performance import projects_router as routes
     nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
         PerformanceProjectNodeSnapshot.project_id == project.id,
@@ -200,7 +244,7 @@ async def evaluate_task(db, task, node, project, answers=None, *, viewer_templat
     if answers is not None and not all_formal:
         # Other evaluators at the current node are not the result being submitted.
         records[node.node_id] = [record for record in records[node.node_id] if record["task_id"] == task.id]
-    comparison = compare_ratings(rule, records, getattr(task, "comparison_state", None))
+    comparison = compare_ratings(rule, records, previous)
     schemas = viewer_schemas
     if schemas is None:
         viewer_template = viewer_template if viewer_template is not None else templates[node.node_id]
@@ -242,13 +286,32 @@ async def evaluate_task(db, task, node, project, answers=None, *, viewer_templat
     return comparison, with_names(projected)
 
 
-def set_actor_draft(task, actor_ref, reason, context=None):
+def set_actor_draft(task, actor_ref, reason, context=None, *, comparison_reasons=None, comparison=None):
     state = deepcopy(getattr(task, "comparison_state", None) or {})
     drafts = state.get("actor_drafts") or {}
-    if reason is None or not reason.strip():
-        drafts.pop(str(actor_ref), None)
+    actor_ref = str(actor_ref)
+    if comparison_reasons is not None:
+        allowed = {str(group["rule_id"]) for group in _grouped(comparison) if group.get("active", True)}
+        entries = _reason_entries(comparison_reasons, allowed)
+        groups = deepcopy((drafts.get(actor_ref) or {}).get("groups") or {})
+        for rule_id, entry in entries.items():
+            text = (entry.get("diff_reason") or "").strip()
+            if text:
+                groups[rule_id] = {"reason": entry["diff_reason"], "context": entry.get("comparison_context")}
+            else:
+                groups.pop(rule_id, None)
+        if groups:
+            drafts[actor_ref] = {"groups": groups}
+        else:
+            drafts.pop(actor_ref, None)
+    elif reason is None or not reason.strip():
+        drafts.pop(actor_ref, None)
     else:
-        drafts[str(actor_ref)] = {"reason": reason, "context": context}
+        groups = [group for group in _grouped(comparison) if group.get("active", True)]
+        if comparison is not None and len(groups) > 1:
+            raise HTTPException(400, "COMPARISON_REASONS_REQUIRED")
+        entry = {"reason": reason, "context": context}
+        drafts[actor_ref] = {"groups": {str(groups[0]["rule_id"]): entry}} if groups else entry
     if drafts:
         state["actor_drafts"] = drafts
     else:
@@ -258,13 +321,51 @@ def set_actor_draft(task, actor_ref, reason, context=None):
 
 def actor_draft_projection(task, actor_ref, comparison):
     entry = ((getattr(task, "comparison_state", None) or {}).get("actor_drafts") or {}).get(str(actor_ref)) if comparison is not None and comparison.get("active", True) else None
-    return {"draft_diff_reason": entry.get("reason") if entry else None,
-            "draft_comparison_context": entry.get("context") if entry else None}
+    groups = [group for group in _grouped(comparison) if group.get("active", True)]
+    saved = (entry or {}).get("groups") or {}
+    reasons = []
+    for group in groups:
+        draft = saved.get(str(group["rule_id"]))
+        if draft is None and len(groups) == 1 and entry and "reason" in entry:
+            draft = entry
+        if draft:
+            reasons.append({"rule_id": group["rule_id"], "diff_reason": draft.get("reason"), "comparison_context": draft.get("context")})
+    legacy = reasons[0] if len(groups) == 1 and reasons else None
+    if not groups and entry and "reason" in entry:
+        legacy = {"diff_reason": entry.get("reason"), "comparison_context": entry.get("context")}
+    return {"draft_diff_reason": legacy.get("diff_reason") if legacy else None,
+            "draft_comparison_context": legacy.get("comparison_context") if legacy else None,
+            "draft_comparison_reasons": reasons}
 
 
-def validate_submission(comparison, projected, reason, context):
+def _reason_entries(reasons, allowed):
+    entries = {}
+    for value in reasons:
+        entry = value.model_dump() if hasattr(value, "model_dump") else value
+        rule_id = str(entry["rule_id"])
+        if rule_id not in allowed or rule_id in entries:
+            raise HTTPException(400, "COMPARISON_REASON_INVALID")
+        entries[rule_id] = entry
+    return entries
+
+
+def validate_submission(comparison, projected, reason, context, comparison_reasons=None):
     if comparison is None:
         return None
+    if "groups" in comparison:
+        groups = _grouped(comparison)
+        visible = {str(group["rule_id"]): group for group in _grouped(projected) if group.get("active", True)}
+        entries = _reason_entries(comparison_reasons or [], set(visible))
+        if len(groups) > 1 and reason and comparison_reasons is None:
+            raise HTTPException(400, "COMPARISON_REASONS_REQUIRED")
+        states = []
+        for group in groups:
+            rule_id = str(group["rule_id"])
+            entry = entries.get(rule_id, {})
+            legacy = len(groups) == 1 and comparison_reasons is None
+            states.append(validate_submission(group, visible.get(rule_id), reason if legacy else entry.get("diff_reason"),
+                context if legacy else entry.get("comparison_context")))
+        return _envelope(states)
     if projected is not None and context is not None and context != projected["context"]:
         raise HTTPException(409, "COMPARISON_SOURCE_CHANGED")
     reason = (reason or "").strip()
@@ -273,3 +374,23 @@ def validate_submission(comparison, projected, reason, context):
     state = {key: deepcopy(value) for key, value in comparison.items() if key != "_contexts"}
     state["reason"] = reason if projected and projected["matches"] and projected["fill_in_diff_reason"] else None
     return state
+
+
+def merge_submission_state(previous, state):
+    saved = _stored_groups(previous)
+    for group in _grouped(state):
+        saved[str(group["rule_id"])] = deepcopy(group)
+    result = deepcopy(state)
+    result["groups"] = saved
+    drafts = (previous or {}).get("actor_drafts")
+    if drafts:
+        result["actor_drafts"] = deepcopy(drafts)
+    return result
+
+
+def comparison_prompts(comparison):
+    groups = _grouped(comparison)
+    if not groups and comparison:
+        groups = [comparison]
+    return [{**match, "rule_id": group.get("rule_id")} for group in groups
+            if group.get("show_notice_in_review") for match in group.get("matches", [])]

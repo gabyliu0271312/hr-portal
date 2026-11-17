@@ -104,12 +104,19 @@ async def withdraw_reconsideration(project_id: int, payload: ReconsiderationWith
     return await withdraw(db, project_id, actor.actor_ref, payload.version, actor)
 
 
+class ComparisonReasonPayload(BaseModel):
+    rule_id: str = Field(min_length=1, max_length=64)
+    diff_reason: str | None = Field(default=None, max_length=20000)
+    comparison_context: str | None = Field(default=None, max_length=128)
+
+
 class SelfSummaryAnswersPayload(BaseModel):
     answers: dict = Field(default_factory=dict)
     version: int | None = Field(default=None, ge=1)
     result_version: int | None = Field(default=None, ge=0)
     diff_reason: str | None = Field(default=None, max_length=20000)
     comparison_context: str | None = Field(default=None, max_length=128)
+    comparison_reasons: list[ComparisonReasonPayload] | None = None
 
 
 class TaskDraftVersionPayload(BaseModel):
@@ -1079,9 +1086,9 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "form_schema": schema,
         "answers": answers,
         **({"answer_submissions": answer_submissions} if shared or task.task_kind in {"calibration", "result_reconsideration"} or manager_evaluation else {}),
-        "has_draft": not final_result_locked and (visible_draft is not None or comparison_service.actor_draft_projection(task, actor_ref, comparison)["draft_diff_reason"] is not None),
+        "has_draft": not final_result_locked and (visible_draft is not None or bool(comparison_service.actor_draft_projection(task, actor_ref, comparison)["draft_comparison_reasons"]) or comparison_service.actor_draft_projection(task, actor_ref, comparison)["draft_diff_reason"] is not None),
         "draft_answers": {} if final_result_locked else ({key: deepcopy(value) for key, value in (visible_draft or {}).items() if key == "keep_result" or any(field["id"] == key for section in schema for field in section.get("fields") or [])} if task.task_kind == "result_reconsideration" else project_self_summary_answers(schema, visible_draft or {})),
-        "prompts": comparison["matches"] if comparison and comparison["show_notice_in_review"] else [],
+        "prompts": comparison_service.comparison_prompts(comparison),
         "calibration_notice": "绩效校准人修改评估内容后会产生修改记录" if task.task_kind == "calibration" else None,
         "reference_tabs": [] if management_detail is not None and view == "drawer" else await _reference_tabs(task, node, project, actor_ref, db, context=context, **({"view": view, "tab": tab} if view == "drawer" else {})),
         **({
@@ -1171,21 +1178,21 @@ async def preview_task_comparison(task_id: int, payload: ComparisonPreviewPayloa
     else:
         answers = sanitize_self_summary_answers(schema, payload.answers)
     _, comparison = await comparison_service.evaluate_task(db, task, node, project, answers)
-    return {"comparison": comparison, "prompts": comparison["matches"] if comparison and comparison["show_notice_in_review"] else []}
+    return {"comparison": comparison, "prompts": comparison_service.comparison_prompts(comparison)}
 
 
 async def _prepare_task_comparison(db, task, node, project, answers, payload):
     internal, projected = await comparison_service.evaluate_task(db, task, node, project, answers)
-    state = comparison_service.validate_submission(internal, projected, payload.diff_reason, payload.comparison_context)
+    state = comparison_service.validate_submission(internal, projected, payload.diff_reason, payload.comparison_context, payload.comparison_reasons)
     if internal is not None:
         before = deepcopy(getattr(task, "comparison_state", None))
-        drafts = (before or {}).get("actor_drafts")
-        if drafts:
-            state["actor_drafts"] = deepcopy(drafts)
-        task.comparison_state = state
-        internal["reason"] = state["reason"]
-        if projected is not None:
-            projected["reason"] = state["reason"]
+        task.comparison_state = comparison_service.merge_submission_state(before, state) if "groups" in state else {**state, **({"actor_drafts": deepcopy(before["actor_drafts"])} if before and before.get("actor_drafts") else {})}
+        saved = {str(group["rule_id"]): group for group in comparison_service._grouped(state)}
+        for result in (internal, projected):
+            for group in comparison_service._grouped(result):
+                group["reason"] = saved[str(group["rule_id"])]["reason"]
+            if result is not None and "reason" in state:
+                result["reason"] = state["reason"]
         return internal, projected, before
     return None, None, None
 
@@ -1195,15 +1202,28 @@ async def _enqueue_task_comparison(db, task, node, project, actor, comparison):
         from app.performance import comparison_notification_service
         formal, _ = await comparison_service.evaluate_task(db, task, node, project, all_formal=True)
         if formal is not None:
-            formal["reason"] = comparison.get("reason")
-            previous_signature = comparison.get("previous_rating_signature")
-            previous_sequence = comparison.get("event_sequence", 0) - (comparison.get("rating_signature") != previous_signature)
-            formal["previous_rating_signature"] = previous_signature
-            formal["event_sequence"] = previous_sequence + (formal["rating_signature"] != previous_signature)
+            requested = {str(group["rule_id"]): group for group in comparison_service._grouped(comparison)}
+            formal_groups = comparison_service._grouped(formal)
+            for group in formal_groups:
+                local = requested.get(str(group["rule_id"]), comparison if "groups" not in comparison else {})
+                group["reason"] = local.get("reason")
+                previous_signature = local.get("previous_rating_signature")
+                previous_sequence = local.get("event_sequence", 0) - (local.get("rating_signature") != previous_signature)
+                group["previous_rating_signature"] = previous_signature
+                group["event_sequence"] = previous_sequence + (group["rating_signature"] != previous_signature)
             stored = deepcopy(task.comparison_state)
-            stored.update(rating_signature=formal["rating_signature"], previous_rating_signature=formal["previous_rating_signature"], event_sequence=formal["event_sequence"])
+            if len(formal_groups) == 1 and "groups" not in stored:
+                group = formal_groups[0]
+                stored.update(rating_signature=group["rating_signature"], previous_rating_signature=group["previous_rating_signature"], event_sequence=group["event_sequence"])
+            else:
+                saved = comparison_service._stored_groups(stored)
+                for group in formal_groups:
+                    saved[str(group["rule_id"])] = {**saved.get(str(group["rule_id"]), {}), "rating_signature": group["rating_signature"],
+                                                     "previous_rating_signature": group["previous_rating_signature"], "event_sequence": group["event_sequence"]}
+                stored["groups"] = saved
             task.comparison_state = stored
-            await comparison_notification_service.enqueue_notifications(db, task, node, project, actor, formal)
+            for group in formal_groups:
+                await comparison_notification_service.enqueue_notifications(db, task, node, project, actor, group)
 
 
 async def _save_shared_task(task, node, payload, submit, actor, project, schema, db):
@@ -1254,8 +1274,10 @@ async def _save_shared_task(task, node, payload, submit, actor, project, schema,
         event = "CALIBRATION_ADJUSTED" if task.task_kind == "calibration" else "PERFORMANCE_TASK_SUBMITTED"
     else:
         before = {"answers": (draft or {}).get("answers")}
-        if "diff_reason" in payload.model_fields_set:
-            comparison_service.set_actor_draft(task, actor.actor_ref, payload.diff_reason, payload.comparison_context)
+        if {"diff_reason", "comparison_reasons"} & payload.model_fields_set:
+            _, draft_comparison = await comparison_service.evaluate_task(db, task, node, project, answers)
+            comparison_service.set_actor_draft(task, actor.actor_ref, payload.diff_reason, payload.comparison_context,
+                comparison_reasons=payload.comparison_reasons, comparison=draft_comparison)
         base_revision = draft["base_result_version"] if draft is not None else revision
         shared_results.set_private_draft(task, actor.actor_ref, answers, base_revision)
         member.shared_result_state = state
@@ -1322,14 +1344,16 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     if isinstance(task, PerformanceNodeTask) and shared_results.participates(task, node):
         return await _save_shared_task(task, node, payload, submit, actor, project, schema, db)
     current_draft = getattr(task, "draft_answers", None)
-    if not submit and "diff_reason" in payload.model_fields_set:
-        comparison_service.set_actor_draft(task, actor.actor_ref, payload.diff_reason, payload.comparison_context)
     calibration = getattr(task, "task_kind", None) == "calibration"
     trusted_answers = await _calibration_answers(task, node, schema, db) if calibration else task.answers or {}
     incoming_answers = ({**trusted_answers, **payload.answers} if calibration else payload.answers) if submit else {**(current_draft if current_draft is not None else trusted_answers), **payload.answers}
     answers = prepare_decision(appeal.result_snapshot, trusted_answers, current_draft, payload.answers, template.get("show_result_and_modify", True), submit) if reconsideration else sanitize_self_summary_answers(schema, incoming_answers)
     if calibration:
         answers = project_self_summary_answers(schema, answers)
+    if not submit and {"diff_reason", "comparison_reasons"} & payload.model_fields_set:
+        _, draft_comparison = await comparison_service.evaluate_task(db, task, node, project, answers)
+        comparison_service.set_actor_draft(task, actor.actor_ref, payload.diff_reason, payload.comparison_context,
+            comparison_reasons=payload.comparison_reasons, comparison=draft_comparison)
     if submit and not reconsideration:
         for section, field, index, value in iter_self_summary_field_instances(schema, answers):
             if self_summary_instance_unknown(section, answers, index):
@@ -1404,7 +1428,7 @@ async def _save_self_summary(task_id: int, payload: SelfSummaryAnswersPayload, s
     editable, submit_allowed = _self_summary_state(task, available_at, due_at, overdue_allowed)
     if not submit:
         _, projected_comparison = await comparison_service.evaluate_task(db, task, node, project, answers)
-    return {**comparison_service.actor_draft_projection(task, actor.actor_ref, projected_comparison), "comparison": projected_comparison, "answers": task.answers if reconsideration else project_self_summary_answers(schema, task.answers, include_readonly=calibration), "has_draft": task.draft_answers is not None or comparison_service.actor_draft_projection(task, actor.actor_ref, projected_comparison)["draft_diff_reason"] is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed, "reconsideration_closed": reconsideration and not editable}
+    return {**comparison_service.actor_draft_projection(task, actor.actor_ref, projected_comparison), "comparison": projected_comparison, "answers": task.answers if reconsideration else project_self_summary_answers(schema, task.answers, include_readonly=calibration), "has_draft": task.draft_answers is not None or bool(comparison_service.actor_draft_projection(task, actor.actor_ref, projected_comparison)["draft_comparison_reasons"]) or comparison_service.actor_draft_projection(task, actor.actor_ref, projected_comparison)["draft_diff_reason"] is not None, "version": task.answer_version, "submitted_at": task.submitted_at, "editable": editable, "submit_allowed": submit_allowed, "reconsideration_closed": reconsideration and not editable}
 
 
 @router.patch("/tasks/{task_id}/self-summary/draft")

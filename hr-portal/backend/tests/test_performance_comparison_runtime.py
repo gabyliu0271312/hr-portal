@@ -255,7 +255,7 @@ def test_actor_reason_drafts_reload_privacy_clear_and_formal_state_preservation(
     service.set_actor_draft(task, "owner", "我的草稿", "ctx-1")
     service.set_actor_draft(task, "delegate", "代理草稿", "ctx-2")
     reloaded = SimpleNamespace(comparison_state=deepcopy(task.comparison_state))
-    assert service.actor_draft_projection(reloaded, "owner", {"active": True}) == {"draft_diff_reason": "我的草稿", "draft_comparison_context": "ctx-1"}
+    assert service.actor_draft_projection(reloaded, "owner", {"active": True}) == {"draft_diff_reason": "我的草稿", "draft_comparison_context": "ctx-1", "draft_comparison_reasons": []}
     assert service.actor_draft_projection(reloaded, "delegate", {"active": True})["draft_diff_reason"] == "代理草稿"
     assert service.actor_draft_projection(reloaded, "other", {"active": True})["draft_diff_reason"] is None
     assert service.actor_draft_projection(reloaded, "owner", None)["draft_diff_reason"] is None
@@ -369,3 +369,121 @@ def test_reason_payload_length_matches_source_limit():
     SelfSummaryAnswersPayload(diff_reason="x" * 20000)
     with pytest.raises(ValidationError):
         SelfSummaryAnswersPayload(diff_reason="x" * 20001)
+    with pytest.raises(ValidationError):
+        SelfSummaryAnswersPayload(comparison_reasons=[{"rule_id": "r1", "diff_reason": "x" * 20001}])
+
+
+def two_comparisons():
+    groups = [compare_ratings({**rule(), "id": key}, {"a": [record(1, "low")], "b": [record(2, "high")]}) for key in ["r1", "r2"]]
+    schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
+    projected = [{**project_comparison(group, schemas, "a"), "active": True} for group in groups]
+    return service._envelope(groups), service._envelope(projected)
+
+
+@pytest.mark.asyncio
+async def test_two_rules_same_node_only_second_matches_and_each_is_projected(monkeypatch):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    first = {**rule(threshold=3), "template_id": 3}
+    second = {**rule(), "id": "r2", "template_id": 3}
+    project.settings["comparison_rules_snapshot"]["rules"] = [first, second]
+    db.scalar.return_value.semester_diff_rules = [{"id": "r1"}, {"id": "r2"}]
+    db.execute.side_effect = [Rows(nodes), Rows(tasks), Rows(nodes), Rows(tasks)]
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
+    assert [group["rule_id"] for group in internal["groups"]] == ["r1", "r2"]
+    assert not internal["groups"][0]["matches"] and internal["groups"][1]["matches"]
+    assert [group["rule_id"] for group in projected["groups"]] == ["r1", "r2"]
+    assert not projected["groups"][0]["reason_required"] and projected["groups"][1]["reason_required"]
+    assert {match["rule_id"] for match in service.comparison_prompts(projected)} == {"r2"}
+    reasons = [{"rule_id": "r2", "diff_reason": "second only", "comparison_context": projected["groups"][1]["context"]}]
+    state = service.validate_submission(internal, projected, None, None, reasons)
+    assert state["groups"][0]["reason"] is None and state["groups"][1]["reason"] == "second only"
+
+
+@pytest.mark.asyncio
+async def test_two_group_submission_is_atomic_and_reasons_and_contexts_are_independent(monkeypatch):
+    from app.performance import projects_router as routes
+    internal, projected = two_comparisons()
+    task = SimpleNamespace(comparison_state={"reason": "previous"})
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(internal, projected)))
+    reasons = [{"rule_id": group["rule_id"], "diff_reason": f"reason-{group['rule_id']}", "comparison_context": group["context"]} for group in projected["groups"]]
+    with pytest.raises(HTTPException, match="DIFF_REASON_REQUIRED"):
+        await routes._prepare_task_comparison(None, task, None, None, {}, routes.SelfSummaryAnswersPayload(comparison_reasons=reasons[:1]))
+    assert task.comparison_state == {"reason": "previous"}
+    stale = deepcopy(reasons)
+    stale[1]["comparison_context"] = "stale-r2"
+    with pytest.raises(HTTPException, match="COMPARISON_SOURCE_CHANGED"):
+        await routes._prepare_task_comparison(None, task, None, None, {}, routes.SelfSummaryAnswersPayload(comparison_reasons=stale))
+    assert task.comparison_state == {"reason": "previous"}
+    with pytest.raises(HTTPException, match="COMPARISON_REASONS_REQUIRED"):
+        service.validate_submission(internal, projected, "must not copy", projected["context"])
+    await routes._prepare_task_comparison(None, task, None, None, {}, routes.SelfSummaryAnswersPayload(comparison_reasons=reasons))
+    assert task.comparison_state["groups"]["r1"]["reason"] == "reason-r1"
+    assert task.comparison_state["groups"]["r2"]["reason"] == "reason-r2"
+    assert projected["groups"][1]["reason"] == "reason-r2"
+
+
+@pytest.mark.parametrize("invalid", ["duplicate", "unauthorized"])
+def test_group_reason_ids_must_be_unique_and_authorized(invalid):
+    internal, projected = two_comparisons()
+    entries = [{"rule_id": "r1", "diff_reason": "first"}, {"rule_id": "r1" if invalid == "duplicate" else "hidden", "diff_reason": "second"}]
+    with pytest.raises(HTTPException, match="COMPARISON_REASON_INVALID"):
+        service.validate_submission(internal, projected, None, None, entries)
+
+
+def test_group_drafts_reload_are_private_and_clear_independently():
+    _, projected = two_comparisons()
+    task = SimpleNamespace(comparison_state={"groups": {"r1": {"rule_id": "r1", "reason": "formal1"}, "r2": {"rule_id": "r2", "reason": "formal2"}}})
+    reasons = [{"rule_id": group["rule_id"], "diff_reason": f"draft-{group['rule_id']}", "comparison_context": group["context"]} for group in projected["groups"]]
+    service.set_actor_draft(task, "owner", None, comparison_reasons=reasons, comparison=projected)
+    reloaded = SimpleNamespace(comparison_state=deepcopy(task.comparison_state))
+    assert service.actor_draft_projection(reloaded, "owner", projected)["draft_comparison_reasons"] == reasons
+    assert service.actor_draft_projection(reloaded, "other", projected)["draft_comparison_reasons"] == []
+    service.set_actor_draft(task, "owner", None, comparison_reasons=[{"rule_id": "r1", "diff_reason": None}], comparison=projected)
+    assert service.actor_draft_projection(task, "owner", projected)["draft_comparison_reasons"] == reasons[1:]
+    hidden = service._envelope([projected["groups"][0]])
+    assert service.actor_draft_projection(task, "owner", hidden)["draft_comparison_reasons"] == []
+    assert task.comparison_state["groups"]["r1"]["reason"] == "formal1"
+    assert task.comparison_state["groups"]["r2"]["reason"] == "formal2"
+
+
+@pytest.mark.asyncio
+async def test_deleted_first_rule_history_survives_second_submission_and_has_no_active_notice(monkeypatch):
+    from app.performance import projects_router as routes
+    db, project, nodes, tasks = runtime(monkeypatch)
+    first, second = {**rule(), "template_id": 3}, {**rule(), "id": "r2", "template_id": 3}
+    project.settings["comparison_rules_snapshot"]["rules"] = [first, second]
+    db.scalar.return_value.semester_diff_rules = [{"id": "r2"}]
+    old = compare_ratings(first, {"a": [record(1, "low")], "b": [record(2, "high")]})
+    old["reason"] = "historical-r1"
+    tasks[0].comparison_state = {"groups": {"r1": old}}
+    db.execute.side_effect = [Rows(nodes), Rows(tasks)]
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project)
+    assert [group["rule_id"] for group in internal["groups"]] == ["r2"]
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(internal, projected)))
+    await routes._prepare_task_comparison(db, tasks[0], nodes[0], project, {}, routes.SelfSummaryAnswersPayload(comparison_reasons=[{"rule_id": "r2", "diff_reason": "new-r2", "comparison_context": projected["context"]}]))
+    assert tasks[0].comparison_state["groups"]["r1"]["reason"] == "historical-r1"
+    monkeypatch.undo()
+    db, project, nodes, fresh = runtime(monkeypatch)
+    project.settings["comparison_rules_snapshot"]["rules"] = [first, second]
+    db.scalar.return_value.semester_diff_rules = [{"id": "r2"}]
+    fresh[0].comparison_state = deepcopy(tasks[0].comparison_state)
+    db.execute.side_effect = [Rows(nodes), Rows(fresh), Rows(nodes), Rows(fresh)]
+    _, history = await service.evaluate_task(db, fresh[0], nodes[0], project, include_history=True)
+    by_id = {group["rule_id"]: group for group in history["groups"]}
+    assert by_id["r1"]["reason"] == "historical-r1" and not by_id["r1"]["active"]
+    assert by_id["r1"]["historical"] and not by_id["r1"]["show_notice_in_review"]
+    assert by_id["r2"]["reason"] == "new-r2" and by_id["r2"]["active"]
+
+
+@pytest.mark.asyncio
+async def test_router_enqueues_each_formal_group_without_overwriting_other_group(monkeypatch):
+    from app.performance import projects_router as routes, comparison_notification_service as notifications
+    internal, _ = two_comparisons()
+    task = SimpleNamespace(comparison_state={"groups": {group["rule_id"]: {**group, "reason": group["rule_id"]} for group in internal["groups"]}})
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(deepcopy(internal), None)))
+    enqueue = AsyncMock(return_value=1)
+    monkeypatch.setattr(notifications, "enqueue_notifications", enqueue)
+    await routes._enqueue_task_comparison(None, task, None, None, None, internal)
+    assert [call.args[-1]["rule_id"] for call in enqueue.await_args_list] == ["r1", "r2"]
+    assert task.comparison_state["groups"]["r1"]["reason"] == "r1"
+    assert task.comparison_state["groups"]["r2"]["reason"] == "r2"

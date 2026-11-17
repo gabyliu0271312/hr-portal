@@ -227,7 +227,10 @@ async def _still_authorized(db, row, cycle, project, tasks):
         return False
     if {source_node.node_id, recipient_node.node_id} != {rules[0]["first_node_id"], rules[0]["second_node_id"]}:
         return False
-    comparison, _ = await comparisons.evaluate_task(db, source, source_node, project, all_formal=True)
+    envelope, _ = await comparisons.evaluate_task(db, source, source_node, project, all_formal=True)
+    comparison = next((group for group in comparisons._grouped(envelope) if str(group.get("rule_id")) == str(row.rule_id)), None)
+    if comparison is None and envelope is not None and "groups" not in envelope and not envelope.get("rule_id"):
+        comparison = envelope
     if comparison is None or comparison["rating_signature"] != row.payload.get("rating_signature"):
         return False
     relevant = _source_comparison(comparison, source, source_node)

@@ -708,7 +708,7 @@ class PerformanceCycle(Base):
         CheckConstraint("status IN ('DRAFT', 'LOCKED')", name="ck_performance_cycle_status"),
         CheckConstraint("end_at > start_at", name="ck_performance_cycle_end_after_start"),
         CheckConstraint("lock_rule = 'IMMEDIATE' OR lock_at IS NOT NULL", name="ck_performance_cycle_scheduled_lock_at"),
-        CheckConstraint("CASE WHEN jsonb_typeof(semester_diff_rules) = 'array' THEN jsonb_array_length(semester_diff_rules) <= 1 ELSE false END", name="ck_pm_cycle_comparison_rules"),
+        CheckConstraint("jsonb_typeof(semester_diff_rules) = 'array'", name="ck_pm_cycle_comparison_rules"),
         CheckConstraint("comparison_rules_revision >= 0", name="ck_pm_cycle_comparison_revision"),
         Index("ix_performance_cycles_start_at", "start_at"),
         Index("ix_performance_cycles_lock_at", "lock_at"),

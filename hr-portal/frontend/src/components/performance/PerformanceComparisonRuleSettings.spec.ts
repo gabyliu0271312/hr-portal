@@ -11,7 +11,7 @@ const rule: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node
 const stubs = { PerformanceComparisonRuleDrawer: true, PerformanceConfirmDialog: true }
 beforeEach(() => options.mockReset().mockResolvedValue({ templates: [{ template_id: 101, name: '年度模板', stages: [{ node_id: 'self', name: '员工自评' }, { node_id: 'manager', name: '上级评价' }] }], items: [{ content_id: 'content', item_id: 'rating', label: '绩效评级', option_ids: ['a', 'b'] }], warnings: [] }))
 describe('PerformanceComparisonRuleSettings', () => {
-  it('offers one group only and uses real names for edit/delete summary', async () => {
+  it('keeps the add action below existing groups and uses real names for edit/delete summary', async () => {
     const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule], templateIds: [101], cycleId: 3 }, global: { stubs } })
     await flushPromises()
     expect(wrapper.text()).toContain('员工自评')
@@ -23,13 +23,36 @@ describe('PerformanceComparisonRuleSettings', () => {
     expect(wrapper.text()).toContain('1 档')
     expect(wrapper.text()).toContain('评估过程中展示差异提示')
     expect(options).toHaveBeenCalledWith({ template_ids: [101], cycle_id: 3, template_id: 101, first_node_id: 'self', second_node_id: 'manager' })
-    expect(wrapper.find('.evaluation-result-rule-add').exists()).toBe(false)
+    expect(wrapper.find('.evaluation-result-rule-add').exists()).toBe(true)
     await wrapper.findAll('button').find(button => button.text() === '编辑')!.trigger('click')
     expect(wrapper.getComponent(PerformanceComparisonRuleDrawer).props()).toMatchObject({ modelValue: true, initialValue: rule, templateIds: [101], cycleId: 3 })
     wrapper.getComponent(PerformanceComparisonRuleDrawer).vm.$emit('submit', { ...rule, show_notice_in_review: false })
     expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([{ ...rule, show_notice_in_review: false }])
     wrapper.unmount()
   })
+  it('adds, edits and removes only the selected group', async () => {
+    const second = { ...rule, id: 'r2', second_node_id: 'peer', send_notification: true }
+    const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule, second], templateIds: [101] }, global: { stubs } })
+    await flushPromises()
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+    await wrapper.get('.evaluation-result-rule-add').trigger('click')
+    const drawer = wrapper.getComponent(PerformanceComparisonRuleDrawer)
+    expect(drawer.props('initialValue')).toBeNull()
+    const third = { ...rule, id: undefined, first_node_id: 'peer' }
+    drawer.vm.$emit('submit', third)
+    expect(wrapper.emitted('update:modelValue')?.[0]?.[0]).toEqual([rule, second, third])
+    await wrapper.findAll('button').filter(button => button.text() === '编辑')[1]!.trigger('click')
+    expect(drawer.props('initialValue')).toEqual(second)
+    drawer.vm.$emit('submit', { ...second, send_notification: false })
+    expect(wrapper.emitted('update:modelValue')?.[1]?.[0]).toEqual([rule, { ...second, send_notification: false }])
+    await wrapper.findAll('button').filter(button => button.text() === '删除')[1]!.trigger('click')
+    wrapper.getComponent(PerformanceConfirmDialog).vm.$emit('confirm')
+    expect(wrapper.emitted('remove')).toEqual([[1]])
+    await wrapper.setProps({ modelValue: [rule] })
+    expect(wrapper.getComponent(PerformanceConfirmDialog).props('modelValue')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('uses the requested copy and requires exact confirmation before delete', async () => {
     const wrapper = mount(PerformanceComparisonRuleSettings, { props: { modelValue: [rule], templateIds: [101] }, global: { stubs } })
     await flushPromises()

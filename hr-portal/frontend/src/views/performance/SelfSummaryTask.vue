@@ -53,7 +53,7 @@
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
-  <PerformanceComparisonReasonDialog v-model="comparisonDialogOpen" :reason="comparisonReason" @update:reason="updateComparisonReason" :comparison="comparison" :task-id="task.task_id" :references="task.reference_tabs" :loading="submitting" :error="comparisonDialogError" @confirm="submit(comparisonOverdueConfirmed, comparisonDialogContext)" />
+  <PerformanceComparisonReasonDialog v-model="comparisonDialogOpen" :reason="comparisonReason" :reasons="comparisonReasons" @update:reason="updateComparisonReason" @update:reasons="updateComparisonReasons" :comparison="comparison" :task-id="task.task_id" :references="task.reference_tabs" :loading="submitting" :error="comparisonDialogError" @confirm="submit(comparisonOverdueConfirmed, comparisonDialogContext)" />
   <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
   <PerformanceConfirmDialog v-model="overdueConfirmOpen" appearance="submit" confirm-variant="primary" message="确定提交吗？" description="当前环节已过截止时间，提交后将无法修改内容。" cancel-text="取消" confirm-text="确定" :loading="submitting" :error-message="overdueConfirmError" @confirm="submit(true)" />
   <PerformanceConfirmDialog v-model="giveupConfirmOpen" appearance="submit" confirm-variant="primary" message="确定放弃评估？" description="放弃后将从你的 360° 评估列表中移除，重新评估需再次发起自愿评估。" cancel-text="取消" confirm-text="确定" :loading="givingUp" :error-message="giveupError" @confirm="giveup()" />
@@ -67,11 +67,11 @@ import { getActivePinia } from 'pinia'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
 import PerformanceComparisonNotice from '@/components/performance/PerformanceComparisonNotice.vue'
 import PerformanceComparisonReasonDialog from '@/components/performance/PerformanceComparisonReasonDialog.vue'
-import { usePerformanceComparison } from '@/composables/usePerformanceComparison'
+import { usePerformanceComparison, performanceComparisonContext, performanceComparisonGroups, performanceComparisonReasonGroups } from '@/composables/usePerformanceComparison'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
-import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
+import { performanceReview360FeedbackApi, performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceComparisonReason, type PerformanceComparisonSubmission, type PerformanceReferenceTab, type SelfSummaryTask } from '@/api/performance'
 import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
 import PerformanceTaskWorkspace from '@/components/performance/PerformanceTaskWorkspace.vue'
@@ -123,18 +123,26 @@ const baseResultVersion = ref<number | null | undefined>()
 const sharedResultConflict = ref(false)
 const answers = reactive<Record<string, unknown>>({})
 const errors = reactive<Record<string, string>>({})
-const { comparison, reason: comparisonReason, dialogOpen: comparisonDialogOpen, dialogError: comparisonDialogError, reset: resetComparison, refresh: refreshComparison, schedule: scheduleComparison, invalidate: invalidateComparison } = usePerformanceComparison(() => performanceReviewApi.previewComparison(task.value.task_id, writableAnswers(), task.value.version, contextEmployeeNo.value, baseResultVersion.value))
+const { comparison, reason: comparisonReason, reasons: comparisonReasons, dialogOpen: comparisonDialogOpen, dialogError: comparisonDialogError, reset: resetComparison, refresh: refreshComparison, schedule: scheduleComparison, invalidate: invalidateComparison } = usePerformanceComparison(() => performanceReviewApi.previewComparison(task.value.task_id, writableAnswers(), task.value.version, contextEmployeeNo.value, baseResultVersion.value))
 const comparisonOverdueConfirmed = ref(false)
 const comparisonDialogContext = ref<string>()
 const comparisonReasonContext = ref('')
 let savedComparisonDraft = ''
-function comparisonDraft() { return { diff_reason: comparisonReason.value, comparison_context: comparisonReasonContext.value } }
+function comparisonDraft(): PerformanceComparisonSubmission {
+  return comparison.value?.groups !== undefined
+    ? { comparison_reasons: comparisonReasons.value.filter(item => performanceComparisonGroups(comparison.value).some(group => group.rule_id === item.rule_id && group.active !== false)) }
+    : { diff_reason: comparisonReason.value, comparison_context: comparisonReasonContext.value }
+}
+function updateComparisonReasons(value: PerformanceComparisonReason[]) {
+  comparisonReasons.value = value
+  queueSave(250)
+}
 function updateComparisonReason(value: string) {
   comparisonReason.value = value
   comparisonReasonContext.value = comparison.value?.context || ''
   queueSave(250)
 }
-const hasComparison = computed(() => task.value.task_kind === 'evaluation' && Boolean(task.value.comparison && task.value.comparison.active !== false))
+const hasComparison = computed(() => task.value.task_kind === 'evaluation' && performanceComparisonGroups(task.value.comparison).some(group => group.active !== false))
 const ratingAnswersKey = computed(() => JSON.stringify(task.value.form_schema.flatMap(section => section.fields.filter(field => field.type === 'rating').map(field => [field.id, answers[field.id]]))))
 watch(ratingAnswersKey, () => { if (hasComparison.value && canEdit.value && !submitting.value && !comparisonDialogOpen.value) scheduleComparison() })
 const formRef = ref<{ focusField: (id: string) => void } | null>(null)
@@ -298,7 +306,7 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
     Object.assign(answers, loaded.editable && loaded.submit_allowed && !viewing.value && !draftPending.value ? performanceTemplateInitialAnswers(loaded.form_schema, values) : values)
     savedAnswers = JSON.stringify(writableAnswers(true))
     const restoreReasonDraft = decision !== 'discard' && !viewing.value && !draftPending.value && !loaded.final_result_locked && (useDraft || !loaded.has_draft)
-    resetComparison(loaded.comparison || null, restoreReasonDraft ? loaded.draft_diff_reason : undefined)
+    resetComparison(loaded.comparison || null, restoreReasonDraft ? loaded.draft_diff_reason : undefined, restoreReasonDraft ? loaded.draft_comparison_reasons : undefined)
     comparisonReasonContext.value = restoreReasonDraft ? loaded.draft_comparison_context || loaded.comparison?.context || '' : loaded.comparison?.context || ''
     savedComparisonDraft = JSON.stringify(comparisonDraft())
     if (hasComparison.value && !viewing.value && !draftPending.value) scheduleComparison()
@@ -441,16 +449,22 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
     const payload = JSON.parse(JSON.stringify(writableAnswers()))
     const latestComparison = hasComparison.value ? await refreshComparison() : null
     if (!current() || latestComparison === undefined) return
-    const needsReason = Boolean(latestComparison?.active !== false && latestComparison?.matches.length && latestComparison.fill_in_diff_reason)
-    if (needsReason && (confirmedContext !== latestComparison!.context || latestComparison!.reason_required && !comparisonReason.value.trim())) {
+    const reasonGroups = performanceComparisonReasonGroups(latestComparison)
+    const needsReason = reasonGroups.length > 0
+    const latestContext = performanceComparisonContext(latestComparison)
+    const missingReason = reasonGroups.some(group => group.reason_required && !(latestComparison?.groups !== undefined ? comparisonReasons.value.find(item => item.rule_id === group.rule_id)?.diff_reason : comparisonReason.value)?.trim())
+    if (needsReason && (confirmedContext !== latestContext || missingReason)) {
       comparisonOverdueConfirmed.value = overdueConfirmed
-      comparisonDialogContext.value = latestComparison!.context
-      comparisonDialogError.value = confirmedContext && confirmedContext !== latestComparison!.context ? '对比来源或规则已更新，请核对后重新确认，已填写的理由已保留' : ''
+      comparisonDialogContext.value = latestContext
+      comparisonDialogError.value = confirmedContext && confirmedContext !== latestContext ? '对比来源或规则已更新，请核对后重新确认，已填写的理由已保留' : ''
       overdueConfirmOpen.value = false
       comparisonDialogOpen.value = true
       return
     }
-    const comparisonPayload = latestComparison?.active !== false && latestComparison ? { comparison_context: latestComparison.context, ...(needsReason ? { diff_reason: comparisonReason.value } : {}) } : undefined
+    const activeGroups = performanceComparisonGroups(latestComparison).filter(group => group.active !== false)
+    const comparisonPayload: PerformanceComparisonSubmission | undefined = latestComparison?.groups !== undefined
+      ? { comparison_reasons: activeGroups.map(group => ({ rule_id: group.rule_id, comparison_context: group.context, diff_reason: reasonGroups.includes(group) ? comparisonReasons.value.find(item => item.rule_id === group.rule_id)?.diff_reason ?? '' : null })) }
+      : latestComparison && activeGroups.length ? { comparison_context: latestComparison.context, ...(needsReason ? { diff_reason: comparisonReason.value } : {}) } : undefined
     const employeeNo = contextEmployeeNo.value
     const result = !props.embedded && props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
@@ -523,8 +537,8 @@ async function submit(overdueConfirmed = false, confirmedContext?: string) {
       try {
         const refreshed = await refreshComparison()
         if (!current()) return
-        comparisonDialogContext.value = refreshed?.context
-        comparisonDialogOpen.value = Boolean(refreshed?.active !== false && refreshed?.matches.length && refreshed.fill_in_diff_reason)
+        comparisonDialogContext.value = performanceComparisonContext(refreshed)
+        comparisonDialogOpen.value = performanceComparisonReasonGroups(refreshed).length > 0
         comparisonDialogError.value = saveMessage.value
       } catch { if (current()) comparisonDialogError.value = saveMessage.value }
     }

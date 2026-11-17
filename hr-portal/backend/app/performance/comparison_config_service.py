@@ -175,19 +175,26 @@ class PerformanceComparisonConfigService:
         return frozen
 
     async def normalize_rules(self, rules, template_ids, previous=()):
-        if not isinstance(rules, list) or len(rules) > 1:
-            comparison_error("COMPARISON_ITEM_NOT_SHARED", "每周期至多配置一组差异规则")
+        if not isinstance(rules, list):
+            comparison_error("COMPARISON_ITEM_NOT_SHARED", "差异规则必须为列表")
+        previous_by_id = {rule["id"]: rule for rule in previous}
         normalized = []
+        seen = set()
         for value in rules:
             try:
                 rule = ComparisonRule.model_validate(value).model_dump()
             except ValidationError as exc:
                 comparison_error("COMPARISON_ITEM_NOT_SHARED", str(exc))
-            previous_id = previous[0]["id"] if previous else None
-            if rule["id"] is not None and rule["id"] != previous_id:
+            if rule["id"] is None and len(rules) == len(previous) == 1:
+                rule["id"] = previous[0]["id"]
+            if rule["id"] is not None and (rule["id"] not in previous_by_id or rule["id"] in seen):
                 comparison_error("COMPARISON_RULES_VERSION_CONFLICT", "规则身份已失效，请刷新后重试", 409)
-            rule["id"] = previous_id or uuid4().hex
-            await self.validate_rule(rule, template_ids)
+            rule["id"] = rule["id"] or uuid4().hex
+            seen.add(rule["id"])
+            if rule != previous_by_id.get(rule["id"]):
+                await self.validate_rule(rule, template_ids)
+            elif rule["template_id"] not in template_ids:
+                comparison_error("COMPARISON_ITEM_NOT_SHARED", "请先删除使用该模板的差异规则")
             normalized.append(rule)
         return normalized
 
@@ -202,8 +209,8 @@ class PerformanceComparisonConfigService:
             comparison_error("COMPARISON_RULES_VERSION_CONFLICT", "规则已变更，请刷新后重试", 409)
         previous = getattr(cycle, "semester_diff_rules", None) or []
         incoming = payload["semester_diff_rules"]
-        if not isinstance(incoming, list) or len(incoming) > 1:
-            comparison_error("COMPARISON_ITEM_NOT_SHARED", "每周期至多配置一组差异规则")
+        if not isinstance(incoming, list):
+            comparison_error("COMPARISON_ITEM_NOT_SHARED", "差异规则必须为列表")
         # Same-value saves remain possible after start, even if the live template changed.
         comparable = []
         for value in incoming:
@@ -211,16 +218,18 @@ class PerformanceComparisonConfigService:
                 rule = ComparisonRule.model_validate(value).model_dump()
             except ValidationError as exc:
                 comparison_error("COMPARISON_ITEM_NOT_SHARED", str(exc))
-            if previous and rule["id"] is None:
+            if len(incoming) == len(previous) == 1 and rule["id"] is None:
                 rule["id"] = previous[0]["id"]
             comparable.append(rule)
         if comparable == previous:
             if any(rule["template_id"] not in template_ids for rule in previous):
                 comparison_error("COMPARISON_ITEM_NOT_SHARED", "请先删除使用该模板的差异规则")
             return
-        if incoming and await self.has_started_projects(cycle.cycle_ref):
+        remaining = {rule["id"]: rule for rule in previous}
+        deletion_only = len(comparable) < len(previous) and len({rule["id"] for rule in comparable}) == len(comparable) and all(rule == remaining.get(rule["id"]) for rule in comparable)
+        if incoming and not deletion_only and await self.has_started_projects(cycle.cycle_ref):
             comparison_error("COMPARISON_RULES_LOCKED", "已有启动项目，暂不支持修改" if previous else "已有启动项目，不支持添加", 409)
-        normalized = await self.normalize_rules(incoming, template_ids, previous)
+        normalized = await self.normalize_rules(comparable, template_ids, previous)
         removed = {rule["id"] for rule in previous} - {rule["id"] for rule in normalized}
         if removed:
             await self.db.execute(update(PerformanceComparisonNotification).where(
