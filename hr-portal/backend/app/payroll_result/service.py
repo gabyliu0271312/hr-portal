@@ -75,7 +75,7 @@ async def list_payroll_rows(
 
     items: list[dict[str, Any]] = []
     for row in rows:
-        items.append(_build_item(row, hidden_cols, masked_cols))
+        items.append(_build_item(row, Model, hidden_cols, masked_cols))
 
     return {
         "items": items,
@@ -86,18 +86,21 @@ async def list_payroll_rows(
     }
 
 
-def _build_item(row: Any, hidden_cols: set[str], masked_cols: set[str]) -> dict[str, Any]:
-    """单行组装：脱敏 + 透出组织投影回填列（纯函数，便于测试）。"""
+def _build_item(row: Any, model: Any, hidden_cols: set[str], masked_cols: set[str]) -> dict[str, Any]:
+    """单行组装：脱敏 + 透出组织投影回填列（纯函数，便于测试）。
+
+    显式按模型物理列遍历（与 DataTableView 同款），避免 Row._mapping 在
+    动态反射模型上把整行模型对象当列值返回导致 Pydantic 序列化失败。
+    """
     item: dict[str, Any] = {"_id": getattr(row, "id", None)}
     synced = getattr(row, "synced_at", None)
     item["_synced_at"] = synced.isoformat() if synced else None
 
-    mapping = getattr(row, "_mapping", None)
-    if mapping is None:
-        return item
-    for name, value in mapping.items():
+    for column in model.__table__.columns:
+        name = column.name
         if name in {"id", "pk_hash", "raw"}:
             continue
+        value = getattr(row, name, None)
         if name in hidden_cols:
             continue
         if name in masked_cols:

@@ -60,6 +60,25 @@ class _RowObj:
             setattr(self, k, v)
 
 
+class _Col:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Table:
+    def __init__(self, *col_names):
+        self.columns = [_Col(n) for n in col_names]
+
+
+# 工资表模型物理列（含 id/pk_hash/raw 内部列 + 业务列 + 投影列）
+_MODEL = type("M", (), {"__table__": _Table(
+    "id", "pk_hash", "raw", "synced_at", "pay_month", "employee_no",
+    "full_name", "org_node_code", "org_level_1_code", "org_level_2_code",
+    "org_level_3_code", "org_level_4_code", "base_salary",
+)})()
+_MODEL.__table__._model = _MODEL
+
+
 def _row(**kw):
     defaults = {
         "id": 1,
@@ -78,8 +97,12 @@ def _row(**kw):
     return _RowObj(**defaults)
 
 
+def _build(row, hidden=(), masked=()):
+    return _build_item(row, _MODEL, set(hidden), set(masked))
+
+
 def test_build_item_keeps_values_and_projection():
-    item = _build_item(_row(), set(), set())
+    item = _build(_row())
     assert item["employee_no"] == "E001"
     assert item["full_name"] == "张三"
     assert item["org_level_1_code"] == "A"  # 校验器回填的投影列透出
@@ -89,7 +112,7 @@ def test_build_item_keeps_values_and_projection():
 
 
 def test_build_item_masks_sensitive_fields():
-    item = _build_item(_row(), set(), {"base_salary", "employee_no"})
+    item = _build(_row(), masked={"base_salary", "employee_no"})
     assert item["base_salary"] == MASK
     assert item["employee_no"] == MASK
     assert item["full_name"] == "张三"  # 姓名未 mask
@@ -97,12 +120,12 @@ def test_build_item_masks_sensitive_fields():
 
 
 def test_build_item_hides_fields():
-    item = _build_item(_row(), {"pay_month"}, set())
+    item = _build(_row(), hidden={"pay_month"})
     assert "pay_month" not in item
     assert item["employee_no"] == "E001"
 
 
 def test_build_item_skips_internal_columns():
-    item = _build_item(_row(), set(), set())
+    item = _build(_row())
     assert "id" not in item
     assert "pk_hash" not in item
