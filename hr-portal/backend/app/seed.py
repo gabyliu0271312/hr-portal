@@ -210,6 +210,15 @@ MENU_TREE: list[dict] = [
                     {"code": "people.organization", "label": "组织", "icon": "Share"},
                     # B20.b：成本中心树复用样例（同一通用入口，只读检索/展开，不建专属 CRUD）
                     {"code": "people.cost_center", "label": "成本中心", "icon": "Wallet"},
+                    # 薪酬 Tab：分摊结果页（只读列表 + 编辑占位弹窗，字段后台可配）
+                    {
+                        "code": "people.salary",
+                        "label": "薪酬",
+                        "icon": "Money",
+                        "children": [
+                            {"code": "people.salary.allocation_result", "label": "分摊结果", "icon": "Histogram"},
+                        ],
+                    },
                     # B01.d：三个主数据/字段设置功能收敛进创梦人力后台（复用旧菜单 code 只挪位置）
                     {
                         "code": "people.admin",

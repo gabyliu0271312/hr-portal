@@ -810,6 +810,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/master-data/CostCenter.vue'),
         meta: { label: '成本中心', menuCode: 'people.cost_center' },
       },
+      {
+        path: 'salary/allocation-result',
+        name: 'SalaryAllocationResult',
+        component: () => import('@/views/salary/AllocationResult.vue'),
+        meta: { label: '分摊结果', menuCode: 'people.salary.allocation_result' },
+      },
     ],
   },
   {

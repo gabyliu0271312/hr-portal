@@ -80,4 +80,15 @@ describe('PeopleLayout admin entry', () => {
     expect(wrapper.text()).not.toContain('人员信息')
     wrapper.unmount()
   })
+
+  it('shows 薪酬 tab and 分摊结果 sidebar on salary tab', () => {
+    route.path = '/people/salary/allocation-result'
+    menus = [{ code: 'people.admin' }]
+    const wrapper = mountLayout()
+    expect(wrapper.text()).toContain('薪酬')
+    expect(wrapper.text()).toContain('分摊结果')
+    expect(wrapper.text()).not.toContain('人员信息')
+    expect(wrapper.text()).not.toContain('组织架构')
+    wrapper.unmount()
+  })
 })

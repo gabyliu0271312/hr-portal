@@ -17,6 +17,12 @@
             type="button"
             @click="router.push('/people/organization')"
           >组织</button>
+          <button
+            class="people-tab"
+            :class="{ 'is-active': isActive('/people/salary') }"
+            type="button"
+            @click="router.push('/people/salary/allocation-result')"
+          >薪酬</button>
         </nav>
       </div>
       <div class="header-right">
@@ -44,6 +50,9 @@
         <template v-else-if="isActive('/people/organization') || isActive('/people/cost-center')">
           <div class="menu-item" :class="{ active: isActive('/people/organization') }" @click="router.push('/people/organization')">组织架构</div>
           <div class="menu-item" :class="{ active: isActive('/people/cost-center') }" @click="router.push('/people/cost-center')">成本中心</div>
+        </template>
+        <template v-else-if="isActive('/people/salary')">
+          <div class="menu-item active" @click="router.push('/people/salary/allocation-result')">分摊结果</div>
         </template>
       </el-aside>
 
