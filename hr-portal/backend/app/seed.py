@@ -217,6 +217,7 @@ MENU_TREE: list[dict] = [
                         "icon": "Money",
                         "children": [
                             {"code": "people.salary.allocation_result", "label": "分摊结果", "icon": "Histogram"},
+                            {"code": "people.salary.payroll_result", "label": "薪资结果", "icon": "Money"},
                         ],
                     },
                     # B01.d：三个主数据/字段设置功能收敛进创梦人力后台（复用旧菜单 code 只挪位置）
