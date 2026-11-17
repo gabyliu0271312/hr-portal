@@ -9,6 +9,7 @@ from app.warehouse.schemas import (
     FieldGroupListOut,
     FieldGroupOut,
     FieldGroupUpdateIn,
+    PeopleFieldOut,
     PeopleFieldsOut,
     StandardFieldBindingActionIn,
     StandardFieldBindingCandidateOut,
