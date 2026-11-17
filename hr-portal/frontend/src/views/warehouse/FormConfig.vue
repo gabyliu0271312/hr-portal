@@ -5,6 +5,7 @@ import UiSurface from '@/components/ui/UiSurface.vue'
 import UiSortableTable, { type UiSortableColumn } from '@/components/ui/UiSortableTable.vue'
 import PerformanceLineTabs from '@/components/performance/PerformanceLineTabs.vue'
 import UiDialogShell from '@/components/ui/UiDialogShell.vue'
+import UiButton from '@/components/ui/UiButton.vue'
 import SearchInput from '@/components/common/SearchInput.vue'
 import { standardFieldsApi, type PeopleField } from '@/api/standardFields'
 import { useUserStore } from '@/stores/user'
@@ -175,15 +176,10 @@ onBeforeUnmount(() => { ++request })
             class="form-config__tabs"
           />
           <div class="form-config__toolbar">
-            <!-- 添加字段：设计稿 17:1096 实心主按钮·带图标新建 -->
-            <button
-              v-if="canEdit"
-              type="button"
-              class="form-config__add"
-              @click="openAdd"
-            >
+            <!-- 添加字段：UiButton 实心主按钮（17:1096 组件，padding 固定 4/11、高32、圆角6） -->
+            <UiButton v-if="canEdit" variant="primary" @click="openAdd">
               <el-icon class="form-config__add-icon"><Plus /></el-icon>添加字段
-            </button>
+            </UiButton>
           </div>
           <div v-loading="loading" class="form-config__table">
             <UiSortableTable
@@ -251,8 +247,8 @@ onBeforeUnmount(() => { ++request })
       </div>
       <template #footer>
         <div class="form-config__footer">
-          <button type="button" class="form-config__btn form-config__btn--outline" @click="addOpen = false">取消</button>
-          <button type="button" class="form-config__btn form-config__btn--primary" :disabled="!selectedIds.length" @click="confirmAdd">确定</button>
+          <UiButton variant="outline-primary" @click="addOpen = false">取消</UiButton>
+          <UiButton variant="primary" :disabled="!selectedIds.length" @click="confirmAdd">确定</UiButton>
         </div>
       </template>
     </UiDialogShell>
@@ -275,25 +271,7 @@ onBeforeUnmount(() => { ++request })
 .form-config__card > .el-alert { margin-top: var(--spacing-4); }
 .form-config__tabs { margin-bottom: var(--page-gap-toolbar-table); }
 .form-config__toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--page-gap-toolbar-items); margin-bottom: var(--page-gap-toolbar-table); }
-/* 添加字段：设计稿 17:1096 实心主按钮·带图标新建（高度32 / 内边距11 4 / 圆角6 / 主色填充） */
-.form-config__add {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 4px 11px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--color-primary);
-  color: #fff;
-  cursor: pointer;
-  font: 500 14px/22px var(--font-sans);
-  white-space: nowrap;
-}
-.form-config__add:hover { background: var(--color-primary-hover); }
-.form-config__add:active { background: var(--color-primary-active); }
-.form-config__add:focus-visible { outline: 2px solid var(--performance-button-focus-ring); outline-offset: 2px; }
-.form-config__add-icon { width: 16px; height: 16px; }
+.form-config__add-icon { width: 16px; height: 16px; margin-right: 4px; }
 .form-config__table { display: flex; flex-direction: column; min-width: 0; }
 /* 表格编码/名称列：左对齐、留足空间、超长省略 + hover 完整显示 */
 .form-config__code, .form-config__name { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
@@ -346,25 +324,6 @@ onBeforeUnmount(() => { ++request })
 .form-config__candidate-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .form-config__candidate-group { flex: 0 0 90px; color: var(--color-text-placeholder); font-size: 12px; text-align: left; }
 .form-config__candidates-empty { margin: 0; padding: 16px; color: var(--color-text-secondary); text-align: center; }
-/* 弹窗 footer：确定(实心)/取消(描边) 右下角（13:60 / 13:92 / 13:93） */
+/* 弹窗 footer：UiButton（13:60 设计 token，确定实心/取消描边，右下角） */
 .form-config__footer { display: flex; justify-content: flex-end; gap: var(--ui-dialog-footer-gap, 12px); }
-.form-config__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 32px;
-  padding: 4px 11px;
-  border-radius: 6px;
-  cursor: pointer;
-  font: 500 14px/22px var(--font-sans);
-  white-space: nowrap;
-}
-.form-config__btn--primary { border: 0; background: var(--color-primary); color: #fff; }
-.form-config__btn--primary:hover:not(:disabled) { background: var(--color-primary-hover); }
-.form-config__btn--primary:active:not(:disabled) { background: var(--color-primary-active); }
-.form-config__btn--primary:disabled { background: var(--color-border); color: #fff; cursor: not-allowed; }
-.form-config__btn--outline { border: 1px solid var(--color-border); background: transparent; color: var(--color-text-regular); }
-.form-config__btn--outline:hover { background: var(--color-bg-hover); }
-.form-config__btn:focus-visible { outline: 2px solid var(--performance-button-focus-ring); outline-offset: 2px; }
 </style>

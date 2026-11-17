@@ -29,6 +29,7 @@ const stubs = {
   }),
   PerformanceLineTabs: defineComponent({ props: ['modelValue', 'tabs'], emits: ['update:modelValue'], template: '<div class="tabs-stub"><button v-for="t in tabs" :key="t.key" @click="$emit(\'update:modelValue\', t.key)">{{ t.label }}</button></div>' }),
   UiDialogShell: defineComponent({ props: ['modelValue', 'title'], template: '<div class="dialog-stub">{{ modelValue }}<slot/><slot name="footer"/></div>' }),
+  UiButton: defineComponent({ props: ['variant', 'disabled'], emits: ['click'], template: '<button :disabled="disabled" @click="$emit(\'click\')"><slot/></button>' }),
   SearchInput: defineComponent({ template: '<input/>' }),
   ElAlert: defineComponent({ props: ['title', 'type'], template: '<p class="alert">{{ title }}</p>' }),
 }
