@@ -63,6 +63,7 @@ from app.automation.router import router as automation_router
 from app.data_compare.router import router as data_compare_router
 from app.allocation.router import router as allocation_router
 from app.allocation_result.router import router as allocation_result_router
+from app.payroll_result.router import router as payroll_result_router
 from app.ai_formula.router import router as ai_formula_router
 from app.cost_allocation.router import router as cost_allocation_router
 from app.warehouse.router import router as warehouse_router
@@ -278,6 +279,7 @@ app.include_router(table_tools_router, prefix=settings.API_PREFIX)
 app.include_router(cost_allocation_router, prefix=settings.API_PREFIX)
 app.include_router(allocation_router, prefix=settings.API_PREFIX)
 app.include_router(allocation_result_router, prefix=settings.API_PREFIX)
+app.include_router(payroll_result_router, prefix=settings.API_PREFIX)
 app.include_router(admin_tables_router, prefix=settings.API_PREFIX)
 app.include_router(push_router, prefix=settings.API_PREFIX)
 app.include_router(feishu_router, prefix=settings.API_PREFIX)

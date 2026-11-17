@@ -843,3 +843,28 @@ B业务能力未有完整交付证据；“待开发”仍须先查已有通用�
 - **自动化证据**：`PeopleRoster.spec.ts` 新增 2 用例（隐藏列后表头列跟随、全空行进入空态且分页隐藏/空态插图出现）→ **7 passed**；`UiTable.spec.ts` → **16 passed**；`vue-tsc --noEmit` 全量通过（EXIT 0）。
 - **PC 证据（待补）**：未登录 dev 栈 PC 走查（隐藏列后表头实际消失、空态插图实际显示）。留待用户确认。
 - **未做/停止**：不改后端 total/查询、不改字段归属状态（数据全空根因是字段未归属，属 021 主数据后续卡范围，非本卡）、不提交推送/未部署。
+
+### 9.16 薪酬结果页 + 工资表入库校验 + 组织信息分组（2026-11-17，开发中）
+
+- **目标/授权**：用户确认走 UCP 数据连接（流程编排→资产写入）同步，目标资产选组织架构；校验挂在资产写入（`WarehouseAssetSink`），按字段所属分组的权威源分派，不污染通用 UCP 连接器。本轮只做工资表（薪资结果页 + 工资表入库校验 + 组织投影回填 + 组织信息分组）；花名册/分摊表校验记为后续需求。
+- **已冻结口径（用户定稿）**：
+  - 校验通用规则：表复用了某分组字段 → 按该分组权威源一致性校验（姓名/组织名称强校验）。
+  - 设计 B：`field_groups` 加 `authority_source` 属性；新增「组织信息」分组（权威源=org_tree），组织类字段归入该分组。
+  - 校验失败整批 FAILED 不落库（021"失败不发布部分结果"），错误可追溯。
+  - 人员校验：工资行员工编号 ∈ 花名册（在职+离职都算）。
+  - 工资表是完整事实表（带姓名/组织名称等全量），展示列=物理列按 field_code 匹配；页面复用 PeopleRoster 壳；无薪酬字段→空态；「薪酬信息」分组由用户后续在字段管理里建字段。
+  - 菜单：`people.salary.payroll_result`，label「薪资结果」，迁移写入 + role_menus 授权。
+  - 层级显示名：后端只认 1/2/3/4 级，公司级/中心/部门/组仅前端显示名映射。
+- **后续需求（本轮不做）**：花名册/分摊表同步校验迁移、组织投影回填在花名册/分摊表上的应用，沿用本卡校验通用规则。
+
+**2026-11-17 开发完成（代码+单测+构建，未部署/未PC走查）**：
+
+- **后端实现**：
+  - `data/models.py` `FieldGroup` 加 `authority_source` 列（分组承载校验权威源）。
+  - 新增 `warehouse/asset_sink_validation.py`：`validate_rows_for_asset` 按资产表列所属分组的权威源分派——`org_tree`（组织编码存在+名称强一致+`org_level_1..4_code` 投影回填，parent_id 链回溯 RootOrg 不计）、`roster`（员工编号存在含离职+姓名强一致）；失败抛 `WarehouseValidationError` 整批拒绝。
+  - `warehouse/asset_sink.py` `write()` 与 `_write_period_full_snapshot()` 在 clean_rows 后、写库前接入校验。
+  - 新增 `payroll_result/`（service + router）：`GET /payroll-result/fields`（表单绑定 `form_key=payroll_result` 驱动列）、`GET /payroll-result/rows`（工资表 `emp_monthly_salary` 人员 D person_first + 字段脱敏 + 投影列透出），菜单 `people.salary.payroll_result`。
+  - 迁移 `0311_field_group_authority_source`（挂 0310_pm_multiple_comparison_rules 后，线性单 head）：`field_groups.authority_source` 列；新增「组织信息」分组（权威源=org_tree）+ 组织类字段（company_org/department/department_2..5/org_node_code/bu）归入该分组（仅 group_id，不动 entity_id）；新增「薪酬信息」分组（供用户后续建薪酬字段）；`people.salary.payroll_result` 菜单 + 超管授权；`payroll_result` 表单初始绑定（月份/工号/姓名/末级组织编码/组织投影 1-4 级编码）。
+- **前端实现**：`views/salary/PayrollResult.vue`（复用 PeopleRoster 壳：标准字段驱动列 + 隐藏列 localStorage + 空态插图 + 人员 D）；`router/index.ts` 加 `/people/salary/payroll-result`（menuCode 逐字符匹配）；`layouts/PeopleLayout.vue` 薪酬分组侧栏加「薪资结果」项；`api/payrollResult.ts` 客户端。
+- **自动化证据**：后端 `test_asset_sink_validation.py`（10）+ `test_payroll_result.py`（6）→ **16 passed**；回归 `test_standard_field_catalog.py`+`test_standard_field_direct_identity.py`+`test_people_fields.py`+`test_org_hierarchy.py` → **74 passed / 158 skipped** 无回归；`test_allocation_entity.py` 3 failed 经 stash 验证为**基线失败**（与本次改动无关）。前端 `PayrollResult.spec.ts`（6）+`PeopleRoster.spec.ts`（7）+`PeopleLayout.spec.ts`（6）→ **19 passed**；`vue-tsc --noEmit` 干净；`npx vite build` 成功且 `PayrollResult-*.js/css` chunk 生成。
+- **未做/停止**：未运行真库迁移（0311 未应用到任何库）、未 PC 走查、未部署；工资表当前无数据（薪资结果页先空态）；花名册/分摊表校验记为后续需求；不提交推送（并行绩效会话有未提交改动，本轮不打包提交）；未接真实来源、未切树/报表、未开放 Person 编辑。

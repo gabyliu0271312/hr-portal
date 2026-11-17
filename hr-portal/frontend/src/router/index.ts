@@ -816,6 +816,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/salary/AllocationResult.vue'),
         meta: { label: '分摊结果', menuCode: 'people.salary.allocation_result' },
       },
+      {
+        path: 'salary/payroll-result',
+        name: 'SalaryPayrollResult',
+        component: () => import('@/views/salary/PayrollResult.vue'),
+        meta: { label: '薪资结果', menuCode: 'people.salary.payroll_result' },
+      },
     ],
   },
   {

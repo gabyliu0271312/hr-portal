@@ -52,7 +52,8 @@
           <div class="menu-item" :class="{ active: isActive('/people/cost-center') }" @click="router.push('/people/cost-center')">成本中心</div>
         </template>
         <template v-else-if="isActive('/people/salary')">
-          <div class="menu-item active" @click="router.push('/people/salary/allocation-result')">分摊结果</div>
+          <div class="menu-item" :class="{ active: isActive('/people/salary/allocation-result') }" @click="router.push('/people/salary/allocation-result')">分摊结果</div>
+          <div class="menu-item" :class="{ active: isActive('/people/salary/payroll-result') }" @click="router.push('/people/salary/payroll-result')">薪资结果</div>
         </template>
       </el-aside>
 

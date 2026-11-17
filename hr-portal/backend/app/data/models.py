@@ -263,13 +263,18 @@ class RegisteredTable(Base):
 
 
 class FieldGroup(Base):
-    """全局一套的字段业务分组（工作信息/个人信息/银行卡…），与敏感分类独立。"""
+    """全局一套的字段业务分组（工作信息/个人信息/银行卡…），与敏感分类独立。
+
+    authority_source: 分组承载校验权威源（org_tree / roster / None）。
+    设计 B：表复用了某分组的字段 → 落库时按该分组权威源做一致性校验。
+    """
     __tablename__ = "field_groups"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    authority_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

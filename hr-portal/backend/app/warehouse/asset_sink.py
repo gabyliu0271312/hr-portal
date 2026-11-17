@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.data.ddl import validate_column_name, validate_table_name, require_warehouse_table
 from app.data.models import RegisteredTable, TableColumn
 from app.datasources.models import DataSource
+from app.warehouse.asset_sink_validation import validate_rows_for_asset
 
 
 def _business_key_hash(row: dict, primary_key: str | list[str] | tuple[str, ...]) -> str:
@@ -76,6 +77,8 @@ class WarehouseAssetSink:
         clean_rows = [{key: row.get(key) for key in whitelist if key in row} for row in rows if isinstance(row, dict)]
         if not primary_key:
             raise ValueError("warehouse asset writes require a business primary key")
+        # 创梦人力专有校验（按字段分组权威源分派）；失败整批拒绝不落库
+        clean_rows = await validate_rows_for_asset(self.db, target_asset, clean_rows)
         for row in clean_rows:
             row["pk_hash"] = _business_key_hash(row, primary_key)
         if write_mode == "upsert" and any(not row.get(primary_key) for row in clean_rows):
@@ -157,6 +160,8 @@ class WarehouseAssetSink:
         ]
         if not clean_rows:
             raise ValueError("按期间全量快照不允许空数据批次")
+        # 创梦人力专有校验（按字段分组权威源分派）；失败整批拒绝不落库
+        clean_rows = await validate_rows_for_asset(self.db, target_asset, clean_rows)
         periods = {str(row.get(period_field, "")) for row in clean_rows}
         if len(periods) != 1 or not next(iter(periods)):
             raise ValueError("按期间全量快照批次必须且只能包含一个有效期间")
