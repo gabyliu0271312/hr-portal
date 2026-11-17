@@ -24,7 +24,7 @@ const stubs = {
   PerformanceTableSummary: defineComponent({ props: ['total', 'hiddenColumnCount'], emits: ['columns'], template: '<div class="table-summary">{{ total }}<button @click="$emit(\'columns\')">列设置</button></div>' }),
   UiTable: defineComponent({
     props: ['columns', 'rows', 'loading', 'emptyText'],
-    template: '<div class="ui-table-stub"><span class="ui-table-columns">{{ columns.length }}</span><span class="ui-table-rows">{{ rows.length }}</span><slot name="empty" :loading="loading" :text="emptyText" /><slot name="cell" :row="rows[0]" :column="columns[0]" /></div>',
+    template: '<div class="ui-table-stub"><span class="ui-table-columns">{{ columns.length }}</span><span class="ui-table-rows">{{ rows.length }}</span><template v-if="rows.length"><slot name="cell" :row="rows[0]" :column="columns[0]" /></template><slot name="empty" :loading="loading" :text="emptyText" /></div>',
   }),
   UiPagination: defineComponent({ template: '<div class="pagination-stub" />' }),
   UiDialogShell: defineComponent({ props: ['modelValue', 'title'], template: '<div class="dialog-stub">{{ modelValue }}<slot/><slot name="footer"/></div>' }),
@@ -104,5 +104,23 @@ describe('AllocationResult', () => {
     const wrapper = mount(AllocationResult, options)
     await flushPromises()
     expect(wrapper.text()).toContain('暂无字段')
+  })
+
+  it('全空行进入空态（8803 行全 --）', async () => {
+    // 模拟真实：total 有值但可见字段全无值（字段未绑定/无数据）
+    allocationApi.rows.mockResolvedValue({
+      items: Array.from({ length: 20 }, (_, i) => ({ _id: i, _cc_valid: true })),
+      total: 8803,
+      page: 1,
+      page_size: 20,
+      hidden_columns: [],
+    })
+    const wrapper = mount(AllocationResult, options)
+    await flushPromises()
+    // 摘要显示 0（无可见数据），空态插图出现
+    expect(wrapper.find('.table-summary').text()).toContain('0')
+    expect(wrapper.find('.empty-illustration').exists()).toBe(true)
+    expect(wrapper.text()).toContain('暂无分摊结果数据。')
+    wrapper.unmount()
   })
 })

@@ -85,6 +85,15 @@ const columnOptions = computed<PerformanceColumnOption[]>(() => fields.value.map
 const visibleColumns = computed(() => selectedColumnKeys.value.map(key => columnOptions.value.find(column => column.key === key)).filter((column): column is PerformanceColumnOption => Boolean(column)))
 const hiddenColumnCount = computed(() => Math.max(0, fields.value.length - visibleColumns.value.length))
 
+/** 可见字段（按隐藏列偏好过滤后的字段定义）。 */
+const visibleFieldList = computed(() => fields.value.filter(field => selectedColumnKeys.value.includes(String(field.id))))
+
+/** 当前页是否存在可见字段值；字段全空时视为无数据，进入空态。 */
+const hasVisibleData = computed(() => rows.value.some(row => visibleFieldList.value.some(field => cellValue(row, field) !== undefined)))
+
+/** 表格只渲染有可见字段值的行；全空行不显示为"空行"。 */
+const displayedRows = computed(() => rows.value.filter(row => visibleFieldList.value.some(field => cellValue(row, field) !== undefined)))
+
 function cellValue(row: AllocationRow, field: AllocationField): unknown {
   const key = valueKey(field)
   if (!key) return undefined
@@ -207,11 +216,11 @@ onBeforeUnmount(() => { ++request })
             <SearchInput v-model="keyword" placeholder="搜索月份、工号、编码等" @keyup.enter="search" />
             <button type="button" class="allocation-result__search" @click="search">查询</button>
           </div>
-          <PerformanceTableSummary :total="total" :hidden-column-count="hiddenColumnCount" @columns="drawerOpen = true" />
+          <PerformanceTableSummary :total="hasVisibleData ? total : 0" :hidden-column-count="hiddenColumnCount" @columns="drawerOpen = true" />
           <div v-loading="loading" class="allocation-result__table">
             <UiTable
               :columns="tableColumns"
-              :rows="rows"
+              :rows="displayedRows"
               :row-key="row => String(row._id)"
               :loading="loading"
               :empty-text="fields.length ? '暂无分摊结果数据。' : '暂无字段，可在后台字段设置中添加。'"
@@ -221,7 +230,9 @@ onBeforeUnmount(() => { ++request })
             >
               <template #cell="{ row, column }">
                 <template v-if="column.key === '_action'">
-                  <button type="button" class="allocation-result__edit" @click.stop="openEdit(row)">编辑</button>
+                  <span class="org-table__actions">
+                    <button type="button" class="org-table__action" :aria-label="`编辑${(row as AllocationRow)?.employee_no ?? ''}`" @click.stop="openEdit(row as AllocationRow)">编辑</button>
+                  </span>
                 </template>
                 <span v-else :class="{ 'is-cc-invalid': column.key === 'code' && row._cc_valid === false }">{{ cellValue(row, fieldByKey.get(column.key)!) ?? '--' }}</span>
               </template>
@@ -235,7 +246,7 @@ onBeforeUnmount(() => { ++request })
               </template>
             </UiTable>
           </div>
-          <UiPagination v-if="total" class="allocation-result__pagination" :page="page" :page-size="pageSize" :total="total" @page-change="page = $event" @page-size-change="pageSize = $event; page = 1" />
+          <UiPagination v-if="hasVisibleData" class="allocation-result__pagination" :page="page" :page-size="pageSize" :total="total" @page-change="page = $event" @page-size-change="pageSize = $event; page = 1" />
         </div>
       </template>
     </UiSurface>
@@ -294,17 +305,21 @@ onBeforeUnmount(() => { ++request })
   cursor: pointer;
   font: 400 14px/32px var(--font-sans);
 }
-.allocation-result__edit {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+/* 操作列按钮：与创梦人力-组织-成本中心操作列同一套设计 token */
+.org-table__actions { display: inline-flex; align-items: center; gap: var(--ui-tree-action-gap); }
+.org-table__action {
+  height: var(--ui-tree-action-height);
+  padding: 0 var(--ui-tree-action-padding-x);
+  border: 0;
+  border-radius: var(--ui-tree-action-radius);
   background: transparent;
-  color: var(--color-primary);
+  color: var(--ui-tree-action-color);
   cursor: pointer;
-  font: 400 13px/26px var(--font-sans);
+  font: 400 14px/var(--ui-tree-action-height) var(--font-sans);
+  white-space: nowrap;
 }
-.allocation-result__edit:hover { background: var(--color-bg-hover); }
+.org-table__action:hover { background: var(--ui-tree-action-hover-background); }
+.org-table__action:focus-visible { outline: 2px solid var(--performance-button-focus-ring); outline-offset: 2px; }
 .allocation-result__table { display: flex; flex-direction: column; min-width: 0; }
 .allocation-result__empty { display: flex; flex-direction: column; align-items: center; gap: var(--spacing-2); padding: var(--spacing-5) 0; }
 .allocation-result__empty-text { color: var(--color-text-secondary); font-size: var(--font-size-md); line-height: var(--ui-table-line-height); }
