@@ -1,0 +1,275 @@
+"""Frozen cross-stage rating comparison and authorized projections."""
+from copy import deepcopy
+import hashlib
+import json
+import operator
+
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.performance.assessment_roles import ROLE_REVIEWER_360, node_role_code
+from app.performance.models import PerformanceCycle, PerformanceNodeTask, PerformanceProjectMember, PerformanceProjectNodeSnapshot
+from app.performance.self_summary_service import build_self_summary_schema, project_reference_content
+from app.performance import shared_result_service as shared_results
+
+
+_OPERATORS = {"eq": operator.eq, "gt": operator.gt, "gte": operator.ge, "lt": operator.lt, "lte": operator.le}
+_PUBLIC_KEYS = ("rule_id", "show_notice_in_review", "fill_in_diff_reason", "reason_required", "context", "reason")
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
+def _field(schema, content_id, item_id):
+    sections = [section for section in schema if str(section.get("id")) == content_id and not section.get("allow_multiple")]
+    fields = [field for section in sections for field in section.get("fields", []) if str(field.get("id")) == item_id and field.get("type") == "rating"]
+    if len(fields) != 1 or sum(str(field.get("id")) == item_id for section in schema for field in section.get("fields", [])) != 1:
+        return None
+    return fields[0]
+
+
+def _value(value, option_ids):
+    if isinstance(value, dict):
+        value = value.get("id") or value.get("value") or value.get("option_id")
+    return str(value) if value is not None and str(value) in option_ids else None
+
+
+def ordinary_evaluation(node):
+    template = (node.config or {}).get("template") or {}
+    return node.node_type == "evaluation" and node_role_code({"node_type": node.node_type, **template}) != ROLE_REVIEWER_360
+
+
+def active_rules(project, cycle):
+    snapshot = (getattr(project, "settings", None) or {}).get("comparison_rules_snapshot") or {}
+    if snapshot.get("version") != 1:
+        return []
+    active = {rule.get("id") for rule in (getattr(cycle, "semester_diff_rules", None) or [])}
+    template_id = (project.settings or {}).get("template_id")
+    return [rule for rule in snapshot.get("rules", []) if rule.get("id") in active and str(rule.get("template_id")) == str(template_id)]
+
+
+def compare_ratings(rule, records, previous=None):
+    """Compare every formal result pair, using only frozen option order."""
+    matches, combinations, contexts = [], [], []
+    first_id, second_id = rule["first_node_id"], rule["second_node_id"]
+    for indicator in rule.get("indicator_diff_rules", []):
+        content_id, item_id = str(indicator["content_id"]), str(indicator["item_id"])
+        option_ids = [str(value) for value in indicator.get("option_ids", [])]
+        if not option_ids or len(option_ids) != len(set(option_ids)):
+            continue
+        for first in records.get(first_id, []):
+            for second in records.get(second_id, []):
+                first_field = _field(first["schema"], content_id, item_id)
+                second_field = _field(second["schema"], content_id, item_id)
+                if first_field is None or second_field is None:
+                    continue
+                a, b = _value(first["answers"].get(item_id), option_ids), _value(second["answers"].get(item_id), option_ids)
+                identity = [content_id, item_id, first.get("identity", first["task_id"]), second.get("identity", second["task_id"])]
+                combinations.append([*identity, a, b])
+                contexts.append([*identity, a, b, first["version"], second["version"]])
+                if a is None or b is None:
+                    continue
+                difference = abs(option_ids.index(a) - option_ids.index(b))
+                if not _OPERATORS[indicator["operator"]](difference, indicator["threshold"]):
+                    continue
+                hidden_name = first_field.get("hide_name") or second_field.get("hide_name")
+                matches.append({"content_id": content_id, "item_id": item_id,
+                    "label": "" if hidden_name else first_field.get("label", ""),
+                    "operator": indicator["operator"], "threshold": indicator["threshold"], "difference": difference,
+                    "first_node_id": first_id, "second_node_id": second_id,
+                    "first_task_id": first["task_id"], "second_task_id": second["task_id"],
+                    "first_version": first["version"], "second_version": second["version"],
+                    "first_value": a, "second_value": b})
+    signature = _digest([rule["id"], sorted(combinations, key=lambda item: json.dumps(item, sort_keys=True))])
+    previous = previous or {}
+    sequence = previous.get("event_sequence", 0) + (signature != previous.get("rating_signature"))
+    return {"rule_id": rule["id"], "first_node_id": first_id, "second_node_id": second_id,
+        "matches": matches, "show_notice_in_review": bool(rule.get("show_notice_in_review")),
+        "fill_in_diff_reason": bool(rule.get("fill_in_diff_reason")), "reason_required": bool(rule.get("fill_in_diff_reason") and rule.get("diff_reason_required", True)),
+        "send_notification": bool(rule.get("send_notification")), "context": _digest([rule, contexts]),
+        "rating_signature": signature, "previous_rating_signature": previous.get("rating_signature"),
+        "event_sequence": sequence, "reason": previous.get("reason"), "_contexts": contexts,
+        "_indicators": [{"content_id": str(indicator["content_id"]), "item_id": str(indicator["item_id"])} for indicator in rule.get("indicator_diff_rules", [])]}
+
+
+def project_comparison(comparison, schemas, current_node_id=None):
+    if comparison is None:
+        return None
+    first_id, second_id = comparison["first_node_id"], comparison["second_node_id"]
+    first_schema, second_schema = schemas.get(first_id, []), schemas.get(second_id, [])
+    matches = []
+    for match in comparison["matches"]:
+        first = _field(first_schema, match["content_id"], match["item_id"])
+        second = _field(second_schema, match["content_id"], match["item_id"])
+        if first is None or second is None:
+            continue
+        visible = deepcopy(match)
+        visible["label"] = "" if first.get("hide_name") or second.get("hide_name") else first.get("label", "")
+        source_is_first = current_node_id == second_id
+        visible["source_task_id"] = visible["first_task_id" if source_is_first else "second_task_id"]
+        visible["source_version"] = visible["first_version" if source_is_first else "second_version"]
+        matches.append(visible)
+    contexts = [item for item in comparison.get("_contexts", []) if _field(first_schema, item[0], item[1]) and _field(second_schema, item[0], item[1])]
+    if not contexts and not matches:
+        allowed = any(_field(first_schema, item["content_id"], item["item_id"]) and _field(second_schema, item["content_id"], item["item_id"]) for item in comparison.get("_indicators", []))
+        if not allowed:
+            return None
+    result = {key: deepcopy(comparison.get(key)) for key in _PUBLIC_KEYS}
+    result.update(matches=matches, context=_digest([comparison["rule_id"], contexts]))
+    result["reason_required"] = bool(matches and comparison["reason_required"])
+    # A group reason may describe a hidden condition; never expose it partially.
+    if len(matches) != len(comparison["matches"]):
+        result["reason"] = None
+    return result
+
+
+async def evaluate_task(db, task, node, project, answers=None, *, viewer_template=None, viewer_schemas=None, all_formal=None, include_history=False):
+    if all_formal is None:
+        all_formal = answers is None
+    if project is None or not ordinary_evaluation(node):
+        return None, None
+    snapshot = (getattr(project, "settings", None) or {}).get("comparison_rules_snapshot") or {}
+    if not snapshot.get("rules"):
+        return None, None
+    cycle = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
+    rules = [rule for rule in active_rules(project, cycle) if node.node_id in (rule["first_node_id"], rule["second_node_id"])]
+    historical = None
+    if not rules:
+        if not include_history:
+            return None, None
+        saved = getattr(task, "comparison_state", None) or {}
+        if not saved.get("reason") or not saved.get("matches"):
+            return None, None
+        rule = next((rule for rule in snapshot.get("rules", []) if rule.get("id") == saved.get("rule_id") and node.node_id in (rule["first_node_id"], rule["second_node_id"])), None)
+        if rule is None:
+            return None, None
+        historical = deepcopy(saved)
+    else:
+        rule = rules[0]
+    from app.performance import projects_router as routes
+    nodes = list((await db.execute(select(PerformanceProjectNodeSnapshot).where(
+        PerformanceProjectNodeSnapshot.project_id == project.id,
+        PerformanceProjectNodeSnapshot.node_id.in_([rule["first_node_id"], rule["second_node_id"]]),
+    ))).scalars().all())
+    nodes = [candidate for candidate in nodes if ordinary_evaluation(candidate)]
+    if len(nodes) != 2:
+        return None, None
+    tasks = list((await db.execute(select(PerformanceNodeTask).where(
+        PerformanceNodeTask.project_id == project.id, PerformanceNodeTask.cycle_ref == task.cycle_ref,
+        PerformanceNodeTask.member_snapshot_id == task.member_snapshot_id,
+        PerformanceNodeTask.target_employee_no == task.target_employee_no,
+        PerformanceNodeTask.node_snapshot_id.in_([candidate.id for candidate in nodes]),
+        PerformanceNodeTask.revoked_at.is_(None),
+    ).order_by(PerformanceNodeTask.id))).scalars().all())
+    templates, records = {}, {}
+    for candidate in nodes:
+        candidate_tasks = [source for source in tasks if source.node_snapshot_id == candidate.id]
+        if candidate.id == node.id and not all_formal:
+            candidate_tasks = [task]
+        template = await routes._reference_template(next(iter(candidate_tasks), None), candidate, project, db)
+        templates[candidate.node_id] = template
+        records[candidate.node_id] = []
+        shared_seen = False
+        if answers is not None and candidate.id == node.id:
+            candidate_tasks.sort(key=lambda source: source.id != task.id)
+        for source in candidate_tasks:
+            is_current = source.id == task.id
+            shared = shared_results.participates(source, candidate)
+            if shared and shared_seen:
+                continue
+            if is_current and answers is not None:
+                schema = build_self_summary_schema(template)
+                visible_answers = answers
+                revision = task.answer_version
+            else:
+                if source.submitted_at is None or source.status != "completed":
+                    continue
+                schema, visible_answers = await routes._task_visible_content(source, candidate, db, template=template)
+                revision = source.answer_version
+            shared_seen = shared_seen or shared
+            record = {"task_id": source.id, "version": revision, "schema": schema, "answers": visible_answers}
+            if shared_results.participates(source, candidate):
+                member = await db.scalar(select(PerformanceProjectMember).where(PerformanceProjectMember.snapshot_id == source.member_snapshot_id, PerformanceProjectMember.employee_no == source.target_employee_no))
+                state = getattr(member, "shared_result_state", None) or {}
+                if not (is_current and answers is not None):
+                    record["version"] = state.get("revision", revision)
+                    record["task_id"] = state.get("source_task_id") or source.id
+                record["identity"] = f"shared:{task.member_snapshot_id}:{candidate.node_id}"
+            records[candidate.node_id].append(record)
+    if answers is not None and not all_formal:
+        # Other evaluators at the current node are not the result being submitted.
+        records[node.node_id] = [record for record in records[node.node_id] if record["task_id"] == task.id]
+    comparison = compare_ratings(rule, records, getattr(task, "comparison_state", None))
+    schemas = viewer_schemas
+    if schemas is None:
+        viewer_template = viewer_template if viewer_template is not None else templates[node.node_id]
+        schemas = {}
+        for node_id, template in templates.items():
+            if node_id == node.node_id and viewer_template is templates[node.node_id]:
+                schemas[node_id] = build_self_summary_schema(template)
+            elif node_id == node.node_id and viewer_template == templates[node.node_id]:
+                schemas[node_id] = build_self_summary_schema(template)
+            else:
+                relation = next((content for content in viewer_template.get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == node_id), None)
+                schemas[node_id] = project_reference_content(template, relation, {})[0] if relation is not None else []
+    names = {}
+    for candidate in nodes:
+        if viewer_template is not None and viewer_template != templates[node.node_id]:
+            relation = next((content for content in viewer_template.get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == candidate.node_id), {})
+        elif candidate.node_id != node.node_id:
+            relation = next((content for content in templates[node.node_id].get("content", []) if content.get("content_slot") == "reference" and content.get("reference_kind") == "node" and str(content.get("reference_value")) == candidate.node_id), {})
+        else:
+            relation = {}
+        names[candidate.node_id] = (relation.get("reference_settings") or {}).get("page_name") or candidate.name
+    def with_names(result):
+        if result is not None:
+            for match in result["matches"]:
+                match["first_node_name"] = names.get(rule["first_node_id"], "")
+                match["second_node_name"] = names.get(rule["second_node_id"], "")
+                match["reference_node_name"] = names.get(rule["first_node_id"] if node.node_id == rule["second_node_id"] else rule["second_node_id"], "")
+        return result
+    if historical is not None:
+        historical.update(active=False, show_notice_in_review=False, fill_in_diff_reason=False, reason_required=False)
+        projected = project_comparison(historical, schemas, node.node_id)
+        if projected is not None and projected.get("reason"):
+            projected.update(active=False, historical=True)
+            return None, with_names(projected)
+        return None, None
+    projected = project_comparison(comparison, schemas, node.node_id)
+    if projected is not None:
+        projected.update(active=True, historical=False)
+    return comparison, with_names(projected)
+
+
+def set_actor_draft(task, actor_ref, reason, context=None):
+    state = deepcopy(getattr(task, "comparison_state", None) or {})
+    drafts = state.get("actor_drafts") or {}
+    if reason is None or not reason.strip():
+        drafts.pop(str(actor_ref), None)
+    else:
+        drafts[str(actor_ref)] = {"reason": reason, "context": context}
+    if drafts:
+        state["actor_drafts"] = drafts
+    else:
+        state.pop("actor_drafts", None)
+    task.comparison_state = state or None
+
+
+def actor_draft_projection(task, actor_ref, comparison):
+    entry = ((getattr(task, "comparison_state", None) or {}).get("actor_drafts") or {}).get(str(actor_ref)) if comparison is not None and comparison.get("active", True) else None
+    return {"draft_diff_reason": entry.get("reason") if entry else None,
+            "draft_comparison_context": entry.get("context") if entry else None}
+
+
+def validate_submission(comparison, projected, reason, context):
+    if comparison is None:
+        return None
+    if projected is not None and context is not None and context != projected["context"]:
+        raise HTTPException(409, "COMPARISON_SOURCE_CHANGED")
+    reason = (reason or "").strip()
+    if projected is not None and projected["reason_required"] and not reason:
+        raise HTTPException(400, "DIFF_REASON_REQUIRED")
+    state = {key: deepcopy(value) for key, value in comparison.items() if key != "_contexts"}
+    state["reason"] = reason if projected and projected["matches"] and projected["fill_in_diff_reason"] else None
+    return state

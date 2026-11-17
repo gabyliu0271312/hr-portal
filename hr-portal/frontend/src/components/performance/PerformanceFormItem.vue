@@ -1,6 +1,6 @@
 <template>
   <div class="performance-form-item" :class="{ 'performance-form-item--invalid': invalid }">
-    <div class="performance-form-item__label"><PerformanceRequiredLabel :label="label" :required="required" /><slot name="label-extra" /></div>
+    <div class="performance-form-item__label"><label v-if="inputId" :for="inputId"><PerformanceRequiredLabel :label="label" :required="required" /></label><PerformanceRequiredLabel v-else :label="label" :required="required" /><slot name="label-extra" /></div>
     <div v-if="$slots.description" class="performance-form-item__description"><slot name="description" /></div>
     <div class="performance-form-item__control" :aria-describedby="describedBy">
       <slot />
@@ -15,6 +15,7 @@ import PerformanceRequiredLabel from './PerformanceRequiredLabel.vue'
 
 withDefaults(defineProps<{
   label: string
+  inputId?: string
   required?: boolean
   invalid?: boolean
   errorMessage?: string

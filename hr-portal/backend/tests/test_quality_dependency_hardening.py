@@ -55,17 +55,18 @@ async def test_internal_quality_queue_creation_is_atomic_upsert():
     await engine._ensure_internal_jobs()
 
     assert db.commits == 1
-    assert len(db.statements) == 5
+    assert len(db.statements) == 6
     sql = "\n".join(
         str(statement.compile(dialect=postgresql.dialect()))
         for statement in db.statements
     )
-    assert sql.count("ON CONFLICT (kind, business_id) DO NOTHING") == 5
+    assert sql.count("ON CONFLICT (kind, business_id) DO NOTHING") == 6
     assert [statement.compile().params["kind"] for statement in db.statements] == [
         "quality_queue",
         "cost_center_notification_queue",
         "performance_result_opening",
         "performance_reconsideration",
+        "performance_comparison",
         "performance_cycle_lifecycle",
     ]
     assert db.statements[-1].compile().params["cron"] == "*/5 * * * *"

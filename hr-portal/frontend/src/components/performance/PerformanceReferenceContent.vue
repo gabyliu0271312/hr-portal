@@ -1,6 +1,7 @@
 <template>
   <section class="performance-reference-content" :aria-label="reference.node_name">
     <h2 v-if="showTitle" class="reference-content-title">{{ reference.node_name }}</h2>
+    <PerformanceComparisonNotice v-if="reference.status === 'completed' || reference.final_result_locked" :comparison="reference.comparison" :task-id="reference.task_id" readonly />
     <p v-if="reference.kind === 'okr' && okrLoading" role="status">正在加载 OKR…</p>
     <p v-if="reference.kind === 'okr' && okrError" role="alert">OKR 加载失败 <button type="button" @click="loadOkr">重试</button></p>
     <PerformanceOkrPanel v-if="reference.kind === 'okr' && (okr || okrs.length || !okrLoading && !okrError)" :okr="okr" :okrs="okrs" />
@@ -31,6 +32,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { employeeSwitchEpoch } from '@/stores/identitySwitch'
 import { performanceOkrApi, type EmployeeOkrResponse, type PerformanceReferenceTab } from '@/api/performance'
+import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
 import PerformanceOkrPanel from './PerformanceOkrPanel.vue'
 import PerformanceReviewer360Preview from './PerformanceReviewer360Preview.vue'
 import PerformanceTemplateRenderer from './PerformanceTemplateRenderer.vue'

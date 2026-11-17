@@ -12,6 +12,7 @@
             <PerformanceReviewCompletionNotice v-else-if="managementTabLocked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <template v-if="!managementTab.reconsideration">
             <PerformanceReviewCompletionNotice v-for="(message, index) in managementCompletionMessages" :key="index" :task-id="currentManagementTab ? task?.task_id ?? undefined : managementTab.task_id ?? undefined" :task-kind="managementTab.task_kind" :employee-no="displayPerson.employee_no" :editable="managementTabEditable && index === managementCompletionMessages.length - 1" variant="evaluation-drawer" :message="message" @edit="edit" />
+            <PerformanceComparisonNotice v-if="managementTabLocked" :comparison="managementTab.comparison" :task-id="managementTab.task_id" readonly />
             <PerformanceTemplateRenderer v-if="managementTabLocked" mode="readonly" :sections="managementTab.form_schema" :answers="managementTab.answers" />
             <PerformanceReferenceContent v-else-if="managementTab.kind === 'okr' || managementTab.kind === 'reviewer_360' || managementTab.form_schema.length || managementTab.status === 'completed'" :reference="managementTab" @remind="forwardReminder" />
             <div v-else-if="stageView" class="performance-stage-empty">
@@ -37,6 +38,7 @@
             <template v-else>
             <PerformanceReviewCompletionNotice v-if="task?.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-for="(message, index) in completionMessages" :key="index" :task-id="task?.task_id ?? undefined" :task-kind="task?.task_kind" :employee-no="displayPerson.employee_no" variant="evaluation-drawer" :editable="taskEditable && index === completionMessages.length - 1" :message="message" @edit="edit" />
+            <PerformanceComparisonNotice :comparison="task?.comparison" :task-id="task?.task_id" readonly />
             <PerformanceTemplateRenderer mode="readonly" :sections="task?.form_schema || []" :answers="task?.answers || {}" />
             </template>
           </div>
@@ -46,6 +48,7 @@
             <div class="performance-review-evaluation-drawer__card-title">{{ activeReference.node_name }}</div>
             <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked" :editable="false" variant="evaluation-drawer" :message="FINAL_RESULT_LOCKED_MESSAGE" />
             <PerformanceReviewCompletionNotice v-if="activeReference.final_result_locked && activeReference.answer_submissions?.length" :editable="false" variant="evaluation-drawer" :message="referenceSubmissionMessage" />
+            <PerformanceComparisonNotice v-if="activeReference.final_result_locked" :comparison="activeReference.comparison" :task-id="activeReference.task_id" readonly />
             <PerformanceTemplateRenderer v-if="activeReference.final_result_locked" mode="readonly" :sections="activeReference.form_schema" :answers="activeReference.answers" />
             <PerformanceReferenceContent v-else :reference="activeReference" @remind="forwardReminder" />
           </div>
@@ -64,6 +67,7 @@ import { ElMessage } from 'element-plus'
 import { performanceReviewApi, FINAL_RESULT_LOCKED_MESSAGE, type PerformanceManagementDetail, type PerformanceReferenceTab, type PerformanceReviewMemberContext, type SelfSummaryPerson } from '@/api/performance'
 import UiDrawerShell from '../ui/UiDrawerShell.vue'
 import PerformanceLineTabs, { type PerformanceLineTab } from './PerformanceLineTabs.vue'
+import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
 import PerformancePromptNotice from './PerformancePromptNotice.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceReviewPersonHeader from './PerformanceReviewPersonHeader.vue'

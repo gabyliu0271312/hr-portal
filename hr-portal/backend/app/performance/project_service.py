@@ -1315,7 +1315,7 @@ class PerformanceProjectService:
             return project
         if project.status != PROJECT_STATUS_DRAFT:
             raise ProjectValidationError("当前项目状态不允许启动")
-        cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update())
+        cycle = await self.db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref).with_for_update().execution_options(populate_existing=True))
         if cycle is None:
             raise ProjectValidationError("绩效周期不存在")
         if isinstance(project, PerformanceProject):
@@ -1397,6 +1397,9 @@ class PerformanceProjectService:
             raise ProjectValidationError(str(exc)) from exc
         content_library = list((workflow.content_library if workflow else []) or [])
         before = self.serialize(project)
+        from app.performance.comparison_config_service import PerformanceComparisonConfigService
+        comparison_snapshot = await PerformanceComparisonConfigService(self.db).snapshot(cycle, template_id)
+        project.settings = {**(project.settings or {}), "comparison_rules_snapshot": comparison_snapshot}
         member_snapshot = PerformanceProjectMemberSnapshot(
             project_id=project.id,
             cycle_ref=project.cycle_ref,
@@ -1650,6 +1653,7 @@ class PerformanceProjectService:
     async def copy_project(self, project: PerformanceProject, payload: dict[str, Any] | None = None, *, target_cycle_ref: str | None = None, actor_type: str, actor_id: int) -> PerformanceProject:
         cycle_ref = target_cycle_ref if target_cycle_ref is not None else project.cycle_ref
         source_settings = deepcopy(project.settings or {})
+        source_settings.pop("comparison_rules_snapshot", None)
         values = {
             **source_settings,
             "name": f"{project.name}（副本）"[:128],

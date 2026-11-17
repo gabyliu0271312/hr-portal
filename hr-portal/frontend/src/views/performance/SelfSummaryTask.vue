@@ -42,7 +42,9 @@
               <PerformanceReconsiderationContent v-if="isReconsiderationTask" class="task-reconsideration" :title="task.content_page_name || task.node_name" :reason="task.reconsideration_reason" :model-value="keepResultChoice" :show-result-and-modify="showResultAndModify" :interactive="canEdit && !submitting" @update:model-value="changeKeepResult">
                 <PerformanceTemplateRenderer ref="formRef" class="task-template-renderer" :mode="viewing || draftPending || reconsiderationClosed ? 'readonly' : 'edit'" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="canEdit" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
               </PerformanceReconsiderationContent>
-              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed && !task.final_result_locked" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()" />
+              <PerformanceTemplateRenderer v-else ref="formRef" class="task-template-renderer" :mode="viewing || draftPending ? 'readonly' : 'edit'" :title="task.content_page_name || task.node_name" :sections="task.form_schema" :answers="answers" :errors="errors" :editable="task.editable && task.submit_allowed && !task.final_result_locked && !submitting" @update-answer="updateAnswer" @queue-save="queueSave" @submit="submit()">
+                <template #after-title><PerformanceComparisonNotice :comparison="viewing || draftPending ? task.comparison : comparison" :task-id="task.task_id" :references="task.reference_tabs" :readonly="viewing || draftPending" /></template>
+              </PerformanceTemplateRenderer>
             </div>
           </div>
           <PerformanceReferenceContent v-if="!isSplit && activeReference" class="task-reference-content" show-title :reference="activeReference" @remind="openReminder" />
@@ -51,6 +53,7 @@
       </PerformanceSplitWorkspace>
     </template>
   </PerformanceTaskWorkspace>
+  <PerformanceComparisonReasonDialog v-model="comparisonDialogOpen" :reason="comparisonReason" @update:reason="updateComparisonReason" :comparison="comparison" :task-id="task.task_id" :references="task.reference_tabs" :loading="submitting" :error="comparisonDialogError" @confirm="submit(comparisonOverdueConfirmed, comparisonDialogContext)" />
   <PerformanceMemberReminderDialog v-model="reminderOpen" :context="reminderContext" />
   <PerformanceConfirmDialog v-model="overdueConfirmOpen" appearance="submit" confirm-variant="primary" message="确定提交吗？" description="当前环节已过截止时间，提交后将无法修改内容。" cancel-text="取消" confirm-text="确定" :loading="submitting" :error-message="overdueConfirmError" @confirm="submit(true)" />
   <PerformanceConfirmDialog v-model="giveupConfirmOpen" appearance="submit" confirm-variant="primary" message="确定放弃评估？" description="放弃后将从你的 360° 评估列表中移除，重新评估需再次发起自愿评估。" cancel-text="取消" confirm-text="确定" :loading="givingUp" :error-message="giveupError" @confirm="giveup()" />
@@ -62,6 +65,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getActivePinia } from 'pinia'
 import { usePerformanceProjectContextStore } from '@/stores/performanceProjectContext'
+import PerformanceComparisonNotice from '@/components/performance/PerformanceComparisonNotice.vue'
+import PerformanceComparisonReasonDialog from '@/components/performance/PerformanceComparisonReasonDialog.vue'
+import { usePerformanceComparison } from '@/composables/usePerformanceComparison'
 import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
 import PerformanceDraftChoice from '@/components/performance/PerformanceDraftChoice.vue'
 import PerformanceReviewCompletionNotice from '@/components/performance/PerformanceReviewCompletionNotice.vue'
@@ -117,6 +123,20 @@ const baseResultVersion = ref<number | null | undefined>()
 const sharedResultConflict = ref(false)
 const answers = reactive<Record<string, unknown>>({})
 const errors = reactive<Record<string, string>>({})
+const { comparison, reason: comparisonReason, dialogOpen: comparisonDialogOpen, dialogError: comparisonDialogError, reset: resetComparison, refresh: refreshComparison, schedule: scheduleComparison, invalidate: invalidateComparison } = usePerformanceComparison(() => performanceReviewApi.previewComparison(task.value.task_id, writableAnswers(), task.value.version, contextEmployeeNo.value, baseResultVersion.value))
+const comparisonOverdueConfirmed = ref(false)
+const comparisonDialogContext = ref<string>()
+const comparisonReasonContext = ref('')
+let savedComparisonDraft = ''
+function comparisonDraft() { return { diff_reason: comparisonReason.value, comparison_context: comparisonReasonContext.value } }
+function updateComparisonReason(value: string) {
+  comparisonReason.value = value
+  comparisonReasonContext.value = comparison.value?.context || ''
+  queueSave(250)
+}
+const hasComparison = computed(() => task.value.task_kind === 'evaluation' && Boolean(task.value.comparison && task.value.comparison.active !== false))
+const ratingAnswersKey = computed(() => JSON.stringify(task.value.form_schema.flatMap(section => section.fields.filter(field => field.type === 'rating').map(field => [field.id, answers[field.id]]))))
+watch(ratingAnswersKey, () => { if (hasComparison.value && canEdit.value && !submitting.value && !comparisonDialogOpen.value) scheduleComparison() })
 const formRef = ref<{ focusField: (id: string) => void } | null>(null)
 const activeTab = ref('current')
 const tabs = computed(() => [{ key: 'current', label: task.value.node_name || (loadError.value ? '加载失败' : '加载中…') }, ...(task.value.reference_tabs || []).map(reference => ({ key: reference.key, label: reference.node_name }))])
@@ -165,6 +185,8 @@ const clockTimer = window.setInterval(() => { clock.value = Date.now() }, 1000)
 function resetTaskContext() {
   ++taskEpoch
   ++loadRequest
+  resetComparison()
+  comparisonOverdueConfirmed.value = false
   window.clearTimeout(saveTimer)
   pendingSave = false
   saveChain = Promise.resolve()
@@ -184,6 +206,8 @@ function errorMessage(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
   if (typeof detail === 'string') {
     const calibrationErrors: Record<string, string> = {
+      COMPARISON_SOURCE_CHANGED: '对比来源或规则已更新，请核对后重新确认，已填写的理由已保留',
+      DIFF_REASON_REQUIRED: '请填写差异理由',
       SHARED_RESULT_VERSION_CONFLICT: '绩效结果已被其他人更新，当前输入已保留，请刷新核对后再提交',
       FINAL_RESULT_CALIBRATED: FINAL_RESULT_LOCKED_MESSAGE,
       RECONSIDERATION_CLOSED: '复议已处理完成，无法继续编辑或提交，请刷新查看最新结果',
@@ -219,6 +243,7 @@ async function lockFinalResultOnConflict(error: unknown) {
 }
 async function load(choice?: 'use' | 'discard' | 'edit') {
   const request = ++loadRequest
+  invalidateComparison()
   const epoch = taskEpoch
   const current = () => !disposed && epoch === taskEpoch && request === loadRequest
   window.clearTimeout(saveTimer)
@@ -272,18 +297,23 @@ async function load(choice?: 'use' | 'discard' | 'edit') {
     keepResultChoice.value = restoredChoice === 'keep' ? 'keep' : 'change'
     Object.assign(answers, loaded.editable && loaded.submit_allowed && !viewing.value && !draftPending.value ? performanceTemplateInitialAnswers(loaded.form_schema, values) : values)
     savedAnswers = JSON.stringify(writableAnswers(true))
+    const restoreReasonDraft = decision !== 'discard' && !viewing.value && !draftPending.value && !loaded.final_result_locked && (useDraft || !loaded.has_draft)
+    resetComparison(loaded.comparison || null, restoreReasonDraft ? loaded.draft_diff_reason : undefined)
+    comparisonReasonContext.value = restoreReasonDraft ? loaded.draft_comparison_context || loaded.comparison?.context || '' : loaded.comparison?.context || ''
+    savedComparisonDraft = JSON.stringify(comparisonDraft())
+    if (hasComparison.value && !viewing.value && !draftPending.value) scheduleComparison()
   } catch (error) {
     if (current()) loadError.value = errorMessage(error, '自我总结加载失败，请稍后重试')
   } finally {
     if (current()) loading.value = false
   }
 }
-function updateAnswer(id: string, value: unknown) { if (canEdit.value) answers[id] = value }
-function queueSave() {
+function updateAnswer(id: string, value: unknown) { if (canEdit.value && !submitting.value) answers[id] = value }
+function queueSave(delay = 350) {
   if (!canEdit.value || sharedResultConflict.value || disposed || submitting.value) return
   window.clearTimeout(saveTimer)
   if (saving.value) { pendingSave = true; return }
-  saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, 350)
+  saveTimer = window.setTimeout(() => { void saveDraft().catch(() => undefined) }, delay)
 }
 function saveDraft() {
   clock.value = Date.now()
@@ -299,16 +329,20 @@ function saveDraft() {
         pendingSave = false
         const writable = writableAnswers(true)
         const serialized = JSON.stringify(writable)
-        if (serialized === savedAnswers) continue
+        const reasonDraft = comparisonDraft()
+        const serializedReason = JSON.stringify(reasonDraft)
+        const saveReason = hasComparison.value && serializedReason !== savedComparisonDraft
+        if (serialized === savedAnswers && !saveReason) continue
         const snapshot = JSON.parse(serialized) as Record<string, unknown>
         saveMessage.value = '正在保存…'
         const employeeNo = contextEmployeeNo.value
         const result = !props.embedded && props.taskKind === 'work_summary'
           ? employeeNo ? await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version, employeeNo) : await performanceReviewApi.saveSelfSummaryDraft(task.value.task_id, snapshot, task.value.version)
-          : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value)
+          : saveReason ? await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value, reasonDraft) : await performanceReviewApi.saveTemplateTaskDraft(task.value.task_id, snapshot, task.value.version, employeeNo, baseResultVersion.value)
         if (!current()) return
         task.value.version = result.version ?? task.value.version
         savedAnswers = serialized
+        if (saveReason) savedComparisonDraft = serializedReason
         saveMessage.value = '已自动保存'
       }
     } catch (error) {
@@ -383,7 +417,7 @@ async function giveup() {
   }
 }
 
-async function submit(overdueConfirmed = false) {
+async function submit(overdueConfirmed = false, confirmedContext?: string) {
   clock.value = Date.now()
   if (submitting.value || !canEdit.value || !validate()) return
   const epoch = taskEpoch
@@ -398,17 +432,33 @@ async function submit(overdueConfirmed = false) {
     }
   }
   window.clearTimeout(saveTimer)
+  if (hasComparison.value && JSON.stringify(comparisonDraft()) !== savedComparisonDraft) void saveDraft().catch(() => undefined)
   submitting.value = true
   pendingSave = false
   try {
     await saveChain.catch(() => undefined)
     if (!current() || reconsiderationClosed.value || !canEdit.value || sharedResultConflict.value) return
     const payload = JSON.parse(JSON.stringify(writableAnswers()))
+    const latestComparison = hasComparison.value ? await refreshComparison() : null
+    if (!current() || latestComparison === undefined) return
+    const needsReason = Boolean(latestComparison?.active !== false && latestComparison?.matches.length && latestComparison.fill_in_diff_reason)
+    if (needsReason && (confirmedContext !== latestComparison!.context || latestComparison!.reason_required && !comparisonReason.value.trim())) {
+      comparisonOverdueConfirmed.value = overdueConfirmed
+      comparisonDialogContext.value = latestComparison!.context
+      comparisonDialogError.value = confirmedContext && confirmedContext !== latestComparison!.context ? '对比来源或规则已更新，请核对后重新确认，已填写的理由已保留' : ''
+      overdueConfirmOpen.value = false
+      comparisonDialogOpen.value = true
+      return
+    }
+    const comparisonPayload = latestComparison?.active !== false && latestComparison ? { comparison_context: latestComparison.context, ...(needsReason ? { diff_reason: comparisonReason.value } : {}) } : undefined
     const employeeNo = contextEmployeeNo.value
     const result = !props.embedded && props.taskKind === 'work_summary'
       ? employeeNo ? await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version, employeeNo) : await performanceReviewApi.submitSelfSummary(task.value.task_id, payload, task.value.version)
-      : await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value)
+      : comparisonPayload ? await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value, comparisonPayload) : await performanceReviewApi.submitTemplateTask(task.value.task_id, payload, task.value.version, employeeNo, baseResultVersion.value)
     if (!current()) return
+    task.value.comparison = result.comparison ?? latestComparison
+    comparisonDialogOpen.value = false
+    comparisonDialogError.value = ''
     baseResultVersion.value = result.result_version
     task.value.answer_submissions = result.answer_submissions
     task.value.submitted_at = result.submitted_at
@@ -467,6 +517,17 @@ async function submit(overdueConfirmed = false) {
     if (!current()) return
     if ((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail === 'SHARED_RESULT_VERSION_CONFLICT') sharedResultConflict.value = true
     saveMessage.value = errorMessage(error, '提交失败，内容已保留，请稍后重试')
+    if (comparisonDialogOpen.value) comparisonDialogError.value = saveMessage.value
+    const comparisonCode = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    if (comparisonCode === 'COMPARISON_SOURCE_CHANGED' || comparisonCode === 'DIFF_REASON_REQUIRED') {
+      try {
+        const refreshed = await refreshComparison()
+        if (!current()) return
+        comparisonDialogContext.value = refreshed?.context
+        comparisonDialogOpen.value = Boolean(refreshed?.active !== false && refreshed?.matches.length && refreshed.fill_in_diff_reason)
+        comparisonDialogError.value = saveMessage.value
+      } catch { if (current()) comparisonDialogError.value = saveMessage.value }
+    }
     closeReconsiderationOnConflict(error)
     await lockFinalResultOnConflict(error)
     if (overdueConfirmOpen.value) overdueConfirmError.value = saveMessage.value

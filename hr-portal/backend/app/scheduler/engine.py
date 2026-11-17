@@ -62,6 +62,7 @@ class SchedulerEngine:
                 ("cost_center_notification_queue", {"batch_size": 20}),
                 ("performance_result_opening", {}),
                 ("performance_reconsideration", {}),
+                ("performance_comparison", {"batch_size": 20}),
                 ("performance_cycle_lifecycle", {}),
             ):
                 cron = "*/5 * * * *" if kind == "performance_cycle_lifecycle" else "* * * * *"
@@ -166,9 +167,19 @@ class SchedulerEngine:
             )
             db.add(run)
             await db.flush()
+            started_run_id = run.id
 
             try:
                 handler = get_handler(job.kind)
+                if job.kind == "performance_comparison":
+                    from app.performance.comparison_notification_service import CLAIM_INFO_KEY, claim_notifications
+
+                    run_id = run.id
+                    claimed_ids = await claim_notifications(db, run_id, batch_size=int((job.payload or {}).get("batch_size", 20)))
+                    await db.commit()
+                    await db.refresh(job)
+                    await db.refresh(run)
+                    db.info[CLAIM_INFO_KEY] = {"job_id": job.id, "run_id": run_id, "ids": claimed_ids}
                 rows, message = await handler(job, db, triggered_by)
                 run.finished_at = datetime.now(UTC)
                 run.status = "success"
@@ -190,17 +201,19 @@ class SchedulerEngine:
                 # 重新建一个 session 写失败历史（前一个事务已 rollback）
                 async with self._session_factory() as db2:
                     job2 = await db2.get(ScheduledJob, job_id)
-                    run2 = JobRun(
-                        job_id=job_id,
-                        kind=job2.kind if job2 else "unknown",
-                        business_id=job2.business_id if job2 else None,
-                        status="failed",
-                        triggered_by=triggered_by,
-                        finished_at=datetime.now(UTC),
-                        message=str(e)[:1000],
-                        payload_snapshot=deepcopy(job2.payload) if job2 and job2.payload else None,
-                    )
-                    db2.add(run2)
+                    run2 = await db2.get(JobRun, started_run_id) if job2 and job2.kind == "performance_comparison" else None
+                    if run2 is None:
+                        run2 = JobRun(
+                            job_id=job_id,
+                            kind=job2.kind if job2 else "unknown",
+                            business_id=job2.business_id if job2 else None,
+                            triggered_by=triggered_by,
+                            payload_snapshot=deepcopy(job2.payload) if job2 and job2.payload else None,
+                        )
+                        db2.add(run2)
+                    run2.status = "failed"
+                    run2.finished_at = datetime.now(UTC)
+                    run2.message = str(e)[:1000]
                     if job2:
                         job2.last_run_at = run2.finished_at
                         job2.last_status = "failed"

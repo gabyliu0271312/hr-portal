@@ -1,84 +1,126 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PerformanceComparisonRuleDrawer from './PerformanceComparisonRuleDrawer.vue'
-
+import PerformanceAssessmentSelect from './PerformanceAssessmentSelect.vue'
+import PerformanceCheckbox from './PerformanceCheckbox.vue'
+import PerformanceRadioGroup from './PerformanceRadioGroup.vue'
+import type { PerformanceComparisonCandidates, PerformanceComparisonRule } from '@/api/performance'
+const mocks = vi.hoisted(() => ({ options: vi.fn() }))
+vi.mock('@/api/performance', () => ({ performanceCycleApi: { comparisonOptions: mocks.options } }))
+const candidates: PerformanceComparisonCandidates = {
+  templates: [{ template_id: 101, name: '年度模板', stages: [{ node_id: 'self', name: '员工自评' }, { node_id: 'manager', name: '上级评价' }, { node_id: 'peer', name: '同事评价' }] }],
+  items: [{ content_id: 'content', item_id: 'rating', label: '绩效等级', option_ids: ['a', 'b', 'c'] }], warnings: [],
+}
+const config: PerformanceComparisonRule = { id: 'rule-1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'gte', threshold: 2 }], show_notice_in_review: true, fill_in_diff_reason: true, diff_reason_required: false, send_notification: false }
 const stubs = {
-  UiDrawerShell: {
-    props: ['modelValue', 'title'],
-    template: '<div v-if="modelValue" class="drawer-shell"><h2>{{ title }}</h2><slot /><slot name="footer" /></div>',
-  },
-  PerformanceDrawerFooter: {
-    emits: ['confirm', 'cancel'],
-    template: '<footer><button class="confirm" @click="$emit(\'confirm\')">提交</button><button class="cancel" @click="$emit(\'cancel\')">取消</button></footer>',
-  },
+  UiDrawerShell: { props: ['modelValue', 'title'], template: '<div v-if="modelValue" class="drawer-shell"><h2>{{ title }}</h2><slot /><slot name="footer" /></div>' },
+  PerformanceDrawerFooter: { props: ['confirmDisabled'], emits: ['confirm', 'cancel'], template: '<footer><button class="confirm" :disabled="confirmDisabled" @click="$emit(\'confirm\')">提交</button><button class="cancel" @click="$emit(\'cancel\')">取消</button></footer>' },
 }
-
-const stages = [{ id: 'self', label: '员工自评' }, { id: 'manager', label: '上级评价' }]
-const items = [{ id: 'rating', label: '绩效等级' }]
-
-function mountDrawer() {
-  return mount(PerformanceComparisonRuleDrawer, {
-    props: { modelValue: true, stageOptions: stages, itemOptions: items },
-    global: { stubs },
-  })
+const wrappers: ReturnType<typeof mount>[] = []
+async function mountDrawer(initialValue?: PerformanceComparisonRule) {
+  const wrapper = mount(PerformanceComparisonRuleDrawer, { props: { modelValue: true, templateIds: [101], initialValue }, global: { stubs } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
 }
-
-async function select(wrapper: ReturnType<typeof mountDrawer>, label: string, option: string) {
-  await wrapper.get(`[aria-label="${label}"]`).trigger('click')
-  await wrapper.vm.$nextTick()
-  const inline = wrapper.findAll('[role="option"]').find(button => button.text() === option)
-  if (inline) {
-    await inline.trigger('click')
-    return
-  }
-  const portalled = [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find(element => element.textContent?.trim() === option)
-  expect(portalled).toBeTruthy()
-  portalled!.click()
-  await wrapper.vm.$nextTick()
+async function selectStage(wrapper: Awaited<ReturnType<typeof mountDrawer>>, index: number, node: string, templateId = 101) {
+  wrapper.findAllComponents(PerformanceAssessmentSelect)[index]!.vm.$emit('update:modelValue', JSON.stringify([templateId, node]))
+  await flushPromises()
 }
-
+beforeEach(() => { mocks.options.mockReset(); mocks.options.mockResolvedValue(structuredClone(candidates)) })
+afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()) })
 describe('PerformanceComparisonRuleDrawer', () => {
-  it('uses the shared drawer and renders the captured sections', () => {
-    const wrapper = mountDrawer()
-    expect(wrapper.get('.drawer-shell h2').text()).toBe('添加需对比的环节')
-    expect(wrapper.findAll('.comparison-rule-section__title').map(item => item.text())).toEqual([
-      '需对比的评估环节', '评估项差异规则', '发生差异时的提示方式',
-    ])
-    expect(wrapper.findAll('.comparison-prompt-row')).toHaveLength(3)
-    expect(wrapper.findAll('[role="option"]')).toHaveLength(0)
-    expect((wrapper.get('[aria-label="删除第1条差异规则"]').element as HTMLButtonElement).disabled).toBe(true)
+  it('loads real candidates only when open and never falls back to all items before a pair', async () => {
+    const wrapper = await mountDrawer()
+    expect(mocks.options).toHaveBeenCalledWith({ template_ids: [101] })
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('options')).toEqual([])
+    expect(wrapper.findAll('.comparison-rule-section__title').map(item => item.text())).toEqual(['需对比的评估环节*', '评估项差异规则*', '发生差异时的提示方式*'])
+    expect(wrapper.get('[aria-label="删除第1条差异规则"]').attributes('disabled')).toBeDefined()
+    await wrapper.setProps({ modelValue: false })
+    const calls = mocks.options.mock.calls.length
+    await wrapper.setProps({ templateIds: [102] })
+    expect(mocks.options).toHaveBeenCalledTimes(calls)
   })
-
-  it('validates incomplete rules and submits the filled draft', async () => {
-    const wrapper = mountDrawer()
+  it('validates then emits canonical numeric rules and captured vertical reason settings', async () => {
+    const wrapper = await mountDrawer()
     await wrapper.get('.confirm').trigger('click')
     expect(wrapper.emitted('submit')).toBeUndefined()
     expect(wrapper.findAll('.comparison-rule-error')).toHaveLength(3)
-
-    await select(wrapper, '第一个评估环节', '员工自评')
-    await select(wrapper, '第二个评估环节', '上级评价')
-    await select(wrapper, '评估项', '绩效等级')
+    await selectStage(wrapper, 0, 'self')
+    await selectStage(wrapper, 1, 'manager')
+    expect(mocks.options).toHaveBeenLastCalledWith({ template_ids: [101], template_id: 101, first_node_id: 'self', second_node_id: 'manager' })
+    wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.vm.$emit('update:modelValue', JSON.stringify(['content', 'rating']))
     await wrapper.get('[aria-label="差异阈值"]').setValue('2')
-    await wrapper.findAll('.comparison-prompt-row input[type="checkbox"]')[0].setValue(true)
+    wrapper.findAllComponents(PerformanceCheckbox)[1]!.vm.$emit('update:modelValue', true)
+    await flushPromises()
+    expect(wrapper.getComponent(PerformanceRadioGroup).props()).toMatchObject({ direction: 'vertical', gap: 'var(--performance-comparison-rule-gap)', modelValue: 'required' })
     await wrapper.get('.confirm').trigger('click')
-
-    expect(wrapper.emitted('submit')?.[0]?.[0]).toEqual({
-      firstStageId: 'self', secondStageId: 'manager',
-      rules: [{ itemId: 'rating', differenceType: 'EQ', threshold: '2' }],
-      promptModes: ['DURING_EVALUATION'],
-    })
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toMatchObject({ template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'eq', threshold: 2 }], fill_in_diff_reason: true, diff_reason_required: true })
   })
-
-  it('keeps a required rule row and resets unsubmitted changes when reopened', async () => {
-    const wrapper = mountDrawer()
+  it('reopens an existing rule including optional reason and submits unchanged identity', async () => {
+    const wrapper = await mountDrawer(config)
+    expect(wrapper.getComponent(PerformanceRadioGroup).props('modelValue')).toBe('optional')
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('modelValue')).toBe(JSON.stringify(['content', 'rating']))
+    await wrapper.get('.confirm').trigger('click')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toEqual(config)
+  })
+  it('retains the draft after a failed request and supports retry with no item fallback', async () => {
+    mocks.options.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = await mountDrawer(config)
+    expect(wrapper.text()).toContain('可选项加载失败，请重试')
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('options')).toEqual([])
+    await wrapper.findAll('button').find(button => button.text() === '重试')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="差异阈值"]').element).toHaveProperty('value', '2')
+    await wrapper.get('.confirm').trigger('click')
+    expect(wrapper.emitted('submit')?.[0]?.[0]).toEqual(config)
+  })
+  it('discards stale pair responses and shows empty common items with directional warnings', async () => {
+    const wrapper = await mountDrawer(config)
+    let resolveOld!: (value: PerformanceComparisonCandidates) => void
+    mocks.options.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    wrapper.findAllComponents(PerformanceAssessmentSelect)[1]!.vm.$emit('update:modelValue', JSON.stringify([101, 'peer']))
+    await wrapper.vm.$nextTick()
+    mocks.options.mockResolvedValueOnce({ ...candidates, items: [], warnings: [{ template_id: 101, stage_id: 'self', ref_stage_id: 'manager', content_id: 'content', item_id: 'rating', message: '该方向无查看权限' }] })
+    await selectStage(wrapper, 1, 'manager')
+    resolveOld(candidates)
+    await flushPromises()
+    expect(wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.props('options')).toEqual([])
+    expect(wrapper.text()).toContain('暂无共有评估项')
+    expect(wrapper.text()).toContain('该方向无查看权限')
+  })
+  it('shows full directional warnings only for selected items and keeps rejected diagnostics', async () => {
+    const warnings = [{ template_id: 101, stage_id: 'self', ref_stage_id: 'manager', content_id: 'content', item_id: 'rating', message: '该方向无权查看参考环节评估项，不会触发差异提示' }, { template_id: 101, stage_id: 'self', ref_stage_id: 'manager', content_id: 'repeated', item_id: 'ambiguous', message: '重复内容缺少稳定实例身份，不能配置' }]
+    mocks.options.mockResolvedValue({ ...candidates, warnings })
+    const wrapper = await mountDrawer()
+    await selectStage(wrapper, 0, 'self')
+    await selectStage(wrapper, 1, 'manager')
+    expect(wrapper.text()).not.toContain('员工自评的环节执行人无法查看')
+    expect(wrapper.text()).toContain('重复内容缺少稳定实例身份，不能配置')
+    wrapper.findAllComponents(PerformanceAssessmentSelect)[2]!.vm.$emit('update:modelValue', JSON.stringify(['content', 'rating']))
+    await flushPromises()
+    expect(wrapper.text()).toContain('绩效模板「年度模板」中，员工自评的环节执行人无法查看上级评价的「绩效等级」评估项，不会触发对应评估项的差异提示。')
+  })
+  it('keeps template identities grouped and prevents pairing across templates or the same node', async () => {
+    mocks.options.mockResolvedValue({ ...candidates, templates: [...candidates.templates, { template_id: 102, name: '第二模板', stages: candidates.templates[0]!.stages }] })
+    const wrapper = await mountDrawer()
+    await wrapper.setProps({ templateIds: [101, 102], cycleId: 7 })
+    await flushPromises()
+    await selectStage(wrapper, 0, 'self', 102)
+    const selects = wrapper.findAllComponents(PerformanceAssessmentSelect)
+    expect(selects[0]!.props('options')).toContainEqual(expect.objectContaining({ id: JSON.stringify([102, 'self']), description: '第二模板' }))
+    expect(selects[1]!.props('options')).toEqual([{ id: JSON.stringify([102, 'manager']), label: '上级评价' }, { id: JSON.stringify([102, 'peer']), label: '同事评价' }])
+  })
+  it('keeps at least one condition and discards unsaved rows on reopen', async () => {
+    const wrapper = await mountDrawer()
     await wrapper.get('.comparison-condition-add').trigger('click')
     expect(wrapper.findAll('.comparison-condition-row')).toHaveLength(2)
     await wrapper.get('[aria-label="删除第2条差异规则"]').trigger('click')
     expect(wrapper.findAll('.comparison-condition-row')).toHaveLength(1)
     await wrapper.get('.comparison-condition-add').trigger('click')
-    await wrapper.get('.cancel').trigger('click')
     await wrapper.setProps({ modelValue: false })
     await wrapper.setProps({ modelValue: true })
+    await flushPromises()
     expect(wrapper.findAll('.comparison-condition-row')).toHaveLength(1)
   })
 })

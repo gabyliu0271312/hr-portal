@@ -3352,7 +3352,7 @@ async def test_self_summary_save_uses_live_project_window_not_frozen_task(monkey
     monkeypatch.setattr(projects_router, "datetime", Clock)
     target = SimpleNamespace(settings={"flow_settings": {"node_times": {"summary": {"start_at": "2026-09-20T00:00:00Z", "end_at": "2026-09-30T00:00:00Z"}}}})
     task = SimpleNamespace(project_id=1, available_at=Clock(2026, 9, 20, tzinfo=UTC), due_at=Clock(2026, 9, 30, tzinfo=UTC), submitted_at=None, status="pending", completed_at=None, answers={}, answer_version=1)
-    node = SimpleNamespace(node_id="summary", config={"time": {"start_at": "2026-09-20T00:00:00Z"}, "template": {"content": [{"content_id": "summary", "type": "work_summary", "name": "工作总结", "items": [{"id": "work", "label": "总结", "settings": {"required": False}}]}]}})
+    node = SimpleNamespace(node_id="summary", node_type="work_summary", config={"time": {"start_at": "2026-09-20T00:00:00Z"}, "template": {"content": [{"content_id": "summary", "type": "work_summary", "name": "工作总结", "items": [{"id": "work", "label": "总结", "settings": {"required": False}}]}]}})
 
     async def fake_task(*_args):
         return task, node
@@ -7400,7 +7400,8 @@ async def test_calibration_source_uses_real_project_lock_and_refreshes_before_re
         return real, data.node
     async def scalar(query):
         assert query._for_update_arg is not None
-        events.append("project-lock")
+        table = query.column_descriptions[0]["entity"].__tablename__
+        events.append("cycle-lock" if table == "performance_cycles" else "project-lock")
         return None
     async def refresh(row, **kwargs):
         events.append("task-refresh" if row is real else "node-refresh")
@@ -7415,7 +7416,7 @@ async def test_calibration_source_uses_real_project_lock_and_refreshes_before_re
     with pytest.raises(HTTPException) as error:
         await data.routes._save_self_summary(real.id, data.routes.SelfSummaryAnswersPayload(answers={"editable": "stale"}, version=1), True, context(), data.db, "evaluation")
     assert error.value.detail == "VERSION_CONFLICT"
-    assert events == ["project-lock", "node-refresh", "task-refresh"]
+    assert events == ["cycle-lock", "project-lock", "node-refresh", "task-refresh"]
     assert not data.db.queries and not data.db.commits
     monkeypatch.setattr(PerformanceAuditService, "append_event", lambda self, event: data.db.added.append(event))
     from app.performance import shared_result_service

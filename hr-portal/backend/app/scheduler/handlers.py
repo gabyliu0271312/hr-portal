@@ -629,7 +629,17 @@ async def _handler_performance_reconsideration(job, db, triggered_by):
     return await dispatch_notifications(db)
 
 
+async def _handler_performance_comparison(job, db, triggered_by):
+    from app.performance.comparison_notification_service import CLAIM_INFO_KEY, dispatch_notifications
+
+    claim = db.info.get(CLAIM_INFO_KEY)
+    if claim is None or claim["job_id"] != job.id:
+        raise RuntimeError("Performance comparison delivery requires an engine-owned claim")
+    return await dispatch_notifications(db, claim["ids"], claim["run_id"])
+
+
 JOB_HANDLERS: dict[str, HandlerFn] = {
+    "performance_comparison": _handler_performance_comparison,
     "performance_reconsideration": _handler_performance_reconsideration,
     "datasource_sync": _handler_datasource_sync,
     "push_target": _handler_push_target,

@@ -20,6 +20,7 @@ const props = withDefaults(defineProps<{
   required?: boolean
   invalid?: boolean
   suffix?: string
+  suffixVariant?: 'inline' | 'addon'
   showControls?: boolean
 }>(), {
   modelValue: '',
@@ -40,6 +41,7 @@ const props = withDefaults(defineProps<{
   required: false,
   invalid: false,
   suffix: '',
+  suffixVariant: 'inline',
   showControls: true,
 })
 
@@ -103,7 +105,7 @@ function adjust(delta: number) {
 <template>
   <div
     class="performance-number-input"
-    :class="{ 'is-disabled': disabled, 'is-readonly': readonly, 'is-invalid': invalid }"
+    :class="{ 'is-disabled': disabled, 'is-readonly': readonly, 'is-invalid': invalid, 'has-addon': suffix && suffixVariant === 'addon' }"
     :data-size="size"
     :data-min="min"
     :data-step="effectiveStep"
@@ -166,5 +168,14 @@ function adjust(delta: number) {
 .performance-number-input.is-disabled .number-stepper button { cursor: not-allowed; }
 .performance-number-input.is-readonly .number-stepper button:disabled { cursor: default; }
 .performance-number-input input:disabled { color: #8f959e; cursor: not-allowed; }
+.performance-number-input.has-addon { overflow: visible; border: 0; background: transparent; }
+.performance-number-input.has-addon:focus-within { box-shadow: none; }
+.has-addon .number-input-wrap { border: 1px solid var(--performance-field-border); border-radius: var(--performance-control-radius) 0 0 var(--performance-control-radius); background: var(--color-bg-card); }
+.has-addon:focus-within .number-input-wrap { border-color: var(--performance-field-border-focus); box-shadow: var(--performance-field-focus-ring); }
+.has-addon.is-invalid .number-input-wrap { border-color: var(--performance-field-border-invalid); box-shadow: none; }
+.has-addon input { padding: var(--performance-number-addon-input-padding-y) var(--performance-number-addon-input-padding-x); }
+.has-addon:has(.number-stepper) input { padding-right: var(--performance-number-addon-input-controls-padding); }
+.has-addon .number-input-suffix { flex-basis: var(--performance-number-addon-width); box-sizing: border-box; border: 1px solid var(--performance-field-border); border-left: 0; border-radius: 0 var(--performance-control-radius) var(--performance-control-radius) 0; }
+.has-addon .number-stepper { position: absolute; top: 1px; bottom: 1px; right: var(--performance-number-addon-width); width: var(--number-input-stepper-width); border-left: 0; }
 .performance-number-input input[readonly] { cursor: default; }
 </style>

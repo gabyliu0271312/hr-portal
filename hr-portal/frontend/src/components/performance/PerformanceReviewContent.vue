@@ -77,6 +77,7 @@
         <template v-else-if="node.status === 'completed'">
           <div class="completed-content">
             <PerformanceReviewCompletionNotice :task-id="node.task_id || undefined" :task-kind="node.task_kind" :editable="Boolean(node.editable)" :message="node.editable ? (node.end_at ? `你可以在 ${formatEditDeadline(node.end_at)} 前继续编辑` : '已提交，可继续编辑') : (node.end_at ? `该环节已在 ${formatEditDeadline(node.end_at)} 截止；如有疑问，请联系你的 HRBP。` : '该环节已截止；如有疑问，请联系你的 HRBP。')" @edit="choice => emit('open-node', { ...node!, draft_choice: choice })" />
+            <PerformanceComparisonNotice :comparison="node.comparison" :task-id="node.task_id" readonly />
             <PerformanceTemplateRenderer v-if="node.form_schema?.length" mode="readonly" :sections="node.form_schema" :answers="node.answers || {}" />
             <p v-else class="completed-fallback">已完成</p>
           </div>
@@ -99,6 +100,7 @@
 import { computed, ref, watch } from 'vue'
 import type { PerformanceDistributionTips, PerformanceReviewMemberContext, PerformanceReviewNode } from '@/api/performance'
 import { performanceWorkbenchApi } from '@/api/performance'
+import PerformanceComparisonNotice from './PerformanceComparisonNotice.vue'
 import PerformanceReviewCompletionNotice from './PerformanceReviewCompletionNotice.vue'
 import PerformanceDisabledReason from './PerformanceDisabledReason.vue'
 import UiButton from '../ui/UiButton.vue'

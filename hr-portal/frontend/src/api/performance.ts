@@ -286,6 +286,7 @@ export type PerformanceReviewMemberContext = {
 }
 
 export interface PerformanceReviewNode {
+  comparison?: PerformanceComparisonResult | null
   draft_choice?: 'use' | 'discard'
   task_id?: number
   node_id: string
@@ -489,12 +490,16 @@ export const performanceReviewApi = {
     const { data } = await api.get<PerformanceTemplateTask>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task`, { params: Object.keys(params).length ? params : undefined })
     return data
   },
-  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null): Promise<SelfSummarySaveResult> {
-    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async previewComparison(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null): Promise<{ comparison: PerformanceComparisonResult | null }> {
+    const { data } = await api.post(`/performance/tasks/${encodeURIComponent(String(taskId))}/comparison/preview`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
-  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null): Promise<SelfSummarySaveResult> {
-    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }) }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+  async saveTemplateTaskDraft(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null, comparison?: PerformanceComparisonSubmission): Promise<SelfSummarySaveResult> {
+    const { data } = await api.patch<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/draft`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }), ...comparison }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
+    return data
+  },
+  async submitTemplateTask(taskId: number | string, answers: Record<string, unknown>, version?: number, employeeNo?: string, resultVersion?: number | null, comparison?: PerformanceComparisonSubmission): Promise<SelfSummarySaveResult> {
+    const { data } = await api.post<SelfSummarySaveResult>(`/performance/tasks/${encodeURIComponent(String(taskId))}/template-task/submit`, { answers, version, ...(resultVersion === undefined ? {} : { result_version: resultVersion }), ...comparison }, { params: employeeNo ? { employee_no: employeeNo } : undefined })
     return data
   },
 }
@@ -1393,6 +1398,7 @@ export type PerformanceReconsiderationDetail = {
   edit_task_id?: number | null
 }
 export type PerformanceReferenceTab = {
+  comparison?: PerformanceComparisonResult | null
   key: string
   content_loaded?: boolean
   /** node=引用其他环节内容；okr=内置 OKR；reviewer_360=逐人360参考内容 */
@@ -1444,6 +1450,9 @@ export type SelfSummaryPerson = {
 }
 export const FINAL_RESULT_LOCKED_MESSAGE = '当前结果已完成校准，你无法再次修改'
 export type PerformanceTemplateTask = {
+  comparison?: PerformanceComparisonResult | null
+  draft_diff_reason?: string | null
+  draft_comparison_context?: string | null
   management_tabs?: PerformanceReferenceTab[]
   default_active_tab?: string
   root_review_id?: number
@@ -1522,7 +1531,7 @@ export type PerformanceReminderPreview = {
   assessee_name: string
 }
 export type SelfSummaryTask = PerformanceTemplateTask
-export type SelfSummarySaveResult = { answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
+export type SelfSummarySaveResult = { comparison?: PerformanceComparisonResult | null; draft_diff_reason?: string | null; draft_comparison_context?: string | null; answers: Record<string, unknown>; version?: number; result_version?: number | null; draft_base_result_version?: number | null; answer_submissions?: Array<{ display_name: string; submitted_at: string }>; submitted_at?: string | null; editable?: boolean; submit_allowed?: boolean; reconsideration_closed?: boolean }
 
 export const performanceWorkbenchApi = {
   async listProjects(keyword?: string, cycleId?: number): Promise<PerformanceWorkbenchProject[]> {
@@ -2388,7 +2397,74 @@ export interface PerformanceCycleDepartmentPage {
   limit: number
 }
 
+export type PerformanceComparisonOperator = 'eq' | 'gt' | 'gte' | 'lt' | 'lte'
+export interface PerformanceComparisonIndicatorRule {
+  content_id: string
+  item_id: string
+  operator: PerformanceComparisonOperator
+  threshold: number
+}
+export interface PerformanceComparisonRule {
+  id?: string | null
+  template_id: number
+  first_node_id: string
+  second_node_id: string
+  indicator_diff_rules: PerformanceComparisonIndicatorRule[]
+  show_notice_in_review: boolean
+  fill_in_diff_reason: boolean
+  diff_reason_required: boolean
+  send_notification: boolean
+}
+export interface PerformanceComparisonCandidatesPayload {
+  template_ids: number[]
+  cycle_id?: number
+  template_id?: number
+  first_node_id?: string
+  second_node_id?: string
+}
+export interface PerformanceComparisonCandidates {
+  templates: Array<{ template_id: number; name: string; stages: Array<{ node_id: string; name: string }> }>
+  items: Array<{ content_id: string; item_id: string; label: string; option_ids: string[] }>
+  warnings: Array<{ template_id: number; stage_id: string; ref_stage_id: string; content_id: string; item_id: string; message: string }>
+}
+export interface PerformanceComparisonMatch {
+  content_id: string
+  item_id: string
+  label: string
+  operator: PerformanceComparisonOperator
+  threshold: number
+  difference: number
+  first_task_id: number
+  second_task_id: number
+  first_version: number
+  second_version: number
+  first_value: string
+  second_value: string
+  reference_node_name?: string
+  first_node_name?: string
+  second_node_name?: string
+}
+export interface PerformanceComparisonResult {
+  rule_id: string
+  matches: PerformanceComparisonMatch[]
+  show_notice_in_review: boolean
+  fill_in_diff_reason: boolean
+  reason_required: boolean
+  context: string
+  reason: string | null
+  active?: boolean
+  historical?: boolean
+}
+export interface PerformanceComparisonSubmission {
+  diff_reason?: string
+  comparison_context?: string
+}
+
 export interface PerformanceCycle {
+  semester_diff_rules?: PerformanceComparisonRule[]
+  comparison_rules_revision?: number
+  comparison_rules_editable?: boolean
+  comparison_rules_editable_reason?: string | null
   id: number
   cycle_ref: string
   name: string
@@ -2426,9 +2502,13 @@ export interface PerformanceCyclePage {
   page_size: number
 }
 
-export type PerformanceCyclePayload = Omit<PerformanceCycle, 'id' | 'cycle_ref' | 'status' | 'people_count' | 'department_count' | 'project_count' | 'projects'>
+export type PerformanceCyclePayload = Omit<PerformanceCycle, 'id' | 'cycle_ref' | 'status' | 'people_count' | 'department_count' | 'project_count' | 'projects' | 'comparison_rules_editable' | 'comparison_rules_editable_reason'>
 
 export const performanceCycleApi = {
+  async comparisonOptions(payload: PerformanceComparisonCandidatesPayload): Promise<PerformanceComparisonCandidates> {
+    const { data } = await api.post<PerformanceComparisonCandidates>('/performance/cycles/comparison-options', payload)
+    return data
+  },
   async list(keyword?: string, page = 1, pageSize = 20): Promise<PerformanceCyclePage> {
     const { data } = await api.get<PerformanceCyclePage>('/performance/cycles', { params: { ...(keyword ? { keyword } : {}), page, page_size: pageSize } })
     return data

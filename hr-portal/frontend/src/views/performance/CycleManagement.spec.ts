@@ -11,6 +11,10 @@ import PerformanceDateTimeField from '@/components/performance/PerformanceDateTi
 import PerformanceDepartmentListPanel from '@/components/performance/PerformanceDepartmentListPanel.vue'
 import PerformanceManagementTable from '@/components/performance/PerformanceManagementTable.vue'
 import PerformanceSearchInput from '@/components/performance/PerformanceSearchInput.vue'
+import PerformanceComparisonRuleSettings from '@/components/performance/PerformanceComparisonRuleSettings.vue'
+import PerformanceComparisonRuleDrawer from '@/components/performance/PerformanceComparisonRuleDrawer.vue'
+import PerformanceConfirmDialog from '@/components/performance/PerformanceConfirmDialog.vue'
+import type { PerformanceComparisonRule } from '@/api/performance'
 import managementTableSource from '@/components/performance/PerformanceManagementTable.vue?raw'
 import peopleDepartmentTabsSource from '@/components/performance/PerformancePeopleDepartmentTabs.vue?raw'
 
@@ -32,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   listEvaluatorOptions: vi.fn(),
   templateList: vi.fn(),
   otherSettingsGet: vi.fn(),
+  comparisonOptions: vi.fn(),
 }))
 
 vi.mock('@/api/performance', () => ({
@@ -42,6 +47,7 @@ vi.mock('@/api/performance', () => ({
     get: mocks.get,
     create: mocks.create,
     update: mocks.update,
+    comparisonOptions: mocks.comparisonOptions,
     listPeople: mocks.listPeople,
     listPeoplePage: mocks.listPeoplePage,
     listDepartmentsPage: mocks.listDepartmentsPage,
@@ -62,6 +68,9 @@ vi.mock('@/api/performance', () => ({
 
 const cycle = {
   id: 1,
+  semester_diff_rules: [],
+  comparison_rules_revision: 0,
+  comparison_rules_editable: true,
   cycle_ref: 'cycle:1',
   name: '2026 年度考核',
   language: 'zh-CN',
@@ -361,6 +370,7 @@ describe('CycleManagement', () => {
     mocks.listPeople.mockResolvedValue([])
     mocks.templateList.mockResolvedValue([{ template_id: 101, name: '已启用模板', description: '模板说明', status: 'active' }])
     mocks.otherSettingsGet.mockResolvedValue({ overdue_single_submission_enabled: true, cycle_overdue_submission_override_enabled: true })
+    mocks.comparisonOptions.mockResolvedValue({ templates: [{ template_id: 101, name: '年度模板', stages: [{ node_id: 'self', name: '员工自评' }, { node_id: 'manager', name: '上级评价' }] }], items: [{ content_id: 'content', item_id: 'rating', label: '绩效等级', option_ids: ['a', 'b'] }], warnings: [] })
     mocks.listEvaluatorOptions.mockResolvedValue({ organization_tree: [{ value: '集团/研发', label: '研发', level: 2, children: [] }], people: [{ value: 'E001', label: '员工（E001）' }], employee_types: [] })
   })
 
@@ -728,11 +738,75 @@ describe('CycleManagement', () => {
     const addButton = wrapper.get('.evaluation-result-rule-add')
     expect(addButton.text()).toBe('添加需对比的环节')
     expect(addButton.attributes('aria-label')).toBe('添加需对比的环节')
-    expect((addButton.element as HTMLButtonElement).disabled).toBe(false)
+    expect((addButton.element as HTMLButtonElement).disabled).toBe(true)
+    wrapper.getComponent(PerformanceSelectShell).vm.$emit('update:modelValue', ['101'])
+    await flushPromises()
+    expect((wrapper.get('.evaluation-result-rule-add').element as HTMLButtonElement).disabled).toBe(false)
 
-    await addButton.trigger('click')
+    await wrapper.get('.evaluation-result-rule-add').trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.performance-drawer__panel')?.textContent).toContain('添加需对比的环节')
+  })
+
+  it('round-trips canonical comparison rules and CAS revision through the existing cycle save', async () => {
+    const rule: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'gte', threshold: 2 }], show_notice_in_review: true, fill_in_diff_reason: true, diff_reason_required: false, send_notification: false }
+    const saved = { ...cycle, template_ids: [101], semester_diff_rules: [rule], comparison_rules_revision: 4 }
+    mocks.get.mockResolvedValue(saved)
+    mocks.update.mockResolvedValue(saved)
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    const settings = wrapper.getComponent(PerformanceComparisonRuleSettings)
+    expect(settings.props('modelValue')).toEqual([rule])
+    const changed = { ...rule, send_notification: true }
+    settings.vm.$emit('update:modelValue', [changed])
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, expect.objectContaining({ semester_diff_rules: [changed], comparison_rules_revision: 4 }))
+    wrapper.unmount()
+  })
+
+  it('locks comparison editing by server capability regardless of cycle dates but deletes immediately with CAS', async () => {
+    const rule: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'eq', threshold: 1 }], show_notice_in_review: true, fill_in_diff_reason: false, diff_reason_required: true, send_notification: false }
+    const saved = { ...cycle, template_ids: [101], semester_diff_rules: [rule], comparison_rules_revision: 4, comparison_rules_editable: false, comparison_rules_editable_reason: '该周期已有项目启动' }
+    mocks.get.mockResolvedValue(saved)
+    mocks.update.mockResolvedValue({ ...saved, semester_diff_rules: [], comparison_rules_revision: 5 })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    const settings = wrapper.getComponent(PerformanceComparisonRuleSettings)
+    expect(settings.props('editable')).toBe(false)
+    await wrapper.get('#cycle-name').setValue('保留未保存名称')
+    settings.vm.$emit('remove')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenCalledWith(1, { semester_diff_rules: [], comparison_rules_revision: 4 })
+    expect(settings.props('modelValue')).toEqual([])
+    expect((wrapper.get('#cycle-name').element as HTMLInputElement).value).toBe('保留未保存名称')
+    expect((wrapper.vm as any).$?.setupState.isDirty).toBe(true)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(mocks.update).toHaveBeenLastCalledWith(1, expect.objectContaining({ name: '保留未保存名称', semester_diff_rules: [], comparison_rules_revision: 5 }))
+    wrapper.unmount()
+  })
+
+  it('retains the rule on deletion conflict and keeps new-cycle deletion local without creating a cycle', async () => {
+    const rule: PerformanceComparisonRule = { id: 'r1', template_id: 101, first_node_id: 'self', second_node_id: 'manager', indicator_diff_rules: [{ content_id: 'content', item_id: 'rating', operator: 'eq', threshold: 1 }], show_notice_in_review: true, fill_in_diff_reason: false, diff_reason_required: true, send_notification: false }
+    mocks.get.mockResolvedValue({ ...cycle, template_ids: [101], semester_diff_rules: [rule], comparison_rules_revision: 4 })
+    mocks.update.mockRejectedValue({ response: { data: { detail: { code: 'COMPARISON_RULES_VERSION_CONFLICT', message: '规则已更新，请重新打开周期' } } } })
+    const wrapper = await mountView('/performance/settings/cycles/1/edit')
+    const settings = wrapper.getComponent(PerformanceComparisonRuleSettings)
+    settings.vm.$emit('remove')
+    await flushPromises()
+    expect(settings.props('modelValue')).toEqual([rule])
+    expect(settings.props('deleteError')).toBe('规则已更新，请重新打开周期')
+    wrapper.unmount()
+    mocks.update.mockClear()
+    const create = await mountView('/performance/settings/cycles/new')
+    const draft = create.getComponent(PerformanceComparisonRuleSettings)
+    draft.vm.$emit('update:modelValue', [rule])
+    await flushPromises()
+    draft.vm.$emit('remove')
+    await flushPromises()
+    expect(draft.props('modelValue')).toEqual([])
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(mocks.update).not.toHaveBeenCalled()
+    create.unmount()
   })
 
   it('shows field-level required errors and blocks an empty save', async () => {

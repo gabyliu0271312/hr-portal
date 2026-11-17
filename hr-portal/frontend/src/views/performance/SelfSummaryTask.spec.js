@@ -2,6 +2,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import PerformanceComparisonReasonDialog from '@/components/performance/PerformanceComparisonReasonDialog.vue'
+import PerformanceComparisonNotice from '@/components/performance/PerformanceComparisonNotice.vue'
+import PerformanceReferenceContent from '@/components/performance/PerformanceReferenceContent.vue'
+import PerformanceReviewContent from '@/components/performance/PerformanceReviewContent.vue'
+import PerformancePromptNotice, { promptDefinitions } from '@/components/performance/PerformancePromptNotice.vue'
+import PerformanceTextField from '@/components/performance/PerformanceTextField.vue'
 import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceRichTextEditor from '@/components/performance/PerformanceRichTextEditor.vue'
 import PerformanceTagRichTextInput from '@/components/performance/PerformanceTagRichTextInput.vue'
@@ -38,6 +44,274 @@ const task = {
   ],
   answers: {},
 }
+
+describe('comparison runtime', () => {
+  const match = { content_id: 'rating-section', item_id: 'rating', label: '绩效评级', operator: 'gt', threshold: 2, difference: 4, first_task_id: 91, second_task_id: 92, first_version: 1, second_version: 1, first_value: 'one', second_value: 'five', reference_node_name: '项目评价' }
+  const result = (patch = {}) => ({ rule_id: 'r1', matches: [match], show_notice_in_review: true, fill_in_diff_reason: true, reason_required: true, context: 'context-1', reason: null, active: true, ...patch })
+  const loaded = (patch = {}) => ({ ...structuredClone(task), task_id: 91, task_kind: 'evaluation', answers: { rating: 'one' }, form_schema: [structuredClone(task.form_schema[2])], comparison: result(), ...patch })
+  let preview
+  let submit
+  async function open(patch = {}) {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded(patch))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    return wrapper
+  }
+  async function start(wrapper) { await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click'); await flushPromises(); return wrapper.getComponent(PerformanceComparisonReasonDialog) }
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.useFakeTimers()
+    Element.prototype.scrollIntoView = vi.fn()
+    localStorage.setItem('userMode', 'fullScreenMode')
+    vi.mocked(useRoute).mockReturnValue({ query: { task_id: '91' } })
+    vi.mocked(useRouter).mockReturnValue({ back, push })
+    preview = vi.spyOn(performanceReviewApi, 'previewComparison').mockResolvedValue({ comparison: result() })
+    vi.spyOn(performanceReviewApi, 'saveTemplateTaskDraft').mockResolvedValue({ answers: {}, version: 2 })
+    submit = vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { rating: 'one' }, version: 3, submitted_at: '2026-11-17T00:00:00Z' })
+  })
+  afterEach(() => { vi.useRealTimers(); vi.mocked(useRoute).mockReturnValue({ query: { task_id: 'task-1' } }) })
+
+  it('renders one warning under the title, debounces rating only and keeps the no-hit configuration active', async () => {
+    preview.mockResolvedValueOnce({ comparison: result({ matches: [] }) })
+    const wrapper = await open({ comparison: result({ matches: [] }) })
+    await vi.advanceTimersByTimeAsync(300)
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    expect(preview).toHaveBeenCalledTimes(1)
+    renderer.vm.$emit('update-answer', 'comment', 'typing')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(preview).toHaveBeenCalledTimes(1)
+    renderer.vm.$emit('update-answer', 'rating', 'five')
+    await vi.advanceTimersByTimeAsync(300)
+    expect(preview).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('.performance-comparison-notice .prompt-notice')).toHaveLength(1)
+    expect(wrapper.get('.performance-comparison-notice').text()).toBe('「绩效评级」与项目评价的评估结果档位相差>2档，请注意充分进行沟通后评估。')
+    expect(renderer.get('h1').element.nextElementSibling.className).toContain('performance-comparison-notice')
+    wrapper.unmount()
+  })
+
+  it('lists all hits in one source-sized dialog, rejects whitespace, binds native textarea accessibility and cancel never submits', async () => {
+    preview.mockResolvedValue({ comparison: result({ matches: [match, { ...match, item_id: 'other', label: '价值贡献' }] }) })
+    const wrapper = await open()
+    const dialog = await start(wrapper)
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+    expect(document.querySelector('[role="dialog"]').style.width).toBe('var(--performance-dialog-wide-width)')
+    expect(document.querySelectorAll('.comparison-reason-message')).toHaveLength(2)
+    const textarea = document.querySelector('textarea')
+    expect(textarea.placeholder).toBe('（必填）请填写评估差异理由')
+    expect(textarea.maxLength).toBe(20000)
+    expect(textarea.id).toBe('comparison-diff-reason')
+    expect(document.querySelector('label[for="comparison-diff-reason"]')?.textContent).toContain('差异理由')
+    expect(document.querySelector('.count')).toBeNull()
+    dialog.vm.$emit('update:reason', '   ')
+    await flushPromises()
+    document.querySelector('.comparison-reason-actions .performance-button--primary').click()
+    await flushPromises()
+    expect(document.querySelector('[role="alert"]').textContent).toBe('请填写差异理由')
+    expect(textarea.getAttribute('aria-describedby')).toBe('comparison-reason-error')
+    expect(textarea.getAttribute('aria-invalid')).toBe('true')
+    expect(submit).not.toHaveBeenCalled()
+    document.querySelector('.comparison-reason-actions .performance-button--secondary').click()
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    expect(dialog.props('reason')).toBe('   ')
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('submits a single whole-group reason only after confirmation, required=%s', async required => {
+    preview.mockResolvedValue({ comparison: result({ reason_required: required }) })
+    const wrapper = await open()
+    const dialog = await start(wrapper)
+    expect(submit).not.toHaveBeenCalled()
+    if (required) dialog.vm.$emit('update:reason', '已沟通，按事实评估')
+    await flushPromises()
+    document.querySelector('.comparison-reason-actions .performance-button--primary').click()
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith(91, { rating: 'one' }, required ? 2 : 1, undefined, undefined, { comparison_context: 'context-1', diff_reason: required ? '已沟通，按事实评估' : '' })
+    wrapper.unmount()
+  })
+
+  it('saves reason-only edits after 250ms through the existing chain and cancel does not submit', async () => {
+    const wrapper = await open()
+    const dialog = await start(wrapper)
+    const save = vi.mocked(performanceReviewApi.saveTemplateTaskDraft)
+    save.mockClear()
+    dialog.vm.$emit('update:reason', '独立理由草稿')
+    await vi.advanceTimersByTimeAsync(249)
+    expect(save).not.toHaveBeenCalled()
+    dialog.vm.$emit('update:modelValue', false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(save).toHaveBeenCalledWith(91, { rating: 'one' }, 1, undefined, undefined, { diff_reason: '独立理由草稿', comparison_context: 'context-1' })
+    expect(submit).not.toHaveBeenCalled()
+    await start(wrapper)
+    expect(dialog.props('reason')).toBe('独立理由草稿')
+    wrapper.unmount()
+  })
+
+  it.each(['use', 'discard'])('restores the private reason only for the chosen draft: %s', async choice => {
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue(loaded({ has_draft: true, draft_answers: { rating: 'five' }, draft_diff_reason: '私有草稿理由', draft_comparison_context: 'old-context', comparison: result({ reason: '已提交理由' }) }))
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation', draftChoice: choice } })
+    await flushPromises()
+    const dialog = await start(wrapper)
+    expect(dialog.props('reason')).toBe(choice === 'use' ? '私有草稿理由' : '已提交理由')
+    dialog.vm.$emit('update:reason', choice === 'use' ? '续写私有理由' : '全新理由')
+    await vi.advanceTimersByTimeAsync(250)
+    const payload = vi.mocked(performanceReviewApi.saveTemplateTaskDraft).mock.calls.at(-1)[5]
+    expect(payload.diff_reason).toBe(choice === 'use' ? '续写私有理由' : '全新理由')
+    expect(payload.comparison_context).toBe('context-1')
+    wrapper.unmount()
+  })
+
+  it('restores an unsubmitted private reason and keeps it after draft-save failure and retry', async () => {
+    const wrapper = await open({ has_draft: false, draft_diff_reason: '未提交草稿', draft_comparison_context: 'old-context' })
+    const dialog = await start(wrapper)
+    expect(dialog.props('reason')).toBe('未提交草稿')
+    const save = vi.mocked(performanceReviewApi.saveTemplateTaskDraft)
+    save.mockRejectedValueOnce(new Error('offline'))
+    dialog.vm.$emit('update:reason', '失败仍保留')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(dialog.props('reason')).toBe('失败仍保留')
+    expect(wrapper.text()).toContain('自动保存失败')
+    dialog.vm.$emit('update:reason', '再次编辑并重试')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save.mock.calls[1][5].diff_reason).toBe('再次编辑并重试')
+    expect(submit).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('awaits in-flight autosave before preview and omits untouched reason from an answers-only draft', async () => {
+    let resolveSave
+    vi.mocked(performanceReviewApi.saveTemplateTaskDraft).mockReturnValue(new Promise(resolve => { resolveSave = resolve }))
+    const wrapper = await open()
+    await vi.advanceTimersByTimeAsync(300)
+    preview.mockClear()
+    const renderer = wrapper.getComponent(PerformanceTemplateRenderer)
+    renderer.vm.$emit('update-answer', 'rating', 'five')
+    renderer.vm.$emit('queue-save')
+    await vi.advanceTimersByTimeAsync(400)
+    preview.mockClear()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(preview).not.toHaveBeenCalled()
+    resolveSave({ answers: { rating: 'five' }, version: 2 })
+    await flushPromises()
+    expect(preview).toHaveBeenCalledWith(91, { rating: 'five' }, 2, undefined, undefined)
+    expect(performanceReviewApi.saveTemplateTaskDraft).toHaveBeenCalledWith(91, { rating: 'five' }, 1, undefined, undefined)
+    expect(wrapper.getComponent(PerformanceComparisonReasonDialog).props('modelValue')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('preserves reason on submit failure and source conflicts require a new explicit confirmation', async () => {
+    submit.mockRejectedValueOnce({ response: { data: { detail: 'COMPARISON_SOURCE_CHANGED' } } })
+    const wrapper = await open()
+    const dialog = await start(wrapper)
+    dialog.vm.$emit('update:reason', '理由不会丢失')
+    await flushPromises()
+    preview.mockResolvedValueOnce({ comparison: result() }).mockResolvedValue({ comparison: result({ context: 'context-2' }) })
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('reason')).toBe('理由不会丢失')
+    expect(dialog.props('error')).toContain('重新确认')
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledTimes(2)
+    expect(submit.mock.calls[1][5]).toEqual({ diff_reason: '理由不会丢失', comparison_context: 'context-2' })
+    wrapper.unmount()
+  })
+
+  it('rejects stale confirmation before submit when preview context changes, retaining the input', async () => {
+    const wrapper = await open()
+    const dialog = await start(wrapper)
+    dialog.vm.$emit('update:reason', '保留')
+    await flushPromises()
+    preview.mockResolvedValue({ comparison: result({ context: 'new-source' }) })
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit).not.toHaveBeenCalled()
+    expect(dialog.props('error')).toContain('重新确认')
+    expect(dialog.props('reason')).toBe('保留')
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit.mock.calls[0][5].comparison_context).toBe('new-source')
+    wrapper.unmount()
+  })
+
+  it('deletion while a dialog is open removes execution and never sends the historical reason', async () => {
+    const wrapper = await open()
+    const dialog = await start(wrapper)
+    dialog.vm.$emit('update:reason', '历史理由')
+    preview.mockResolvedValue({ comparison: null })
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledWith(91, { rating: 'one' }, 2, undefined, undefined)
+    wrapper.unmount()
+  })
+
+  it('ignores late preview success and failure after rating changes and task context reset', async () => {
+    let resolveOld
+    preview.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
+    const wrapper = await open()
+    await vi.advanceTimersByTimeAsync(300)
+    wrapper.getComponent(PerformanceTemplateRenderer).vm.$emit('update-answer', 'rating', 'five')
+    await vi.advanceTimersByTimeAsync(300)
+    resolveOld({ comparison: result({ matches: [{ ...match, label: 'STALE' }] }) })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('STALE')
+    let rejectOld
+    preview.mockReturnValueOnce(new Promise((_, reject) => { rejectOld = reject }))
+    wrapper.getComponent(PerformanceTemplateRenderer).vm.$emit('update-answer', 'rating', 'one')
+    await vi.advanceTimersByTimeAsync(300)
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue(loaded({ task_id: 99, comparison: result({ matches: [{ ...match, label: 'NEW TASK' }] }) }))
+    await wrapper.setProps({ taskId: 99 })
+    await flushPromises()
+    rejectOld(new Error('old failure'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('NEW TASK')
+    wrapper.unmount()
+  })
+
+  it('keeps overdue confirmation before the comparison dialog and preserves the confirmed order', async () => {
+    const wrapper = await open({ deadline_at: '2020-01-01T00:00:00Z' })
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('.comparison-reason-actions')).toBeNull()
+    document.querySelector('.performance-confirm-dialog__button--danger').click()
+    await flushPromises()
+    const dialog = wrapper.getComponent(PerformanceComparisonReasonDialog)
+    expect(dialog.props('modelValue')).toBe(true)
+    dialog.vm.$emit('update:reason', '逾期理由')
+    await flushPromises()
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(submit).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('renders only the authorized historical reason in readonly reference and overview without fetching task detail', () => {
+    const historical = result({ active: false, historical: true, reason: '<script>not executable</script>理由', matches: [] })
+    const reference = mount(PerformanceReferenceContent, { props: { reference: { key: 'r', node_id: 'r', node_name: '已提交', status: 'completed', form_schema: [], answers: {}, comparison: historical } } })
+    expect(reference.text()).toContain(historical.reason)
+    expect(reference.find('script').exists()).toBe(false)
+    expect(reference.find('.prompt-notice').exists()).toBe(false)
+    const detail = vi.spyOn(performanceReviewApi, 'templateTask')
+    const overview = mount(PerformanceReviewContent, { props: { loading: false, error: '', templateName: '', node: { node_id: 'r', node_name: '自评', node_type: 'evaluation', executor_role_code: 'assessment.reviewee', task_kind: 'evaluation', status: 'completed', task_id: 91, comparison: historical, form_schema: [] } } })
+    expect(overview.text()).toContain(historical.reason)
+    expect(detail).not.toHaveBeenCalled()
+    reference.unmount(); overview.unmount()
+  })
+
+  it('uses the shared warning tokens and no private colors in the notice', () => {
+    const notice = mount(PerformancePromptNotice, { props: { type: 'warning', multiline: true }, slots: { default: '提示' } })
+    expect(notice.get('.prompt-notice').attributes('style')).toContain('var(--performance-prompt-warning-background)')
+    expect(promptDefinitions.info.noticeBackground).toBe('var(--performance-prompt-info-background)')
+    const field = mount(PerformanceTextField, { props: { modelValue: '', type: 'textarea', inputId: 'bound', ariaDescribedby: 'help' } })
+    expect(field.get('textarea').attributes('aria-describedby')).toBe('help')
+    expect(field.get('textarea').attributes('id')).toBe('bound')
+    notice.unmount(); field.unmount()
+  })
+})
 
 describe('SelfSummaryTask', () => {
   beforeEach(() => {

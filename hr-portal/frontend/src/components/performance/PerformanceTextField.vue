@@ -9,6 +9,7 @@ const props = withDefaults(defineProps<{
   inputId?: string
   placeholder?: string
   ariaLabel?: string
+  ariaDescribedby?: string
   showCount?: boolean
   disabled?: boolean
   invalid?: boolean
@@ -53,7 +54,7 @@ watch(() => props.modelValue, () => { if (props.autoResize) void nextTick(() => 
     <label v-if="type === 'input' && variant === 'feishu-input'" class="feishu-input-wrap">
       <div class="feishu-input-placeholder-wrapper">
         <div v-if="!modelValue && placeholder" class="feishu-input-placeholder">{{ placeholder }}</div>
-        <input class="native-input" :class="{ error: invalid }" :id="inputId" :value="modelValue" :maxlength="maxlength" :disabled="disabled" :aria-label="ariaLabel || undefined" :aria-invalid="invalid || undefined" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
+        <input class="native-input" :class="{ error: invalid }" :id="inputId" :value="modelValue" :maxlength="maxlength" :disabled="disabled" :aria-label="ariaLabel || undefined" :aria-describedby="ariaDescribedby || undefined" :aria-invalid="invalid || undefined" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
       </div>
       <span class="feishu-input-suffix" aria-hidden="true"><slot name="suffix" /></span>
     </label>
@@ -66,7 +67,7 @@ watch(() => props.modelValue, () => { if (props.autoResize) void nextTick(() => 
       :maxlength="maxlength"
       :placeholder="placeholder"
       :disabled="disabled"
-      :aria-label="ariaLabel || undefined"
+      :aria-label="ariaLabel || undefined" :aria-describedby="ariaDescribedby || undefined"
       :aria-invalid="invalid || undefined"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     />
@@ -79,7 +80,7 @@ watch(() => props.modelValue, () => { if (props.autoResize) void nextTick(() => 
       :maxlength="maxlength"
       :placeholder="placeholder"
       :disabled="disabled"
-      :aria-label="ariaLabel || undefined"
+      :aria-label="ariaLabel || undefined" :aria-describedby="ariaDescribedby || undefined"
       :aria-invalid="invalid || undefined"
       ref="textareaRef"
       @input="updateTextarea"

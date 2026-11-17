@@ -314,8 +314,12 @@ class _CycleSummaryDb:
 
         self.statements.append(statement)
         params = statement.compile().params
-        entity = statement.column_descriptions[0]["entity"]
+        query = statement.selects[0] if hasattr(statement, "selects") else statement
+        entity = query.column_descriptions[0]["entity"]
         if entity is PerformanceProject:
+            if query.column_descriptions[0]["name"] == "cycle_ref":
+                refs = {project.cycle_ref for project in self.projects if project.cycle_ref in params["cycle_ref_1"] and (project.status in {"STARTED", "ARCHIVED"} or "comparison_rules_snapshot" in (project.settings or {}))}
+                return _PeopleResult(list(refs))
             cycle_refs = params["cycle_ref_1"]
             if isinstance(cycle_refs, str):
                 cycle_refs = [cycle_refs]
@@ -351,7 +355,7 @@ async def test_cycle_list_and_detail_share_configuration_completed_and_project_f
         "flow_settings": {}, "node_meta": {},
         **({} if completed is True else {"start_blocked_reason": "项目未配置完成，无法启动"}),
     }
-    assert len(db.statements) == 3
+    assert len(db.statements) == 4
 
 
 @pytest.mark.asyncio
@@ -410,13 +414,13 @@ async def test_cycle_summaries_batch_queries_and_project_permissions(project_ref
 
     summaries = await service.list_summaries(cycles, project_refs=project_refs)
 
-    assert len(db.statements) == (1 if project_refs == set() else 3)
+    assert len(db.statements) == (2 if project_refs == set() else 4)
     if project_refs != set():
-        assert db.statements[1].compile().params["cycle_ref_1"] == [cycle.cycle_ref for cycle in cycles]
+        assert db.statements[2].compile().params["cycle_ref_1"] == [cycle.cycle_ref for cycle in cycles]
         if project_refs is not None:
-            assert set(db.statements[1].compile().params["project_ref_1"]) == project_refs
+            assert set(db.statements[2].compile().params["project_ref_1"]) == project_refs
         visible_template_ids = {project.id for project in projects if project_refs is None or project.project_ref in project_refs}
-        assert set(db.statements[2].compile().params["template_id_1"]) == visible_template_ids
+        assert set(db.statements[3].compile().params["template_id_1"]) == visible_template_ids
     for cycle in cycles:
         visible = [project.project_ref for project in projects if project.cycle_ref == cycle.cycle_ref and (project_refs is None or project.project_ref in project_refs)]
         assert [project["project_ref"] for project in summaries[cycle.cycle_ref][2]] == visible

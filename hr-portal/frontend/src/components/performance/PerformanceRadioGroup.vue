@@ -16,7 +16,7 @@ withDefaults(defineProps<{
   options: PerformanceRadioOption[]
   name?: string
   disabled?: boolean
-  gap?: number
+  gap?: number | string
   direction?: 'horizontal' | 'vertical'
   ariaLabel?: string
   variant?: 'default' | 'card'
@@ -33,7 +33,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 </script>
 
 <template>
-  <div class="performance-radio-group" :class="[`performance-radio-group--${direction}`, { 'performance-radio-group--card': variant === 'card' }]" role="radiogroup" :aria-label="ariaLabel" :style="{ gap: `${gap}px` }">
+  <div class="performance-radio-group" :class="[`performance-radio-group--${direction}`, { 'performance-radio-group--card': variant === 'card' }]" role="radiogroup" :aria-label="ariaLabel" :style="{ gap: typeof gap === 'number' ? `${gap}px` : gap }">
     <div v-for="option in options" :key="option.value" class="performance-radio-entry" :class="{ checked: modelValue === option.value }">
       <label class="performance-radio-option" :class="{ checked: modelValue === option.value, disabled: disabled || option.disabled }">
         <input type="radio" :name="name" :value="option.value" :checked="modelValue === option.value" :disabled="disabled || option.disabled" @change="emit('update:modelValue', option.value)" />

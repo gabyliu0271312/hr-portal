@@ -19,6 +19,8 @@ from app.performance.cycle_service import (
     normalize_cycle_datetime,
 )
 from app.performance.scope_options import build_organization_tree
+from app.performance.comparison_schema import ComparisonCandidatesPayload, ComparisonRule
+from app.performance.comparison_config_service import PerformanceComparisonConfigService
 from app.performance.models import (
     CYCLE_LEAVER_MODE_CREATE_TASK,
     CYCLE_LEAVER_MODE_REPORT_ONLY,
@@ -48,6 +50,8 @@ class CyclePayload(BaseModel):
     period_subtype: str | None = Field(default=None, max_length=16)
     template_id: int | None = Field(default=None, ge=1)
     template_ids: list[Annotated[int, Field(ge=1)]] | None = None
+    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list, max_length=1)
+    comparison_rules_revision: int = Field(default=0, ge=0)
 
     @model_validator(mode="before")
     @classmethod
@@ -92,6 +96,8 @@ class CyclePatch(BaseModel):
     period_subtype: str | None = Field(default=None, max_length=16)
     template_id: int | None = Field(default=None, ge=1)
     template_ids: list[Annotated[int, Field(ge=1)]] | None = None
+    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list, max_length=1)
+    comparison_rules_revision: int | None = Field(default=None, ge=0)
     start_at: datetime | None = None
     end_at: datetime | None = None
     leaver_enabled: bool | None = None
@@ -365,6 +371,10 @@ class CycleSummary(BaseModel):
     template_id: int | None
     template_ids: list[int]
     used_template_ids: list[int]
+    semester_diff_rules: list[ComparisonRule] = Field(default_factory=list)
+    comparison_rules_revision: int = 0
+    comparison_rules_editable: bool = True
+    comparison_rules_editable_reason: str | None = None
     leaver_range_editable: bool
     leaver_range_editable_reason: str | None = None
     start_at: datetime
@@ -535,6 +545,15 @@ async def create_cycle(
     visible_refs = None if "performance.cycles.manage" in context.permission_codes else _project_scope_refs(context)
     projects = await service.projects_for_cycle(cycle, project_refs=visible_refs)
     return _summary_for_context(cycle, people, departments, projects, context)
+
+
+@router.post("/comparison-options")
+async def comparison_options(
+    payload: ComparisonCandidatesPayload,
+    _: PerformanceAccessContext = Depends(require_performance_permission("performance.cycles.manage")),
+    db: AsyncSession = Depends(get_session),
+):
+    return await PerformanceComparisonConfigService(db).candidates(payload)
 
 
 @router.get("/{cycle_id}/hrbp-options", response_model=HrbpOptionsResponse)

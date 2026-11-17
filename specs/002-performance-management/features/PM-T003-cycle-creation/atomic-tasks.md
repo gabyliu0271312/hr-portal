@@ -131,6 +131,33 @@
   - 完成证据：组件测试 3 项、周期页面测试 25 项、前端构建通过。
   - 完成定义：抽屉 UI、组件复用、表单校验、周期草稿回写和前端验证全部完成；后端契约另行任务。
 
+- [ ] PM-T003-I06-F01 差异规则真实候选与持久化
+  - Goal/Type：周期差异规则服务端候选、单组配置、项目启动快照、删除撤销与迁移。
+  - UI：配置抽屉沿用 I06；真实DOM像素验收 PNG `../../ui-blueprints/PM-T003-I06-F01-config-blueprint-v1.png`，正式实现后另取 implemented PNG；添加/编辑锁定及删除确认。
+  - Test contract：Given 模板节点/共有评级题/参考权限/项目启动事实，When 候选、保存、重开、第二组、编辑锁定、删除，Then 身份、revision、权限和 active 交集正确。
+  - Non-scope：周期日期锁定、旧项目批量补快照、真实外发。
+
+- [ ] PM-T003-I06-F02 评估中差异与提交理由
+  - Goal/Type：普通/共享提交共用比较、字段提示、整组理由弹窗、必填/非必填、审计与历史投影。
+  - UI：真实DOM像素验收 PNG `../../ui-blueprints/PM-T003-I06-F02-prompt-blueprint-v1.png`、`../../ui-blueprints/PM-T003-I06-F03-reason-blueprint-v1.png`，正式实现后另取 implemented PNG；复用现有填写工作区和共享Dialog/Field/Notice/Token。
+  - Test contract：Given OR条件/多人正式结果/方向权限/版本冲突，When预检/提交/取消/源变化/删除后回看，Then提示、理由校验、权限裁剪、事务和历史符合契约。
+  - Non-scope：新建Review提交链、360独立评估比较。
+
+- [ ] PM-T003-I06-F03 差异通知
+  - Goal/Type：事务outbox、统一scheduler、正式评级组合去重、另一侧有效评估人通知。
+  - Test contract：Given三态/转交/只读/撤销/并发提交，When入队/claim/发送失败/删除，Then不重复、不误发、可审计、失败可重试且未知不盲重发。
+  - Non-scope：真实飞书外发验收、独立scheduler。
+
+### I06-F01/F02/F03 本地证据与未完成项（2026-11-17）
+
+- 后端最终联合：在 backend 执行 `.venv/Scripts/python.exe -m pytest tests/test_performance_comparison_config.py tests/test_performance_comparison_runtime.py tests/test_performance_comparison_notifications.py tests/test_performance_cycles.py tests/test_performance_projects.py tests/test_performance_shared_results.py tests/test_quality_dependency_hardening.py -q --tb=short`，976 passed、6 skipped、1项既有python_multipart弃用warning；未把数据库opt-in跳过计入通过。前轮975 passed/1 failed来自旧work_summary夹具遗漏node_type，补齐该字段后单项及最终联合已通过；未修改生产逻辑规避失败。
+- 前端9文件定向（ComparisonRuleDrawer/Settings/NumberInput/DrawerShell/DialogShell/CycleManagement/SelfSummaryTask/TemplateRenderer/ReviewEvaluationDrawer）297 passed，使用Vitest默认文件隔离。此前强制singleThread导致enableAutoUnmount重复及DOM串扰，隔离复跑共享3文件71 passed，再完整9文件通过；不将最初失败隐藏。最终标题必填标记补齐后，同组9文件再次297 passed（16:51实跑、exit0），最终vue-tsc+Vite构建exit0、50.52s。
+- 类型检查+Vite生产构建通过，3745模块，仅既有VueUse PURE注释警告。`git -c core.whitespace=cr-at-eol diff --check`通过，保留Git换行提示。
+- 真实本地Vite 5173路由 + 独立本地浏览器标签页，所有业务API由CDP隔离夹具截获：周期编辑打开680px真实组件抽屉；填写页实际warning、600px理由弹窗、120px文本框、label/textarea关联、空理由拦截；390px下弹窗x16/width358、document.scrollWidth390，无横向溢出。输入理由后模拟submit载荷为answers/version/comparison_context/diff_reason，版本更新至2，无pageerror。未向真实API提交。
+- 独立已查看实现截图：`../../ui-blueprints/PM-T003-I06-F01-implemented-config-fixture.png`、`../../ui-blueprints/PM-T003-I06-F02-implemented-prompt-fixture.png`、`../../ui-blueprints/PM-T003-I06-F03-implemented-reason-fixture.png`、`../../ui-blueprints/PM-T003-I06-F03-implemented-reason-narrow-fixture.png`。配置截图早于最终标题必填标记补齐；仅证明实际本地界面及夹具交互，不宣称全状态像素级验收或真实数据库闭环。
+- 迁移：0307_performance_comparison接0306；已做离线SQL生成，未在真实库执行。工作区其他会话随后添加0308/0309，实查当前唯一head为0309_form_config_menu；本线程不调整其链或迁移真实库。期间其他会话已提交0307迁移，不能把该提交归作本线程授权操作；本线程未commit/push/deploy。
+- 阻塞：本地Docker daemon不可连接，8000/8080 API未启动，真实PostgreSQL upgrade/downgrade/API→SQL→新连接回读、并发锁竞争/失败回滚未验收。通知全部mock transport，未真实外发。旧已启动项目不自动补规则，需另行授权升级政策。三项任务保留未勾选，不以单测、构建或fixture截图宣称生产完成。
+
 - [ ] PM-T003-I07 提炼绩效组织树与人员范围规则组件
   - 前置任务：PM-T003-I06；项目配置接口和现有 HRBP 组织树实现
   - 功能范围：将 HRBP 权限管理中的组织树生成逻辑和选择方式提炼为全局复用能力；统一项目被评估人筛选和限定考核范围的部门/员工选择；接入真实周期范围选项 API；保存并校验限定范围规则；项目启动时按组织路径和员工条件应用限定范围。

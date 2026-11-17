@@ -708,6 +708,8 @@ class PerformanceCycle(Base):
         CheckConstraint("status IN ('DRAFT', 'LOCKED')", name="ck_performance_cycle_status"),
         CheckConstraint("end_at > start_at", name="ck_performance_cycle_end_after_start"),
         CheckConstraint("lock_rule = 'IMMEDIATE' OR lock_at IS NOT NULL", name="ck_performance_cycle_scheduled_lock_at"),
+        CheckConstraint("CASE WHEN jsonb_typeof(semester_diff_rules) = 'array' THEN jsonb_array_length(semester_diff_rules) <= 1 ELSE false END", name="ck_pm_cycle_comparison_rules"),
+        CheckConstraint("comparison_rules_revision >= 0", name="ck_pm_cycle_comparison_revision"),
         Index("ix_performance_cycles_start_at", "start_at"),
         Index("ix_performance_cycles_lock_at", "lock_at"),
     )
@@ -725,6 +727,8 @@ class PerformanceCycle(Base):
         nullable=True,
     )
     template_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    semester_diff_rules: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    comparison_rules_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     lock_rule: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -1002,11 +1006,42 @@ class PerformanceNodeTask(Base):
     answers: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     draft_answers: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     actor_drafts: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    comparison_state: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     calibration_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calibration_completed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     answer_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+class PerformanceComparisonNotification(Base):
+    __tablename__ = "performance_comparison_notifications"
+    __table_args__ = (
+        UniqueConstraint("event_key", name="uq_pm_comparison_notification_event"),
+        Index("ix_pm_comparison_notification_due", "status", "next_retry_at"),
+        Index("ix_pm_comparison_notification_rule", "cycle_ref", "rule_id"),
+        CheckConstraint("status IN ('pending', 'dispatching', 'sent', 'retrying', 'skipped', 'unknown')", name="ck_pm_comparison_notification_status"),
+        CheckConstraint("attempts >= 0 AND event_sequence >= 0", name="ck_pm_comparison_notification_counts"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    cycle_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("performance_projects.id", ondelete="SET NULL"), nullable=True)
+    task_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("performance_node_tasks.id", ondelete="SET NULL"), nullable=True)
+    recipient_task_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("performance_node_tasks.id", ondelete="SET NULL"), nullable=True)
+    recipient_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    rule_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    event_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_retry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notification_log_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
 
 class PerformanceResultReconsideration(Base):
     __tablename__ = "performance_result_reconsiderations"

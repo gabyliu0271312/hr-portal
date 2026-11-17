@@ -1,6 +1,7 @@
 <template>
   <component :is="mode === 'edit' ? 'form' : 'div'" ref="formRef" class="performance-template-renderer" :class="mode === 'edit' ? 'performance-template-renderer--edit self-summary-form' : 'performance-template-renderer--readonly'" novalidate @submit.prevent="$emit('submit')">
     <h1 v-if="mode === 'edit' && title">{{ title }}</h1>
+    <slot name="after-title" />
     <PerformanceTemplateSection v-for="section in visibleSections" :key="section.id" :section="section" :instance-keys="instanceKeys(section)" :show-header="showHeader" :editable="mode === 'edit' && editable && section.fields.length > 0" :mode="mode" @add="addInstance(section)" @remove="index => removeInstance(section, index)">
       <template #default="{ index }">
         <template v-for="element in displayElements(section)" :key="`${element.kind}:${element.id}`">

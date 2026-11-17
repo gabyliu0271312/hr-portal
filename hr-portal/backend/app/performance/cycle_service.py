@@ -43,6 +43,7 @@ from app.performance.models import (
     PROJECT_STATUS_STARTED,
 )
 from app.performance.snapshot_service import PerformanceAuthorizationSnapshotService, RosterAuthorizationInput
+from app.performance.comparison_config_service import PerformanceComparisonConfigService, started_project_condition
 
 
 class CycleValidationError(ValueError):
@@ -158,6 +159,8 @@ class PerformanceCycleService:
         return cycle
 
     async def projects_for_cycle(self, cycle: PerformanceCycle, *, project_refs: set[str] | None = None) -> list[dict[str, Any]]:
+        if not hasattr(cycle, "_comparison_rules_editable"):
+            cycle._comparison_rules_editable = not await PerformanceComparisonConfigService(self.db).has_started_projects(cycle.cycle_ref)
         statement = select(PerformanceProject).where(PerformanceProject.cycle_ref == cycle.cycle_ref)
         if project_refs is not None:
             if not project_refs:
@@ -263,6 +266,14 @@ class PerformanceCycleService:
         summaries = {cycle_ref: (0, 0, []) for cycle_ref in cycle_refs}
         if not cycle_refs:
             return summaries
+        started_refs = set((await self.db.execute(select(PerformanceProject.cycle_ref).where(
+            PerformanceProject.cycle_ref.in_(cycle_refs), started_project_condition(),
+        ).union(select(PerformanceAuditEvent.cycle_ref).where(
+            PerformanceAuditEvent.cycle_ref.in_(cycle_refs),
+            PerformanceAuditEvent.event_type == "PERFORMANCE_PROJECT_STARTED",
+        )))).scalars().all())
+        for cycle in cycles:
+            cycle._comparison_rules_editable = cycle.cycle_ref not in started_refs
 
         counts = (
             await self.db.execute(
@@ -350,6 +361,10 @@ class PerformanceCycleService:
         payload = self._normalize_payload(payload)
         self._validate_payload(payload)
         await self.validate_templates(payload)
+        comparison_rules = await PerformanceComparisonConfigService(self.db).normalize_rules(payload.get("semester_diff_rules", []), payload.get("template_ids") or [])
+        if payload.get("comparison_rules_revision", 0) != 0:
+            from app.performance.comparison_config_service import comparison_error
+            comparison_error("COMPARISON_RULES_VERSION_CONFLICT", "新建周期规则版本必须为0", 409)
         cycle = PerformanceCycle(
             cycle_ref=f"cycle:{uuid4().hex}",
             name=payload["name"].strip(),
@@ -359,6 +374,8 @@ class PerformanceCycleService:
             period_subtype=payload.get("period_subtype"),
             template_id=payload.get("template_id"),
             template_ids=payload.get("template_ids") or [],
+            semester_diff_rules=comparison_rules,
+            comparison_rules_revision=1 if comparison_rules else 0,
             start_at=payload["start_at"],
             end_at=payload["end_at"],
             lock_rule=payload["lock_rule"],
@@ -399,6 +416,7 @@ class PerformanceCycleService:
                 raise CycleValidationError("未开启按周期关闭逾期任务提交机会")
         await self.validate_templates(payload, cycle)
         before = self.serialize(cycle)
+        await PerformanceComparisonConfigService(self.db).update_rules(cycle, payload, payload.get("template_ids", self.template_ids(cycle)))
         changed_leaver_fields = any(field in payload and payload[field] != getattr(cycle, field) for field in ("leaver_enabled", "leaver_start_date", "leaver_end_date"))
         if changed_leaver_fields and datetime.now(UTC) >= normalize_cycle_datetime(cycle.start_at):
             raise CycleValidationError("绩效环节已开始，不能修改离职人员参评范围")
@@ -818,7 +836,7 @@ class PerformanceCycleService:
 
     @staticmethod
     def serialize(cycle: PerformanceCycle) -> dict[str, Any]:
-        return {"id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
+        return {"semester_diff_rules": getattr(cycle, "semester_diff_rules", None) or [], "comparison_rules_revision": getattr(cycle, "comparison_rules_revision", 0) or 0, "comparison_rules_editable": getattr(cycle, "_comparison_rules_editable", True), "comparison_rules_editable_reason": None if getattr(cycle, "_comparison_rules_editable", True) else "周期下项目曾启动，仅允许删除差异规则", "id": cycle.id, "cycle_ref": cycle.cycle_ref, "name": cycle.name, "language": cycle.language, "period_year": cycle.period_year, "period_type": cycle.period_type, "period_subtype": getattr(cycle, "period_subtype", None), "template_id": getattr(cycle, "template_id", None), "template_ids": PerformanceCycleService.template_ids(cycle), "start_at": cycle.start_at.isoformat(), "end_at": cycle.end_at.isoformat(), "lock_rule": cycle.lock_rule, "lock_at": cycle.lock_at.isoformat() if cycle.lock_at else None, "pre_lock_sync_mode": cycle.pre_lock_sync_mode, "leaver_enabled": cycle.leaver_enabled, "leaver_start_date": cycle.leaver_start_date.isoformat() if cycle.leaver_start_date else None, "leaver_end_date": cycle.leaver_end_date.isoformat() if cycle.leaver_end_date else None, "leaver_participation_mode": cycle.leaver_participation_mode, "overdue_submission_enabled": getattr(cycle, "overdue_submission_enabled", True), "overdue_submission_scope": getattr(cycle, "overdue_submission_scope", "EVALUATION"), "status": cycle.status}
 
     @staticmethod
     def _validate_payload(payload: dict[str, Any], *, validate_lock_lead_time=True) -> None:

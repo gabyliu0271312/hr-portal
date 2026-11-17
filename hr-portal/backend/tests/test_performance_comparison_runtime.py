@@ -1,0 +1,371 @@
+from copy import deepcopy
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from fastapi import HTTPException
+
+from app.performance import comparison_service as service
+from app.performance.comparison_service import compare_ratings, project_comparison
+
+
+def rule(operator="gte", threshold=2):
+    return {"id": "r1", "first_node_id": "a", "second_node_id": "b",
+            "indicator_diff_rules": [{"content_id": "c", "item_id": "i", "option_ids": ["low", "mid", "high"],
+                                      "operator": operator, "threshold": threshold}],
+            "show_notice_in_review": True, "fill_in_diff_reason": True, "diff_reason_required": True}
+
+
+def record(task_id, value, options=None, version=1):
+    options = options or ["low", "mid", "high"]
+    return {"task_id": task_id, "version": version,
+            "schema": [{"id": "c", "allow_multiple": False, "fields": [{"id": "i", "type": "rating",
+                       "label": "成果评级", "options": [{"id": item} for item in options]}]}],
+            "answers": {"i": value}}
+
+
+def test_comparison_checks_all_formal_pairs_and_or_matches():
+    result = compare_ratings(rule(threshold=1), {"a": [record(1, "low"), record(2, "high")],
+                                      "b": [record(3, "high"), record(4, "mid")]})
+    assert {(item["first_task_id"], item["second_task_id"]) for item in result["matches"]} == {(1, 3), (1, 4), (2, 4)}
+    assert result["rating_signature"]
+    assert result["event_sequence"] == 1
+
+
+def test_comparison_supports_every_operator_and_unknown_values_are_ignored():
+    for operator, threshold, expected in [("eq", 2, True), ("gt", 1, True), ("gte", 2, True), ("lt", 3, True), ("lte", 2, True)]:
+        result = compare_ratings(rule(operator, threshold), {"a": [record(1, "low")], "b": [record(2, "high")]})
+        assert bool(result["matches"]) is expected
+    result = compare_ratings(rule(), {"a": [record(1, "__unknown__"), record(2, "invalid")], "b": [record(3, "high")]})
+    assert result["matches"] == []
+
+
+def test_signature_changes_for_difference_disappearance_but_not_comment_or_answer_version():
+    base = compare_ratings(rule(), {"a": [record(1, "low", version=1)], "b": [record(2, "high", version=1)]})
+    same_rating = compare_ratings(rule(), {"a": [record(1, "low", version=2)], "b": [record(2, "high", version=2)]}, base)
+    assert same_rating["rating_signature"] == base["rating_signature"]
+    assert same_rating["event_sequence"] == base["event_sequence"]
+    changed = compare_ratings(rule(), {"a": [record(1, "high")], "b": [record(2, "high")]}, base)
+    assert changed["rating_signature"] != base["rating_signature"]
+    assert changed["event_sequence"] == base["event_sequence"] + 1
+
+
+def test_projection_does_not_leak_hidden_label_or_inaccessible_values():
+    comparison = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
+    schemas["a"][0]["fields"][0]["hide_name"] = True
+    projected = project_comparison(comparison, schemas, "a")
+    assert projected["matches"][0]["label"] == ""
+    assert projected["matches"][0]["source_task_id"] == 2
+    assert "rating_signature" not in projected
+    assert project_comparison(comparison, {"a": [], "b": []}, "a") is None
+
+
+def test_option_order_uses_snapshot_despite_current_reordering_or_additions():
+    result = compare_ratings(rule(), {"a": [record(1, "low", options=["mid", "low", "high", "new"])],
+                                      "b": [record(2, "high")]})
+    assert result["matches"][0]["difference"] == 2
+    invalid = compare_ratings(rule(), {"a": [record(1, "new", options=["low", "mid", "high", "new"])], "b": [record(2, "high")]})
+    assert invalid["matches"] == []
+
+
+def test_required_optional_and_stale_reason_validation():
+    internal = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
+    projected = project_comparison(internal, schemas, "a")
+    with pytest.raises(HTTPException, match="DIFF_REASON_REQUIRED"):
+        service.validate_submission(internal, projected, "  ", projected["context"])
+    with pytest.raises(HTTPException, match="COMPARISON_SOURCE_CHANGED"):
+        service.validate_submission(internal, projected, "原因", "stale")
+    saved = service.validate_submission(internal, projected, "  原因  ", projected["context"])
+    assert saved["reason"] == "原因" and "_contexts" not in saved
+    assert service.validate_submission(None, None, None, "stale") is None
+    assert service.validate_submission(internal, None, None, None)["reason"] is None
+
+
+def test_no_formal_source_still_projects_active_rule_flags():
+    internal = compare_ratings(rule(), {"a": [record(1, "low")], "b": []})
+    schemas = {"a": record(1, "low")["schema"], "b": record(2, "high")["schema"]}
+    projected = project_comparison(internal, schemas, "a")
+    assert projected["matches"] == [] and projected["show_notice_in_review"]
+    assert not projected["reason_required"]
+
+
+def test_cycle_active_intersection_and_template_isolation():
+    frozen = {**rule(), "template_id": 3}
+    project = SimpleNamespace(settings={"template_id": 3, "comparison_rules_snapshot": {"version": 1, "rules": [frozen]}})
+    assert service.active_rules(project, SimpleNamespace(semester_diff_rules=[{"id": "r1"}])) == [frozen]
+    assert not service.active_rules(project, SimpleNamespace(semester_diff_rules=[]))
+    project.settings["template_id"] = 4
+    assert not service.active_rules(project, SimpleNamespace(semester_diff_rules=[{"id": "r1"}]))
+
+
+class Rows:
+    def __init__(self, values):
+        self.values = values
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.values
+
+
+def runtime(monkeypatch, active=True, hide=False):
+    from app.performance import projects_router as routes
+    def template(value):
+        return {"content": [{"id": "c", "type": "rating", "items": [{"id": "i", "kind": "rating", "label": "成果评级", "options": [{"id": item, "label": item} for item in ["low", "mid", "high"]]}]},
+                            {"id": "ref", "content_slot": "reference", "reference_kind": "node", "reference_value": value,
+                             "settings": {"allowView": not hide}}]}
+    nodes = [SimpleNamespace(id=11, node_id="a", node_type="evaluation", config={"template": template("b")}, name="自评"),
+             SimpleNamespace(id=12, node_id="b", node_type="evaluation", config={"template": template("a")}, name="上级评估")]
+    tasks = [SimpleNamespace(id=1, node_snapshot_id=11, task_kind="evaluation", member_snapshot_id=4, target_employee_no="e", project_id=7, cycle_ref="cycle",
+                answer_version=1, answers={"i": "low"}, comparison_state=None, status="completed", submitted_at=datetime.now(UTC)),
+             SimpleNamespace(id=2, node_snapshot_id=12, task_kind="evaluation", member_snapshot_id=4, target_employee_no="e", project_id=7, cycle_ref="cycle",
+                answer_version=2, answers={"i": "high"}, comparison_state=None, status="completed", submitted_at=datetime.now(UTC))]
+    project = SimpleNamespace(id=7, cycle_ref="cycle", settings={"template_id": 3, "comparison_rules_snapshot": {"version": 1, "rules": [{**rule(), "template_id": 3}]}})
+    db = SimpleNamespace(scalar=AsyncMock(return_value=SimpleNamespace(semester_diff_rules=[{"id": "r1"}] if active else [])),
+                         execute=AsyncMock(side_effect=[Rows(nodes), Rows(tasks)]))
+    monkeypatch.setattr(routes, "_reference_template", AsyncMock(side_effect=lambda task, node, project, db: node.config["template"]))
+    monkeypatch.setattr(routes, "_task_visible_content", AsyncMock(side_effect=lambda task, node, db, **kwargs: (record(task.id, "")["schema"], task.answers)))
+    return db, project, nodes, tasks
+
+
+@pytest.mark.asyncio
+async def test_evaluate_uses_all_formal_results_with_answer_override(monkeypatch):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    tasks.append(SimpleNamespace(**{**tasks[0].__dict__, "id": 3, "answers": {"i": "mid"}}))
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, {"i": "low"}, all_formal=True)
+    assert len(internal["_contexts"]) == 2
+    assert internal["matches"][0]["second_task_id"] == 2
+    assert projected["matches"][0]["reference_node_name"] == "上级评估"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["ordinary", "reference", "management"])
+@pytest.mark.parametrize("hidden", [False, True])
+async def test_deleted_rule_history_is_authorized_and_inactive(monkeypatch, entry, hidden):
+    db, project, nodes, tasks = runtime(monkeypatch, active=False, hide=hidden)
+    saved = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    saved["reason"] = "历史理由"
+    tasks[0].comparison_state = saved
+    options = {"include_history": True}
+    if entry == "reference":
+        viewer = deepcopy(nodes[0].config["template"])
+        viewer["content"].append({"content_slot": "reference", "reference_kind": "node", "reference_value": "a", "settings": {"allowView": not hidden}})
+        options["viewer_template"] = viewer
+    elif entry == "management":
+        options["viewer_schemas"] = {"a": record(1, "low")["schema"], "b": [] if hidden else record(2, "high")["schema"]}
+    internal, projected = await service.evaluate_task(db, tasks[0], nodes[0], project, **options)
+    assert internal is None
+    if hidden:
+        assert projected is None
+    else:
+        assert projected["reason"] == "历史理由" and not projected["active"] and projected["historical"]
+        assert not projected["show_notice_in_review"] and not projected["reason_required"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hidden", [False, True])
+async def test_overview_projects_comparison_from_current_entry(monkeypatch, hidden):
+    from app.performance import projects_router as routes
+    db, project, nodes, tasks = runtime(monkeypatch, hide=hidden)
+    project.name = "项目"
+    project.status = "STARTED"
+    nodes[0].config["template"]["executor_role_code"] = "assessment.reviewee"
+    cycle = SimpleNamespace(id=9, name="周期", start_at=None, end_at=None)
+    access = SimpleNamespace(cycle_ids={9}, review_projects=[(project, cycle)], task_ids_by_project={7: {1}},
+                             visible_node_ids_by_project={7: {11}}, voluntary_node_ids_by_project={})
+    monkeypatch.setattr(routes, "resolve_frontend_access", AsyncMock(return_value=access))
+    monkeypatch.setattr(routes, "project_payload", lambda *_: {})
+    monkeypatch.setattr(routes, "_node_timing", lambda *_: {})
+    monkeypatch.setattr(routes, "_self_summary_state", lambda *_: (False, False))
+    db.get = AsyncMock(return_value=None)
+    db.execute = AsyncMock(side_effect=[Rows(nodes), Rows([tasks[0]]), Rows(nodes), Rows(tasks)])
+    result = await routes.review_overview(7, SimpleNamespace(), db, task_id=1, cycle_id=None)
+    payload = result["categories"][0]["nodes"][0]
+    assert payload["task_id"] == 1
+    if hidden:
+        assert payload["comparison"] is None
+    else:
+        assert payload["comparison"]["matches"][0]["source_task_id"] == 2
+
+
+@pytest.mark.asyncio
+async def test_prepare_preserves_previous_reason_in_audit_and_does_not_store_forged_reason(monkeypatch):
+    from app.performance import projects_router as routes
+    internal = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    task = SimpleNamespace(comparison_state={"reason": "旧理由"})
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(internal, None)))
+    comparison, projected, before = await routes._prepare_task_comparison(None, task, None, None, {}, routes.SelfSummaryAnswersPayload(diff_reason="不能授权的伪造理由"))
+    assert before["reason"] == "旧理由" and task.comparison_state["reason"] is None
+    assert comparison is not None and projected is None
+
+
+@pytest.mark.asyncio
+async def test_shared_comparison_failure_precedes_formal_write_and_commit(monkeypatch):
+    from app.performance import projects_router as routes
+    task = SimpleNamespace(handler_ref="actor", actor_drafts=None, draft_answers=None, task_kind="evaluation")
+    node = SimpleNamespace(node_id="a")
+    member = SimpleNamespace(shared_result_state={"revision": 1, "answers": {"i": "high"}})
+    state = deepcopy(member.shared_result_state)
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(routes, "_shared_write_context", AsyncMock(return_value=(member, state)))
+    monkeypatch.setattr(routes, "_prepare_task_comparison", AsyncMock(side_effect=HTTPException(400, "DIFF_REASON_REQUIRED")))
+    with pytest.raises(HTTPException, match="DIFF_REASON_REQUIRED"):
+        await routes._save_shared_task(task, node, routes.SelfSummaryAnswersPayload(answers={"i": "low"}, result_version=1), True,
+                                       SimpleNamespace(actor_ref="actor"), None, record(1, "low")["schema"], db)
+    assert member.shared_result_state == {"revision": 1, "answers": {"i": "high"}}
+    db.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_full_formal_comparison_shared_result_is_not_duplicated(monkeypatch):
+    db, project, nodes, tasks = runtime(monkeypatch)
+    nodes[0].config["template"]["include_final_result"] = True
+    tasks.append(SimpleNamespace(**{**tasks[0].__dict__, "id": 3}))
+    cycle = db.scalar.return_value
+    member = SimpleNamespace(shared_result_state={"source_task_id": 1, "revision": 6})
+    db.scalar = AsyncMock(side_effect=[cycle, member])
+    internal, _ = await service.evaluate_task(db, tasks[0], nodes[0], project, {"i": "low"}, all_formal=True)
+    assert len(internal["_contexts"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_enqueue_uses_full_formal_signature_and_does_not_swallow_failure(monkeypatch):
+    from app.performance import projects_router as routes, comparison_notification_service as notifications
+    formal = compare_ratings(rule(), {"a": [record(1, "low")], "b": [record(2, "high")]})
+    task = SimpleNamespace(comparison_state={"reason": "原因", "matches": [{"stored": True}]})
+    evaluate = AsyncMock(return_value=(formal, None))
+    enqueue = AsyncMock(side_effect=RuntimeError("outbox failed"))
+    monkeypatch.setattr(service, "evaluate_task", evaluate)
+    monkeypatch.setattr(notifications, "enqueue_notifications", enqueue)
+    with pytest.raises(RuntimeError, match="outbox failed"):
+        await routes._enqueue_task_comparison(None, task, None, None, None, {"reason": "原因", "previous_rating_signature": formal["rating_signature"], "rating_signature": "task-local", "event_sequence": 4})
+    assert evaluate.await_args.kwargs == {"all_formal": True}
+    assert enqueue.await_args.args[-1]["rating_signature"] == formal["rating_signature"]
+    assert task.comparison_state["matches"] == [{"stored": True}]
+    assert task.comparison_state["reason"] == "原因"
+    assert task.comparison_state["event_sequence"] == 3
+
+
+def test_actor_reason_drafts_reload_privacy_clear_and_formal_state_preservation():
+    task = SimpleNamespace(comparison_state={"rule_id": "r1", "reason": "正式理由", "rating_signature": "stable", "event_sequence": 3})
+    service.set_actor_draft(task, "owner", "我的草稿", "ctx-1")
+    service.set_actor_draft(task, "delegate", "代理草稿", "ctx-2")
+    reloaded = SimpleNamespace(comparison_state=deepcopy(task.comparison_state))
+    assert service.actor_draft_projection(reloaded, "owner", {"active": True}) == {"draft_diff_reason": "我的草稿", "draft_comparison_context": "ctx-1"}
+    assert service.actor_draft_projection(reloaded, "delegate", {"active": True})["draft_diff_reason"] == "代理草稿"
+    assert service.actor_draft_projection(reloaded, "other", {"active": True})["draft_diff_reason"] is None
+    assert service.actor_draft_projection(reloaded, "owner", None)["draft_diff_reason"] is None
+    assert service.actor_draft_projection(reloaded, "owner", {"active": False})["draft_diff_reason"] is None
+    service.set_actor_draft(task, "owner", None)
+    assert "owner" not in task.comparison_state["actor_drafts"]
+    assert task.comparison_state["reason"] == "正式理由" and task.comparison_state["rating_signature"] == "stable"
+    assert task.comparison_state["actor_drafts"]["delegate"]["reason"] == "代理草稿"
+
+
+@pytest.mark.asyncio
+async def test_shared_draft_reason_explicit_update_omitted_preserves_submit_clears_only_actor(monkeypatch):
+    from app.performance import projects_router as routes
+    task = SimpleNamespace(id=1, project_id=7, node_snapshot_id=11, member_snapshot_id=4, target_employee_no="e", cycle_ref="cycle",
+                           task_kind="evaluation", handler_ref="owner", actor_drafts=None, draft_answers=None, answer_version=1,
+                           submitted_at=None, phase_id="", comparison_state={"reason": "正式理由"})
+    member = SimpleNamespace(shared_result_state={"revision": 0, "answers": {"i": "high"}})
+    actor = SimpleNamespace(actor_ref="owner", actor_type="EMPLOYEE")
+    monkeypatch.setattr(routes, "_shared_write_context", AsyncMock(side_effect=lambda *_: (member, deepcopy(member.shared_result_state))))
+    monkeypatch.setattr(routes, "_shared_answer_submissions", AsyncMock(return_value=[]))
+    monkeypatch.setattr(routes, "_enqueue_task_comparison", AsyncMock())
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(None, {"active": True})))
+    monkeypatch.setattr(routes, "PerformanceAuditService", lambda *_: SimpleNamespace(append_event=lambda *_: None))
+    db = SimpleNamespace(commit=AsyncMock())
+    schema = record(1, "low")["schema"]
+    node = SimpleNamespace(node_id="a")
+    payload = routes.SelfSummaryAnswersPayload(answers={"i": "low"}, result_version=0, diff_reason="草稿理由", comparison_context="ctx")
+    first = await routes._save_shared_task(task, node, payload, False, actor, None, schema, db)
+    assert first["draft_diff_reason"] == "草稿理由"
+    reloaded = deepcopy(task.comparison_state)
+    second = await routes._save_shared_task(task, node, routes.SelfSummaryAnswersPayload(answers={}, result_version=0), False, actor, None, schema, db)
+    assert second["draft_diff_reason"] == "草稿理由" and task.comparison_state == reloaded
+    service.set_actor_draft(task, "delegate", "他人草稿", "other")
+    await routes._save_shared_task(task, node, routes.SelfSummaryAnswersPayload(answers={"i": "low"}, result_version=0), True, actor, None, schema, db)
+    assert "owner" not in task.comparison_state["actor_drafts"]
+    assert task.comparison_state["actor_drafts"]["delegate"]["reason"] == "他人草稿"
+    assert task.comparison_state["reason"] == "正式理由"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shared", [False, True])
+async def test_discard_clears_actor_reason_draft_only_after_version_validation(monkeypatch, shared):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceNodeTask
+    task = PerformanceNodeTask(id=1, project_id=7, cycle_ref="c", task_kind="evaluation", handler_ref="owner", answer_version=1, draft_answers=None)
+    service.set_actor_draft(task, "owner", "reason", "ctx")
+    service.set_actor_draft(task, "delegate", "other", "ctx")
+    node = SimpleNamespace(config={"template": {"include_final_result": shared}})
+    context = SimpleNamespace(effective_employee_no="owner", subject_type="EMPLOYEE", subject_id="owner")
+    db = SimpleNamespace(get=AsyncMock(return_value=None), commit=AsyncMock())
+    monkeypatch.setattr(routes, "_self_summary_task", AsyncMock(return_value=(task, node)))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=SimpleNamespace(actor_ref="owner")))
+    monkeypatch.setattr(routes, "_lock_task_context", AsyncMock())
+    monkeypatch.setattr(routes, "_task_edit_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_final_result_locked", AsyncMock(return_value=False))
+    monkeypatch.setattr(routes, "_task_window", lambda *_: (None, None))
+    monkeypatch.setattr(routes, "_overdue_submission_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_self_summary_state", lambda *_: (True, True))
+    monkeypatch.setattr(routes.shared_results, "member_for_task", AsyncMock(return_value=SimpleNamespace(shared_result_state={"revision": 1})))
+    with pytest.raises(HTTPException, match="VERSION_CONFLICT"):
+        await routes._discard_task_draft(1, routes.TaskDraftVersionPayload(version=2), context, db, "evaluation", None)
+    assert task.comparison_state["actor_drafts"]["owner"]["reason"] == "reason"
+    await routes._discard_task_draft(1, routes.TaskDraftVersionPayload(version=1), context, db, "evaluation", None)
+    assert "owner" not in task.comparison_state["actor_drafts"]
+    assert task.comparison_state["actor_drafts"]["delegate"]["reason"] == "other"
+    db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ordinary_reason_only_draft_reload_omission_clear_and_submit(monkeypatch):
+    from app.performance import projects_router as routes
+    from app.performance.models import PerformanceNodeTask
+    task = PerformanceNodeTask(id=1, project_id=7, cycle_ref="c", task_kind="evaluation", handler_ref="owner", answer_version=1, answers={"i": "low"}, draft_answers=None, status="pending")
+    node = SimpleNamespace(node_id="a", node_type="evaluation", config={"template": {}})
+    actor = SimpleNamespace(actor_ref="owner", actor_type="EMPLOYEE")
+    context = SimpleNamespace(effective_employee_no="owner", subject_type="EMPLOYEE", subject_id="owner")
+    db = SimpleNamespace(get=AsyncMock(return_value=None), commit=AsyncMock())
+    monkeypatch.setattr(routes, "_self_summary_task", AsyncMock(return_value=(task, node)))
+    monkeypatch.setattr(routes, "resolve_trusted_performance_actor", AsyncMock(return_value=actor))
+    monkeypatch.setattr(routes, "_lock_task_context", AsyncMock())
+    monkeypatch.setattr(routes, "_task_edit_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_final_result_locked", AsyncMock(return_value=False))
+    monkeypatch.setattr(routes, "_task_window", lambda *_: (None, None))
+    monkeypatch.setattr(routes, "_overdue_submission_allowed", AsyncMock(return_value=True))
+    monkeypatch.setattr(routes, "_self_summary_state", lambda *_: (True, True))
+    monkeypatch.setattr(routes, "_self_summary_template", AsyncMock(return_value={}))
+    monkeypatch.setattr(routes, "build_self_summary_schema", lambda *_: record(1, "low")["schema"])
+    monkeypatch.setattr(routes, "PerformanceAuditService", lambda *_: SimpleNamespace(append_event=lambda *_: None))
+    monkeypatch.setattr(routes, "_enqueue_task_comparison", AsyncMock())
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(None, {"active": True})))
+    async def save(submit=False, **kwargs):
+        return await routes._save_self_summary(1, routes.SelfSummaryAnswersPayload(answers={"i": "low"}, **kwargs), submit, context, db, "evaluation")
+    first = await save(diff_reason="草稿理由", comparison_context="ctx")
+    assert first["has_draft"] and first["draft_diff_reason"] == "草稿理由" and task.draft_answers is None
+    assert service.actor_draft_projection(SimpleNamespace(comparison_state=deepcopy(task.comparison_state)), "owner", {"active": True})["draft_diff_reason"] == "草稿理由"
+    assert (await save())["draft_diff_reason"] == "草稿理由"
+    assert (await save(diff_reason=None))["draft_diff_reason"] is None
+    await save(diff_reason="再次填写", comparison_context="ctx")
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(side_effect=HTTPException(409, "COMPARISON_SOURCE_CHANGED")))
+    with pytest.raises(HTTPException, match="COMPARISON_SOURCE_CHANGED"):
+        await save(True)
+    assert task.comparison_state["actor_drafts"]["owner"]["reason"] == "再次填写"
+    monkeypatch.setattr(service, "evaluate_task", AsyncMock(return_value=(None, None)))
+    result = await save(True)
+    assert result["draft_diff_reason"] is None and task.comparison_state is None
+
+
+def test_reason_payload_length_matches_source_limit():
+    from pydantic import ValidationError
+    from app.performance.projects_router import SelfSummaryAnswersPayload
+    SelfSummaryAnswersPayload(diff_reason="x" * 20000)
+    with pytest.raises(ValidationError):
+        SelfSummaryAnswersPayload(diff_reason="x" * 20001)
