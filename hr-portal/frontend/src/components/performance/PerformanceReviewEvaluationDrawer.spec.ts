@@ -6,6 +6,7 @@ import PerformanceReferenceContent from './PerformanceReferenceContent.vue'
 import PerformanceReminderButton from './PerformanceReminderButton.vue'
 import PerformanceReviewEvaluationDrawer from './PerformanceReviewEvaluationDrawer.vue'
 import PerformanceReconsiderationAdjustments from './PerformanceReconsiderationAdjustments.vue'
+import PerformanceChangeHistory from './PerformanceChangeHistory.vue'
 import PerformanceReconsiderationDetail from './PerformanceReconsiderationDetail.vue'
 import source from './PerformanceReviewEvaluationDrawer.vue?raw'
 import previewCardSource from './PerformanceReminderPreviewCard.vue?raw'
@@ -95,6 +96,97 @@ describe('PerformanceReviewEvaluationDrawer', () => {
     ;(dialog.querySelector('.performance-dialog__footer button') as HTMLButtonElement).click()
     await flushPromises()
     expect(document.body.querySelector('.reconsideration-history-dialog')).toBeNull()
+  })
+
+  it.each(['management', 'evaluation'] as const)('shows the same final and calibration history through the %s loader', async entry => {
+    const detail: PerformanceManagementDetail = {
+      ...structuredClone(task), opened_at: '2026-09-22T07:29:00Z', opened_by: '实际开通人',
+      management_tabs: [{ key: 'final', node_id: 'final', node_name: '模板终评', employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: { good: '当前终评结果' }, result_history: [
+        { id: 2, submitted_at: '2026-09-22T08:29:00Z', display_name: '校准人', node_name: '公司级校准', adjustments: [{ section_id: 'value', section_name: '价值贡献', field_id: 'good', field_label: '做得好的', field_type: 'rich_text', before: '原结果', after: '校准结果' }] },
+        { id: 1, submitted_at: task.submitted_at, display_name: '终评人', node_name: '模板终评', adjustments: [] },
+      ] }], default_active_tab: 'final',
+    }
+    const loader = vi.fn().mockResolvedValue(detail)
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue(detail as Awaited<ReturnType<typeof performanceReviewApi.templateTask>>)
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', ...(entry === 'management' ? { detailLoader: loader } : { taskId: 145 }) } })
+    await flushPromises()
+    const opening = document.body.querySelector('.performance-review-evaluation-drawer__opening')!
+    expect(opening.classList.contains('prompt-notice--multiline')).toBe(true)
+    expect(opening.textContent).toBe('本次绩效结果已由 实际开通人 在 2026-09-22 15:29（GMT+8） 开通。')
+    expect(document.body.querySelector('.performance-review-evaluation-drawer__card-title .reconsideration-detail__history-link')?.textContent).toContain('变更记录（2）')
+    expect(wrapper.getComponent(PerformanceChangeHistory).props('sections')).toEqual(task.form_schema)
+    ;(document.body.querySelector('.reconsideration-detail__history-link button') as HTMLButtonElement).click()
+    await flushPromises()
+    const dialog = document.body.querySelector<HTMLElement>('.reconsideration-history-dialog')!
+    expect(dialog.style.width).toBe('800px')
+    expect([...dialog.querySelectorAll('.reconsideration-detail__history-node')].map(item => item.textContent)).toEqual(['公司级校准', '模板终评'])
+    expect(dialog.querySelector('.reconsideration-detail__history-time')?.textContent).toBe('2026-09-22 16:29（GMT+8）')
+    expect(dialog.textContent).toContain('校准人')
+    expect(dialog.textContent).toContain('终评人')
+    expect(dialog.querySelector('del')?.textContent).toBe('原')
+    expect(dialog.querySelector('ins')?.textContent).toBe('校准')
+    expect(document.body.querySelector('.performance-review-evaluation-drawer__card')?.textContent).toContain('当前终评结果')
+    if (entry === 'management') expect(performanceReviewApi.templateTask).not.toHaveBeenCalled()
+    else expect(performanceReviewApi.templateTask).toHaveBeenCalledWith(145, 'E001', { view: 'drawer' })
+  })
+
+  it.each([undefined, []])('hides the history entry when final result history is %s', async resultHistory => {
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), management_tabs: [{ key: 'final', node_id: 'final', node_name: '终评', employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: task.answers, result_history: resultHistory }], default_active_tab: 'final' })
+    mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-detail__history-link')).toBeNull()
+    expect(document.body.querySelector('.reconsideration-history-dialog')).toBeNull()
+  })
+
+  it.each(['person', 'tab', 'identity', 'close'] as const)('closes open history when changing %s and does not reopen it with cached content', async change => {
+    const tab = (key: string): PerformanceReferenceTab => ({ key, node_id: key, node_name: key, employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: task.answers, result_history: [{ submitted_at: task.submitted_at, display_name: '旧历史提交人', adjustments: [] }] })
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), management_tabs: [tab('first'), tab('second')], default_active_tab: 'first' })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, employeeNo: 'E001', detailLoader } })
+    await flushPromises()
+    ;(document.body.querySelector('.reconsideration-detail__history-link button') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-history-dialog')?.textContent).toContain('旧历史提交人')
+    if (change === 'person') await wrapper.setProps({ employeeNo: 'E002' })
+    if (change === 'tab') await wrapper.setProps({ activeTab: 'second' })
+    if (change === 'identity') employeeSwitchEpoch.value++
+    if (change === 'close') await wrapper.setProps({ modelValue: false })
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-history-dialog')).toBeNull()
+    if (change === 'tab') await wrapper.setProps({ activeTab: 'first' })
+    if (change === 'close') await wrapper.setProps({ modelValue: true })
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-history-dialog')).toBeNull()
+  })
+
+  it.each([undefined, null, '', '   ', '系统'])('uses trusted opener metadata without inventing an actor: %s', async openedBy => {
+    vi.mocked(performanceReviewApi.templateTask).mockResolvedValue({ ...structuredClone(task), opened_at: '2026-09-22T07:29:00Z', opened_by: openedBy })
+    mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, taskId: 145 } })
+    await flushPromises()
+    expect(document.body.querySelector('.performance-review-evaluation-drawer__opening')?.textContent).toBe(openedBy === '系统' ? '本次绩效结果已由 系统 在 2026-09-22 15:29（GMT+8） 开通。' : '本次绩效结果已于 2026-09-22 15:29（GMT+8） 开通。')
+  })
+
+  it('keeps reconsideration history and displayed results independent from final result changes', async () => {
+    const reconsideration = { reason: '申请核对', status: 'submitted_editable' as const, handlers: [], adjustments: [], history: [{ submitted_at: task.submitted_at, display_name: '复议提交人', adjustments: [] }], form_schema: task.form_schema, answers: { good: '复议时的结果' }, submitted_at: task.submitted_at, submitted_by: '复议提交人', can_edit: false }
+    const detailLoader = vi.fn().mockResolvedValue({ ...structuredClone(task), management_tabs: [
+      { key: 'final', node_id: 'final', node_name: '终评', employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: { good: '复议后再次校准结果' }, result_history: [{ submitted_at: task.submitted_at, display_name: '后续校准人', node_name: '后续校准', adjustments: [] }] },
+      { key: 'appeal', node_id: 'appeal', node_name: '自定义复议', employee_no: 'E001', status: 'completed', can_remind: false, form_schema: task.form_schema, answers: { good: '禁止替代的页签答案' }, reconsideration },
+    ], default_active_tab: 'final' })
+    const wrapper = mount(PerformanceReviewEvaluationDrawer, { props: { modelValue: true, detailLoader } })
+    await flushPromises()
+    await wrapper.setProps({ activeTab: 'appeal' })
+    await flushPromises()
+    expect(document.body.textContent).toContain('复议时的结果')
+    expect(document.body.textContent).not.toContain('复议后再次校准结果')
+    expect(document.body.textContent).not.toContain('禁止替代的页签答案')
+    ;(document.body.querySelector('.reconsideration-detail__history-link button') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-history-dialog')?.textContent).toContain('复议提交人')
+    expect(document.body.querySelector('.reconsideration-history-dialog')?.textContent).not.toContain('后续校准人')
+    expect(document.body.querySelector('.reconsideration-detail__history-node')?.textContent).toBe('自定义复议')
+    await wrapper.setProps({ activeTab: 'final' })
+    await flushPromises()
+    expect(document.body.querySelector('.reconsideration-history-dialog')).toBeNull()
+    expect(document.body.textContent).toContain('复议后再次校准结果')
   })
 
   it('shows template role labels and sends a reminder for the actual pending reconsideration task', async () => {

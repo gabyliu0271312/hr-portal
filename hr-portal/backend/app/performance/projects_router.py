@@ -1071,7 +1071,7 @@ async def _template_task_detail(task: PerformanceNodeTask, node: PerformanceProj
         "reference_tabs": [] if management_detail is not None and view == "drawer" else await _reference_tabs(task, node, project, actor_ref, db, context=context, **({"view": view, "tab": tab} if view == "drawer" else {})),
         **({
             key: management_detail[key]
-            for key in ("management_tabs", "default_active_tab", "stage_views", "root_review_id", "opened_at", "cycle")
+            for key in ("management_tabs", "default_active_tab", "stage_views", "root_review_id", "opened_at", "opened_by", "cycle")
             if management_detail is not None and key in management_detail
         }),
     }
@@ -3254,6 +3254,96 @@ async def _reconsideration_detail(project, member, node, tasks, context, actor, 
         "can_edit": editable_task is not None, "edit_task_id": editable_task.id if editable_task else None}, appeal
 
 
+async def _final_result_history(project, member, nodes, tasks, schema, db):
+    from app.performance.reconsideration_result_service import result_adjustments
+
+    by_node = {node.id: node for node in nodes}
+    sources = {str(task.id): task for task in tasks
+               if task.member_snapshot_id == member.snapshot_id
+               and task.target_employee_no == member.employee_no
+               and task.project_id == project.id and task.cycle_ref == project.cycle_ref
+               and task.node_snapshot_id in by_node
+               and shared_results.participates(task, by_node[task.node_snapshot_id])}
+    if not sources or not any(section.get("fields") for section in schema):
+        return []
+    events = list((await db.execute(select(PerformanceAuditEvent).where(
+        PerformanceAuditEvent.cycle_ref == project.cycle_ref,
+        PerformanceAuditEvent.employee_no == member.employee_no,
+        PerformanceAuditEvent.subject_type == "PERFORMANCE_NODE_TASK",
+        PerformanceAuditEvent.subject_ref.in_(list(sources)),
+        PerformanceAuditEvent.event_type.in_(["PERFORMANCE_TASK_SUBMITTED", "CALIBRATION_ADJUSTED"]),
+    ).order_by(PerformanceAuditEvent.event_at.desc(), PerformanceAuditEvent.id.desc()))).scalars().all())
+    history = []
+    for event in sorted(events, key=lambda item: (item.event_at, item.id), reverse=True):
+        task = sources.get(event.subject_ref)
+        if task is None:
+            continue
+        node = by_node[task.node_snapshot_id]
+        before, after = event.before_state or {}, event.after_state or {}
+        expected = "CALIBRATION_ADJUSTED" if task.task_kind == "calibration" else "PERFORMANCE_TASK_SUBMITTED"
+        if (event.event_type != expected or after.get("project_id") != project.id
+                or after.get("node_id") != node.node_id):
+            continue
+        state = after.get("shared_result_state")
+        if isinstance(state, dict):
+            if not before.get("source_task_id") and not before.get("revision"):
+                continue
+            old, new = before.get("answers"), state.get("answers")
+        else:
+            old, new = before.get("answers"), after.get("answers")
+        if not isinstance(old, dict) or not isinstance(new, dict):
+            continue
+        old = project_self_summary_answers(schema, old, include_readonly=True)
+        new = project_self_summary_answers(schema, new, include_readonly=True)
+        adjustments = result_adjustments(schema, old, new)
+        if not adjustments:
+            continue
+        switch = after.get("identity_switch") or {}
+        actor_type = switch.get("business_actor_type", event.actor_type)
+        actor_ref = switch.get("business_actor_ref", event.actor_ref)
+        history.append({"id": event.id, "submitted_at": event.event_at,
+            "display_name": "评估人", "node_name": node.name, "adjustments": adjustments,
+            "_actor_ref": str(actor_ref) if actor_type == "EMPLOYEE" else None})
+    actor_refs = {item["_actor_ref"] for item in history if item["_actor_ref"]}
+    names = {}
+    if actor_refs:
+        people = list((await db.execute(select(PerformanceAuthorizationSnapshotPerson).join(
+            PerformanceProjectMemberSnapshot,
+            PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+        ).where(PerformanceProjectMemberSnapshot.id == member.snapshot_id,
+                PerformanceProjectMemberSnapshot.project_id == project.id,
+                PerformanceAuthorizationSnapshotPerson.employee_no.in_(actor_refs)))).scalars().all())
+        names = {person.employee_no: person.display_name for person in people if person.display_name and person.display_name.strip()}
+    for item in history:
+        item["display_name"] = names.get(item.pop("_actor_ref"), "评估人")
+    return history
+
+
+async def _result_opening_detail(project, member, db):
+    opening = await db.scalar(select(PerformanceResultOpening).where(
+        PerformanceResultOpening.project_id == project.id,
+        PerformanceResultOpening.cycle_ref == project.cycle_ref,
+        PerformanceResultOpening.employee_no == member.employee_no,
+    ))
+    if opening is None:
+        return {"opened_at": None, "opened_by": None}
+    name = None
+    if opening.opened_by_type == "SYSTEM":
+        name = "系统"
+    elif opening.opened_by_type == "EMPLOYEE":
+        person = await db.scalar(select(PerformanceAuthorizationSnapshotPerson).join(
+            PerformanceProjectMemberSnapshot,
+            PerformanceProjectMemberSnapshot.source_snapshot_id == PerformanceAuthorizationSnapshotPerson.snapshot_id,
+        ).where(PerformanceProjectMemberSnapshot.id == member.snapshot_id,
+                PerformanceProjectMemberSnapshot.project_id == project.id,
+                PerformanceAuthorizationSnapshotPerson.employee_no == opening.opened_by_ref))
+        name = person.display_name if person else None
+    elif opening.opened_by_type == "PORTAL_USER" and str(opening.opened_by_ref).isdigit():
+        user = await db.get(User, int(opening.opened_by_ref))
+        name = user.display_name if user else None
+    return {"opened_at": opening.opened_at, "opened_by": name.strip() if name and name.strip() else None}
+
+
 async def _project_member_detail(
     project: PerformanceProject,
     employee_no: str,
@@ -3410,6 +3500,10 @@ async def _project_member_detail(
         if node is final_node and representative is not None and not anonymous and content_loaded and not isinstance(frozen_result, dict):
             effective = await _effective_member_result(project.id, project.cycle_ref, snapshot_id, employee_no, db, nodes=all_nodes, tasks=all_tasks, member=member)
             submissions = await _shared_answer_submissions(representative, effective, db)
+        history = []
+        if node is final_node and content_loaded:
+            history_schema, _ = project_reference_content(templates[node.id], relations.get(node.node_id, {}), {})
+            history = await _final_result_history(project, member, all_nodes, all_tasks, history_schema, db)
         tabs.append({
             "key": f"management-{node.node_id}", "kind": "node", "node_id": node.node_id,
             "node_name": (relation.get("reference_settings") or {}).get("page_name") or node.name,
@@ -3417,7 +3511,7 @@ async def _project_member_detail(
             "task_kind": node.node_type, "employee_no": employee_no, "status": status,
             "deadline_at": deadline, "submitted_at": representative.submitted_at if representative and not anonymous else None,
             "submitted_by": next((item["display_name"] for item in submissions if representative is not None and item["submitted_at"] == representative.submitted_at), None),
-            "answer_submissions": submissions,
+            "answer_submissions": submissions, "result_history": history,
             "final_result_locked": bool(final_locked and final_node is not None and node.id == final_node.id),
             "form_schema": schema, "answers": answers, "can_remind": False, "content_loaded": content_loaded,
             **feedback,
@@ -3440,7 +3534,7 @@ async def _project_member_detail(
     visible_fields = (await load_subject_visibility_rules(db))[visibility_role]
     supervisors = await _snapshot_supervisor_names(db, [member])
     supervisor_name = supervisors.get((snapshot_id, getattr(member, "direct_supervisor_employee_no", None)))
-    opened_at = await db.scalar(select(PerformanceResultOpening.opened_at).where(PerformanceResultOpening.project_id == project.id, PerformanceResultOpening.employee_no == employee_no))
+    opening_detail = await _result_opening_detail(project, member, db)
     cycle_row = await db.scalar(select(PerformanceCycle).where(PerformanceCycle.cycle_ref == project.cycle_ref))
     stage_views = []
     from app.performance.member_reminders import can_remind_member, preload_member_reminders
@@ -3500,7 +3594,7 @@ async def _project_member_detail(
         })
     return {
         "task_id": selected_tab["task_id"], "project_id": project.id, "root_review_id": member.id,
-        "management_tabs": tabs, "default_active_tab": selected_tab["key"], "opened_at": opened_at,
+        "management_tabs": tabs, "default_active_tab": selected_tab["key"], **opening_detail,
         "node_id": selected_node.node_id, "return_view": "drawer", "task_kind": selected_node.node_type,
         "entry_mode": "template_task", "node_name": selected_node.name, "content_page_name": _task_content_page_name(selected_node),
         "executor_role_code": selected_template.get("executor_role_code"), "phase_id": None,

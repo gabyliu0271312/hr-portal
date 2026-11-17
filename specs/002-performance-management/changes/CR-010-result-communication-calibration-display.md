@@ -386,6 +386,26 @@
 - 前端：npm --prefix hr-portal/frontend test -- src/views/performance/Review.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts src/components/performance/PerformanceReminderPanel.spec.ts src/components/performance/PerformanceConfirmDialog.spec.ts src/views/performance/ProjectManagement.spec.ts；npm --prefix hr-portal/frontend run build；git diff --check。
 - 测试、构建、API/持久化、PNG和部署分别记录，未执行不报通过；以上完成前不勾选任务。新增迁移先核唯一head，不改旧迁移；有新历史后保护downgrade，不直接降级旧应用继续写共享结果。
 
+## 23. CR-010-F20 最终评估变更记录与开通人提示（2026-11-17）
+
+- 用户确认：上级评估历史只记录终评及校准的正式结果变更，发起复议后的终评/校准变更仍继续记录，不按复议申请时间截断。复议历史只记录复议处理，其下方绩效结果保持复议环节自身数据；不修改既有正文冻结/结果解析规则。
+- REA参考：管理入口 `ev_6cb1943735e1f0e41a66fde47029528e6a4c34cc264856c1b469107fe6305040`、团队结果入口 `ev_41b857e7fe5ca303651f40dff307d092107a574e36f6e451dd10c202f0468fbb`。目标站历史 GET `/perf/api/review/v2/history/rootReview?root_review_id=...&template_id=...`，800px历史弹窗及开通人/时间提示；接口响应和计算样式另由普通浏览器补采，不冒称全部为REA网络证据。
+- [ ] F20-T01 后端历史与开通人详情投影
+  - 前置/阅读：Spec002基线、共享正式结果契约、复议快照契约、execution-contract/acceptance-evidence及现有路由/服务/测试；沿现有授权详情入口，禁止独立绕过对象权限。
+  - 允许修改：`backend/app/performance/projects_router.py`、既有 `backend/tests/test_performance_projects.py`；不改模型/旧迁移/结果计算/权限配置/通知或生产数据。
+  - 契约：现有GET成员detail与任务template-task保持URL；最终评估 `management_tabs[].result_history` 增加 `id/submitted_at/display_name/node_name/adjustments`，复议的history不混入。读取同项目/周期/成员快照的真实终评/校准任务审计，字段按当前页签可见schema投影及净化，空变化不展示；首次无基线提交、缺完整前后值的旧审计不伪造历史。正式事件按时间/id倒序，提交人使用真实业务员工及冻结姓名，缺失姓名使用中性“评估人”。草稿、完成校准及复议事件排除。
+  - 开通DTO：`opened_at/opened_by`；真实EMPLOYEE从冻结人员解析，PORTAL_USER从实际用户解析，SYSTEM显示“系统”，缺名返回null。重复读取无写入；无需数据库迁移。
+  - 验收：独立历史、复议后仍记录、字段隐藏/越权/懒加载、操作者/身份切换/缺名、开通人及评估入口透传；现有项目/共享结果/复议回归，未执行真实PostgreSQL/生产验收不得声称通过。
+- [ ] F20-T02 共用历史弹窗与两入口开通提示
+  - 允许修改：`frontend/src/api/performance.ts`、`PerformanceReconsiderationDetail.vue`、`PerformanceReviewEvaluationDrawer.vue`及既有 `.spec.ts`；新建 `components/performance/PerformanceChangeHistory.vue`。共享API与路由由主执行者串行整合，前端与后端文件所有权分离。
+  - 复用800px历史弹窗、UiButton/PerformanceDialogShell/MemberIdentity/原差异组件；各条来源环节独立显示；空历史隐藏入口，换人员/页签/身份关闭旧弹窗。原复议编辑/催办与结果展示不改变。
+  - 开通提示复用PerformancePromptNotice，姓名与GMT+8时间完整显示，缺姓名保留原时间文案，未开通不显示；管理detailLoader和评估templateTask共用抽屉。
+  - UI门禁：现有页面小范围增强，沿已采集/已实现复议交互，无新页面或信息架构，不要求新完整蓝图；Spec012 N00/N11通用检查适用，无UCP/数仓/021任务。独立实现截图目标 `ui-blueprints/CR-010-F20-implemented-result-history.png`。
+  - 验收：既有抽屉spec覆盖复议/终评校准历史、双loader、空态/缺名/切人关闭；相关Review/ProjectManagement回归、生产构建、实际本地页面与截图需分别记证据。
+- 当前证据：后端项目/effective_results/reconsideration_results/reconsideration_lifecycle四文件 **959 passed、5 skipped、1既有python_multipart弃用警告**；追加懒加载/隐藏与透传定向 **3 passed**。前端 `PerformanceReviewEvaluationDrawer.spec.ts` **57 passed**；两入口 `Review.spec.ts`、`ProjectManagement.spec.ts` 与共享抽屉合计 **3文件212 passed**；`npm --prefix hr-portal/frontend run build` 通过（built in 43.08s），仅既有VueUse PURE annotation提示；`git diff --check`通过。
+- UI验收：受控Chromium+隔离API夹具完成项目管理入口与我团队绩效入口，桌面截图分别为 `ui-blueprints/CR-010-F20-implemented-result-history.png`、`ui-blueprints/CR-010-F20-implemented-team-result-history.png`；开通人/北京时间提示、800px历史弹窗、来源环节、差异内容和无pageerror通过；390px实测弹窗x=16、width=358、document scrollWidth=390，无横向溢出。非真实业务数据库/生产API验收。
+- 状态：代码、定向测试、整树前端构建及受控UI证据完成；真实PostgreSQL、生产登录态、部署、commit/push未执行，不将F20标记为生产完成。
+
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 
 - 用户确认：修复结果查看与工作总结提交后容器不一致、未配置评级摘要及显示顺序偏差，保证整体架构一致。沿用PM-T004结果查看与区域排序契约、CR-007正式入口；无新页面/流程，无需新完整蓝图。

@@ -1406,6 +1406,7 @@ export type PerformanceReferenceTab = {
   submitted_at?: string | null
   answer_submissions?: Array<{ display_name: string; submitted_at: string }>
   final_result_locked?: boolean
+  result_history?: Array<{ id?: number; submitted_at: string; display_name: string; node_name?: string; adjustments: PerformanceReconsiderationAdjustment[] }>
   form_schema: PerformanceTemplateSection[]
   answers: Record<string, unknown>
   can_remind: boolean
@@ -1445,6 +1446,7 @@ export type PerformanceTemplateTask = {
   default_active_tab?: string
   root_review_id?: number
   opened_at?: string | null
+  opened_by?: string | null
   project_id?: number
   node_id?: string
   return_view?: 'node' | 'drawer' | 'page'

@@ -2767,11 +2767,12 @@ async def test_self_summary_detail_keeps_template_title_and_returns_snapshot_per
     member.id = 21
     from unittest.mock import AsyncMock
     management_detail = {
-        "management_tabs": [{"key": "management-summary"}],
+        "management_tabs": [{"key": "management-summary", "result_history": [{"id": 1, "node_name": "校准", "display_name": "真实提交人", "submitted_at": "2026-11-16T12:50:00Z", "adjustments": []}]}],
         "default_active_tab": "management-summary",
         "stage_views": [{"node_id": "summary", "reminder_target": "刘芝萍"}],
         "root_review_id": 21,
         "opened_at": None,
+        "opened_by": "真实开通人",
         "cycle": {"name": "测试周期"},
     }
     detail = AsyncMock(return_value=management_detail)
@@ -9868,12 +9869,16 @@ def management_member_data(monkeypatch):
             self.queries = []
             self.events = []
             self.people = []
+            self.opening = None
+            self.opening_person = None
         async def scalar(self, query):
             self.queries.append(query)
             sql = str(query.compile(compile_kwargs={"literal_binds": True}))
             if "SELECT count(*)" in sql:
                 return len(members)
-            if "performance_result_openings" in sql: return None
+            if "performance_result_openings" in sql: return self.opening
+            if query.column_descriptions[0]["entity"] is models.PerformanceAuthorizationSnapshotPerson:
+                return self.opening_person
             if "performance_cycles" in sql:
                 return SimpleNamespace(name="测试周期", start_at=datetime(2026, 1, 1, tzinfo=UTC), end_at=datetime(2026, 12, 31, tzinfo=UTC))
             if query.column_descriptions[0]["entity"] is models.PerformanceNodeTask:
@@ -9938,6 +9943,97 @@ async def test_management_reconsideration_tab_keeps_frozen_final_and_separate_ed
     assert reconsideration["editable"] and reconsideration["submit_allowed"]
     assert not result["editable"] and not result["submit_allowed"]
     assert result["default_active_tab"] == "management-node-40"
+
+
+@pytest.mark.asyncio
+async def test_final_result_history_keeps_final_and_calibration_independent_from_reconsideration(management_member_data):
+    from datetime import UTC, datetime
+    from copy import deepcopy
+    from app.performance.models import PerformanceAuditEvent
+    data = management_member_data
+    data.nodes.append(data.node(25, "calibration"))
+    data.nodes.append(data.node(40, "result_reconsideration"))
+    final, calibration, reconsideration = data.task(2), data.task(7, 25), data.task(8, 40)
+    data.tasks[:] = [final, calibration, reconsideration]
+    data.db.people.append(SimpleNamespace(employee_no="ACTUAL", display_name="真实业务提交人"))
+    def event(index, task, kind, before, after, **extra):
+        return PerformanceAuditEvent(id=index, event_at=datetime(2026, 11, index, tzinfo=UTC),
+            cycle_ref="C1", employee_no="E1", subject_type="PERFORMANCE_NODE_TASK", subject_ref=str(task.id),
+            event_type=kind, actor_type="EMPLOYEE", actor_ref="ACTUAL", before_state=before,
+            after_state={"project_id": 1, "node_id": f"node-{task.node_snapshot_id}", **after, **extra})
+    schema = [{"id": "content", "name": "评价", "fields": [{"id": "text", "label": "说明", "type": "rich_text"}]}]
+    data.db.events = [
+        event(1, final, "PERFORMANCE_TASK_SUBMITTED", {"revision": 0, "answers": {}}, {"shared_result_state": {"answers": {"text": "首次"}}}),
+        event(2, calibration, "CALIBRATION_ADJUSTED", {"revision": 1, "answers": {"text": "首次", "secret": "旧秘密"}}, {"shared_result_state": {"answers": {"text": "校准", "secret": "新秘密"}}}),
+        event(3, final, "PERFORMANCE_TASK_SUBMITTED", {"revision": 2, "answers": {"text": "校准"}}, {"shared_result_state": {"answers": {"text": "复议后终评"}}}),
+        event(4, reconsideration, "PERFORMANCE_RECONSIDERATION_CLOSED", {"answers": {"text": "复议前"}}, {"answers": {"text": "复议秘密"}}),
+        event(5, final, "PERFORMANCE_TASK_DRAFT_SAVED", {"answers": {"text": "旧"}}, {"answers": {"text": "草稿秘密"}}),
+        event(6, calibration, "CALIBRATION_ADJUSTED", {"answers": {"text": "相同"}}, {"answers": {"text": "相同", "secret": "隐藏变化"}}),
+        event(7, final, "PERFORMANCE_TASK_SUBMITTED", {"version": 1}, {"version": 2}),
+        event(8, final, "PERFORMANCE_TASK_SUBMITTED", {"answers": {"text": "旧"}}, {"answers": {"text": "外项目秘密"}}, project_id=2),
+    ]
+    data.db.events[2].actor_type = "PORTAL_USER"
+    data.db.events[2].actor_ref = "42"
+    data.db.events[2].after_state["identity_switch"] = {"business_actor_type": "EMPLOYEE", "business_actor_ref": "ACTUAL"}
+    before = deepcopy([(item.before_state, item.after_state) for item in data.db.events])
+    history = await data.routes._final_result_history(data.project, data.members[0], data.nodes, data.tasks, schema, data.db)
+    assert [item["id"] for item in history] == [3, 2]
+    assert [item["node_name"] for item in history] == ["环节20", "环节25"]
+    assert all(item["display_name"] == "真实业务提交人" for item in history)
+    assert history[0]["adjustments"][0]["after"] == "复议后终评"
+    assert history[1]["adjustments"][0]["before"] == "首次"
+    assert "secret" not in str(history) and "秘密" not in str(history)
+    assert before == [(item.before_state, item.after_state) for item in data.db.events]
+    assert history == await data.routes._final_result_history(data.project, data.members[0], data.nodes, data.tasks, schema, data.db)
+    sql = str(data.db.queries[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "performance_audit_events.cycle_ref = 'C1'" in sql and "performance_audit_events.employee_no = 'E1'" in sql
+    assert await data.routes._final_result_history(data.project, data.members[0], data.nodes, data.tasks, [], data.db) == []
+
+
+@pytest.mark.asyncio
+async def test_final_history_detail_is_lazy_and_respects_reference_visibility(management_member_data):
+    from datetime import UTC, datetime
+    from app.performance.models import PerformanceAuditEvent
+    data = management_member_data
+    data.tasks[:] = [data.task(2)]
+    data.db.events = [PerformanceAuditEvent(id=1, event_at=datetime(2026, 11, 16, tzinfo=UTC),
+        cycle_ref="C1", employee_no="E1", subject_type="PERFORMANCE_NODE_TASK", subject_ref="2",
+        event_type="PERFORMANCE_TASK_SUBMITTED", actor_type="EMPLOYEE", actor_ref="M2",
+        before_state={"revision": 1, "answers": {"text": "原文"}},
+        after_state={"project_id": 1, "node_id": "node-20", "shared_result_state": {"answers": {"text": "新文"}}})]
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-10")
+    final = next(tab for tab in detail["management_tabs"] if tab["node_id"] == "node-20")
+    assert final["result_history"] == [] and not final["content_loaded"]
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-20")
+    final = next(tab for tab in detail["management_tabs"] if tab["node_id"] == "node-20")
+    assert final["result_history"][0]["adjustments"][0]["after"] == "新文"
+    assert final["result_history"][0]["display_name"] == "冻结处理人2"
+    data.nodes[1].config["template"]["content"][0]["items"][0]["settings"] = {"mode": "hidden"}
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1, view="drawer", tab="management-node-20")
+    assert all(not tab["result_history"] for tab in detail["management_tabs"])
+    assert "原文" not in str(detail) and "新文" not in str(detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind,name", [("EMPLOYEE", "真实开通人"), ("SYSTEM", "系统"), ("PORTAL_USER", "平台开通人"), ("MISSING", None)])
+async def test_member_opening_metadata_uses_actual_actor(management_member_data, monkeypatch, kind, name):
+    from datetime import UTC, datetime
+    from app.users.models import User
+    data = management_member_data
+    when = datetime(2026, 11, 11, 11, 19, tzinfo=UTC)
+    data.db.opening = SimpleNamespace(opened_at=when, opened_by_type=kind, opened_by_ref="42" if kind == "PORTAL_USER" else "ACTUAL")
+    data.db.opening_person = SimpleNamespace(display_name="真实开通人")
+    original = data.db.get
+    async def get(model, key):
+        return SimpleNamespace(display_name="平台开通人") if model is User else await original(model, key)
+    monkeypatch.setattr(data.db, "get", get)
+    detail = await data.routes._project_member_detail(data.project, "E1", context(), data.db, 1)
+    assert detail["opened_at"] == when and detail["opened_by"] == name
+    if kind == "EMPLOYEE":
+        data.db.opening_person = None
+        assert (await data.routes._result_opening_detail(data.project, data.members[0], data.db))["opened_by"] is None
+    data.db.opening = None
+    assert await data.routes._result_opening_detail(data.project, data.members[0], data.db) == {"opened_at": None, "opened_by": None}
 
 
 @pytest.mark.asyncio
