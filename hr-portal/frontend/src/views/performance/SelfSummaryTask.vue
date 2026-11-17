@@ -450,10 +450,16 @@ async function submit(overdueConfirmed = false) {
     emit('submitted')
     if (props.embedded) { closeTask(); return }
     try {
-      if (isReconsiderationTask.value) {
-        const listQuery: Record<string, string> = { project_id: projectId, node: nodeId }
-        if (contextCycleId.value) listQuery.cycle_id = String(contextCycleId.value)
-        await router.push({ path: '/performance/review', query: listQuery })
+      if (isReconsiderationTask.value && route.query.return_entry === 'management' && /^[1-9]\d*$/.test(String(route.query.return_root_review_id || ''))) {
+        await router.push({ path: '/performance/project-management', query: {
+          ...(contextCycleId.value ? { cycle_id: String(contextCycleId.value) } : {}),
+          member_project_id: projectId, employee_no: employeeNo || task.value.person.employee_no,
+          rootReviewId: String(route.query.return_root_review_id), activeTab: `management-${nodeId}`,
+        } })
+      } else if (isReconsiderationTask.value) {
+        await router.push({ path: '/performance/review', query: nodeId
+          ? { ...query, rootReviewId: String(task.value.task_id), activeTab: nodeId }
+          : { project_id: projectId, node: nodeId } })
       } else if (task.value.return_view === 'page' || !nodeId) await router.push({ path: route.path || (!props.embedded && props.taskKind === 'work_summary' ? '/performance/review/self-summary' : '/performance/review/template-task'), query: { ...query, view: '1' } })
       else await router.push({ path: '/performance/review', query })
     } catch { saveMessage.value = '提交成功，查看页跳转失败，请返回查看' }

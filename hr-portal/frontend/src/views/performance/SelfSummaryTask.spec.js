@@ -414,7 +414,7 @@ describe('SelfSummaryTask', () => {
     wrapper.unmount()
   })
 
-  it.each(['keep', 'change'])('returns submitted reconsideration to its project/cycle members list, decision=%s', async decision => {
+  it.each(['keep', 'change'])('returns submitted reconsideration to its project/cycle readonly drawer, decision=%s', async decision => {
     vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '8', project_id: '3', node: 'appeal', cycle_id: '2', employee_no: 'E001', view: undefined } })
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, project_id: 3, node_id: 'appeal', task_kind: 'result_reconsideration', return_view: 'page', reconsideration_reason: '理由', keep_result: decision, form_schema: [], answers: {} })
     vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: decision }, submitted_at: '2026-11-10T00:00:00Z', editable: false, submit_allowed: false })
@@ -423,7 +423,19 @@ describe('SelfSummaryTask', () => {
     await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
     await flushPromises()
     expect(push).toHaveBeenCalledTimes(1)
-    expect(push).toHaveBeenCalledWith({ path: '/performance/review', query: { project_id: '3', node: 'appeal', cycle_id: '2' } })
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review', query: { project_id: '3', node: 'appeal', task_id: '8', cycle_id: '2', employee_no: 'E001', rootReviewId: '8', activeTab: 'appeal' } })
+    wrapper.unmount()
+  })
+
+  it('returns management reconsideration edits to the original member and tab', async () => {
+    vi.mocked(useRoute).mockReturnValue({ path: '/performance/review/template-task', query: { task_id: '8', project_id: '3', node: 'appeal', cycle_id: '2', employee_no: 'E001', return_entry: 'management', return_root_review_id: '15' } })
+    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ ...structuredClone(task), task_id: 8, project_id: 3, node_id: 'appeal', task_kind: 'result_reconsideration', return_view: 'drawer', reconsideration_reason: '理由', keep_result: 'keep', form_schema: [], answers: {} })
+    vi.spyOn(performanceReviewApi, 'submitTemplateTask').mockResolvedValue({ answers: { keep_result: 'keep' }, submitted_at: '2026-11-10T00:00:00Z', editable: true, submit_allowed: true })
+    const wrapper = mount(SelfSummaryTask, { props: { taskKind: 'evaluation' } })
+    await flushPromises()
+    await wrapper.get('.self-summary-footer .performance-button--primary').trigger('click')
+    await flushPromises()
+    expect(push).toHaveBeenCalledWith({ path: '/performance/project-management', query: { cycle_id: '2', member_project_id: '3', employee_no: 'E001', rootReviewId: '15', activeTab: 'management-appeal' } })
     wrapper.unmount()
   })
 

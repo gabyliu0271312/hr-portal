@@ -3246,6 +3246,7 @@ async def _reconsideration_detail(project, member, node, tasks, context, actor, 
     history.sort(key=lambda item: _parse_time(item["submitted_at"]))
     submitted_at = history[-1]["submitted_at"] if history else latest.submitted_at.isoformat() if latest.submitted_at else None
     submitted_by = history[-1]["display_name"] if history else getattr(people.get(str(last_actor_ref)), "display_name", None) or last_actor_ref
+    history.reverse()
     return {"reason": appeal.reason,
         "status": "deadline_locked" if not window_open else "submitted_editable" if submitted_at else "pending",
         "handlers": handlers, "adjustments": result_adjustments(schema, baseline, answers), "history": history,

@@ -559,7 +559,7 @@ describe('ProjectManagement', () => {
     wrapper.unmount()
   })
 
-  it('opens reconsideration edits inside the existing task dialog and reloads member details after submitting', async () => {
+  it('opens reconsideration edits in the full task workspace with management return context', async () => {
     vi.mocked(mockedApi.overview).mockResolvedValue(overviewOf())
     vi.mocked(mockedApi.members).mockResolvedValue({ items: [], total: 0 } as any)
     const wrapper = mount(ProjectManagement, { global: { plugins: [pinia], stubs: {
@@ -575,15 +575,12 @@ describe('ProjectManagement', () => {
     const drawer = wrapper.getComponent({ name: 'PerformanceReviewEvaluationDrawer' })
     drawer.vm.$emit('edit', { task_id: 901, employee_no: 'E1', node_id: 'appeal', node_name: '自定义申诉处理', task_kind: 'result_reconsideration', draft_choice: 'use' })
     await flushPromises()
-    const embedded = wrapper.getComponent({ name: 'SelfSummaryTask' })
-    expect(embedded.props()).toMatchObject({ embedded: true, taskKind: 'evaluation', taskId: 901, employeeNo: 'E1', projectId: 3, draftChoice: 'use' })
-    expect(push).not.toHaveBeenCalled()
-    expect(document.body.textContent).toContain('自定义申诉处理')
-    const oldLoader = drawer.props('detailLoader')
-    embedded.vm.$emit('submitted')
-    await flushPromises()
     expect(wrapper.findComponent({ name: 'SelfSummaryTask' }).exists()).toBe(false)
-    expect(drawer.props('detailLoader')).not.toBe(oldLoader)
+    expect(push).toHaveBeenCalledWith({ path: '/performance/review/template-task', query: {
+      task_id: '901', project_id: '3', node: 'appeal', employee_no: 'E1', draft_choice: 'use',
+      return_entry: 'management', return_root_review_id: '10', cycle_id: '1',
+    } })
+    expect(drawer.props('modelValue')).toBe(false)
     wrapper.unmount()
   })
 

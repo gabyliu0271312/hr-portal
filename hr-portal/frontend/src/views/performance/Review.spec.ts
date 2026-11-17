@@ -117,31 +117,22 @@ describe('PerformanceReview', () => {
     wrapper.unmount()
   })
 
-  it('opens pending reconsideration in the shared embedded modal and refreshes back to the members list after submission', async () => {
+  it('opens pending reconsideration through the full shared task workspace', async () => {
     const node = { ...overview.categories[3].nodes[0], task_kind: 'result_reconsideration', entry_mode: 'template_task' as const }
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...structuredClone(overview), categories: [{ key: 'other', label: '其他事项', nodes: [node] }] })
-    vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 81, task_kind: 'result_reconsideration', entry_mode: 'template_task', node_name: node.node_name, person: { employee_no: 'E001', display_name: '成员' }, editable: true, submit_allowed: true, form_schema: [], answers: {} })
     const wrapper = mountView()
     await flushPromises()
     push.mockClear()
     wrapper.getComponent(PerformanceReviewContent).vm.$emit('open-member', { node, member: { task_id: 81, employee_no: 'E001', display_name: '成员', status: 'pending' } })
     await flushPromises()
-    expect(wrapper.getComponent(PerformanceDialogShell).props('modelValue')).toBe(true)
-    expect(wrapper.getComponent(SelfSummaryTask).props()).toMatchObject({ embedded: true, taskId: 81, employeeNo: 'E001', projectId: 1, cycleId: 1 })
-    expect(push).not.toHaveBeenCalled()
-    expect(wrapper.findComponent(PerformanceReviewEvaluationDrawer).exists()).toBe(false)
-    const overviewCalls = vi.mocked(performanceReviewApi.overview).mock.calls.length
-    const contentId = wrapper.getComponent(PerformanceReviewContent).vm.$.uid
-    wrapper.getComponent(SelfSummaryTask).vm.$emit('submitted')
-    await flushPromises()
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=81&project_id=1&node=appeal&employee_no=E001&cycle_id=1')
     expect(wrapper.findComponent(SelfSummaryTask).exists()).toBe(false)
+    expect(wrapper.findComponent(PerformanceDialogShell).exists()).toBe(false)
     expect(wrapper.findComponent(PerformanceReviewEvaluationDrawer).exists()).toBe(false)
-    expect(performanceReviewApi.overview).toHaveBeenCalledTimes(overviewCalls + 1)
-    expect(wrapper.getComponent(PerformanceReviewContent).vm.$.uid).not.toBe(contentId)
     wrapper.unmount()
   })
 
-  it('reopens a completed reconsideration in the shared drawer and sends edit back to the modal', async () => {
+  it('reopens completed reconsideration through the full workspace with its draft choice', async () => {
     const node = { ...overview.categories[3].nodes[0], task_kind: 'result_reconsideration', entry_mode: 'template_task' as const }
     vi.mocked(performanceReviewApi.overview).mockResolvedValue({ ...structuredClone(overview), categories: [{ key: 'other', label: '其他事项', nodes: [node] }] })
     vi.spyOn(performanceReviewApi, 'templateTask').mockResolvedValue({ task_id: 81, task_kind: 'result_reconsideration', entry_mode: 'template_task', node_name: node.node_name, person: { employee_no: 'E001', display_name: '成员' }, editable: true, submit_allowed: true, form_schema: [], answers: {} })
@@ -155,8 +146,8 @@ describe('PerformanceReview', () => {
     expect(wrapper.findComponent(SelfSummaryTask).exists()).toBe(false)
     drawer.vm.$emit('edit', { task_id: 81, employee_no: 'E001', draft_choice: 'use', task_kind: 'result_reconsideration', node_id: 'appeal' })
     await flushPromises()
-    expect(wrapper.getComponent(SelfSummaryTask).props()).toMatchObject({ embedded: true, taskId: 81, employeeNo: 'E001', draftChoice: 'use' })
-    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(SelfSummaryTask).exists()).toBe(false)
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=81&project_id=1&node=appeal&employee_no=E001&draft_choice=use&cycle_id=1')
     wrapper.unmount()
   })
 
@@ -170,9 +161,8 @@ describe('PerformanceReview', () => {
     push.mockClear()
     wrapper.getComponent(PerformanceReviewEvaluationDrawer).vm.$emit('edit', { task_id: 91, employee_no: 'E002', task_kind: 'result_reconsideration', node_id: 'appeal' })
     await flushPromises()
-    expect(wrapper.getComponent(SelfSummaryTask).props()).toMatchObject({ embedded: true, taskId: 91, employeeNo: 'E002' })
-    expect(wrapper.getComponent(PerformanceDialogShell).props('title')).toBe('结果复议处理环节')
-    expect(push).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(SelfSummaryTask).exists()).toBe(false)
+    expect(push).toHaveBeenCalledWith('/performance/review/template-task?task_id=91&project_id=1&node=appeal&employee_no=E002&cycle_id=1')
     wrapper.unmount()
   })
 

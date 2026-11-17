@@ -405,6 +405,21 @@
 - 当前证据：后端项目/effective_results/reconsideration_results/reconsideration_lifecycle四文件 **959 passed、5 skipped、1既有python_multipart弃用警告**；追加懒加载/隐藏与透传定向 **3 passed**。前端 `PerformanceReviewEvaluationDrawer.spec.ts` **57 passed**；两入口 `Review.spec.ts`、`ProjectManagement.spec.ts` 与共享抽屉合计 **3文件212 passed**；`npm --prefix hr-portal/frontend run build` 通过（built in 43.08s），仅既有VueUse PURE annotation提示；`git diff --check`通过。
 - UI验收：受控Chromium+隔离API夹具完成项目管理入口与我团队绩效入口，桌面截图分别为 `ui-blueprints/CR-010-F20-implemented-result-history.png`、`ui-blueprints/CR-010-F20-implemented-team-result-history.png`；开通人/北京时间提示、800px历史弹窗、来源环节、差异内容和无pageerror通过；390px实测弹窗x=16、width=358、document scrollWidth=390，无横向溢出。非真实业务数据库/生产API验收。
 - 状态：代码、定向测试、整树前端构建及受控UI证据完成；真实PostgreSQL、生产登录态、部署、commit/push未执行，不将F20标记为生产完成。
+- 排序增量（2026-11-17用户确认）：复议变更记录与上级评估统一为最新在上；先保留原升序历史末条的最近提交人/时间，再倒序返回展示数组，同时间按原查询事件ID倒序。共用弹窗继续按接口顺序渲染并默认展开首条，无前端/权限/数据来源/迁移变更。既有复议测试增加多条及同时间记录断言，验证最新提交提示和当前复议答案不变；后端复议结果与生命周期两文件 **110 passed**，前端共享抽屉 **57 passed**，1条既有python_multipart弃用警告。未重新执行构建/浏览器/生产验收，未commit/push。
+
+## 24. CR-010-F21 复议首次处理与侧栏再编辑统一工作区（2026-11-17）
+
+- 用户确认：复议已提交只读侧栏再次编辑，应与首次填写/其他环节使用相同的完整工作区，支持全屏/双屏，不保留禁用模式切换的嵌入式填写弹窗。覆盖绩效评估与项目管理入口。
+- [x] F21-T01 本地入口统一与回归
+  - 阅读：Spec002基线、CR-010-F07/F20、公共任务入口与SelfSummaryTask、Spec012 UI护栏/N00/N11；既有工作区接入修复，无新信息架构或蓝图，不涉及UCP/021。
+  - 允许修改：`Review.vue/.spec.ts`、`ProjectManagement.vue/.spec.ts`、`SelfSummaryTask.vue/.spec.js`及本节；禁止改后端数据规则/权限/迁移/生产记录。保留此前复议历史排序未提交改动，不把其回归计成本轮后端验证。
+  - 实现：移除Review的960px及ProjectManagement的1120px复议embedded弹窗/局部状态/提交回调；首次处理与再次编辑复用既有template-task完整路由、SelfSummaryTask、WriteModeSwitch、SplitWorkspace及模式记忆。真实edit_task_id/employee_no/node/draft_choice保持，跨页签编辑以目标节点而非原节点进入。
+  - 返回契约：复议入口保留cycle_id；管理入口传`return_entry=management`及`return_root_review_id`（仅导航上下文，不是授权依据）。正式提交成功先失效原详情缓存，再恢复同周期/项目/成员复议侧栏；管理rootReviewId仍为成员ID，评估rootReviewId仍为任务ID。取消沿原公共返回，提交失败留在编辑页；服务端权限/期限/版本校验与复议答案来源不变。
+  - Given首次未处理/已提交侧栏/其他节点参考页签的复议；When点击填写/编辑、选择使用草稿、提交；Then均进入公共完整工作区，目标任务/员工及草稿参数正确，无embedded弹窗，成功回正确侧栏；keep/change/失败/期限锁定及已有普通环节回归保留。
+  - 自动化：`npm --prefix hr-portal/frontend test -- --run src/views/performance/Review.spec.ts src/views/performance/ProjectManagement.spec.ts src/views/performance/SelfSummaryTask.spec.js src/components/performance/PerformanceReviewEvaluationDrawer.spec.ts` → **4文件326 passed**；沿用既有Vue stub/nodeName/jsdom XHR stderr，未称零告警。前端vue-tsc+Vite初次构建通过（38.97s），最终增补cycle参数后构建通过（37.65s），仅既有VueUse PURE annotation提示；git diff --check通过。
+  - 真实页面：本地Vite路由＋隔离Chromium/受控API，两个入口均从已提交侧栏点击编辑→完整工作区→双屏/全屏切换→提交→原入口复议侧栏；每入口正式submit仅1次、pageerror=0，payload仍为真实任务version与answers，无生产写入。
+  - 实现PNG：`ui-blueprints/CR-010-F21-review-split-edit.png`、`CR-010-F21-review-fullscreen-edit.png`、`CR-010-F21-management-split-edit.png`、`CR-010-F21-management-fullscreen-edit.png`；已读取评估双屏与管理全屏，显示原公共头部、模式选择、参考内容与复议表单/提交栏。不冒称真实业务库/生产验收。
+- 状态：本地代码/组件回归与受控UI完成；无需数据库迁移。真实业务数据库、生产部署、commit/push未执行；本节不代表前轮多处理人一致性问题已修复。
 
 ## 19. CR-010-F13 结果查看配置与运行架构一致性（2026-11-10）
 

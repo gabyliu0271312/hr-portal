@@ -69,9 +69,6 @@
       @transfer="openDrawerDelegation('TRANSFER', $event)"
       @delete="removeDrawerMember"
     />
-    <PerformanceDialogShell v-model="reconsiderationOpen" :title="reconsiderationTask?.node_name || '结果复议处理'" width="1120px">
-      <SelfSummaryTask v-if="reconsiderationOpen && reconsiderationTask && drawerMember" embedded task-kind="evaluation" :task-id="reconsiderationTask.task_id" :employee-no="reconsiderationTask.employee_no" :project-id="drawerMember.project_id" :cycle-id="activeCycleId || undefined" :draft-choice="reconsiderationTask.draft_choice" @submitted="reconsiderationSubmitted" @close="reconsiderationOpen = false" />
-    </PerformanceDialogShell>
     <PerformanceTaskDelegationDialog v-model="delegationOpen" :action="delegationAction" :tasks="delegationTasks" @completed="delegationCompleted" @refresh="projectContext.invalidate(); viewRefreshKey++" />
     <RevieweeAddDialog
       v-model="revieweeAddOpen"
@@ -105,8 +102,6 @@ import CompletionRatePanel from '@/components/performance/CompletionRatePanel.vu
 import AuthorizationManagementPanel from '@/components/performance/AuthorizationManagementPanel.vue'
 import FrontFocusGroupManagementDialog from '@/components/performance/focus-group/FrontFocusGroupManagementDialog.vue'
 import PerformanceTaskOverlay from '@/components/performance/PerformanceTaskOverlay.vue'
-import PerformanceDialogShell from '@/components/performance/PerformanceDialogShell.vue'
-import SelfSummaryTask from './SelfSummaryTask.vue'
 import PerformanceReminderPanel from '@/components/performance/PerformanceReminderPanel.vue'
 import PerformanceMemberReminderDialog from '@/components/performance/PerformanceMemberReminderDialog.vue'
 import { usePerformanceMemberReminder } from '@/composables/usePerformanceMemberReminder'
@@ -181,24 +176,8 @@ async function closeMember() {
   await router.replace({ query })
 }
 function finishClosingMember() { if (!drawerOpen.value) drawerMember.value = null }
-const reconsiderationOpen = ref(false)
-const reconsiderationTask = ref<{ task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; draft_choice?: 'use' | 'discard' } | null>(null)
-watch(() => [activeCycleId.value, drawerMember.value?.project_id, drawerMember.value?.employee_no], () => { reconsiderationOpen.value = false; reconsiderationTask.value = null })
-async function reconsiderationSubmitted() {
-  reconsiderationOpen.value = false
-  projectContext.invalidateDrawerDetails()
-  viewRefreshKey.value++
-  const member = drawerMember.value
-  if (member) drawerMember.value = { ...member }
-  await loadOverview(activeCycleId.value ?? undefined)
-}
 async function fillFromDrawer(payload: { task_id: string | number; employee_no: string; node_id?: string; node_name?: string; task_kind?: string; draft_choice?: 'use' | 'discard' }) {
   const member = drawerMember.value
-  if (payload.task_kind === 'result_reconsideration' && member) {
-    reconsiderationTask.value = payload
-    reconsiderationOpen.value = true
-    return
-  }
   const projectId = member?.project_id ?? Number(route.query.member_project_id)
   if (!member || !Number.isFinite(projectId) || projectId <= 0) return
   const path = '/performance/review/template-task'
@@ -207,6 +186,12 @@ async function fillFromDrawer(payload: { task_id: string | number; employee_no: 
     project_id: String(projectId),
     node: payload.node_id || '',
     employee_no: payload.employee_no,
+    ...(payload.draft_choice ? { draft_choice: payload.draft_choice } : {}),
+    ...(payload.task_kind === 'result_reconsideration' ? {
+      return_entry: 'management',
+      return_root_review_id: String(member.root_review_id || ''),
+      ...(activeCycleId.value ? { cycle_id: String(activeCycleId.value) } : {}),
+    } : {}),
   }
   projectContext.invalidateDrawerDetails()
   drawerOpen.value = false

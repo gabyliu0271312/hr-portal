@@ -582,9 +582,14 @@ async def test_detail_uses_actual_submitter_history_and_only_own_edit_task(decis
     member = SimpleNamespace(snapshot_id=11, employee_no="E001")
     options = [SimpleNamespace(task_id=task.id, role_key="REAL_LINE_MANAGER", role_label="直属上级") for task in [data.task, data.other]]
     people = {no: SimpleNamespace(display_name=name) for no, name in [("H1", "协作一"), ("H2", "协作二"), ("ACTUAL", "真实提交者")]}
-    event = PerformanceAuditEvent(id=1, event_at=data.appeal.closed_at, actor_type="EMPLOYEE", actor_ref="ACTUAL",
+    from datetime import timedelta
+    older = PerformanceAuditEvent(id=1, event_at=data.appeal.closed_at - timedelta(hours=1), actor_type="EMPLOYEE", actor_ref="H1",
+        before_state={"answers": {"rating-1": "B"}}, after_state={"answers": {"rating-1": "A"}})
+    same_time = PerformanceAuditEvent(id=2, event_at=data.appeal.closed_at, actor_type="EMPLOYEE", actor_ref="H2",
+        before_state={"answers": {"rating-1": "A"}}, after_state={"answers": {"rating-1": "A"}})
+    event = PerformanceAuditEvent(id=3, event_at=data.appeal.closed_at, actor_type="EMPLOYEE", actor_ref="ACTUAL",
         before_state={"answers": {"rating-1": "A"}}, after_state={"answers": data.task.answers})
-    data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [event])))
+    data.db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [older, same_time, event])))
     monkeypatch.setattr(data.router, "_member_task_options", AsyncMock(return_value=options))
     monkeypatch.setattr(data.router, "_delegation_snapshot_people", AsyncMock(return_value=people))
     monkeypatch.setattr(data.router, "_task_handlers", AsyncMock(side_effect=lambda db, task: {task.handler_ref}))
@@ -595,6 +600,8 @@ async def test_detail_uses_actual_submitter_history_and_only_own_edit_task(decis
     assert detail["status"] == "submitted_editable"
     assert detail["can_edit"] is allowed and detail["edit_task_id"] == expected_task
     assert detail["submitted_by"] == "真实提交者"
+    assert detail["submitted_at"] == data.appeal.closed_at.isoformat()
+    assert [item["display_name"] for item in detail["history"]] == ["真实提交者", "协作二", "协作一"]
     assert detail["history"][0]["display_name"] == "真实提交者"
     assert detail["history"][0]["adjustments"][0]["after"] == "B"
     assert all(handler["role_label"] == "直属上级" for handler in detail["handlers"])
