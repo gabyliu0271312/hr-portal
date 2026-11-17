@@ -143,6 +143,19 @@ export const standardFieldsApi = {
   peopleFields() {
     return api.get<PeopleFieldsResponse>('/warehouse/standard-fields/people-fields').then(r => r.data)
   },
+  /** 表单列配置（字段与表单分离）：读/加/删/排序表单绑定字段 */
+  formFields(formKey: string) {
+    return api.get<PeopleFieldsResponse>(`/warehouse/standard-fields/forms/${formKey}/fields`).then(r => r.data)
+  },
+  addFormField(formKey: string, fieldId: number) {
+    return api.post(`/warehouse/standard-fields/forms/${formKey}/fields/${fieldId}`).then(r => r.data)
+  },
+  removeFormField(formKey: string, fieldId: number) {
+    return api.delete(`/warehouse/standard-fields/forms/${formKey}/fields/${fieldId}`)
+  },
+  reorderFormFields(formKey: string, orderedIds: number[]) {
+    return api.put<{ ok: boolean }>(`/warehouse/standard-fields/forms/${formKey}/order`, { ordered_ids: orderedIds }).then(r => r.data)
+  },
   groups() {
     return api.get<FieldGroupListResponse>('/warehouse/standard-fields/groups').then(r => r.data)
   },

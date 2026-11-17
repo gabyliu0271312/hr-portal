@@ -301,6 +301,22 @@ class StandardField(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class FormFieldBinding(Base):
+    """表单列配置：表单（form_key）引用标准字段，加/删表单列不影响标准字段本身。"""
+    __tablename__ = "form_field_bindings"
+    __table_args__ = (
+        UniqueConstraint("form_key", "standard_field_id", name="uq_form_field_binding"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    form_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    standard_field_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("standard_fields.id", ondelete="RESTRICT"), nullable=False
+    )
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class StandardFieldCategory(Base):
     __tablename__ = "standard_field_categories"
 

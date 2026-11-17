@@ -228,6 +228,7 @@ MENU_TREE: list[dict] = [
                             {"code": "system.master_entities", "label": "主数据定义", "icon": "Collection"},
                             {"code": "warehouse.standard_fields.catalog", "label": "标准字段目录", "icon": "List"},
                             {"code": "system.field_categories", "label": "字段分类", "icon": "Stamp"},
+                            {"code": "people.admin.form_config", "label": "表单配置", "icon": "Document"},
                         ],
                     },
                 ],

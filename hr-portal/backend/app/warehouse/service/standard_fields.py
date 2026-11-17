@@ -9,7 +9,7 @@ from app.core.deps import user_has_op
 from app.master_data.access import ENTITY_MENU, require_entity
 from app.master_data.models import EntityDefinition
 from app.data.column_roles import is_technical_column
-from app.data.models import FieldGroup, StandardField, StandardFieldBinding, StandardFieldCategory
+from app.data.models import FieldGroup, FormFieldBinding, StandardField, StandardFieldBinding, StandardFieldCategory
 from app.field_category.models import FieldCategory
 from app.system.models import SystemLog
 from app.warehouse.schemas import (
@@ -583,14 +583,44 @@ async def list_field_groups(db, *, user=None):
     return FieldGroupListOut(items=[_group_out(group, counts) for group in groups], total=len(groups))
 
 
+async def _resolve_form_field_ids(db, form_key: str) -> list[int]:
+    """按 form_key 读表单绑定的标准字段 ID 列表（按 display_order）。"""
+    rows = (await db.execute(
+        select(FormFieldBinding.standard_field_id)
+        .where(FormFieldBinding.form_key == form_key)
+        .order_by(FormFieldBinding.display_order, FormFieldBinding.id)
+    )).all()
+    return [r[0] for r in rows]
+
+
+async def list_form_fields(db, form_key: str, *, user=None) -> list[StandardField]:
+    """读指定表单（form_key）绑定的标准字段（有效字段，按绑定顺序）。
+
+    表单列由 form_field_bindings 决定，与标准字段归属/分组独立；
+    加/删表单列不影响标准字段本身。
+    """
+    field_ids = await _resolve_form_field_ids(db, form_key)
+    if not field_ids:
+        return []
+    fields = (await db.execute(
+        select(StandardField).where(
+            StandardField.id.in_(field_ids),
+            StandardField.is_active.is_(True),
+        )
+    )).scalars().all()
+    by_id = {f.id: f for f in fields}
+    # 按绑定顺序返回（丢弃已停用字段）
+    return [by_id[fid] for fid in field_ids if fid in by_id]
+
+
 async def list_people_fields(db, *, user=None):
-    """人员信息页只读字段清单：所有有效标准字段（含已归属实体），按分组顺序。
+    """人员信息页只读字段清单：form_field_bindings 中 form_key=people_roster 绑定的字段。
 
     面向普通人员页用户，不需要 warehouse.standard_fields.catalog 权限；
     只返回展示所需元数据，不返回敏感分类/枚举明细，避免配置细节泄露。
+    取值来源由数据连接（UCP 同步）配置，未配置时空态展示。
     """
-    stmt = select(StandardField).where(StandardField.is_active.is_(True))
-    fields = (await db.execute(stmt.order_by(StandardField.display_order, StandardField.id))).scalars().all()
+    fields = await list_form_fields(db, "people_roster", user=user)
     entity_ids = {field.entity_id for field in fields if getattr(field, "entity_id", None) is not None}
     entity_names = {}
     if entity_ids:
@@ -633,3 +663,64 @@ async def update_field_group(db, group_id, payload, user):
         group.is_active = payload.is_active
         await db.flush()
         return _group_out(group, await _field_group_counts(db))
+
+
+async def list_form_bindings(db, form_key: str, *, user=None) -> list[StandardField]:
+    """表单列配置管理：读 form_key 当前绑定的字段（含停用，供管理展示）。"""
+    rows = (await db.execute(
+        select(FormFieldBinding, StandardField)
+        .join(StandardField, StandardField.id == FormFieldBinding.standard_field_id)
+        .where(FormFieldBinding.form_key == form_key)
+        .order_by(FormFieldBinding.display_order, FormFieldBinding.id)
+    )).all()
+    return [field for _, field in rows]
+
+
+async def add_form_field(db, form_key: str, field_id: int, *, user) -> None:
+    """向表单添加一个标准字段（表单列 ≠ 标准字段本身）。"""
+    async with _transaction(db):
+        field = await db.scalar(select(StandardField).where(StandardField.id == field_id))
+        if field is None:
+            _error(404, "standard_field_not_found", "标准字段不存在")
+        if not field.is_active:
+            _error(409, "standard_field_inactive", "停用字段不能添加到表单")
+        exists = await db.scalar(select(FormFieldBinding.id).where(
+            FormFieldBinding.form_key == form_key, FormFieldBinding.standard_field_id == field_id))
+        if exists:
+            _error(409, "form_field_already_bound", "该字段已在表单中")
+        max_order = (await db.execute(
+            select(func.coalesce(func.max(FormFieldBinding.display_order), 0))
+            .where(FormFieldBinding.form_key == form_key))).scalar_one()
+        db.add(FormFieldBinding(form_key=form_key, standard_field_id=field_id, display_order=max_order + 10))
+        await db.flush()
+        _audit(db, "form_field_added", field, user, reason_supplied=True)
+
+
+async def remove_form_field(db, form_key: str, field_id: int, *, user) -> None:
+    """从表单移除一个字段（不删除标准字段本身）。"""
+    async with _transaction(db):
+        binding = await db.scalar(select(FormFieldBinding).where(
+            FormFieldBinding.form_key == form_key, FormFieldBinding.standard_field_id == field_id))
+        if binding is None:
+            _error(404, "form_field_not_bound", "该字段不在表单中")
+        await db.delete(binding)
+        await db.flush()
+        field = await db.get(StandardField, field_id)
+        if field:
+            _audit(db, "form_field_removed", field, user, reason_supplied=True)
+
+
+async def reorder_form_fields(db, form_key: str, ordered_ids: list[int], *, user) -> dict:
+    """表单字段排序：按传入顺序重写 display_order。"""
+    async with _transaction(db):
+        bindings = (await db.execute(
+            select(FormFieldBinding).where(FormFieldBinding.form_key == form_key)
+        )).scalars().all()
+        by_field = {b.standard_field_id: b for b in bindings}
+        for order, field_id in enumerate(ordered_ids):
+            binding = by_field.get(field_id)
+            if binding is not None:
+                binding.display_order = order * 10
+        await db.flush()
+        _audit(db, "form_fields_reordered", None, user, reason_supplied=True)
+        return {"ok": True}

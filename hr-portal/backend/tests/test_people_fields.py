@@ -63,7 +63,8 @@ class _RowsResult:
 class _FakeDb:
     """足够 list_people_fields 使用的 fake AsyncSession。
 
-    按调用顺序分发：第 1 次 execute → fields，第 2 次 → entity_names，之后 → group_map。
+    list_form_fields 已被 mock，list_people_fields 内部只剩两次查询：
+    第 1 次 execute → entity_names，之后 → group_map。
     """
 
     def __init__(self, fields, entity_rows, group_rows):
@@ -78,8 +79,6 @@ class _FakeDb:
     async def execute(self, stmt):
         self._call += 1
         if self._call == 1:
-            return _ScalarsResult(self.fields)
-        if self._call == 2:
             return _RowsResult(self.entity_rows)
         return _RowsResult(self.group_rows)
 
@@ -89,7 +88,7 @@ class _FakeDb:
 
 @pytest_asyncio.fixture
 def fields():
-    # SQL 层已按 is_active=True 过滤；这里只放有效字段，停用字段不会出现在查询结果中
+    # list_people_fields 通过 form_field_bindings(people_roster) 取字段
     return [
         _field(1, "employee_no", "工号", entity_id=1, group_id=1),
         _field(2, "chinese_name", "姓名", entity_id=1, group_id=1),
@@ -114,7 +113,10 @@ def entity_rows():
 
 
 @pytest.mark.asyncio
-async def test_list_people_fields_returns_active_fields_with_group_and_entity(fields, group_rows, entity_rows):
+async def test_list_people_fields_returns_active_fields_with_group_and_entity(fields, group_rows, entity_rows, monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.warehouse.service import standard_fields as svc
+    monkeypatch.setattr(svc, "list_form_fields", AsyncMock(return_value=fields))
     db = _FakeDb(fields, entity_rows, group_rows)
     result = await list_people_fields(db, user=None)
     # 停用字段被过滤
@@ -134,13 +136,16 @@ async def test_list_people_fields_returns_active_fields_with_group_and_entity(fi
 async def test_list_people_fields_filters_inactive_in_sql():
     """SQL 层必须过滤停用字段——人员页只展示有效字段，避免停用字段占列。"""
     import inspect
-    from app.warehouse.service.standard_fields import list_people_fields as fn
+    from app.warehouse.service.standard_fields import list_form_fields as fn
     source = inspect.getsource(fn)
     assert "StandardField.is_active.is_(True)" in source
 
 
 @pytest.mark.asyncio
-async def test_list_people_fields_handles_empty_catalog():
+async def test_list_people_fields_handles_empty_catalog(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.warehouse.service import standard_fields as svc
+    monkeypatch.setattr(svc, "list_form_fields", AsyncMock(return_value=[]))
     db = _FakeDb([], [], [])
     result = await list_people_fields(db, user=None)
     assert result.total == 0

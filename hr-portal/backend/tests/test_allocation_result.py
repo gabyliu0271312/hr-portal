@@ -1,56 +1,14 @@
 """分摊结果页：字段清单 + 行查询（人员 D/脱敏/成本中心树校验）。"""
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.allocation_result.router import _resolve_group_id, list_allocation_fields
+from app.allocation_result.router import list_allocation_fields
 from app.allocation_result.service import MASK, _build_item
 
 
 # ─── 字段清单 ────────────────────────────────────────────────────────────────
-
-
-class _ScalarsResult:
-    def __init__(self, items):
-        self._items = items
-
-    def scalars(self):
-        return _ScalarSeq(self._items)
-
-    def all(self):
-        return self._items
-
-
-class _ScalarSeq:
-    def __init__(self, items):
-        self._items = items
-
-    def all(self):
-        return self._items
-
-
-class _FirstResult:
-    def __init__(self, value):
-        self._value = value
-
-    def first(self):
-        return self._value
-
-
-class _FakeDb:
-    """fields 端点用：第 1 次 execute → group_id，第 2 次 → fields。"""
-
-    def __init__(self, group_id, fields):
-        self.group_id = group_id
-        self.fields = fields
-        self._call = 0
-
-    async def execute(self, stmt):
-        self._call += 1
-        if self._call == 1:
-            return _FirstResult((self.group_id,) if self.group_id is not None else None)
-        return _ScalarsResult(self.fields)
 
 
 def _field(id, code, name, data_type="string", order=0, active=True):
@@ -65,30 +23,31 @@ def _field(id, code, name, data_type="string", order=0, active=True):
 
 
 @pytest.mark.asyncio
-async def test_list_allocation_fields_returns_group_fields_in_order():
-    db = _FakeDb(7, [
+async def test_list_allocation_fields_returns_form_bound_fields_in_order():
+    fields = [
         _field(1, "cost_period", "月份", order=0),
         _field(2, "employee_no", "工号", order=10),
         _field(3, "full_name", "姓名", order=20),
         _field(4, "allocation_percentage", "分摊比例", order=30),
-    ])
-    result = await list_allocation_fields(user=None, db=db)
+    ]
+    with patch(
+        "app.warehouse.service.standard_fields.list_form_fields",
+        new=AsyncMock(return_value=fields),
+    ):
+        result = await list_allocation_fields(user=None, db=MagicMock())
     assert result.total == 4
     assert [f.field_code for f in result.items] == ["cost_period", "employee_no", "full_name", "allocation_percentage"]
 
 
 @pytest.mark.asyncio
-async def test_list_allocation_fields_empty_when_group_missing():
-    db = _FakeDb(None, [])
-    result = await list_allocation_fields(user=None, db=db)
+async def test_list_allocation_fields_empty_when_no_bindings():
+    with patch(
+        "app.warehouse.service.standard_fields.list_form_fields",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await list_allocation_fields(user=None, db=MagicMock())
     assert result.total == 0
     assert result.items == []
-
-
-@pytest.mark.asyncio
-async def test_resolve_group_id_none_when_not_found():
-    db = _FakeDb(None, [])
-    assert await _resolve_group_id(db) is None
 
 
 # ─── 单行组装（纯函数） ───────────────────────────────────────────────────────

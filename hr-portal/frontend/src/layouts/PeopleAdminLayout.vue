@@ -43,12 +43,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Collection, List, Stamp } from '@element-plus/icons-vue'
+import { Collection, Document, List, Stamp } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import AppBrand from '@/components/app-switcher/AppBrand.vue'
 
 interface PeopleAdminMenuItem {
-  key: 'master-data' | 'field-settings' | 'field-categories'
+  key: 'master-data' | 'field-settings' | 'field-categories' | 'form-config'
   label: string
   path: string
   icon: unknown
@@ -63,6 +63,7 @@ const menuItems: PeopleAdminMenuItem[] = [
   { key: 'master-data', label: '主数据定义', path: '/people/settings/master-data', icon: Collection },
   { key: 'field-settings', label: '字段设置', path: '/people/settings/field-settings', icon: List },
   { key: 'field-categories', label: '字段分类', path: '/people/settings/field-categories', icon: Stamp },
+  { key: 'form-config', label: '表单配置', path: '/people/settings/form-config', icon: Document },
 ]
 
 function isActive(path: string) {

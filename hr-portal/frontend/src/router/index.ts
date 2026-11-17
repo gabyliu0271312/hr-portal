@@ -845,6 +845,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/system/FieldCategory.vue'),
         meta: { label: '字段分类', menuCode: 'system.field_categories' },
       },
+      {
+        path: 'form-config',
+        name: 'PeopleAdminFormConfig',
+        component: () => import('@/views/warehouse/FormConfig.vue'),
+        meta: { label: '表单配置', menuCode: 'people.admin.form_config' },
+      },
     ],
   },
   {

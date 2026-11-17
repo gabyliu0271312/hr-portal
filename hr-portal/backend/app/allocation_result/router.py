@@ -68,21 +68,14 @@ async def list_allocation_fields(
     user: User = Depends(require_op(MENU_CODE, "V")),
     db: AsyncSession = Depends(get_session),
 ):
-    """分摊结果页只读字段清单：标准字段目录中「分摊结果」分组的字段，按显示顺序。
+    """分摊结果页只读字段清单：form_field_bindings 中 form_key=allocation_result 绑定的字段。
 
-    仅返回展示所需元数据（编码/名称/类型/顺序），不含敏感分类与枚举明细。
-    未配置分组或字段时返回空清单，前端显示空态。
+    表单列由表单绑定决定，与标准字段归属/分组独立；
+    取值来源由数据连接（UCP 同步）配置，未配置时前端显示空态。
     """
-    group_id = await _resolve_group_id(db)
-    if group_id is None:
-        return AllocationFieldsOut(items=[], total=0)
+    from app.warehouse.service.standard_fields import list_form_fields
 
-    stmt = (
-        select(StandardField)
-        .where(StandardField.group_id == group_id, StandardField.is_active.is_(True))
-        .order_by(StandardField.display_order, StandardField.id)
-    )
-    fields = (await db.execute(stmt)).scalars().all()
+    fields = await list_form_fields(db, "allocation_result", user=user)
     return AllocationFieldsOut(
         total=len(fields),
         items=[

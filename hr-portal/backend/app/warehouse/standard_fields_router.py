@@ -77,8 +77,63 @@ async def list_people_fields(
 
     面向创梦人力人员信息页的普通查看者（people.app 入口权限），无需后台字段目录权限；
     只返回展示所需元数据（编码/名称/类型/分组/归属实体），不含敏感分类与枚举明细。
+    字段来自 form_field_bindings 中 form_key=people_roster 的绑定。
     """
     return await service.list_people_fields(db, user=user)
+
+
+# ─── 表单列配置（字段与表单分离） ──────────────────────────────────────────────
+
+
+@router.get("/forms/{form_key}/fields", response_model=PeopleFieldsOut)
+async def list_form_fields(
+    form_key: str,
+    user: User = Depends(require_op(CATALOG_MENU, "V")),
+    db: AsyncSession = Depends(get_session),
+):
+    """读表单（form_key）当前绑定的字段清单（含停用，供管理展示）。"""
+    fields = await service.list_form_bindings(db, form_key, user=user)
+    return PeopleFieldsOut(total=len(fields), items=[PeopleFieldOut(
+        id=f.id, field_code=f.field_code, field_name=f.display_name, data_type=f.data_type,
+        entity_id=getattr(f, "entity_id", None), entity_name=None,
+        group_id=getattr(f, "group_id", None), group_name=None,
+        display_order=f.display_order, is_active=f.is_active,
+    ) for f in fields])
+
+
+@router.post("/forms/{form_key}/fields/{field_id}", status_code=201)
+async def add_form_field(
+    form_key: str,
+    field_id: int = Path(..., gt=0),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    """向表单添加一个标准字段（表单列 ≠ 标准字段本身）。"""
+    await service.add_form_field(db, form_key, field_id, user=user)
+    return {"ok": True}
+
+
+@router.delete("/forms/{form_key}/fields/{field_id}", status_code=204)
+async def remove_form_field(
+    form_key: str,
+    field_id: int = Path(..., gt=0),
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    """从表单移除一个字段（不删除标准字段本身）。"""
+    await service.remove_form_field(db, form_key, field_id, user=user)
+    return Response(status_code=204)
+
+
+@router.put("/forms/{form_key}/order", response_model=dict)
+async def reorder_form_fields(
+    form_key: str,
+    payload: StandardFieldReorderIn,
+    user: User = Depends(require_op(CATALOG_MENU, "U")),
+    db: AsyncSession = Depends(get_session),
+):
+    """表单字段排序：按全量有序字段 ID 重排 display_order。"""
+    return await service.reorder_form_fields(db, form_key, payload.ordered_ids, user)
 
 
 @router.put("/order", response_model=dict)
